@@ -209,8 +209,28 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
+        // Phase 1: Load cached inspector data for near-instant startup.
+        // This populates template_libraries from disk cache so completions
+        // and diagnostics work immediately while the real inspector runs.
+        let cache_loaded = self
+            .with_session_mut(|session| {
+                let t = std::time::Instant::now();
+                let loaded = session.db_mut().load_inspector_cache();
+                if loaded {
+                    tracing::info!("Inspector cache loaded in {:?}", t.elapsed());
+                } else {
+                    tracing::info!("No inspector cache available, will query inspector");
+                }
+                loaded
+            })
+            .await;
+
+        // Phase 2: Run the real inspector query and filesystem discovery in
+        // the background. This validates/refreshes the cached data.
         let rx = self
             .with_session_mut_task(|session| async move {
+                let start = std::time::Instant::now();
+
                 let (interpreter, root, pythonpath) = {
                     let session_lock = session.lock().await;
                     let db = session_lock.db();
@@ -227,18 +247,36 @@ impl LanguageServer for DjangoLanguageServer {
                     )
                 };
 
+                // Run inspector query and filesystem discovery in parallel.
+                // The inspector spawns a Python subprocess to query Django for
+                // template libraries, while discovery walks sys_path to find
+                // templatetags modules. Neither depends on the other's output.
+                let discovery_interpreter = interpreter.clone();
+                let discovery_root = root.clone();
+                let discovery_pythonpath = pythonpath.clone();
+
+                let discovery_handle = tokio::task::spawn_blocking(move || {
+                    let t = std::time::Instant::now();
+                    let search_paths = djls_project::build_search_paths(
+                        &discovery_interpreter,
+                        &discovery_root,
+                        &discovery_pythonpath,
+                    );
+                    let result = djls_project::discover_template_libraries(&search_paths);
+                    tracing::info!("Library discovery completed in {:?}", t.elapsed());
+                    result
+                });
+
                 {
+                    let t = std::time::Instant::now();
                     let mut session_lock = session.lock().await;
                     session_lock.db_mut().refresh_inspector();
+                    tracing::info!("Inspector refresh completed in {:?}", t.elapsed());
                 }
 
-                let env_inventory = tokio::task::spawn_blocking(move || {
-                    let search_paths =
-                        djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                    djls_project::discover_template_libraries(&search_paths)
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+                let env_inventory = discovery_handle
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
 
                 {
                     let mut session_lock = session.lock().await;
@@ -256,14 +294,17 @@ impl LanguageServer for DjangoLanguageServer {
                     }
                 }
 
+                tracing::info!("Server initialization completed in {:?}", start.elapsed());
                 Ok(())
             })
             .await;
 
-        // Wait for environment initialization to complete before potentially
-        // publishing diagnostics (though initialized itself doesn't publish,
-        // it ensures subsequent requests see the fully initialized state).
-        let _ = rx.await;
+        // If we loaded from cache, the server is already functional — requests
+        // arriving during the background refresh will use cached data. If no
+        // cache was available, we wait for the full initialization like before.
+        if !cache_loaded {
+            let _ = rx.await;
+        }
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -522,6 +563,8 @@ impl LanguageServer for DjangoLanguageServer {
         if settings_update.env_changed {
             let rx = self
                 .with_session_mut_task(|session| async move {
+                    let start = std::time::Instant::now();
+
                     let (interpreter, root, pythonpath) = {
                         let session_lock = session.lock().await;
                         let db = session_lock.db();
@@ -537,18 +580,33 @@ impl LanguageServer for DjangoLanguageServer {
                         )
                     };
 
+                    // Run inspector refresh and filesystem discovery in parallel
+                    let discovery_interpreter = interpreter.clone();
+                    let discovery_root = root.clone();
+                    let discovery_pythonpath = pythonpath.clone();
+
+                    let discovery_handle = tokio::task::spawn_blocking(move || {
+                        let t = std::time::Instant::now();
+                        let search_paths = djls_project::build_search_paths(
+                            &discovery_interpreter,
+                            &discovery_root,
+                            &discovery_pythonpath,
+                        );
+                        let result = djls_project::discover_template_libraries(&search_paths);
+                        tracing::info!("Library discovery completed in {:?}", t.elapsed());
+                        result
+                    });
+
                     {
+                        let t = std::time::Instant::now();
                         let mut session_lock = session.lock().await;
                         session_lock.db_mut().refresh_inspector();
+                        tracing::info!("Inspector refresh completed in {:?}", t.elapsed());
                     }
 
-                    let env_inventory = tokio::task::spawn_blocking(move || {
-                        let search_paths =
-                            djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                        djls_project::discover_template_libraries(&search_paths)
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+                    let env_inventory = discovery_handle
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
 
                     {
                         let mut session_lock = session.lock().await;
@@ -561,6 +619,7 @@ impl LanguageServer for DjangoLanguageServer {
                         }
                     }
 
+                    tracing::info!("Environment refresh completed in {:?}", start.elapsed());
                     Ok(())
                 })
                 .await;

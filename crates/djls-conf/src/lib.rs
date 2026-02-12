@@ -29,7 +29,8 @@ pub use crate::tagspecs::TagLibraryDef;
 pub use crate::tagspecs::TagSpecDef;
 pub use crate::tagspecs::TagTypeDef;
 
-pub(crate) fn project_dirs() -> Option<ProjectDirs> {
+#[must_use]
+pub fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "djls")
 }
 
