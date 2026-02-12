@@ -8,7 +8,7 @@ updates:
     cooldown:
       default-days: 7
     labels:
-      - 🤖 dependabot
+      - dependabot 🤖
     groups:
       cargo:
         patterns:
@@ -21,7 +21,7 @@ updates:
     cooldown:
       default-days: 7
     labels:
-      - 🤖 dependabot
+      - dependabot 🤖
     groups:
       gha:
         patterns:
@@ -34,7 +34,7 @@ updates:
     cooldown:
       default-days: 7
     labels:
-      - 🤖 dependabot
+      - dependabot 🤖
     groups:
       uv:
         patterns:
