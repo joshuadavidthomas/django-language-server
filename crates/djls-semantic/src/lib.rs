@@ -31,6 +31,7 @@ pub use scoping::LoadStatement;
 pub use scoping::LoadedLibraries;
 pub use scoping::TagAvailability;
 pub use specs::filters::FilterAritySpecs;
+pub use specs::tags::builtin_tag_specs;
 pub use specs::tags::CompletionArg;
 pub use specs::tags::CompletionArgKind;
 pub use specs::tags::EndTag;

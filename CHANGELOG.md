@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Fixed
 
 - Fixed `djls check` with no arguments silently reading stdin instead of discovering template files. Stdin is now triggered explicitly by passing `-` as a path.
+- Fixed structural validation (unclosed tags, unbalanced blocks) being silently skipped when no Python inspector data was available. `builtin_tag_specs()` now provides Django's standard tag definitions as a fallback.
 
 ## [6.0.1]
 
