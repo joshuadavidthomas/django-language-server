@@ -1,8 +1,7 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 use crate::scoping::loads::LoadState;
 use crate::scoping::LoadedLibraries;
@@ -44,26 +43,29 @@ pub enum FilterAvailability {
 ///
 /// Constructed from `LoadedLibraries`, installed template libraries, and a byte
 /// position in the template.
+///
+/// Borrows string data from the `TemplateLibraries` that produced it, avoiding
+/// per-symbol heap allocations.
 #[derive(Clone, Debug)]
-pub struct AvailableSymbols {
+pub struct AvailableSymbols<'a> {
     /// Tag names that are available at this position (builtins + loaded library tags).
-    available: BTreeSet<String>,
+    available: FxHashSet<&'a str>,
     /// Tag names → set of candidate libraries. Only populated for tags NOT in `available`.
-    candidates: BTreeMap<String, BTreeSet<String>>,
+    candidates: FxHashMap<&'a str, Vec<&'a str>>,
     /// Filter names that are available at this position (builtins + loaded library filters).
-    available_filters: BTreeSet<String>,
+    available_filters: FxHashSet<&'a str>,
     /// Filter names → set of candidate libraries. Only populated for filters NOT in `available_filters`.
-    filter_candidates: BTreeMap<String, BTreeSet<String>>,
+    filter_candidates: FxHashMap<&'a str, Vec<&'a str>>,
     /// The load state at this position, retained for library availability queries.
     load_state: LoadState,
 }
 
-impl AvailableSymbols {
+impl<'a> AvailableSymbols<'a> {
     /// Build available symbols for a given position using load state and template libraries.
     #[must_use]
     pub fn at_position(
         loaded_libraries: &LoadedLibraries,
-        template_libraries: &TemplateLibraries,
+        template_libraries: &'a TemplateLibraries,
         position: u32,
     ) -> Self {
         let load_state = loaded_libraries.available_at(position);
@@ -72,22 +74,25 @@ impl AvailableSymbols {
 
     /// Build available symbols from a pre-computed `LoadState` and template libraries.
     #[must_use]
-    pub fn from_load_state(load_state: &LoadState, template_libraries: &TemplateLibraries) -> Self {
-        let mut available = BTreeSet::new();
-        let mut candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    pub fn from_load_state(
+        load_state: &LoadState,
+        template_libraries: &'a TemplateLibraries,
+    ) -> Self {
+        let mut available = FxHashSet::default();
+        let mut candidates: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
 
-        let mut available_filters = BTreeSet::new();
-        let mut filter_candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut available_filters = FxHashSet::default();
+        let mut filter_candidates: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
 
         // Builtins are always available.
         for library in template_libraries.builtin_libraries() {
             for symbol in &library.symbols {
                 match symbol.kind {
                     TemplateSymbolKind::Tag => {
-                        available.insert(symbol.name.as_str().to_string());
+                        available.insert(symbol.name.as_str());
                     }
                     TemplateSymbolKind::Filter => {
-                        available_filters.insert(symbol.name.as_str().to_string());
+                        available_filters.insert(symbol.name.as_str());
                     }
                 }
             }
@@ -102,19 +107,16 @@ impl AvailableSymbols {
                     TemplateSymbolKind::Tag => {
                         let symbol_name = symbol.name.as_str();
                         if !available.contains(symbol_name) {
-                            candidates
-                                .entry(symbol_name.to_string())
-                                .or_default()
-                                .insert(load_name.to_string());
+                            candidates.entry(symbol_name).or_default().push(load_name);
                         }
                     }
                     TemplateSymbolKind::Filter => {
                         let symbol_name = symbol.name.as_str();
                         if !available_filters.contains(symbol_name) {
                             filter_candidates
-                                .entry(symbol_name.to_string())
+                                .entry(symbol_name)
                                 .or_default()
-                                .insert(load_name.to_string());
+                                .push(load_name);
                         }
                     }
                 }
@@ -122,33 +124,39 @@ impl AvailableSymbols {
         }
 
         // Move loaded library tags from candidates → available.
-        let loaded_names: Vec<String> = candidates.keys().cloned().collect();
-        for tag_name in loaded_names {
-            let Some(libs) = candidates.get(&tag_name) else {
-                continue;
-            };
+        candidates.retain(|tag_name, libs| {
             let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, &tag_name)
+                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, tag_name)
             });
             if is_available {
-                available.insert(tag_name.clone());
-                candidates.remove(&tag_name);
+                available.insert(tag_name);
+                false
+            } else {
+                true
             }
-        }
+        });
 
         // Move loaded library filters from filter_candidates → available_filters.
-        let loaded_filter_names: Vec<String> = filter_candidates.keys().cloned().collect();
-        for filter_name in loaded_filter_names {
-            let Some(libs) = filter_candidates.get(&filter_name) else {
-                continue;
-            };
+        filter_candidates.retain(|filter_name, libs| {
             let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, &filter_name)
+                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, filter_name)
             });
             if is_available {
-                available_filters.insert(filter_name.clone());
-                filter_candidates.remove(&filter_name);
+                available_filters.insert(filter_name);
+                false
+            } else {
+                true
             }
+        });
+
+        // Dedup and sort candidate library lists for deterministic output.
+        for libs in candidates.values_mut() {
+            libs.sort_unstable();
+            libs.dedup();
+        }
+        for libs in filter_candidates.values_mut() {
+            libs.sort_unstable();
+            libs.dedup();
         }
 
         Self {
@@ -168,14 +176,14 @@ impl AvailableSymbols {
         }
 
         if let Some(libs) = self.candidates.get(tag_name) {
-            // BTreeSet iterates in sorted order, so no explicit sort needed
-            let libs: Vec<String> = libs.iter().cloned().collect();
             return match libs.as_slice() {
                 [] => TagAvailability::Unknown,
                 [single] => TagAvailability::Unloaded {
-                    library: single.clone(),
+                    library: (*single).to_string(),
                 },
-                _ => TagAvailability::AmbiguousUnloaded { libraries: libs },
+                _ => TagAvailability::AmbiguousUnloaded {
+                    libraries: libs.iter().map(|s| (*s).to_string()).collect(),
+                },
             };
         }
 
@@ -190,14 +198,14 @@ impl AvailableSymbols {
         }
 
         if let Some(libs) = self.filter_candidates.get(filter_name) {
-            // BTreeSet iterates in sorted order, so no explicit sort needed
-            let libs: Vec<String> = libs.iter().cloned().collect();
             return match libs.as_slice() {
                 [] => FilterAvailability::Unknown,
                 [single] => FilterAvailability::Unloaded {
-                    library: single.clone(),
+                    library: (*single).to_string(),
                 },
-                _ => FilterAvailability::AmbiguousUnloaded { libraries: libs },
+                _ => FilterAvailability::AmbiguousUnloaded {
+                    libraries: libs.iter().map(|s| (*s).to_string()).collect(),
+                },
             };
         }
 
@@ -206,19 +214,19 @@ impl AvailableSymbols {
 
     /// Returns the set of available tag names.
     #[must_use]
-    pub fn available_tags(&self) -> &BTreeSet<String> {
+    pub fn available_tags(&self) -> &FxHashSet<&'a str> {
         &self.available
     }
 
     /// Returns the set of available filter names.
     #[must_use]
-    pub fn available_filters(&self) -> &BTreeSet<String> {
+    pub fn available_filters(&self) -> &FxHashSet<&'a str> {
         &self.available_filters
     }
 
     /// Returns the mapping of unavailable tag names to their candidate libraries.
     #[must_use]
-    pub fn unavailable_candidates(&self) -> &BTreeMap<String, BTreeSet<String>> {
+    pub fn unavailable_candidates(&self) -> &FxHashMap<&'a str, Vec<&'a str>> {
         &self.candidates
     }
 
@@ -273,7 +281,7 @@ mod tests {
             library_tag_json("get_static_prefix", "static", "django.templatetags.static"),
         ];
 
-        let mut libraries = HashMap::new();
+        let mut libraries = FxHashMap::default();
         libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
             "static".to_string(),
@@ -409,7 +417,7 @@ mod tests {
             library_tag_json("mytag", "lib_b", "app.templatetags.lib_b"),
         ];
 
-        let mut libraries = HashMap::new();
+        let mut libraries = FxHashMap::default();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
@@ -433,7 +441,7 @@ mod tests {
             library_tag_json("mytag", "lib_b", "app.templatetags.lib_b"),
         ];
 
-        let mut libraries = HashMap::new();
+        let mut libraries = FxHashMap::default();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
@@ -550,13 +558,13 @@ mod tests {
         assert!(candidates.contains_key("get_static_prefix"));
 
         // Each should map to their library
-        assert!(candidates["trans"].contains("i18n"));
-        assert!(candidates["static"].contains("static"));
+        assert!(candidates["trans"].contains(&"i18n"));
+        assert!(candidates["static"].contains(&"static"));
     }
 
     #[test]
     fn empty_inventory_everything_unknown() {
-        let inventory = make_template_libraries_tags_only(&[], &HashMap::new(), &[]);
+        let inventory = make_template_libraries_tags_only(&[], &FxHashMap::default(), &[]);
         let loaded = LoadedLibraries::new(vec![]);
 
         let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
@@ -574,7 +582,7 @@ mod tests {
             library_tag_json("shared", "lib_b", "app.templatetags.lib_b"),
         ];
 
-        let mut libraries = HashMap::new();
+        let mut libraries = FxHashMap::default();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
@@ -614,7 +622,7 @@ mod tests {
             ),
         ];
 
-        let mut libraries = HashMap::new();
+        let mut libraries = FxHashMap::default();
         libraries.insert(
             "humanize".to_string(),
             "django.contrib.humanize.templatetags.humanize".to_string(),
@@ -698,7 +706,7 @@ mod tests {
             library_filter_json("shared", "lib_a", "app.templatetags.lib_a"),
             library_filter_json("shared", "lib_b", "app.templatetags.lib_b"),
         ];
-        let mut libraries = HashMap::new();
+        let mut libraries = FxHashMap::default();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
