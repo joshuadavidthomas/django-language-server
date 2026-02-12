@@ -19,7 +19,14 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  should-run:
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, ':bookmark: bump version')
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
   pre-commit:
+    needs: [should-run]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -50,6 +57,7 @@ jobs:
           uv run --no-project --with "nox[uv]" nox --session lint
 
   rust-changes:
+    needs: [should-run]
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
