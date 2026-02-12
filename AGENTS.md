@@ -3,12 +3,12 @@
 ## Build/Test Commands
 ```bash
 cargo build -q                   # Build all crates
-cargo clippy -q --all-targets --all-features --fix -- -D warnings  # Lint with fixes
-cargo +nightly fmt               # Format code (requires nightly)
 cargo test -q                    # Run all tests
 cargo test test_name             # Run single test by name
 cargo test -p crate_name         # Test specific crate
 just test                        # Run tests via nox (with Django matrix)
+just clippy                      # Lint with clippy (auto-fixes)
+just fmt                         # Format code (requires nightly)
 just lint                        # Run pre-commit hooks
 just corpus lock                 # Resolve corpus versions and update lockfile
 just corpus sync                 # Download corpus from lockfile (prunes old versions)
@@ -16,6 +16,8 @@ just corpus sync -U              # Re-resolve versions then sync
 just corpus clean                # Remove all synced corpus data
 # NEVER use `cargo doc --open` - it requires browser interaction
 ```
+
+**Before pushing**, always run `just clippy`, `just fmt`, and `just lint`.
 
 ## Testing
 **All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated".
