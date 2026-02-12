@@ -20,6 +20,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [6.0.2]
 
+### Changed
+
+- Bumped TagSpecs v0.4.0 deprecation removal target from v6.0.2 to v6.0.3.
+
 ### Fixed
 
 - Fixed `djls check` with no arguments silently reading stdin instead of discovering template files. Stdin is now triggered explicitly by passing `-` as a path.
