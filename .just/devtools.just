@@ -38,12 +38,20 @@ record FILENAME="djls.db":
     @just dev devtools record --to-sqlite {{ FILENAME }}
 
 # Profile a bench and generate a flamegraph SVG + collapsed stacks.
+# Requires: jq, flamegraph, rg
 # Usage: just dev profile <bench> [filter]
 # Example: just dev profile parser parse_template
 [no-cd]
 profile bench filter="":
     #!/usr/bin/env bash
     set -euo pipefail
+
+    for cmd in jq flamegraph rg; do
+        if ! command -v "$cmd" &>/dev/null; then
+            echo "Error: required command '$cmd' not found" >&2
+            exit 1
+        fi
+    done
 
     bench="{{ bench }}"
     filter="{{ filter }}"
@@ -69,17 +77,16 @@ profile bench filter="":
     fi
 
     echo "Profiling..."
+    filter_args=""
     if [ -n "$filter" ]; then
-        flamegraph -o "${profiles_dir}/${label}.svg" \
-            --post-process "tee ${profiles_dir}/${label}.collapsed" \
-            -- "$binary" "$filter" 2>&1 \
-            | rg -v 'cmd__addr2line'
-    else
-        flamegraph -o "${profiles_dir}/${label}.svg" \
-            --post-process "tee ${profiles_dir}/${label}.collapsed" \
-            -- "$binary" 2>&1 \
-            | rg -v 'cmd__addr2line'
+        filter_args="$filter"
     fi
+
+    # shellcheck disable=SC2086
+    flamegraph -o "${profiles_dir}/${label}.svg" \
+        --post-process "tee ${profiles_dir}/${label}.collapsed" \
+        -- "$binary" $filter_args 2>&1 \
+        | rg -v 'cmd__addr2line'
 
     echo ""
     echo "Output:"
