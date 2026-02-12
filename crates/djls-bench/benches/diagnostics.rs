@@ -106,6 +106,7 @@ fn collect_diagnostics_minimal(bencher: Bencher, fixture: &TemplateFixture) {
     if let Some(nl) = nodelist {
         djls_semantic::validate_nodelist(&db, nl);
     }
+    let _ = djls_ide::collect_diagnostics(&db, file, nodelist);
 
     bencher.bench_local(move || {
         let nodelist = djls_templates::parse_template(&db, file);
@@ -120,10 +121,15 @@ fn collect_diagnostics_realistic(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
+    // Warm up: parse, validate, AND collect diagnostics so all Salsa memos
+    // and allocator patterns are primed before measurement. Without this,
+    // the accumulator-read path and diagnostic conversion allocations can
+    // produce bimodal instruction counts under valgrind (CodSpeed).
     let nodelist = djls_templates::parse_template(&db, file);
     if let Some(nl) = nodelist {
         djls_semantic::validate_nodelist(&db, nl);
     }
+    let _ = djls_ide::collect_diagnostics(&db, file, nodelist);
 
     bencher.bench_local(move || {
         let nodelist = djls_templates::parse_template(&db, file);
