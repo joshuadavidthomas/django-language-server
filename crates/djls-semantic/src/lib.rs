@@ -36,6 +36,7 @@ pub use specs::tags::CompletionArgKind;
 pub use specs::tags::EndTag;
 pub use specs::tags::TagSpec;
 pub use specs::tags::TagSpecs;
+pub use specs::tags::builtin_tag_specs;
 pub use structure::build_block_tree;
 pub use structure::build_semantic_forest;
 pub use structure::compute_opaque_regions;

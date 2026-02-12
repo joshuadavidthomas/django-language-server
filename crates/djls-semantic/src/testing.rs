@@ -19,7 +19,7 @@ use djls_templates::parse_template;
 use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
-use crate::specs::tags::test_tag_specs;
+use crate::specs::tags::builtin_tag_specs;
 use crate::FilterAritySpecs;
 use crate::TagIndex;
 use crate::TagSpecs;
@@ -128,7 +128,7 @@ impl TestDatabase {
         Self {
             storage: salsa::Storage::default(),
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-            tag_specs: test_tag_specs(),
+            tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
         }

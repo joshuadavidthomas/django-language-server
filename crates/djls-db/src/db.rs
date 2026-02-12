@@ -159,7 +159,7 @@ impl SemanticDb for DjangoDatabase {
         if let Some(project) = self.project() {
             compute_tag_specs(self, project)
         } else {
-            TagSpecs::default()
+            djls_semantic::builtin_tag_specs()
         }
     }
 

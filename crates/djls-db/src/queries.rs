@@ -18,7 +18,8 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let _libraries = project.template_libraries(db);
     let tagspecs = project.tagspecs(db);
 
-    let mut specs = TagSpecs::default();
+    // Start from Django's builtin tag specs as a base
+    let mut specs = djls_semantic::builtin_tag_specs();
 
     // Merge workspace extraction results (tracked, auto-invalidating on file change)
     let workspace_results = collect_workspace_extraction_results(db, project);

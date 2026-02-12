@@ -520,9 +520,9 @@ pub struct IntermediateTag {
 /// standard Django tags. Does NOT include extracted rules — tests that
 /// need argument validation should construct specs with `extracted_rules`
 /// explicitly or use extraction on Python source.
-#[cfg(test)]
+#[must_use]
 #[allow(clippy::similar_names)]
-pub(crate) fn test_tag_specs() -> TagSpecs {
+pub fn builtin_tag_specs() -> TagSpecs {
     use std::borrow::Cow::Borrowed as B;
 
     let dt = "django.template.defaulttags";
