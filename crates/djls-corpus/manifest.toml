@@ -201,3 +201,8 @@ ref = "master"
 name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 ref = "26.1.0"
+
+[[repo]]
+name = "simonwillison.net"
+url = "https://github.com/simonw/simonwillisonblog.git"
+ref = "main"

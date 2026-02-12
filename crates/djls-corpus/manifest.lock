@@ -256,7 +256,7 @@ sha256 = "53831f6febd7c00b572ca6494bda7de8dd28e10e648d56c721e8e8a61aba0515"
 name = "archivebox"
 url = "https://github.com/ArchiveBox/ArchiveBox.git"
 tag = "dev"
-ref = "17e26ae5a4a42a9f10979a716f600f63b08c3dcc"
+ref = "a0be8fe7715ce5a9b0876e55e4eaee122b70fbad"
 
 [[repo]]
 name = "babybuddy"
@@ -268,13 +268,13 @@ ref = "6ce518f3612ae1ee8d49de3434aacf48e15c0724"
 name = "djangopackages.org"
 url = "https://github.com/djangopackages/djangopackages.git"
 tag = "main"
-ref = "96f90e48be545413fb380083c33a6e7dd450589c"
+ref = "ba467a0057d75da7a1311760f0bb88ac3fa99800"
 
 [[repo]]
 name = "djangoproject.com"
 url = "https://github.com/django/djangoproject.com.git"
 tag = "main"
-ref = "aa87acefdd37ef59b60ae55354255ff76a813a3b"
+ref = "a2f188a18dd0f715be8d10badb663c041a5add58"
 
 [[repo]]
 name = "geonode"
@@ -286,7 +286,7 @@ ref = "644f81babe072bcf6565362a3570f7a180bccd91"
 name = "inventree"
 url = "https://github.com/inventree/InvenTree.git"
 tag = "master"
-ref = "1c1933b694c477f7dedea718252d27e32f8970b1"
+ref = "ee10bbb766139b44a95d6a6d63fac987ff3a6e5c"
 
 [[repo]]
 name = "linkding"
@@ -304,16 +304,22 @@ ref = "b4469c4952f4ea77d7d3e4805e84440fda524956"
 name = "netbox"
 url = "https://github.com/netbox-community/netbox.git"
 tag = "main"
-ref = "23f1c86e9c17332ad4dd28ff6a89d2331bdb2de6"
+ref = "7df062d590a29621f368bd54b9391d0713b06440"
 
 [[repo]]
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 tag = "master"
-ref = "d7b7d3cc5f1446f89b8fc4858db9fd1dbcefc3fb"
+ref = "c0b93fedc5691e7917c856590514b067dc162c71"
 
 [[repo]]
 name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 tag = "26.1.0"
 ref = "faf322d6052a8fedb8813c1471949a701bfd49c7"
+
+[[repo]]
+name = "simonwillison.net"
+url = "https://github.com/simonw/simonwillisonblog.git"
+tag = "main"
+ref = "07639b2b43f1e9063f4e48875b191ac8d8862537"
