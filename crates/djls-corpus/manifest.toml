@@ -230,6 +230,11 @@ url = "https://github.com/sebst/pythonic-news.git"
 ref = "master"
 
 [[repo]]
+name = "readthedocs.org"
+url = "https://github.com/readthedocs/readthedocs.org.git"
+ref = "main"
+
+[[repo]]
 name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 ref = "26.1.0"

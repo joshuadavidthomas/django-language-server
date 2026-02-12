@@ -358,6 +358,12 @@ tag = "master"
 ref = "3a6d03985f405b427d6e88d3462b9703ec2908e6"
 
 [[repo]]
+name = "readthedocs.org"
+url = "https://github.com/readthedocs/readthedocs.org.git"
+tag = "main"
+ref = "3abb2a39f8ee1851902cd49be3c3c1dcfefd7135"
+
+[[repo]]
 name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 tag = "26.1.0"
