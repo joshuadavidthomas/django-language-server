@@ -23,6 +23,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.
 - **Internal**: Added `[profile.bench]` with `debug = 2` to `Cargo.toml` for symbolized bench profiles.
 
+### Changed
+
+- **Internal**: `AvailableSymbols` now borrows `&str` from `TemplateLibraries` instead of cloning owned `String`s, cutting validation overhead by 30-60% across benchmarks.
+
 ## [6.0.2]
 
 ### Changed
