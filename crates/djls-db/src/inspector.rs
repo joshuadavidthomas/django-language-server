@@ -23,7 +23,7 @@ impl DjangoDatabase {
         let dsm = project.django_settings_module(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let Some(response) = djls_project::cache::load_cached_inspector_response(
+        let Some(response) = djls_project::load_cached_inspector_response(
             &root,
             &interpreter,
             dsm.as_deref(),
@@ -86,7 +86,7 @@ impl DjangoDatabase {
         };
 
         if let Some(ref response) = response {
-            djls_project::cache::save_inspector_response(
+            djls_project::save_inspector_response(
                 &root,
                 &interpreter,
                 dsm.as_deref(),
