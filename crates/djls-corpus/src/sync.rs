@@ -130,6 +130,34 @@ fn sync_package(
     Ok(())
 }
 
+fn repo_archive_url(repo: &LockedRepo) -> anyhow::Result<String> {
+    let base_url = repo.url.trim_end_matches(".git");
+
+    if is_gitlab_url(base_url) {
+        let project = base_url
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("cannot extract project name from {base_url}"))?;
+        Ok(format!(
+            "{base_url}/-/archive/{ref}/{project}-{ref}.tar.gz",
+            ref = repo.git_ref,
+            project = project,
+        ))
+    } else {
+        Ok(format!("{base_url}/archive/{}.tar.gz", repo.git_ref))
+    }
+}
+
+fn is_gitlab_url(url: &str) -> bool {
+    let host = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .and_then(|s| s.split('/').next())
+        .unwrap_or_default();
+
+    host == "gitlab.com" || host.starts_with("gitlab.")
+}
+
 fn sync_repo(
     client: &reqwest::blocking::Client,
     repo: &LockedRepo,
@@ -137,8 +165,7 @@ fn sync_repo(
     label: &str,
 ) -> anyhow::Result<()> {
     tracing::info!("{label}: downloading");
-    let base_url = repo.url.trim_end_matches(".git");
-    let url = format!("{base_url}/archive/{}.tar.gz", repo.git_ref);
+    let url = repo_archive_url(repo)?;
     let (tmp, _sha256) = download_tarball(client, &url, label)?;
 
     tracing::info!("{label}: extracting");
@@ -380,6 +407,90 @@ fn prune_flat_dir(base: &Utf8Path, keep: &HashSet<impl AsRef<str>>) -> anyhow::R
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn locked_repo(url: &str) -> LockedRepo {
+        LockedRepo {
+            name: "test".to_string(),
+            url: url.to_string(),
+            tag: "main".to_string(),
+            git_ref: "abc123def456".to_string(),
+        }
+    }
+
+    #[test]
+    fn github_archive_url() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://github.com/owner/project/archive/abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn github_archive_url_without_dot_git() {
+        let repo = locked_repo("https://github.com/owner/project");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://github.com/owner/project/archive/abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn gitlab_com_archive_url() {
+        let repo = locked_repo("https://gitlab.com/group/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://gitlab.com/group/project/-/archive/abc123def456/project-abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn gitlab_com_nested_group() {
+        let repo = locked_repo("https://gitlab.com/group/subgroup/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://gitlab.com/group/subgroup/project/-/archive/abc123def456/project-abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn gitlab_self_hosted() {
+        let repo = locked_repo("https://gitlab.example.com/team/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://gitlab.example.com/team/project/-/archive/abc123def456/project-abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn is_gitlab_detects_gitlab_com() {
+        assert!(is_gitlab_url("https://gitlab.com/group/project"));
+    }
+
+    #[test]
+    fn is_gitlab_detects_self_hosted() {
+        assert!(is_gitlab_url("https://gitlab.example.com/team/project"));
+    }
+
+    #[test]
+    fn is_gitlab_rejects_github() {
+        assert!(!is_gitlab_url("https://github.com/owner/project"));
+    }
+
+    #[test]
+    fn is_gitlab_rejects_other() {
+        assert!(!is_gitlab_url("https://codeberg.org/user/project"));
+    }
 }
 
 /// Remove old two-level layout directories (`{base}/{name}/{version}/`).
