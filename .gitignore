@@ -207,4 +207,4 @@ target_local/
 django/
 
 # flamegraph perf
-perf.data
+perf.data*
