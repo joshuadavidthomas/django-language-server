@@ -31,7 +31,14 @@ permissions:
   contents: read
 
 jobs:
+  should-run:
+    if: "${{ github.event_name != 'push' || !contains(github.event.head_commit.message, ':bookmark: bump version') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
   binary:
+    needs: [should-run]
     runs-on: ${{ matrix.platform.runner }}
     env:
       ZIG_VERSION: 0.13.0
@@ -205,6 +212,7 @@ jobs:
           path: ${{ env.ARTIFACT_PATH }}
 
   linux:
+    needs: [should-run]
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -237,6 +245,7 @@ jobs:
           path: dist
 
   musllinux:
+    needs: [should-run]
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -269,6 +278,7 @@ jobs:
           path: dist
 
   windows:
+    needs: [should-run]
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -321,6 +331,7 @@ jobs:
           path: dist
 
   macos:
+    needs: [should-run]
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -374,6 +385,7 @@ jobs:
           path: dist
 
   sdist:
+    needs: [should-run]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
