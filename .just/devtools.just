@@ -109,15 +109,13 @@ profile bench filter="":
     echo "=== Hot functions (self cost) ==="
     echo ""
     callgrind_annotate --auto=yes "$outfile" \
-        | rg -v '^\s*\.' \
-        | head -60 || true
+        | rg -v '^\s*\.'
 
     echo ""
     echo "=== Call tree (inclusive cost) ==="
     echo ""
     callgrind_annotate --inclusive=yes --tree=calling "$outfile" \
-        | rg -v '^\s*\.' \
-        | head -120 || true
+        | rg -v '^\s*\.'
 
     echo ""
     echo "Callgrind data: ${outfile}"
