@@ -38,7 +38,7 @@ record FILENAME="djls.db":
     @just dev devtools record --to-sqlite {{ FILENAME }}
 
 # Profile a bench with valgrind-codspeed's callgrind (same tool CI uses).
-# Produces per-function instruction counts — deterministic, not statistical.
+# Produces deterministic per-function instruction counts with call trees.
 # Harness overhead is automatically stripped by the codspeed fork.
 # Requires: valgrind-codspeed (https://github.com/CodSpeedHQ/valgrind-codspeed), jq, rg
 # Usage: just dev profile <bench> [filter]
@@ -103,77 +103,21 @@ profile bench filter="":
 
     # codspeed's valgrind fork writes two files: the base filename has
     # benchmark-only data (harness overhead stripped), .1 has everything.
-    # clean up the harness dump.
     rm -f "${outfile}."*
 
     echo ""
-    echo "Annotating top functions..."
+    echo "=== Hot functions (self cost) ==="
+    echo ""
     callgrind_annotate --auto=yes "$outfile" \
         | rg -v '^\s*\.' \
-        | head -80 || true
+        | head -60 || true
 
     echo ""
-    echo "Output:"
-    echo "  Callgrind data: ${outfile}"
+    echo "=== Call tree (inclusive cost) ==="
     echo ""
-    echo "Inspect with:"
-    echo "  callgrind_annotate ${outfile}          # text summary"
-    echo "  kcachegrind ${outfile}                  # GUI (if installed)"
-
-# Profile a bench with perf sampling + flamegraph (fallback if valgrind unavailable).
-# Requires: jq, flamegraph, rg
-# Usage: just dev flamegraph <bench> [filter]
-[no-cd]
-flamegraph bench filter="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    for cmd in jq flamegraph rg; do
-        if ! command -v "$cmd" &>/dev/null; then
-            echo "Error: required command '$cmd' not found" >&2
-            exit 1
-        fi
-    done
-
-    bench="{{ bench }}"
-    filter="{{ filter }}"
-    profiles_dir="profiles"
-
-    label="${bench}"
-    if [ -n "$filter" ]; then
-        label="${bench}-${filter}"
-    fi
-
-    mkdir -p "$profiles_dir"
-
-    echo "Building bench '${bench}' with debug info + frame pointers..."
-    RUSTFLAGS="-C force-frame-pointers=yes" \
-        cargo bench -p djls-bench --bench "$bench" --no-run -q
-
-    binary=$(RUSTFLAGS="-C force-frame-pointers=yes" \
-        cargo bench -p djls-bench --bench "$bench" --no-run --message-format=json 2>/dev/null \
-        | jq -r 'select(.executable != null and .target.name == "'"$bench"'") | .executable' \
-        | head -1)
-
-    if [ -z "$binary" ] || [ ! -f "$binary" ]; then
-        echo "Error: could not find bench binary for '${bench}'" >&2
-        exit 1
-    fi
-
-    echo "Profiling with perf..."
-    filter_args=""
-    if [ -n "$filter" ]; then
-        filter_args="$filter"
-    fi
-
-    # shellcheck disable=SC2086
-    flamegraph -o "${profiles_dir}/${label}.svg" \
-        --post-process "tee ${profiles_dir}/${label}.collapsed" \
-        -F 9999 \
-        -- "$binary" $filter_args 2>&1 \
-        | rg -v 'cmd__addr2line'
+    callgrind_annotate --inclusive=yes --tree=calling "$outfile" \
+        | rg -v '^\s*\.' \
+        | head -120 || true
 
     echo ""
-    echo "Output:"
-    echo "  Collapsed stacks: ${profiles_dir}/${label}.collapsed"
-    echo "  Flamegraph SVG:   ${profiles_dir}/${label}.svg"
+    echo "Callgrind data: ${outfile}"
