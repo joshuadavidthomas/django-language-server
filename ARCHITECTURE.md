@@ -2,7 +2,7 @@
 
 This document describes the high-level architecture of Django Language Server (`djls`). It's meant to help you get oriented in the codebase — where things live, how they connect, and why they're shaped the way they are.
 
-The structure and general vibe of this document is heavily inspired by [rust-analyzer's ARCHITECTURE.md](https://github.com/rust-lang/rust-analyzer/blob/master/docs/dev/architecture.md), which is an excellent example of this kind of guide.
+The structure and general vibe of this document is inspired by [rust-analyzer's ARCHITECTURE.md](https://github.com/rust-lang/rust-analyzer/blob/master/docs/dev/architecture.md), which is an excellent example of this kind of guide.
 
 For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -10,7 +10,7 @@ For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Django Language Server is an LSP server written in Rust that provides IDE features for Django templates. The editor sends template source code; the server combines it with knowledge about the Django project — installed apps, template libraries, tag and filter definitions — and returns diagnostics, completions, and navigation results.
 
-[Salsa](https://github.com/salsa-rs/salsa) drives incremental computation: when a file changes, only the affected queries recompute. The architecture borrows heavily from [Ruff/ty](https://github.com/astral-sh/ruff/tree/main/crates/ty): layered database traits, a single concrete database type that owns all state, and a session model for LSP operations.
+[Salsa](https://github.com/salsa-rs/salsa) drives incremental computation: when a file changes, only the affected queries recompute. The architecture borrows from [Ruff/ty](https://github.com/astral-sh/ruff/tree/main/crates/ty): layered database traits, a single concrete database type that owns all state, and a session model for LSP operations.
 
 The server depends on two distinct kinds of knowledge:
 
