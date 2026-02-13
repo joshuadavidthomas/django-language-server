@@ -47,7 +47,7 @@ pub fn run() -> Result<()> {
         let stdout = tokio::io::stdout();
 
         let (service, socket) = LspService::build(|client| {
-            let log_guard = logging::init_tracing({
+            let logging = logging::init_tracing({
                 let client = client.clone();
                 move |message_type, message| {
                     let client = client.clone();
@@ -57,7 +57,7 @@ pub fn run() -> Result<()> {
                 }
             });
 
-            DjangoLanguageServer::new(client, log_guard)
+            DjangoLanguageServer::new(client, logging)
         })
         .finish();
 

@@ -13,6 +13,8 @@
 //! The `LspLayer` automatically handles forwarding appropriate log levels
 //! to the LSP client while preserving structured logging data for file output.
 
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tower_lsp_server::ls_types;
@@ -33,6 +35,7 @@ use tracing_subscriber::Registry;
 /// the client with verbose trace logs.
 pub struct LspLayer {
     send_message: Arc<dyn Fn(ls_types::MessageType, String) + Send + Sync>,
+    disabled: Arc<AtomicBool>,
 }
 
 impl LspLayer {
@@ -42,6 +45,7 @@ impl LspLayer {
     {
         Self {
             send_message: Arc::new(send_message),
+            disabled: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -79,6 +83,10 @@ where
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
+        if self.disabled.load(Ordering::Relaxed) {
+            return;
+        }
+
         let metadata = event.metadata();
 
         let message_type = match *metadata.level() {
@@ -102,6 +110,22 @@ where
     }
 }
 
+/// Holds logging resources and provides shutdown control.
+///
+/// Keeps the file logging worker alive and provides a way to disable
+/// LSP client log forwarding during shutdown, preventing "failed to
+/// send notification" errors when the transport is already closed.
+pub struct LoggingGuard {
+    _file_guard: WorkerGuard,
+    lsp_disabled: Arc<AtomicBool>,
+}
+
+impl LoggingGuard {
+    pub fn disable_lsp(&self) {
+        self.lsp_disabled.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Initialize the dual-layer tracing subscriber.
 ///
 /// Sets up:
@@ -111,8 +135,8 @@ where
 /// - LSP layer: forwards INFO+ messages to the client
 /// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
 ///
-/// Returns a `WorkerGuard` that must be kept alive for the logging to work.
-pub fn init_tracing<F>(send_message: F) -> WorkerGuard
+/// Returns a [`LoggingGuard`] that must be kept alive for the logging to work.
+pub fn init_tracing<F>(send_message: F) -> LoggingGuard
 where
     F: Fn(ls_types::MessageType, String) + Send + Sync + 'static,
 {
@@ -140,10 +164,14 @@ where
         .with_line_number(true)
         .with_filter(env_filter);
 
-    let lsp_layer =
-        LspLayer::new(send_message).with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+    let lsp_layer = LspLayer::new(send_message);
+    let lsp_disabled = Arc::clone(&lsp_layer.disabled);
+    let lsp_layer = lsp_layer.with_filter(tracing_subscriber::filter::LevelFilter::INFO);
 
     Registry::default().with(log_layer).with(lsp_layer).init();
 
-    guard
+    LoggingGuard {
+        _file_guard: guard,
+        lsp_disabled,
+    }
 }

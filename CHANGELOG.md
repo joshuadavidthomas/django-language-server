@@ -30,6 +30,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
 - **Internal**: `AvailableSymbols` now borrows `&str` from `TemplateLibraries` instead of cloning owned `String`s, cutting validation overhead by 30-60% across benchmarks.
 
+### Fixed
+
+- Suppressed `failed to send notification` ERROR log spam during server shutdown by disabling the LSP log forwarding layer on shutdown.
+
 ## [6.0.2]
 
 ### Changed
