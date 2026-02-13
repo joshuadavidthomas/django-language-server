@@ -37,12 +37,7 @@ record FILENAME="djls.db":
     rm -f {{ FILENAME }}
     @just dev devtools record --to-sqlite {{ FILENAME }}
 
-# Profile a bench with valgrind-codspeed's callgrind (same tool CI uses).
-# Produces deterministic per-function instruction counts with call trees.
-# Harness overhead is automatically stripped by the codspeed fork.
-# Requires: valgrind-codspeed (https://github.com/CodSpeedHQ/valgrind-codspeed), jq, rg
-# Usage: just dev profile <bench> [filter]
-# Example: just dev profile diagnostics collect_diagnostics_realistic
+# Profile a bench with callgrind
 [no-cd]
 profile bench filter="":
     #!/usr/bin/env bash
@@ -51,14 +46,14 @@ profile bench filter="":
     for cmd in valgrind jq rg; do
         if ! command -v "$cmd" &>/dev/null; then
             echo "Error: required command '$cmd' not found" >&2
+            echo "See CONTRIBUTING.md for profiling setup instructions." >&2
             exit 1
         fi
     done
 
     if ! valgrind --version 2>/dev/null | rg -q 'codspeed'; then
-        echo "Error: requires valgrind-codspeed fork (https://github.com/CodSpeedHQ/valgrind-codspeed)" >&2
-        echo "  Install: git clone --depth 1 https://github.com/CodSpeedHQ/valgrind-codspeed /tmp/valgrind-codspeed" >&2
-        echo "           cd /tmp/valgrind-codspeed && ./autogen.sh && ./configure --prefix=\$HOME/.local && make -j\$(nproc) && make install" >&2
+        echo "Error: requires the valgrind-codspeed fork, not stock valgrind." >&2
+        echo "See CONTRIBUTING.md for install instructions." >&2
         exit 1
     fi
 
