@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use djls_conf::DiagnosticsConfig;
 use djls_semantic::ValidationError;
 use djls_source::Diagnostic;
@@ -16,25 +13,10 @@ use tower_lsp_server::ls_types;
 use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
 
-const RULES_BASE_URL: &str = "https://djls.joshthomas.dev/rules/#";
-
-fn rule_url(name: &'static str) -> ls_types::Uri {
-    thread_local! {
-        static CACHE: RefCell<HashMap<&'static str, ls_types::Uri>> =
-            RefCell::new(HashMap::new());
-    }
-
-    CACHE.with(|cache| {
-        cache
-            .borrow_mut()
-            .entry(name)
-            .or_insert_with(|| {
-                format!("{RULES_BASE_URL}{name}")
-                    .parse()
-                    .expect("valid docs URL")
-            })
-            .clone()
-    })
+fn rule_url(name: &str) -> ls_types::Uri {
+    format!("https://djls.joshthomas.dev/rules/#{name}")
+        .parse()
+        .expect("valid docs URL")
 }
 
 trait DiagnosticError: std::fmt::Display {
