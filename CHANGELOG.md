@@ -20,6 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
 - Filesystem cache for inspector responses (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.
 - **Internal**: Added `[profile.bench]` with `debug = 2` to `Cargo.toml` for symbolized bench profiles.

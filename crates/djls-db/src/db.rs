@@ -311,6 +311,7 @@ mod invalidation_tests {
             interpreter,
             dsm,
             settings.pythonpath().to_vec(),
+            Vec::new(),
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             rustc_hash::FxHashMap::default(),

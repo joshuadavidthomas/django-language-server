@@ -28,6 +28,17 @@ def initialize_django() -> tuple[bool, str | None]:
 
         return True, None
 
+    except KeyError as e:
+        var_name = str(e).strip("'\"")
+        return False, (
+            f"Missing required environment variable: {var_name}. "
+            f"Django settings failed to load because '{var_name}' is not set "
+            f"in the editor's environment. To fix this, either add "
+            f"'{var_name}' to a .env file in your project root, or configure "
+            f"'env_file' in your djls settings to point to an env file that "
+            f"defines it."
+        )
+
     except Exception as e:
         return False, str(e)
 
