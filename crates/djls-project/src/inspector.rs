@@ -67,11 +67,14 @@ pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::
             response.data
         }
         Ok(response) => {
-            tracing::warn!(
-                "Inspector query '{}' returned ok=false, error={:?}",
-                Q::NAME,
-                response.error
-            );
+            if let Some(ref error) = response.error {
+                tracing::warn!("Inspector query '{}' failed: {}", Q::NAME, error);
+            } else {
+                tracing::warn!(
+                    "Inspector query '{}' returned an error with no details",
+                    Q::NAME,
+                );
+            }
             None
         }
         Err(e) => {

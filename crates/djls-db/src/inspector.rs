@@ -75,10 +75,11 @@ impl DjangoDatabase {
             ) {
             Ok(response) if response.ok => response.data,
             Ok(response) => {
-                tracing::warn!(
-                    "query_inspector: inspector returned ok=false, error={:?}",
-                    response.error
-                );
+                if let Some(ref error) = response.error {
+                    tracing::warn!("query_inspector: inspector failed: {}", error);
+                } else {
+                    tracing::warn!("query_inspector: inspector returned an error with no details");
+                }
                 None
             }
             Err(e) => {

@@ -4,6 +4,56 @@ Django Language Server auto-detects your project configuration in most cases. It
 
 **Most users don't need any configuration.** The settings below are for edge cases like non-standard virtual environment locations, editors that don't pass environment variables, or custom template tag definitions.
 
+## Handling environment variables
+
+Django projects commonly read secrets and configuration from environment variables:
+
+```python
+# settings.py
+SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+DATABASE_URL = os.environ["DATABASE_URL"]
+```
+
+When these variables are missing, the language server's inspector process fails to initialize Django and you'll see an error like:
+
+> Missing required environment variable: DJANGO_SECRET_KEY. Your Django settings reference os.environ['DJANGO_SECRET_KEY'] but it is not set in the editor's environment.
+
+This happens because editors launched from desktop environments (app launchers, dock icons) don't inherit shell variables set in `.bashrc`, `.zshrc`, or similar.
+
+### How environment variables reach the inspector
+
+The inspector subprocess inherits the full environment of its parent process (the language server, which inherits from the editor). Variables set in your shell are available automatically **if the editor was launched from that shell**. The [`env_file`](#env_file) option exists for cases where that inheritance doesn't work.
+
+### Recommended setup
+
+If your Django settings read from `os.environ`, create a `.env` file in your project root:
+
+```
+# .env
+DJANGO_SECRET_KEY=not-a-real-secret
+DATABASE_URL=postgres://localhost/mydb
+```
+
+The server automatically detects `.env` in the project root and loads its variables into the inspector process — no configuration needed. This is the same format used by `python-dotenv` and similar tools.
+
+!!! tip
+    The values only need to be valid enough for Django to initialize. For a language server, a placeholder `SECRET_KEY` works fine.
+
+If your env file has a different name or location, point to it explicitly:
+
+```toml
+[tool.djls]
+env_file = ".env.local"
+```
+
+### Other approaches
+
+If you prefer not to use an env file:
+
+- **Launch your editor from the terminal** where the variables are already set. Most editors inherit the shell's environment when started this way.
+- **Configure your editor** to set environment variables before starting language servers. See your editor's documentation for details.
+- **Set `django_settings_module`** in your djls config if the only missing variable is `DJANGO_SETTINGS_MODULE`.
+
 ## Options
 
 ### `django_settings_module`
@@ -309,21 +359,4 @@ Django Language Server reads standard Python and Django environment variables:
 
 If you're already running Django with these environment variables set, the language server will automatically use them.
 
-If your editor doesn't pass these environment variables to the language server, configure them explicitly using one of the methods above.
-
-#### `.env` file support
-
-If your Django settings read secrets or configuration from `os.environ` (e.g., `DJANGO_SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]`), the inspector subprocess needs those variables too. The server automatically looks for a `.env` file in the project root and loads its variables into the inspector process. This is the same format used by `python-dotenv` and similar tools:
-
-```
-# .env
-DJANGO_SECRET_KEY=my-secret-key
-DATABASE_URL=postgres://localhost/mydb
-```
-
-If your env file has a different name or location, set `env_file` in your configuration:
-
-```toml
-[tool.djls]
-env_file = ".env.local"
-```
+If your editor doesn't pass these environment variables to the language server, configure them explicitly using one of the methods above. See [Handling environment variables](#handling-environment-variables) for details on `.env` file support.
