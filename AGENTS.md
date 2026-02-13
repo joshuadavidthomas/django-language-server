@@ -33,7 +33,7 @@ Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots,
 - Naming: snake_case functions/variables, CamelCase types, SCREAMING_SNAKE constants
 - Comments: Avoid unless essential; use doc comments `///` for public APIs only
 - Testing: Use `insta` for snapshot tests in template parser. NEVER write standalone test files — always add test cases to existing test modules in the codebase
-- Python: Inspector runs via zipapp, test against Django 4.2/5.1/5.2/main
+- Python: Inspector runs via zipapp, test against all supported Django versions (see `DJ_VERSIONS` in `noxfile.py`)
 - Module convention: Uses `folder.rs` NOT `folder/mod.rs` (e.g. `templatetags.rs` + `templatetags/specs.rs`)
 
 ## Project Structure
@@ -80,6 +80,7 @@ The server writes daily log files to `~/.cache/djls/djls.log.YYYY-MM-DD`. Inspec
 
 ## Changelog
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+- **Every user-facing change needs a changelog entry.** Add one as part of the same commit or PR — don't leave it for later.
 - Entries go under `[Unreleased]` in the appropriate section (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`)
 - Short and factual — what changed, not why. No rationale or future plans.
 - Past tense verbs: "Added", "Fixed", "Removed", "Bumped"
