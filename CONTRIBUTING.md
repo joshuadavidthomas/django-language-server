@@ -252,6 +252,7 @@ Available recipes:
         debug
         explore FILENAME="djls.db"
         inspect
+        profile bench filter=""    # Example: just dev profile parser parse_template
         record FILENAME="djls.db"
     docs:
         build LOCATION="site" # Build documentation
