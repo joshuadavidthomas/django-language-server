@@ -27,7 +27,7 @@ If you're already familiar with LSP, `crates/djls-server/src/server.rs` is a goo
 
 If you want to understand how templates get parsed, start with the hand-written recursive descent parser in `crates/djls-templates/src/parser.rs`.
 
-If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-python/src/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact (and who says I have?) — I've never come across one. It's early and rough, but it's one of the more interesting parts of the project.
+If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-python/src/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact (and who says I have?), becuase I've never come across something like it before. It's early and rough, but it's one of the more interesting parts of the project.
 
 If you're interested in how parsing, extraction, and project knowledge come together to give templates *meaning*, start with `crates/djls-semantic/src/lib.rs` — that's where "is this tag valid here?" actually gets answered.
 
