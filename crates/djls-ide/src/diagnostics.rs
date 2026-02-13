@@ -1,5 +1,5 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 use djls_conf::DiagnosticsConfig;
 use djls_semantic::ValidationError;
@@ -18,49 +18,23 @@ use crate::ext::SpanExt;
 
 const RULES_BASE_URL: &str = "https://djls.joshthomas.dev/rules/#";
 
-static RULE_URLS: LazyLock<HashMap<&'static str, ls_types::Uri>> = LazyLock::new(|| {
-    let names = [
-        "parser-error",
-        "io-error",
-        "config-error",
-        "unclosed-tag",
-        "unbalanced-structure",
-        "orphaned-tag",
-        "unmatched-block-name",
-        "unknown-tag",
-        "unloaded-tag",
-        "ambiguous-unloaded-tag",
-        "unknown-filter",
-        "unloaded-filter",
-        "ambiguous-unloaded-filter",
-        "expression-syntax-error",
-        "filter-missing-argument",
-        "filter-unexpected-argument",
-        "extracted-rule-violation",
-        "tag-not-in-installed-apps",
-        "filter-not-in-installed-apps",
-        "unknown-library",
-        "library-not-in-installed-apps",
-        "extends-must-be-first",
-        "multiple-extends",
-    ];
-
-    names
-        .into_iter()
-        .map(|name| {
-            let url: ls_types::Uri = format!("{RULES_BASE_URL}{name}")
-                .parse()
-                .expect("valid docs URL");
-            (name, url)
-        })
-        .collect()
-});
-
 fn rule_url(name: &'static str) -> ls_types::Uri {
-    RULE_URLS
-        .get(name)
-        .cloned()
-        .unwrap_or_else(|| panic!("unknown rule name: {name}"))
+    thread_local! {
+        static CACHE: RefCell<HashMap<&'static str, ls_types::Uri>> =
+            RefCell::new(HashMap::new());
+    }
+
+    CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .entry(name)
+            .or_insert_with(|| {
+                format!("{RULES_BASE_URL}{name}")
+                    .parse()
+                    .expect("valid docs URL")
+            })
+            .clone()
+    })
 }
 
 trait DiagnosticError: std::fmt::Display {
