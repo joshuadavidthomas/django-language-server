@@ -64,10 +64,12 @@ profile bench filter="":
 
     mkdir -p "$profiles_dir"
 
-    echo "Building bench '${bench}' with debug info..."
-    cargo bench -p djls-bench --bench "$bench" --no-run -q
+    echo "Building bench '${bench}' with debug info + frame pointers..."
+    RUSTFLAGS="-C force-frame-pointers=yes" \
+        cargo bench -p djls-bench --bench "$bench" --no-run -q
 
-    binary=$(cargo bench -p djls-bench --bench "$bench" --no-run --message-format=json 2>/dev/null \
+    binary=$(RUSTFLAGS="-C force-frame-pointers=yes" \
+        cargo bench -p djls-bench --bench "$bench" --no-run --message-format=json 2>/dev/null \
         | jq -r 'select(.executable != null and .target.name == "'"$bench"'") | .executable' \
         | head -1)
 
@@ -85,6 +87,7 @@ profile bench filter="":
     # shellcheck disable=SC2086
     flamegraph -o "${profiles_dir}/${label}.svg" \
         --post-process "tee ${profiles_dir}/${label}.collapsed" \
+        -F 9999 \
         -- "$binary" $filter_args 2>&1 \
         | rg -v 'cmd__addr2line'
 
