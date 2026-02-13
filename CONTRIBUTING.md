@@ -252,10 +252,11 @@ Available recipes:
         debug
         explore FILENAME="djls.db"
         inspect
-        profile bench filter=""    # Example: just dev profile parser parse_template
+        profile bench filter=""    # Example: just dev profile diagnostics collect_diagnostics_realistic
         record FILENAME="djls.db"
     docs:
         build LOCATION="site" # Build documentation
+        rules                 # Generate rules documentation from rules.toml and djls check output
         serve PORT="8000"     # Serve documentation locally
 ```
 <!-- [[[end]]] -->

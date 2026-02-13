@@ -75,9 +75,9 @@ copy:
             | sed 's](LICENSE)]\(https://github.com/joshuadavidthomas/django-language-server/tree/main/LICENSE)]g'
     } > docs/index.md
 
-# Generate docs/rules.md from rules.toml and djls check output
+# Generate rules documentation from rules.toml and djls check output
 [no-cd]
-generate-rules:
+rules:
     python3 docs/rules/generate.py
 
 [private]

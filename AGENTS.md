@@ -14,7 +14,7 @@ just corpus lock                 # Resolve corpus versions and update lockfile
 just corpus sync                 # Download corpus from lockfile (prunes old versions)
 just corpus sync -U              # Re-resolve versions then sync
 just corpus clean                # Remove all synced corpus data
-just dev profile <bench> [filter] # Flamegraph + collapsed stacks for a bench
+just dev profile <bench> [filter] # Callgrind profile (deterministic instruction counts)
 # NEVER use `cargo doc --open` - it requires browser interaction
 ```
 
