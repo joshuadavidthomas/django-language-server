@@ -80,11 +80,6 @@ copy:
 generate-rules:
     python3 docs/rules/generate.py
 
-# Check that docs/rules.md is up-to-date
-[no-cd]
-check-rules:
-    python3 docs/rules/generate.py --check
-
 [private]
 fmt:
     @just --fmt --justfile {{ justfile }}

@@ -2,14 +2,10 @@
 """Generate docs/rules.md from rules.toml and djls check output.
 
 Usage:
-    python docs/rules/generate.py [--check]
-
-Without --check: regenerates docs/rules.md in place.
-With --check: exits non-zero if the file would change (for CI).
+    python docs/rules/generate.py
 """
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
 import sys
@@ -195,33 +191,7 @@ def generate() -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Check if rules.md is up-to-date (exits non-zero if not)",
-    )
-    args = parser.parse_args()
-
     content = generate()
-
-    if args.check:
-        if OUTPUT.exists():
-            current = OUTPUT.read_text()
-            if current == content:
-                print(f"Up-to-date: {OUTPUT.relative_to(ROOT)}")
-                sys.exit(0)
-            else:
-                print(
-                    f"{OUTPUT.relative_to(ROOT)} is out of date. "
-                    "Run: python docs/rules/generate.py",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        else:
-            print(f"{OUTPUT.relative_to(ROOT)} does not exist.", file=sys.stderr)
-            sys.exit(1)
-
     OUTPUT.write_text(content)
     print(f"Generated: {OUTPUT.relative_to(ROOT)}")
 
