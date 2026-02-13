@@ -96,7 +96,7 @@ impl<'a> CompileFunction<'a> {
 ///
 /// This is the main entry point for the analyzer. It tracks `token`
 /// and `parser` parameters through the function body, extracting constraints
-/// from `raise TemplateSyntaxError(...)` guards.
+/// from `if condition: raise ...` guard patterns.
 ///
 /// Helper function calls are resolved only when analysis runs with a Salsa
 /// database and file context (see [`CallContext`]). In standalone mode

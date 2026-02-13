@@ -21,7 +21,7 @@ use crate::types::SplitPosition;
 /// Extract argument constraints from a match statement whose subject is a `SplitResult`.
 ///
 /// Analyzes `match token.split_contents(): case ...:` patterns from Django 6.0+.
-/// Collects valid case shapes (cases whose body does NOT raise `TemplateSyntaxError`)
+/// Collects valid case shapes (cases whose body does NOT raise an exception)
 /// and derives argument count constraints and required keywords from them.
 pub(super) fn extract_match_constraints(
     match_stmt: &StmtMatch,
@@ -37,7 +37,7 @@ pub(super) fn extract_match_constraints(
     let mut min_variable_length: Option<usize> = None;
 
     for case in &match_stmt.cases {
-        if any_path_raises_template_syntax_error(&case.body) {
+        if any_path_raises_exception(&case.body) {
             continue;
         }
 
@@ -163,7 +163,7 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
         std::collections::HashMap::new();
 
     for case in cases {
-        if any_path_raises_template_syntax_error(&case.body) {
+        if any_path_raises_exception(&case.body) {
             continue;
         }
         if let Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) = &case.pattern {
@@ -221,12 +221,13 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
     }
 }
 
-/// Check if any code path in a body contains `raise TemplateSyntaxError(...)`.
+/// Check if any code path in a body contains a `raise` with an exception.
 ///
-/// Unlike `constraints::body_raises_template_syntax_error` (which only checks
-/// direct raises), this recurses into control flow branches. Used for match
-/// case classification where any raise in any branch means the case can error.
-fn any_path_raises_template_syntax_error(body: &[Stmt]) -> bool {
+/// Unlike `rules::body_raises_exception` (which only checks direct raises),
+/// this recurses into control flow branches. Used for match case classification
+/// where any raise in any branch means the case can error. Any exception type
+/// counts — `TemplateSyntaxError`, `ValueError`, etc.
+fn any_path_raises_exception(body: &[Stmt]) -> bool {
     let mut visitor = RaiseFinder::default();
     visitor.visit_body(body);
     visitor.found
@@ -244,13 +245,14 @@ impl StatementVisitor<'_> for RaiseFinder {
         }
 
         match stmt {
-            // Only search for raises within the current function scope.
-            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(exc), .. }) => {
-                if crate::analysis::rules::is_template_syntax_error_call(exc) {
-                    self.found = true;
-                }
+            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. }) => {
+                self.found = true;
             }
             // Recurse into control flow to check all possible execution paths.
+            // NOTE: Recursing into Stmt::Try means a raise caught by an except
+            // handler is still treated as "this case can error." This is a known
+            // false positive — no corpus projects exhibit this pattern, but it's
+            // possible in the wild.
             Stmt::If(_)
             | Stmt::For(_)
             | Stmt::While(_)
