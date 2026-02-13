@@ -76,6 +76,9 @@ Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots,
 - `SemanticDb` trait: When adding methods, update impls in `djls-db/src/db.rs` and `djls-bench/src/db.rs`.
 - `crate::Db` in `djls-semantic`: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
 
+## LSP Server Logs
+The server writes daily log files to `~/.cache/djls/djls.log.YYYY-MM-DD`. Inspector response caches live in `~/.cache/djls/inspector/`.
+
 ## Changelog
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
 - Entries go under `[Unreleased]` in the appropriate section (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`)
