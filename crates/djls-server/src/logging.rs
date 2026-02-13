@@ -110,16 +110,6 @@ where
     }
 }
 
-/// Initialize the dual-layer tracing subscriber.
-///
-/// Sets up:
-/// - File layer: writes to XDG cache directory (e.g., ~/.cache/djls/djls.log on Linux) with daily rotation.
-///   Falls back to /tmp/djls.log if XDG cache directory is not available.
-///   If file logging cannot be initialized, falls back to stderr.
-/// - LSP layer: forwards INFO+ messages to the client
-/// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
-///
-/// Returns a `WorkerGuard` that must be kept alive for the logging to work.
 /// Holds logging resources and provides shutdown control.
 ///
 /// Keeps the file logging worker alive and provides a way to disable
@@ -136,6 +126,16 @@ impl LoggingGuard {
     }
 }
 
+/// Initialize the dual-layer tracing subscriber.
+///
+/// Sets up:
+/// - File layer: writes to XDG cache directory (e.g., ~/.cache/djls/djls.log on Linux) with daily rotation.
+///   Falls back to /tmp/djls.log if XDG cache directory is not available.
+///   If file logging cannot be initialized, falls back to stderr.
+/// - LSP layer: forwards INFO+ messages to the client
+/// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
+///
+/// Returns a [`LoggingGuard`] that must be kept alive for the logging to work.
 pub fn init_tracing<F>(send_message: F) -> LoggingGuard
 where
     F: Fn(ls_types::MessageType, String) + Send + Sync + 'static,
