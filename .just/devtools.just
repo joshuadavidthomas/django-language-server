@@ -37,9 +37,10 @@ record FILENAME="djls.db":
     rm -f {{ FILENAME }}
     @just dev devtools record --to-sqlite {{ FILENAME }}
 
-# Profile a bench with callgrind (matches codspeed's approach).
+# Profile a bench with valgrind-codspeed's callgrind (same tool CI uses).
 # Produces per-function instruction counts — deterministic, not statistical.
-# Requires: valgrind, jq, rg
+# Harness overhead is automatically stripped by the codspeed fork.
+# Requires: valgrind-codspeed (https://github.com/CodSpeedHQ/valgrind-codspeed), jq, rg
 # Usage: just dev profile <bench> [filter]
 # Example: just dev profile diagnostics collect_diagnostics_realistic
 [no-cd]
@@ -53,6 +54,13 @@ profile bench filter="":
             exit 1
         fi
     done
+
+    if ! valgrind --version 2>/dev/null | rg -q 'codspeed'; then
+        echo "Error: requires valgrind-codspeed fork (https://github.com/CodSpeedHQ/valgrind-codspeed)" >&2
+        echo "  Install: git clone --depth 1 https://github.com/CodSpeedHQ/valgrind-codspeed /tmp/valgrind-codspeed" >&2
+        echo "           cd /tmp/valgrind-codspeed && ./autogen.sh && ./configure --prefix=\$HOME/.local && make -j\$(nproc) && make install" >&2
+        exit 1
+    fi
 
     bench="{{ bench }}"
     filter="{{ filter }}"
@@ -90,15 +98,13 @@ profile bench filter="":
         --callgrind-out-file="$outfile" \
         --cache-sim=yes \
         --collect-jumps=yes \
-        --trace-children=yes \
         "$binary" $filter_args 2>&1 \
         | rg -v '^==' || true
 
-    # callgrind may produce multiple files (one per pid); pick the largest
-    largest=$(ls -S "${outfile}"* 2>/dev/null | head -1)
-    if [ -n "$largest" ] && [ "$largest" != "$outfile" ]; then
-        mv "$largest" "$outfile"
-    fi
+    # codspeed's valgrind fork writes two files: the base filename has
+    # benchmark-only data (harness overhead stripped), .1 has everything.
+    # clean up the harness dump.
+    rm -f "${outfile}."*
 
     echo ""
     echo "Annotating top functions..."
