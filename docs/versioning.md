@@ -1,5 +1,37 @@
 # Versioning
 
+## Supported versions
+
+Django Language Server supports the intersection of all actively maintained Python and Django versions:
+
+- All [actively maintained Django versions](https://www.djangoproject.com/download/#supported-versions), including LTS releases
+- All [actively maintained Python versions](https://devguide.python.org/versions/)
+
+End-of-life Python versions are not supported, even if a maintained Django version still officially supports them. For example, Django 4.2 LTS supports Python 3.8, but Python 3.8 is EOL so the language server does not.
+
+Currently supported:
+
+<!-- [[[cog
+import subprocess
+import cog
+
+from noxfile import DJ_VERSIONS
+from noxfile import PY_VERSIONS
+from noxfile import display_version
+
+django_versions = [
+    display_version(version) for version in DJ_VERSIONS if version != "main"
+]
+
+cog.outl(f"- Python {', '.join(PY_VERSIONS)}")
+cog.outl(f"- Django {', '.join(django_versions)}")
+]]] -->
+- Python 3.10, 3.11, 3.12, 3.13, 3.14
+- Django 4.2, 5.1, 5.2, 6.0
+<!-- [[[end]]] -->
+
+## Version numbering
+
 This project adheres to DjangoVer. For a quick overview of what DjangoVer is, here's an excerpt from Django core developer James Bennett's [Introducing DjangoVer](https://www.b-list.org/weblog/2024/nov/18/djangover/) blog post:
 
 > In DjangoVer, a Django-related package has a version number of the form `DJANGO_MAJOR.DJANGO_FEATURE.PACKAGE_VERSION`, where `DJANGO_MAJOR` and `DJANGO_FEATURE` indicate the most recent feature release series of Django supported by the package, and `PACKAGE_VERSION` begins at zero and increments by one with each release of the package supporting that feature release of Django.
