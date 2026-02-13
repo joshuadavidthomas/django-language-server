@@ -95,26 +95,17 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `PY_VERSIONS` list accordingly.
 
-    For example, given the following versions:
+    For example, to add Python 3.14 and remove Python 3.9:
 
-    ```python
-    PY39 = "3.9"
-    PY310 = "3.10"
-    PY311 = "3.11"
-    PY312 = "3.12"
-    PY313 = "3.13"
-    PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
-    ```
-
-    To add Python 3.14 and remove Python 3.9, the final list will be:
-
-    ```python
-    PY310 = "3.10"
-    PY311 = "3.11"
-    PY312 = "3.12"
-    PY313 = "3.13"
-    PY314 = "3.14"
-    PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
+    ```diff
+    -PY39 = "3.9"
+     PY310 = "3.10"
+     PY311 = "3.11"
+     PY312 = "3.12"
+     PY313 = "3.13"
+    -PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
+    +PY314 = "3.14"
+    +PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
     ```
 
 2. Regenerate auto-generated content:
@@ -166,26 +157,17 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `DJ_VERSIONS` list accordingly.
 
-    For example, given the following versions:
+    For example, to add Django 6.1 and remove Django 4.2:
 
-    ```python
-    DJ42 = "4.2"
-    DJ51 = "5.1"
-    DJ52 = "5.2"
-    DJ60 = "6.0"
-    DJMAIN = "main"
-    DJ_VERSIONS = [DJ42, DJ51, DJ52, DJ60, DJMAIN]
-    ```
-
-    To add Django 6.1 and remove Django 4.2, the final list will be:
-
-    ```python
-    DJ51 = "5.1"
-    DJ52 = "5.2"
-    DJ60 = "6.0"
-    DJ61 = "6.1"
-    DJMAIN = "main"
-    DJ_VERSIONS = [DJ51, DJ52, DJ60, DJ61, DJMAIN]
+    ```diff
+    -DJ42 = "4.2"
+     DJ51 = "5.1"
+     DJ52 = "5.2"
+     DJ60 = "6.0"
+    +DJ61 = "6.1"
+     DJMAIN = "main"
+    -DJ_VERSIONS = [DJ42, DJ51, DJ52, DJ60, DJMAIN]
+    +DJ_VERSIONS = [DJ51, DJ52, DJ60, DJ61, DJMAIN]
     ```
 
 2. Update any Python version constraints in the `should_skip()` function if the new Django version has specific Python requirements.
