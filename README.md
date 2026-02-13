@@ -16,7 +16,7 @@ cog.outl(f"![Django Version](https://img.shields.io/badge/django-{'%20%7C%20'.jo
 ]]] -->
 [![PyPI](https://img.shields.io/pypi/v/django-language-server)](https://pypi.org/project/django-language-server/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/django-language-server)
-![Django Version](https://img.shields.io/badge/django-4.2%20%7C%205.1%20%7C%205.2%20%7C%206.0%20%7C%20main-%2344B78B?labelColor=%23092E20)
+![Django Version](https://img.shields.io/badge/django-4.2%20%7C%205.2%20%7C%206.0%20%7C%20main-%2344B78B?labelColor=%23092E20)
 <!-- [[[end]]] -->
 
 A language server for the Django web framework.
