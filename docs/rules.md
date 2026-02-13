@@ -1,0 +1,609 @@
+# Rules
+
+This page documents every diagnostic rule that djls can report. Each rule has a short code (shown in your editor) and a descriptive name.
+
+For an overview of how validation works — the inspector, environment scanner, and extraction engine — see [Template Validation](./template-validation.md). For configuring severity levels, see [Configuration](./configuration/index.md#diagnostics).
+
+## Template Errors
+
+- [T100 `parser-error`](#parser-error)
+- [T900 `io-error`](#io-error)
+- [T901 `config-error`](#config-error)
+
+## Semantic Errors
+
+- [S100 `unclosed-tag`](#unclosed-tag)
+- [S101 `unbalanced-structure`](#unbalanced-structure)
+- [S102 `orphaned-tag`](#orphaned-tag)
+- [S103 `unmatched-block-name`](#unmatched-block-name)
+- [S108 `unknown-tag`](#unknown-tag)
+- [S109 `unloaded-tag`](#unloaded-tag)
+- [S110 `ambiguous-unloaded-tag`](#ambiguous-unloaded-tag)
+- [S111 `unknown-filter`](#unknown-filter)
+- [S112 `unloaded-filter`](#unloaded-filter)
+- [S113 `ambiguous-unloaded-filter`](#ambiguous-unloaded-filter)
+- [S114 `expression-syntax-error`](#expression-syntax-error)
+- [S115 `filter-missing-argument`](#filter-missing-argument)
+- [S116 `filter-unexpected-argument`](#filter-unexpected-argument)
+- [S117 `extracted-rule-violation`](#extracted-rule-violation)
+- [S118 `tag-not-in-installed-apps`](#tag-not-in-installed-apps)
+- [S119 `filter-not-in-installed-apps`](#filter-not-in-installed-apps)
+- [S120 `unknown-library`](#unknown-library)
+- [S121 `library-not-in-installed-apps`](#library-not-in-installed-apps)
+- [S122 `extends-must-be-first`](#extends-must-be-first)
+- [S123 `multiple-extends`](#multiple-extends)
+
+## `parser-error`
+
+T100 · Default severity: **error**
+
+**What it does**
+
+Reports syntax errors in Django template markup — unclosed tags, malformed expressions, or invalid template syntax that prevents parsing.
+
+**Example**
+
+```htmldjango
+{{ value|
+```
+
+**How to fix**
+
+Correct the template syntax. Common causes include unclosed `{{` or `{%` delimiters, unmatched quotes in tag arguments, and malformed filter expressions.
+
+## `io-error`
+
+T900 · Default severity: **error**
+
+**What it does**
+
+Reports file I/O errors encountered when reading a template file.
+
+**How to fix**
+
+Check that the file exists, is readable, and is not locked by another process.
+
+## `config-error`
+
+T901 · Default severity: **error**
+
+**What it does**
+
+Reports configuration errors that prevent template processing.
+
+**How to fix**
+
+Check your djls configuration. See [Configuration](./configuration/index.md) for details.
+
+## `unclosed-tag`
+
+S100 · Default severity: **error**
+
+**What it does**
+
+Checks that block tags have their required closing tag. For example, `{% block %}` must have a matching `{% endblock %}`, and `{% if %}` must have `{% endif %}`.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` at render time for unclosed block tags.
+
+**Example**
+
+```htmldjango
+{% block content %}
+  <h1>Hello</h1>
+```
+
+**Use instead**
+
+```htmldjango
+{% block content %}
+  <h1>Hello</h1>
+{% endblock %}
+```
+
+## `unbalanced-structure`
+
+S101 · Default severity: **error**
+
+**What it does**
+
+Checks that block tags are properly matched. Detects cases where a closing tag doesn't correspond to its opening tag — for example, `{% if %}` closed by `{% endfor %}`.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` for mismatched block tags.
+
+**Example**
+
+```htmldjango
+{% if user.is_authenticated %}
+  <p>Welcome</p>
+{% endfor %}
+```
+
+**Use instead**
+
+```htmldjango
+{% if user.is_authenticated %}
+  <p>Welcome</p>
+{% endif %}
+```
+
+## `orphaned-tag`
+
+S102 · Default severity: **error**
+
+**What it does**
+
+Checks that intermediate tags (like `{% else %}`, `{% elif %}`, `{% empty %}`) appear inside their expected parent block.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` for intermediate tags that appear outside their parent structure.
+
+**Example**
+
+```htmldjango
+{% else %}
+  <p>Fallback</p>
+{% endif %}
+```
+
+**Use instead**
+
+```htmldjango
+{% if condition %}
+  <p>Match</p>
+{% else %}
+  <p>Fallback</p>
+{% endif %}
+```
+
+## `unmatched-block-name`
+
+S103 · Default severity: **error**
+
+**What it does**
+
+Checks that named `{% endblock %}` tags match their opening `{% block %}` name. Django allows `{% endblock name %}` as documentation — this rule verifies the name is correct.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` when the endblock name doesn't match. This usually indicates a copy-paste error or a refactoring that renamed one block but not the other.
+
+**Example**
+
+```htmldjango
+{% block sidebar %}
+  <nav>...</nav>
+{% endblock content %}
+```
+
+**Use instead**
+
+```htmldjango
+{% block sidebar %}
+  <nav>...</nav>
+{% endblock sidebar %}
+```
+
+## `unknown-tag`
+
+S108 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that a template tag exists in at least one known library. If the tag isn't found in any installed package or built-in library, it's reported as unknown.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` for tags it doesn't recognize.
+
+**Example**
+
+```htmldjango
+{% nonexistent_tag %}
+```
+
+**How to fix**
+
+Check the tag name for typos. If the tag comes from a third-party package, install it with `pip install <package>`.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls determines tag availability.
+
+## `unloaded-tag`
+
+S109 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that a template tag's library has been loaded with `{% load %}`. The tag exists and is available — it just hasn't been imported into this template.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` because the tag isn't registered in the template's tag namespace without a `{% load %}`.
+
+**Example**
+
+```htmldjango
+{# Missing: {% load humanize %} #}
+{{ value|intcomma }}
+{% lorem %}
+```
+
+**Use instead**
+
+```htmldjango
+{% load humanize %}
+{{ value|intcomma }}
+{% lorem %}
+```
+
+## `ambiguous-unloaded-tag`
+
+S110 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks for tags that exist in multiple libraries but none have been loaded. djls can't determine which library you intended.
+
+**Why is this bad?**
+
+Without a `{% load %}`, Django doesn't know which library to use, and loading the wrong one could give unexpected behavior.
+
+**Example**
+
+```htmldjango
+{# 'my_tag' exists in both 'library_a' and 'library_b' #}
+{% my_tag %}
+```
+
+**Use instead**
+
+```htmldjango
+{% load library_a %}
+{% my_tag %}
+```
+
+## `unknown-filter`
+
+S111 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that a template filter exists in at least one known library. If the filter isn't found in any installed package or built-in library, it's reported as unknown.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` for filters it doesn't recognize.
+
+**Example**
+
+```htmldjango
+{{ value|nonexistent_filter }}
+```
+
+**How to fix**
+
+Check the filter name for typos. If the filter comes from a third-party package, install it with `pip install <package>`.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls determines filter availability.
+
+## `unloaded-filter`
+
+S112 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that a template filter's library has been loaded with `{% load %}`. The filter exists and is available — it just hasn't been imported into this template.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` because the filter isn't registered in the template's filter namespace without a `{% load %}`.
+
+**Example**
+
+```htmldjango
+{# Missing: {% load humanize %} #}
+{{ value|intcomma }}
+```
+
+**Use instead**
+
+```htmldjango
+{% load humanize %}
+{{ value|intcomma }}
+```
+
+## `ambiguous-unloaded-filter`
+
+S113 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks for filters that exist in multiple libraries but none have been loaded. djls can't determine which library you intended.
+
+**Why is this bad?**
+
+Without a `{% load %}`, Django doesn't know which library to use, and loading the wrong one could give unexpected behavior.
+
+**Example**
+
+```htmldjango
+{# 'my_filter' exists in both 'library_a' and 'library_b' #}
+{{ value|my_filter }}
+```
+
+**Use instead**
+
+```htmldjango
+{% load library_a %}
+{{ value|my_filter }}
+```
+
+## `expression-syntax-error`
+
+S114 · Default severity: **error**
+
+**What it does**
+
+Validates operator usage in `{% if %}` and `{% elif %}` expressions. Catches missing operands, consecutive operators, and other syntax errors in boolean expressions.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` for malformed `{% if %}` expressions.
+
+**Example**
+
+```htmldjango
+{% if and x %}
+{% if x == %}
+{% if x y %}
+```
+
+**Use instead**
+
+```htmldjango
+{% if x and y %}
+{% if x == y %}
+{% if x %}
+```
+
+## `filter-missing-argument`
+
+S115 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that filters which require an argument are called with one. Filter arity is determined by static analysis of the filter's Python source code.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` when a filter that requires an argument is called without one.
+
+**Example**
+
+```htmldjango
+{{ value|default }}
+```
+
+**Use instead**
+
+```htmldjango
+{{ value|default:"N/A" }}
+```
+
+## `filter-unexpected-argument`
+
+S116 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that filters which don't accept an argument aren't called with one. Filter arity is determined by static analysis of the filter's Python source code.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` when a filter that doesn't accept arguments is called with one.
+
+**Example**
+
+```htmldjango
+{{ value|title:"arg" }}
+```
+
+**Use instead**
+
+```htmldjango
+{{ value|title }}
+```
+
+## `extracted-rule-violation`
+
+S117 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Validates tag arguments against rules extracted from the tag's Python source code. The extraction engine reads `split_contents()` guard conditions, function signatures, and keyword position checks directly from tag implementations.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` when a tag is called with the wrong number or kind of arguments.
+
+**Example**
+
+```htmldjango
+{% for item %}
+{% cycle %}
+{% url %}
+```
+
+**Use instead**
+
+```htmldjango
+{% for item in items %}
+{% cycle "a" "b" "c" %}
+{% url "view-name" %}
+```
+
+## `tag-not-in-installed-apps`
+
+S118 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks for tags that exist in an installed Python package but whose Django app isn't in `INSTALLED_APPS`. The package is installed — the app just needs to be activated.
+
+**Why is this bad?**
+
+Django won't discover the template tag library unless the app is listed in `INSTALLED_APPS`.
+
+**Example**
+
+```htmldjango
+{# django-crispy-forms is installed, but 'crispy_forms' not in INSTALLED_APPS #}
+{% load crispy_forms_tags %}
+{% crispy form %}
+```
+
+**How to fix**
+
+Add the app to `INSTALLED_APPS` in your Django settings:
+
+```python
+INSTALLED_APPS = [
+    # ...
+    "crispy_forms",
+]
+```
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls determines tag availability.
+
+## `filter-not-in-installed-apps`
+
+S119 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks for filters that exist in an installed Python package but whose Django app isn't in `INSTALLED_APPS`. The package is installed — the app just needs to be activated.
+
+**Why is this bad?**
+
+Django won't discover the template tag library (and its filters) unless the app is listed in `INSTALLED_APPS`.
+
+**Example**
+
+```htmldjango
+{# Package is installed, but its app not in INSTALLED_APPS #}
+{% load some_filters %}
+{{ value|custom_filter }}
+```
+
+**How to fix**
+
+Add the app to `INSTALLED_APPS` in your Django settings.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls determines filter availability.
+
+## `unknown-library`
+
+S120 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks that the library name in a `{% load %}` tag refers to a known template tag library. If the library isn't found in any installed package or built-in, it's reported as unknown.
+
+**Why is this bad?**
+
+Django raises `TemplateSyntaxError` when `{% load %}` references a library that doesn't exist.
+
+**Example**
+
+```htmldjango
+{% load nonexistent_lib %}
+```
+
+**How to fix**
+
+Check the library name for typos. If the library comes from a third-party package, install it with `pip install <package>`.
+
+## `library-not-in-installed-apps`
+
+S121 · Default severity: **error** · Requires [inspector](./template-validation.md#inspector-availability)
+
+**What it does**
+
+Checks for `{% load %}` library names that exist in an installed Python package but whose Django app isn't in `INSTALLED_APPS`.
+
+**Why is this bad?**
+
+Django won't discover the template tag library unless the app is listed in `INSTALLED_APPS`, and `{% load %}` will fail with `TemplateSyntaxError`.
+
+**Example**
+
+```htmldjango
+{# django-crispy-forms is installed, but 'crispy_forms' not in INSTALLED_APPS #}
+{% load crispy_forms_tags %}
+```
+
+**How to fix**
+
+Add the app to `INSTALLED_APPS` in your Django settings:
+
+```python
+INSTALLED_APPS = [
+    # ...
+    "crispy_forms",
+]
+```
+
+## `extends-must-be-first`
+
+S122 · Default severity: **error**
+
+**What it does**
+
+Checks that `{% extends %}` is the first tag in the template. Text and `{# comments #}` are allowed before it, but no other tags or variable expressions (`{{ ... }}`) may appear first.
+
+**Why is this bad?**
+
+Django enforces this at parse time — `{% extends %}` must come before any other template tags or variables.
+
+**Example**
+
+```htmldjango
+{% load i18n %}
+{% extends "base.html" %}
+```
+
+**Use instead**
+
+```htmldjango
+{% extends "base.html" %}
+{% load i18n %}
+```
+
+## `multiple-extends`
+
+S123 · Default severity: **error**
+
+**What it does**
+
+Checks that `{% extends %}` appears at most once in a template.
+
+**Why is this bad?**
+
+A template can only extend one parent. Django raises `TemplateSyntaxError` if multiple `{% extends %}` tags are found.
+
+**Example**
+
+```htmldjango
+{% extends "base.html" %}
+{% extends "other.html" %}
+```
+
+**Use instead**
+
+```htmldjango
+{% extends "base.html" %}
+```

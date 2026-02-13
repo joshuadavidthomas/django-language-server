@@ -24,6 +24,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added human-readable rule names to all diagnostic codes (e.g., S108 is now `unknown-tag`). Diagnostic codes in your editor now link to documentation at [djls.joshthomas.dev/rules/](https://djls.joshthomas.dev/rules/).
+- Added [Rules](https://djls.joshthomas.dev/rules/) documentation page with descriptions, examples, and fixes for every diagnostic.
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
 - Filesystem cache for inspector responses (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.

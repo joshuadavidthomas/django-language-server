@@ -2,6 +2,8 @@
 
 Django Language Server validates your Django templates as you write them, catching errors before you run your application. This page explains how validation works, what it can detect, and its limitations.
 
+For a complete reference of every diagnostic rule with examples, see [Rules](./rules.md).
+
 ## How It Works
 
 Template validation relies on three systems working together:
