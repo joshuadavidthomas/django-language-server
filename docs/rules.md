@@ -227,17 +227,19 @@ Django raises `TemplateSyntaxError` because the tag isn't registered in the temp
 **Example**
 
 ```htmldjango
-{# Missing: {% load humanize %} #}
-{{ value|intcomma }}
-{% lorem %}
+{# Missing: {% load cache %} #}
+{% cache 500 sidebar %}
+  ...
+{% endcache %}
 ```
 
 **Use instead**
 
 ```htmldjango
-{% load humanize %}
-{{ value|intcomma }}
-{% lorem %}
+{% load cache %}
+{% cache 500 sidebar %}
+  ...
+{% endcache %}
 ```
 
 ## `ambiguous-unloaded-tag`
