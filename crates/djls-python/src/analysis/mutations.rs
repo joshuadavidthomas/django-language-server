@@ -218,8 +218,8 @@ impl StatementVisitor<'_> for OptionCheckVisitor<'_> {
                         }
                     }
                 } else {
-                    // else branch — if it raises TemplateSyntaxError, unknown options are rejected
-                    if crate::analysis::rules::body_raises_template_syntax_error(&clause.body) {
+                    // else branch — if it raises, unknown options are rejected
+                    if crate::analysis::rules::body_raises_exception(&clause.body) {
                         *self.rejects_unknown = true;
                     }
                 }

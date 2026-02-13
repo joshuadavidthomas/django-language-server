@@ -1,18 +1,18 @@
 //! Constraint extraction from if/raise conditions.
 //!
-//! Finds `if condition: raise TemplateSyntaxError(...)` patterns and
-//! interprets the condition against the abstract environment to produce
+//! Finds `if condition: raise SomeException(...)` patterns and interprets
+//! the condition against the abstract environment to produce
 //! `ArgumentCountConstraint` and `RequiredKeyword` values.
+//!
+//! Any uncaught raise in an if-body is treated as a validation constraint,
+//! regardless of exception type (e.g., `TemplateSyntaxError`, `ValueError`).
 
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprBoolOp;
-use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprCompare;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
@@ -101,12 +101,12 @@ impl ConstraintSet {
 pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet {
     let mut result = ConstraintSet::default();
 
-    if body_raises_template_syntax_error(&if_stmt.body) {
+    if body_raises_exception(&if_stmt.body) {
         result.extend(eval_condition(&if_stmt.test, env));
     }
 
     for clause in &if_stmt.elif_else_clauses {
-        if body_raises_template_syntax_error(&clause.body) {
+        if body_raises_exception(&clause.body) {
             if let Some(test) = &clause.test {
                 result.extend(eval_condition(test, env));
             }
@@ -120,8 +120,8 @@ pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet 
 
 /// Evaluate a condition expression as a constraint.
 ///
-/// The condition guards a `raise TemplateSyntaxError(...)`, so it describes
-/// when the code errors. Constraints capture what's valid (the negation).
+/// The condition guards a `raise` statement, so it describes when the code
+/// errors. Constraints capture what's valid (the negation).
 fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
     match expr {
         // `or`: error when either side is true → each is an independent constraint
@@ -353,7 +353,11 @@ fn eval_range_constraint(
     ])
 }
 
-pub(super) fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
+/// Check whether a statement body contains a direct `raise` with an exception.
+///
+/// Only checks direct children (does not recurse into nested control flow).
+/// Any exception type counts — `TemplateSyntaxError`, `ValueError`, etc.
+pub(super) fn body_raises_exception(body: &[Stmt]) -> bool {
     let mut visitor = RaiseFinder::default();
     visitor.visit_body(body);
     visitor.found
@@ -370,22 +374,12 @@ impl StatementVisitor<'_> for RaiseFinder {
             return;
         }
 
-        if let Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(exc), .. }) = stmt {
-            if is_template_syntax_error_call(exc) {
-                self.found = true;
-            }
+        if matches!(
+            stmt,
+            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. })
+        ) {
+            self.found = true;
         }
-    }
-}
-
-pub(super) fn is_template_syntax_error_call(expr: &Expr) -> bool {
-    let Expr::Call(ExprCall { func, .. }) = expr else {
-        return false;
-    };
-    match func.as_ref() {
-        Expr::Name(ExprName { id, .. }) => id.as_str() == "TemplateSyntaxError",
-        Expr::Attribute(ExprAttribute { attr, .. }) => attr.as_str() == "TemplateSyntaxError",
-        _ => false,
     }
 }
 
@@ -765,10 +759,10 @@ def do_tag(parser, token):
         );
     }
 
-    // Fabricated: tests that non-TemplateSyntaxError raises are ignored.
-    // Robustness test — no corpus function raises ValueError in a guard.
+    // Fabricated: tests that non-TemplateSyntaxError raises are also extracted.
+    // Any uncaught raise in an if-body is a validation constraint.
     #[test]
-    fn non_template_syntax_error_ignored() {
+    fn non_template_syntax_error_extracted() {
         let c = extract_from_source(
             r#"
 def do_tag(parser, token):
@@ -777,7 +771,93 @@ def do_tag(parser, token):
         raise ValueError("not a template error")
 "#,
         );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+    }
+
+    // Fabricated: tests qualified exception raise `module.SomeError(...)`.
+    // Some libraries use `from django.template import exceptions` style.
+    #[test]
+    fn qualified_exception_extracted() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 3:
+        raise template.TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
+    }
+
+    // Fabricated: tests TypeError raise — seen in corpus (e.g., wagtail).
+    #[test]
+    fn type_error_extracted() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[1] != "as":
+        raise TypeError("expected 'as' keyword")
+"#,
+        );
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: SplitPosition::Forward(1),
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    // Fabricated: tests RuntimeError raise — any exception type should work.
+    #[test]
+    fn runtime_error_extracted() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) > 4:
+        raise RuntimeError("too many arguments")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
+    }
+
+    // Fabricated: tests bare `raise` (re-raise) is NOT extracted — only
+    // raises with an explicit exception expression count.
+    #[test]
+    fn bare_raise_not_extracted() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise
+"#,
+        );
         assert!(c.arg_constraints.is_empty());
+    }
+
+    // Fabricated: tests mixed exception types across multiple if/raise guards.
+    #[test]
+    fn mixed_exception_types() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("too few")
+    if len(bits) > 5:
+        raise ValueError("too many")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Max(5)
+            ]
+        );
     }
 
     // Corpus: regroup in defaulttags.py — `len(bits) != 6`, `bits[2] != "by"`,

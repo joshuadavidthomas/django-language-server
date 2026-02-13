@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- Widened templatetag extraction to catch any uncaught exception in compilation functions, not just `TemplateSyntaxError`. Tags that raise `ValueError`, `TypeError`, or other exceptions in guards now produce validation constraints.
+
 ### Removed
 
 - Dropped Django 5.1 from supported versions (end-of-life).
