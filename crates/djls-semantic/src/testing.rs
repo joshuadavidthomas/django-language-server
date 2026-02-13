@@ -73,7 +73,7 @@ pub(crate) fn library_filter_json(name: &str, load_name: &str, module: &str) -> 
 pub(crate) fn make_template_libraries(
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
-    libraries: &HashMap<String, String>,
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
     let mut symbols: Vec<InspectorLibrarySymbol> = tags
@@ -106,7 +106,7 @@ pub(crate) fn make_template_libraries(
 
 pub(crate) fn make_template_libraries_tags_only(
     tags: &[serde_json::Value],
-    libraries: &HashMap<String, String>,
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
     make_template_libraries(tags, &[], libraries, builtins)

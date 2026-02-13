@@ -1448,11 +1448,11 @@ mod tests {
     }
 
     // Helper to build AvailableSymbols for testing load-scoped completions
-    fn build_available_symbols(
-        template_libraries: &TemplateLibraries,
-        loaded_libs: &djls_semantic::LoadedLibraries,
+    fn build_available_symbols<'a>(
+        template_libraries: &'a TemplateLibraries,
+        loaded_libs: &'a djls_semantic::LoadedLibraries,
         position: u32,
-    ) -> AvailableSymbols {
+    ) -> AvailableSymbols<'a> {
         AvailableSymbols::at_position(loaded_libs, template_libraries, position)
     }
 
