@@ -1,0 +1,259 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "jazzmin.templatetags.jazzmin::tag::action_message_to_list":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: action
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::admin_extra_filters":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: cl
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_changeform_template":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: adminform
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_jazzmin_settings":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_jazzmin_ui_tweaks":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_jazzmin_version":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_sections":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: admin_form
+        required: true
+        kind: Variable
+        position: 0
+      - name: inline_admin_formsets
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_side_menu":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: using
+        required: false
+        kind: Variable
+        position: 0
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_top_menu":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+      - name: admin_site
+        required: false
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_user_avatar":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::get_user_menu":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+      - name: admin_site
+        required: false
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::header_class":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: header
+        required: true
+        kind: Variable
+        position: 0
+      - name: forloop
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::jazzmin_list_filter":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: cl
+        required: true
+        kind: Variable
+        position: 0
+      - name: spec
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::jazzmin_paginator_number":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: change_list
+        required: true
+        kind: Variable
+        position: 0
+      - name: i
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::jazzy_admin_url":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: value
+        required: true
+        kind: Variable
+        position: 0
+      - name: admin_site
+        required: false
+        kind: Variable
+        position: 1
+    as_var: strip
+  "jazzmin.templatetags.jazzmin::tag::sidebar_status":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+filter_arities:
+  "jazzmin.templatetags.jazzmin::filter::app_is_installed":
+    expects_arg: false
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::as_json":
+    expects_arg: false
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::can_view_self":
+    expects_arg: false
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::debug":
+    expects_arg: false
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::has_fieldsets":
+    expects_arg: false
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::has_jazzmin_setting":
+    expects_arg: true
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::remove_lang":
+    expects_arg: true
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::style_bold_first_word":
+    expects_arg: false
+    arg_optional: false
+  "jazzmin.templatetags.jazzmin::filter::unicode_slugify":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

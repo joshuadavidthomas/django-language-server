@@ -1,0 +1,26 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "readthedocs.core.templatetags.privacy_tags::tag::get_public_projects":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+filter_arities:
+  "readthedocs.core.templatetags.privacy_tags::filter::is_admin":
+    expects_arg: true
+    arg_optional: false
+  "readthedocs.core.templatetags.privacy_tags::filter::is_member":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

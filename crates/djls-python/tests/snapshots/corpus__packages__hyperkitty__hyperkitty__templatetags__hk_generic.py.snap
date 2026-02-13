@@ -1,0 +1,107 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "hyperkitty.templatetags.hk_generic::tag::export_allowed":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hyperkitty.templatetags.hk_generic::tag::gravatar":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    as_var: strip
+  "hyperkitty.templatetags.hk_generic::tag::is_message_new":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: refdate
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "hyperkitty.templatetags.hk_generic::tag::settings_value_equals":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+      - name: value
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+filter_arities:
+  "hyperkitty.templatetags.hk_generic::filter::date_with_senders_timezone":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::escapeemail":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::escapeemaillinks":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::get_item":
+    expects_arg: true
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::is_unread_by":
+    expects_arg: true
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::monthtodate":
+    expects_arg: true
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::multiply":
+    expects_arg: true
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::num_comments":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::reply_subject":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::snip_pgp":
+    expects_arg: true
+    arg_optional: true
+  "hyperkitty.templatetags.hk_generic::filter::snip_quoted":
+    expects_arg: true
+    arg_optional: true
+  "hyperkitty.templatetags.hk_generic::filter::sort":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::sort_by_name":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::strip_subject":
+    expects_arg: true
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::to_json":
+    expects_arg: false
+    arg_optional: false
+  "hyperkitty.templatetags.hk_generic::filter::truncatesmart":
+    expects_arg: true
+    arg_optional: true
+  "hyperkitty.templatetags.hk_generic::filter::until":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

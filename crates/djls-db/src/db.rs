@@ -230,16 +230,8 @@ mod invalidation_tests {
     use djls_conf::Settings;
     use djls_project::Interpreter;
     use djls_project::Knowledge;
-    use djls_project::LibraryName;
-    use djls_project::LibraryOrigin;
     use djls_project::Project;
-    use djls_project::PyModuleName;
-    use djls_project::SymbolDefinition;
     use djls_project::TemplateLibraries;
-    use djls_project::TemplateLibrary;
-    use djls_project::TemplateSymbol;
-    use djls_project::TemplateSymbolKind;
-    use djls_project::TemplateSymbolName;
     use djls_semantic::Db as SemanticDb;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
@@ -642,58 +634,6 @@ def my_filter(value, arg):
             project.template_libraries(&db).loadable.is_empty(),
             "template libraries should initially be empty"
         );
-    }
-
-    #[test]
-    fn discovered_template_libraries_setter_updates_value() {
-        let (mut db, _event_log) = test_db_with_project();
-
-        let project = db.project.lock().unwrap().unwrap();
-
-        let name = LibraryName::parse("humanize").unwrap();
-        let app_module = PyModuleName::parse("django.contrib.humanize").unwrap();
-        let module = PyModuleName::parse("django.contrib.humanize.templatetags.humanize").unwrap();
-        let source_path = camino::Utf8PathBuf::from(
-            "/site-packages/django/contrib/humanize/templatetags/humanize.py",
-        );
-
-        let origin = LibraryOrigin {
-            app: app_module,
-            module,
-            path: source_path.clone(),
-        };
-
-        let mut library = TemplateLibrary::new_discovered(name, origin);
-        library.symbols = vec![
-            TemplateSymbol {
-                kind: TemplateSymbolKind::Filter,
-                name: TemplateSymbolName::parse("intcomma").unwrap(),
-                definition: SymbolDefinition::LibraryFile(source_path.clone()),
-                doc: None,
-            },
-            TemplateSymbol {
-                kind: TemplateSymbolKind::Filter,
-                name: TemplateSymbolName::parse("intword").unwrap(),
-                definition: SymbolDefinition::LibraryFile(source_path),
-                doc: None,
-            },
-        ];
-
-        let next = project
-            .template_libraries(&db)
-            .clone()
-            .apply_discovery(vec![library]);
-        project.set_template_libraries(&mut db).to(next);
-
-        assert_eq!(
-            project.template_libraries(&db).discovery_knowledge,
-            Knowledge::Known
-        );
-        assert!(project
-            .template_libraries(&db)
-            .loadable
-            .keys()
-            .any(|k| k.as_str() == "humanize"));
     }
 
     #[test]

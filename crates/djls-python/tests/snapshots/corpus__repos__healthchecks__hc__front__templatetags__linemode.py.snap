@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "hc.front.templatetags.linemode::tag::linemode":
+    end_tag: endlinemode
+    intermediates: []
+    opaque: false

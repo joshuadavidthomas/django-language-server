@@ -1,0 +1,10 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "readthedocs.invitations.templatetags.invitations::filter::can_revoke_invitation":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

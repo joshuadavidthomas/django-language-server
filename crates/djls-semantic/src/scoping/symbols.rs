@@ -252,8 +252,6 @@ impl<'a> AvailableSymbols<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use djls_source::Span;
 
     use super::super::LoadKind;

@@ -1,0 +1,153 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "hc.front.templatetags.hc_extras::tag::absolute_site_logo_url":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::debug_warning":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::now_isoformat":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::site_hostname":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::site_name":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::site_root":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::site_version":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::sort_url":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: sort
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "hc.front.templatetags.hc_extras::tag::support_email":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+filter_arities:
+  "hc.front.templatetags.hc_extras::filter::add6days":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::break_underscore":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::decode":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::down_title":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::first5":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::format_headers":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::format_ping_endpoint":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::guess_schedule":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::hc_approx_duration":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::hc_duration":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::hms":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::mangle_link":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::mask_key":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::mask_phone":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::mask_ro_key":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::mask_rw_key":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::num_down_title":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::pct":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::sortbydowntime":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::sortchecks":
+    expects_arg: true
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::timestamp":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::underline":
+    expects_arg: false
+    arg_optional: false
+  "hc.front.templatetags.hc_extras::filter::uppercase_if_down":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

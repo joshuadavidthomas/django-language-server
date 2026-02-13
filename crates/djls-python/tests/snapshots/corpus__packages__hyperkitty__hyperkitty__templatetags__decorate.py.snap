@@ -1,0 +1,10 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "hyperkitty.templatetags.decorate::filter::render":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

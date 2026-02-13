@@ -1,6 +1,5 @@
 mod cache;
 mod db;
-mod discover;
 mod django;
 mod inspector;
 mod names;
@@ -12,7 +11,6 @@ mod symbols;
 pub use cache::load_cached_inspector_response;
 pub use cache::save_inspector_response;
 pub use db::Db;
-pub use discover::discover_template_libraries;
 pub use django::template_dirs;
 pub use inspector::Inspector;
 pub use names::LibraryName;

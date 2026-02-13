@@ -1,0 +1,138 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "blog.templatetags.blog_tags::tag::add_qsarg":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+      - name: value
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "blog.templatetags.blog_tags::tag::blog_mixed_list":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: items
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+  "blog.templatetags.blog_tags::tag::blog_mixed_list_with_dates":
+    arg_constraints:
+      - Min: 2
+      - Max: 5
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: items
+        required: true
+        kind: Variable
+        position: 0
+      - name: year_headers
+        required: false
+        kind: Variable
+        position: 1
+      - name: day_headers
+        required: false
+        kind: Variable
+        position: 2
+      - name: day_links
+        required: false
+        kind: Variable
+        position: 3
+    as_var: keep
+  "blog.templatetags.blog_tags::tag::comments_list":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: comments
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+  "blog.templatetags.blog_tags::tag::comments_list_with_headers":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: comments
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+  "blog.templatetags.blog_tags::tag::page_href":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: page
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "blog.templatetags.blog_tags::tag::remove_qsarg":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+      - name: value
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "blog.templatetags.blog_tags::tag::replace_qsarg":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+      - name: value
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+filter_arities:
+  "blog.templatetags.blog_tags::filter::markdownify":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}
