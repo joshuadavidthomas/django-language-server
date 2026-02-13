@@ -2,30 +2,7 @@
 
 ## Requirements
 
-An client that supports the Language Server Protocol (LSP) is required.
-
-Django Language Server aims to supports all actively maintained versions of Python and Django. Currently this includes:
-
-<!-- [[[cog
-import subprocess
-import cog
-
-from noxfile import DJ_VERSIONS
-from noxfile import PY_VERSIONS
-from noxfile import display_version
-
-django_versions = [
-    display_version(version) for version in DJ_VERSIONS if version != "main"
-]
-
-cog.outl(f"- Python {', '.join(PY_VERSIONS)}")
-cog.outl(f"- Django {', '.join(django_versions)}")
-]]] -->
-- Python 3.10, 3.11, 3.12, 3.13, 3.14
-- Django 4.2, 5.1, 5.2, 6.0
-<!-- [[[end]]] -->
-
-See [Versioning](versioning.md) for details on how this project's version indicates Django compatibility.
+A client that supports the Language Server Protocol (LSP) is required, along with a supported version of Python and Django. See [Versioning](versioning.md) for the full list of supported versions and the version support policy.
 
 ## Try it out
 
