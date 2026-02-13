@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Removed
+
+- Dropped Django 5.1 from supported versions (end-of-life).
+
 ### Added
 
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
