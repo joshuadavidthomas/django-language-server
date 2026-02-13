@@ -249,6 +249,10 @@ impl StatementVisitor<'_> for RaiseFinder {
                 self.found = true;
             }
             // Recurse into control flow to check all possible execution paths.
+            // NOTE: Recursing into Stmt::Try means a raise caught by an except
+            // handler is still treated as "this case can error." This is a known
+            // false positive — no corpus projects exhibit this pattern, but it's
+            // possible in the wild.
             Stmt::If(_)
             | Stmt::For(_)
             | Stmt::While(_)
