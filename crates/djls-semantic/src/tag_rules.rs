@@ -26,8 +26,8 @@ fn resolve_position_index(position: &djls_python::SplitPosition, bits_len: usize
     position.to_bits_index(bits_len)
 }
 
-/// Constraints express the conditions from Django source that raise
-/// `TemplateSyntaxError`. The extraction captures what makes the tag **valid**:
+/// Constraints express the conditions from Django source that raise exceptions
+/// in guard patterns. The extraction captures what makes the tag **valid**:
 /// - `Exact(N)`: valid when `split_len == N`
 /// - `Min(N)`: valid when `split_len >= N`
 /// - `Max(N)`: valid when `split_len <= N`

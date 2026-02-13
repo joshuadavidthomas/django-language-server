@@ -110,7 +110,7 @@ impl AsVar {
 
 /// Validation rules extracted from a tag's compile function.
 ///
-/// Captures the conditions under which `TemplateSyntaxError` is raised,
+/// Captures the conditions under which exceptions are raised in guards,
 /// expressed as structured constraints on token count, keyword positions,
 /// and option values.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -251,7 +251,7 @@ pub struct RequiredKeyword {
 /// A constraint that a specific position must hold one of a fixed set of values.
 ///
 /// For example, `{% autoescape on %}` requires `args[1]` to be `"on"` or `"off"`.
-/// Extracted from patterns like `if arg not in ("on", "off"): raise TemplateSyntaxError(...)`.
+/// Extracted from patterns like `if arg not in ("on", "off"): raise SomeException(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChoiceAt {
     pub position: SplitPosition,

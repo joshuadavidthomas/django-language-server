@@ -90,7 +90,7 @@ IDE features: completions, diagnostics, snippets, goto definition, find referenc
 
 ### `crates/djls-python`
 
-Static analysis of Python templatetag files using the [Ruff](https://github.com/astral-sh/ruff) parser. This crate parses Python source into an AST, then walks it looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators. From the decorated functions it extracts validation rules — argument count constraints, required keywords, `as var` support, block specs, filter arity — by analyzing function signatures, decorators, and `if condition: raise TemplateSyntaxError(...)` guard patterns.
+Static analysis of Python templatetag files using the [Ruff](https://github.com/astral-sh/ruff) parser. This crate parses Python source into an AST, then walks it looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators. From the decorated functions it extracts validation rules — argument count constraints, required keywords, `as var` support, block specs, filter arity — by analyzing function signatures, decorators, and `if condition: raise ...` guard patterns.
 
 **Architecture Invariant:** this crate never imports Django or runs Python. It parses Python source as text with the same Ruff parser that powers the Ruff linter. If a templatetag file is syntactically valid Python, we can analyze it. We don't need a working Django installation, a virtual environment, or even a Python interpreter.
 
@@ -159,7 +159,7 @@ This means that in the common case (you've opened this project before and the en
 
 The inspector reports *what* tags and filters exist. But to actually validate usage — "does this tag accept these arguments?" — the server needs to know *how* each tag and filter works. Django's template engine answers this question at runtime, by calling the tag's compilation function and seeing what happens. We don't have a runtime.
 
-Instead, `djls-python` parses templatetag Python source files with the Ruff parser and extracts validation rules directly from the AST. It walks each module looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators, then analyzes the decorated function's signature, decorators, and `if condition: raise TemplateSyntaxError(...)` guard patterns to infer:
+Instead, `djls-python` parses templatetag Python source files with the Ruff parser and extracts validation rules directly from the AST. It walks each module looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators, then analyzes the decorated function's signature, decorators, and `if condition: raise ...` guard patterns to infer:
 
 - **Tag rules** — argument count constraints (min/max positional args), required keywords, choice-constrained positions, `as var` support, block specs (which intermediate and end tags a block tag expects)
 - **Filter arity** — whether a filter requires an argument, accepts one optionally, or takes none
