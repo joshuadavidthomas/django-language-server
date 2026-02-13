@@ -6,7 +6,7 @@ You should first check if there is a [GitHub issue](https://github.com/joshuadav
 
 Not all contributions need to start with an issue, such as typo fixes in documentation or version bumps to Python or Django that require no internal code changes, but generally, it is a good idea to open an issue first.
 
-We adhere to Django's Code of Conduct in all interactions and expect all contributors to do the same. Please read the [Code of Conduct](https://www.djangoproject.com/conduct/) before contributing.
+We adhere to a version of Django's Code of Conduct in all interactions and expect all contributors to do the same. Please read the [Code of Conduct](https://github.com/joshuadavidthomas/django-language-server?tab=coc-ov-file) before contributing.
 
 ## Development
 
