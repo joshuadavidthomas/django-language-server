@@ -6,17 +6,11 @@ Django Language Server auto-detects your project configuration in most cases. It
 
 ## Handling environment variables
 
-Django projects commonly read secrets and configuration from environment variables:
+Django projects commonly read secrets and configuration from environment variables — whether through `os.environ`, `django-environ`, `environs`, `python-decouple`, or similar libraries.
 
-```python
-# settings.py
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
-DATABASE_URL = os.environ["DATABASE_URL"]
-```
+When a required variable is missing, the language server's inspector process fails to initialize Django and you'll see an error like:
 
-When these variables are missing, the language server's inspector process fails to initialize Django and you'll see an error like:
-
-> Missing required environment variable: DJANGO_SECRET_KEY. Your Django settings reference os.environ['DJANGO_SECRET_KEY'] but it is not set in the editor's environment.
+> Missing required environment variable: DJANGO_SECRET_KEY. Django settings failed to load because 'DJANGO_SECRET_KEY' is not set in the editor's environment.
 
 This happens because editors launched from desktop environments (app launchers, dock icons) don't inherit shell variables set in `.bashrc`, `.zshrc`, or similar.
 
@@ -26,7 +20,7 @@ The inspector subprocess inherits the full environment of its parent process (th
 
 ### Recommended setup
 
-If your Django settings read from `os.environ`, create a `.env` file in your project root:
+If your Django settings depend on environment variables, create a `.env` file in your project root:
 
 ```shell
 # .env
@@ -101,7 +95,7 @@ Additional directories to add to Python's import search path when the inspector 
 
 Path to an environment file (relative to the project root) whose variables are injected into the inspector subprocess.
 
-Many Django projects use `.env` files with `python-dotenv` or similar for secrets like `DJANGO_SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]`. When the editor is launched from a desktop environment rather than a terminal, those shell variables aren't available and the inspector fails. This option tells the server to read the `.env` file and forward the variables, so Django settings load correctly without duplicating secrets into config files.
+Many Django projects read secrets and configuration from environment variables at settings load time. When the editor is launched from a desktop environment rather than a terminal, those variables aren't available and the inspector fails. This option tells the server to read a `.env` file and forward the variables to the inspector process, so Django settings load correctly without duplicating secrets into config files.
 
 If no `env_file` is configured, the server looks for a `.env` file in the project root automatically. If the file doesn't exist, nothing happens. If you set `env_file` explicitly and the file is missing, a warning is logged.
 
