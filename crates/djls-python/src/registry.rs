@@ -95,17 +95,6 @@ impl RegistrationKind {
     }
 }
 
-/// Collect registrations from Python source.
-#[must_use]
-pub fn collect_registrations_from_source(source: &str) -> Vec<RegistrationInfo> {
-    let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-        return Vec::new();
-    };
-
-    let module = parsed.into_syntax();
-    collect_registrations_from_body(&module.body)
-}
-
 /// Collect registrations from a pre-parsed module body.
 ///
 /// This avoids re-parsing the source when the caller already has the AST.

@@ -462,45 +462,6 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn apply_discovery<I>(mut self, discovered: I) -> Self
-    where
-        I: IntoIterator<Item = TemplateLibrary>,
-    {
-        self.discovery_knowledge = Knowledge::Known;
-
-        for mut lib in discovered {
-            let Some(origin) = lib.origin().cloned() else {
-                continue;
-            };
-
-            let entry = self.loadable.entry(lib.name.clone()).or_default();
-
-            if let Some(existing) = entry
-                .iter_mut()
-                .find(|existing| existing.module() == &origin.module)
-            {
-                if let LibraryStatus::Active {
-                    origin: existing_origin,
-                    ..
-                } = &mut existing.status
-                {
-                    if existing_origin.is_none() {
-                        *existing_origin = Some(origin.clone());
-                    }
-                }
-
-                for symbol in lib.symbols.drain(..) {
-                    existing.merge_symbol(symbol);
-                }
-            } else {
-                entry.push(lib);
-            }
-        }
-
-        self
-    }
-
-    #[must_use]
     pub fn apply_inspector(mut self, response: Option<TemplateLibrariesResponse>) -> Self {
         let Some(response) = response else {
             self.inspector_knowledge = Knowledge::Unknown;

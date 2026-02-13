@@ -12,7 +12,6 @@ mod signature;
 
 use djls_source::File;
 use djls_source::FileKind;
-pub use registry::collect_registrations_from_source;
 pub use registry::RegistrationInfo;
 pub use registry::RegistrationKind;
 use ruff_python_ast::statement_visitor::walk_stmt;

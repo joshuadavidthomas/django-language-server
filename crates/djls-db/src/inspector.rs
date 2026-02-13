@@ -1,7 +1,6 @@
 use djls_project::Db as ProjectDb;
 use djls_project::TemplateLibrariesRequest;
 use djls_project::TemplateLibrariesResponse;
-use djls_project::TemplateLibrary;
 use salsa::Setter;
 
 use crate::db::DjangoDatabase;
@@ -136,22 +135,6 @@ impl DjangoDatabase {
             project
                 .set_extracted_external_rules(self)
                 .to(new_extraction);
-        }
-    }
-
-    /// Update the project's discovered template libraries.
-    ///
-    /// This is a side-effect operation that should be run off the LSP request path.
-    /// It only calls Salsa setters when values have actually changed.
-    pub fn update_discovered_template_libraries(&mut self, libraries: &[TemplateLibrary]) {
-        let Some(project) = self.project() else {
-            return;
-        };
-
-        let current = project.template_libraries(self).clone();
-        let next = current.apply_discovery(libraries.iter().cloned());
-        if project.template_libraries(self) != &next {
-            project.set_template_libraries(self).to(next);
         }
     }
 }
