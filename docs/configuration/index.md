@@ -97,7 +97,7 @@ Path to an environment file (relative to the project root) whose variables are i
 
 Many Django projects read secrets and configuration from environment variables at settings load time. When the editor is launched from a desktop environment rather than a terminal, those variables aren't available and the inspector fails. This option tells the server to read a `.env` file and forward the variables to the inspector process, so Django settings load correctly without duplicating secrets into config files.
 
-If no `env_file` is configured, the server looks for a `.env` file in the project root automatically. If the file doesn't exist, nothing happens. If you set `env_file` explicitly and the file is missing, a warning is logged.
+If no `env_file` is configured, the server looks for a `.env` file in the project root automatically. If the file doesn't exist, nothing happens. When `env_file` is set explicitly and the file is missing, a warning is logged.
 
 **When to configure:**
 
