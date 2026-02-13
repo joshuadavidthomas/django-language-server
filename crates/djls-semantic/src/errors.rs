@@ -119,6 +119,32 @@ pub enum ValidationError {
 
 impl ValidationError {
     #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::UnclosedTag { .. } => "unclosed-tag",
+            Self::UnbalancedStructure { .. } => "unbalanced-structure",
+            Self::OrphanedTag { .. } => "orphaned-tag",
+            Self::UnmatchedBlockName { .. } => "unmatched-block-name",
+            Self::UnknownTag { .. } => "unknown-tag",
+            Self::UnloadedTag { .. } => "unloaded-tag",
+            Self::AmbiguousUnloadedTag { .. } => "ambiguous-unloaded-tag",
+            Self::UnknownFilter { .. } => "unknown-filter",
+            Self::UnloadedFilter { .. } => "unloaded-filter",
+            Self::AmbiguousUnloadedFilter { .. } => "ambiguous-unloaded-filter",
+            Self::ExpressionSyntaxError { .. } => "expression-syntax-error",
+            Self::FilterMissingArgument { .. } => "filter-missing-argument",
+            Self::FilterUnexpectedArgument { .. } => "filter-unexpected-argument",
+            Self::ExtractedRuleViolation { .. } => "extracted-rule-violation",
+            Self::TagNotInInstalledApps { .. } => "tag-not-in-installed-apps",
+            Self::FilterNotInInstalledApps { .. } => "filter-not-in-installed-apps",
+            Self::UnknownLibrary { .. } => "unknown-library",
+            Self::LibraryNotInInstalledApps { .. } => "library-not-in-installed-apps",
+            Self::ExtendsMustBeFirst { .. } => "extends-must-be-first",
+            Self::MultipleExtends { .. } => "multiple-extends",
+        }
+    }
+
+    #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
             Self::UnclosedTag { .. } => "S100",

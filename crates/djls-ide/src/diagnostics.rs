@@ -16,6 +16,7 @@ use crate::ext::SpanExt;
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
     fn diagnostic_code(&self) -> &'static str;
+    fn diagnostic_name(&self) -> &'static str;
 
     fn message(&self) -> String {
         self.to_string()
@@ -27,13 +28,20 @@ trait DiagnosticError: std::fmt::Display {
             .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
             .unwrap_or_default();
 
+        let docs_url = format!(
+            "https://djls.joshthomas.dev/rules/#{}",
+            self.diagnostic_name()
+        );
+
         ls_types::Diagnostic {
             range,
             severity: Some(ls_types::DiagnosticSeverity::ERROR),
             code: Some(ls_types::NumberOrString::String(
                 self.diagnostic_code().to_string(),
             )),
-            code_description: None,
+            code_description: Some(ls_types::CodeDescription {
+                href: docs_url.parse().expect("valid docs URL"),
+            }),
             source: Some(crate::SOURCE_NAME.to_string()),
             message: self.message(),
             related_information: None,
@@ -55,6 +63,10 @@ impl DiagnosticError for TemplateError {
             TemplateError::Config(_) => "T901",
         }
     }
+
+    fn diagnostic_name(&self) -> &'static str {
+        self.name()
+    }
 }
 
 impl DiagnosticError for ValidationError {
@@ -64,6 +76,10 @@ impl DiagnosticError for ValidationError {
 
     fn diagnostic_code(&self) -> &'static str {
         self.code()
+    }
+
+    fn diagnostic_name(&self) -> &'static str {
+        self.name()
     }
 }
 

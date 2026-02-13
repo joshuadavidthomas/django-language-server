@@ -15,6 +15,17 @@ pub enum TemplateError {
     Config(String),
 }
 
+impl TemplateError {
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Parser(_) => "parser-error",
+            Self::Io(_) => "io-error",
+            Self::Config(_) => "config-error",
+        }
+    }
+}
+
 impl From<ParseError> for TemplateError {
     fn from(err: ParseError) -> Self {
         Self::Parser(err.to_string())
