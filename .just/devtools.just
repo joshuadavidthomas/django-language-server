@@ -37,12 +37,81 @@ record FILENAME="djls.db":
     rm -f {{ FILENAME }}
     @just dev devtools record --to-sqlite {{ FILENAME }}
 
-# Profile a bench and generate a flamegraph SVG + collapsed stacks.
-# Requires: jq, flamegraph, rg
+# Profile a bench with callgrind (matches codspeed's approach).
+# Produces per-function instruction counts — deterministic, not statistical.
+# Requires: valgrind, jq, rg
 # Usage: just dev profile <bench> [filter]
-# Example: just dev profile parser parse_template
+# Example: just dev profile diagnostics collect_diagnostics_realistic
 [no-cd]
 profile bench filter="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    for cmd in valgrind jq rg; do
+        if ! command -v "$cmd" &>/dev/null; then
+            echo "Error: required command '$cmd' not found" >&2
+            exit 1
+        fi
+    done
+
+    bench="{{ bench }}"
+    filter="{{ filter }}"
+    profiles_dir="profiles"
+
+    label="${bench}"
+    if [ -n "$filter" ]; then
+        label="${bench}-${filter}"
+    fi
+
+    mkdir -p "$profiles_dir"
+
+    echo "Building bench '${bench}' with debug info..."
+    cargo bench -p djls-bench --bench "$bench" --no-run -q
+
+    binary=$(cargo bench -p djls-bench --bench "$bench" --no-run --message-format=json 2>/dev/null \
+        | jq -r 'select(.executable != null and .target.name == "'"$bench"'") | .executable' \
+        | head -1)
+
+    if [ -z "$binary" ] || [ ! -f "$binary" ]; then
+        echo "Error: could not find bench binary for '${bench}'" >&2
+        exit 1
+    fi
+
+    outfile="${profiles_dir}/${label}.callgrind"
+
+    echo "Profiling with callgrind..."
+    filter_args=""
+    if [ -n "$filter" ]; then
+        filter_args="$filter"
+    fi
+
+    # shellcheck disable=SC2086
+    valgrind --tool=callgrind \
+        --callgrind-out-file="$outfile" \
+        --cache-sim=yes \
+        --collect-jumps=yes \
+        "$binary" $filter_args 2>&1 \
+        | rg -v '^==' || true
+
+    echo ""
+    echo "Annotating top functions..."
+    callgrind_annotate --auto=yes --inclusive=yes "$outfile" \
+        | rg -v '^\s*\.' \
+        | head -80
+
+    echo ""
+    echo "Output:"
+    echo "  Callgrind data: ${outfile}"
+    echo ""
+    echo "Inspect with:"
+    echo "  callgrind_annotate ${outfile}          # text summary"
+    echo "  kcachegrind ${outfile}                  # GUI (if installed)"
+
+# Profile a bench with perf sampling + flamegraph (fallback if valgrind unavailable).
+# Requires: jq, flamegraph, rg
+# Usage: just dev flamegraph <bench> [filter]
+[no-cd]
+flamegraph bench filter="":
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -78,7 +147,7 @@ profile bench filter="":
         exit 1
     fi
 
-    echo "Profiling..."
+    echo "Profiling with perf..."
     filter_args=""
     if [ -n "$filter" ]; then
         filter_args="$filter"
