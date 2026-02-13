@@ -25,7 +25,7 @@ Separate subsystems produce each kind of knowledge. Both feed into the same Sals
 
 If you're already familiar with LSP, `crates/djls-server/src/server.rs` is a good starting point. It implements all the LSP request handlers (`did_open`, `completion`, `goto_definition`, etc.) and shows how requests flow through the system.
 
-If you want to understand how templates get parsed, start with the hand-written recursive descent parser in `crates/djls-templates/src/parser.rs`.
+If you want to understand how templates get parsed, start in `crates/djls-templates/src/` — the lexer and a hand-written recursive descent parser live there.
 
 If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-python/src/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact (and who says I have?), becuase I've never come across something like it before. It's early and rough, but it's one of the more interesting parts of the project.
 
