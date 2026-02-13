@@ -27,7 +27,7 @@ Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots,
 
 ## Code Style
 - LSP: Use `tower-lsp-server` NOT `tower-lsp`. Imports are `tower_lsp_server::*` NOT `tower_lsp::*`
-- LSP types: Use `tower_lsp_server::lsp_types` — comes transitively, don't add `lsp-types` directly
+- LSP types: Use `tower_lsp_server::ls_types` — comes transitively, don't add `ls-types` directly
 - Imports: One per line, grouped (std/external/crate), vertical layout per `.rustfmt.toml`
 - Errors: `anyhow::Result` for binaries, `thiserror` for libraries
 - Naming: snake_case functions/variables, CamelCase types, SCREAMING_SNAKE constants
@@ -55,10 +55,9 @@ Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots,
 - All crates live in `crates/`, auto-discovered via `members = ["crates/*"]`
 - All dependency versions (third-party and internal) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml`.
 - Root `[workspace.dependencies]` grouping: internal path crates → pinned core deps (`salsa`, `tower-lsp-server`) → crates.io deps → git deps (`ruff_*`). Blank line between groups, alphabetical within each.
-- Alphabetical order in each crate's `[dependencies]`
 - Internal deps listed before third-party in each crate's `Cargo.toml`, separated by a blank line, both groups alphabetical
 - `[lints] workspace = true` in every crate — lints are configured once in root `[workspace.lints]`
-- Versioning: Only `djls` (the binary) carries the release version (currently `6.0.0`). All library crates use `version = "0.0.0"`.
+- Versioning: Only `djls` (the binary) carries the release version. All library crates use `version = "0.0.0"`.
 - Adding a new crate: Add to `[workspace.dependencies]` in root `Cargo.toml` (alphabetical), create `crates/<name>/Cargo.toml` with `{ workspace = true }` deps and `[lints] workspace = true`
 
 ## Salsa Patterns
