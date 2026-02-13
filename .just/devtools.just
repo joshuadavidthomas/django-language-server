@@ -90,14 +90,21 @@ profile bench filter="":
         --callgrind-out-file="$outfile" \
         --cache-sim=yes \
         --collect-jumps=yes \
+        --trace-children=yes \
         "$binary" $filter_args 2>&1 \
         | rg -v '^==' || true
 
+    # callgrind may produce multiple files (one per pid); pick the largest
+    largest=$(ls -S "${outfile}"* 2>/dev/null | head -1)
+    if [ -n "$largest" ] && [ "$largest" != "$outfile" ]; then
+        mv "$largest" "$outfile"
+    fi
+
     echo ""
     echo "Annotating top functions..."
-    callgrind_annotate --auto=yes --inclusive=yes "$outfile" \
+    callgrind_annotate --auto=yes "$outfile" \
         | rg -v '^\s*\.' \
-        | head -80
+        | head -80 || true
 
     echo ""
     echo "Output:"
