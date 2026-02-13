@@ -94,6 +94,8 @@ Static analysis of Python templatetag files using the [Ruff](https://github.com/
 
 **Architecture Invariant:** this crate never imports Django or runs Python. It parses Python source as text with the same Ruff parser that powers the Ruff linter. If a templatetag file is syntactically valid Python, we can analyze it. We don't need a working Django installation, a virtual environment, or even a Python interpreter.
 
+**Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
+
 ### `crates/djls-project`
 
 Project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template libraries, and extraction results.
