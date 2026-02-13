@@ -116,7 +116,7 @@ impl DjangoLanguageServer {
             return;
         }
 
-        let mut diagnostics: Vec<ls_types::Diagnostic> = self
+        let diagnostics: Vec<ls_types::Diagnostic> = self
             .with_session_mut(|session| {
                 let db = session.db();
                 let file = db.get_or_create_file(&path);
@@ -124,8 +124,6 @@ impl DjangoLanguageServer {
                 djls_ide::collect_diagnostics(db, file, nodelist)
             })
             .await;
-
-        djls_ide::attach_code_descriptions(&mut diagnostics);
 
         if let Some(lsp_uri) = ls_types::Uri::from_path(&path) {
             self.client
@@ -406,7 +404,7 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let mut diagnostics = if let Some(path) = params.text_document.uri.to_utf8_path_buf() {
+        let diagnostics = if let Some(path) = params.text_document.uri.to_utf8_path_buf() {
             if FileKind::from(&path) == FileKind::Template {
                 self.with_session_mut(move |session| {
                     let db = session.db_mut();
@@ -426,8 +424,6 @@ impl LanguageServer for DjangoLanguageServer {
             // TODO(virtual-paths): Support virtual documents with DocumentPath enum
             vec![]
         };
-
-        djls_ide::attach_code_descriptions(&mut diagnostics);
 
         Ok(ls_types::DocumentDiagnosticReportResult::Report(
             ls_types::DocumentDiagnosticReport::Full(

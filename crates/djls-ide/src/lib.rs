@@ -6,7 +6,6 @@ mod navigation;
 mod snippets;
 
 pub use completions::handle_completion;
-pub use diagnostics::attach_code_descriptions;
 pub use diagnostics::collect_diagnostics;
 pub use diagnostics::render_template_error;
 pub use diagnostics::render_validation_error;

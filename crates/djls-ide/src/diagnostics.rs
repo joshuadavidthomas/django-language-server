@@ -13,57 +13,16 @@ use tower_lsp_server::ls_types;
 use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
 
-const RULES_BASE_URL: &str = "https://djls.joshthomas.dev/rules/#";
-
-/// Add `code_description` URLs to diagnostics that have a string code.
-///
-/// This is separated from `collect_diagnostics` because `fluent_uri::Uri::parse`
-/// is expensive and `collect_diagnostics` is the hot path (runs on every keystroke).
-/// Call this once at the LSP publish boundary.
-pub fn attach_code_descriptions(diagnostics: &mut [ls_types::Diagnostic]) {
-    for diag in diagnostics.iter_mut() {
-        if let Some(ls_types::NumberOrString::String(code)) = &diag.code {
-            if let Some(name) = code_to_name(code) {
-                if let Ok(uri) = format!("{RULES_BASE_URL}{name}").parse() {
-                    diag.code_description = Some(ls_types::CodeDescription { href: uri });
-                }
-            }
-        }
-    }
-}
-
-fn code_to_name(code: &str) -> Option<&'static str> {
-    match code {
-        "T100" => Some("parser-error"),
-        "T900" => Some("io-error"),
-        "T901" => Some("config-error"),
-        "S100" => Some("unclosed-tag"),
-        "S101" => Some("unbalanced-structure"),
-        "S102" => Some("orphaned-tag"),
-        "S103" => Some("unmatched-block-name"),
-        "S108" => Some("unknown-tag"),
-        "S109" => Some("unloaded-tag"),
-        "S110" => Some("ambiguous-unloaded-tag"),
-        "S111" => Some("unknown-filter"),
-        "S112" => Some("unloaded-filter"),
-        "S113" => Some("ambiguous-unloaded-filter"),
-        "S114" => Some("expression-syntax-error"),
-        "S115" => Some("filter-missing-argument"),
-        "S116" => Some("filter-unexpected-argument"),
-        "S117" => Some("extracted-rule-violation"),
-        "S118" => Some("tag-not-in-installed-apps"),
-        "S119" => Some("filter-not-in-installed-apps"),
-        "S120" => Some("unknown-library"),
-        "S121" => Some("library-not-in-installed-apps"),
-        "S122" => Some("extends-must-be-first"),
-        "S123" => Some("multiple-extends"),
-        _ => None,
-    }
+fn rule_url(name: &str) -> ls_types::Uri {
+    format!("https://djls.joshthomas.dev/rules/#{name}")
+        .parse()
+        .expect("valid docs URL")
 }
 
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
     fn diagnostic_code(&self) -> &'static str;
+    fn diagnostic_name(&self) -> &'static str;
 
     fn message(&self) -> String {
         self.to_string()
@@ -81,7 +40,9 @@ trait DiagnosticError: std::fmt::Display {
             code: Some(ls_types::NumberOrString::String(
                 self.diagnostic_code().to_string(),
             )),
-            code_description: None,
+            code_description: Some(ls_types::CodeDescription {
+                href: rule_url(self.diagnostic_name()),
+            }),
             source: Some(crate::SOURCE_NAME.to_string()),
             message: self.message(),
             related_information: None,
@@ -103,6 +64,10 @@ impl DiagnosticError for TemplateError {
             TemplateError::Config(_) => "T901",
         }
     }
+
+    fn diagnostic_name(&self) -> &'static str {
+        self.name()
+    }
 }
 
 impl DiagnosticError for ValidationError {
@@ -112,6 +77,10 @@ impl DiagnosticError for ValidationError {
 
     fn diagnostic_code(&self) -> &'static str {
         self.code()
+    }
+
+    fn diagnostic_name(&self) -> &'static str {
+        self.name()
     }
 }
 
