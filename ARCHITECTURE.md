@@ -33,55 +33,7 @@ If you're interested in how parsing, extraction, and project knowledge come toge
 
 ## Code Map
 
-All crates live in `crates/`. The dependency arrows below point from consumer to dependency:
-
-```mermaid
-graph TD
-    djls --> djls-server
-    djls --> djls-db
-    djls --> djls-ide
-
-    djls-server --> djls-db
-    djls-server --> djls-ide
-    djls-server --> djls-semantic
-    djls-server --> djls-templates
-    djls-server --> djls-workspace
-    djls-server --> djls-source
-
-    djls-db --> djls-project
-    djls-db --> djls-python
-    djls-db --> djls-semantic
-    djls-db --> djls-templates
-    djls-db --> djls-workspace
-    djls-db --> djls-source
-
-    djls-ide --> djls-semantic
-    djls-ide --> djls-templates
-    djls-ide --> djls-workspace
-    djls-ide --> djls-source
-
-    djls-semantic --> djls-project
-    djls-semantic --> djls-python
-    djls-semantic --> djls-templates
-    djls-semantic --> djls-workspace
-    djls-semantic --> djls-source
-
-    djls-templates --> djls-workspace
-    djls-templates --> djls-source
-
-    djls-project --> djls-python
-    djls-project --> djls-workspace
-    djls-project --> djls-source
-    djls-project --> djls-conf
-
-    djls-python --> djls-source
-
-    djls-workspace --> djls-source
-
-    djls-bench --> djls-semantic
-    djls-bench --> djls-templates
-    djls-bench --> djls-source
-```
+All crates live in `crates/`.
 
 Throughout the code map you'll see **Architecture Invariant** callouts. These are constraints we maintain deliberately — things that are true about the code on purpose and that we'd like to keep true.
 
