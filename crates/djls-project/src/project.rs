@@ -164,3 +164,125 @@ fn auto_detect_settings_module(root: &Utf8Path) -> Option<String> {
     tracing::warn!("manage.py found but could not auto-detect Django settings module");
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use camino::Utf8Path;
+    use djls_conf::Settings;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    mod env_file {
+        use super::*;
+
+        #[test]
+        fn loads_default_dot_env() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(
+                dir.path().join(".env"),
+                "DJANGO_SECRET_KEY=test-secret\nDATABASE_URL=postgres://localhost/db\n",
+            )
+            .unwrap();
+
+            let settings = Settings::default();
+            let vars = load_env_file(root, &settings);
+
+            assert_eq!(vars.len(), 2);
+            assert_eq!(
+                vars[0],
+                ("DJANGO_SECRET_KEY".to_string(), "test-secret".to_string())
+            );
+            assert_eq!(
+                vars[1],
+                (
+                    "DATABASE_URL".to_string(),
+                    "postgres://localhost/db".to_string()
+                )
+            );
+        }
+
+        #[test]
+        fn loads_configured_env_file_path() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(dir.path().join(".env.local"), "MY_VAR=hello\n").unwrap();
+            fs::write(dir.path().join("djls.toml"), r#"env_file = ".env.local""#).unwrap();
+
+            let settings = Settings::new(root, None).unwrap();
+            let vars = load_env_file(root, &settings);
+
+            assert_eq!(vars.len(), 1);
+            assert_eq!(vars[0], ("MY_VAR".to_string(), "hello".to_string()));
+        }
+
+        #[test]
+        fn returns_empty_when_no_env_file() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+
+            let settings = Settings::default();
+            let vars = load_env_file(root, &settings);
+
+            assert!(vars.is_empty());
+        }
+
+        #[test]
+        fn returns_empty_when_configured_file_missing() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"env_file = ".env.nonexistent""#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(root, None).unwrap();
+            let vars = load_env_file(root, &settings);
+
+            assert!(vars.is_empty());
+        }
+
+        #[test]
+        fn handles_comments_and_blank_lines() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(
+                dir.path().join(".env"),
+                "# This is a comment\n\nDJANGO_SECRET_KEY=secret\n\n# Another comment\nDEBUG=true\n",
+            )
+            .unwrap();
+
+            let settings = Settings::default();
+            let vars = load_env_file(root, &settings);
+
+            assert_eq!(vars.len(), 2);
+            assert_eq!(vars[0].0, "DJANGO_SECRET_KEY");
+            assert_eq!(vars[1].0, "DEBUG");
+        }
+
+        #[test]
+        fn handles_quoted_values() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(
+                dir.path().join(".env"),
+                "SECRET=\"my secret value\"\nOTHER='single quoted'\n",
+            )
+            .unwrap();
+
+            let settings = Settings::default();
+            let vars = load_env_file(root, &settings);
+
+            assert_eq!(vars.len(), 2);
+            assert_eq!(
+                vars[0],
+                ("SECRET".to_string(), "my secret value".to_string())
+            );
+            assert_eq!(vars[1], ("OTHER".to_string(), "single quoted".to_string()));
+        }
+    }
+}

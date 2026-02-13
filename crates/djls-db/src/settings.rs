@@ -1,7 +1,7 @@
 use djls_conf::Settings;
+use djls_project::load_env_file;
 use djls_project::Db as ProjectDb;
 use djls_project::Interpreter;
-use djls_project::load_env_file;
 use salsa::Setter;
 
 use crate::db::DjangoDatabase;

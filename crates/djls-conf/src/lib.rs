@@ -325,6 +325,20 @@ mod tests {
         }
 
         #[test]
+        fn test_load_env_file_config() {
+            let dir = tempdir().unwrap();
+            fs::write(dir.path().join("djls.toml"), r#"env_file = ".env.local""#).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            assert_eq!(
+                settings,
+                Settings {
+                    env_file: Some(".env.local".to_string()),
+                    ..Default::default()
+                }
+            );
+        }
+
+        #[test]
         fn test_load_diagnostics_config() {
             let dir = tempdir().unwrap();
             fs::write(
