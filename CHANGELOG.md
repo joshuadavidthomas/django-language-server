@@ -25,6 +25,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.
 - **Internal**: Added `[profile.bench]` with `debug = 2` to `Cargo.toml` for symbolized bench profiles.
 
+### Fixed
+
+- Suppressed `failed to send notification` ERROR log spam during server shutdown by disabling the LSP log forwarding layer on shutdown.
+
 ### Changed
 
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.

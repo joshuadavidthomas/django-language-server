@@ -12,12 +12,12 @@ use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::ls_types;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
-use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::ext::PositionEncodingExt;
 use crate::ext::PositionExt;
 use crate::ext::TextDocumentIdentifierExt;
 use crate::ext::UriExt;
+use crate::logging::LoggingGuard;
 use crate::queue::Queue;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
@@ -26,17 +26,17 @@ pub struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
     queue: Queue,
-    _log_guard: WorkerGuard,
+    logging: LoggingGuard,
 }
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub fn new(client: Client, log_guard: WorkerGuard) -> Self {
+    pub fn new(client: Client, logging: LoggingGuard) -> Self {
         Self {
             client,
             session: Arc::new(Mutex::new(Session::default())),
             queue: Queue::new(),
-            _log_guard: log_guard,
+            logging,
         }
     }
 
@@ -262,6 +262,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn shutdown(&self) -> LspResult<()> {
+        self.logging.disable_lsp();
         Ok(())
     }
 
