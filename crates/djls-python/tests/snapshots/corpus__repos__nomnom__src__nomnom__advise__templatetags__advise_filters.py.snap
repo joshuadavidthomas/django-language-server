@@ -1,0 +1,10 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "src.nomnom.advise.templatetags.advise_filters::filter::proposal_is_open_for":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

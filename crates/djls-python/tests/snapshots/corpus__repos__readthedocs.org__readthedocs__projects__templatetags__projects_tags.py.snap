@@ -1,0 +1,13 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "readthedocs.projects.templatetags.projects_tags::filter::is_project_user":
+    expects_arg: true
+    arg_optional: false
+  "readthedocs.projects.templatetags.projects_tags::filter::sort_version_aware":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

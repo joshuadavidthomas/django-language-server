@@ -1,0 +1,116 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "grappelli.templatetags.grp_tags::tag::admin_list_filter":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: cl
+        required: true
+        kind: Variable
+        position: 0
+      - name: spec
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_admin_title":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_admin_url":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_date_format":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_datetime_format":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_lang":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_site_title":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::get_time_format":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::grappelli_admin_title":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::grappelli_clean_input_types":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "grappelli.templatetags.grp_tags::tag::switch_user_dropdown":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+filter_arities:
+  "grappelli.templatetags.grp_tags::filter::classname":
+    expects_arg: true
+    arg_optional: true
+  "grappelli.templatetags.grp_tags::filter::classpath":
+    expects_arg: false
+    arg_optional: false
+  "grappelli.templatetags.grp_tags::filter::formsetsort":
+    expects_arg: true
+    arg_optional: false
+  "grappelli.templatetags.grp_tags::filter::prettylabel":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

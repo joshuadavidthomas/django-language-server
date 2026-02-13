@@ -1,0 +1,72 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "blog.templatetags.entry_tags::tag::entry_footer":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: entry
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+  "blog.templatetags.entry_tags::tag::entry_footer_no_date":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: entry
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+filter_arities:
+  "blog.templatetags.entry_tags::filter::break_up_long_words":
+    expects_arg: true
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::ends_with_punctuation":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::first_paragraph":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::openid_to_url":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::remove_context_paragraph":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::resize_images_to_fit_width":
+    expects_arg: true
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::split_cutoff":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::strip_p_ids":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::strip_wrapping_p":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::text_ago":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::typography":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::xhtml":
+    expects_arg: false
+    arg_optional: false
+  "blog.templatetags.entry_tags::filter::xhtml2html":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

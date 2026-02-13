@@ -1,0 +1,25 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "readthedocs.organizations.templatetags.organizations::filter::admin_teams":
+    expects_arg: false
+    arg_optional: false
+  "readthedocs.organizations.templatetags.organizations::filter::has_sso_enabled":
+    expects_arg: true
+    arg_optional: true
+  "readthedocs.organizations.templatetags.organizations::filter::org_owner":
+    expects_arg: true
+    arg_optional: false
+  "readthedocs.organizations.templatetags.organizations::filter::organization":
+    expects_arg: false
+    arg_optional: false
+  "readthedocs.organizations.templatetags.organizations::filter::owner_organizations":
+    expects_arg: false
+    arg_optional: false
+  "readthedocs.organizations.templatetags.organizations::filter::teams":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}
