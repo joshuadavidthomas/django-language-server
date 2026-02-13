@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 use djls_conf::DiagnosticsConfig;
 use djls_semantic::ValidationError;
 use djls_source::Diagnostic;
@@ -12,6 +15,53 @@ use tower_lsp_server::ls_types;
 
 use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
+
+const RULES_BASE_URL: &str = "https://djls.joshthomas.dev/rules/#";
+
+static RULE_URLS: LazyLock<HashMap<&'static str, ls_types::Uri>> = LazyLock::new(|| {
+    let names = [
+        "parser-error",
+        "io-error",
+        "config-error",
+        "unclosed-tag",
+        "unbalanced-structure",
+        "orphaned-tag",
+        "unmatched-block-name",
+        "unknown-tag",
+        "unloaded-tag",
+        "ambiguous-unloaded-tag",
+        "unknown-filter",
+        "unloaded-filter",
+        "ambiguous-unloaded-filter",
+        "expression-syntax-error",
+        "filter-missing-argument",
+        "filter-unexpected-argument",
+        "extracted-rule-violation",
+        "tag-not-in-installed-apps",
+        "filter-not-in-installed-apps",
+        "unknown-library",
+        "library-not-in-installed-apps",
+        "extends-must-be-first",
+        "multiple-extends",
+    ];
+
+    names
+        .into_iter()
+        .map(|name| {
+            let url: ls_types::Uri = format!("{RULES_BASE_URL}{name}")
+                .parse()
+                .expect("valid docs URL");
+            (name, url)
+        })
+        .collect()
+});
+
+fn rule_url(name: &'static str) -> ls_types::Uri {
+    RULE_URLS
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| panic!("unknown rule name: {name}"))
+}
 
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
@@ -28,11 +78,6 @@ trait DiagnosticError: std::fmt::Display {
             .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
             .unwrap_or_default();
 
-        let docs_url = format!(
-            "https://djls.joshthomas.dev/rules/#{}",
-            self.diagnostic_name()
-        );
-
         ls_types::Diagnostic {
             range,
             severity: Some(ls_types::DiagnosticSeverity::ERROR),
@@ -40,7 +85,7 @@ trait DiagnosticError: std::fmt::Display {
                 self.diagnostic_code().to_string(),
             )),
             code_description: Some(ls_types::CodeDescription {
-                href: docs_url.parse().expect("valid docs URL"),
+                href: rule_url(self.diagnostic_name()),
             }),
             source: Some(crate::SOURCE_NAME.to_string()),
             message: self.message(),
