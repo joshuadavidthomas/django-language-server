@@ -105,15 +105,22 @@ profile bench filter="":
     # benchmark-only data (harness overhead stripped), .1 has everything.
     rm -f "${outfile}."*
 
-    echo ""
-    echo "=== Hot functions (self cost) ==="
-    echo ""
-    callgrind_annotate --auto=yes "$outfile"
+    # function-level summaries (no source annotation)
+    callgrind_annotate --auto=no "$outfile" > "${outfile}.flat.txt" 2>/dev/null
+    callgrind_annotate --auto=no --inclusive=yes --tree=calling "$outfile" > "${outfile}.tree.txt" 2>/dev/null
 
     echo ""
-    echo "=== Call tree (inclusive cost) ==="
+    echo "Hot functions (self cost):"
     echo ""
-    callgrind_annotate --inclusive=yes --tree=calling "$outfile"
+    # strip the header, show just the function table
+    sed -n '/file:function/,$ p' "${outfile}.flat.txt" \
+        | rg -v 'codspeed_divan_compat'
 
     echo ""
-    echo "Callgrind data: ${outfile}"
+    echo "Call tree (inclusive cost, who calls what):"
+    echo ""
+    sed -n '/file:function/,$ p' "${outfile}.tree.txt" \
+        | rg -v 'codspeed_divan_compat'
+
+    echo ""
+    echo "Raw data: ${outfile}"
