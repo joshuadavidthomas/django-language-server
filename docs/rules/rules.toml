@@ -1,0 +1,267 @@
+# Rule metadata for docs/rules.md generation.
+#
+# Each rule has:
+#   code       - diagnostic code (e.g., "S100")
+#   name       - kebab-case rule name, must match ValidationError::name() / TemplateError::name()
+#   summary    - one-line description for the table of contents
+#   what       - "What it does" section (Markdown)
+#   why        - "Why is this bad?" section (Markdown, optional for T-series)
+#   fix        - "How to fix" / "Use instead" section (Markdown, optional)
+#   example    - path to example template file relative to docs/rules/examples/
+#   requires   - optional: "inspector" if the rule needs the inspector
+#   generated  - whether `djls check` can produce the diagnostic output (true/false)
+#
+# When generated = true, the script runs `djls check` on the example and embeds the output.
+# When generated = false, the example template is shown but no diagnostic output is generated.
+
+[T100]
+code = "T100"
+name = "parser-error"
+summary = "Template syntax error"
+what = "Reports syntax errors in Django template markup — unclosed tags, malformed expressions, or invalid template syntax that prevents parsing."
+fix = """
+Correct the template syntax. Common causes include unclosed `{{` or `{%` delimiters, \
+unmatched quotes in tag arguments, and malformed filter expressions.\
+"""
+generated = false
+
+[T900]
+code = "T900"
+name = "io-error"
+summary = "File I/O error"
+what = "Reports file I/O errors encountered when reading a template file."
+fix = "Check that the file exists, is readable, and is not locked by another process."
+generated = false
+
+[T901]
+code = "T901"
+name = "config-error"
+summary = "Configuration error"
+what = "Reports configuration errors that prevent template processing."
+fix = "Check your djls configuration. See [Configuration](./configuration/index.md) for details."
+generated = false
+
+[S100]
+code = "S100"
+name = "unclosed-tag"
+summary = "Missing closing tag"
+what = "Checks that block tags have their required closing tag. For example, `{% block %}` must have a matching `{% endblock %}`, and `{% if %}` must have `{% endif %}`."
+why = "Django raises `TemplateSyntaxError` at render time for unclosed block tags."
+example = "S100.html"
+generated = true
+
+[S101]
+code = "S101"
+name = "unbalanced-structure"
+summary = "Mismatched block tags"
+what = "Checks that block tags are properly matched. Detects cases where a closing tag doesn't correspond to its opening tag — for example, `{% if %}` closed by `{% endfor %}`."
+why = "Django raises `TemplateSyntaxError` for mismatched block tags."
+example = "S101.html"
+generated = true
+
+[S102]
+code = "S102"
+name = "orphaned-tag"
+summary = "Intermediate tag without parent block"
+what = "Checks that intermediate tags (like `{% else %}`, `{% elif %}`, `{% empty %}`) appear inside their expected parent block."
+why = "Django raises `TemplateSyntaxError` for intermediate tags that appear outside their parent structure."
+example = "S102.html"
+generated = true
+
+[S103]
+code = "S103"
+name = "unmatched-block-name"
+summary = "Endblock name doesn't match block"
+what = "Checks that named `{% endblock %}` tags match their opening `{% block %}` name. Django allows `{% endblock name %}` as documentation — this rule verifies the name is correct."
+why = "Django raises `TemplateSyntaxError` when the endblock name doesn't match. This usually indicates a copy-paste error or a refactoring that renamed one block but not the other."
+example = "S103.html"
+generated = true
+
+[S108]
+code = "S108"
+name = "unknown-tag"
+summary = "Tag not found in any library"
+what = "Checks that a template tag exists in at least one known library. If the tag isn't found in any installed package or built-in library, it's reported as unknown."
+why = "Django raises `TemplateSyntaxError` for tags it doesn't recognize."
+fix = """
+Check the tag name for typos. If the tag comes from a third-party package, install it \
+with `pip install <package>`.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls \
+determines tag availability.\
+"""
+requires = "inspector"
+example = "S108.html"
+generated = false
+
+[S109]
+code = "S109"
+name = "unloaded-tag"
+summary = "Tag requires `{% load %}`"
+what = "Checks that a template tag's library has been loaded with `{% load %}`. The tag exists and is available — it just hasn't been imported into this template."
+why = "Django raises `TemplateSyntaxError` because the tag isn't registered in the template's tag namespace without a `{% load %}`."
+requires = "inspector"
+example = "S109.html"
+generated = false
+
+[S110]
+code = "S110"
+name = "ambiguous-unloaded-tag"
+summary = "Tag defined in multiple unloaded libraries"
+what = "Checks for tags that exist in multiple libraries but none have been loaded. djls can't determine which library you intended."
+why = "Without a `{% load %}`, Django doesn't know which library to use, and loading the wrong one could give unexpected behavior."
+requires = "inspector"
+example = "S110.html"
+generated = false
+
+[S111]
+code = "S111"
+name = "unknown-filter"
+summary = "Filter not found in any library"
+what = "Checks that a template filter exists in at least one known library. If the filter isn't found in any installed package or built-in library, it's reported as unknown."
+why = "Django raises `TemplateSyntaxError` for filters it doesn't recognize."
+fix = """
+Check the filter name for typos. If the filter comes from a third-party package, install it \
+with `pip install <package>`.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls \
+determines filter availability.\
+"""
+requires = "inspector"
+example = "S111.html"
+generated = false
+
+[S112]
+code = "S112"
+name = "unloaded-filter"
+summary = "Filter requires `{% load %}`"
+what = "Checks that a template filter's library has been loaded with `{% load %}`. The filter exists and is available — it just hasn't been imported into this template."
+why = "Django raises `TemplateSyntaxError` because the filter isn't registered in the template's filter namespace without a `{% load %}`."
+requires = "inspector"
+example = "S112.html"
+generated = false
+
+[S113]
+code = "S113"
+name = "ambiguous-unloaded-filter"
+summary = "Filter defined in multiple unloaded libraries"
+what = "Checks for filters that exist in multiple libraries but none have been loaded. djls can't determine which library you intended."
+why = "Without a `{% load %}`, Django doesn't know which library to use, and loading the wrong one could give unexpected behavior."
+requires = "inspector"
+example = "S113.html"
+generated = false
+
+[S114]
+code = "S114"
+name = "expression-syntax-error"
+summary = "Invalid `{% if %}` expression"
+what = "Validates operator usage in `{% if %}` and `{% elif %}` expressions. Catches missing operands, consecutive operators, and other syntax errors in boolean expressions."
+why = "Django raises `TemplateSyntaxError` for malformed `{% if %}` expressions."
+example = "S114.html"
+generated = true
+
+[S115]
+code = "S115"
+name = "filter-missing-argument"
+summary = "Filter called without required argument"
+what = "Checks that filters which require an argument are called with one. Filter arity is determined by static analysis of the filter's Python source code."
+why = "Django raises `TemplateSyntaxError` when a filter that requires an argument is called without one."
+requires = "inspector"
+example = "S115.html"
+generated = false
+
+[S116]
+code = "S116"
+name = "filter-unexpected-argument"
+summary = "Filter called with unexpected argument"
+what = "Checks that filters which don't accept an argument aren't called with one. Filter arity is determined by static analysis of the filter's Python source code."
+why = "Django raises `TemplateSyntaxError` when a filter that doesn't accept arguments is called with one."
+requires = "inspector"
+example = "S116.html"
+generated = false
+
+[S117]
+code = "S117"
+name = "extracted-rule-violation"
+summary = "Tag argument validation error"
+what = """
+Validates tag arguments against rules extracted from the tag's Python source code. \
+The extraction engine reads `split_contents()` guard conditions, function signatures, \
+and keyword position checks directly from tag implementations.\
+"""
+why = "Django raises `TemplateSyntaxError` when a tag is called with the wrong number or kind of arguments."
+requires = "inspector"
+example = "S117.html"
+generated = false
+
+[S118]
+code = "S118"
+name = "tag-not-in-installed-apps"
+summary = "Tag's app not in `INSTALLED_APPS`"
+what = "Checks for tags that exist in an installed Python package but whose Django app isn't in `INSTALLED_APPS`. The package is installed — the app just needs to be activated."
+why = "Django won't discover the template tag library unless the app is listed in `INSTALLED_APPS`."
+fix = """
+Add the app to `INSTALLED_APPS` in your Django settings.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls \
+determines tag availability.\
+"""
+requires = "inspector"
+example = "S118.html"
+generated = false
+
+[S119]
+code = "S119"
+name = "filter-not-in-installed-apps"
+summary = "Filter's app not in `INSTALLED_APPS`"
+what = "Checks for filters that exist in an installed Python package but whose Django app isn't in `INSTALLED_APPS`. The package is installed — the app just needs to be activated."
+why = "Django won't discover the template tag library (and its filters) unless the app is listed in `INSTALLED_APPS`."
+fix = """
+Add the app to `INSTALLED_APPS` in your Django settings.
+
+See [Three-Layer Resolution](./template-validation.md#three-layer-resolution) for how djls \
+determines filter availability.\
+"""
+requires = "inspector"
+example = "S119.html"
+generated = false
+
+[S120]
+code = "S120"
+name = "unknown-library"
+summary = "Unknown `{% load %}` library"
+what = "Checks that the library name in a `{% load %}` tag refers to a known template tag library. If the library isn't found in any installed package or built-in, it's reported as unknown."
+why = "Django raises `TemplateSyntaxError` when `{% load %}` references a library that doesn't exist."
+fix = "Check the library name for typos. If the library comes from a third-party package, install it with `pip install <package>`."
+requires = "inspector"
+example = "S120.html"
+generated = false
+
+[S121]
+code = "S121"
+name = "library-not-in-installed-apps"
+summary = "Library's app not in `INSTALLED_APPS`"
+what = "Checks for `{% load %}` library names that exist in an installed Python package but whose Django app isn't in `INSTALLED_APPS`."
+why = "Django won't discover the template tag library unless the app is listed in `INSTALLED_APPS`, and `{% load %}` will fail with `TemplateSyntaxError`."
+fix = "Add the app to `INSTALLED_APPS` in your Django settings."
+requires = "inspector"
+example = "S121.html"
+generated = false
+
+[S122]
+code = "S122"
+name = "extends-must-be-first"
+summary = "`{% extends %}` not first tag"
+what = "Checks that `{% extends %}` is the first tag in the template. Text and `{# comments #}` are allowed before it, but no other tags or variable expressions (`{{ ... }}`) may appear first."
+why = "Django enforces this at parse time — `{% extends %}` must come before any other template tags or variables."
+example = "S122.html"
+generated = true
+
+[S123]
+code = "S123"
+name = "multiple-extends"
+summary = "Multiple `{% extends %}` tags"
+what = "Checks that `{% extends %}` appears at most once in a template."
+why = "A template can only extend one parent. Django raises `TemplateSyntaxError` if multiple `{% extends %}` tags are found."
+example = "S123.html"
+generated = true
