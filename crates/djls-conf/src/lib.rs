@@ -72,6 +72,7 @@ pub struct Settings {
     django_settings_module: Option<String>,
     #[serde(default)]
     pythonpath: Vec<String>,
+    env_file: Option<String>,
     #[serde(default, deserialize_with = "deserialize_tagspecs")]
     tagspecs: TagSpecDef,
     #[serde(default)]
@@ -123,6 +124,7 @@ impl Settings {
             if !overrides.pythonpath.is_empty() {
                 settings.pythonpath = overrides.pythonpath;
             }
+            settings.env_file = overrides.env_file.or(settings.env_file);
             if !overrides.tagspecs.libraries.is_empty() {
                 settings.tagspecs = overrides.tagspecs;
             }
@@ -199,6 +201,11 @@ impl Settings {
     }
 
     #[must_use]
+    pub fn env_file(&self) -> Option<&str> {
+        self.env_file.as_deref()
+    }
+
+    #[must_use]
     pub fn tagspecs(&self) -> &TagSpecDef {
         &self.tagspecs
     }
@@ -231,6 +238,7 @@ mod tests {
                     venv_path: None,
                     django_settings_module: None,
                     pythonpath: vec![],
+                    env_file: None,
                     tagspecs: TagSpecDef::default(),
                     diagnostics: DiagnosticsConfig::default(),
                 }

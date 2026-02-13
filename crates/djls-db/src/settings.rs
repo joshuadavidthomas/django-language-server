@@ -1,6 +1,7 @@
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Interpreter;
+use djls_project::load_env_file;
 use salsa::Setter;
 
 use crate::db::DjangoDatabase;
@@ -87,6 +88,15 @@ impl DjangoDatabase {
         let new_pythonpath = settings.pythonpath().to_vec();
         if project.pythonpath(self) != &new_pythonpath {
             project.set_pythonpath(self).to(new_pythonpath);
+            env_changed = true;
+        }
+
+        // Re-parse the env file when settings change. The env_file path may
+        // have changed, or the file contents may differ after a reload.
+        let root = project.root(self).clone();
+        let new_env_vars = load_env_file(&root, settings);
+        if project.env_vars(self) != &new_env_vars {
+            project.set_env_vars(self).to(new_env_vars);
             env_changed = true;
         }
 

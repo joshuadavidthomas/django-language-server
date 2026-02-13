@@ -34,6 +34,10 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
+    /// Extra environment variables for the inspector process, loaded from an
+    /// env file (e.g. `.env`). Each entry is a `(key, value)` pair.
+    #[returns(ref)]
+    pub env_vars: Vec<(String, String)>,
     /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
@@ -58,6 +62,7 @@ impl Project {
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let interpreter = Interpreter::discover(settings.venv_path());
         let resolved_django_settings_module = resolve_django_settings(root, settings);
+        let env_vars = load_env_file(root, settings);
 
         Project::new(
             db,
@@ -65,6 +70,7 @@ impl Project {
             interpreter,
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
+            env_vars,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             FxHashMap::default(),
@@ -74,6 +80,50 @@ impl Project {
     pub fn initialize(self, db: &dyn ProjectDb) {
         let _ = django_available(db, self);
         let _ = template_dirs(db, self);
+    }
+}
+
+pub fn load_env_file(root: &Utf8Path, settings: &Settings) -> Vec<(String, String)> {
+    let env_path = match settings.env_file() {
+        Some(path) => root.join(path),
+        None => root.join(".env"),
+    };
+
+    if !env_path.exists() {
+        if settings.env_file().is_some() {
+            tracing::warn!("Configured env_file not found: {}", env_path);
+        } else {
+            tracing::debug!("No .env file found at {}", env_path);
+        }
+        return Vec::new();
+    }
+
+    match dotenvy::from_path_iter(env_path.as_std_path()) {
+        Ok(iter) => {
+            let mut vars = Vec::new();
+            for item in iter {
+                match item {
+                    Ok((key, value)) => {
+                        tracing::debug!("Loaded env var from file: {}", key);
+                        vars.push((key, value));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse env file entry: {}", e);
+                    }
+                }
+            }
+            if !vars.is_empty() {
+                tracing::info!(
+                    "Loaded {} environment variable(s) from env file",
+                    vars.len()
+                );
+            }
+            vars
+        }
+        Err(e) => {
+            tracing::warn!("Failed to read env file {}: {}", env_path, e);
+            Vec::new()
+        }
     }
 }
 

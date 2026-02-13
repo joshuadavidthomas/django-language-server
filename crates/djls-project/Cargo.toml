@@ -9,6 +9,7 @@ djls-python = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
+dotenvy = { workspace = true }
 ruff_python_parser = { workspace = true }
 camino = { workspace = true, features = ["serde1"] }
 rustc-hash = { workspace = true }

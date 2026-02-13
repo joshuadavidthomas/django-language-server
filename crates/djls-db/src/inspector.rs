@@ -61,6 +61,7 @@ impl DjangoDatabase {
         let root = project.root(self).clone();
         let dsm = project.django_settings_module(self).clone();
         let pythonpath = project.pythonpath(self).clone();
+        let env_vars = project.env_vars(self).clone();
 
         let response = match self
             .inspector
@@ -69,6 +70,7 @@ impl DjangoDatabase {
                 &root,
                 dsm.as_deref(),
                 &pythonpath,
+                &env_vars,
                 &TemplateLibrariesRequest,
             ) {
             Ok(response) if response.ok => response.data,

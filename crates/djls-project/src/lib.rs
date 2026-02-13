@@ -18,6 +18,7 @@ pub use inspector::Inspector;
 pub use names::LibraryName;
 pub use names::PyModuleName;
 pub use names::TemplateSymbolName;
+pub use project::load_env_file;
 pub use project::Project;
 pub use python::Interpreter;
 pub use resolve::build_search_paths;
