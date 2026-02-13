@@ -9,10 +9,10 @@ djls-python = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
-dotenvy = { workspace = true }
-ruff_python_parser = { workspace = true }
 camino = { workspace = true, features = ["serde1"] }
+dotenvy = { workspace = true }
 rustc-hash = { workspace = true }
+ruff_python_parser = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

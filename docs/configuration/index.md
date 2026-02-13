@@ -28,7 +28,7 @@ The inspector subprocess inherits the full environment of its parent process (th
 
 If your Django settings read from `os.environ`, create a `.env` file in your project root:
 
-```
+```shell
 # .env
 DJANGO_SECRET_KEY=not-a-real-secret
 DATABASE_URL=postgres://localhost/mydb
