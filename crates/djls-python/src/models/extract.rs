@@ -11,7 +11,6 @@ const RELATION_FIELDS: &[(&str, RelationType)] = &[
     ("ForeignKey", RelationType::ForeignKey),
     ("OneToOneField", RelationType::OneToOne),
     ("ManyToManyField", RelationType::ManyToMany),
-    ("GenericForeignKey", RelationType::GenericForeignKey),
 ];
 
 /// Extract a model graph from Python source text.
@@ -506,5 +505,23 @@ class Comment(models.Model):
             graph.resolve_relation("Comment", "author"),
             Some("User".to_string())
         );
+    }
+
+    #[test]
+    fn generic_foreign_key_ignored() {
+        let source = r#"
+class TaggedItem(models.Model):
+    content_type = models.ForeignKey("ContentType", on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+"#;
+        let graph = extract_model_graph(source, "tagging.models");
+
+        let tagged = graph.get("TaggedItem").unwrap();
+        // Only the ForeignKey should be extracted; GenericForeignKey has a
+        // different constructor signature (field names, not model references)
+        // and cannot be statically extracted.
+        assert_eq!(tagged.relations.len(), 1);
+        assert_eq!(tagged.relations[0].field_name, "content_type");
     }
 }
