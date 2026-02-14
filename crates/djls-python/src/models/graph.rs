@@ -143,6 +143,8 @@ impl ModelGraph {
     }
 
     /// Merge another graph into this one.
+    ///
+    /// Models from `other` overwrite models with the same name in `self`.
     pub fn merge(&mut self, other: ModelGraph) {
         self.models.extend(other.models);
     }

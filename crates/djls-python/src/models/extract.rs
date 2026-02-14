@@ -7,6 +7,9 @@ use super::graph::ModelGraph;
 use super::graph::Relation;
 use super::graph::RelationType;
 
+// GenericForeignKey is intentionally excluded: its constructor takes field
+// names as args (e.g., GenericForeignKey("content_type", "object_id")), not a
+// model reference, so we can't statically determine its target.
 const RELATION_FIELDS: &[(&str, RelationType)] = &[
     ("ForeignKey", RelationType::ForeignKey),
     ("OneToOneField", RelationType::OneToOne),
@@ -72,7 +75,9 @@ fn resolve_children(
     module_path: &str,
     source: &str,
 ) {
-    // Collect abstract model data before mutating graph
+    // Collect abstract model data before mutating graph.
+    // Note: only handles single-level abstract inheritance. Multi-level chains
+    // (A -> B -> C where both A and B are abstract) won't fully propagate relations.
     let abstracts: Vec<(String, Vec<Relation>)> = graph
         .models()
         .filter(|m| m.is_abstract)
