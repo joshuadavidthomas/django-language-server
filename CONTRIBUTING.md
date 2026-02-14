@@ -23,7 +23,7 @@ Code contributions are welcome from developers of all backgrounds. Rust expertis
 
 So far it's all been built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way — send help!
 
-## Code Quality
+## AI Policy
 
 Someone is going to read your PR. Be considerate of that — make sure what you're submitting is something you'd want to review yourself.
 
