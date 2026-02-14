@@ -208,6 +208,37 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 7. **For major Django releases**: If adding support for a new major Django version (e.g., Django 6.0), the language server version should be bumped to match per [DjangoVer](docs/versioning.md) versioning. For example, when adding Django 6.0 support, bump the server from v5.x.x to v6.0.0.
 
+## Profiling
+
+The `just dev profile` command runs benchmarks under [valgrind-codspeed](https://github.com/CodSpeedHQ/valgrind-codspeed), the same callgrind fork used in CI. It produces deterministic per-function instruction counts with call trees, and automatically strips harness overhead.
+
+```bash
+just dev profile <bench> [filter]
+
+# Examples:
+just dev profile diagnostics collect_diagnostics_realistic
+just dev profile parser parse_template
+```
+
+### Prerequisites
+
+You'll need `jq`, `rg`, and the **codspeed fork of valgrind** (not stock valgrind):
+
+```bash
+git clone --depth 1 https://github.com/CodSpeedHQ/valgrind-codspeed /tmp/valgrind-codspeed
+cd /tmp/valgrind-codspeed
+./autogen.sh
+./configure --prefix=$HOME/.local
+make -j$(nproc)
+make install
+```
+
+Make sure `$HOME/.local/bin` is on your `PATH`. Verify with:
+
+```bash
+valgrind --version  # should contain "codspeed"
+```
+
 ## `Justfile`
 
 The repository includes a [`Justfile`](./Justfile) that provides all common development tasks with a consistent interface. Running `just` without arguments shows all available commands and their descriptions.
@@ -249,10 +280,10 @@ Available recipes:
     test *ARGS
     testall *ARGS
     dev:
-        debug
+        debug                      # TODO: djls-tmux binary was removed in #214, this recipe needs updating
         explore FILENAME="djls.db"
         inspect
-        profile bench filter=""    # Example: just dev profile parser parse_template
+        profile bench filter=""    # Profile a bench with callgrind
         record FILENAME="djls.db"
     docs:
         build LOCATION="site" # Build documentation
