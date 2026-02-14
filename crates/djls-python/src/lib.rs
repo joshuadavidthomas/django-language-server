@@ -7,6 +7,7 @@ mod analysis;
 mod blocks;
 mod ext;
 mod filters;
+pub mod models;
 mod registry;
 mod signature;
 
