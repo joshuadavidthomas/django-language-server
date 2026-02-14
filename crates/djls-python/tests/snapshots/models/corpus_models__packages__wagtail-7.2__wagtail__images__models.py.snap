@@ -1,0 +1,41 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  AbstractImage:
+    name: AbstractImage
+    module_path: wagtail.images.models
+    line: 258
+    relations:
+      - field_name: uploaded_by_user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  AbstractRendition:
+    name: AbstractRendition
+    module_path: wagtail.images.models
+    line: 1315
+    relations: []
+    is_abstract: true
+  Image:
+    name: Image
+    module_path: wagtail.images.models
+    line: 924
+    relations:
+      - field_name: uploaded_by_user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Rendition:
+    name: Rendition
+    module_path: wagtail.images.models
+    line: 1533
+    relations:
+      - field_name: image
+        target_model: Image
+        relation_type: ForeignKey
+        related_name: renditions
+    is_abstract: false

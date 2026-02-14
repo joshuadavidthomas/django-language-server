@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ContentType:
+    name: ContentType
+    module_path: django.contrib.contenttypes.models
+    line: 139
+    relations: []
+    is_abstract: false

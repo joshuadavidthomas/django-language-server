@@ -1,0 +1,27 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  DiscoverSavedQuery:
+    name: DiscoverSavedQuery
+    module_path: src.sentry.discover.models
+    line: 81
+    relations:
+      - field_name: projects
+        target_model: Project
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false
+  DiscoverSavedQueryProject:
+    name: DiscoverSavedQueryProject
+    module_path: src.sentry.discover.models
+    line: 68
+    relations: []
+    is_abstract: false
+  TeamKeyTransaction:
+    name: TeamKeyTransaction
+    module_path: src.sentry.discover.models
+    line: 197
+    relations: []
+    is_abstract: false

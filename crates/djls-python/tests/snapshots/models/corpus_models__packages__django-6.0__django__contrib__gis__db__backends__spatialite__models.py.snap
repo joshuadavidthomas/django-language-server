@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  SpatialiteGeometryColumns:
+    name: SpatialiteGeometryColumns
+    module_path: django.contrib.gis.db.backends.spatialite.models
+    line: 9
+    relations: []
+    is_abstract: false
+  SpatialiteSpatialRefSys:
+    name: SpatialiteSpatialRefSys
+    module_path: django.contrib.gis.db.backends.spatialite.models
+    line: 52
+    relations: []
+    is_abstract: false

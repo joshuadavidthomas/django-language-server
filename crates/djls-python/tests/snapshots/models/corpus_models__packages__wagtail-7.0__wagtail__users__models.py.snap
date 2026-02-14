@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  UserProfile:
+    name: UserProfile
+    module_path: wagtail.users.models
+    line: 22
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: OneToOne
+        related_name: wagtail_userprofile
+    is_abstract: false

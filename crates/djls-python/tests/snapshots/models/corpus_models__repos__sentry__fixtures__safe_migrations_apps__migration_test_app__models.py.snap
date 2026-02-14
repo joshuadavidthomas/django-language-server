@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  MigrationRunTest:
+    name: MigrationRunTest
+    module_path: fixtures.safe_migrations_apps.migration_test_app.models
+    line: 4
+    relations: []
+    is_abstract: false

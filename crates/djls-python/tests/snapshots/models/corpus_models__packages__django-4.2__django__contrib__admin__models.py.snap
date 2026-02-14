@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  LogEntry:
+    name: LogEntry
+    module_path: django.contrib.admin.models
+    line: 48
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

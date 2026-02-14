@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  MachineConfig:
+    name: MachineConfig
+    module_path: src.backend.InvenTree.machine.models
+    line: 17
+    relations: []
+    is_abstract: false

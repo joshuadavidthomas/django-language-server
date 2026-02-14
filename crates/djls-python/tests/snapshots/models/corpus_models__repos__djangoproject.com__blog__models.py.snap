@@ -1,0 +1,31 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Entry:
+    name: Entry
+    module_path: blog.models
+    line: 122
+    relations:
+      - field_name: social_media_card
+        target_model: ImageUpload
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Event:
+    name: Event
+    module_path: blog.models
+    line: 255
+    relations: []
+    is_abstract: false
+  ImageUpload:
+    name: ImageUpload
+    module_path: blog.models
+    line: 86
+    relations:
+      - field_name: uploaded_by
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

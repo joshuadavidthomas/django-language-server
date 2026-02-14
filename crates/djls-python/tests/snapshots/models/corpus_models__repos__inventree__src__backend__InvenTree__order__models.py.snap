@@ -1,0 +1,67 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PurchaseOrder:
+    name: PurchaseOrder
+    module_path: src.backend.InvenTree.order.models
+    line: 536
+    relations:
+      - field_name: supplier
+        target_model: Company
+        relation_type: ForeignKey
+        related_name: purchase_orders
+      - field_name: received_by
+        target_model: User
+        relation_type: ForeignKey
+        related_name: +
+    is_abstract: false
+  ReturnOrder:
+    name: ReturnOrder
+    module_path: src.backend.InvenTree.order.models
+    line: 2633
+    relations:
+      - field_name: customer
+        target_model: Company
+        relation_type: ForeignKey
+        related_name: sales_orders
+    is_abstract: false
+  SalesOrder:
+    name: SalesOrder
+    module_path: src.backend.InvenTree.order.models
+    line: 1242
+    relations:
+      - field_name: customer
+        target_model: Company
+        relation_type: ForeignKey
+        related_name: return_orders
+      - field_name: shipped_by
+        target_model: User
+        relation_type: ForeignKey
+        related_name: +
+    is_abstract: false
+  SalesOrderAllocation:
+    name: SalesOrderAllocation
+    module_path: src.backend.InvenTree.order.models
+    line: 2483
+    relations:
+      - field_name: line
+        target_model: SalesOrderLineItem
+        relation_type: ForeignKey
+        related_name: allocations
+      - field_name: shipment
+        target_model: SalesOrderShipment
+        relation_type: ForeignKey
+        related_name: allocations
+      - field_name: item
+        target_model: StockItem
+        relation_type: ForeignKey
+        related_name: sales_order_allocations
+    is_abstract: false
+  TotalPriceMixin:
+    name: TotalPriceMixin
+    module_path: src.backend.InvenTree.order.models
+    line: 65
+    relations: []
+    is_abstract: true

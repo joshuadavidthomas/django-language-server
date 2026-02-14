@@ -1,0 +1,59 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  GrouperModel:
+    name: GrouperModel
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 47
+    relations: []
+    is_abstract: false
+  GrouperModelContent:
+    name: GrouperModelContent
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 52
+    relations:
+      - field_name: grouper_model
+        target_model: GrouperModel
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Picture:
+    name: Picture
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 30
+    relations:
+      - field_name: category
+        target_model: Category
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  SampleAppConfig:
+    name: SampleAppConfig
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 35
+    relations: []
+    is_abstract: false
+  SimpleGrouperModel:
+    name: SimpleGrouperModel
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 91
+    relations: []
+    is_abstract: false
+  SimpleGrouperModelContent:
+    name: SimpleGrouperModelContent
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 95
+    relations:
+      - field_name: simple_grouper_model
+        target_model: SimpleGrouperModel
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  SomeEditableModel:
+    name: SomeEditableModel
+    module_path: cms.test_utils.project.sampleapp.models
+    line: 43
+    relations: []
+    is_abstract: false

@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Release:
+    name: Release
+    module_path: releases.models
+    line: 164
+    relations: []
+    is_abstract: false

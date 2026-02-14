@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  CharPksExample:
+    name: CharPksExample
+    module_path: cms.test_utils.project.placeholderapp.models
+    line: 81
+    relations: []
+    is_abstract: false
+  DynamicPlaceholderSlotExample:
+    name: DynamicPlaceholderSlotExample
+    module_path: cms.test_utils.project.placeholderapp.models
+    line: 74
+    relations: []
+    is_abstract: false
+  Example1:
+    name: Example1
+    module_path: cms.test_utils.project.placeholderapp.models
+    line: 21
+    relations: []
+    is_abstract: false
+  TwoPlaceholderExample:
+    name: TwoPlaceholderExample
+    module_path: cms.test_utils.project.placeholderapp.models
+    line: 65
+    relations: []
+    is_abstract: false

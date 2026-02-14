@@ -1,0 +1,125 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ActionItem:
+    name: ActionItem
+    module_path: foundation.models
+    line: 227
+    relations:
+      - field_name: meeting
+        target_model: Meeting
+        relation_type: ForeignKey
+        related_name: action_items
+    is_abstract: false
+  ApprovedCorporateMember:
+    name: ApprovedCorporateMember
+    module_path: foundation.models
+    line: 174
+    relations:
+      - field_name: approved_at
+        target_model: Meeting
+        relation_type: ForeignKey
+        related_name: corporate_members_approved
+    is_abstract: false
+  ApprovedGrant:
+    name: ApprovedGrant
+    module_path: foundation.models
+    line: 124
+    relations:
+      - field_name: approved_at
+        target_model: Meeting
+        relation_type: ForeignKey
+        related_name: grants_approved
+    is_abstract: false
+  ApprovedIndividualMember:
+    name: ApprovedIndividualMember
+    module_path: foundation.models
+    line: 159
+    relations:
+      - field_name: approved_at
+        target_model: Meeting
+        relation_type: ForeignKey
+        related_name: individual_members_approved
+    is_abstract: false
+  BoardMember:
+    name: BoardMember
+    module_path: foundation.models
+    line: 39
+    relations:
+      - field_name: account
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: office
+        target_model: Office
+        relation_type: ForeignKey
+        related_name: holders
+      - field_name: term
+        target_model: Term
+        relation_type: ForeignKey
+        related_name: board_members
+    is_abstract: false
+  Business:
+    name: Business
+    module_path: foundation.models
+    line: 189
+    relations:
+      - field_name: meeting
+        target_model: Meeting
+        relation_type: ForeignKey
+        related_name: business
+    is_abstract: false
+  CoreAward:
+    name: CoreAward
+    module_path: foundation.models
+    line: 263
+    relations:
+      - field_name: cohort
+        target_model: CoreAwardCohort
+        relation_type: ForeignKey
+        related_name: recipients
+    is_abstract: false
+  CoreAwardCohort:
+    name: CoreAwardCohort
+    module_path: foundation.models
+    line: 243
+    relations: []
+    is_abstract: false
+  Meeting:
+    name: Meeting
+    module_path: foundation.models
+    line: 72
+    relations:
+      - field_name: leader
+        target_model: BoardMember
+        relation_type: ForeignKey
+        related_name: meetings_led
+      - field_name: board_attendees
+        target_model: BoardMember
+        relation_type: ManyToMany
+        related_name: meetings_attended
+      - field_name: non_board_attendees
+        target_model: NonBoardAttendee
+        relation_type: ManyToMany
+        related_name: meetings_attended
+    is_abstract: false
+  NonBoardAttendee:
+    name: NonBoardAttendee
+    module_path: foundation.models
+    line: 55
+    relations: []
+    is_abstract: false
+  Office:
+    name: Office
+    module_path: foundation.models
+    line: 15
+    relations: []
+    is_abstract: false
+  Term:
+    name: Term
+    module_path: foundation.models
+    line: 27
+    relations: []
+    is_abstract: false

@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ReplayRecordingSegment:
+    name: ReplayRecordingSegment
+    module_path: src.sentry.replays.models
+    line: 45
+    relations: []
+    is_abstract: false

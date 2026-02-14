@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  SocialAuthProvider:
+    name: SocialAuthProvider
+    module_path: misago.socialauth.models
+    line: 6
+    relations: []
+    is_abstract: false

@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Value:
+    name: Value
+    module_path: fixtures.safe_migrations_apps.decimal_to_float_app.models
+    line: 4
+    relations: []
+    is_abstract: false

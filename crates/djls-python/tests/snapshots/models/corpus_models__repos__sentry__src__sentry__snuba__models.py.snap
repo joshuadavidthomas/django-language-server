@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  QuerySubscription:
+    name: QuerySubscription
+    module_path: src.sentry.snuba.models
+    line: 139
+    relations: []
+    is_abstract: false
+  SnubaQuery:
+    name: SnubaQuery
+    module_path: src.sentry.snuba.models
+    line: 54
+    relations: []
+    is_abstract: false
+  SnubaQueryEventType:
+    name: SnubaQueryEventType
+    module_path: src.sentry.snuba.models
+    line: 114
+    relations: []
+    is_abstract: false

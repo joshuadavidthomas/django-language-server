@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ChatMessage:
+    name: ChatMessage
+    module_path: chat.models
+    line: 12
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: owner
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_owner_related"
+      - field_name: answer_to
+        target_model: self
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_answer_to_related"
+      - field_name: topic
+        target_model: self
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_topic_related"
+      - field_name: recipients
+        target_model: AUTH_USER_MODEL
+        relation_type: ManyToMany
+        related_name: "%(app_label)s_%(class)s_recipients_related"
+      - field_name: to
+        target_model: AUTH_USER_MODEL
+        relation_type: ManyToMany
+        related_name: "%(app_label)s_%(class)s_to_related"
+    is_abstract: false

@@ -1,0 +1,73 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseGenericObjectPermission:
+    name: BaseGenericObjectPermission
+    module_path: guardian.models.models
+    line: 54
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  BaseObjectPermission:
+    name: BaseObjectPermission
+    module_path: guardian.models.models
+    line: 13
+    relations:
+      - field_name: permission
+        target_model: Permission
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  GroupObjectPermissionAbstract:
+    name: GroupObjectPermissionAbstract
+    module_path: guardian.models.models
+    line: 173
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  GroupObjectPermissionBase:
+    name: GroupObjectPermissionBase
+    module_path: guardian.models.models
+    line: 134
+    relations:
+      - field_name: permission
+        target_model: Permission
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: group
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  UserObjectPermissionAbstract:
+    name: UserObjectPermissionAbstract
+    module_path: guardian.models.models
+    line: 108
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  UserObjectPermissionBase:
+    name: UserObjectPermissionBase
+    module_path: guardian.models.models
+    line: 66
+    relations:
+      - field_name: permission
+        target_model: Permission
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: user
+        target_model: user_model_label
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true

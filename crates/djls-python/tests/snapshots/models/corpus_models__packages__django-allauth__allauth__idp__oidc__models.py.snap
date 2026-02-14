@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Client:
+    name: Client
+    module_path: allauth.idp.oidc.models
+    line: 35
+    relations:
+      - field_name: owner
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Token:
+    name: Token
+    module_path: allauth.idp.oidc.models
+    line: 198
+    relations:
+      - field_name: client
+        target_model: Client
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

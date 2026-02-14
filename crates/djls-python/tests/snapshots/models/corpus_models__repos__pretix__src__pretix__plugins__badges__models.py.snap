@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BadgeItem:
+    name: BadgeItem
+    module_path: src.pretix.plugins.badges.models
+    line: 69
+    relations:
+      - field_name: item
+        target_model: Item
+        relation_type: OneToOne
+        related_name: badge_assignment
+      - field_name: layout
+        target_model: BadgeLayout
+        relation_type: ForeignKey
+        related_name: item_assignments
+    is_abstract: false

@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  FkTable:
+    name: FkTable
+    module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_fk_constraint_app.models
+    line: 6
+    relations: []
+    is_abstract: false
+  TestTable:
+    name: TestTable
+    module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_fk_constraint_app.models
+    line: 10
+    relations: []
+    is_abstract: false

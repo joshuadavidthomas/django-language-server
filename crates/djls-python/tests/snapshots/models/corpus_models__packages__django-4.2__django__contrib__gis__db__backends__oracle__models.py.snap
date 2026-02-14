@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  OracleGeometryColumns:
+    name: OracleGeometryColumns
+    module_path: django.contrib.gis.db.backends.oracle.models
+    line: 14
+    relations: []
+    is_abstract: false
+  OracleSpatialRefSys:
+    name: OracleSpatialRefSys
+    module_path: django.contrib.gis.db.backends.oracle.models
+    line: 46
+    relations: []
+    is_abstract: false

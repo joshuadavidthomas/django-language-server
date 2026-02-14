@@ -1,0 +1,37 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Action:
+    name: Action
+    module_path: actstream.models
+    line: 45
+    relations:
+      - field_name: actor_content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: actor
+      - field_name: target_content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: target
+      - field_name: action_object_content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: action_object
+    is_abstract: false
+  Follow:
+    name: Follow
+    module_path: actstream.models
+    line: 16
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

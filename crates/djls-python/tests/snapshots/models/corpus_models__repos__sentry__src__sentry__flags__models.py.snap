@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  FlagAuditLogModel:
+    name: FlagAuditLogModel
+    module_path: src.sentry.flags.models
+    line: 93
+    relations: []
+    is_abstract: false
+  FlagWebHookSigningSecretModel:
+    name: FlagWebHookSigningSecretModel
+    module_path: src.sentry.flags.models
+    line: 131
+    relations: []
+    is_abstract: false

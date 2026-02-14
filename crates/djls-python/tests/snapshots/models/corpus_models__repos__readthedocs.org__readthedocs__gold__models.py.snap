@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  GoldUser:
+    name: GoldUser
+    module_path: readthedocs.gold.models
+    line: 26
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: gold
+      - field_name: projects
+        target_model: Project
+        relation_type: ManyToMany
+        related_name: gold_owners
+    is_abstract: false

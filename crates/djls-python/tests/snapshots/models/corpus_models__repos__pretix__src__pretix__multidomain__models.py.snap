@@ -1,0 +1,33 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  AlternativeDomainAssignment:
+    name: AlternativeDomainAssignment
+    module_path: src.pretix.multidomain.models
+    line: 138
+    relations:
+      - field_name: domain
+        target_model: KnownDomain
+        relation_type: ForeignKey
+        related_name: event_assignments
+      - field_name: event
+        target_model: Event
+        relation_type: OneToOne
+        related_name: alternative_domain_assignment
+    is_abstract: false
+  KnownDomain:
+    name: KnownDomain
+    module_path: src.pretix.multidomain.models
+    line: 31
+    relations:
+      - field_name: organizer
+        target_model: Organizer
+        relation_type: ForeignKey
+        related_name: domains
+      - field_name: event
+        target_model: Event
+        relation_type: OneToOne
+        related_name: domain
+    is_abstract: false

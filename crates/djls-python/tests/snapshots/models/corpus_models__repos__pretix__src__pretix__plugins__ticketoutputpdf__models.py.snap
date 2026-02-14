@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  TicketLayoutItem:
+    name: TicketLayoutItem
+    module_path: src.pretix.plugins.ticketoutputpdf.models
+    line: 347
+    relations:
+      - field_name: item
+        target_model: Item
+        relation_type: ForeignKey
+        related_name: ticketlayout_assignments
+      - field_name: layout
+        target_model: TicketLayout
+        relation_type: ForeignKey
+        related_name: item_assignments
+      - field_name: sales_channel
+        target_model: SalesChannel
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

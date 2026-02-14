@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseIndexer:
+    name: BaseIndexer
+    module_path: src.sentry.sentry_metrics.indexer.postgres.models
+    line: 17
+    relations: []
+    is_abstract: true
+  PerfStringIndexer:
+    name: PerfStringIndexer
+    module_path: src.sentry.sentry_metrics.indexer.postgres.models
+    line: 44
+    relations: []
+    is_abstract: false
+  StringIndexer:
+    name: StringIndexer
+    module_path: src.sentry.sentry_metrics.indexer.postgres.models
+    line: 32
+    relations: []
+    is_abstract: false

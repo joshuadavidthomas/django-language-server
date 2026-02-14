@@ -1,0 +1,53 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  AbstractUser:
+    name: AbstractUser
+    module_path: django.contrib.auth.models
+    line: 334
+    relations:
+      - field_name: groups
+        target_model: Group
+        relation_type: ManyToMany
+        related_name: user_set
+      - field_name: user_permissions
+        target_model: Permission
+        relation_type: ManyToMany
+        related_name: user_set
+    is_abstract: true
+  Group:
+    name: Group
+    module_path: django.contrib.auth.models
+    line: 98
+    relations:
+      - field_name: permissions
+        target_model: Permission
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false
+  Permission:
+    name: Permission
+    module_path: django.contrib.auth.models
+    line: 38
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  PermissionsMixin:
+    name: PermissionsMixin
+    module_path: django.contrib.auth.models
+    line: 242
+    relations:
+      - field_name: groups
+        target_model: Group
+        relation_type: ManyToMany
+        related_name: user_set
+      - field_name: user_permissions
+        target_model: Permission
+        relation_type: ManyToMany
+        related_name: user_set
+    is_abstract: true

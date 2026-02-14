@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BannedCompanyName:
+    name: BannedCompanyName
+    module_path: settings.models
+    line: 5
+    relations: []
+    is_abstract: false
+  MassmailSettings:
+    name: MassmailSettings
+    module_path: settings.models
+    line: 34
+    relations: []
+    is_abstract: false
+  PublicEmailDomain:
+    name: PublicEmailDomain
+    module_path: settings.models
+    line: 68
+    relations: []
+    is_abstract: false
+  Reminders:
+    name: Reminders
+    module_path: settings.models
+    line: 104
+    relations: []
+    is_abstract: false
+  StopPhrase:
+    name: StopPhrase
+    module_path: settings.models
+    line: 134
+    relations: []
+    is_abstract: false
