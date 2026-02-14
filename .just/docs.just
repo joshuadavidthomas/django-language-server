@@ -75,10 +75,10 @@ copy:
             | sed 's](LICENSE)]\(https://github.com/joshuadavidthomas/django-language-server/tree/main/LICENSE)]g'
     } > docs/index.md
 
-# Generate rules documentation from rules.toml and djls check output
+# Generate rules documentation from rule definitions
 [no-cd]
 rules:
-    python3 docs/rules/generate.py
+    cargo dev generate-rules
 
 [private]
 fmt:

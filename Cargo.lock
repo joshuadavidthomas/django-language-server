@@ -801,6 +801,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-dev"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "djls-semantic",
+]
+
+[[package]]
 name = "djls-ide"
 version = "0.0.0"
 dependencies = [

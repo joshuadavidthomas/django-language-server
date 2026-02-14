@@ -287,7 +287,7 @@ Available recipes:
         record FILENAME="djls.db"
     docs:
         build LOCATION="site" # Build documentation
-        rules                 # Generate rules documentation from rules.toml and djls check output
+        rules                 # Generate rules documentation from rule definitions
         serve PORT="8000"     # Serve documentation locally
 ```
 <!-- [[[end]]] -->
