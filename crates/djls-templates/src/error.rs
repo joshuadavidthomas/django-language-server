@@ -17,6 +17,15 @@ pub enum TemplateError {
 
 impl TemplateError {
     #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Parser(_) => "T100",
+            Self::Io(_) => "T900",
+            Self::Config(_) => "T901",
+        }
+    }
+
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Parser(_) => "parser-error",

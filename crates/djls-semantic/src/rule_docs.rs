@@ -1,3 +1,6 @@
+use djls_source::Span;
+use djls_templates::TemplateError;
+
 use crate::ValidationError;
 
 /// Metadata for a single diagnostic rule, used to generate documentation.
@@ -16,99 +19,141 @@ pub struct RuleDoc {
 #[must_use]
 pub fn all_rule_docs() -> Vec<RuleDoc> {
     let mut docs = template_error_docs();
-    docs.extend(ValidationError::rule_docs());
+    docs.extend(validation_error_docs());
     docs
+}
+
+fn template_rule(error: &TemplateError, what: &'static str, fix: Option<&'static str>) -> RuleDoc {
+    RuleDoc {
+        code: error.code(),
+        name: error.name(),
+        what,
+        why: None,
+        fix,
+        example: None,
+        requires_inspector: false,
+    }
 }
 
 fn template_error_docs() -> Vec<RuleDoc> {
     vec![
-        RuleDoc {
-            code: "T100",
-            name: "parser-error",
-            what: "Reports syntax errors in Django template markup — unclosed tags, \
-                       malformed expressions, or invalid template syntax that prevents \
-                       parsing.",
-            why: None,
-            fix: Some(
+        template_rule(
+            &TemplateError::Parser(String::new()),
+            "Reports syntax errors in Django template markup — unclosed tags, \
+             malformed expressions, or invalid template syntax that prevents parsing.",
+            Some(
                 "Correct the template syntax. Common causes include unclosed `{{` or \
-                     `{%` delimiters, unmatched quotes in tag arguments, and malformed \
-                     filter expressions.",
+                 `{%` delimiters, unmatched quotes in tag arguments, and malformed \
+                 filter expressions.",
             ),
-            example: None,
-            requires_inspector: false,
-        },
-        RuleDoc {
-            code: "T900",
-            name: "io-error",
-            what: "Reports file I/O errors encountered when reading a template file.",
-            why: None,
-            fix: Some(
+        ),
+        template_rule(
+            &TemplateError::Io(String::new()),
+            "Reports file I/O errors encountered when reading a template file.",
+            Some(
                 "Check that the file exists, is readable, and is not locked by \
-                     another process.",
+                 another process.",
             ),
-            example: None,
-            requires_inspector: false,
-        },
-        RuleDoc {
-            code: "T901",
-            name: "config-error",
-            what: "Reports configuration errors that prevent template processing.",
-            why: None,
-            fix: Some(
+        ),
+        template_rule(
+            &TemplateError::Config(String::new()),
+            "Reports configuration errors that prevent template processing.",
+            Some(
                 "Check your djls configuration. See \
-                     [Configuration](./configuration/index.md) for details.",
+                 [Configuration](./configuration/index.md) for details.",
             ),
-            example: None,
-            requires_inspector: false,
-        },
+        ),
     ]
 }
 
-impl ValidationError {
-    #[allow(clippy::too_many_lines)]
-    fn rule_docs() -> Vec<RuleDoc> {
-        vec![
-            RuleDoc {
-                code: "S100",
-                name: "unclosed-tag",
-                what: "Checks that block tags have their required closing tag. For example, \
-                       `{% block %}` must have a matching `{% endblock %}`, and `{% if %}` \
-                       must have `{% endif %}`.",
+#[derive(Clone, Copy)]
+struct ValidationDoc {
+    what: &'static str,
+    why: Option<&'static str>,
+    fix: Option<&'static str>,
+    example: Option<&'static str>,
+    requires_inspector: bool,
+}
+
+fn validation_rule(error: &ValidationError, doc: ValidationDoc) -> RuleDoc {
+    RuleDoc {
+        code: error.code(),
+        name: error.name(),
+        what: doc.what,
+        why: doc.why,
+        fix: doc.fix,
+        example: doc.example,
+        requires_inspector: doc.requires_inspector,
+    }
+}
+
+fn dummy_span() -> Span {
+    Span::new(0, 0)
+}
+
+#[allow(clippy::too_many_lines)]
+fn validation_error_docs() -> Vec<RuleDoc> {
+    vec![
+        validation_rule(
+            &ValidationError::UnclosedTag {
+                tag: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
+                what: "Checks that block tags have their required closing tag. For \
+                       example, `{% block %}` must have a matching `{% endblock %}`, and \
+                       `{% if %}` must have `{% endif %}`.",
                 why: Some(
-                    "Django raises `TemplateSyntaxError` at render time for unclosed block \
-                     tags.",
+                    "Django raises `TemplateSyntaxError` at render time for unclosed \
+                     block tags.",
                 ),
                 fix: None,
                 example: Some("{% block content %}\n  <h1>Hello</h1>"),
                 requires_inspector: false,
             },
-            RuleDoc {
-                code: "S101",
-                name: "unbalanced-structure",
-                what: "Checks that block tags are properly matched. Detects cases where a \
-                       closing tag doesn't correspond to its opening tag — for example, \
+        ),
+        validation_rule(
+            &ValidationError::UnbalancedStructure {
+                opening_tag: String::new(),
+                expected_closing: String::new(),
+                opening_span: dummy_span(),
+                closing_span: None,
+            },
+            ValidationDoc {
+                what: "Checks that block tags are properly matched. Detects cases where \
+                       a closing tag doesn't correspond to its opening tag — for example, \
                        `{% if %}` closed by `{% endfor %}`.",
                 why: Some("Django raises `TemplateSyntaxError` for mismatched block tags."),
                 fix: None,
                 example: Some("{% if user.is_authenticated %}\n  <p>Welcome</p>\n{% endfor %}"),
                 requires_inspector: false,
             },
-            RuleDoc {
-                code: "S102",
-                name: "orphaned-tag",
+        ),
+        validation_rule(
+            &ValidationError::OrphanedTag {
+                tag: String::new(),
+                context: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that intermediate tags (like `{% else %}`, `{% elif %}`, \
                        `{% empty %}`) appear inside their expected parent block.",
                 why: Some(
-                    "Django raises `TemplateSyntaxError` for intermediate tags that appear \
-                     outside their parent structure.",
+                    "Django raises `TemplateSyntaxError` for intermediate tags that \
+                     appear outside their parent structure.",
                 ),
                 fix: None,
                 example: Some("{% else %}\n  <p>Fallback</p>"),
                 requires_inspector: false,
             },
-            RuleDoc {
-                code: "S103",
-                name: "unmatched-block-name",
+        ),
+        validation_rule(
+            &ValidationError::UnmatchedBlockName {
+                expected: String::new(),
+                got: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that named `{% endblock %}` tags match their opening \
                        `{% block %}` name. Django allows `{% endblock name %}` as \
                        documentation — this rule verifies the name is correct.",
@@ -121,12 +166,16 @@ impl ValidationError {
                 example: Some("{% block sidebar %}\n  <nav>...</nav>\n{% endblock content %}"),
                 requires_inspector: false,
             },
-            RuleDoc {
-                code: "S108",
-                name: "unknown-tag",
+        ),
+        validation_rule(
+            &ValidationError::UnknownTag {
+                tag: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that a template tag exists in at least one known library. \
-                       If the tag isn't found in any installed package or built-in library, \
-                       it's reported as unknown.",
+                       If the tag isn't found in any installed package or built-in \
+                       library, it's reported as unknown.",
                 why: Some("Django raises `TemplateSyntaxError` for tags it doesn't recognize."),
                 fix: Some(
                     "Check the tag name for typos. If the tag comes from a third-party \
@@ -138,9 +187,14 @@ impl ValidationError {
                 example: Some("{% nonexistent_tag %}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S109",
-                name: "unloaded-tag",
+        ),
+        validation_rule(
+            &ValidationError::UnloadedTag {
+                tag: String::new(),
+                library: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that a template tag's library has been loaded with \
                        `{% load %}`. The tag exists and is available — it just hasn't \
                        been imported into this template.",
@@ -152,9 +206,14 @@ impl ValidationError {
                 example: Some("{% cache 500 sidebar %}\n  ...\n{% endcache %}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S110",
-                name: "ambiguous-unloaded-tag",
+        ),
+        validation_rule(
+            &ValidationError::AmbiguousUnloadedTag {
+                tag: String::new(),
+                libraries: Vec::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks for tags that exist in multiple libraries but none have \
                        been loaded. djls can't determine which library you intended.",
                 why: Some(
@@ -168,13 +227,20 @@ impl ValidationError {
                 ),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S111",
-                name: "unknown-filter",
-                what: "Checks that a template filter exists in at least one known library. \
-                       If the filter isn't found in any installed package or built-in \
-                       library, it's reported as unknown.",
-                why: Some("Django raises `TemplateSyntaxError` for filters it doesn't recognize."),
+        ),
+        validation_rule(
+            &ValidationError::UnknownFilter {
+                filter: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
+                what: "Checks that a template filter exists in at least one known \
+                       library. If the filter isn't found in any installed package or \
+                       built-in library, it's reported as unknown.",
+                why: Some(
+                    "Django raises `TemplateSyntaxError` for filters it doesn't \
+                     recognize.",
+                ),
                 fix: Some(
                     "Check the filter name for typos. If the filter comes from a \
                      third-party package, install it with `pip install <package>`.\n\n\
@@ -185,9 +251,14 @@ impl ValidationError {
                 example: Some("{{ value|nonexistent_filter }}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S112",
-                name: "unloaded-filter",
+        ),
+        validation_rule(
+            &ValidationError::UnloadedFilter {
+                filter: String::new(),
+                library: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that a template filter's library has been loaded with \
                        `{% load %}`. The filter exists and is available — it just hasn't \
                        been imported into this template.",
@@ -200,9 +271,14 @@ impl ValidationError {
                 example: Some("{{ value|intcomma }}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S113",
-                name: "ambiguous-unloaded-filter",
+        ),
+        validation_rule(
+            &ValidationError::AmbiguousUnloadedFilter {
+                filter: String::new(),
+                libraries: Vec::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks for filters that exist in multiple libraries but none have \
                        been loaded. djls can't determine which library you intended.",
                 why: Some(
@@ -216,9 +292,14 @@ impl ValidationError {
                 ),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S114",
-                name: "expression-syntax-error",
+        ),
+        validation_rule(
+            &ValidationError::ExpressionSyntaxError {
+                tag: String::new(),
+                message: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Validates operator usage in `{% if %}` and `{% elif %}` \
                        expressions. Catches missing operands, consecutive operators, and \
                        other syntax errors in boolean expressions.",
@@ -230,12 +311,16 @@ impl ValidationError {
                 example: Some("{% if and x %}\n  <p>Hello</p>\n{% endif %}"),
                 requires_inspector: false,
             },
-            RuleDoc {
-                code: "S115",
-                name: "filter-missing-argument",
-                what: "Checks that filters which require an argument are called with one. \
-                       Filter arity is determined by static analysis of the filter's \
-                       Python source code.",
+        ),
+        validation_rule(
+            &ValidationError::FilterMissingArgument {
+                filter: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
+                what: "Checks that filters which require an argument are called with \
+                       one. Filter arity is determined by static analysis of the \
+                       filter's Python source code.",
                 why: Some(
                     "Django raises `TemplateSyntaxError` when a filter that requires an \
                      argument is called without one.",
@@ -244,9 +329,13 @@ impl ValidationError {
                 example: Some("{{ value|default }}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S116",
-                name: "filter-unexpected-argument",
+        ),
+        validation_rule(
+            &ValidationError::FilterUnexpectedArgument {
+                filter: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that filters which don't accept an argument aren't called \
                        with one. Filter arity is determined by static analysis of the \
                        filter's Python source code.",
@@ -258,9 +347,14 @@ impl ValidationError {
                 example: Some("{{ value|title:\"arg\" }}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S117",
-                name: "extracted-rule-violation",
+        ),
+        validation_rule(
+            &ValidationError::ExtractedRuleViolation {
+                tag: String::new(),
+                message: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Validates tag arguments against rules extracted from the tag's \
                        Python source code. The extraction engine reads \
                        `split_contents()` guard conditions, function signatures, and \
@@ -273,9 +367,15 @@ impl ValidationError {
                 example: Some("{% for item %}\n  {{ item }}\n{% endfor %}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S118",
-                name: "tag-not-in-installed-apps",
+        ),
+        validation_rule(
+            &ValidationError::TagNotInInstalledApps {
+                tag: String::new(),
+                app: String::new(),
+                load_name: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks for tags that exist in an installed Python package but \
                        whose Django app isn't in `INSTALLED_APPS`. The package is \
                        installed — the app just needs to be activated.",
@@ -292,9 +392,15 @@ impl ValidationError {
                 example: Some("{% load crispy_forms_tags %}\n{% crispy form %}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S119",
-                name: "filter-not-in-installed-apps",
+        ),
+        validation_rule(
+            &ValidationError::FilterNotInInstalledApps {
+                filter: String::new(),
+                app: String::new(),
+                load_name: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks for filters that exist in an installed Python package but \
                        whose Django app isn't in `INSTALLED_APPS`. The package is \
                        installed — the app just needs to be activated.",
@@ -311,9 +417,13 @@ impl ValidationError {
                 example: Some("{% load some_filters %}\n{{ value|custom_filter }}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S120",
-                name: "unknown-library",
+        ),
+        validation_rule(
+            &ValidationError::UnknownLibrary {
+                name: String::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks that the library name in a `{% load %}` tag refers to a \
                        known template tag library. If the library isn't found in any \
                        installed package or built-in, it's reported as unknown.",
@@ -328,9 +438,15 @@ impl ValidationError {
                 example: Some("{% load nonexistent_lib %}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S121",
-                name: "library-not-in-installed-apps",
+        ),
+        validation_rule(
+            &ValidationError::LibraryNotInInstalledApps {
+                name: String::new(),
+                app: String::new(),
+                candidates: Vec::new(),
+                span: dummy_span(),
+            },
+            ValidationDoc {
                 what: "Checks for `{% load %}` library names that exist in an installed \
                        Python package but whose Django app isn't in `INSTALLED_APPS`.",
                 why: Some(
@@ -342,9 +458,10 @@ impl ValidationError {
                 example: Some("{% load crispy_forms_tags %}"),
                 requires_inspector: true,
             },
-            RuleDoc {
-                code: "S122",
-                name: "extends-must-be-first",
+        ),
+        validation_rule(
+            &ValidationError::ExtendsMustBeFirst { span: dummy_span() },
+            ValidationDoc {
                 what: "Checks that `{% extends %}` is the first tag in the template. \
                        Text and `{# comments #}` are allowed before it, but no other \
                        tags or variable expressions (`{{ ... }}`) may appear first.",
@@ -356,9 +473,10 @@ impl ValidationError {
                 example: Some("{% load i18n %}\n{% extends \"base.html\" %}"),
                 requires_inspector: false,
             },
-            RuleDoc {
-                code: "S123",
-                name: "multiple-extends",
+        ),
+        validation_rule(
+            &ValidationError::MultipleExtends { span: dummy_span() },
+            ValidationDoc {
                 what: "Checks that `{% extends %}` appears at most once in a template.",
                 why: Some(
                     "A template can only extend one parent. Django raises \
@@ -368,6 +486,6 @@ impl ValidationError {
                 example: Some("{% extends \"base.html\" %}\n{% extends \"other.html\" %}"),
                 requires_inspector: false,
             },
-        ]
-    }
+        ),
+    ]
 }

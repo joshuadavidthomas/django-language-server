@@ -58,11 +58,7 @@ impl DiagnosticError for TemplateError {
     }
 
     fn diagnostic_code(&self) -> &'static str {
-        match self {
-            TemplateError::Parser(_) => "T100",
-            TemplateError::Io(_) => "T900",
-            TemplateError::Config(_) => "T901",
-        }
+        self.code()
     }
 
     fn diagnostic_name(&self) -> &'static str {
