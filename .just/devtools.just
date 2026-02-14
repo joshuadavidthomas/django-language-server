@@ -110,13 +110,13 @@ profile bench filter="":
     echo ""
     # strip the header, show just the function table
     sed -n '/file:function/,$ p' "${outfile}.flat.txt" \
-        | rg -v 'codspeed_divan_compat'
+        | rg -v 'codspeed_divan_compat' || true
 
     echo ""
     echo "Call tree (inclusive cost, who calls what):"
     echo ""
     sed -n '/file:function/,$ p' "${outfile}.tree.txt" \
-        | rg -v 'codspeed_divan_compat'
+        | rg -v 'codspeed_divan_compat' || true
 
     echo ""
     echo "Raw data: ${outfile}"
