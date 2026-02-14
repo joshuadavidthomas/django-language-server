@@ -24,6 +24,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added rg-style file filtering flags to `djls check`: `-g/--glob` for glob patterns, `--no-ignore` to skip ignore files, `-L/--follow` for symlinks, `-d/--max-depth` for recursion depth, `--color always|auto|never`, and `-q/--quiet`.
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
 - Filesystem cache for inspector responses (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.

@@ -7,6 +7,7 @@ use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
+use clap::ValueEnum;
 use djls_db::DjangoDatabase;
 use djls_ide::render_template_error;
 use djls_ide::render_validation_error;
@@ -21,12 +22,25 @@ use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
+use djls_workspace::WalkOptions;
 
 use crate::args::Args;
 use crate::commands::Command;
 use crate::exit::Exit;
 
+#[derive(Clone, Debug, Default, ValueEnum)]
+enum ColorMode {
+    /// Use colors when output is a terminal.
+    #[default]
+    Auto,
+    /// Always use colors.
+    Always,
+    /// Never use colors.
+    Never,
+}
+
 #[derive(Debug, Parser)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Check {
     /// Files or directories to check. Pass `-` to read from stdin. If
     /// omitted, discovers template directories from the Django project.
@@ -41,8 +55,34 @@ pub struct Check {
     ignore: Vec<String>,
 
     /// Include hidden files and directories (those starting with `.`).
-    #[arg(long, default_value_t = false)]
+    #[arg(short = '.', long, default_value_t = false)]
     hidden: bool,
+
+    /// Include or exclude files matching a glob pattern. Prefix with `!` to
+    /// exclude. May be specified multiple times. Later patterns take
+    /// precedence.
+    #[arg(short = 'g', long = "glob")]
+    globs: Vec<String>,
+
+    /// Don't respect ignore files (.gitignore, .ignore, etc.).
+    #[arg(long, default_value_t = false)]
+    no_ignore: bool,
+
+    /// Follow symbolic links.
+    #[arg(short = 'L', long, default_value_t = false)]
+    follow: bool,
+
+    /// Limit directory traversal depth.
+    #[arg(short = 'd', long)]
+    max_depth: Option<usize>,
+
+    /// When to use colors.
+    #[arg(long, value_enum, default_value_t = ColorMode::Auto)]
+    color: ColorMode,
+
+    /// Suppress output; only set the exit code.
+    #[arg(short, long, default_value_t = false)]
+    quiet: bool,
 }
 
 impl Command for Check {
@@ -52,18 +92,26 @@ impl Command for Check {
             djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
-        let fmt = pick_renderer();
+        let fmt = pick_renderer(&self.color);
 
         let reading_stdin = self.paths.iter().any(|p| p.as_str() == "-");
 
         if reading_stdin {
-            return check_stdin(&project_root, &settings, &config, &fmt);
+            return check_stdin(&project_root, &settings, &config, &fmt, self.quiet);
         }
 
         let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
         let db = DjangoDatabase::new(fs, &settings, Some(&project_root));
 
-        let files = discover_files(&self.paths, &db, &project_root, self.hidden);
+        let walk_options = WalkOptions {
+            hidden: self.hidden,
+            globs: self.globs.clone(),
+            no_ignore: self.no_ignore,
+            follow_links: self.follow,
+            max_depth: self.max_depth,
+        };
+
+        let files = discover_files(&self.paths, &db, &project_root, &walk_options);
 
         if files.is_empty() {
             return Ok(Exit::success());
@@ -100,8 +148,10 @@ impl Command for Check {
             let rendered = result.render(&config, &fmt);
             if !rendered.is_empty() {
                 file_count += 1;
-                for output in &rendered {
-                    println!("{output}\n");
+                if !self.quiet {
+                    for output in &rendered {
+                        println!("{output}\n");
+                    }
                 }
                 error_count += rendered.len();
             }
@@ -110,9 +160,11 @@ impl Command for Check {
         if error_count > 0 {
             let file_word = if file_count == 1 { "file" } else { "files" };
             let error_word = if error_count == 1 { "error" } else { "errors" };
-            Ok(Exit::error().with_message(format!(
-                "Found {error_count} {error_word} in {file_count} {file_word}."
-            )))
+            Ok(Exit::error().with_message(if self.quiet {
+                String::new()
+            } else {
+                format!("Found {error_count} {error_word} in {file_count} {file_word}.")
+            }))
         } else {
             Ok(Exit::success())
         }
@@ -123,7 +175,7 @@ fn discover_files(
     paths: &[Utf8PathBuf],
     db: &DjangoDatabase,
     project_root: &Utf8Path,
-    hidden: bool,
+    options: &WalkOptions,
 ) -> Vec<Utf8PathBuf> {
     if !paths.is_empty() {
         let resolved: Vec<Utf8PathBuf> = paths
@@ -136,14 +188,14 @@ fn discover_files(
                 }
             })
             .collect();
-        return walk_files(&resolved, is_template, hidden);
+        return walk_files(&resolved, is_template, options);
     }
 
     if let Some(dirs) = db.template_dirs() {
         let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_files(&dirs, is_template, hidden)
+        walk_files(&dirs, is_template, options)
     } else {
-        walk_files(&[project_root.to_owned()], is_template, hidden)
+        walk_files(&[project_root.to_owned()], is_template, options)
     }
 }
 
@@ -152,6 +204,7 @@ fn check_stdin(
     settings: &djls_conf::Settings,
     config: &djls_conf::DiagnosticsConfig,
     fmt: &DiagnosticRenderer,
+    quiet: bool,
 ) -> Result<Exit> {
     let mut source = String::new();
     std::io::stdin()
@@ -169,12 +222,18 @@ fn check_stdin(
     if rendered.is_empty() {
         Ok(Exit::success())
     } else {
-        for output in &rendered {
-            println!("{output}\n");
+        if !quiet {
+            for output in &rendered {
+                println!("{output}\n");
+            }
         }
         let count = rendered.len();
         let word = if count == 1 { "error" } else { "errors" };
-        Ok(Exit::error().with_message(format!("Found {count} {word}.")))
+        Ok(Exit::error().with_message(if quiet {
+            String::new()
+        } else {
+            format!("Found {count} {word}.")
+        }))
     }
 }
 
@@ -280,8 +339,13 @@ fn is_template(path: &Utf8Path) -> bool {
     FileKind::is_template(path)
 }
 
-fn pick_renderer() -> DiagnosticRenderer {
-    if std::io::stdout().is_terminal() {
+fn pick_renderer(color: &ColorMode) -> DiagnosticRenderer {
+    let use_color = match color {
+        ColorMode::Always => true,
+        ColorMode::Never => false,
+        ColorMode::Auto => std::io::stdout().is_terminal(),
+    };
+    if use_color {
         DiagnosticRenderer::styled()
     } else {
         DiagnosticRenderer::plain()

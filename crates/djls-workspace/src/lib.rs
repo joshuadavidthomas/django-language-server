@@ -24,4 +24,5 @@ pub use files::FileSystem;
 pub use files::InMemoryFileSystem;
 pub use files::OsFileSystem;
 pub use walk::walk_files;
+pub use walk::WalkOptions;
 pub use workspace::Workspace;
