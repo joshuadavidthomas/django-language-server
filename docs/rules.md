@@ -210,7 +210,6 @@ Without a `{% load %}`, Django doesn't know which library to use, and loading th
 
 ```htmldjango
 {# 'my_tag' exists in both 'library_a' and 'library_b' #}
-
 {% my_tag %}
 ```
 

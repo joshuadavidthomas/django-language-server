@@ -163,7 +163,7 @@ impl ValidationError {
                 ),
                 fix: None,
                 example: Some(
-                    "{# 'my_tag' exists in both 'library_a' and 'library_b' #}\n\n\
+                    "{# 'my_tag' exists in both 'library_a' and 'library_b' #}\n\
                      {% my_tag %}",
                 ),
                 requires_inspector: true,
