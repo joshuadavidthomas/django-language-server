@@ -40,7 +40,6 @@ enum ColorMode {
 }
 
 #[derive(Debug, Parser)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Check {
     /// Files or directories to check. Pass `-` to read from stdin. If
     /// omitted, discovers template directories from the Django project.
