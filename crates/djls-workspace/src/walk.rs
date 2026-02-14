@@ -60,11 +60,8 @@ pub fn walk_files(
         builder
             .standard_filters(!options.no_ignore)
             .hidden(!options.hidden)
-            .follow_links(options.follow_links);
-
-        if let Some(depth) = options.max_depth {
-            builder.max_depth(Some(depth));
-        }
+            .follow_links(options.follow_links)
+            .max_depth(options.max_depth);
 
         if !options.globs.is_empty() {
             let mut overrides = OverrideBuilder::new(path.as_std_path());
