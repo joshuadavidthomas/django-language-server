@@ -290,29 +290,37 @@ mod tests {
 
     #[test]
     fn follow_links_traverses_symlinks() {
-        let dir = tempfile::tempdir().unwrap();
-        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        // Create the symlink target OUTSIDE the walked directory so the
+        // file is only reachable through the symlink.
+        let walked = tempfile::tempdir().unwrap();
+        let walked_path = Utf8PathBuf::from_path_buf(walked.path().to_path_buf()).unwrap();
 
-        let target = dir.path().join("target");
+        let external = tempfile::tempdir().unwrap();
+        let target = external.path().join("templates");
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("linked.html"), "<p>linked</p>").unwrap();
 
         #[cfg(unix)]
-        std::os::unix::fs::symlink(&target, dir.path().join("link")).unwrap();
+        std::os::unix::fs::symlink(&target, walked.path().join("link")).unwrap();
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&target, dir.path().join("link")).unwrap();
+        std::os::windows::fs::symlink_dir(&target, walked.path().join("link")).unwrap();
 
-        // Without follow_links, the symlinked file is still found because
-        // the ignore crate follows directory symlinks by default on first level.
-        // But let's just verify the flag doesn't break anything.
+        let without = walk_files(&[walked_path.clone()], is_html, &defaults());
+        assert!(
+            without.is_empty(),
+            "file should not be found without follow_links"
+        );
+
         let opts = WalkOptions {
             follow_links: true,
             ..defaults()
         };
-        let files = walk_files(&[dir_path], is_html, &opts);
-        let names: Vec<&str> = files.iter().filter_map(|p| p.file_name()).collect();
-
-        assert!(names.contains(&"linked.html"));
+        let with = walk_files(&[walked_path], is_html, &opts);
+        let names: Vec<&str> = with.iter().filter_map(|p| p.file_name()).collect();
+        assert!(
+            names.contains(&"linked.html"),
+            "file should be found with follow_links"
+        );
     }
 
     #[test]

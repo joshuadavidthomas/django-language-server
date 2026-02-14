@@ -79,25 +79,22 @@ pub struct Check {
     /// When to use colors.
     #[arg(long, value_enum, default_value_t = ColorMode::Auto)]
     color: ColorMode,
-
-    /// Suppress output; only set the exit code.
-    #[arg(short, long, default_value_t = false)]
-    quiet: bool,
 }
 
 impl Command for Check {
-    fn execute(&self, _args: &Args) -> Result<Exit> {
+    fn execute(&self, args: &Args) -> Result<Exit> {
         let project_root = resolve_project_root()?;
         let settings =
             djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
         let fmt = pick_renderer(&self.color);
+        let quiet = args.quiet;
 
         let reading_stdin = self.paths.iter().any(|p| p.as_str() == "-");
 
         if reading_stdin {
-            return check_stdin(&project_root, &settings, &config, &fmt, self.quiet);
+            return check_stdin(&project_root, &settings, &config, &fmt, quiet);
         }
 
         let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
@@ -148,7 +145,7 @@ impl Command for Check {
             let rendered = result.render(&config, &fmt);
             if !rendered.is_empty() {
                 file_count += 1;
-                if !self.quiet {
+                if !quiet {
                     for output in &rendered {
                         println!("{output}\n");
                     }
@@ -158,13 +155,15 @@ impl Command for Check {
         }
 
         if error_count > 0 {
-            let file_word = if file_count == 1 { "file" } else { "files" };
-            let error_word = if error_count == 1 { "error" } else { "errors" };
-            Ok(Exit::error().with_message(if self.quiet {
-                String::new()
+            if quiet {
+                Ok(Exit::error())
             } else {
-                format!("Found {error_count} {error_word} in {file_count} {file_word}.")
-            }))
+                let file_word = if file_count == 1 { "file" } else { "files" };
+                let error_word = if error_count == 1 { "error" } else { "errors" };
+                Ok(Exit::error().with_message(format!(
+                    "Found {error_count} {error_word} in {file_count} {file_word}."
+                )))
+            }
         } else {
             Ok(Exit::success())
         }
@@ -221,19 +220,15 @@ fn check_stdin(
     let rendered = result.render(config, fmt);
     if rendered.is_empty() {
         Ok(Exit::success())
+    } else if quiet {
+        Ok(Exit::error())
     } else {
-        if !quiet {
-            for output in &rendered {
-                println!("{output}\n");
-            }
+        for output in &rendered {
+            println!("{output}\n");
         }
         let count = rendered.len();
         let word = if count == 1 { "error" } else { "errors" };
-        Ok(Exit::error().with_message(if quiet {
-            String::new()
-        } else {
-            format!("Found {count} {word}.")
-        }))
+        Ok(Exit::error().with_message(format!("Found {count} {word}.")))
     }
 }
 
