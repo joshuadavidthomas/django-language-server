@@ -20,9 +20,10 @@ devtools *ARGS:
 fmt:
     @just --fmt --justfile {{ justfile }}
 
+# TODO: djls-tmux binary was removed in #214, this recipe needs updating
 [no-cd]
 debug:
-    cargo run --bin djls-tmux --package djls-dev
+    @echo "Error: djls-tmux was removed in PR #214. This recipe needs updating." >&2 && exit 1
 
 [no-cd]
 explore FILENAME="djls.db":
@@ -37,21 +38,25 @@ record FILENAME="djls.db":
     rm -f {{ FILENAME }}
     @just dev devtools record --to-sqlite {{ FILENAME }}
 
-# Profile a bench and generate a flamegraph SVG + collapsed stacks.
-# Requires: jq, flamegraph, rg
-# Usage: just dev profile <bench> [filter]
-# Example: just dev profile parser parse_template
+# Profile a bench with callgrind
 [no-cd]
 profile bench filter="":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    for cmd in jq flamegraph rg; do
+    for cmd in valgrind jq rg; do
         if ! command -v "$cmd" &>/dev/null; then
             echo "Error: required command '$cmd' not found" >&2
+            echo "See CONTRIBUTING.md for profiling setup instructions." >&2
             exit 1
         fi
     done
+
+    if ! valgrind --version 2>/dev/null | rg -q 'codspeed'; then
+        echo "Error: requires the valgrind-codspeed fork, not stock valgrind." >&2
+        echo "See CONTRIBUTING.md for install instructions." >&2
+        exit 1
+    fi
 
     bench="{{ bench }}"
     filter="{{ filter }}"
@@ -76,19 +81,42 @@ profile bench filter="":
         exit 1
     fi
 
-    echo "Profiling..."
+    outfile="${profiles_dir}/${label}.callgrind"
+
+    echo "Profiling with callgrind..."
     filter_args=""
     if [ -n "$filter" ]; then
         filter_args="$filter"
     fi
 
     # shellcheck disable=SC2086
-    flamegraph -o "${profiles_dir}/${label}.svg" \
-        --post-process "tee ${profiles_dir}/${label}.collapsed" \
-        -- "$binary" $filter_args 2>&1 \
-        | rg -v 'cmd__addr2line'
+    valgrind --tool=callgrind \
+        --callgrind-out-file="$outfile" \
+        --cache-sim=yes \
+        --collect-jumps=yes \
+        "$binary" $filter_args 2>&1 \
+        | rg -v '^==' || true
+
+    # codspeed's valgrind fork writes two files: the base filename has
+    # benchmark-only data (harness overhead stripped), .1 has everything.
+    rm -f "${outfile}."*
+
+    # function-level summaries (no source annotation)
+    callgrind_annotate --auto=no "$outfile" > "${outfile}.flat.txt" 2>/dev/null
+    callgrind_annotate --auto=no --inclusive=yes --tree=calling "$outfile" > "${outfile}.tree.txt" 2>/dev/null
 
     echo ""
-    echo "Output:"
-    echo "  Collapsed stacks: ${profiles_dir}/${label}.collapsed"
-    echo "  Flamegraph SVG:   ${profiles_dir}/${label}.svg"
+    echo "Hot functions (self cost):"
+    echo ""
+    # strip the header, show just the function table
+    sed -n '/file:function/,$ p' "${outfile}.flat.txt" \
+        | rg -v 'codspeed_divan_compat' || true
+
+    echo ""
+    echo "Call tree (inclusive cost, who calls what):"
+    echo ""
+    sed -n '/file:function/,$ p' "${outfile}.tree.txt" \
+        | rg -v 'codspeed_divan_compat' || true
+
+    echo ""
+    echo "Raw data: ${outfile}"
