@@ -3,6 +3,12 @@ source: crates/djls-python/tests/corpus_models.rs
 expression: graph
 ---
 models:
+  APIProject:
+    name: APIProject
+    module_path: readthedocs.projects.models
+    line: 1584
+    relations: []
+    is_abstract: false
   EnvironmentVariable:
     name: EnvironmentVariable
     module_path: readthedocs.projects.models
@@ -22,6 +28,12 @@ models:
         target_model: Project
         relation_type: ManyToMany
         related_name: ~
+    is_abstract: false
+  HTMLFile:
+    name: HTMLFile
+    module_path: readthedocs.projects.models
+    line: 1713
+    relations: []
     is_abstract: false
   HTTPHeader:
     name: HTTPHeader

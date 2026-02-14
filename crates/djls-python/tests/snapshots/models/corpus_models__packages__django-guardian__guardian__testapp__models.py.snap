@@ -9,6 +9,16 @@ models:
     line: 109
     relations: []
     is_abstract: false
+  ChildTestModel:
+    name: ChildTestModel
+    module_path: guardian.testapp.models
+    line: 150
+    relations:
+      - field_name: parent_id
+        target_model: ParentTestModel
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: false
   Mixed:
     name: Mixed
     module_path: guardian.testapp.models

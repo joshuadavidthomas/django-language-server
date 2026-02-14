@@ -75,45 +75,64 @@ fn resolve_children(
     module_path: &str,
     source: &str,
 ) {
-    // Collect abstract model data before mutating graph.
-    // Note: only handles single-level abstract inheritance. Multi-level chains
-    // (A -> B -> C where both A and B are abstract) won't fully propagate relations.
-    let abstracts: Vec<(String, Vec<Relation>)> = graph
-        .models()
-        .filter(|m| m.is_abstract)
-        .map(|m| (m.name.clone(), m.relations.clone()))
-        .collect();
+    let mut remaining: Vec<&StmtClassDef> = children.to_vec();
 
-    for class in children {
-        let Some(ref args) = class.arguments else {
-            continue;
-        };
+    // Fixed-point loop: each iteration may resolve new models, which in turn
+    // unblock children that inherit from them (e.g., User -> AbstractUser ->
+    // PermissionsMixin). Converges when no progress is made.
+    loop {
+        let before = remaining.len();
+        let mut unresolved = Vec::new();
 
-        // Find a parent that's an abstract model in this graph
-        let parent = args.args.iter().find_map(|arg| {
-            let name = match arg {
-                Expr::Name(n) => n.id.as_str(),
-                _ => return None,
+        // Snapshot model state at the start of each iteration so newly resolved
+        // models become visible to the next iteration.
+        let abstract_relations: Vec<(String, Vec<Relation>)> = graph
+            .models()
+            .filter(|m| m.is_abstract)
+            .map(|m| (m.name.clone(), m.relations.clone()))
+            .collect();
+        let known_names: Vec<String> = graph.models().map(|m| m.name.clone()).collect();
+
+        for class in &remaining {
+            let Some(ref args) = class.arguments else {
+                continue;
             };
-            abstracts.iter().find(|(model_name, _)| model_name == name)
-        });
 
-        let Some((_, parent_relations)) = parent else {
-            continue;
-        };
+            let has_model_parent = args.args.iter().any(|arg| {
+                let Expr::Name(n) = arg else { return false };
+                known_names.iter().any(|m| m == n.id.as_str())
+            });
 
-        let line = line_number(source, class.range.start().to_usize());
-        let mut model = ModelDef::new(class.name.to_string(), module_path, line);
+            if !has_model_parent {
+                unresolved.push(*class);
+                continue;
+            }
 
-        // Copy parent relations
-        model.relations.extend(parent_relations.iter().cloned());
+            let line = line_number(source, class.range.start().to_usize());
+            let mut model = ModelDef::new(class.name.to_string(), module_path, line);
 
-        // Parse child's own body
-        for body_stmt in &class.body {
-            process_class_body(body_stmt, &mut model);
+            // Copy relations from ALL abstract parents
+            for arg in &args.args {
+                let Expr::Name(n) = arg else { continue };
+                if let Some((_, relations)) = abstract_relations
+                    .iter()
+                    .find(|(name, _)| name == n.id.as_str())
+                {
+                    model.relations.extend(relations.iter().cloned());
+                }
+            }
+
+            for body_stmt in &class.body {
+                process_class_body(body_stmt, &mut model);
+            }
+
+            graph.add_model(model);
         }
 
-        graph.add_model(model);
+        remaining = unresolved;
+        if remaining.len() == before {
+            break;
+        }
     }
 }
 
@@ -510,6 +529,98 @@ class Comment(models.Model):
             graph.resolve_relation("Comment", "author"),
             Some("User".to_string())
         );
+    }
+
+    #[test]
+    fn multiple_abstract_parents() {
+        let source = r#"
+class User(models.Model):
+    pass
+
+class Approver(models.Model):
+    pass
+
+class TimestampMixin(models.Model):
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        abstract = True
+
+class AuditMixin(models.Model):
+    approved_by = models.ForeignKey(Approver, on_delete=models.CASCADE)
+
+    class Meta:
+        abstract = True
+
+class Document(TimestampMixin, AuditMixin):
+    pass
+"#;
+        let graph = extract_model_graph(source, "app.models");
+
+        let doc = graph.get("Document").unwrap();
+        assert_eq!(doc.relations.len(), 2);
+
+        let targets: Vec<&str> = doc
+            .relations
+            .iter()
+            .map(|r| r.target_model.as_str())
+            .collect();
+        assert!(targets.contains(&"User"));
+        assert!(targets.contains(&"Approver"));
+    }
+
+    #[test]
+    fn concrete_model_inheritance() {
+        let source = r#"
+class User(models.Model):
+    pass
+
+class Place(models.Model):
+    name = models.CharField(max_length=50)
+
+class Restaurant(Place):
+    owner = models.ForeignKey(User, on_delete=models.CASCADE)
+"#;
+        let graph = extract_model_graph(source, "app.models");
+
+        let restaurant = graph.get("Restaurant").unwrap();
+        assert_eq!(restaurant.relations.len(), 1);
+        assert_eq!(restaurant.relations[0].field_name, "owner");
+        assert_eq!(restaurant.relations[0].target_model, "User");
+    }
+
+    #[test]
+    fn multi_level_inheritance_chain() {
+        let source = r#"
+class User(models.Model):
+    pass
+
+class BaseMixin(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        abstract = True
+
+class MiddleMixin(BaseMixin):
+    class Meta:
+        abstract = True
+
+class Concrete(MiddleMixin):
+    pass
+"#;
+        let graph = extract_model_graph(source, "app.models");
+
+        // MiddleMixin inherits BaseMixin's FK to User
+        let middle = graph.get("MiddleMixin").unwrap();
+        assert!(middle.is_abstract);
+        assert_eq!(middle.relations.len(), 1);
+        assert_eq!(middle.relations[0].target_model, "User");
+
+        // Concrete inherits through MiddleMixin
+        let concrete = graph.get("Concrete").unwrap();
+        assert!(!concrete.is_abstract);
+        assert_eq!(concrete.relations.len(), 1);
+        assert_eq!(concrete.relations[0].target_model, "User");
     }
 
     #[test]

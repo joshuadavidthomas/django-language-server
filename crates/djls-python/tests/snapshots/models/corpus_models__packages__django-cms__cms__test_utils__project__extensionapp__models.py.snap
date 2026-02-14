@@ -9,6 +9,18 @@ models:
     line: 39
     relations: []
     is_abstract: false
+  MultiTablePageContentExtension:
+    name: MultiTablePageContentExtension
+    module_path: cms.test_utils.project.extensionapp.models
+    line: 43
+    relations: []
+    is_abstract: false
+  MultiTablePageExtension:
+    name: MultiTablePageExtension
+    module_path: cms.test_utils.project.extensionapp.models
+    line: 32
+    relations: []
+    is_abstract: false
   MultiTablePageExtensionParent:
     name: MultiTablePageExtensionParent
     module_path: cms.test_utils.project.extensionapp.models

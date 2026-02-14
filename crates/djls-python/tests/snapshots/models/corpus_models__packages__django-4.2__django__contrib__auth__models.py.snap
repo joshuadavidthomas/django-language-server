@@ -51,3 +51,17 @@ models:
         relation_type: ManyToMany
         related_name: user_set
     is_abstract: true
+  User:
+    name: User
+    module_path: django.contrib.auth.models
+    line: 405
+    relations:
+      - field_name: groups
+        target_model: Group
+        relation_type: ManyToMany
+        related_name: user_set
+      - field_name: user_permissions
+        target_model: Permission
+        relation_type: ManyToMany
+        related_name: user_set
+    is_abstract: false

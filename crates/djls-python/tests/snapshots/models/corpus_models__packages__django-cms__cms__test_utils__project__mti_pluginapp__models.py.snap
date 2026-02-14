@@ -3,6 +3,18 @@ source: crates/djls-python/tests/corpus_models.rs
 expression: graph
 ---
 models:
+  LessMixedPlugin:
+    name: LessMixedPlugin
+    module_path: cms.test_utils.project.mti_pluginapp.models
+    line: 88
+    relations: []
+    is_abstract: false
+  MixedPlugin:
+    name: MixedPlugin
+    module_path: cms.test_utils.project.mti_pluginapp.models
+    line: 81
+    relations: []
+    is_abstract: false
   NonPluginModel:
     name: NonPluginModel
     module_path: cms.test_utils.project.mti_pluginapp.models

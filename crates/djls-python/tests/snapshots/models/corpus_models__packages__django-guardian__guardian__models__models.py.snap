@@ -23,6 +23,16 @@ models:
         relation_type: ForeignKey
         related_name: ~
     is_abstract: true
+  GroupObjectPermission:
+    name: GroupObjectPermission
+    module_path: guardian.models.models
+    line: 179
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
   GroupObjectPermissionAbstract:
     name: GroupObjectPermissionAbstract
     module_path: guardian.models.models
@@ -47,6 +57,16 @@ models:
         relation_type: ForeignKey
         related_name: ~
     is_abstract: true
+  UserObjectPermission:
+    name: UserObjectPermission
+    module_path: guardian.models.models
+    line: 114
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
   UserObjectPermissionAbstract:
     name: UserObjectPermissionAbstract
     module_path: guardian.models.models

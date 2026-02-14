@@ -21,6 +21,12 @@ models:
     line: 56
     relations: []
     is_abstract: false
+  WhatIMean:
+    name: WhatIMean
+    module_path: simple_history.registry_tests.migration_test_app.models
+    line: 10
+    relations: []
+    is_abstract: false
   Yar:
     name: Yar
     module_path: simple_history.registry_tests.migration_test_app.models
