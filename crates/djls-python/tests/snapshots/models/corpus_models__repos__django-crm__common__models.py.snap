@@ -1,0 +1,91 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Base:
+    name: Base
+    module_path: common.models
+    line: 19
+    relations:
+      - field_name: owner
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_owner_related"
+      - field_name: modified_by
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_modified_by_related"
+    is_abstract: true
+  Base1:
+    name: Base1
+    module_path: common.models
+    line: 67
+    relations:
+      - field_name: owner
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_owner_related"
+      - field_name: modified_by
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_modified_by_related"
+      - field_name: department
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_department_related"
+    is_abstract: true
+  Base2:
+    name: Base2
+    module_path: common.models
+    line: 99
+    relations:
+      - field_name: department
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_department_related"
+    is_abstract: true
+  Reminder:
+    name: Reminder
+    module_path: common.models
+    line: 142
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: reminders
+      - field_name: owner
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_owner_related"
+    is_abstract: false
+  StageBase:
+    name: StageBase
+    module_path: common.models
+    line: 224
+    relations:
+      - field_name: department
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_department_related"
+    is_abstract: true
+  TheFile:
+    name: TheFile
+    module_path: common.models
+    line: 193
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  UserProfile:
+    name: UserProfile
+    module_path: common.models
+    line: 248
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: OneToOne
+        related_name: profile
+    is_abstract: false

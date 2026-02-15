@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ExploreSavedQueryProject:
+    name: ExploreSavedQueryProject
+    module_path: src.sentry.explore.models
+    line: 38
+    relations: []
+    is_abstract: false

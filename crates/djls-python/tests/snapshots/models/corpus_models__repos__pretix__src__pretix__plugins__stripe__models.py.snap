@@ -1,0 +1,25 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ReferencedStripeObject:
+    name: ReferencedStripeObject
+    module_path: src.pretix.plugins.stripe.models
+    line: 25
+    relations:
+      - field_name: order
+        target_model: Order
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: payment
+        target_model: OrderPayment
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  RegisteredApplePayDomain:
+    name: RegisteredApplePayDomain
+    module_path: src.pretix.plugins.stripe.models
+    line: 31
+    relations: []
+    is_abstract: false

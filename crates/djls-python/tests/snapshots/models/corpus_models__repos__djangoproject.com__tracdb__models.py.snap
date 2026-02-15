@@ -1,0 +1,79 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Attachment:
+    name: Attachment
+    module_path: tracdb.models
+    line: 281
+    relations: []
+    is_abstract: false
+  Component:
+    name: Component
+    module_path: tracdb.models
+    line: 175
+    relations: []
+    is_abstract: false
+  Milestone:
+    name: Milestone
+    module_path: tracdb.models
+    line: 203
+    relations: []
+    is_abstract: false
+  Revision:
+    name: Revision
+    module_path: tracdb.models
+    line: 242
+    relations: []
+    is_abstract: false
+  Ticket:
+    name: Ticket
+    module_path: tracdb.models
+    line: 79
+    relations:
+      - field_name: component
+        target_model: Component
+        relation_type: ForeignKey
+        related_name: tickets
+      - field_name: version
+        target_model: Version
+        relation_type: ForeignKey
+        related_name: tickets
+      - field_name: milestone
+        target_model: Milestone
+        relation_type: ForeignKey
+        related_name: tickets
+    is_abstract: false
+  TicketChange:
+    name: TicketChange
+    module_path: tracdb.models
+    line: 150
+    relations:
+      - field_name: ticket
+        target_model: Ticket
+        relation_type: ForeignKey
+        related_name: changes
+    is_abstract: false
+  TicketCustom:
+    name: TicketCustom
+    module_path: tracdb.models
+    line: 131
+    relations:
+      - field_name: ticket
+        target_model: Ticket
+        relation_type: ForeignKey
+        related_name: custom_fields
+    is_abstract: false
+  Version:
+    name: Version
+    module_path: tracdb.models
+    line: 188
+    relations: []
+    is_abstract: false
+  Wiki:
+    name: Wiki
+    module_path: tracdb.models
+    line: 262
+    relations: []
+    is_abstract: false

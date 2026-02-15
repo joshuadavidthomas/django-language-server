@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Subject:
+    name: Subject
+    module_path: misago.oauth2.models
+    line: 7
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

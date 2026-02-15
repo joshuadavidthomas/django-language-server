@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseRemoteSubscription:
+    name: BaseRemoteSubscription
+    module_path: src.sentry.remote_subscriptions.models
+    line: 8
+    relations: []
+    is_abstract: true

@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Settings:
+    name: Settings
+    module_path: babybuddy.models
+    line: 17
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: false

@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  StockLocationType:
+    name: StockLocationType
+    module_path: src.backend.InvenTree.stock.models
+    line: 59
+    relations: []
+    is_abstract: false

@@ -1,0 +1,117 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BugFixRelease:
+    name: BugFixRelease
+    module_path: checklists.models
+    line: 323
+    relations:
+      - field_name: releaser
+        target_model: Releaser
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: release
+        target_model: Release
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: false
+  FeatureRelease:
+    name: FeatureRelease
+    module_path: checklists.models
+    line: 255
+    relations:
+      - field_name: releaser
+        target_model: Releaser
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: release
+        target_model: Release
+        relation_type: OneToOne
+        related_name: ~
+      - field_name: eom_release
+        target_model: Release
+        relation_type: ForeignKey
+        related_name: +
+      - field_name: eol_release
+        target_model: Release
+        relation_type: ForeignKey
+        related_name: +
+    is_abstract: false
+  PreRelease:
+    name: PreRelease
+    module_path: checklists.models
+    line: 290
+    relations:
+      - field_name: releaser
+        target_model: Releaser
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: release
+        target_model: Release
+        relation_type: OneToOne
+        related_name: ~
+      - field_name: feature_release
+        target_model: FeatureRelease
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  ReleaseChecklist:
+    name: ReleaseChecklist
+    module_path: checklists.models
+    line: 147
+    relations:
+      - field_name: releaser
+        target_model: Releaser
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  Releaser:
+    name: Releaser
+    module_path: checklists.models
+    line: 131
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  SecurityIssue:
+    name: SecurityIssue
+    module_path: checklists.models
+    line: 500
+    relations:
+      - field_name: release
+        target_model: SecurityRelease
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: releases
+        target_model: Release
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false
+  SecurityIssueReleasesThrough:
+    name: SecurityIssueReleasesThrough
+    module_path: checklists.models
+    line: 467
+    relations:
+      - field_name: securityissue
+        target_model: SecurityIssue
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: release
+        target_model: Release
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  SecurityRelease:
+    name: SecurityRelease
+    module_path: checklists.models
+    line: 356
+    relations:
+      - field_name: releaser
+        target_model: Releaser
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

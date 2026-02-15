@@ -1,0 +1,173 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseInvenTreeSetting:
+    name: BaseInvenTreeSetting
+    module_path: src.backend.InvenTree.common.models
+    line: 190
+    relations: []
+    is_abstract: true
+  CustomUnit:
+    name: CustomUnit
+    module_path: src.backend.InvenTree.common.models
+    line: 1791
+    relations: []
+    is_abstract: false
+  DataOutput:
+    name: DataOutput
+    module_path: src.backend.InvenTree.common.models
+    line: 2860
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: +
+    is_abstract: false
+  EmailMessage:
+    name: EmailMessage
+    module_path: src.backend.InvenTree.common.models
+    line: 2980
+    relations:
+      - field_name: thread
+        target_model: EmailThread
+        relation_type: ForeignKey
+        related_name: messages
+    is_abstract: false
+  InvenTreeCustomUserStateModel:
+    name: InvenTreeCustomUserStateModel
+    module_path: src.backend.InvenTree.common.models
+    line: 2078
+    relations:
+      - field_name: model
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  InvenTreeSetting:
+    name: InvenTreeSetting
+    module_path: src.backend.InvenTree.common.models
+    line: 1212
+    relations: []
+    is_abstract: false
+  InvenTreeUserSetting:
+    name: InvenTreeUserSetting
+    module_path: src.backend.InvenTree.common.models
+    line: 1308
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  MetaMixin:
+    name: MetaMixin
+    module_path: src.backend.InvenTree.common.models
+    line: 92
+    relations: []
+    is_abstract: true
+  NewsFeedEntry:
+    name: NewsFeedEntry
+    module_path: src.backend.InvenTree.common.models
+    line: 1725
+    relations: []
+    is_abstract: false
+  NotesImage:
+    name: NotesImage
+    module_path: src.backend.InvenTree.common.models
+    line: 1761
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  NotificationEntry:
+    name: NotificationEntry
+    module_path: src.backend.InvenTree.common.models
+    line: 1616
+    relations: []
+    is_abstract: false
+  NotificationMessage:
+    name: NotificationMessage
+    module_path: src.backend.InvenTree.common.models
+    line: 1653
+    relations:
+      - field_name: target_content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: notification_target
+      - field_name: source_content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: notification_source
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Parameter:
+    name: Parameter
+    module_path: src.backend.InvenTree.common.models
+    line: 2578
+    relations:
+      - field_name: updated_by
+        target_model: User
+        relation_type: ForeignKey
+        related_name: "%(class)s_updated"
+      - field_name: model_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: template
+        target_model: ParameterTemplate
+        relation_type: ForeignKey
+        related_name: parameters
+    is_abstract: false
+  PriceBreak:
+    name: PriceBreak
+    module_path: src.backend.InvenTree.common.models
+    line: 1347
+    relations: []
+    is_abstract: true
+  SelectionListEntry:
+    name: SelectionListEntry
+    module_path: src.backend.InvenTree.common.models
+    line: 2321
+    relations:
+      - field_name: list
+        target_model: SelectionList
+        relation_type: ForeignKey
+        related_name: entries
+    is_abstract: false
+  UpdatedUserMixin:
+    name: UpdatedUserMixin
+    module_path: src.backend.InvenTree.common.models
+    line: 112
+    relations:
+      - field_name: updated_by
+        target_model: User
+        relation_type: ForeignKey
+        related_name: "%(class)s_updated"
+    is_abstract: true
+  WebhookEndpoint:
+    name: WebhookEndpoint
+    module_path: src.backend.InvenTree.common.models
+    line: 1399
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  WebhookMessage:
+    name: WebhookMessage
+    module_path: src.backend.InvenTree.common.models
+    line: 1556
+    relations:
+      - field_name: endpoint
+        target_model: WebhookEndpoint
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

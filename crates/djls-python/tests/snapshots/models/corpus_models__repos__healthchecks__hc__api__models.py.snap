@@ -1,0 +1,69 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Channel:
+    name: Channel
+    module_path: hc.api.models
+    line: 967
+    relations:
+      - field_name: project
+        target_model: Project
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: checks
+        target_model: Check
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false
+  Check:
+    name: Check
+    module_path: hc.api.models
+    line: 184
+    relations:
+      - field_name: project
+        target_model: Project
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Flip:
+    name: Flip
+    module_path: hc.api.models
+    line: 1282
+    relations:
+      - field_name: owner
+        target_model: Check
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Notification:
+    name: Notification
+    module_path: hc.api.models
+    line: 1260
+    relations:
+      - field_name: owner
+        target_model: Check
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: channel
+        target_model: Channel
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Ping:
+    name: Ping
+    module_path: hc.api.models
+    line: 666
+    relations:
+      - field_name: owner
+        target_model: Check
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  TokenBucket:
+    name: TokenBucket
+    module_path: hc.api.models
+    line: 1340
+    relations: []
+    is_abstract: false

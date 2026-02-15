@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Site:
+    name: Site
+    module_path: django.contrib.sites.models
+    line: 79
+    relations: []
+    is_abstract: false

@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PostGISGeometryColumns:
+    name: PostGISGeometryColumns
+    module_path: django.contrib.gis.db.backends.postgis.models
+    line: 9
+    relations: []
+    is_abstract: false
+  PostGISSpatialRefSys:
+    name: PostGISSpatialRefSys
+    module_path: django.contrib.gis.db.backends.postgis.models
+    line: 54
+    relations: []
+    is_abstract: false

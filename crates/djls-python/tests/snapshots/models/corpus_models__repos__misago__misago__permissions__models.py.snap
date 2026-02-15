@@ -1,0 +1,33 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  CategoryGroupPermission:
+    name: CategoryGroupPermission
+    module_path: misago.permissions.models
+    line: 13
+    relations:
+      - field_name: category
+        target_model: Category
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: group
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Moderator:
+    name: Moderator
+    module_path: misago.permissions.models
+    line: 41
+    relations:
+      - field_name: group
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

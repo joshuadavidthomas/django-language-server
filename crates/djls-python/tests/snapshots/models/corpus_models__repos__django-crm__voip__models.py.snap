@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Connection:
+    name: Connection
+    module_path: voip.models
+    line: 6
+    relations:
+      - field_name: owner
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: "%(app_label)s_%(class)s_owner_related"
+    is_abstract: false

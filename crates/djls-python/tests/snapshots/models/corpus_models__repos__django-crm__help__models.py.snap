@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Page:
+    name: Page
+    module_path: help.models
+    line: 22
+    relations: []
+    is_abstract: false
+  Paragraph:
+    name: Paragraph
+    module_path: help.models
+    line: 89
+    relations:
+      - field_name: document
+        target_model: Page
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: groups
+        target_model: Group
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: link1
+        target_model: self
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

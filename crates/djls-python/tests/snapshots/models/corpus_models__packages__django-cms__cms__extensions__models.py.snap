@@ -1,0 +1,43 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseExtension:
+    name: BaseExtension
+    module_path: cms.extensions.models
+    line: 7
+    relations:
+      - field_name: public_extension
+        target_model: self
+        relation_type: OneToOne
+        related_name: draft_extension
+    is_abstract: true
+  PageContentExtension:
+    name: PageContentExtension
+    module_path: cms.extensions.models
+    line: 84
+    relations:
+      - field_name: public_extension
+        target_model: self
+        relation_type: OneToOne
+        related_name: draft_extension
+      - field_name: extended_object
+        target_model: PageContent
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: true
+  PageExtension:
+    name: PageExtension
+    module_path: cms.extensions.models
+    line: 74
+    relations:
+      - field_name: public_extension
+        target_model: self
+        relation_type: OneToOne
+        related_name: draft_extension
+      - field_name: extended_object
+        target_model: Page
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: true

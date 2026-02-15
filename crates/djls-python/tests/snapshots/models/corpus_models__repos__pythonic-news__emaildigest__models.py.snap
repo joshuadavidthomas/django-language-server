@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  EmailDigest:
+    name: EmailDigest
+    module_path: emaildigest.models
+    line: 4
+    relations:
+      - field_name: stories
+        target_model: Story
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false
+  Subscription:
+    name: Subscription
+    module_path: emaildigest.models
+    line: 19
+    relations: []
+    is_abstract: false
+  UnSubscription:
+    name: UnSubscription
+    module_path: emaildigest.models
+    line: 47
+    relations:
+      - field_name: subscription
+        target_model: Subscription
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: from_digest
+        target_model: EmailDigest
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

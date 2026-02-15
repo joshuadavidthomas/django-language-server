@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ExportedData:
+    name: ExportedData
+    module_path: src.sentry.data_export.models
+    line: 39
+    relations: []
+    is_abstract: false
+  ExportedDataBlob:
+    name: ExportedDataBlob
+    module_path: src.sentry.data_export.models
+    line: 213
+    relations: []
+    is_abstract: false

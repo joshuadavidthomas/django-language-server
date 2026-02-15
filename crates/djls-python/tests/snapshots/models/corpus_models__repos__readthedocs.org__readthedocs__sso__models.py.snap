@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  SSODomain:
+    name: SSODomain
+    module_path: readthedocs.sso.models
+    line: 68
+    relations: []
+    is_abstract: false
+  SSOIntegration:
+    name: SSOIntegration
+    module_path: readthedocs.sso.models
+    line: 10
+    relations:
+      - field_name: organization
+        target_model: Organization
+        relation_type: OneToOne
+        related_name: ~
+      - field_name: saml_app
+        target_model: SocialApp
+        relation_type: OneToOne
+        related_name: sso_integration
+      - field_name: domains
+        target_model: SSODomain
+        relation_type: ManyToMany
+        related_name: ssointegrations
+    is_abstract: false

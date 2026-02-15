@@ -1,0 +1,27 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  M2MTable:
+    name: M2MTable
+    module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
+    line: 10
+    relations: []
+    is_abstract: false
+  OtherTable:
+    name: OtherTable
+    module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
+    line: 6
+    relations: []
+    is_abstract: false
+  TestTable:
+    name: TestTable
+    module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
+    line: 17
+    relations:
+      - field_name: excluded_projects
+        target_model: OtherTable
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false

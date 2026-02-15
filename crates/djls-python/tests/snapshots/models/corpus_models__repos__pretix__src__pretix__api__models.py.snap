@@ -1,0 +1,59 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ApiCall:
+    name: ApiCall
+    module_path: src.pretix.api.models
+    line: 168
+    relations: []
+    is_abstract: false
+  WebHook:
+    name: WebHook
+    module_path: src.pretix.api.models
+    line: 114
+    relations:
+      - field_name: organizer
+        target_model: Organizer
+        relation_type: ForeignKey
+        related_name: webhooks
+      - field_name: limit_events
+        target_model: Event
+        relation_type: ManyToMany
+        related_name: ~
+    is_abstract: false
+  WebHookCall:
+    name: WebHookCall
+    module_path: src.pretix.api.models
+    line: 140
+    relations:
+      - field_name: webhook
+        target_model: WebHook
+        relation_type: ForeignKey
+        related_name: calls
+    is_abstract: false
+  WebHookCallRetry:
+    name: WebHookCallRetry
+    module_path: src.pretix.api.models
+    line: 156
+    relations:
+      - field_name: webhook
+        target_model: WebHook
+        relation_type: ForeignKey
+        related_name: retries
+      - field_name: logentry
+        target_model: LogEntry
+        relation_type: ForeignKey
+        related_name: webhook_retries
+    is_abstract: false
+  WebHookEventListener:
+    name: WebHookEventListener
+    module_path: src.pretix.api.models
+    line: 132
+    relations:
+      - field_name: webhook
+        target_model: WebHook
+        relation_type: ForeignKey
+        related_name: listeners
+    is_abstract: false

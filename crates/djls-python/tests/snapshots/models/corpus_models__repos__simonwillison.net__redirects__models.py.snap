@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Redirect:
+    name: Redirect
+    module_path: redirects.models
+    line: 4
+    relations: []
+    is_abstract: false

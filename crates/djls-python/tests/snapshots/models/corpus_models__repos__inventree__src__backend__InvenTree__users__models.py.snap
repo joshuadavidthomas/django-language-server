@@ -1,0 +1,25 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Owner:
+    name: Owner
+    module_path: src.backend.InvenTree.users.models
+    line: 296
+    relations:
+      - field_name: owner_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  RuleSet:
+    name: RuleSet
+    module_path: src.backend.InvenTree.users.models
+    line: 201
+    relations:
+      - field_name: group
+        target_model: Group
+        relation_type: ForeignKey
+        related_name: rule_sets
+    is_abstract: false

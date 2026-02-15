@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Query:
+    name: Query
+    module_path: wagtail.contrib.search_promotions.models
+    line: 11
+    relations: []
+    is_abstract: false
+  QueryDailyHits:
+    name: QueryDailyHits
+    module_path: wagtail.contrib.search_promotions.models
+    line: 71
+    relations:
+      - field_name: query
+        target_model: Query
+        relation_type: ForeignKey
+        related_name: daily_hits
+    is_abstract: false
+  SearchPromotion:
+    name: SearchPromotion
+    module_path: wagtail.contrib.search_promotions.models
+    line: 96
+    relations:
+      - field_name: query
+        target_model: Query
+        relation_type: ForeignKey
+        related_name: editors_picks
+      - field_name: page
+        target_model: Page
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

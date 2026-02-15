@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  SimpleTranslation:
+    name: SimpleTranslation
+    module_path: wagtail.contrib.simple_translation.models
+    line: 9
+    relations: []
+    is_abstract: false

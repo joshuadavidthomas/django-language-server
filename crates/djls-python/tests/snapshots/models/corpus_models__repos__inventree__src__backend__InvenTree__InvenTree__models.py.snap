@@ -1,0 +1,59 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  InvenTreeBarcodeMixin:
+    name: InvenTreeBarcodeMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 1237
+    relations: []
+    is_abstract: true
+  InvenTreeImageMixin:
+    name: InvenTreeImageMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 1470
+    relations: []
+    is_abstract: true
+  InvenTreeMetadataModel:
+    name: InvenTreeMetadataModel
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 480
+    relations: []
+    is_abstract: true
+  InvenTreeModel:
+    name: InvenTreeModel
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 466
+    relations: []
+    is_abstract: true
+  InvenTreeNotesMixin:
+    name: InvenTreeNotesMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 1192
+    relations: []
+    is_abstract: true
+  InvenTreeParameterMixin:
+    name: InvenTreeParameterMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 510
+    relations: []
+    is_abstract: true
+  MetadataMixin:
+    name: MetadataMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 155
+    relations: []
+    is_abstract: true
+  PathStringMixin:
+    name: PathStringMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 998
+    relations: []
+    is_abstract: true
+  ReferenceIndexingMixin:
+    name: ReferenceIndexingMixin
+    module_path: src.backend.InvenTree.InvenTree.models
+    line: 240
+    relations: []
+    is_abstract: true

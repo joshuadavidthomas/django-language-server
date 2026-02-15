@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  HistoryEntry:
+    name: HistoryEntry
+    module_path: debug_toolbar.models
+    line: 5
+    relations: []
+    is_abstract: false

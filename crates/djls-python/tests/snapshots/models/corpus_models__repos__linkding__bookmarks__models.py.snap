@@ -1,0 +1,103 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ApiToken:
+    name: ApiToken
+    module_path: bookmarks.models
+    line: 490
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: api_tokens
+    is_abstract: false
+  Bookmark:
+    name: Bookmark
+    module_path: bookmarks.models
+    line: 53
+    relations:
+      - field_name: owner
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: tags
+        target_model: Tag
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: latest_snapshot
+        target_model: BookmarkAsset
+        relation_type: ForeignKey
+        related_name: latest_snapshot
+    is_abstract: false
+  BookmarkAsset:
+    name: BookmarkAsset
+    module_path: bookmarks.models
+    line: 129
+    relations:
+      - field_name: bookmark
+        target_model: Bookmark
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  BookmarkBundle:
+    name: BookmarkBundle
+    module_path: bookmarks.models
+    line: 183
+    relations:
+      - field_name: owner
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  FeedToken:
+    name: FeedToken
+    module_path: bookmarks.models
+    line: 464
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: OneToOne
+        related_name: feed_token
+    is_abstract: false
+  GlobalSettings:
+    name: GlobalSettings
+    module_path: bookmarks.models
+    line: 513
+    relations:
+      - field_name: guest_profile_user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Tag:
+    name: Tag
+    module_path: bookmarks.models
+    line: 21
+    relations:
+      - field_name: owner
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Toast:
+    name: Toast
+    module_path: bookmarks.models
+    line: 457
+    relations:
+      - field_name: owner
+        target_model: User
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  UserProfile:
+    name: UserProfile
+    module_path: bookmarks.models
+    line: 320
+    relations:
+      - field_name: user
+        target_model: User
+        relation_type: OneToOne
+        related_name: profile
+    is_abstract: false

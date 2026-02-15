@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ReportAsset:
+    name: ReportAsset
+    module_path: src.backend.InvenTree.report.models
+    line: 820
+    relations: []
+    is_abstract: false
+  ReportSnippet:
+    name: ReportSnippet
+    module_path: src.backend.InvenTree.report.models
+    line: 797
+    relations: []
+    is_abstract: false

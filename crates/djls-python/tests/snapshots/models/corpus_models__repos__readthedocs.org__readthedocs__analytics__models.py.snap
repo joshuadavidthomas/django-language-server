@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PageView:
+    name: PageView
+    module_path: readthedocs.analytics.models
+    line: 56
+    relations:
+      - field_name: project
+        target_model: Project
+        relation_type: ForeignKey
+        related_name: page_views
+      - field_name: version
+        target_model: Version
+        relation_type: ForeignKey
+        related_name: page_views
+    is_abstract: false

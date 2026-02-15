@@ -287,6 +287,45 @@ impl Corpus {
         files
     }
 
+    /// All model files in the entire corpus.
+    #[must_use]
+    pub fn model_files(&self) -> Vec<Utf8PathBuf> {
+        self.model_files_in(self.root())
+    }
+
+    /// Model files under a specific directory.
+    ///
+    /// Matches any `models.py` file. Excludes files inside `__pycache__`,
+    /// `docs/`, `tests/`, and `test/` directories.
+    #[must_use]
+    pub fn model_files_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
+        let mut files = Vec::new();
+
+        for entry in WalkBuilder::new(dir.as_std_path())
+            .standard_filters(false)
+            .build()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+        {
+            let Some(path) = Utf8Path::from_path(entry.path()) else {
+                continue;
+            };
+            let path_str = path.as_str();
+
+            if path.file_name() == Some("models.py")
+                && !path_str.contains("__pycache__")
+                && !path_str.contains("/docs/")
+                && !path_str.contains("/tests/")
+                && !path_str.contains("/test/")
+            {
+                files.push(path.to_owned());
+            }
+        }
+
+        files.sort();
+        files
+    }
+
     /// Template files under a specific directory.
     ///
     /// Matches any file under a `templates/` directory. Excludes files

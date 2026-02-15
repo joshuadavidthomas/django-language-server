@@ -1,0 +1,147 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseModel:
+    name: BaseModel
+    module_path: blog.models
+    line: 220
+    relations:
+      - field_name: tags
+        target_model: Tag
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: series
+        target_model: Series
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: true
+  Blogmark:
+    name: Blogmark
+    module_path: blog.models
+    line: 379
+    relations:
+      - field_name: tags
+        target_model: Tag
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: series
+        target_model: Series
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Comment:
+    name: Comment
+    module_path: blog.models
+    line: 532
+    relations:
+      - field_name: content_type
+        target_model: ContentType
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Entry:
+    name: Entry
+    module_path: blog.models
+    line: 254
+    relations:
+      - field_name: tags
+        target_model: Tag
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: series
+        target_model: Series
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  LiveUpdate:
+    name: LiveUpdate
+    module_path: blog.models
+    line: 328
+    relations:
+      - field_name: entry
+        target_model: Entry
+        relation_type: ForeignKey
+        related_name: updates
+    is_abstract: false
+  Note:
+    name: Note
+    module_path: blog.models
+    line: 425
+    relations:
+      - field_name: tags
+        target_model: Tag
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: series
+        target_model: Series
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Photo:
+    name: Photo
+    module_path: blog.models
+    line: 452
+    relations: []
+    is_abstract: false
+  Photoset:
+    name: Photoset
+    module_path: blog.models
+    line: 481
+    relations:
+      - field_name: photos
+        target_model: Photo
+        relation_type: ManyToMany
+        related_name: in_photoset
+      - field_name: primary
+        target_model: Photo
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  PreviousTagName:
+    name: PreviousTagName
+    module_path: blog.models
+    line: 157
+    relations:
+      - field_name: tag
+        target_model: Tag
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Quotation:
+    name: Quotation
+    module_path: blog.models
+    line: 337
+    relations:
+      - field_name: tags
+        target_model: Tag
+        relation_type: ManyToMany
+        related_name: ~
+      - field_name: series
+        target_model: Series
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Series:
+    name: Series
+    module_path: blog.models
+    line: 195
+    relations: []
+    is_abstract: false
+  Tag:
+    name: Tag
+    module_path: blog.models
+    line: 22
+    relations: []
+    is_abstract: false
+  TagMerge:
+    name: TagMerge
+    module_path: blog.models
+    line: 165
+    relations:
+      - field_name: destination_tag
+        target_model: Tag
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Setting:
+    name: Setting
+    module_path: misago.conf.models
+    line: 23
+    relations: []
+    is_abstract: false

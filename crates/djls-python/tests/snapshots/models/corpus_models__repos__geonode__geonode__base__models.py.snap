@@ -1,0 +1,163 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ContactRole:
+    name: ContactRole
+    module_path: geonode.base.models
+    line: 93
+    relations:
+      - field_name: resource
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: contact
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  ExtraMetadata:
+    name: ExtraMetadata
+    module_path: geonode.base.models
+    line: 2140
+    relations:
+      - field_name: resource
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  GroupGeoLimit:
+    name: GroupGeoLimit
+    module_path: geonode.base.models
+    line: 2134
+    relations:
+      - field_name: group
+        target_model: GroupProfile
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: resource
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  License:
+    name: License
+    module_path: geonode.base.models
+    line: 227
+    relations: []
+    is_abstract: false
+  Link:
+    name: Link
+    module_path: geonode.base.models
+    line: 2014
+    relations:
+      - field_name: resource
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: asset
+        target_model: Asset
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  LinkedResource:
+    name: LinkedResource
+    module_path: geonode.base.models
+    line: 1973
+    relations:
+      - field_name: source
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: linked_to
+      - field_name: target
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: linked_by
+    is_abstract: false
+  Menu:
+    name: Menu
+    module_path: geonode.base.models
+    line: 2051
+    relations: []
+    is_abstract: false
+  MenuItem:
+    name: MenuItem
+    module_path: geonode.base.models
+    line: 2069
+    relations: []
+    is_abstract: false
+  MenuPlaceholder:
+    name: MenuPlaceholder
+    module_path: geonode.base.models
+    line: 2044
+    relations: []
+    is_abstract: false
+  RestrictionCodeType:
+    name: RestrictionCodeType
+    module_path: geonode.base.models
+    line: 206
+    relations: []
+    is_abstract: false
+  SpatialRepresentationType:
+    name: SpatialRepresentationType
+    module_path: geonode.base.models
+    line: 130
+    relations: []
+    is_abstract: false
+  Thesaurus:
+    name: Thesaurus
+    module_path: geonode.base.models
+    line: 450
+    relations: []
+    is_abstract: false
+  ThesaurusKeyword:
+    name: ThesaurusKeyword
+    module_path: geonode.base.models
+    line: 505
+    relations:
+      - field_name: thesaurus
+        target_model: Thesaurus
+        relation_type: ForeignKey
+        related_name: thesaurus
+    is_abstract: false
+  ThesaurusKeywordLabel:
+    name: ThesaurusKeywordLabel
+    module_path: geonode.base.models
+    line: 483
+    relations:
+      - field_name: keyword
+        target_model: ThesaurusKeyword
+        relation_type: ForeignKey
+        related_name: keyword
+    is_abstract: false
+  ThesaurusLabel:
+    name: ThesaurusLabel
+    module_path: geonode.base.models
+    line: 547
+    relations:
+      - field_name: thesaurus
+        target_model: Thesaurus
+        relation_type: ForeignKey
+        related_name: rel_thesaurus
+    is_abstract: false
+  TopicCategory:
+    name: TopicCategory
+    module_path: geonode.base.models
+    line: 108
+    relations: []
+    is_abstract: false
+  UserGeoLimit:
+    name: UserGeoLimit
+    module_path: geonode.base.models
+    line: 2128
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: resource
+        target_model: ResourceBase
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

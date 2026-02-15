@@ -1,0 +1,147 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BMI:
+    name: BMI
+    module_path: core.models
+    line: 141
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: bmi
+    is_abstract: false
+  Child:
+    name: Child
+    module_path: core.models
+    line: 168
+    relations: []
+    is_abstract: false
+  DiaperChange:
+    name: DiaperChange
+    module_path: core.models
+    line: 230
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: diaper_change
+    is_abstract: false
+  Feeding:
+    name: Feeding
+    module_path: core.models
+    line: 283
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: feeding
+    is_abstract: false
+  HeadCircumference:
+    name: HeadCircumference
+    module_path: core.models
+    line: 351
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: head_circumference
+    is_abstract: false
+  Height:
+    name: Height
+    module_path: core.models
+    line: 383
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: height
+    is_abstract: false
+  HeightPercentile:
+    name: HeightPercentile
+    module_path: core.models
+    line: 413
+    relations: []
+    is_abstract: false
+  Note:
+    name: Note
+    module_path: core.models
+    line: 438
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: note
+    is_abstract: false
+  Pumping:
+    name: Pumping
+    module_path: core.models
+    line: 464
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: pumping
+    is_abstract: false
+  Sleep:
+    name: Sleep
+    module_path: core.models
+    line: 515
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: sleep
+    is_abstract: false
+  Temperature:
+    name: Temperature
+    module_path: core.models
+    line: 566
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: temperature
+    is_abstract: false
+  Timer:
+    name: Timer
+    module_path: core.models
+    line: 598
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: timers
+      - field_name: user
+        target_model: User
+        relation_type: ForeignKey
+        related_name: timers
+    is_abstract: false
+  TummyTime:
+    name: TummyTime
+    module_path: core.models
+    line: 669
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: tummy_time
+    is_abstract: false
+  Weight:
+    name: Weight
+    module_path: core.models
+    line: 717
+    relations:
+      - field_name: child
+        target_model: Child
+        relation_type: ForeignKey
+        related_name: weight
+    is_abstract: false
+  WeightPercentile:
+    name: WeightPercentile
+    module_path: core.models
+    line: 747
+    relations: []
+    is_abstract: false

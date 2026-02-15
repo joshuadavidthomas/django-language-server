@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ElectionPacket:
+    name: ElectionPacket
+    module_path: src.nomnom.hugopacket.models
+    line: 9
+    relations:
+      - field_name: election
+        target_model: Election
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: false
+  PacketFile:
+    name: PacketFile
+    module_path: src.nomnom.hugopacket.models
+    line: 51
+    relations:
+      - field_name: packet
+        target_model: ElectionPacket
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: group
+        target_model: PacketFileGroup
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  PacketFileGroup:
+    name: PacketFileGroup
+    module_path: src.nomnom.hugopacket.models
+    line: 36
+    relations: []
+    is_abstract: false

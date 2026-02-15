@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PostSnapshot:
+    name: PostSnapshot
+    module_path: plugins.misago-post-snapshots-plugin.misago_post_snapshots_plugin.models
+    line: 6
+    relations: []
+    is_abstract: false

@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BaseRole:
+    name: BaseRole
+    module_path: misago.acl.models
+    line: 11
+    relations: []
+    is_abstract: true
+  Role:
+    name: Role
+    module_path: misago.acl.models
+    line: 32
+    relations: []
+    is_abstract: false

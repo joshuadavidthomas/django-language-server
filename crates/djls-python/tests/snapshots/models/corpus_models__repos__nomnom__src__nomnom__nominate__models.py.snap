@@ -1,0 +1,101 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  AdminMessage:
+    name: AdminMessage
+    module_path: src.nomnom.nominate.models
+    line: 530
+    relations: []
+    is_abstract: false
+  Category:
+    name: Category
+    module_path: src.nomnom.nominate.models
+    line: 306
+    relations:
+      - field_name: election
+        target_model: Election
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Election:
+    name: Election
+    module_path: src.nomnom.nominate.models
+    line: 58
+    relations: []
+    is_abstract: false
+  Finalist:
+    name: Finalist
+    module_path: src.nomnom.nominate.models
+    line: 452
+    relations:
+      - field_name: category
+        target_model: Category
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  NominatingMemberProfile:
+    name: NominatingMemberProfile
+    module_path: src.nomnom.nominate.models
+    line: 28
+    relations:
+      - field_name: user
+        target_model: UserModel
+        relation_type: OneToOne
+        related_name: convention_profile
+    is_abstract: false
+  Nomination:
+    name: Nomination
+    module_path: src.nomnom.nominate.models
+    line: 371
+    relations:
+      - field_name: nominator
+        target_model: NominatingMemberProfile
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: category
+        target_model: Category
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  NominationAdminData:
+    name: NominationAdminData
+    module_path: src.nomnom.nominate.models
+    line: 444
+    relations:
+      - field_name: nomination
+        target_model: Nomination
+        relation_type: OneToOne
+        related_name: admin
+    is_abstract: false
+  Rank:
+    name: Rank
+    module_path: src.nomnom.nominate.models
+    line: 489
+    relations:
+      - field_name: membership
+        target_model: NominatingMemberProfile
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: finalist
+        target_model: Finalist
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  ReportRecipient:
+    name: ReportRecipient
+    module_path: src.nomnom.nominate.models
+    line: 520
+    relations: []
+    is_abstract: false
+  VotingInformation:
+    name: VotingInformation
+    module_path: src.nomnom.nominate.models
+    line: 298
+    relations:
+      - field_name: election
+        target_model: Election
+        relation_type: OneToOne
+        related_name: voting_info
+    is_abstract: false

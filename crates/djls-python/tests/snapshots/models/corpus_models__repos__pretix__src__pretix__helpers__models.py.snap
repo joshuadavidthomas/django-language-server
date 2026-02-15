@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Thumbnail:
+    name: Thumbnail
+    module_path: src.pretix.helpers.models
+    line: 28
+    relations: []
+    is_abstract: false

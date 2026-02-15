@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Monitor:
+    name: Monitor
+    module_path: src.sentry.monitors.models
+    line: 213
+    relations: []
+    is_abstract: false
+  MonitorCheckIn:
+    name: MonitorCheckIn
+    module_path: src.sentry.monitors.models
+    line: 474
+    relations: []
+    is_abstract: false
+  MonitorEnvBrokenDetection:
+    name: MonitorEnvBrokenDetection
+    module_path: src.sentry.monitors.models
+    line: 808
+    relations: []
+    is_abstract: false
+  MonitorEnvironment:
+    name: MonitorEnvironment
+    module_path: src.sentry.monitors.models
+    line: 650
+    relations: []
+    is_abstract: false
+  MonitorIncident:
+    name: MonitorIncident
+    module_path: src.sentry.monitors.models
+    line: 756
+    relations: []
+    is_abstract: false

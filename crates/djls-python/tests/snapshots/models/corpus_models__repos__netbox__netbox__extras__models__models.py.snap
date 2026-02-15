@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Bookmark:
+    name: Bookmark
+    module_path: netbox.extras.models.models
+    line: 842
+    relations: []
+    is_abstract: false

@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  UserSocialAuth:
+    name: UserSocialAuth
+    module_path: src.social_auth.models
+    line: 23
+    relations:
+      - field_name: user
+        target_model: AUTH_USER_MODEL
+        relation_type: ForeignKey
+        related_name: social_auth
+    is_abstract: false

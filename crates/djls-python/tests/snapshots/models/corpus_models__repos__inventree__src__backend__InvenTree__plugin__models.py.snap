@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PluginConfig:
+    name: PluginConfig
+    module_path: src.backend.InvenTree.plugin.models
+    line: 22
+    relations: []
+    is_abstract: false

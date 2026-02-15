@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  EmailVerification:
+    name: EmailVerification
+    module_path: accounts.models
+    line: 75
+    relations:
+      - field_name: user
+        target_model: CustomUser
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  Invitation:
+    name: Invitation
+    module_path: accounts.models
+    line: 52
+    relations:
+      - field_name: inviting_user
+        target_model: CustomUser
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false
+  PasswordResetRequest:
+    name: PasswordResetRequest
+    module_path: accounts.models
+    line: 91
+    relations:
+      - field_name: user
+        target_model: CustomUser
+        relation_type: ForeignKey
+        related_name: ~
+    is_abstract: false

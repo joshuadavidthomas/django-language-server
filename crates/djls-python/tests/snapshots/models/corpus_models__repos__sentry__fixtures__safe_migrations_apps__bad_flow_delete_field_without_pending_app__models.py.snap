@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  TestTable:
+    name: TestTable
+    module_path: fixtures.safe_migrations_apps.bad_flow_delete_field_without_pending_app.models
+    line: 4
+    relations: []
+    is_abstract: false

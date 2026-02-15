@@ -1,0 +1,33 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  CanonicalizedNomination:
+    name: CanonicalizedNomination
+    module_path: src.nomnom.canonicalize.models
+    line: 91
+    relations:
+      - field_name: work
+        target_model: Work
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: nomination
+        target_model: Nomination
+        relation_type: OneToOne
+        related_name: ~
+    is_abstract: false
+  Work:
+    name: Work
+    module_path: src.nomnom.canonicalize.models
+    line: 16
+    relations:
+      - field_name: category
+        target_model: Category
+        relation_type: ForeignKey
+        related_name: ~
+      - field_name: nominations
+        target_model: Nomination
+        relation_type: ManyToMany
+        related_name: works
+    is_abstract: false
