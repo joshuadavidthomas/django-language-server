@@ -103,8 +103,10 @@ fn resolve_children(
             };
 
             let has_model_parent = args.args.iter().any(|arg| {
-                let Expr::Name(n) = arg else { return false };
-                known_names.iter().any(|m| m == n.id.as_str())
+                let Some(name) = base_class_name(arg) else {
+                    return false;
+                };
+                known_names.iter().any(|m| m == name)
             });
 
             if !has_model_parent {
@@ -117,10 +119,12 @@ fn resolve_children(
 
             // Copy relations and GFKs from ALL abstract parents
             for arg in &args.args {
-                let Expr::Name(n) = arg else { continue };
+                let Some(parent_name) = base_class_name(arg) else {
+                    continue;
+                };
                 if let Some((_, relations, gfks)) = abstract_data
                     .iter()
-                    .find(|(name, _, _)| name == n.id.as_str())
+                    .find(|(name, _, _)| name == parent_name)
                 {
                     model.relations.extend(relations.iter().cloned());
                     model.generic_foreign_keys.extend(gfks.iter().cloned());
@@ -138,6 +142,18 @@ fn resolve_children(
         if remaining.len() == before {
             break;
         }
+    }
+}
+
+/// Extract the simple class name from a base class expression.
+///
+/// Handles both bare names (`Parent`) and qualified names (`mod.Parent`),
+/// returning the rightmost identifier.
+fn base_class_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(n) => Some(n.id.as_str()),
+        Expr::Attribute(attr) => Some(attr.attr.as_str()),
+        _ => None,
     }
 }
 
@@ -337,6 +353,7 @@ fn extract_gfk_arg(
 }
 
 fn line_number(source: &str, offset: usize) -> usize {
+    let offset = offset.min(source.len());
     source[..offset].bytes().filter(|&b| b == b'\n').count() + 1
 }
 
@@ -661,6 +678,28 @@ class Restaurant(Place):
         assert_eq!(restaurant.relations.len(), 1);
         assert_eq!(restaurant.relations[0].field_name, "owner");
         assert_eq!(restaurant.relations[0].target_model, "User");
+    }
+
+    #[test]
+    fn qualified_base_class_inheritance() {
+        let source = r#"
+class User(models.Model):
+    pass
+
+class BaseOrder(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        abstract = True
+
+class ConcreteOrder(some_module.BaseOrder):
+    pass
+"#;
+        let graph = extract_model_graph(source, "shop.models");
+
+        let concrete = graph.get("ConcreteOrder").unwrap();
+        assert_eq!(concrete.relations.len(), 1);
+        assert_eq!(concrete.relations[0].target_model, "User");
     }
 
     #[test]
