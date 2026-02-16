@@ -650,7 +650,9 @@ class Order(models.Model):
 "#;
         let graph = extract_model_graph(source, "shop.models");
         assert_eq!(
-            graph.get("Order").unwrap().relations[0].target_model.as_str(),
+            graph.get("Order").unwrap().relations[0]
+                .target_model
+                .as_str(),
             "User"
         );
     }
@@ -803,10 +805,7 @@ class Comment(models.Model):
 
         // Chain: User -> posts -> comments
         assert_eq!(graph.resolve_relation("User", "posts"), Some("Post"));
-        assert_eq!(
-            graph.resolve_relation("Post", "comments"),
-            Some("Comment")
-        );
+        assert_eq!(graph.resolve_relation("Post", "comments"), Some("Comment"));
         assert_eq!(graph.resolve_relation("Comment", "author"), Some("User"));
     }
 
@@ -1027,10 +1026,7 @@ class Action(models.Model):
             action.generic_foreign_keys[0].ct_field.as_str(),
             "actor_content_type"
         );
-        assert_eq!(
-            action.generic_foreign_keys[1].field_name.as_str(),
-            "target"
-        );
+        assert_eq!(action.generic_foreign_keys[1].field_name.as_str(), "target");
         assert_eq!(
             action.generic_foreign_keys[1].ct_field.as_str(),
             "target_content_type"
