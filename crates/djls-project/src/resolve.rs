@@ -8,13 +8,37 @@ use crate::Interpreter;
 /// Derive a dotted module path from a relative filesystem path.
 ///
 /// Strips the file extension and joins path components with dots.
-/// For example, `myapp/models.py` becomes `myapp.models`.
+/// For `__init__.py`, drops the `__init__` component to yield the
+/// package path. For example:
+/// - `myapp/models.py` → `myapp.models`
+/// - `myapp/models/__init__.py` → `myapp.models`
+/// - `myapp/models/user.py` → `myapp.models.user`
 fn module_path_from_relative(rel: &Utf8Path) -> String {
-    rel.with_extension("")
-        .components()
-        .map(|c| c.as_str())
-        .collect::<Vec<_>>()
-        .join(".")
+    let without_ext = rel.with_extension("");
+    let parts: Vec<&str> = without_ext.components().map(|c| c.as_str()).collect();
+    if parts.last() == Some(&"__init__") {
+        parts[..parts.len() - 1].join(".")
+    } else {
+        parts.join(".")
+    }
+}
+
+/// Check whether a file path is a Django model source file.
+///
+/// Matches both `models.py` (single-file) and `.py` files inside a
+/// `models/` package (a directory named `models` containing `__init__.py`).
+fn is_model_file(path: &Utf8Path) -> bool {
+    if path.file_name() == Some("models.py") {
+        return true;
+    }
+    if path.extension() == Some("py") {
+        if let Some(parent) = path.parent() {
+            if parent.file_name() == Some("models") {
+                return parent.join("__init__.py").exists();
+            }
+        }
+    }
+    false
 }
 
 /// Classification of where a module lives.
@@ -246,11 +270,15 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
-/// Discover `models.py` files in a directory tree and extract model graphs.
+/// Discover model source files in a directory tree and extract model graphs.
 ///
-/// Walks the directory recursively, finds files named `models.py`, derives
-/// the dotted module path from the filesystem path relative to `base_dir`,
-/// and extracts model definitions from each file.
+/// Walks the directory recursively looking for both `models.py` files and
+/// `.py` files inside `models/` packages (directories with `__init__.py`).
+/// Derives the dotted module path from the filesystem path relative to
+/// `base_dir` and extracts model definitions from each file.
+///
+/// Multiple files from the same models package produce separate entries
+/// keyed by their full module path (e.g., `myapp.models`, `myapp.models.user`).
 ///
 /// Skips files that fail to read and empty graphs.
 fn scan_models_in_dir(
@@ -267,13 +295,13 @@ fn scan_models_in_dir(
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
     {
-        if entry.file_name().to_str() != Some("models.py") {
-            continue;
-        }
-
         let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
             continue;
         };
+
+        if !is_model_file(&path) {
+            continue;
+        }
 
         let Some(rel) = path.strip_prefix(base_dir).ok() else {
             continue;
@@ -310,11 +338,12 @@ pub fn extract_external_models(
     scan_models_in_dir(&site_packages)
 }
 
-/// Discover `models.py` files in the workspace and return their resolved paths.
+/// Discover model source files in the workspace and return their resolved paths.
 ///
-/// Walks the project root looking for `models.py` files. Returns a list of
-/// `(module_path, file_path)` pairs where `module_path` is the dotted module
-/// path relative to the project root.
+/// Walks the project root looking for `models.py` files and `.py` files
+/// inside `models/` packages. Returns a list of `(module_path, file_path)`
+/// pairs where `module_path` is the dotted module path relative to the
+/// project root.
 #[must_use]
 pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(String, Utf8PathBuf)> {
     let mut results = Vec::new();
@@ -326,13 +355,13 @@ pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(String, Utf8PathB
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
     {
-        if entry.file_name().to_str() != Some("models.py") {
-            continue;
-        }
-
         let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
             continue;
         };
+
+        if !is_model_file(&path) {
+            continue;
+        }
 
         // Skip anything in site-packages (external)
         if path.components().any(|c| c.as_str() == "site-packages") {
@@ -605,6 +634,76 @@ class Article(models.Model):
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
+    }
+
+    #[test]
+    fn scan_models_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let models_dir = root.join("myapp/models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+        std::fs::write(
+            models_dir.join("__init__.py"),
+            "from .user import User\nfrom .order import Order\n",
+        )
+        .unwrap();
+        std::fs::write(
+            models_dir.join("user.py"),
+            "from django.db import models\nclass User(models.Model):\n    pass\n",
+        )
+        .unwrap();
+        std::fs::write(
+            models_dir.join("order.py"),
+            "from django.db import models\nclass Order(models.Model):\n    user = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        )
+        .unwrap();
+
+        let results = scan_models_in_dir(&root);
+        // __init__.py has no model defs, so only the two submodules
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key("myapp.models.user"));
+        assert!(results.contains_key("myapp.models.order"));
+        assert!(results["myapp.models.user"].get("User").is_some());
+        assert!(results["myapp.models.order"].get("Order").is_some());
+    }
+
+    #[test]
+    fn discover_workspace_models_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let models_dir = root.join("myapp/models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+        std::fs::write(models_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            models_dir.join("user.py"),
+            "from django.db import models\nclass User(models.Model): pass\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+        assert!(
+            module_paths.contains(&"myapp.models"),
+            "should discover __init__.py as myapp.models"
+        );
+        assert!(
+            module_paths.contains(&"myapp.models.user"),
+            "should discover user.py as myapp.models.user"
+        );
+    }
+
+    #[test]
+    fn module_path_from_init_file() {
+        let path = Utf8Path::new("myapp/models/__init__.py");
+        assert_eq!(module_path_from_relative(path), "myapp.models");
+    }
+
+    #[test]
+    fn module_path_from_submodule() {
+        let path = Utf8Path::new("myapp/models/user.py");
+        assert_eq!(module_path_from_relative(path), "myapp.models.user");
     }
 
     #[test]

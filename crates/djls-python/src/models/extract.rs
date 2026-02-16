@@ -422,7 +422,7 @@ class Order(models.Model):
 
         let rel = &graph.get("Order").unwrap().relations[0];
         assert_eq!(rel.related_name, Some("orders".into()));
-        assert_eq!(rel.effective_related_name("Order"), "orders");
+        assert_eq!(rel.effective_related_name("Order", "shop.models"), "orders");
     }
 
     #[test]
@@ -523,7 +523,7 @@ class SpecialOrder(BaseOrder):
         let special = graph.get("SpecialOrder").unwrap();
         let rel = &special.relations[0];
         assert_eq!(
-            rel.effective_related_name("SpecialOrder"),
+            rel.effective_related_name("SpecialOrder", "shop.models"),
             "specialorder_set"
         );
     }

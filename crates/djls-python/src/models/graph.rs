@@ -22,19 +22,43 @@ impl Relation {
     /// Resolve the effective `related_name` for reverse lookups.
     ///
     /// If an explicit `related_name` was provided, uses that (with `%(class)s`
-    /// substitution applied). Otherwise synthesizes Django's default: `<model>_set`
-    /// for FK/M2M, or `<model>` for `OneToOne`.
+    /// and `%(app_label)s` substitution applied). Otherwise synthesizes
+    /// Django's default: `<model>_set` for FK/M2M, or `<model>` for `OneToOne`.
+    ///
+    /// `module_path` is the dotted Python module path (e.g., `"myapp.models"`);
+    /// the app label is derived as the component before `models`.
     #[must_use]
-    pub fn effective_related_name(&self, source_model: &str) -> String {
+    pub fn effective_related_name(&self, source_model: &str, module_path: &str) -> String {
         let lower = source_model.to_lowercase();
         match &self.related_name {
-            Some(name) => name.replace("%(class)s", &lower),
+            Some(name) => {
+                let app_label = app_label_from_module_path(module_path);
+                name.replace("%(class)s", &lower)
+                    .replace("%(app_label)s", &app_label)
+            }
             None => match self.relation_type {
                 RelationType::OneToOne => lower,
                 RelationType::ForeignKey | RelationType::ManyToMany => format!("{lower}_set"),
             },
         }
     }
+}
+
+/// Derive the app label from a dotted module path.
+///
+/// Mirrors Django's convention: the component immediately before `models`
+/// in the module path. Falls back to the first component if `models` is
+/// not found (e.g., `"myapp"` → `"myapp"`).
+fn app_label_from_module_path(module_path: &str) -> String {
+    let parts: Vec<&str> = module_path.split('.').collect();
+    // Find the component right before "models"
+    for (i, part) in parts.iter().enumerate() {
+        if *part == "models" && i > 0 {
+            return parts[i - 1].to_lowercase();
+        }
+    }
+    // Fallback: first component
+    parts.first().unwrap_or(&"").to_lowercase()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,7 +149,13 @@ impl ModelGraph {
             m.relations
                 .iter()
                 .filter(move |r| r.target_model == model_name)
-                .map(move |r| (m.name.as_str(), r.effective_related_name(&m.name), r))
+                .map(move |r| {
+                    (
+                        m.name.as_str(),
+                        r.effective_related_name(&m.name, &m.module_path),
+                        r,
+                    )
+                })
         })
     }
 
@@ -234,7 +264,7 @@ mod tests {
             relation_type: RelationType::ForeignKey,
             related_name: None,
         };
-        assert_eq!(rel.effective_related_name("Order"), "order_set");
+        assert_eq!(rel.effective_related_name("Order", "shop.models"), "order_set");
     }
 
     #[test]
@@ -245,7 +275,7 @@ mod tests {
             relation_type: RelationType::OneToOne,
             related_name: None,
         };
-        assert_eq!(rel.effective_related_name("Profile"), "profile");
+        assert_eq!(rel.effective_related_name("Profile", "accounts.models"), "profile");
     }
 
     #[test]
@@ -257,8 +287,36 @@ mod tests {
             related_name: Some("%(class)s_orders".into()),
         };
         assert_eq!(
-            rel.effective_related_name("SpecialOrder"),
+            rel.effective_related_name("SpecialOrder", "shop.models"),
             "specialorder_orders"
+        );
+    }
+
+    #[test]
+    fn app_label_substitution_in_related_name() {
+        let rel = Relation {
+            field_name: "title".into(),
+            target_model: "Title".into(),
+            relation_type: RelationType::ForeignKey,
+            related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
+        };
+        assert_eq!(
+            rel.effective_related_name("Article", "blog.models"),
+            "attached_blog_article_set"
+        );
+    }
+
+    #[test]
+    fn app_label_from_nested_module_path() {
+        let rel = Relation {
+            field_name: "user".into(),
+            target_model: "User".into(),
+            relation_type: RelationType::ForeignKey,
+            related_name: Some("%(app_label)s_%(class)s_set".into()),
+        };
+        assert_eq!(
+            rel.effective_related_name("Permission", "django.contrib.auth.models"),
+            "auth_permission_set"
         );
     }
 
