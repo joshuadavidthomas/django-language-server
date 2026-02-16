@@ -246,6 +246,11 @@ impl ModelDef {
 }
 
 /// Dependency graph of Django models and their relations.
+///
+/// Models are keyed by bare class name (`ModelName`), not by
+/// fully-qualified path. This means identically-named models from
+/// different modules (e.g., `auth.User` vs `accounts.User`) will
+/// collide — `add_model` and `merge` silently overwrite on conflict.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelGraph {
     models: BTreeMap<ModelName, ModelDef>,
