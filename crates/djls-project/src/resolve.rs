@@ -27,17 +27,20 @@ fn module_path_from_relative(rel: &Utf8Path) -> ModulePath {
 
 /// Check whether a file path is a Django model source file.
 ///
-/// Matches both `models.py` (single-file) and `.py` files inside a
-/// `models/` package (a directory named `models` containing `__init__.py`).
+/// Matches `models.py` (single-file) and any `.py` file nested at any
+/// depth inside a `models/` package (a directory named `models` that
+/// contains `__init__.py`).
 fn is_model_file(path: &Utf8Path) -> bool {
     if path.file_name() == Some("models.py") {
         return true;
     }
     if path.extension() == Some("py") {
-        if let Some(parent) = path.parent() {
-            if parent.file_name() == Some("models") {
-                return parent.join("__init__.py").exists();
+        let mut dir = path.parent();
+        while let Some(d) = dir {
+            if d.file_name() == Some("models") {
+                return d.join("__init__.py").exists();
             }
+            dir = d.parent();
         }
     }
     false
@@ -709,6 +712,56 @@ class Article(models.Model):
             module_path_from_relative(path).as_str(),
             "myapp.models.user"
         );
+    }
+
+    #[test]
+    fn discover_workspace_models_nested_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let base_dir = root.join("myapp/models/base");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
+        std::fs::write(base_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            base_dir.join("abstract.py"),
+            "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+        assert!(
+            module_paths.contains(&"myapp.models.base.abstract"),
+            "should discover nested model files: got {:?}",
+            module_paths
+        );
+    }
+
+    #[test]
+    fn scan_models_nested_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let base_dir = root.join("myapp/models/base");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
+        std::fs::write(base_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            base_dir.join("abstract.py"),
+            "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
+        )
+        .unwrap();
+
+        let results = scan_models_in_dir(&root);
+        assert!(
+            results.contains_key("myapp.models.base.abstract"),
+            "should scan nested model files: got {:?}",
+            results.keys().collect::<Vec<_>>()
+        );
+        assert!(results["myapp.models.base.abstract"]
+            .get("BaseModel")
+            .is_some());
     }
 
     #[test]
