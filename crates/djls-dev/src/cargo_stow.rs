@@ -1920,10 +1920,24 @@ fn generate_dependency_graph_svg(
                 let intermediate_name = nodes[intermediate];
                 let intermediate_namespace = config.get_namespace_for_crate(intermediate_name);
 
-                if config.graph.reduce_cross_namespace && !is_external_target {
+                if config.graph.reduce_cross_namespace {
                     // Unified reduction: any intermediate that can reach the
-                    // target makes this edge redundant.
-                    return reachable[intermediate][dst];
+                    // target makes this edge redundant, regardless of namespace.
+                    if !reachable[intermediate][dst] {
+                        return false;
+                    }
+                    // For external targets, also check feature compatibility
+                    if is_external_target {
+                        let intermediate_features = crate_features
+                            .get(intermediate_name)
+                            .and_then(|deps| deps.get(*to));
+                        return match (source_features, intermediate_features) {
+                            (Some(src_feat), Some(int_feat)) => src_feat == int_feat,
+                            (None, None) => true,
+                            _ => false,
+                        };
+                    }
+                    return true;
                 }
 
                 // Check namespace based on whether target is external or internal
