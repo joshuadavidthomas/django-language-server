@@ -20,7 +20,7 @@
 
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_python::models::extract_model_graph;
+use djls_python::extract_model_graph;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     let mut settings = insta::Settings::clone_current();

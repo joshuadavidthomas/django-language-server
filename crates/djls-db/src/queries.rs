@@ -1,7 +1,7 @@
 use djls_project::build_search_paths;
 use djls_project::Project;
-use djls_python::models::ModelGraph;
-use djls_python::models::ModulePath;
+use djls_python::ModelGraph;
+use djls_python::ModulePath;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -136,7 +136,7 @@ fn collect_workspace_models(
         let file = db.get_or_create_file(&file_path);
         let source = file.source(db);
 
-        let graph = djls_python::models::extract_model_graph(source.as_ref(), module_path.as_str());
+        let graph = djls_python::extract_model_graph(source.as_ref(), module_path.as_str());
         if !graph.is_empty() {
             results.push((module_path, graph));
         }

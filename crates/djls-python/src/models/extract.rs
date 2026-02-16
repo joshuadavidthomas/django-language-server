@@ -1,3 +1,4 @@
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
@@ -28,46 +29,65 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
     let module = parsed.into_syntax();
 
     let aliases = collect_import_aliases(&module.body);
-    extract_models_from_body(&module.body, module_path, source, &aliases)
+
+    let mut collector = ModelCollector::new(module_path, source, &aliases);
+    collector.visit_body(&module.body);
+    collector.finish()
 }
 
-fn extract_models_from_body(
-    body: &[Stmt],
-    module_path: &str,
-    source: &str,
-    aliases: &ImportAliases,
-) -> ModelGraph {
-    let mut graph = ModelGraph::new();
-    let mut children: Vec<&StmtClassDef> = Vec::new();
+struct ModelCollector<'a> {
+    module_path: &'a str,
+    source: &'a str,
+    aliases: &'a ImportAliases,
+    graph: ModelGraph,
+    children: Vec<&'a StmtClassDef>,
+}
 
-    // First pass: extract direct model subclasses
-    for stmt in body {
+impl<'a> ModelCollector<'a> {
+    fn new(module_path: &'a str, source: &'a str, aliases: &'a ImportAliases) -> Self {
+        Self {
+            module_path,
+            source,
+            aliases,
+            graph: ModelGraph::new(),
+            children: Vec::new(),
+        }
+    }
+
+    fn finish(mut self) -> ModelGraph {
+        resolve_children(
+            &mut self.graph,
+            &self.children,
+            self.module_path,
+            self.source,
+        );
+        self.graph
+    }
+}
+
+impl<'a> StatementVisitor<'a> for ModelCollector<'a> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
         let Stmt::ClassDef(class) = stmt else {
-            continue;
+            return;
         };
 
         let Some(ref args) = class.arguments else {
-            continue;
+            return;
         };
 
-        if is_django_model(args.args.iter(), aliases) {
-            let line = line_number(source, class.range.start().to_usize());
-            let mut model = ModelDef::new(class.name.to_string(), module_path, line);
+        if is_django_model(args.args.iter(), self.aliases) {
+            let line = line_number(self.source, class.range.start().to_usize());
+            let mut model = ModelDef::new(class.name.to_string(), self.module_path, line);
 
             for body_stmt in &class.body {
                 process_class_body(body_stmt, &mut model);
             }
 
-            graph.add_model(model);
+            self.graph.add_model(model);
         } else if !args.args.is_empty() {
-            children.push(class);
+            self.children.push(class);
         }
     }
-
-    // Second pass: resolve children of abstract models
-    resolve_children(&mut graph, &children, module_path, source);
-
-    graph
 }
 
 fn resolve_children(

@@ -198,11 +198,11 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn model_graph(&self) -> djls_python::models::ModelGraph {
+    fn model_graph(&self) -> djls_python::ModelGraph {
         if let Some(project) = self.project() {
             compute_model_graph(self, project)
         } else {
-            djls_python::models::ModelGraph::new()
+            djls_python::ModelGraph::new()
         }
     }
 }
@@ -759,11 +759,11 @@ def my_filter(value, arg):
 
         // Set external model data
         let project = db.project.lock().unwrap().unwrap();
-        let mut model_graph = djls_python::models::ModelGraph::new();
-        let mut user = djls_python::models::ModelDef::new("User", "auth.models", 1);
-        user.relations.push(djls_python::models::Relation {
+        let mut model_graph = djls_python::ModelGraph::new();
+        let mut user = djls_python::ModelDef::new("User", "auth.models", 1);
+        user.relations.push(djls_python::Relation {
             field_name: "profile".into(),
-            relation_type: djls_python::models::RelationType::OneToOne {
+            relation_type: djls_python::RelationType::OneToOne {
                 target_model: "Profile".into(),
                 related_name: None,
             },
@@ -771,10 +771,7 @@ def my_filter(value, arg):
         model_graph.add_model(user);
 
         let mut external_models = rustc_hash::FxHashMap::default();
-        external_models.insert(
-            djls_python::models::ModulePath::new("auth.models"),
-            model_graph,
-        );
+        external_models.insert(djls_python::ModulePath::new("auth.models"), model_graph);
         project
             .set_extracted_external_models(&mut db)
             .to(external_models);
@@ -803,13 +800,9 @@ def my_filter(value, arg):
             "extracted_external_models should be empty initially"
         );
 
-        let mut model_graph = djls_python::models::ModelGraph::new();
-        model_graph.add_model(djls_python::models::ModelDef::new(
-            "Article",
-            "blog.models",
-            1,
-        ));
-        let key = djls_python::models::ModulePath::new("blog.models");
+        let mut model_graph = djls_python::ModelGraph::new();
+        model_graph.add_model(djls_python::ModelDef::new("Article", "blog.models", 1));
+        let key = djls_python::ModulePath::new("blog.models");
         let mut external_models = rustc_hash::FxHashMap::default();
         external_models.insert(key.clone(), model_graph);
         project

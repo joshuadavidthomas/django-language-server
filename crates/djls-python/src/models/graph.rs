@@ -128,10 +128,9 @@ impl RelationType {
 
 /// What kind of Django model this is.
 ///
-/// Modeled as an enum rather than a boolean because Django's model kinds
-/// are mutually exclusive: a model is concrete, abstract, or proxy — never
-/// a combination. An enum forces exhaustive handling when new kinds are
-/// added.
+/// Currently tracks concrete vs. abstract models. An enum (rather than a
+/// boolean) so that future model kinds (e.g., proxy) can be added with
+/// exhaustive match enforcement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelKind {

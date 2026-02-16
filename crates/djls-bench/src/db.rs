@@ -122,7 +122,7 @@ impl SemanticDb for Db {
         (*self.filter_arity_specs).clone()
     }
 
-    fn model_graph(&self) -> djls_python::models::ModelGraph {
-        djls_python::models::ModelGraph::new()
+    fn model_graph(&self) -> djls_python::ModelGraph {
+        djls_python::ModelGraph::new()
     }
 }

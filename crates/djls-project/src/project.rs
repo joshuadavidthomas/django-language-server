@@ -2,9 +2,9 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
-use djls_python::models::ModelGraph;
-use djls_python::models::ModulePath;
 use djls_python::ExtractionResult;
+use djls_python::ModelGraph;
+use djls_python::ModulePath;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;

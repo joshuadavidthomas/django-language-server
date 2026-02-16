@@ -2,7 +2,7 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_python::models::ModulePath;
+use djls_python::ModulePath;
 
 use crate::Interpreter;
 
@@ -285,7 +285,7 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
 /// Skips files that fail to read and empty graphs.
 fn scan_models_in_dir(
     base_dir: &Utf8Path,
-) -> rustc_hash::FxHashMap<ModulePath, djls_python::models::ModelGraph> {
+) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
     let mut results = rustc_hash::FxHashMap::default();
 
     for entry in ignore::WalkBuilder::new(base_dir.as_std_path())
@@ -315,7 +315,7 @@ fn scan_models_in_dir(
             continue;
         };
 
-        let graph = djls_python::models::extract_model_graph(&source, module_path.as_str());
+        let graph = djls_python::extract_model_graph(&source, module_path.as_str());
         if !graph.is_empty() {
             results.insert(module_path, graph);
         }
@@ -332,7 +332,7 @@ fn scan_models_in_dir(
 pub fn extract_external_models(
     interpreter: &Interpreter,
     root: &Utf8Path,
-) -> rustc_hash::FxHashMap<ModulePath, djls_python::models::ModelGraph> {
+) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
     let Some(site_packages) = find_site_packages(interpreter, root) else {
         return rustc_hash::FxHashMap::default();
     };

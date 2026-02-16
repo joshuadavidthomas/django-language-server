@@ -1,7 +1,7 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_project::TemplateLibraries;
-use djls_python::models::ModelGraph;
+use djls_python::ModelGraph;
 use djls_templates::Db as TemplateDb;
 
 use crate::errors::ValidationError;
