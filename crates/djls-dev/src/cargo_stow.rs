@@ -98,6 +98,11 @@ pub struct GraphConfig {
     /// Implied dependencies: when a crate depends on both the key and a value,
     /// the edge to the value is hidden (it's visually implied by the key).
     pub implied_deps: HashMap<String, Vec<String>>,
+    /// Apply transitive reduction across namespace boundaries.
+    /// When true, cross-namespace edges are reduced the same as intra-namespace
+    /// edges. Useful when namespaces are visual groupings within a single project
+    /// rather than separate subsystems.
+    pub reduce_cross_namespace: bool,
 }
 
 /// Stow configuration - can be loaded from stow.toml or [workspace.metadata.stow]
@@ -1888,14 +1893,14 @@ fn generate_dependency_graph_svg(
                 None
             };
 
-            // Cross-namespace edges to internal crates are always shown --
-            // they represent important architectural boundaries.
+            // Cross-namespace edges to internal crates are always shown
+            // (unless reduce_cross_namespace is enabled).
             let is_cross_ns_internal = !is_external_target
                 && match (source_namespace, target_namespace) {
                     (Some(s), Some(t)) => s.name != t.name,
                     _ => false,
                 };
-            if is_cross_ns_internal {
+            if is_cross_ns_internal && !config.graph.reduce_cross_namespace {
                 reduced_edges.push((*from, *to));
                 continue;
             }
@@ -1906,13 +1911,20 @@ fn generate_dependency_graph_svg(
             //   nodes only.
             // - For external targets: reduce if intermediate is in same namespace
             //   as SOURCE. This keeps one edge per namespace to external deps.
-            //   (e.g., baml_compiler_hir -> salsa reduced when baml_base -> salsa exists)
+            // - When reduce_cross_namespace is enabled: use full reachability for
+            //   all internal targets regardless of namespace boundaries.
             let is_redundant = adjacency[src].iter().any(|&intermediate| {
                 if intermediate == dst {
                     return false;
                 }
                 let intermediate_name = nodes[intermediate];
                 let intermediate_namespace = config.get_namespace_for_crate(intermediate_name);
+
+                if config.graph.reduce_cross_namespace && !is_external_target {
+                    // Unified reduction: any intermediate that can reach the
+                    // target makes this edge redundant.
+                    return reachable[intermediate][dst];
+                }
 
                 // Check namespace based on whether target is external or internal
                 let reference_namespace = if is_external_target {

@@ -6,14 +6,33 @@
 #          cargo run -p djls-dev --bin cargo-stow -- stow --fix     (auto-fix sorting)
 #          cargo run -p djls-dev --bin cargo-stow -- stow --graph architecture/architecture.svg
 
-# Logical namespaces for architecture diagram grouping.
-
-# Core analysis: everything from foundation types to IDE features
+# Foundation: leaf crates with no internal dependencies
 [[namespaces]]
-name = "djls"
+name = "djls-foundation"
 approved_prefixes = []
 test_crate_exceptions = []
-name_exceptions = { "djls-source" = "djls-source", "djls-conf" = "djls-conf", "djls-python" = "djls-python", "djls-workspace" = "djls-workspace", "djls-templates" = "djls-templates", "djls-project" = "djls-project", "djls-semantic" = "djls-semantic", "djls-ide" = "djls-ide", "djls-db" = "djls-db", "djls-server" = "djls-server", "djls" = "djls" }
+name_exceptions = { "djls-source" = "djls-source", "djls-conf" = "djls-conf" }
+
+# Domain: core analysis and project modeling
+[[namespaces]]
+name = "djls-domain"
+approved_prefixes = []
+test_crate_exceptions = []
+name_exceptions = { "djls-python" = "djls-python", "djls-workspace" = "djls-workspace", "djls-templates" = "djls-templates", "djls-project" = "djls-project" }
+
+# Intelligence: semantic analysis and IDE features
+[[namespaces]]
+name = "djls-intelligence"
+approved_prefixes = []
+test_crate_exceptions = []
+name_exceptions = { "djls-semantic" = "djls-semantic", "djls-ide" = "djls-ide" }
+
+# Server: database, LSP server, and the binary entry point
+[[namespaces]]
+name = "djls-app"
+approved_prefixes = []
+test_crate_exceptions = []
+name_exceptions = { "djls" = "djls", "djls-db" = "djls-db", "djls-server" = "djls-server" }
 
 # Dev tools: bench, corpus, dev tooling
 [[namespaces]]
@@ -21,10 +40,10 @@ name = "djls-tools"
 approved_prefixes = []
 test_crate_exceptions = []
 name_exceptions = { "djls-bench" = "djls-bench", "djls-corpus" = "djls-corpus", "djls-dev" = "djls-dev" }
-link_crates = ["djls-ide", "djls-corpus"]
 
 [graph]
 external_deps = ["salsa", "tower-lsp-server", "tokio"]
+reduce_cross_namespace = true
 
 [graph.implied_deps]
 djls-conf = ["anyhow", "camino", "serde", "thiserror"]
