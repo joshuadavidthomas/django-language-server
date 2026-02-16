@@ -5,6 +5,18 @@ use camino::Utf8PathBuf;
 
 use crate::Interpreter;
 
+/// Derive a dotted module path from a relative filesystem path.
+///
+/// Strips the file extension and joins path components with dots.
+/// For example, `myapp/models.py` becomes `myapp.models`.
+fn module_path_from_relative(rel: &Utf8Path) -> String {
+    rel.with_extension("")
+        .components()
+        .map(|c| c.as_str())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 /// Classification of where a module lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleLocation {
@@ -267,12 +279,7 @@ fn scan_models_in_dir(
             continue;
         };
 
-        let module_path = rel
-            .with_extension("")
-            .components()
-            .map(|c| c.as_str())
-            .collect::<Vec<_>>()
-            .join(".");
+        let module_path = module_path_from_relative(rel);
 
         let Ok(source) = std::fs::read_to_string(path.as_std_path()) else {
             continue;
@@ -336,12 +343,7 @@ pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(String, Utf8PathB
             continue;
         };
 
-        let module_path = rel
-            .with_extension("")
-            .components()
-            .map(|c| c.as_str())
-            .collect::<Vec<_>>()
-            .join(".");
+        let module_path = module_path_from_relative(rel);
 
         results.push((module_path, path));
     }
