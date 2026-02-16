@@ -6,15 +6,74 @@
 #          cargo run -p djls-dev --bin cargo-stow -- stow --fix     (auto-fix sorting)
 #          cargo run -p djls-dev --bin cargo-stow -- stow --graph architecture/architecture.svg
 
+# Each crate is its own namespace — the crate IS the architectural boundary.
+
 [[namespaces]]
-name = "djls"
-approved_prefixes = []
-test_crate_exceptions = []
+name = "djls-source"
+name_exceptions = { "djls-source" = "djls-source" }
+
+[[namespaces]]
+name = "djls-conf"
+name_exceptions = { "djls-conf" = "djls-conf" }
+
+[[namespaces]]
+name = "djls-python"
+name_exceptions = { "djls-python" = "djls-python" }
+
+[[namespaces]]
+name = "djls-workspace"
+name_exceptions = { "djls-workspace" = "djls-workspace" }
+
+[[namespaces]]
+name = "djls-templates"
+name_exceptions = { "djls-templates" = "djls-templates" }
+
+[[namespaces]]
+name = "djls-project"
+name_exceptions = { "djls-project" = "djls-project" }
+
+[[namespaces]]
+name = "djls-semantic"
+name_exceptions = { "djls-semantic" = "djls-semantic" }
+
+[[namespaces]]
+name = "djls-ide"
+name_exceptions = { "djls-ide" = "djls-ide" }
+
+[[namespaces]]
+name = "djls-db"
+name_exceptions = { "djls-db" = "djls-db" }
+
+[[namespaces]]
+name = "djls-server"
+name_exceptions = { "djls-server" = "djls-server" }
+
+[[namespaces]]
+name = "djls-app"
 name_exceptions = { "djls" = "djls" }
 
-[graph]
-external_deps = ["salsa", "tower-lsp-server", "tokio"]
+[[namespaces]]
+name = "djls-bench"
+name_exceptions = { "djls-bench" = "djls-bench" }
 
-[graph.implied_deps]
-djls-conf = ["anyhow", "camino", "serde", "thiserror"]
-djls-source = ["camino", "salsa", "serde", "thiserror"]
+[[namespaces]]
+name = "djls-corpus"
+name_exceptions = { "djls-corpus" = "djls-corpus" }
+
+[[namespaces]]
+name = "djls-dev"
+name_exceptions = { "djls-dev" = "djls-dev" }
+
+[graph]
+reduce_cross_namespace = true
+external_deps = [
+    "anyhow",
+    "camino",
+    "clap",
+    "salsa",
+    "serde",
+    "thiserror",
+    "tokio",
+    "tower-lsp-server",
+    "tracing",
+]
