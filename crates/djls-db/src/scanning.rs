@@ -13,8 +13,12 @@ fn extract_models_from_files(
     let mut results = rustc_hash::FxHashMap::default();
 
     for (module_path, file_path) in files {
-        let Ok(source) = std::fs::read_to_string(file_path.as_std_path()) else {
-            continue;
+        let source = match std::fs::read_to_string(file_path.as_std_path()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::debug!("Failed to read model file {}: {}", file_path, e);
+                continue;
+            }
         };
 
         let graph = djls_python::extract_model_graph(&source, module_path.as_str());

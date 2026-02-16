@@ -521,7 +521,7 @@ class Article(models.Model):
     }
 
     #[test]
-    fn discover_model_files_in_dir_skips_empty_files() {
+    fn discover_model_files_in_dir_finds_files_without_inspecting_contents() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 

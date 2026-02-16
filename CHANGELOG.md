@@ -18,14 +18,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
-### Removed
-
-- Dropped Django 5.1 from supported versions (end-of-life).
-
-### Changed
-
-- **Internal**: Moved extraction orchestration from `djls-project` to `djls-db`, enforcing the boundary that `djls-project` handles pure path discovery while `djls-db` handles file reading and extraction. Removed unused `djls-workspace` dependency from `djls-project`.
-
 ### Added
 
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.
@@ -37,9 +29,14 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- **Internal**: Moved extraction orchestration from `djls-project` to `djls-db`, enforcing the boundary that `djls-project` handles pure path discovery while `djls-db` handles file reading and extraction. Removed unused `djls-workspace` dependency from `djls-project`.
 - Widened templatetag extraction to catch any uncaught exception in compilation functions, not just `TemplateSyntaxError`. Tags that raise `ValueError`, `TypeError`, or other exceptions in guards now produce validation constraints.
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
 - **Internal**: `AvailableSymbols` now borrows `&str` from `TemplateLibraries` instead of cloning owned `String`s, cutting validation overhead by 30-60% across benchmarks.
+
+### Removed
+
+- Dropped Django 5.1 from supported versions (end-of-life).
 
 ### Fixed
 
