@@ -8,7 +8,6 @@ pub enum RelationType {
     ForeignKey,
     OneToOne,
     ManyToMany,
-    GenericForeignKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,7 +23,7 @@ impl Relation {
     ///
     /// If an explicit `related_name` was provided, uses that (with `%(class)s`
     /// substitution applied). Otherwise synthesizes Django's default: `<model>_set`
-    /// for FK/M2M/GenericFK, or `<model>` for `OneToOne`.
+    /// for FK/M2M, or `<model>` for `OneToOne`.
     #[must_use]
     pub fn effective_related_name(&self, source_model: &str) -> String {
         let lower = source_model.to_lowercase();
@@ -32,9 +31,7 @@ impl Relation {
             Some(name) => name.replace("%(class)s", &lower),
             None => match self.relation_type {
                 RelationType::OneToOne => lower,
-                RelationType::ForeignKey
-                | RelationType::ManyToMany
-                | RelationType::GenericForeignKey => format!("{lower}_set"),
+                RelationType::ForeignKey | RelationType::ManyToMany => format!("{lower}_set"),
             },
         }
     }
