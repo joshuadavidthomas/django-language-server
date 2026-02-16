@@ -22,6 +22,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Dropped Django 5.1 from supported versions (end-of-life).
 
+### Changed
+
+- **Internal**: Moved extraction orchestration from `djls-project` to `djls-db`, enforcing the boundary that `djls-project` handles pure path discovery while `djls-db` handles file reading and extraction. Removed unused `djls-workspace` dependency from `djls-project`.
+
 ### Added
 
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.

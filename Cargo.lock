@@ -825,7 +825,6 @@ dependencies = [
  "djls-conf",
  "djls-python",
  "djls-source",
- "djls-workspace",
  "dotenvy",
  "ignore",
  "rustc-hash",
