@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% load i18n static %}
+
+{% block title %}{{ page_title|default:"Dashboard" }} - {{ site_name }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static "css/dashboard.css" %}">
+<link rel="stylesheet" href="{% static "css/tables.css" %}">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+  {% if user.is_authenticated %}
+    <header>
+      <h1>{% translate "Welcome" %}, {{ user.get_full_name|title }}</h1>
+      <p>{{ user.email|lower }}</p>
+      <p>{% translate "Last login:" %} {{ user.last_login|date:"Y-m-d H:i" }}</p>
+    </header>
+
+    {% if announcements %}
+      <section class="announcements">
+        <h2>{% translate "Announcements" %}</h2>
+        {% for announcement in announcements %}
+          <div class="announcement {% if announcement.is_urgent %}urgent{% endif %}">
+            <h3>{{ announcement.title|title }}</h3>
+            <p>{{ announcement.body|truncatewords:"50" }}</p>
+            <span>{{ announcement.created|date:"M d, Y" }}</span>
+            {% if announcement.author %}
+              <span>{% translate "By" %} {{ announcement.author.name|title }}</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    <section class="stats">
+      <h2>{% translate "Statistics" %}</h2>
+      <div class="stat-grid">
+        {% for stat in statistics %}
+          <div class="stat-card">
+            <h3>{{ stat.label|title }}</h3>
+            <span class="value">{{ stat.value|floatformat }}</span>
+            {% if stat.change %}
+              <span class="change {% if stat.change > 0 %}positive{% endif %}">
+                {{ stat.change|floatformat }}%
+              </span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if user.is_staff %}
+      <section class="admin-panel">
+        <h2>{% translate "Administration" %}</h2>
+
+        {% block admin_content %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>{% translate "Name" %}</th>
+                <th>{% translate "Email" %}</th>
+                <th>{% translate "Status" %}</th>
+                <th>{% translate "Joined" %}</th>
+                <th>{% translate "Actions" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for member in team_members %}
+                <tr class="{% if member.is_active %}active{% endif %}">
+                  <td>{{ member.get_full_name|title }}</td>
+                  <td>{{ member.email|lower }}</td>
+                  <td>
+                    {% if member.is_active %}
+                      <span class="badge active">{% translate "Active" %}</span>
+                    {% else %}
+                      <span class="badge inactive">{% translate "Inactive" %}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ member.date_joined|date:"Y-m-d" }}</td>
+                  <td>
+                    {% if user.is_superuser %}
+                      <a href="{{ member.admin_url }}">{% translate "Edit" %}</a>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endblock %}
+
+        {% if recent_actions %}
+          <div class="recent-actions">
+            <h3>{% translate "Recent Actions" %}</h3>
+            {% for action in recent_actions %}
+              <div class="action-item">
+                <span>{{ action.user.name|title }}</span>
+                <span>{{ action.description|title }}</span>
+                <span>{{ action.timestamp|date:"M d, H:i" }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <section class="projects">
+      <h2>{% translate "Your Projects" %}</h2>
+      {% for project in projects %}
+        <div class="project-card">
+          <h3>{{ project.name|title }}</h3>
+          <p>{{ project.description|truncatewords:"30" }}</p>
+          <div class="project-meta">
+            <span>{% translate "Created:" %} {{ project.created|date:"M d, Y" }}</span>
+            <span>{% translate "Updated:" %} {{ project.updated|date:"M d, Y" }}</span>
+            {% if project.deadline %}
+              <span class="deadline">
+                {% translate "Due:" %} {{ project.deadline|date:"M d, Y" }}
+              </span>
+            {% endif %}
+          </div>
+          <div class="project-team">
+            {% for member in project.team.all %}
+              <span class="avatar" title="{{ member.name|title }}">
+                {{ member.initials|upper }}
+              </span>
+            {% endfor %}
+          </div>
+          {% if project.tags.all %}
+            <div class="tags">
+              {% for tag in project.tags.all %}
+                <span class="tag">{{ tag.name|lower }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </section>
+
+    {% if notifications %}
+      <section class="notifications">
+        <h2>{% translate "Notifications" %}</h2>
+        {% for notification in notifications %}
+          <div class="notification {% if not notification.read %}unread{% endif %}">
+            <div class="notification-icon">
+              {% if notification.type == "info" %}
+                <img src="{% static "icons/info.svg" %}" alt="{% translate "Info" %}">
+              {% elif notification.type == "warning" %}
+                <img src="{% static "icons/warning.svg" %}" alt="{% translate "Warning" %}">
+              {% elif notification.type == "error" %}
+                <img src="{% static "icons/error.svg" %}" alt="{% translate "Error" %}">
+              {% endif %}
+            </div>
+            <div class="notification-body">
+              <p>{{ notification.message|title }}</p>
+              <span>{{ notification.created|date:"M d, H:i" }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    {% block extra_sections %}
+      {% if show_activity_feed %}
+        <section class="activity-feed">
+          <h2>{% translate "Activity Feed" %}</h2>
+          {% for event in activity_feed %}
+            <div class="feed-item">
+              <span class="actor">{{ event.actor.name|title }}</span>
+              <span class="verb">{{ event.verb|lower }}</span>
+              <span class="target">{{ event.target.name|title }}</span>
+              <time>{{ event.timestamp|date:"M d, Y H:i" }}</time>
+            </div>
+          {% endfor %}
+        </section>
+      {% endif %}
+
+      {% if show_calendar %}
+        <section class="calendar">
+          <h2>{% translate "Upcoming Events" %}</h2>
+          {% for event in upcoming_events %}
+            <div class="calendar-event">
+              <h4>{{ event.title|title }}</h4>
+              <p>{{ event.description|truncatewords:"20" }}</p>
+              <time>{{ event.start_date|date:"M d, Y" }} - {{ event.end_date|date:"M d, Y" }}</time>
+              {% if event.location %}
+                <span class="location">{{ event.location|title }}</span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </section>
+      {% endif %}
+    {% endblock %}
+
+    {% comment %}
+      This section is temporarily disabled during the redesign phase.
+      {% for widget in deprecated_widgets %}
+        {{ widget.render }}
+      {% endfor %}
+    {% endcomment %}
+
+    {% verbatim %}
+      <script type="text/template" id="mustache-template">
+        {{#items}}
+          <div class="{{className}}">{{label}}</div>
+        {{/items}}
+      </script>
+    {% endverbatim %}
+
+  {% else %}
+    <div class="login-prompt">
+      <h1>{% translate "Please Log In" %}</h1>
+      <p>{% translate "You need to be authenticated to access this page." %}</p>
+      <form method="post" action="{% url 'login' %}">
+        {% csrf_token %}
+        <div class="form-group">
+          <label for="username">{% translate "Username" %}</label>
+          <input type="text" name="username" id="username">
+        </div>
+        <div class="form-group">
+          <label for="password">{% translate "Password" %}</label>
+          <input type="password" name="password" id="password">
+        </div>
+        <button type="submit">{% translate "Log In" %}</button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static "js/dashboard.js" %}"></script>
+{% if user.is_staff %}
+  <script src="{% static "js/admin.js" %}"></script>
+{% endif %}
+{% endblock %}

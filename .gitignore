@@ -203,8 +203,5 @@ djls.db
 profiles/
 target_local/
 
-# Local Django clone for reference
-django/
-
 # flamegraph perf
 perf.data*
