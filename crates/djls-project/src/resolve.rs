@@ -234,6 +234,121 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
+/// Discover `models.py` files in a directory tree and extract model graphs.
+///
+/// Walks the directory recursively, finds files named `models.py`, derives
+/// the dotted module path from the filesystem path relative to `base_dir`,
+/// and extracts model definitions from each file.
+///
+/// Skips files that fail to read and empty graphs.
+fn scan_models_in_dir(
+    base_dir: &Utf8Path,
+) -> rustc_hash::FxHashMap<String, djls_python::models::ModelGraph> {
+    let mut results = rustc_hash::FxHashMap::default();
+
+    for entry in ignore::WalkBuilder::new(base_dir.as_std_path())
+        .hidden(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+    {
+        if entry.file_name().to_str() != Some("models.py") {
+            continue;
+        }
+
+        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
+            continue;
+        };
+
+        let Some(rel) = path.strip_prefix(base_dir).ok() else {
+            continue;
+        };
+
+        let module_path = rel
+            .with_extension("")
+            .components()
+            .map(|c| c.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+
+        let Ok(source) = std::fs::read_to_string(path.as_std_path()) else {
+            continue;
+        };
+
+        let graph = djls_python::models::extract_model_graph(&source, &module_path);
+        if !graph.is_empty() {
+            results.insert(module_path, graph);
+        }
+    }
+
+    results
+}
+
+/// Extract model graphs from external (non-workspace) directories.
+///
+/// Scans site-packages for `models.py` files and extracts model graphs.
+/// Workspace `models.py` files should use tracked Salsa queries instead.
+#[must_use]
+pub fn extract_external_models(
+    interpreter: &Interpreter,
+    root: &Utf8Path,
+) -> rustc_hash::FxHashMap<String, djls_python::models::ModelGraph> {
+    let Some(site_packages) = find_site_packages(interpreter, root) else {
+        return rustc_hash::FxHashMap::default();
+    };
+
+    scan_models_in_dir(&site_packages)
+}
+
+/// Discover `models.py` files in the workspace and return their resolved paths.
+///
+/// Walks the project root looking for `models.py` files. Returns a list of
+/// `(module_path, file_path)` pairs where `module_path` is the dotted module
+/// path relative to the project root.
+#[must_use]
+pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(String, Utf8PathBuf)> {
+    let mut results = Vec::new();
+
+    for entry in ignore::WalkBuilder::new(root.as_std_path())
+        .hidden(true)
+        .git_ignore(true)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+    {
+        if entry.file_name().to_str() != Some("models.py") {
+            continue;
+        }
+
+        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
+            continue;
+        };
+
+        // Skip anything in site-packages (external)
+        if path.components().any(|c| c.as_str() == "site-packages") {
+            continue;
+        }
+
+        let Some(rel) = path.strip_prefix(root).ok() else {
+            continue;
+        };
+
+        let module_path = rel
+            .with_extension("")
+            .components()
+            .map(|c| c.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+
+        results.push((module_path, path));
+    }
+
+    results
+}
+
 /// Extract validation rules from external (non-workspace) registration modules.
 ///
 /// Resolves the given module paths, filters to external-only, reads each
@@ -405,5 +520,110 @@ mod tests {
         assert_eq!(external.len(), 1);
         assert_eq!(workspace[0].module_path, "myproject.templatetags.custom");
         assert_eq!(external[0].module_path, "django.templatetags.i18n");
+    }
+
+    #[test]
+    fn scan_models_in_dir_finds_models() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let app_dir = root.join("myapp");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("models.py"),
+            r"
+from django.db import models
+
+class Article(models.Model):
+    title = models.CharField(max_length=200)
+    author = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+",
+        )
+        .unwrap();
+
+        let results = scan_models_in_dir(&root);
+        assert_eq!(results.len(), 1);
+        assert!(results.contains_key("myapp.models"));
+        let graph = &results["myapp.models"];
+        assert!(graph.get("Article").is_some());
+    }
+
+    #[test]
+    fn scan_models_in_dir_skips_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let app_dir = root.join("emptyapp");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
+
+        let results = scan_models_in_dir(&root);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn scan_models_in_dir_nested_apps() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        // Create two nested apps
+        for app in &["blog", "accounts"] {
+            let app_dir = root.join(app);
+            std::fs::create_dir_all(&app_dir).unwrap();
+            std::fs::write(
+                app_dir.join("models.py"),
+                format!(
+                    "from django.db import models\nclass {name}Model(models.Model):\n    pass\n",
+                    name = app.chars().next().unwrap().to_uppercase().to_string() + &app[1..]
+                ),
+            )
+            .unwrap();
+        }
+
+        let results = scan_models_in_dir(&root);
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key("blog.models"));
+        assert!(results.contains_key("accounts.models"));
+    }
+
+    #[test]
+    fn discover_workspace_model_files_finds_models() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let app_dir = root.join("myapp");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("models.py"),
+            "from django.db import models\nclass Foo(models.Model): pass\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "myapp.models");
+        assert!(results[0].1.ends_with("models.py"));
+    }
+
+    #[test]
+    fn discover_workspace_model_files_skips_site_packages() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        // Use a non-hidden venv path so the hidden filter doesn't mask
+        // the site-packages component check we're actually testing.
+        let sp = root.join("venv/lib/python3.12/site-packages/somelib");
+        std::fs::create_dir_all(&sp).unwrap();
+        std::fs::write(
+            sp.join("models.py"),
+            "from django.db import models\nclass Lib(models.Model): pass\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        assert!(
+            results.is_empty(),
+            "should not discover models in site-packages"
+        );
     }
 }

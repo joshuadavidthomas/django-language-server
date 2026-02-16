@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
+use djls_python::models::ModelGraph;
 use djls_python::ExtractionResult;
 use rustc_hash::FxHashMap;
 
@@ -56,6 +57,12 @@ pub struct Project {
     /// via `collect_workspace_extraction_results` instead.
     #[returns(ref)]
     pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
+    /// Model graphs from external packages (site-packages), keyed by module
+    /// path (e.g., `"django.contrib.auth.models"`). Populated by scanning
+    /// the venv's site-packages directory. Workspace `models.py` files use
+    /// tracked queries via `collect_workspace_models` instead.
+    #[returns(ref)]
+    pub extracted_external_models: FxHashMap<String, ModelGraph>,
 }
 
 impl Project {
@@ -73,6 +80,7 @@ impl Project {
             env_vars,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
+            FxHashMap::default(),
             FxHashMap::default(),
         )
     }

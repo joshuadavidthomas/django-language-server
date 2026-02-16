@@ -20,6 +20,8 @@ pub use project::load_env_file;
 pub use project::Project;
 pub use python::Interpreter;
 pub use resolve::build_search_paths;
+pub use resolve::discover_workspace_model_files;
+pub use resolve::extract_external_models;
 pub use resolve::extract_external_rules;
 pub use resolve::resolve_modules;
 pub use symbols::DiscoveredSymbolCandidate;

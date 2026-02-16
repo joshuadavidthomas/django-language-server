@@ -40,14 +40,16 @@ impl DjangoDatabase {
         true
     }
 
-    /// Refresh all inspector-derived data: inventory and external rules.
+    /// Refresh all inspector-derived data: inventory, external rules, and
+    /// external models.
     ///
     /// Queries the Python inspector subprocess, updates Salsa inputs, extracts
-    /// external rules, and writes the response to the filesystem cache for
-    /// future startups.
+    /// external rules, scans venv for model definitions, and writes the
+    /// response to the filesystem cache for future startups.
     pub fn refresh_inspector(&mut self) {
         self.query_inspector_template_libraries();
         self.extract_external_rules();
+        self.extract_external_models();
     }
 
     /// Query the Python inspector subprocess and update the project's template libraries.
@@ -101,6 +103,28 @@ impl DjangoDatabase {
         let next = current.apply_inspector(response);
         if project.template_libraries(self) != &next {
             project.set_template_libraries(self).to(next);
+        }
+    }
+
+    /// Scan the venv's site-packages for `models.py` files and extract model
+    /// graphs. Updates the project's `extracted_external_models` field if the
+    /// results differ from the current value.
+    ///
+    /// Workspace `models.py` files are handled separately by
+    /// `collect_workspace_models` which uses tracked Salsa queries for
+    /// automatic invalidation on file change.
+    fn extract_external_models(&mut self) {
+        let Some(project) = self.project() else {
+            return;
+        };
+
+        let interpreter = project.interpreter(self).clone();
+        let root = project.root(self).clone();
+
+        let new_models = djls_project::extract_external_models(&interpreter, &root);
+
+        if project.extracted_external_models(self) != &new_models {
+            project.set_extracted_external_models(self).to(new_models);
         }
     }
 
