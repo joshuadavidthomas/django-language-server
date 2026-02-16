@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: sessions
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   HarvestableResource:
     name: HarvestableResource
     module_path: geonode.harvesting.models
@@ -28,7 +28,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Harvester:
     name: Harvester
     module_path: geonode.harvesting.models
@@ -39,4 +39,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

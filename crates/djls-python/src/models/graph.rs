@@ -1,7 +1,71 @@
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::Deserialize;
 use serde::Serialize;
+
+macro_rules! string_newtype {
+    ($(#[doc = $doc:expr])* pub struct $Name:ident) => {
+        $(#[doc = $doc])*
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $Name(String);
+
+        impl $Name {
+            #[must_use]
+            pub fn new(value: impl Into<String>) -> Self {
+                Self(value.into())
+            }
+
+            #[must_use]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl Borrow<str> for $Name {
+            fn borrow(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl From<&str> for $Name {
+            fn from(s: &str) -> Self {
+                Self(s.to_owned())
+            }
+        }
+
+        impl From<String> for $Name {
+            fn from(s: String) -> Self {
+                Self(s)
+            }
+        }
+
+        impl fmt::Display for $Name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+    };
+}
+
+string_newtype! {
+    /// A Django model class name (e.g., `"User"`, `"Article"`).
+    pub struct ModelName
+}
+
+string_newtype! {
+    /// A dotted Python module path (e.g., `"myapp.models"`,
+    /// `"django.contrib.auth.models"`).
+    pub struct ModulePath
+}
+
+string_newtype! {
+    /// A Python field/attribute name on a Django model (e.g., `"user"`,
+    /// `"content_type"`).
+    pub struct FieldName
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RelationType {
@@ -10,10 +74,23 @@ pub enum RelationType {
     ManyToMany,
 }
 
+/// What kind of Django model this is.
+///
+/// Modeled as an enum rather than a boolean because Django's model kinds
+/// are mutually exclusive: a model is concrete, abstract, or proxy — never
+/// a combination. An enum forces exhaustive handling when new kinds are
+/// added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelKind {
+    Concrete,
+    Abstract,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Relation {
-    pub field_name: String,
-    pub target_model: String,
+    pub field_name: FieldName,
+    pub target_model: ModelName,
     pub relation_type: RelationType,
     pub related_name: Option<String>,
 }
@@ -68,31 +145,31 @@ fn app_label_from_module_path(module_path: &str) -> Option<String> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericForeignKey {
-    pub field_name: String,
-    pub ct_field: String,
-    pub fk_field: String,
+    pub field_name: FieldName,
+    pub ct_field: FieldName,
+    pub fk_field: FieldName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
-    pub name: String,
-    pub module_path: String,
+    pub name: ModelName,
+    pub module_path: ModulePath,
     pub line: usize,
     pub relations: Vec<Relation>,
     pub generic_foreign_keys: Vec<GenericForeignKey>,
-    pub is_abstract: bool,
+    pub kind: ModelKind,
 }
 
 impl ModelDef {
     #[must_use]
     pub fn new(name: impl Into<String>, module_path: impl Into<String>, line: usize) -> Self {
         Self {
-            name: name.into(),
-            module_path: module_path.into(),
+            name: ModelName::new(name),
+            module_path: ModulePath::new(module_path),
             line,
             relations: Vec::new(),
             generic_foreign_keys: Vec::new(),
-            is_abstract: false,
+            kind: ModelKind::Concrete,
         }
     }
 }
@@ -100,7 +177,7 @@ impl ModelDef {
 /// Dependency graph of Django models and their relations.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelGraph {
-    models: BTreeMap<String, ModelDef>,
+    models: BTreeMap<ModelName, ModelDef>,
 }
 
 impl ModelGraph {
@@ -139,7 +216,7 @@ impl ModelGraph {
         model
             .relations
             .iter()
-            .find(|r| r.field_name == field_name)
+            .find(|r| r.field_name.as_str() == field_name)
             .map(|r| r.target_model.as_str())
     }
 
@@ -153,11 +230,11 @@ impl ModelGraph {
         self.models.values().flat_map(move |m| {
             m.relations
                 .iter()
-                .filter(move |r| r.target_model == model_name)
+                .filter(move |r| r.target_model.as_str() == model_name)
                 .map(move |r| {
                     (
                         m.name.as_str(),
-                        r.effective_related_name(&m.name, &m.module_path),
+                        r.effective_related_name(m.name.as_str(), m.module_path.as_str()),
                         r,
                     )
                 })
@@ -167,16 +244,20 @@ impl ModelGraph {
     /// Resolve a field access on a model — checks forward relations first,
     /// then reverse relations. Returns the resolved model name.
     #[must_use]
-    pub fn resolve_relation(&self, model_name: &str, field_name: &str) -> Option<String> {
+    pub fn resolve_relation<'a>(
+        &'a self,
+        model_name: &'a str,
+        field_name: &str,
+    ) -> Option<&'a str> {
         // Forward
         if let Some(target) = self.resolve_forward(model_name, field_name) {
-            return Some(target.to_string());
+            return Some(target);
         }
 
         // Reverse
         for (source_name, related_name, _) in self.resolve_reverse(model_name) {
             if related_name == field_name {
-                return Some(source_name.to_string());
+                return Some(source_name);
             }
         }
 
@@ -203,7 +284,7 @@ mod tests {
         let mut order = ModelDef::new("Order", "shop.models", 1);
         order.relations.push(Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::ForeignKey,
             related_name: Some("orders".into()),
         });
@@ -211,7 +292,7 @@ mod tests {
         let mut profile = ModelDef::new("Profile", "accounts.models", 1);
         profile.relations.push(Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::OneToOne,
             related_name: None,
         });
@@ -245,27 +326,18 @@ mod tests {
     fn resolve_relation_forward_and_reverse() {
         let graph = user_order_graph();
         // Forward
-        assert_eq!(
-            graph.resolve_relation("Order", "user"),
-            Some("User".to_string())
-        );
+        assert_eq!(graph.resolve_relation("Order", "user"), Some("User"));
         // Reverse (explicit related_name)
-        assert_eq!(
-            graph.resolve_relation("User", "orders"),
-            Some("Order".to_string())
-        );
+        assert_eq!(graph.resolve_relation("User", "orders"), Some("Order"));
         // Reverse (default related_name for O2O)
-        assert_eq!(
-            graph.resolve_relation("User", "profile"),
-            Some("Profile".to_string())
-        );
+        assert_eq!(graph.resolve_relation("User", "profile"), Some("Profile"));
     }
 
     #[test]
     fn default_related_name_fk() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::ForeignKey,
             related_name: None,
         };
@@ -279,7 +351,7 @@ mod tests {
     fn default_related_name_o2o() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::OneToOne,
             related_name: None,
         };
@@ -293,7 +365,7 @@ mod tests {
     fn class_substitution_in_related_name() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::ForeignKey,
             related_name: Some("%(class)s_orders".into()),
         };
@@ -307,7 +379,7 @@ mod tests {
     fn app_label_substitution_in_related_name() {
         let rel = Relation {
             field_name: "title".into(),
-            target_model: "Title".into(),
+            target_model: ModelName::new("Title"),
             relation_type: RelationType::ForeignKey,
             related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
         };
@@ -321,7 +393,7 @@ mod tests {
     fn app_label_from_nested_module_path() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::ForeignKey,
             related_name: Some("%(app_label)s_%(class)s_set".into()),
         };
@@ -337,7 +409,7 @@ mod tests {
         // should substitute as empty rather than producing "models".
         let rel = Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::ForeignKey,
             related_name: Some("%(app_label)s_%(class)s_set".into()),
         };
@@ -349,7 +421,7 @@ mod tests {
         // When "models" doesn't appear, falls back to first component.
         let rel = Relation {
             field_name: "user".into(),
-            target_model: "User".into(),
+            target_model: ModelName::new("User"),
             relation_type: RelationType::ForeignKey,
             related_name: Some("%(app_label)s_set".into()),
         };

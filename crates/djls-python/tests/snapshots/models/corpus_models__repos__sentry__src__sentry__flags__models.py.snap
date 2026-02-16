@@ -9,11 +9,11 @@ models:
     line: 93
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   FlagWebHookSigningSecretModel:
     name: FlagWebHookSigningSecretModel
     module_path: src.sentry.flags.models
     line: 131
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

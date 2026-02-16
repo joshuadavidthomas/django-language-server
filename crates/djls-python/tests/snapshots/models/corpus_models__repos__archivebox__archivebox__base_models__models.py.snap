@@ -9,21 +9,21 @@ models:
     line: 100
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   ModelWithHealthStats:
     name: ModelWithHealthStats
     module_path: archivebox.base_models.models
     line: 81
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   ModelWithNotes:
     name: ModelWithNotes
     module_path: archivebox.base_models.models
     line: 73
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   ModelWithOutputDir:
     name: ModelWithOutputDir
     module_path: archivebox.base_models.models
@@ -34,7 +34,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   ModelWithUUID:
     name: ModelWithUUID
     module_path: archivebox.base_models.models
@@ -45,4 +45,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract

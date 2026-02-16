@@ -13,14 +13,14 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Event:
     name: Event
     module_path: blog.models
     line: 255
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ImageUpload:
     name: ImageUpload
     module_path: blog.models
@@ -31,4 +31,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

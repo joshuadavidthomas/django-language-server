@@ -17,7 +17,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Blogmark:
     name: Blogmark
     module_path: blog.models
@@ -32,7 +32,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Comment:
     name: Comment
     module_path: blog.models
@@ -46,7 +46,7 @@ models:
       - field_name: item
         ct_field: content_type
         fk_field: object_id
-    is_abstract: false
+    kind: concrete
   Entry:
     name: Entry
     module_path: blog.models
@@ -61,7 +61,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   LiveUpdate:
     name: LiveUpdate
     module_path: blog.models
@@ -72,7 +72,7 @@ models:
         relation_type: ForeignKey
         related_name: updates
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Note:
     name: Note
     module_path: blog.models
@@ -87,14 +87,14 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Photo:
     name: Photo
     module_path: blog.models
     line: 452
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Photoset:
     name: Photoset
     module_path: blog.models
@@ -109,7 +109,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   PreviousTagName:
     name: PreviousTagName
     module_path: blog.models
@@ -120,7 +120,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Quotation:
     name: Quotation
     module_path: blog.models
@@ -135,21 +135,21 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Series:
     name: Series
     module_path: blog.models
     line: 195
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Tag:
     name: Tag
     module_path: blog.models
     line: 22
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TagMerge:
     name: TagMerge
     module_path: blog.models
@@ -160,4 +160,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

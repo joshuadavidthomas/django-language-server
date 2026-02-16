@@ -21,7 +21,7 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ScheduledMail:
     name: ScheduledMail
     module_path: src.pretix.plugins.sendmail.models
@@ -40,4 +40,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

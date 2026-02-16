@@ -9,7 +9,7 @@ models:
     line: 68
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SSOIntegration:
     name: SSOIntegration
     module_path: readthedocs.sso.models
@@ -28,4 +28,4 @@ models:
         relation_type: ManyToMany
         related_name: ssointegrations
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

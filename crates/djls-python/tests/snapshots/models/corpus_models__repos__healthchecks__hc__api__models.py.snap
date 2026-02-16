@@ -17,7 +17,7 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Check:
     name: Check
     module_path: hc.api.models
@@ -28,7 +28,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Flip:
     name: Flip
     module_path: hc.api.models
@@ -39,7 +39,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Notification:
     name: Notification
     module_path: hc.api.models
@@ -54,7 +54,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Ping:
     name: Ping
     module_path: hc.api.models
@@ -65,11 +65,11 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TokenBucket:
     name: TokenBucket
     module_path: hc.api.models
     line: 1340
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

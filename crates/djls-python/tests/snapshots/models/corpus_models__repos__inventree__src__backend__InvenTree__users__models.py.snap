@@ -16,7 +16,7 @@ models:
       - field_name: owner
         ct_field: owner_type
         fk_field: owner_id
-    is_abstract: false
+    kind: concrete
   RuleSet:
     name: RuleSet
     module_path: src.backend.InvenTree.users.models
@@ -27,4 +27,4 @@ models:
         relation_type: ForeignKey
         related_name: rule_sets
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

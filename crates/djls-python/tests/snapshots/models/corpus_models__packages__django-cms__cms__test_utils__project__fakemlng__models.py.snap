@@ -9,7 +9,7 @@ models:
     line: 6
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Translations:
     name: Translations
     module_path: cms.test_utils.project.fakemlng.models
@@ -20,4 +20,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

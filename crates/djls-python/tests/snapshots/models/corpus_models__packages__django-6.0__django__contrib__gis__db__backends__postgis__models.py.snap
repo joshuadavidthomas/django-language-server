@@ -9,11 +9,11 @@ models:
     line: 9
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   PostGISSpatialRefSys:
     name: PostGISSpatialRefSys
     module_path: django.contrib.gis.db.backends.postgis.models
     line: 54
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

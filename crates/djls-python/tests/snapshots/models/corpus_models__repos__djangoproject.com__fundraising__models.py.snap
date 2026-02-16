@@ -9,7 +9,7 @@ models:
     line: 61
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Donation:
     name: Donation
     module_path: fundraising.models
@@ -20,21 +20,21 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   FundraisingModel:
     name: FundraisingModel
     module_path: fundraising.models
     line: 46
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   InKindDonor:
     name: InKindDonor
     module_path: fundraising.models
     line: 149
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Payment:
     name: Payment
     module_path: fundraising.models
@@ -45,11 +45,11 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Testimonial:
     name: Testimonial
     module_path: fundraising.models
     line: 140
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

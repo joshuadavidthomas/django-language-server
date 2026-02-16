@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: api_tokens
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Bookmark:
     name: Bookmark
     module_path: bookmarks.models
@@ -32,7 +32,7 @@ models:
         relation_type: ForeignKey
         related_name: latest_snapshot
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   BookmarkAsset:
     name: BookmarkAsset
     module_path: bookmarks.models
@@ -43,7 +43,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   BookmarkBundle:
     name: BookmarkBundle
     module_path: bookmarks.models
@@ -54,7 +54,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   FeedToken:
     name: FeedToken
     module_path: bookmarks.models
@@ -65,7 +65,7 @@ models:
         relation_type: OneToOne
         related_name: feed_token
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   GlobalSettings:
     name: GlobalSettings
     module_path: bookmarks.models
@@ -76,7 +76,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Tag:
     name: Tag
     module_path: bookmarks.models
@@ -87,7 +87,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Toast:
     name: Toast
     module_path: bookmarks.models
@@ -98,7 +98,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UserProfile:
     name: UserProfile
     module_path: bookmarks.models
@@ -109,4 +109,4 @@ models:
         relation_type: OneToOne
         related_name: profile
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -9,14 +9,14 @@ models:
     line: 10
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   OtherTable:
     name: OtherTable
     module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
     line: 6
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TestTable:
     name: TestTable
     module_path: fixtures.safe_migrations_apps.good_flow_delete_field_pending_with_not_null_m2m_app.models
@@ -27,4 +27,4 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

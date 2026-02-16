@@ -9,11 +9,11 @@ models:
     line: 16
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   OpenIDStore:
     name: OpenIDStore
     module_path: allauth.socialaccount.providers.openid.models
     line: 4
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

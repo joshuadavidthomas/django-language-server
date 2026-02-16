@@ -17,7 +17,7 @@ models:
         relation_type: ManyToMany
         related_name: user_set
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Group:
     name: Group
     module_path: django.contrib.auth.models
@@ -28,7 +28,7 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Permission:
     name: Permission
     module_path: django.contrib.auth.models
@@ -39,7 +39,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   PermissionsMixin:
     name: PermissionsMixin
     module_path: django.contrib.auth.models
@@ -54,7 +54,7 @@ models:
         relation_type: ManyToMany
         related_name: user_set
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   User:
     name: User
     module_path: django.contrib.auth.models
@@ -69,4 +69,4 @@ models:
         relation_type: ManyToMany
         related_name: user_set
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

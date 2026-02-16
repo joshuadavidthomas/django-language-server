@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: column_mappings
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   DataImportRow:
     name: DataImportRow
     module_path: src.backend.InvenTree.importer.models
@@ -24,7 +24,7 @@ models:
         relation_type: ForeignKey
         related_name: rows
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   DataImportSession:
     name: DataImportSession
     module_path: src.backend.InvenTree.importer.models
@@ -35,4 +35,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

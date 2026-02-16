@@ -9,7 +9,7 @@ models:
     line: 6
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Country:
     name: Country
     module_path: example.app.models
@@ -20,7 +20,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Person:
     name: Person
     module_path: example.app.models
@@ -31,4 +31,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

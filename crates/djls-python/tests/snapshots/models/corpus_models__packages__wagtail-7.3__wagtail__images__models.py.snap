@@ -13,14 +13,14 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   AbstractRendition:
     name: AbstractRendition
     module_path: wagtail.images.models
     line: 1315
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Image:
     name: Image
     module_path: wagtail.images.models
@@ -31,7 +31,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Rendition:
     name: Rendition
     module_path: wagtail.images.models
@@ -42,4 +42,4 @@ models:
         relation_type: ForeignKey
         related_name: renditions
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -9,11 +9,11 @@ models:
     line: 28
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   ModelWithStateMachine:
     name: ModelWithStateMachine
     module_path: archivebox.workers.models
     line: 311
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract

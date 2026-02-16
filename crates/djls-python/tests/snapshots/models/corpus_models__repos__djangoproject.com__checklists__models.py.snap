@@ -17,7 +17,7 @@ models:
         relation_type: OneToOne
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   FeatureRelease:
     name: FeatureRelease
     module_path: checklists.models
@@ -40,7 +40,7 @@ models:
         relation_type: ForeignKey
         related_name: +
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   PreRelease:
     name: PreRelease
     module_path: checklists.models
@@ -59,7 +59,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ReleaseChecklist:
     name: ReleaseChecklist
     module_path: checklists.models
@@ -70,7 +70,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Releaser:
     name: Releaser
     module_path: checklists.models
@@ -81,7 +81,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SecurityIssue:
     name: SecurityIssue
     module_path: checklists.models
@@ -96,7 +96,7 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SecurityIssueReleasesThrough:
     name: SecurityIssueReleasesThrough
     module_path: checklists.models
@@ -111,7 +111,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SecurityRelease:
     name: SecurityRelease
     module_path: checklists.models
@@ -122,4 +122,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

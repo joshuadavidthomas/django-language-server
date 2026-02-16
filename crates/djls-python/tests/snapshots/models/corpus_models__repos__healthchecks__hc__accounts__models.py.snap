@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: credentials
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Member:
     name: Member
     module_path: hc.accounts.models
@@ -28,7 +28,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Profile:
     name: Profile
     module_path: hc.accounts.models
@@ -39,7 +39,7 @@ models:
         relation_type: OneToOne
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Project:
     name: Project
     module_path: hc.accounts.models
@@ -50,4 +50,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

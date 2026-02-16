@@ -9,14 +9,14 @@ models:
     line: 190
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   CustomUnit:
     name: CustomUnit
     module_path: src.backend.InvenTree.common.models
     line: 1791
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   DataOutput:
     name: DataOutput
     module_path: src.backend.InvenTree.common.models
@@ -27,7 +27,7 @@ models:
         relation_type: ForeignKey
         related_name: +
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   EmailMessage:
     name: EmailMessage
     module_path: src.backend.InvenTree.common.models
@@ -38,7 +38,7 @@ models:
         relation_type: ForeignKey
         related_name: messages
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   InvenTreeCustomUserStateModel:
     name: InvenTreeCustomUserStateModel
     module_path: src.backend.InvenTree.common.models
@@ -49,14 +49,14 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   InvenTreeSetting:
     name: InvenTreeSetting
     module_path: src.backend.InvenTree.common.models
     line: 1212
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   InvenTreeUserSetting:
     name: InvenTreeUserSetting
     module_path: src.backend.InvenTree.common.models
@@ -67,21 +67,21 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MetaMixin:
     name: MetaMixin
     module_path: src.backend.InvenTree.common.models
     line: 92
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   NewsFeedEntry:
     name: NewsFeedEntry
     module_path: src.backend.InvenTree.common.models
     line: 1725
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   NotesImage:
     name: NotesImage
     module_path: src.backend.InvenTree.common.models
@@ -92,14 +92,14 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   NotificationEntry:
     name: NotificationEntry
     module_path: src.backend.InvenTree.common.models
     line: 1616
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   NotificationMessage:
     name: NotificationMessage
     module_path: src.backend.InvenTree.common.models
@@ -124,7 +124,7 @@ models:
       - field_name: source_object
         ct_field: source_content_type
         fk_field: source_object_id
-    is_abstract: false
+    kind: concrete
   Parameter:
     name: Parameter
     module_path: src.backend.InvenTree.common.models
@@ -146,14 +146,14 @@ models:
       - field_name: content_object
         ct_field: model_type
         fk_field: model_id
-    is_abstract: false
+    kind: concrete
   PriceBreak:
     name: PriceBreak
     module_path: src.backend.InvenTree.common.models
     line: 1347
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   SelectionListEntry:
     name: SelectionListEntry
     module_path: src.backend.InvenTree.common.models
@@ -164,7 +164,7 @@ models:
         relation_type: ForeignKey
         related_name: entries
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UpdatedUserMixin:
     name: UpdatedUserMixin
     module_path: src.backend.InvenTree.common.models
@@ -175,7 +175,7 @@ models:
         relation_type: ForeignKey
         related_name: "%(class)s_updated"
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   WebhookEndpoint:
     name: WebhookEndpoint
     module_path: src.backend.InvenTree.common.models
@@ -186,7 +186,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   WebhookMessage:
     name: WebhookMessage
     module_path: src.backend.InvenTree.common.models
@@ -197,4 +197,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

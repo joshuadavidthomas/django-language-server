@@ -16,7 +16,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_pk
-    is_abstract: true
+    kind: abstract
   BaseObjectPermission:
     name: BaseObjectPermission
     module_path: guardian.models.models
@@ -27,7 +27,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   GroupObjectPermission:
     name: GroupObjectPermission
     module_path: guardian.models.models
@@ -41,7 +41,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_pk
-    is_abstract: false
+    kind: concrete
   GroupObjectPermissionAbstract:
     name: GroupObjectPermissionAbstract
     module_path: guardian.models.models
@@ -55,7 +55,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_pk
-    is_abstract: true
+    kind: abstract
   GroupObjectPermissionBase:
     name: GroupObjectPermissionBase
     module_path: guardian.models.models
@@ -70,7 +70,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   UserObjectPermission:
     name: UserObjectPermission
     module_path: guardian.models.models
@@ -84,7 +84,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_pk
-    is_abstract: false
+    kind: concrete
   UserObjectPermissionAbstract:
     name: UserObjectPermissionAbstract
     module_path: guardian.models.models
@@ -98,7 +98,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_pk
-    is_abstract: true
+    kind: abstract
   UserObjectPermissionBase:
     name: UserObjectPermissionBase
     module_path: guardian.models.models
@@ -113,4 +113,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract

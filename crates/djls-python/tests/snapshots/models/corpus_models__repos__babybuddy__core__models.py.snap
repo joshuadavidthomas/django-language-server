@@ -13,14 +13,14 @@ models:
         relation_type: ForeignKey
         related_name: bmi
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Child:
     name: Child
     module_path: core.models
     line: 168
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   DiaperChange:
     name: DiaperChange
     module_path: core.models
@@ -31,7 +31,7 @@ models:
         relation_type: ForeignKey
         related_name: diaper_change
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Feeding:
     name: Feeding
     module_path: core.models
@@ -42,7 +42,7 @@ models:
         relation_type: ForeignKey
         related_name: feeding
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   HeadCircumference:
     name: HeadCircumference
     module_path: core.models
@@ -53,7 +53,7 @@ models:
         relation_type: ForeignKey
         related_name: head_circumference
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Height:
     name: Height
     module_path: core.models
@@ -64,14 +64,14 @@ models:
         relation_type: ForeignKey
         related_name: height
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   HeightPercentile:
     name: HeightPercentile
     module_path: core.models
     line: 413
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Note:
     name: Note
     module_path: core.models
@@ -82,7 +82,7 @@ models:
         relation_type: ForeignKey
         related_name: note
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Pumping:
     name: Pumping
     module_path: core.models
@@ -93,7 +93,7 @@ models:
         relation_type: ForeignKey
         related_name: pumping
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Sleep:
     name: Sleep
     module_path: core.models
@@ -104,7 +104,7 @@ models:
         relation_type: ForeignKey
         related_name: sleep
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Temperature:
     name: Temperature
     module_path: core.models
@@ -115,7 +115,7 @@ models:
         relation_type: ForeignKey
         related_name: temperature
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Timer:
     name: Timer
     module_path: core.models
@@ -130,7 +130,7 @@ models:
         relation_type: ForeignKey
         related_name: timers
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TummyTime:
     name: TummyTime
     module_path: core.models
@@ -141,7 +141,7 @@ models:
         relation_type: ForeignKey
         related_name: tummy_time
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Weight:
     name: Weight
     module_path: core.models
@@ -152,11 +152,11 @@ models:
         relation_type: ForeignKey
         related_name: weight
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   WeightPercentile:
     name: WeightPercentile
     module_path: core.models
     line: 747
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

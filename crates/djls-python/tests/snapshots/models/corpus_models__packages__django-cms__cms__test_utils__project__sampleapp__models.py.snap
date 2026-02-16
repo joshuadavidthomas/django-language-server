@@ -9,7 +9,7 @@ models:
     line: 47
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   GrouperModelContent:
     name: GrouperModelContent
     module_path: cms.test_utils.project.sampleapp.models
@@ -20,7 +20,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Picture:
     name: Picture
     module_path: cms.test_utils.project.sampleapp.models
@@ -31,21 +31,21 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SampleAppConfig:
     name: SampleAppConfig
     module_path: cms.test_utils.project.sampleapp.models
     line: 35
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SimpleGrouperModel:
     name: SimpleGrouperModel
     module_path: cms.test_utils.project.sampleapp.models
     line: 91
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SimpleGrouperModelContent:
     name: SimpleGrouperModelContent
     module_path: cms.test_utils.project.sampleapp.models
@@ -56,11 +56,11 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SomeEditableModel:
     name: SomeEditableModel
     module_path: cms.test_utils.project.sampleapp.models
     line: 43
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

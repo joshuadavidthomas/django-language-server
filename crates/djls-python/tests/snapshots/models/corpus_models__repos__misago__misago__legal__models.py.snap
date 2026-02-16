@@ -17,7 +17,7 @@ models:
         relation_type: ForeignKey
         related_name: +
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UserAgreement:
     name: UserAgreement
     module_path: misago.legal.models
@@ -32,4 +32,4 @@ models:
         relation_type: ForeignKey
         related_name: accepted_by
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

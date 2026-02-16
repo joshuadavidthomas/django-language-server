@@ -9,32 +9,32 @@ models:
     line: 5
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MassmailSettings:
     name: MassmailSettings
     module_path: settings.models
     line: 34
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   PublicEmailDomain:
     name: PublicEmailDomain
     module_path: settings.models
     line: 68
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Reminders:
     name: Reminders
     module_path: settings.models
     line: 104
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   StopPhrase:
     name: StopPhrase
     module_path: settings.models
     line: 134
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

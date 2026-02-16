@@ -9,7 +9,7 @@ models:
     line: 1584
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   EnvironmentVariable:
     name: EnvironmentVariable
     module_path: readthedocs.projects.models
@@ -20,7 +20,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Feature:
     name: Feature
     module_path: readthedocs.projects.models
@@ -31,14 +31,14 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   HTMLFile:
     name: HTMLFile
     module_path: readthedocs.projects.models
     line: 1713
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   HTTPHeader:
     name: HTTPHeader
     module_path: readthedocs.projects.models
@@ -49,7 +49,7 @@ models:
         relation_type: ForeignKey
         related_name: http_headers
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ImportedFile:
     name: ImportedFile
     module_path: readthedocs.projects.models
@@ -64,7 +64,7 @@ models:
         relation_type: ForeignKey
         related_name: imported_files
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Project:
     name: Project
     module_path: readthedocs.projects.models
@@ -91,7 +91,7 @@ models:
         relation_type: OneToOne
         related_name: +
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ProjectRelationship:
     name: ProjectRelationship
     module_path: readthedocs.projects.models
@@ -106,11 +106,11 @@ models:
         relation_type: ForeignKey
         related_name: superprojects
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   WebHookEvent:
     name: WebHookEvent
     module_path: readthedocs.projects.models
     line: 1768
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -9,7 +9,7 @@ models:
     line: 382
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   AbstractFormSubmission:
     name: AbstractFormSubmission
     module_path: wagtail.contrib.forms.models
@@ -20,14 +20,14 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   EmailFormMixin:
     name: EmailFormMixin
     module_path: wagtail.contrib.forms.models
     line: 322
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   FormSubmission:
     name: FormSubmission
     module_path: wagtail.contrib.forms.models
@@ -38,4 +38,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

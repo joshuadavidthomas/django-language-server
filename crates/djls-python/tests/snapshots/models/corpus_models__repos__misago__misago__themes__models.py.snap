@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: css
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Media:
     name: Media
     module_path: misago.themes.models
@@ -24,4 +24,4 @@ models:
         relation_type: ForeignKey
         related_name: media
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -9,4 +9,4 @@ models:
     line: 22
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -25,7 +25,7 @@ models:
         relation_type: OneToOne
         related_name: rtd_organization
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   OrganizationOwner:
     name: OrganizationOwner
     module_path: readthedocs.organizations.models
@@ -40,7 +40,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Team:
     name: Team
     module_path: readthedocs.organizations.models
@@ -59,7 +59,7 @@ models:
         relation_type: ManyToMany
         related_name: teams
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TeamInvite:
     name: TeamInvite
     module_path: readthedocs.organizations.models
@@ -74,7 +74,7 @@ models:
         relation_type: ForeignKey
         related_name: invites
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TeamMember:
     name: TeamMember
     module_path: readthedocs.organizations.models
@@ -93,4 +93,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

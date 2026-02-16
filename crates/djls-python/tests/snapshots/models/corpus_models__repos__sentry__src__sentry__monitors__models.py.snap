@@ -9,32 +9,32 @@ models:
     line: 213
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MonitorCheckIn:
     name: MonitorCheckIn
     module_path: src.sentry.monitors.models
     line: 474
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MonitorEnvBrokenDetection:
     name: MonitorEnvBrokenDetection
     module_path: src.sentry.monitors.models
     line: 808
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MonitorEnvironment:
     name: MonitorEnvironment
     module_path: src.sentry.monitors.models
     line: 650
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MonitorIncident:
     name: MonitorIncident
     module_path: src.sentry.monitors.models
     line: 756
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

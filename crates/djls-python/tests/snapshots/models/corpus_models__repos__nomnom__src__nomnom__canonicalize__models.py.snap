@@ -17,7 +17,7 @@ models:
         relation_type: OneToOne
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Work:
     name: Work
     module_path: src.nomnom.canonicalize.models
@@ -32,4 +32,4 @@ models:
         relation_type: ManyToMany
         related_name: works
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

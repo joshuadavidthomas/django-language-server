@@ -17,7 +17,7 @@ models:
         relation_type: ForeignKey
         related_name: +
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ReturnOrder:
     name: ReturnOrder
     module_path: src.backend.InvenTree.order.models
@@ -28,7 +28,7 @@ models:
         relation_type: ForeignKey
         related_name: sales_orders
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SalesOrder:
     name: SalesOrder
     module_path: src.backend.InvenTree.order.models
@@ -43,7 +43,7 @@ models:
         relation_type: ForeignKey
         related_name: +
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   SalesOrderAllocation:
     name: SalesOrderAllocation
     module_path: src.backend.InvenTree.order.models
@@ -62,11 +62,11 @@ models:
         relation_type: ForeignKey
         related_name: sales_order_allocations
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   TotalPriceMixin:
     name: TotalPriceMixin
     module_path: src.backend.InvenTree.order.models
     line: 65
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract

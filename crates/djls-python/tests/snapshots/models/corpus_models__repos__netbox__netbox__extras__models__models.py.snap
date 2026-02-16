@@ -12,4 +12,4 @@ models:
       - field_name: object
         ct_field: object_type
         fk_field: object_id
-    is_abstract: false
+    kind: concrete

@@ -9,28 +9,28 @@ models:
     line: 6
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ModelWithCustomAttrForeignKey:
     name: ModelWithCustomAttrForeignKey
     module_path: simple_history.registry_tests.migration_test_app.models
     line: 34
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ModelWithCustomAttrOneToOneField:
     name: ModelWithCustomAttrOneToOneField
     module_path: simple_history.registry_tests.migration_test_app.models
     line: 56
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   WhatIMean:
     name: WhatIMean
     module_path: simple_history.registry_tests.migration_test_app.models
     line: 10
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Yar:
     name: Yar
     module_path: simple_history.registry_tests.migration_test_app.models
@@ -41,4 +41,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

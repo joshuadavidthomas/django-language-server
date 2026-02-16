@@ -9,7 +9,7 @@ models:
     line: 46
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   GroupMember:
     name: GroupMember
     module_path: geonode.groups.models
@@ -24,7 +24,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   GroupProfile:
     name: GroupProfile
     module_path: geonode.groups.models
@@ -39,4 +39,4 @@ models:
         relation_type: ManyToMany
         related_name: groups
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -9,14 +9,14 @@ models:
     line: 19
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   BaseGenericSetting:
     name: BaseGenericSetting
     module_path: wagtail.contrib.settings.models
     line: 168
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   BaseSiteSetting:
     name: BaseSiteSetting
     module_path: wagtail.contrib.settings.models
@@ -27,4 +27,4 @@ models:
         relation_type: OneToOne
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract

@@ -17,7 +17,7 @@ models:
         relation_type: ForeignKey
         related_name: "%(app_label)s_%(class)s_modified_by_related"
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Base1:
     name: Base1
     module_path: common.models
@@ -36,7 +36,7 @@ models:
         relation_type: ForeignKey
         related_name: "%(app_label)s_%(class)s_department_related"
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Base2:
     name: Base2
     module_path: common.models
@@ -47,7 +47,7 @@ models:
         relation_type: ForeignKey
         related_name: "%(app_label)s_%(class)s_department_related"
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   Reminder:
     name: Reminder
     module_path: common.models
@@ -65,7 +65,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_id
-    is_abstract: false
+    kind: concrete
   StageBase:
     name: StageBase
     module_path: common.models
@@ -76,7 +76,7 @@ models:
         relation_type: ForeignKey
         related_name: "%(app_label)s_%(class)s_department_related"
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   TheFile:
     name: TheFile
     module_path: common.models
@@ -90,7 +90,7 @@ models:
       - field_name: content_object
         ct_field: content_type
         fk_field: object_id
-    is_abstract: false
+    kind: concrete
   UserProfile:
     name: UserProfile
     module_path: common.models
@@ -101,4 +101,4 @@ models:
         relation_type: OneToOne
         related_name: profile
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

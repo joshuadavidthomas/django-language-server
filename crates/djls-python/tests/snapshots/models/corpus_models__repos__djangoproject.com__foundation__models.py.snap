@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: action_items
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ApprovedCorporateMember:
     name: ApprovedCorporateMember
     module_path: foundation.models
@@ -24,7 +24,7 @@ models:
         relation_type: ForeignKey
         related_name: corporate_members_approved
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ApprovedGrant:
     name: ApprovedGrant
     module_path: foundation.models
@@ -35,7 +35,7 @@ models:
         relation_type: ForeignKey
         related_name: grants_approved
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   ApprovedIndividualMember:
     name: ApprovedIndividualMember
     module_path: foundation.models
@@ -46,7 +46,7 @@ models:
         relation_type: ForeignKey
         related_name: individual_members_approved
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   BoardMember:
     name: BoardMember
     module_path: foundation.models
@@ -65,7 +65,7 @@ models:
         relation_type: ForeignKey
         related_name: board_members
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Business:
     name: Business
     module_path: foundation.models
@@ -76,7 +76,7 @@ models:
         relation_type: ForeignKey
         related_name: business
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   CoreAward:
     name: CoreAward
     module_path: foundation.models
@@ -87,14 +87,14 @@ models:
         relation_type: ForeignKey
         related_name: recipients
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   CoreAwardCohort:
     name: CoreAwardCohort
     module_path: foundation.models
     line: 243
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Meeting:
     name: Meeting
     module_path: foundation.models
@@ -113,25 +113,25 @@ models:
         relation_type: ManyToMany
         related_name: meetings_attended
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   NonBoardAttendee:
     name: NonBoardAttendee
     module_path: foundation.models
     line: 55
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Office:
     name: Office
     module_path: foundation.models
     line: 15
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Term:
     name: Term
     module_path: foundation.models
     line: 27
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

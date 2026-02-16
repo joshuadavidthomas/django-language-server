@@ -13,4 +13,4 @@ models:
         relation_type: ForeignKey
         related_name: "%(app_label)s_%(class)s_owner_related"
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

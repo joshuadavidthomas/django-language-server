@@ -17,11 +17,11 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   RegisteredApplePayDomain:
     name: RegisteredApplePayDomain
     module_path: src.pretix.plugins.stripe.models
     line: 31
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

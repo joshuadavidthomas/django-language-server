@@ -9,18 +9,18 @@ models:
     line: 17
     relations: []
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   PerfStringIndexer:
     name: PerfStringIndexer
     module_path: src.sentry.sentry_metrics.indexer.postgres.models
     line: 44
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   StringIndexer:
     name: StringIndexer
     module_path: src.sentry.sentry_metrics.indexer.postgres.models
     line: 32
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

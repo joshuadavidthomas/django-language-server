@@ -13,4 +13,4 @@ models:
         relation_type: OneToOne
         related_name: wagtail_userprofile
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

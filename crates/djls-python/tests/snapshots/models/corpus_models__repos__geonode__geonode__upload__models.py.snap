@@ -17,18 +17,18 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UploadParallelismLimit:
     name: UploadParallelismLimit
     module_path: geonode.upload.models
     line: 97
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UploadSizeLimit:
     name: UploadSizeLimit
     module_path: geonode.upload.models
     line: 64
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

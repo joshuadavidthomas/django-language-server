@@ -13,7 +13,7 @@ models:
         relation_type: OneToOne
         related_name: draft_extension
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   PageContentExtension:
     name: PageContentExtension
     module_path: cms.extensions.models
@@ -28,7 +28,7 @@ models:
         relation_type: OneToOne
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   PageExtension:
     name: PageExtension
     module_path: cms.extensions.models
@@ -43,4 +43,4 @@ models:
         relation_type: OneToOne
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract

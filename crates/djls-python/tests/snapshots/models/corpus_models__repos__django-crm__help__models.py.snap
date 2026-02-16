@@ -9,7 +9,7 @@ models:
     line: 22
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Paragraph:
     name: Paragraph
     module_path: help.models
@@ -28,4 +28,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -21,7 +21,7 @@ models:
         relation_type: ForeignKey
         related_name: builds
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   BuildCommandResult:
     name: BuildCommandResult
     module_path: readthedocs.builds.models
@@ -32,4 +32,4 @@ models:
         relation_type: ForeignKey
         related_name: commands
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

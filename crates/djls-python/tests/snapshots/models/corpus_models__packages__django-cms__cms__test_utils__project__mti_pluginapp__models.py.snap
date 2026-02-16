@@ -9,18 +9,18 @@ models:
     line: 88
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   MixedPlugin:
     name: MixedPlugin
     module_path: cms.test_utils.project.mti_pluginapp.models
     line: 81
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   NonPluginModel:
     name: NonPluginModel
     module_path: cms.test_utils.project.mti_pluginapp.models
     line: 73
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

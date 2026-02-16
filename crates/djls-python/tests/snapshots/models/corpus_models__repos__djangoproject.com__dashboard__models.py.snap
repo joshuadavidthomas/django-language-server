@@ -9,7 +9,7 @@ models:
     line: 25
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Datum:
     name: Datum
     module_path: dashboard.models
@@ -23,7 +23,7 @@ models:
       - field_name: metric
         ct_field: content_type
         fk_field: object_id
-    is_abstract: false
+    kind: concrete
   GitHubSearchCountMetric:
     name: GitHubSearchCountMetric
     module_path: dashboard.models
@@ -34,7 +34,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   GithubItemCountMetric:
     name: GithubItemCountMetric
     module_path: dashboard.models
@@ -45,7 +45,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   JenkinsFailuresMetric:
     name: JenkinsFailuresMetric
     module_path: dashboard.models
@@ -56,7 +56,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Metric:
     name: Metric
     module_path: dashboard.models
@@ -67,7 +67,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: true
+    kind: abstract
   TracTicketMetric:
     name: TracTicketMetric
     module_path: dashboard.models
@@ -78,4 +78,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

@@ -17,7 +17,7 @@ models:
         relation_type: OneToOne
         related_name: alternative_domain_assignment
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   KnownDomain:
     name: KnownDomain
     module_path: src.pretix.multidomain.models
@@ -32,4 +32,4 @@ models:
         relation_type: OneToOne
         related_name: domain
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

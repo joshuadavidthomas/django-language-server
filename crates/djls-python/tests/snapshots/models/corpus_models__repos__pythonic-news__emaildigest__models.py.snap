@@ -13,7 +13,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   EmailDigest:
     name: EmailDigest
     module_path: emaildigest.models
@@ -24,14 +24,14 @@ models:
         relation_type: ManyToMany
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   Subscription:
     name: Subscription
     module_path: emaildigest.models
     line: 19
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UnSubscription:
     name: UnSubscription
     module_path: emaildigest.models
@@ -46,7 +46,7 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   UserSubscription:
     name: UserSubscription
     module_path: emaildigest.models
@@ -57,4 +57,4 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete

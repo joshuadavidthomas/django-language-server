@@ -17,7 +17,7 @@ models:
         relation_type: ForeignKey
         related_name: owned_feeds
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   FeedItem:
     name: FeedItem
     module_path: aggregator.models
@@ -28,18 +28,18 @@ models:
         relation_type: ForeignKey
         related_name: ~
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   FeedType:
     name: FeedType
     module_path: aggregator.models
     line: 17
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
   LocalDjangoCommunity:
     name: LocalDjangoCommunity
     module_path: aggregator.models
     line: 214
     relations: []
     generic_foreign_keys: []
-    is_abstract: false
+    kind: concrete
