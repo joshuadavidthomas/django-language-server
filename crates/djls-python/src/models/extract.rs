@@ -28,9 +28,7 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
     };
     let module = parsed.into_syntax();
 
-    let aliases = collect_import_aliases(&module.body);
-
-    let mut collector = ModelCollector::new(module_path, source, &aliases);
+    let mut collector = ModelCollector::new(module_path, source);
     collector.visit_body(&module.body);
     collector.finish()
 }
@@ -38,17 +36,17 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
 struct ModelCollector<'a> {
     module_path: &'a str,
     source: &'a str,
-    aliases: &'a ImportAliases,
+    aliases: ImportAliases,
     graph: ModelGraph,
     children: Vec<&'a StmtClassDef>,
 }
 
 impl<'a> ModelCollector<'a> {
-    fn new(module_path: &'a str, source: &'a str, aliases: &'a ImportAliases) -> Self {
+    fn new(module_path: &'a str, source: &'a str) -> Self {
         Self {
             module_path,
             source,
-            aliases,
+            aliases: ImportAliases::new(),
             graph: ModelGraph::new(),
             children: Vec::new(),
         }
@@ -67,25 +65,62 @@ impl<'a> ModelCollector<'a> {
 
 impl<'a> StatementVisitor<'a> for ModelCollector<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        let Stmt::ClassDef(class) = stmt else {
-            return;
-        };
+        match stmt {
+            Stmt::ImportFrom(import) => {
+                let Some(module) = import
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str)
+                else {
+                    return;
+                };
 
-        let Some(ref args) = class.arguments else {
-            return;
-        };
+                if is_django_model_parent(module) {
+                    for name in &import.names {
+                        if name.name.as_str() == "models" {
+                            let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
+                            self.aliases.module_aliases.insert(alias.to_string());
+                        }
+                    }
+                }
 
-        if is_django_model(args.args.iter(), self.aliases) {
-            let line = line_number(self.source, class.range.start().to_usize());
-            let mut model = ModelDef::new(class.name.to_string(), self.module_path, line);
-
-            for body_stmt in &class.body {
-                process_class_body(body_stmt, &mut model);
+                if is_django_models_module(module) {
+                    for name in &import.names {
+                        if name.name.as_str() == "Model" {
+                            let alias = name.asname.as_ref().map_or("Model", |a| a.as_str());
+                            self.aliases.class_aliases.insert(alias.to_string());
+                        }
+                    }
+                }
             }
+            Stmt::Import(import) => {
+                for name in &import.names {
+                    if is_django_models_module(name.name.as_str()) {
+                        if let Some(alias) = &name.asname {
+                            self.aliases.module_aliases.insert(alias.to_string());
+                        }
+                    }
+                }
+            }
+            Stmt::ClassDef(class) => {
+                let Some(ref args) = class.arguments else {
+                    return;
+                };
 
-            self.graph.add_model(model);
-        } else if !args.args.is_empty() {
-            self.children.push(class);
+                if is_django_model(args.args.iter(), &self.aliases) {
+                    let line = line_number(self.source, class.range.start().to_usize());
+                    let mut model = ModelDef::new(class.name.to_string(), self.module_path, line);
+
+                    for body_stmt in &class.body {
+                        process_class_body(body_stmt, &mut model);
+                    }
+
+                    self.graph.add_model(model);
+                } else if !args.args.is_empty() {
+                    self.children.push(class);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -194,8 +229,16 @@ fn is_django_models_module(module: &str) -> bool {
 /// Tracks two kinds of aliases:
 /// - **module aliases**: names that refer to `django.db.models` (or the
 ///   `GeoDjango` equivalent), used to match the `x.Model` pattern.
+///   Recognized imports:
+///   - `from django.db import models [as m]`
+///   - `from django.contrib.gis.db import models [as m]`
+///   - `import django.db.models as m`
+///   - `import django.contrib.gis.db.models as m`
 /// - **class aliases**: names that refer to the `Model` class directly,
 ///   used to match bare-name patterns like `class Foo(M):`.
+///   Recognized imports:
+///   - `from django.db.models import Model [as M]`
+///   - `from django.contrib.gis.db.models import Model [as M]`
 struct ImportAliases {
     /// Names aliasing `django.db.models` (always includes `"models"`).
     module_aliases: FxHashSet<String>,
@@ -203,73 +246,12 @@ struct ImportAliases {
     class_aliases: FxHashSet<String>,
 }
 
-/// Scan import statements for names that alias Django's `models` module
-/// or the `Model` class.
-///
-/// Module aliases (for `x.Model` pattern):
-/// - `from django.db import models [as m]`
-/// - `from django.contrib.gis.db import models [as m]`
-/// - `import django.db.models as m`
-/// - `import django.contrib.gis.db.models as m`
-///
-/// Class aliases (for bare `M` pattern):
-/// - `from django.db.models import Model [as M]`
-/// - `from django.contrib.gis.db.models import Model [as M]`
-fn collect_import_aliases(body: &[Stmt]) -> ImportAliases {
-    let mut module_aliases = FxHashSet::default();
-    module_aliases.insert("models".to_string());
-
-    let mut class_aliases = FxHashSet::default();
-    class_aliases.insert("Model".to_string());
-
-    for stmt in body {
-        match stmt {
-            Stmt::ImportFrom(import) => {
-                let Some(module) = import
-                    .module
-                    .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str)
-                else {
-                    continue;
-                };
-
-                // `from django.db import models [as m]`
-                if is_django_model_parent(module) {
-                    for name in &import.names {
-                        if name.name.as_str() == "models" {
-                            let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
-                            module_aliases.insert(alias.to_string());
-                        }
-                    }
-                }
-
-                // `from django.db.models import Model [as M]`
-                if is_django_models_module(module) {
-                    for name in &import.names {
-                        if name.name.as_str() == "Model" {
-                            let alias = name.asname.as_ref().map_or("Model", |a| a.as_str());
-                            class_aliases.insert(alias.to_string());
-                        }
-                    }
-                }
-            }
-            // `import django.db.models as m`
-            Stmt::Import(import) => {
-                for name in &import.names {
-                    if is_django_models_module(name.name.as_str()) {
-                        if let Some(alias) = &name.asname {
-                            module_aliases.insert(alias.to_string());
-                        }
-                    }
-                }
-            }
-            _ => {}
+impl ImportAliases {
+    fn new() -> Self {
+        Self {
+            module_aliases: FxHashSet::from_iter(["models".to_string()]),
+            class_aliases: FxHashSet::from_iter(["Model".to_string()]),
         }
-    }
-
-    ImportAliases {
-        module_aliases,
-        class_aliases,
     }
 }
 
