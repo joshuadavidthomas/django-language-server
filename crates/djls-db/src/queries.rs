@@ -99,9 +99,8 @@ pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph 
     }
 
     // Merge workspace models (tracked, auto-invalidating on file change)
-    let workspace_results = collect_workspace_models(db, project);
-    for (_module_path, model_graph) in &workspace_results {
-        graph.merge(model_graph.clone());
+    for (_module_path, model_graph) in collect_workspace_models(db, project) {
+        graph.merge(model_graph);
     }
 
     graph
