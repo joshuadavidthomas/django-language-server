@@ -1,7 +1,7 @@
 [workspace]
-members = ["crates/*"]
+members = [ "crates/*" ]
 resolver = "2"
-default-members = ["crates/djls"]
+default-members = [ "crates/djls" ]
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }
@@ -9,6 +9,7 @@ djls-bench = { path = "crates/djls-bench" }
 djls-conf = { path = "crates/djls-conf" }
 djls-corpus = { path = "crates/djls-corpus" }
 djls-db = { path = "crates/djls-db" }
+djls-dev = { path = "crates/djls-dev" }
 djls-ide = { path = "crates/djls-ide" }
 djls-project = { path = "crates/djls-project" }
 djls-python = { path = "crates/djls-python" }
@@ -20,44 +21,46 @@ djls-workspace = { path = "crates/djls-workspace" }
 
 # core deps, pin exact versions
 salsa = "0.25.2"
-tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
+tower-lsp-server = { version = "0.23.0", features = [ "proposed" ] }
 
 annotate-snippets = "0.12"
 anyhow = "1.0"
-camino = { version = "1.2", features = ["serde1"] }
-clap = { version = "4.5", features = ["derive"] }
-config = { version ="0.15", features = ["toml"] }
+camino = { version = "1.2", features = [ "serde1" ] }
+cargo_metadata = "0.23"
+clap = { version = "4.5", features = [ "derive" ] }
+config = { version = "0.15", features = [ "toml" ] }
 dashmap = "6.1"
 dunce = "1.0"
-datatest-stable = "0.3.3"
 directories = "6.0"
 dotenvy = "0.15"
 divan = { package = "codspeed-divan-compat", version = "4.3" }
 flate2 = "1.1"
-insta = { version = "1.46", features = ["glob", "yaml"] }
+graphviz-rust = "0.9"
+insta = { version = "1.46", features = [ "glob", "yaml" ] }
 memchr = "2.7"
 notify = "8.2"
 percent-encoding = "2.3"
 rayon = "1.11"
-reqwest = { version = "0.13", features = ["blocking", "json"] }
+reqwest = { version = "0.13", features = [ "blocking", "json" ] }
 rustc-hash = "2.1"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = [ "derive" ] }
 serde_json = "1.0"
 sha2 = "0.10"
+taplo = "0.13"
 tar = "0.4"
 tempfile = "3.24"
 thiserror = "2.0"
-tokio = { version = "1.49", features = ["full"] }
+tokio = { version = "1.49", features = [ "full" ] }
 toml = "0.9"
 toml_edit = "0.24"
 tracing = "0.1"
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+tracing-subscriber = { version = "0.3", features = [ "env-filter", "fmt", "time" ] }
 ignore = "0.4"
 which = "8.0"
 
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }  # 0.15.0
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }  # 0.15.0
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }    # 0.15.0
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" } # 0.15.0
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

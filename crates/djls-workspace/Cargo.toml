@@ -10,13 +10,13 @@ anyhow = { workspace = true }
 camino = { workspace = true }
 dashmap = { workspace = true }
 dunce = { workspace = true }
+ignore = { workspace = true }
 notify = { workspace = true }
 percent-encoding = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-ignore = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

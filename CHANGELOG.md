@@ -21,9 +21,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Removed
 
 - Dropped Django 5.1 from supported versions (end-of-life).
+- Removed unused `datatest-stable` workspace dependency.
 
 ### Added
 
+- **Internal**: Added `djls-dev` crate with vendored `cargo-stow` workspace linter (with hyphen-separated crate name support). Validates workspace structure, dependency sorting, and generates architecture diagrams. Run via `just stow`, `just stow-fix`, and `just architecture`.
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.
 - Added rg-style file filtering flags to `djls check`: `-g/--glob` for glob patterns, `--no-ignore` to skip ignore files, `-L/--follow` for symlinks, `-d/--max-depth` for recursion depth, `--color always|auto|never`, and `-q/--quiet`.
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.

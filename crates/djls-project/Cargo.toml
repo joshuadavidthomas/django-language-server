@@ -9,7 +9,7 @@ djls-python = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
-camino = { workspace = true, features = ["serde1"] }
+camino = { workspace = true, features = [ "serde1" ] }
 dotenvy = { workspace = true }
 ignore = { workspace = true }
 rustc-hash = { workspace = true }
@@ -20,7 +20,7 @@ sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-which = { workspace = true}
+which = { workspace = true }
 
 [build-dependencies]
 which = { workspace = true }

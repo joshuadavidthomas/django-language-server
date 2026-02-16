@@ -13,8 +13,9 @@ salsa = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-camino = { workspace = true }
 djls-corpus = { workspace = true }
+
+camino = { workspace = true }
 insta = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }

@@ -12,16 +12,17 @@ djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
 camino = { workspace = true }
+ignore = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-ignore = { workspace = true }
 
 [dev-dependencies]
 djls-corpus = { workspace = true }
+
 insta = { workspace = true }
 tempfile = { workspace = true }
 

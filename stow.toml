@@ -1,0 +1,16 @@
+# cargo-stow configuration
+# Validates workspace structure, naming conventions, and dependency rules.
+#
+# Vendored in djls-dev with hyphen separator support.
+# Usage:   cargo run -p djls-dev --bin cargo-stow -- stow           (validate)
+#          cargo run -p djls-dev --bin cargo-stow -- stow --fix     (auto-fix sorting)
+#          cargo run -p djls-dev --bin cargo-stow -- stow --graph architecture/architecture.svg
+
+[[namespaces]]
+name = "djls"
+approved_prefixes = []
+test_crate_exceptions = []
+name_exceptions = { "djls" = "djls" }
+
+[graph]
+external_deps = ["salsa", "tower-lsp-server", "anyhow", "camino", "thiserror", "serde", "tokio"]

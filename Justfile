@@ -40,6 +40,18 @@ lint:
     @just --fmt
     @just nox lint
 
+# validate workspace structure and dependency sorting
+stow *ARGS:
+    cargo run -q -p djls-dev --bin cargo-stow -- stow {{ ARGS }}
+
+# auto-fix workspace dependency sorting
+stow-fix:
+    cargo run -q -p djls-dev --bin cargo-stow -- stow --fix
+
+# generate architecture diagram (requires graphviz)
+architecture:
+    cargo run -q -p djls-dev --bin cargo-stow -- stow --graph architecture/architecture.svg
+
 test *ARGS:
     @just nox test {{ ARGS }}
 

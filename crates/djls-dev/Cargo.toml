@@ -1,0 +1,22 @@
+[package]
+name = "djls-dev"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Development tools for the djls workspace"
+
+[[bin]]
+name = "cargo-stow"
+path = "src/cargo_stow.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+cargo_metadata = { workspace = true }
+clap = { workspace = true }
+graphviz-rust = { workspace = true }
+serde = { workspace = true }
+taplo = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
