@@ -377,6 +377,7 @@ pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(String, Utf8PathB
         results.push((module_path, path));
     }
 
+    results.sort_by(|(a, _), (b, _)| a.cmp(b));
     results
 }
 
