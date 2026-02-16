@@ -215,7 +215,7 @@ impl LanguageServer for DjangoLanguageServer {
         let cache_loaded = self
             .with_session_mut(|session| {
                 let t = std::time::Instant::now();
-                let loaded = session.db_mut().load_inspector_cache();
+                let loaded = djls_db::load_inspector_cache(session.db_mut());
                 if loaded {
                     tracing::info!("Inspector cache loaded in {:?}", t.elapsed());
                 } else {
