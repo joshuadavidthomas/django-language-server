@@ -8,6 +8,7 @@ models:
     module_path: src.nomnom.nominate.models
     line: 530
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Category:
     name: Category
@@ -18,12 +19,14 @@ models:
         target_model: Election
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Election:
     name: Election
     module_path: src.nomnom.nominate.models
     line: 58
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Finalist:
     name: Finalist
@@ -34,6 +37,7 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   NominatingMemberProfile:
     name: NominatingMemberProfile
@@ -44,6 +48,7 @@ models:
         target_model: UserModel
         relation_type: OneToOne
         related_name: convention_profile
+    generic_foreign_keys: []
     is_abstract: false
   Nomination:
     name: Nomination
@@ -58,6 +63,7 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   NominationAdminData:
     name: NominationAdminData
@@ -68,6 +74,7 @@ models:
         target_model: Nomination
         relation_type: OneToOne
         related_name: admin
+    generic_foreign_keys: []
     is_abstract: false
   Rank:
     name: Rank
@@ -82,12 +89,14 @@ models:
         target_model: Finalist
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   ReportRecipient:
     name: ReportRecipient
     module_path: src.nomnom.nominate.models
     line: 520
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   VotingInformation:
     name: VotingInformation
@@ -98,4 +107,5 @@ models:
         target_model: Election
         relation_type: OneToOne
         related_name: voting_info
+    generic_foreign_keys: []
     is_abstract: false

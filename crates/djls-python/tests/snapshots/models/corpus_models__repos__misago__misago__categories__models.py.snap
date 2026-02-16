@@ -20,4 +20,5 @@ models:
         target_model: CategoryRole
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

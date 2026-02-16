@@ -16,4 +16,5 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

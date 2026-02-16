@@ -8,4 +8,5 @@ models:
     module_path: plugins.misago-post-snapshots-plugin.misago_post_snapshots_plugin.models
     line: 6
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

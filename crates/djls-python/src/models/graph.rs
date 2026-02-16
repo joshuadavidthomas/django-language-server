@@ -38,11 +38,19 @@ impl Relation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenericForeignKey {
+    pub field_name: String,
+    pub ct_field: String,
+    pub fk_field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
     pub name: String,
     pub module_path: String,
     pub line: usize,
     pub relations: Vec<Relation>,
+    pub generic_foreign_keys: Vec<GenericForeignKey>,
     pub is_abstract: bool,
 }
 
@@ -54,6 +62,7 @@ impl ModelDef {
             module_path: module_path.into(),
             line,
             relations: Vec::new(),
+            generic_foreign_keys: Vec::new(),
             is_abstract: false,
         }
     }

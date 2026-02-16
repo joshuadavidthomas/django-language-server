@@ -8,4 +8,5 @@ models:
     module_path: src.backend.InvenTree.machine.models
     line: 17
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

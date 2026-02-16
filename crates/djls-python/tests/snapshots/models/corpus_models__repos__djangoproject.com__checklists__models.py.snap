@@ -16,6 +16,7 @@ models:
         target_model: Release
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   FeatureRelease:
     name: FeatureRelease
@@ -38,6 +39,7 @@ models:
         target_model: Release
         relation_type: ForeignKey
         related_name: +
+    generic_foreign_keys: []
     is_abstract: false
   PreRelease:
     name: PreRelease
@@ -56,6 +58,7 @@ models:
         target_model: FeatureRelease
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   ReleaseChecklist:
     name: ReleaseChecklist
@@ -66,6 +69,7 @@ models:
         target_model: Releaser
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   Releaser:
     name: Releaser
@@ -76,6 +80,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   SecurityIssue:
     name: SecurityIssue
@@ -90,6 +95,7 @@ models:
         target_model: Release
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   SecurityIssueReleasesThrough:
     name: SecurityIssueReleasesThrough
@@ -104,6 +110,7 @@ models:
         target_model: Release
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   SecurityRelease:
     name: SecurityRelease
@@ -114,4 +121,5 @@ models:
         target_model: Releaser
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

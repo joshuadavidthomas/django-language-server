@@ -12,12 +12,14 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   SocialApp:
     name: SocialApp
     module_path: allauth.socialaccount.models
     line: 40
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   SocialToken:
     name: SocialToken
@@ -32,4 +34,5 @@ models:
         target_model: SocialAccount
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

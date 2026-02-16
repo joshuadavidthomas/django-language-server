@@ -16,4 +16,5 @@ models:
         target_model: Project
         relation_type: ManyToMany
         related_name: gold_owners
+    generic_foreign_keys: []
     is_abstract: false

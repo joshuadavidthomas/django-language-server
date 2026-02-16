@@ -8,6 +8,7 @@ models:
     module_path: dashboard.models
     line: 25
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Datum:
     name: Datum
@@ -18,6 +19,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: +
+    generic_foreign_keys:
+      - field_name: metric
+        ct_field: content_type
+        fk_field: object_id
     is_abstract: false
   GitHubSearchCountMetric:
     name: GitHubSearchCountMetric
@@ -28,6 +33,7 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   GithubItemCountMetric:
     name: GithubItemCountMetric
@@ -38,6 +44,7 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   JenkinsFailuresMetric:
     name: JenkinsFailuresMetric
@@ -48,6 +55,7 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Metric:
     name: Metric
@@ -58,6 +66,7 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   TracTicketMetric:
     name: TracTicketMetric
@@ -68,4 +77,5 @@ models:
         target_model: Category
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

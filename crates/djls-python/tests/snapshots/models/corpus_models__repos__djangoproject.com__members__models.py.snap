@@ -8,12 +8,14 @@ models:
     module_path: members.models
     line: 96
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   IndividualMember:
     name: IndividualMember
     module_path: members.models
     line: 40
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Invoice:
     name: Invoice
@@ -24,6 +26,7 @@ models:
         target_model: CorporateMember
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Team:
     name: Team
@@ -34,4 +37,5 @@ models:
         target_model: IndividualMember
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

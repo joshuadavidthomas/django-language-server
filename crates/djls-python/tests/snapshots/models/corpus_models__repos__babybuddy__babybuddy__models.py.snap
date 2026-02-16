@@ -12,4 +12,5 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

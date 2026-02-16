@@ -8,4 +8,5 @@ models:
     module_path: menus.models
     line: 29
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

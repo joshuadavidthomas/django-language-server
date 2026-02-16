@@ -8,6 +8,7 @@ models:
     module_path: wagtail.admin.models
     line: 22
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   EditingSession:
     name: EditingSession
@@ -22,4 +23,8 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: +
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: content_type
+        fk_field: object_id
     is_abstract: false

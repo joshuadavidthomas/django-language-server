@@ -8,22 +8,26 @@ models:
     module_path: cms.test_utils.project.extensionapp.models
     line: 39
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   MultiTablePageContentExtension:
     name: MultiTablePageContentExtension
     module_path: cms.test_utils.project.extensionapp.models
     line: 43
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   MultiTablePageExtension:
     name: MultiTablePageExtension
     module_path: cms.test_utils.project.extensionapp.models
     line: 32
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   MultiTablePageExtensionParent:
     name: MultiTablePageExtensionParent
     module_path: cms.test_utils.project.extensionapp.models
     line: 28
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

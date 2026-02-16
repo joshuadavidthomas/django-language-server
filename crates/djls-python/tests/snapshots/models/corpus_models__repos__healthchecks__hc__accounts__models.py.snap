@@ -12,6 +12,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: credentials
+    generic_foreign_keys: []
     is_abstract: false
   Member:
     name: Member
@@ -26,6 +27,7 @@ models:
         target_model: Project
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Profile:
     name: Profile
@@ -36,6 +38,7 @@ models:
         target_model: User
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Project:
     name: Project
@@ -46,4 +49,5 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

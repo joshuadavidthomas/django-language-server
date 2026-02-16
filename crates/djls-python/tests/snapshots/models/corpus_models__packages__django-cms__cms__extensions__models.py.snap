@@ -12,6 +12,7 @@ models:
         target_model: self
         relation_type: OneToOne
         related_name: draft_extension
+    generic_foreign_keys: []
     is_abstract: true
   PageContentExtension:
     name: PageContentExtension
@@ -26,6 +27,7 @@ models:
         target_model: PageContent
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   PageExtension:
     name: PageExtension
@@ -40,4 +42,5 @@ models:
         target_model: Page
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true

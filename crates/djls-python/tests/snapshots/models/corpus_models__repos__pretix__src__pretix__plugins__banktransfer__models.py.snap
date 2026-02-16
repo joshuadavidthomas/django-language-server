@@ -16,6 +16,7 @@ models:
         target_model: Organizer
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   BankTransaction:
     name: BankTransaction
@@ -38,6 +39,7 @@ models:
         target_model: Order
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   RefundExport:
     name: RefundExport
@@ -52,4 +54,5 @@ models:
         target_model: Organizer
         relation_type: ForeignKey
         related_name: banktransfer_refund_exports
+    generic_foreign_keys: []
     is_abstract: false

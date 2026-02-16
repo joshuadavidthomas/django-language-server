@@ -8,6 +8,7 @@ models:
     module_path: readthedocs.sso.models
     line: 68
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   SSOIntegration:
     name: SSOIntegration
@@ -26,4 +27,5 @@ models:
         target_model: SSODomain
         relation_type: ManyToMany
         related_name: ssointegrations
+    generic_foreign_keys: []
     is_abstract: false

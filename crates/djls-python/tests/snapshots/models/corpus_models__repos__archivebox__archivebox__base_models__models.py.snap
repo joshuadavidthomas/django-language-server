@@ -8,18 +8,21 @@ models:
     module_path: archivebox.base_models.models
     line: 100
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   ModelWithHealthStats:
     name: ModelWithHealthStats
     module_path: archivebox.base_models.models
     line: 81
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   ModelWithNotes:
     name: ModelWithNotes
     module_path: archivebox.base_models.models
     line: 73
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   ModelWithOutputDir:
     name: ModelWithOutputDir
@@ -30,6 +33,7 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   ModelWithUUID:
     name: ModelWithUUID
@@ -40,4 +44,5 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true

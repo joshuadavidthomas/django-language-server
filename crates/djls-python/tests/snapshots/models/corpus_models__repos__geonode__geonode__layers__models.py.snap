@@ -12,10 +12,12 @@ models:
         target_model: Dataset
         relation_type: ForeignKey
         related_name: attribute_set
+    generic_foreign_keys: []
     is_abstract: false
   Style:
     name: Style
     module_path: geonode.layers.models
     line: 63
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

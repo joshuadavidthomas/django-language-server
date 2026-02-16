@@ -8,10 +8,12 @@ models:
     module_path: src.sentry.data_export.models
     line: 39
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   ExportedDataBlob:
     name: ExportedDataBlob
     module_path: src.sentry.data_export.models
     line: 213
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

@@ -2,14 +2,12 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 
+use super::graph::GenericForeignKey;
 use super::graph::ModelDef;
 use super::graph::ModelGraph;
 use super::graph::Relation;
 use super::graph::RelationType;
 
-// GenericForeignKey is intentionally excluded: its constructor takes field
-// names as args (e.g., GenericForeignKey("content_type", "object_id")), not a
-// model reference, so we can't statically determine its target.
 const RELATION_FIELDS: &[(&str, RelationType)] = &[
     ("ForeignKey", RelationType::ForeignKey),
     ("OneToOneField", RelationType::OneToOne),
@@ -86,10 +84,16 @@ fn resolve_children(
 
         // Snapshot model state at the start of each iteration so newly resolved
         // models become visible to the next iteration.
-        let abstract_relations: Vec<(String, Vec<Relation>)> = graph
+        let abstract_data: Vec<(String, Vec<Relation>, Vec<GenericForeignKey>)> = graph
             .models()
             .filter(|m| m.is_abstract)
-            .map(|m| (m.name.clone(), m.relations.clone()))
+            .map(|m| {
+                (
+                    m.name.clone(),
+                    m.relations.clone(),
+                    m.generic_foreign_keys.clone(),
+                )
+            })
             .collect();
         let known_names: Vec<String> = graph.models().map(|m| m.name.clone()).collect();
 
@@ -111,14 +115,15 @@ fn resolve_children(
             let line = line_number(source, class.range.start().to_usize());
             let mut model = ModelDef::new(class.name.to_string(), module_path, line);
 
-            // Copy relations from ALL abstract parents
+            // Copy relations and GFKs from ALL abstract parents
             for arg in &args.args {
                 let Expr::Name(n) = arg else { continue };
-                if let Some((_, relations)) = abstract_relations
+                if let Some((_, relations, gfks)) = abstract_data
                     .iter()
-                    .find(|(name, _)| name == n.id.as_str())
+                    .find(|(name, _, _)| name == n.id.as_str())
                 {
                     model.relations.extend(relations.iter().cloned());
+                    model.generic_foreign_keys.extend(gfks.iter().cloned());
                 }
             }
 
@@ -177,6 +182,12 @@ fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
     // Extract relation fields
     if let Some(relation) = extract_relation(stmt) {
         model.relations.push(relation);
+        return;
+    }
+
+    // Extract GenericForeignKey fields
+    if let Some(gfk) = extract_generic_foreign_key(stmt) {
+        model.generic_foreign_keys.push(gfk);
     }
 }
 
@@ -260,6 +271,69 @@ fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
             Expr::StringLiteral(s) => Some(s.value.to_string()),
             _ => None,
         })
+}
+
+fn extract_generic_foreign_key(stmt: &Stmt) -> Option<GenericForeignKey> {
+    let Stmt::Assign(assign) = stmt else {
+        return None;
+    };
+
+    let Some(Expr::Name(target)) = assign.targets.first() else {
+        return None;
+    };
+
+    let Expr::Call(call) = assign.value.as_ref() else {
+        return None;
+    };
+
+    let is_gfk = match call.func.as_ref() {
+        Expr::Attribute(attr) => attr.attr.as_str() == "GenericForeignKey",
+        Expr::Name(name) => name.id.as_str() == "GenericForeignKey",
+        _ => false,
+    };
+
+    if !is_gfk {
+        return None;
+    }
+
+    let ct_field = extract_gfk_arg(call, 0, "ct_field")
+        .unwrap_or_else(|| "content_type".to_string());
+    let fk_field = extract_gfk_arg(call, 1, "fk_field")
+        .unwrap_or_else(|| "object_id".to_string());
+
+    Some(GenericForeignKey {
+        field_name: target.id.to_string(),
+        ct_field,
+        fk_field,
+    })
+}
+
+/// Extract a string argument from a GFK constructor call by positional index
+/// or keyword name.
+fn extract_gfk_arg(
+    call: &ruff_python_ast::ExprCall,
+    pos: usize,
+    keyword: &str,
+) -> Option<String> {
+    // Try keyword first
+    if let Some(value) = call
+        .arguments
+        .keywords
+        .iter()
+        .find(|kw| kw.arg.as_ref().is_some_and(|a| a.as_str() == keyword))
+        .and_then(|kw| match &kw.value {
+            Expr::StringLiteral(s) => Some(s.value.to_string()),
+            _ => None,
+        })
+    {
+        return Some(value);
+    }
+
+    // Fall back to positional
+    call.arguments.args.get(pos).and_then(|arg| match arg {
+        Expr::StringLiteral(s) => Some(s.value.to_string()),
+        _ => None,
+    })
 }
 
 fn line_number(source: &str, offset: usize) -> usize {
@@ -624,7 +698,7 @@ class Concrete(MiddleMixin):
     }
 
     #[test]
-    fn generic_foreign_key_ignored() {
+    fn generic_foreign_key_extracted() {
         let source = r#"
 class TaggedItem(models.Model):
     content_type = models.ForeignKey("ContentType", on_delete=models.CASCADE)
@@ -634,10 +708,90 @@ class TaggedItem(models.Model):
         let graph = extract_model_graph(source, "tagging.models");
 
         let tagged = graph.get("TaggedItem").unwrap();
-        // Only the ForeignKey should be extracted; GenericForeignKey has a
-        // different constructor signature (field names, not model references)
-        // and cannot be statically extracted.
         assert_eq!(tagged.relations.len(), 1);
         assert_eq!(tagged.relations[0].field_name, "content_type");
+
+        assert_eq!(tagged.generic_foreign_keys.len(), 1);
+        let gfk = &tagged.generic_foreign_keys[0];
+        assert_eq!(gfk.field_name, "content_object");
+        assert_eq!(gfk.ct_field, "content_type");
+        assert_eq!(gfk.fk_field, "object_id");
+    }
+
+    #[test]
+    fn generic_foreign_key_defaults() {
+        let source = r#"
+class TaggedItem(models.Model):
+    content_object = GenericForeignKey()
+"#;
+        let graph = extract_model_graph(source, "tagging.models");
+
+        let gfk = &graph.get("TaggedItem").unwrap().generic_foreign_keys[0];
+        assert_eq!(gfk.field_name, "content_object");
+        assert_eq!(gfk.ct_field, "content_type");
+        assert_eq!(gfk.fk_field, "object_id");
+    }
+
+    #[test]
+    fn generic_foreign_key_keyword_args() {
+        let source = r#"
+class ObjectLog(models.Model):
+    parent = GenericForeignKey(ct_field='object_type', fk_field='object_id')
+"#;
+        let graph = extract_model_graph(source, "logs.models");
+
+        let gfk = &graph.get("ObjectLog").unwrap().generic_foreign_keys[0];
+        assert_eq!(gfk.field_name, "parent");
+        assert_eq!(gfk.ct_field, "object_type");
+        assert_eq!(gfk.fk_field, "object_id");
+    }
+
+    #[test]
+    fn generic_foreign_key_module_prefix() {
+        let source = r#"
+from django.contrib.contenttypes import fields
+
+class TaggedItem(models.Model):
+    content_object = fields.GenericForeignKey("content_type", "object_id")
+"#;
+        let graph = extract_model_graph(source, "tagging.models");
+
+        assert_eq!(graph.get("TaggedItem").unwrap().generic_foreign_keys.len(), 1);
+    }
+
+    #[test]
+    fn generic_foreign_key_inherited_from_abstract() {
+        let source = r#"
+class GenericMixin(models.Model):
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    class Meta:
+        abstract = True
+
+class TaggedItem(GenericMixin):
+    pass
+"#;
+        let graph = extract_model_graph(source, "tagging.models");
+
+        let tagged = graph.get("TaggedItem").unwrap();
+        assert_eq!(tagged.generic_foreign_keys.len(), 1);
+        assert_eq!(tagged.generic_foreign_keys[0].field_name, "content_object");
+    }
+
+    #[test]
+    fn multiple_generic_foreign_keys() {
+        let source = r#"
+class Action(models.Model):
+    actor = GenericForeignKey('actor_content_type', 'actor_object_id')
+    target = GenericForeignKey('target_content_type', 'target_object_id')
+"#;
+        let graph = extract_model_graph(source, "activity.models");
+
+        let action = graph.get("Action").unwrap();
+        assert_eq!(action.generic_foreign_keys.len(), 2);
+        assert_eq!(action.generic_foreign_keys[0].field_name, "actor");
+        assert_eq!(action.generic_foreign_keys[0].ct_field, "actor_content_type");
+        assert_eq!(action.generic_foreign_keys[1].field_name, "target");
+        assert_eq!(action.generic_foreign_keys[1].ct_field, "target_content_type");
     }
 }

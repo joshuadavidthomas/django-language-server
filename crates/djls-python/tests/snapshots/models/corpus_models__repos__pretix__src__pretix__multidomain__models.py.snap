@@ -16,6 +16,7 @@ models:
         target_model: Event
         relation_type: OneToOne
         related_name: alternative_domain_assignment
+    generic_foreign_keys: []
     is_abstract: false
   KnownDomain:
     name: KnownDomain
@@ -30,4 +31,5 @@ models:
         target_model: Event
         relation_type: OneToOne
         related_name: domain
+    generic_foreign_keys: []
     is_abstract: false

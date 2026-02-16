@@ -12,6 +12,7 @@ models:
         target_model: Harvester
         relation_type: ForeignKey
         related_name: sessions
+    generic_foreign_keys: []
     is_abstract: false
   HarvestableResource:
     name: HarvestableResource
@@ -26,6 +27,7 @@ models:
         target_model: ResourceBase
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Harvester:
     name: Harvester
@@ -36,4 +38,5 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

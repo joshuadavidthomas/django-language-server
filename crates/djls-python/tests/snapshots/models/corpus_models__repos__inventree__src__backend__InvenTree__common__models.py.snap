@@ -8,12 +8,14 @@ models:
     module_path: src.backend.InvenTree.common.models
     line: 190
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   CustomUnit:
     name: CustomUnit
     module_path: src.backend.InvenTree.common.models
     line: 1791
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   DataOutput:
     name: DataOutput
@@ -24,6 +26,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: +
+    generic_foreign_keys: []
     is_abstract: false
   EmailMessage:
     name: EmailMessage
@@ -34,6 +37,7 @@ models:
         target_model: EmailThread
         relation_type: ForeignKey
         related_name: messages
+    generic_foreign_keys: []
     is_abstract: false
   InvenTreeCustomUserStateModel:
     name: InvenTreeCustomUserStateModel
@@ -44,12 +48,14 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   InvenTreeSetting:
     name: InvenTreeSetting
     module_path: src.backend.InvenTree.common.models
     line: 1212
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   InvenTreeUserSetting:
     name: InvenTreeUserSetting
@@ -60,18 +66,21 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   MetaMixin:
     name: MetaMixin
     module_path: src.backend.InvenTree.common.models
     line: 92
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   NewsFeedEntry:
     name: NewsFeedEntry
     module_path: src.backend.InvenTree.common.models
     line: 1725
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   NotesImage:
     name: NotesImage
@@ -82,12 +91,14 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   NotificationEntry:
     name: NotificationEntry
     module_path: src.backend.InvenTree.common.models
     line: 1616
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   NotificationMessage:
     name: NotificationMessage
@@ -106,6 +117,13 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: target_object
+        ct_field: target_content_type
+        fk_field: target_object_id
+      - field_name: source_object
+        ct_field: source_content_type
+        fk_field: source_object_id
     is_abstract: false
   Parameter:
     name: Parameter
@@ -124,12 +142,17 @@ models:
         target_model: ParameterTemplate
         relation_type: ForeignKey
         related_name: parameters
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: model_type
+        fk_field: model_id
     is_abstract: false
   PriceBreak:
     name: PriceBreak
     module_path: src.backend.InvenTree.common.models
     line: 1347
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   SelectionListEntry:
     name: SelectionListEntry
@@ -140,6 +163,7 @@ models:
         target_model: SelectionList
         relation_type: ForeignKey
         related_name: entries
+    generic_foreign_keys: []
     is_abstract: false
   UpdatedUserMixin:
     name: UpdatedUserMixin
@@ -150,6 +174,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: "%(class)s_updated"
+    generic_foreign_keys: []
     is_abstract: true
   WebhookEndpoint:
     name: WebhookEndpoint
@@ -160,6 +185,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   WebhookMessage:
     name: WebhookMessage
@@ -170,4 +196,5 @@ models:
         target_model: WebhookEndpoint
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

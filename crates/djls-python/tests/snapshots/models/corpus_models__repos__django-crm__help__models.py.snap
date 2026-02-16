@@ -8,6 +8,7 @@ models:
     module_path: help.models
     line: 22
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Paragraph:
     name: Paragraph
@@ -26,4 +27,5 @@ models:
         target_model: self
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

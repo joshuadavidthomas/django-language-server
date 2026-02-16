@@ -8,4 +8,5 @@ models:
     module_path: misago.icons.models
     line: 4
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

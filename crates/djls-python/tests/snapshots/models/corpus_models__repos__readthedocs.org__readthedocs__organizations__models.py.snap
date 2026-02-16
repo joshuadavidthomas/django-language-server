@@ -24,6 +24,7 @@ models:
         target_model: Subscription
         relation_type: OneToOne
         related_name: rtd_organization
+    generic_foreign_keys: []
     is_abstract: false
   OrganizationOwner:
     name: OrganizationOwner
@@ -38,6 +39,7 @@ models:
         target_model: Organization
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Team:
     name: Team
@@ -56,6 +58,7 @@ models:
         target_model: User
         relation_type: ManyToMany
         related_name: teams
+    generic_foreign_keys: []
     is_abstract: false
   TeamInvite:
     name: TeamInvite
@@ -70,6 +73,7 @@ models:
         target_model: Team
         relation_type: ForeignKey
         related_name: invites
+    generic_foreign_keys: []
     is_abstract: false
   TeamMember:
     name: TeamMember
@@ -88,4 +92,5 @@ models:
         target_model: TeamInvite
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

@@ -8,6 +8,7 @@ models:
     module_path: fundraising.models
     line: 61
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Donation:
     name: Donation
@@ -18,18 +19,21 @@ models:
         target_model: DjangoHero
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   FundraisingModel:
     name: FundraisingModel
     module_path: fundraising.models
     line: 46
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   InKindDonor:
     name: InKindDonor
     module_path: fundraising.models
     line: 149
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Payment:
     name: Payment
@@ -40,10 +44,12 @@ models:
         target_model: Donation
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Testimonial:
     name: Testimonial
     module_path: fundraising.models
     line: 140
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

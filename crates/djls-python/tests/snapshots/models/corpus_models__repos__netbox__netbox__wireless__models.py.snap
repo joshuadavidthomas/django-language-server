@@ -8,16 +8,19 @@ models:
     module_path: netbox.wireless.models
     line: 20
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   WirelessLAN:
     name: WirelessLAN
     module_path: netbox.wireless.models
     line: 76
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   WirelessLink:
     name: WirelessLink
     module_path: netbox.wireless.models
     line: 129
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

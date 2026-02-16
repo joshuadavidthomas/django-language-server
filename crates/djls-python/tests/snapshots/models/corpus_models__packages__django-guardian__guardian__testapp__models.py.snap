@@ -8,6 +8,7 @@ models:
     module_path: guardian.testapp.models
     line: 109
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   ChildTestModel:
     name: ChildTestModel
@@ -18,42 +19,49 @@ models:
         target_model: ParentTestModel
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Mixed:
     name: Mixed
     module_path: guardian.testapp.models
     line: 75
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   ParentTestModel:
     name: ParentTestModel
     module_path: guardian.testapp.models
     line: 146
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Post:
     name: Post
     module_path: guardian.testapp.models
     line: 13
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Project:
     name: Project
     module_path: guardian.testapp.models
     line: 41
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   ReverseMixed:
     name: ReverseMixed
     module_path: guardian.testapp.models
     line: 91
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   UUIDPKModel:
     name: UUIDPKModel
     module_path: guardian.testapp.models
     line: 118
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   UserProfile:
     name: UserProfile
@@ -64,4 +72,5 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: OneToOne
         related_name: profile
+    generic_foreign_keys: []
     is_abstract: false

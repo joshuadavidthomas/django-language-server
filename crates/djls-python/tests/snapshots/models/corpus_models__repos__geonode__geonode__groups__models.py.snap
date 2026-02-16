@@ -8,6 +8,7 @@ models:
     module_path: geonode.groups.models
     line: 46
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   GroupMember:
     name: GroupMember
@@ -22,6 +23,7 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   GroupProfile:
     name: GroupProfile
@@ -36,4 +38,5 @@ models:
         target_model: GroupCategory
         relation_type: ManyToMany
         related_name: groups
+    generic_foreign_keys: []
     is_abstract: false

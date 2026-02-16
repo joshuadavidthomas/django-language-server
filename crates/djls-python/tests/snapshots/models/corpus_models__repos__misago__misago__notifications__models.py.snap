@@ -28,6 +28,7 @@ models:
         target_model: Post
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   WatchedThread:
     name: WatchedThread
@@ -46,4 +47,5 @@ models:
         target_model: Thread
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

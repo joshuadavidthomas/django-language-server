@@ -16,16 +16,19 @@ models:
         target_model: ExecutionRequest
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   UploadParallelismLimit:
     name: UploadParallelismLimit
     module_path: geonode.upload.models
     line: 97
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   UploadSizeLimit:
     name: UploadSizeLimit
     module_path: geonode.upload.models
     line: 64
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

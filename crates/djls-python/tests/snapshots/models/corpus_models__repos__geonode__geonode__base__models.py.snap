@@ -16,6 +16,7 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   ExtraMetadata:
     name: ExtraMetadata
@@ -26,6 +27,7 @@ models:
         target_model: ResourceBase
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   GroupGeoLimit:
     name: GroupGeoLimit
@@ -40,12 +42,14 @@ models:
         target_model: ResourceBase
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   License:
     name: License
     module_path: geonode.base.models
     line: 227
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Link:
     name: Link
@@ -60,6 +64,7 @@ models:
         target_model: Asset
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   LinkedResource:
     name: LinkedResource
@@ -74,42 +79,49 @@ models:
         target_model: ResourceBase
         relation_type: ForeignKey
         related_name: linked_by
+    generic_foreign_keys: []
     is_abstract: false
   Menu:
     name: Menu
     module_path: geonode.base.models
     line: 2051
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   MenuItem:
     name: MenuItem
     module_path: geonode.base.models
     line: 2069
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   MenuPlaceholder:
     name: MenuPlaceholder
     module_path: geonode.base.models
     line: 2044
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   RestrictionCodeType:
     name: RestrictionCodeType
     module_path: geonode.base.models
     line: 206
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   SpatialRepresentationType:
     name: SpatialRepresentationType
     module_path: geonode.base.models
     line: 130
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Thesaurus:
     name: Thesaurus
     module_path: geonode.base.models
     line: 450
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   ThesaurusKeyword:
     name: ThesaurusKeyword
@@ -120,6 +132,7 @@ models:
         target_model: Thesaurus
         relation_type: ForeignKey
         related_name: thesaurus
+    generic_foreign_keys: []
     is_abstract: false
   ThesaurusKeywordLabel:
     name: ThesaurusKeywordLabel
@@ -130,6 +143,7 @@ models:
         target_model: ThesaurusKeyword
         relation_type: ForeignKey
         related_name: keyword
+    generic_foreign_keys: []
     is_abstract: false
   ThesaurusLabel:
     name: ThesaurusLabel
@@ -140,12 +154,14 @@ models:
         target_model: Thesaurus
         relation_type: ForeignKey
         related_name: rel_thesaurus
+    generic_foreign_keys: []
     is_abstract: false
   TopicCategory:
     name: TopicCategory
     module_path: geonode.base.models
     line: 108
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   UserGeoLimit:
     name: UserGeoLimit
@@ -160,4 +176,5 @@ models:
         target_model: ResourceBase
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

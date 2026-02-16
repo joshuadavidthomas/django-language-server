@@ -24,4 +24,5 @@ models:
         target_model: NetworkInterface
         relation_type: ForeignKey
         related_name: process_set
+    generic_foreign_keys: []
     is_abstract: false

@@ -12,16 +12,19 @@ models:
         target_model: Project
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   DiscoverSavedQueryProject:
     name: DiscoverSavedQueryProject
     module_path: src.sentry.discover.models
     line: 68
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   TeamKeyTransaction:
     name: TeamKeyTransaction
     module_path: src.sentry.discover.models
     line: 197
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

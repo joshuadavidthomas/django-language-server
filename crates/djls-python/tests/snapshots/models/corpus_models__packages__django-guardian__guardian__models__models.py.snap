@@ -12,6 +12,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: content_type
+        fk_field: object_pk
     is_abstract: true
   BaseObjectPermission:
     name: BaseObjectPermission
@@ -22,6 +26,7 @@ models:
         target_model: Permission
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   GroupObjectPermission:
     name: GroupObjectPermission
@@ -32,6 +37,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: content_type
+        fk_field: object_pk
     is_abstract: false
   GroupObjectPermissionAbstract:
     name: GroupObjectPermissionAbstract
@@ -42,6 +51,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: content_type
+        fk_field: object_pk
     is_abstract: true
   GroupObjectPermissionBase:
     name: GroupObjectPermissionBase
@@ -56,6 +69,7 @@ models:
         target_model: Group
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   UserObjectPermission:
     name: UserObjectPermission
@@ -66,6 +80,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: content_type
+        fk_field: object_pk
     is_abstract: false
   UserObjectPermissionAbstract:
     name: UserObjectPermissionAbstract
@@ -76,6 +94,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: content_object
+        ct_field: content_type
+        fk_field: object_pk
     is_abstract: true
   UserObjectPermissionBase:
     name: UserObjectPermissionBase
@@ -90,4 +112,5 @@ models:
         target_model: user_model_label
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true

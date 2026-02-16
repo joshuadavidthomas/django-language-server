@@ -8,4 +8,5 @@ models:
     module_path: src.sentry.remote_subscriptions.models
     line: 8
     relations: []
+    generic_foreign_keys: []
     is_abstract: true

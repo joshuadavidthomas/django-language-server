@@ -8,10 +8,12 @@ models:
     module_path: src.backend.InvenTree.report.models
     line: 820
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   ReportSnippet:
     name: ReportSnippet
     module_path: src.backend.InvenTree.report.models
     line: 797
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

@@ -16,6 +16,7 @@ models:
         target_model: Series
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   Blogmark:
     name: Blogmark
@@ -30,6 +31,7 @@ models:
         target_model: Series
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Comment:
     name: Comment
@@ -40,6 +42,10 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: item
+        ct_field: content_type
+        fk_field: object_id
     is_abstract: false
   Entry:
     name: Entry
@@ -54,6 +60,7 @@ models:
         target_model: Series
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   LiveUpdate:
     name: LiveUpdate
@@ -64,6 +71,7 @@ models:
         target_model: Entry
         relation_type: ForeignKey
         related_name: updates
+    generic_foreign_keys: []
     is_abstract: false
   Note:
     name: Note
@@ -78,12 +86,14 @@ models:
         target_model: Series
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Photo:
     name: Photo
     module_path: blog.models
     line: 452
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Photoset:
     name: Photoset
@@ -98,6 +108,7 @@ models:
         target_model: Photo
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   PreviousTagName:
     name: PreviousTagName
@@ -108,6 +119,7 @@ models:
         target_model: Tag
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Quotation:
     name: Quotation
@@ -122,18 +134,21 @@ models:
         target_model: Series
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Series:
     name: Series
     module_path: blog.models
     line: 195
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Tag:
     name: Tag
     module_path: blog.models
     line: 22
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   TagMerge:
     name: TagMerge
@@ -144,4 +159,5 @@ models:
         target_model: Tag
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

@@ -12,6 +12,7 @@ models:
         target_model: Election
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   PacketFile:
     name: PacketFile
@@ -26,10 +27,12 @@ models:
         target_model: PacketFileGroup
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   PacketFileGroup:
     name: PacketFileGroup
     module_path: src.nomnom.hugopacket.models
     line: 36
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

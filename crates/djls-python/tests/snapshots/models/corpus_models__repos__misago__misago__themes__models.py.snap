@@ -12,6 +12,7 @@ models:
         target_model: Theme
         relation_type: ForeignKey
         related_name: css
+    generic_foreign_keys: []
     is_abstract: false
   Media:
     name: Media
@@ -22,4 +23,5 @@ models:
         target_model: Theme
         relation_type: ForeignKey
         related_name: media
+    generic_foreign_keys: []
     is_abstract: false

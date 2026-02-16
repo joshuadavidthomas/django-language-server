@@ -8,6 +8,7 @@ models:
     module_path: wagtail.contrib.search_promotions.models
     line: 11
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   QueryDailyHits:
     name: QueryDailyHits
@@ -18,6 +19,7 @@ models:
         target_model: Query
         relation_type: ForeignKey
         related_name: daily_hits
+    generic_foreign_keys: []
     is_abstract: false
   SearchPromotion:
     name: SearchPromotion
@@ -32,4 +34,5 @@ models:
         target_model: Page
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

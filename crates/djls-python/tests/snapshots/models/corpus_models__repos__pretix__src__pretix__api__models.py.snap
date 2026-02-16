@@ -8,6 +8,7 @@ models:
     module_path: src.pretix.api.models
     line: 168
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   WebHook:
     name: WebHook
@@ -22,6 +23,7 @@ models:
         target_model: Event
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   WebHookCall:
     name: WebHookCall
@@ -32,6 +34,7 @@ models:
         target_model: WebHook
         relation_type: ForeignKey
         related_name: calls
+    generic_foreign_keys: []
     is_abstract: false
   WebHookCallRetry:
     name: WebHookCallRetry
@@ -46,6 +49,7 @@ models:
         target_model: LogEntry
         relation_type: ForeignKey
         related_name: webhook_retries
+    generic_foreign_keys: []
     is_abstract: false
   WebHookEventListener:
     name: WebHookEventListener
@@ -56,4 +60,5 @@ models:
         target_model: WebHook
         relation_type: ForeignKey
         related_name: listeners
+    generic_foreign_keys: []
     is_abstract: false

@@ -16,6 +16,7 @@ models:
         target_model: Group
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Moderator:
     name: Moderator
@@ -30,4 +31,5 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

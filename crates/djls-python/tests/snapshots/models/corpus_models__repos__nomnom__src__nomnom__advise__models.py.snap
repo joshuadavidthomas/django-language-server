@@ -8,6 +8,7 @@ models:
     module_path: src.nomnom.advise.models
     line: 32
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Vote:
     name: Vote
@@ -22,4 +23,5 @@ models:
         target_model: Proposal
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

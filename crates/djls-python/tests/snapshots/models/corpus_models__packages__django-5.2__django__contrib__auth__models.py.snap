@@ -16,6 +16,7 @@ models:
         target_model: Permission
         relation_type: ManyToMany
         related_name: user_set
+    generic_foreign_keys: []
     is_abstract: true
   Group:
     name: Group
@@ -26,6 +27,7 @@ models:
         target_model: Permission
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Permission:
     name: Permission
@@ -36,6 +38,7 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   PermissionsMixin:
     name: PermissionsMixin
@@ -50,6 +53,7 @@ models:
         target_model: Permission
         relation_type: ManyToMany
         related_name: user_set
+    generic_foreign_keys: []
     is_abstract: true
   User:
     name: User
@@ -64,4 +68,5 @@ models:
         target_model: Permission
         relation_type: ManyToMany
         related_name: user_set
+    generic_foreign_keys: []
     is_abstract: false

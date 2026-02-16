@@ -8,4 +8,8 @@ models:
     module_path: netbox.extras.models.models
     line: 842
     relations: []
+    generic_foreign_keys:
+      - field_name: object
+        ct_field: object_type
+        fk_field: object_id
     is_abstract: false

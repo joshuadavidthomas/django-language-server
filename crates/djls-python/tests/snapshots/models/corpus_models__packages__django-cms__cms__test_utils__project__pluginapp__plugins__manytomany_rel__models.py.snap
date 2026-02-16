@@ -12,6 +12,7 @@ models:
         target_model: Section
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   FKModel:
     name: FKModel
@@ -22,16 +23,19 @@ models:
         target_model: PluginModelWithFKFromModel
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   M2MTargetModel:
     name: M2MTargetModel
     module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 36
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Section:
     name: Section
     module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 14
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

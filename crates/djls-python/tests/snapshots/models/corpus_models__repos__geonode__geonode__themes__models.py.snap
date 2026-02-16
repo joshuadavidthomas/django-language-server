@@ -12,10 +12,12 @@ models:
         target_model: JumbotronThemeSlide
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   JumbotronThemeSlide:
     name: JumbotronThemeSlide
     module_path: geonode.themes.models
     line: 31
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

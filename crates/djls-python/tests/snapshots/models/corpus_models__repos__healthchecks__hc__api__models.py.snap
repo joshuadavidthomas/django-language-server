@@ -16,6 +16,7 @@ models:
         target_model: Check
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Check:
     name: Check
@@ -26,6 +27,7 @@ models:
         target_model: Project
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Flip:
     name: Flip
@@ -36,6 +38,7 @@ models:
         target_model: Check
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Notification:
     name: Notification
@@ -50,6 +53,7 @@ models:
         target_model: Channel
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Ping:
     name: Ping
@@ -60,10 +64,12 @@ models:
         target_model: Check
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   TokenBucket:
     name: TokenBucket
     module_path: hc.api.models
     line: 1340
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

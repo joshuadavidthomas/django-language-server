@@ -16,4 +16,5 @@ models:
         target_model: Version
         relation_type: ForeignKey
         related_name: page_views
+    generic_foreign_keys: []
     is_abstract: false

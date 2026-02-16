@@ -12,12 +12,14 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: true
   AbstractRendition:
     name: AbstractRendition
     module_path: wagtail.images.models
     line: 1315
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   Image:
     name: Image
@@ -28,6 +30,7 @@ models:
         target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Rendition:
     name: Rendition
@@ -38,4 +41,5 @@ models:
         target_model: Image
         relation_type: ForeignKey
         related_name: renditions
+    generic_foreign_keys: []
     is_abstract: false

@@ -8,4 +8,5 @@ models:
     module_path: src.sentry.explore.models
     line: 38
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

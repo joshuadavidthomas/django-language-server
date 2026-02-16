@@ -12,4 +12,5 @@ models:
         target_model: Site
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

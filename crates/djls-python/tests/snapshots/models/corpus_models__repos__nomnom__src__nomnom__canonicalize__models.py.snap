@@ -16,6 +16,7 @@ models:
         target_model: Nomination
         relation_type: OneToOne
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Work:
     name: Work
@@ -30,4 +31,5 @@ models:
         target_model: Nomination
         relation_type: ManyToMany
         related_name: works
+    generic_foreign_keys: []
     is_abstract: false

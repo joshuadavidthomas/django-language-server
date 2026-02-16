@@ -12,4 +12,5 @@ models:
         target_model: Project
         relation_type: ForeignKey
         related_name: redirects
+    generic_foreign_keys: []
     is_abstract: false

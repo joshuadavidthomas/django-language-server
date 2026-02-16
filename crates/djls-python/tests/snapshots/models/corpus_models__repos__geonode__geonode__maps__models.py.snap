@@ -16,4 +16,5 @@ models:
         target_model: Dataset
         relation_type: ForeignKey
         related_name: maplayers
+    generic_foreign_keys: []
     is_abstract: false

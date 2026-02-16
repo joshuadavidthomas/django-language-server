@@ -12,6 +12,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: api_tokens
+    generic_foreign_keys: []
     is_abstract: false
   Bookmark:
     name: Bookmark
@@ -30,6 +31,7 @@ models:
         target_model: BookmarkAsset
         relation_type: ForeignKey
         related_name: latest_snapshot
+    generic_foreign_keys: []
     is_abstract: false
   BookmarkAsset:
     name: BookmarkAsset
@@ -40,6 +42,7 @@ models:
         target_model: Bookmark
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   BookmarkBundle:
     name: BookmarkBundle
@@ -50,6 +53,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   FeedToken:
     name: FeedToken
@@ -60,6 +64,7 @@ models:
         target_model: User
         relation_type: OneToOne
         related_name: feed_token
+    generic_foreign_keys: []
     is_abstract: false
   GlobalSettings:
     name: GlobalSettings
@@ -70,6 +75,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Tag:
     name: Tag
@@ -80,6 +86,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Toast:
     name: Toast
@@ -90,6 +97,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   UserProfile:
     name: UserProfile
@@ -100,4 +108,5 @@ models:
         target_model: User
         relation_type: OneToOne
         related_name: profile
+    generic_foreign_keys: []
     is_abstract: false

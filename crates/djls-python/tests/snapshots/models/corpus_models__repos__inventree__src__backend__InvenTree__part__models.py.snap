@@ -16,6 +16,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: starred_categories
+    generic_foreign_keys: []
     is_abstract: false
   PartStar:
     name: PartStar
@@ -30,6 +31,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: starred_parts
+    generic_foreign_keys: []
     is_abstract: false
   PartStocktake:
     name: PartStocktake
@@ -40,4 +42,5 @@ models:
         target_model: Part
         relation_type: ForeignKey
         related_name: stocktakes
+    generic_foreign_keys: []
     is_abstract: false

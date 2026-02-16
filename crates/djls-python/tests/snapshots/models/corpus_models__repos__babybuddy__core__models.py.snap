@@ -12,12 +12,14 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: bmi
+    generic_foreign_keys: []
     is_abstract: false
   Child:
     name: Child
     module_path: core.models
     line: 168
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   DiaperChange:
     name: DiaperChange
@@ -28,6 +30,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: diaper_change
+    generic_foreign_keys: []
     is_abstract: false
   Feeding:
     name: Feeding
@@ -38,6 +41,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: feeding
+    generic_foreign_keys: []
     is_abstract: false
   HeadCircumference:
     name: HeadCircumference
@@ -48,6 +52,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: head_circumference
+    generic_foreign_keys: []
     is_abstract: false
   Height:
     name: Height
@@ -58,12 +63,14 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: height
+    generic_foreign_keys: []
     is_abstract: false
   HeightPercentile:
     name: HeightPercentile
     module_path: core.models
     line: 413
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Note:
     name: Note
@@ -74,6 +81,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: note
+    generic_foreign_keys: []
     is_abstract: false
   Pumping:
     name: Pumping
@@ -84,6 +92,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: pumping
+    generic_foreign_keys: []
     is_abstract: false
   Sleep:
     name: Sleep
@@ -94,6 +103,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: sleep
+    generic_foreign_keys: []
     is_abstract: false
   Temperature:
     name: Temperature
@@ -104,6 +114,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: temperature
+    generic_foreign_keys: []
     is_abstract: false
   Timer:
     name: Timer
@@ -118,6 +129,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: timers
+    generic_foreign_keys: []
     is_abstract: false
   TummyTime:
     name: TummyTime
@@ -128,6 +140,7 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: tummy_time
+    generic_foreign_keys: []
     is_abstract: false
   Weight:
     name: Weight
@@ -138,10 +151,12 @@ models:
         target_model: Child
         relation_type: ForeignKey
         related_name: weight
+    generic_foreign_keys: []
     is_abstract: false
   WeightPercentile:
     name: WeightPercentile
     module_path: core.models
     line: 747
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

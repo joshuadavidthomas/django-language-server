@@ -16,6 +16,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: +
+    generic_foreign_keys: []
     is_abstract: false
   ReturnOrder:
     name: ReturnOrder
@@ -26,6 +27,7 @@ models:
         target_model: Company
         relation_type: ForeignKey
         related_name: sales_orders
+    generic_foreign_keys: []
     is_abstract: false
   SalesOrder:
     name: SalesOrder
@@ -40,6 +42,7 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: +
+    generic_foreign_keys: []
     is_abstract: false
   SalesOrderAllocation:
     name: SalesOrderAllocation
@@ -58,10 +61,12 @@ models:
         target_model: StockItem
         relation_type: ForeignKey
         related_name: sales_order_allocations
+    generic_foreign_keys: []
     is_abstract: false
   TotalPriceMixin:
     name: TotalPriceMixin
     module_path: src.backend.InvenTree.order.models
     line: 65
     relations: []
+    generic_foreign_keys: []
     is_abstract: true

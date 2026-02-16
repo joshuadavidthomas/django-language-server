@@ -8,24 +8,28 @@ models:
     module_path: tracdb.models
     line: 281
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Component:
     name: Component
     module_path: tracdb.models
     line: 175
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Milestone:
     name: Milestone
     module_path: tracdb.models
     line: 203
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Revision:
     name: Revision
     module_path: tracdb.models
     line: 242
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Ticket:
     name: Ticket
@@ -44,6 +48,7 @@ models:
         target_model: Milestone
         relation_type: ForeignKey
         related_name: tickets
+    generic_foreign_keys: []
     is_abstract: false
   TicketChange:
     name: TicketChange
@@ -54,6 +59,7 @@ models:
         target_model: Ticket
         relation_type: ForeignKey
         related_name: changes
+    generic_foreign_keys: []
     is_abstract: false
   TicketCustom:
     name: TicketCustom
@@ -64,16 +70,19 @@ models:
         target_model: Ticket
         relation_type: ForeignKey
         related_name: custom_fields
+    generic_foreign_keys: []
     is_abstract: false
   Version:
     name: Version
     module_path: tracdb.models
     line: 188
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Wiki:
     name: Wiki
     module_path: tracdb.models
     line: 262
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

@@ -8,10 +8,12 @@ models:
     module_path: misago.acl.models
     line: 11
     relations: []
+    generic_foreign_keys: []
     is_abstract: true
   Role:
     name: Role
     module_path: misago.acl.models
     line: 32
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

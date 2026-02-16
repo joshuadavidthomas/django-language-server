@@ -20,6 +20,16 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: action_object
+    generic_foreign_keys:
+      - field_name: actor
+        ct_field: actor_content_type
+        fk_field: actor_object_id
+      - field_name: target
+        ct_field: target_content_type
+        fk_field: target_object_id
+      - field_name: action_object
+        ct_field: action_object_content_type
+        fk_field: action_object_object_id
     is_abstract: false
   Follow:
     name: Follow
@@ -34,4 +44,8 @@ models:
         target_model: ContentType
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys:
+      - field_name: follow_object
+        ct_field: content_type
+        fk_field: object_id
     is_abstract: false

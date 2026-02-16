@@ -20,6 +20,7 @@ models:
         target_model: BuildConfig
         relation_type: ForeignKey
         related_name: builds
+    generic_foreign_keys: []
     is_abstract: false
   BuildCommandResult:
     name: BuildCommandResult
@@ -30,4 +31,5 @@ models:
         target_model: Build
         relation_type: ForeignKey
         related_name: commands
+    generic_foreign_keys: []
     is_abstract: false

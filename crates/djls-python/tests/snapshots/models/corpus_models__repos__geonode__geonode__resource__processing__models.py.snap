@@ -12,6 +12,7 @@ models:
         target_model: AbstractProcessingTask
         relation_type: ManyToMany
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   ProcessingWorkflowTasks:
     name: ProcessingWorkflowTasks
@@ -26,4 +27,5 @@ models:
         target_model: AbstractProcessingTask
         relation_type: ForeignKey
         related_name: link_to_workflow
+    generic_foreign_keys: []
     is_abstract: false

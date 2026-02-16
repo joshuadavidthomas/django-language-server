@@ -8,4 +8,5 @@ models:
     module_path: misago.conf.models
     line: 23
     relations: []
+    generic_foreign_keys: []
     is_abstract: false

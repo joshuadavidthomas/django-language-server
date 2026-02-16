@@ -8,6 +8,7 @@ models:
     module_path: example.app.models
     line: 6
     relations: []
+    generic_foreign_keys: []
     is_abstract: false
   Country:
     name: Country
@@ -18,6 +19,7 @@ models:
         target_model: Continent
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
   Person:
     name: Person
@@ -28,4 +30,5 @@ models:
         target_model: Country
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false

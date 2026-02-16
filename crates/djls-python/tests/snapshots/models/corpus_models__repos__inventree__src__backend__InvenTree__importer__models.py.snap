@@ -12,6 +12,7 @@ models:
         target_model: DataImportSession
         relation_type: ForeignKey
         related_name: column_mappings
+    generic_foreign_keys: []
     is_abstract: false
   DataImportRow:
     name: DataImportRow
@@ -22,6 +23,7 @@ models:
         target_model: DataImportSession
         relation_type: ForeignKey
         related_name: rows
+    generic_foreign_keys: []
     is_abstract: false
   DataImportSession:
     name: DataImportSession
@@ -32,4 +34,5 @@ models:
         target_model: User
         relation_type: ForeignKey
         related_name: ~
+    generic_foreign_keys: []
     is_abstract: false
