@@ -41,7 +41,7 @@
 )]
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     fmt::Write,
     path::{Path, PathBuf},
 };
@@ -717,6 +717,7 @@ fn workspace_crate_dirs(metadata: &cargo_metadata::Metadata, fallback_root: &Pat
 /// Workspace dependency info including features
 #[derive(Debug, Clone, Default)]
 struct WorkspaceDep {
+    #[allow(dead_code)]
     features: HashSet<String>,
 }
 
@@ -1690,13 +1691,6 @@ fn make_chevron_arrow(x: f64, y: f64, angle: f64, color: &str) -> String {
     )
 }
 
-/// Feature additions for an external dependency
-#[derive(Debug, Clone, Default)]
-struct ExternalDepFeatures {
-    /// Additional features added by crates (`crate_name` -> `added_features`)
-    crate_additions: HashMap<String, HashSet<String>>,
-}
-
 /// Generate a dependency graph SVG using graphviz-rust with cluster support.
 ///
 /// This function:
@@ -1711,7 +1705,7 @@ fn generate_dependency_graph_svg(
     config: &Config,
     output_path: &Path,
     include_tests: bool,
-    workspace_deps: &HashMap<String, WorkspaceDep>,
+    _workspace_deps: &HashMap<String, WorkspaceDep>,
     crate_features: &HashMap<String, HashMap<String, HashSet<String>>>,
 ) -> std::io::Result<()> {
     // Build a lookup map from PackageId to Package
@@ -2040,37 +2034,6 @@ fn generate_dependency_graph_svg(
     let mut sorted_edges = edges.clone();
     sorted_edges.sort_unstable();
 
-    // Compute feature additions for external deps
-    // For each external dep, collect features added by each crate beyond workspace defaults
-    let mut external_dep_features: HashMap<&str, ExternalDepFeatures> = HashMap::new();
-
-    for ext_dep in &config.graph.external_deps {
-        let ws_features = workspace_deps
-            .get(ext_dep)
-            .map(|d| d.features.clone())
-            .unwrap_or_default();
-
-        let mut crate_additions: HashMap<String, HashSet<String>> = HashMap::new();
-
-        // Check each crate that uses this external dep
-        for (crate_name, deps) in crate_features {
-            if let Some(crate_features_for_dep) = deps.get(ext_dep) {
-                // Find features added by this crate (not in workspace)
-                let added: HashSet<String> = crate_features_for_dep
-                    .difference(&ws_features)
-                    .cloned()
-                    .collect();
-                if !added.is_empty() {
-                    crate_additions.insert(crate_name.clone(), added);
-                }
-            }
-        }
-
-        if !crate_additions.is_empty() {
-            external_dep_features.insert(ext_dep.as_str(), ExternalDepFeatures { crate_additions });
-        }
-    }
-
     // Extract namespace and tag from crate name
     let get_crate_parts = |name: &str| -> (String, Option<String>) {
         // Check name_exceptions across all namespaces first, before prefix matching
@@ -2191,75 +2154,26 @@ fn generate_dependency_graph_svg(
         }
     }
 
-    // Build a map of external deps with their features per crate
-    // Key: (namespace, external_dep, features_key) -> list of crates using it
-    // This allows separate nodes for different feature sets within the same namespace
-    #[allow(clippy::items_after_statements)]
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-    struct ExternalDepKey {
-        namespace: String,
-        dep_name: String,
-        features: Vec<String>, // sorted for deterministic hashing
-    }
-
-    let mut external_dep_nodes: BTreeMap<ExternalDepKey, Vec<String>> = BTreeMap::new();
-
-    for (from, to) in &sorted_edges {
-        let (from_ns, _) = get_crate_parts(from);
-        let (to_ns, _) = get_crate_parts(to);
-
-        // If a local crate depends on an external crate
-        if from_ns != "external" && to_ns == "external" {
-            // Get features this crate adds for this dep
-            let features: Vec<String> = if let Some(feat_info) = external_dep_features.get(to) {
-                feat_info
-                    .crate_additions
-                    .get(*from)
-                    .map(|f| {
-                        let mut v: Vec<_> = f.iter().cloned().collect();
-                        v.sort();
-                        v
-                    })
-                    .unwrap_or_default()
+    // Collect which external deps are actually used (have edges pointing to them)
+    let used_external_deps: BTreeSet<&str> = sorted_edges
+        .iter()
+        .filter_map(|(_, to)| {
+            let (to_ns, _) = get_crate_parts(to);
+            if to_ns == "external" {
+                Some(*to)
             } else {
-                Vec::new()
-            };
-
-            let key = ExternalDepKey {
-                namespace: from_ns,
-                dep_name: (*to).to_string(),
-                features,
-            };
-
-            external_dep_nodes
-                .entry(key)
-                .or_default()
-                .push((*from).to_string());
-        }
-    }
+                None
+            }
+        })
+        .collect();
 
     // Helper to create a valid graphviz node ID
     // Sanitize names for graphviz DOT identifiers (hyphens are invalid)
     let safe = |s: &str| -> String { s.replace('-', "_") };
     let node_id = |name: &str| -> String { safe(name) };
 
-    // Helper to create external dep node ID (includes namespace and feature hash for uniqueness)
-    let ext_node_id = |key: &ExternalDepKey| -> String {
-        let safe_ns = safe(&key.namespace);
-        let safe_name = safe(&key.dep_name);
-        if key.features.is_empty() {
-            format!("{safe_ns}_{safe_name}")
-        } else {
-            // Include a hash of features for uniqueness
-            let feat_hash: u32 = key.features.iter().fold(0u32, |acc, f| {
-                acc.wrapping_mul(31).wrapping_add(
-                    f.bytes()
-                        .fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(u32::from(b))),
-                )
-            });
-            format!("{safe_ns}_{safe_name}_{feat_hash:x}")
-        }
-    };
+    // Helper to create external dep node ID
+    let ext_node_id = |name: &str| -> String { format!("ext_{}", safe(name)) };
 
     // Build per-namespace link_crate mapping: namespace -> set of link_crates it declared.
     // link_crates are per-namespace: declaring bex_vm_types as a link_crate in `sys`
@@ -2418,28 +2332,18 @@ fn generate_dependency_graph_svg(
             );
         }
 
-        // Add external deps used by this namespace (one node per unique feature set)
-        for key in external_dep_nodes.keys() {
-            if key.namespace != *namespace {
-                continue;
-            }
-
-            let id = ext_node_id(key);
-            let label = if key.features.is_empty() {
-                key.dep_name.clone()
-            } else {
-                let features_str = key.features.join(", ");
-                format!("{}\\n[{}]", key.dep_name, features_str)
-            };
-
-            let _ = writeln!(
-                dot,
-                "        {id} [label=\"{label}\", fillcolor=\"{external_fill}\", color=\"{external_border}\", penwidth=2];"
-            );
-        }
-
         dot.push_str("    }\n\n");
     }
+
+    // Add external dep nodes outside all clusters
+    for ext_dep in &used_external_deps {
+        let id = ext_node_id(ext_dep);
+        let _ = writeln!(
+            dot,
+            "    {id} [label=\"{ext_dep}\", fillcolor=\"{external_fill}\", color=\"{external_border}\", penwidth=2];"
+        );
+    }
+    dot.push('\n');
 
     // Add edges (outside of clusters) - arrows point from dependent to dependency
     // Track which embed proxies need a real->proxy edge (deduplicated)
@@ -2521,27 +2425,7 @@ fn generate_dependency_graph_svg(
         }
 
         let to_id = if to_is_external {
-            // External dep - find the matching node with the right features
-            let features: Vec<String> = if let Some(feat_info) = external_dep_features.get(to) {
-                feat_info
-                    .crate_additions
-                    .get(*from)
-                    .map(|f| {
-                        let mut v: Vec<_> = f.iter().cloned().collect();
-                        v.sort();
-                        v
-                    })
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-
-            let key = ExternalDepKey {
-                namespace: from_ns.clone(),
-                dep_name: (*to).to_string(),
-                features,
-            };
-            ext_node_id(&key)
+            ext_node_id(to)
         } else {
             node_id(to)
         };
