@@ -6,19 +6,26 @@
 #          cargo run -p djls-dev --bin cargo-stow -- stow --fix     (auto-fix sorting)
 #          cargo run -p djls-dev --bin cargo-stow -- stow --graph architecture/architecture.svg
 
+# Logical namespaces for architecture diagram grouping.
+
+# Core analysis: everything from foundation types to IDE features
 [[namespaces]]
 name = "djls"
 approved_prefixes = []
 test_crate_exceptions = []
-name_exceptions = { "djls" = "djls" }
+name_exceptions = { "djls-source" = "djls-source", "djls-conf" = "djls-conf", "djls-python" = "djls-python", "djls-workspace" = "djls-workspace", "djls-templates" = "djls-templates", "djls-project" = "djls-project", "djls-semantic" = "djls-semantic", "djls-ide" = "djls-ide", "djls-db" = "djls-db", "djls-server" = "djls-server", "djls" = "djls" }
+
+# Dev tools: bench, corpus, dev tooling
+[[namespaces]]
+name = "djls-tools"
+approved_prefixes = []
+test_crate_exceptions = []
+name_exceptions = { "djls-bench" = "djls-bench", "djls-corpus" = "djls-corpus", "djls-dev" = "djls-dev" }
+link_crates = ["djls-ide", "djls-corpus"]
 
 [graph]
-external_deps = ["salsa", "tower-lsp-server", "anyhow", "camino", "thiserror", "serde", "tokio"]
+external_deps = ["salsa", "tower-lsp-server", "tokio"]
 
-# When a crate depends on both the key and a value, the edge to the value
-# is hidden (visually implied by the key).
 [graph.implied_deps]
-# djls-conf brings in anyhow, camino, serde, thiserror
 djls-conf = ["anyhow", "camino", "serde", "thiserror"]
-# djls-source brings in camino, salsa, serde, thiserror
 djls-source = ["camino", "salsa", "serde", "thiserror"]

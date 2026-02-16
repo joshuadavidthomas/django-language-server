@@ -2229,13 +2229,16 @@ fn generate_dependency_graph_svg(
     }
 
     // Helper to create a valid graphviz node ID
-    let node_id = |name: &str| -> String { name.replace('-', "_") };
+    // Sanitize names for graphviz DOT identifiers (hyphens are invalid)
+    let safe = |s: &str| -> String { s.replace('-', "_") };
+    let node_id = |name: &str| -> String { safe(name) };
 
     // Helper to create external dep node ID (includes namespace and feature hash for uniqueness)
     let ext_node_id = |key: &ExternalDepKey| -> String {
-        let safe_name = key.dep_name.replace('-', "_");
+        let safe_ns = safe(&key.namespace);
+        let safe_name = safe(&key.dep_name);
         if key.features.is_empty() {
-            format!("{}_{}", key.namespace, safe_name)
+            format!("{safe_ns}_{safe_name}")
         } else {
             // Include a hash of features for uniqueness
             let feat_hash: u32 = key.features.iter().fold(0u32, |acc, f| {
@@ -2244,7 +2247,7 @@ fn generate_dependency_graph_svg(
                         .fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(u32::from(b))),
                 )
             });
-            format!("{}_{}_{:x}", key.namespace, safe_name, feat_hash)
+            format!("{safe_ns}_{safe_name}_{feat_hash:x}")
         }
     };
 
@@ -2294,7 +2297,7 @@ fn generate_dependency_graph_svg(
     }
 
     let proxy_node_id = |ns: &str, crate_name: &str| -> String {
-        format!("proxy_{}_{}", ns, crate_name.replace('-', "_"))
+        format!("proxy_{}_{}", safe(ns), safe(crate_name))
     };
 
     // Build DOT format string directly
@@ -2327,7 +2330,8 @@ fn generate_dependency_graph_svg(
             .unwrap_or_else(|| (external_border.clone(), external_fill.clone()));
 
         // Cluster name must start with "cluster_" for graphviz to recognize it
-        let _ = writeln!(dot, "    subgraph cluster_{namespace} {{");
+        let cluster_id = namespace.replace('-', "_");
+        let _ = writeln!(dot, "    subgraph cluster_{cluster_id} {{");
         let _ = writeln!(dot, "        label=\"{namespace}\";");
         dot.push_str("        style=\"filled,rounded\";\n");
         let _ = writeln!(dot, "        fillcolor=\"{cluster_fill}\";");
