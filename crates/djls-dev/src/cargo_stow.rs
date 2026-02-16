@@ -1691,6 +1691,227 @@ fn make_chevron_arrow(x: f64, y: f64, angle: f64, color: &str) -> String {
     )
 }
 
+/// A public API item extracted from a crate's source.
+#[derive(Debug, Clone)]
+struct ApiItem {
+    name: String,
+    kind: ApiItemKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum ApiItemKind {
+    SalsaDb,
+    SalsaInput,
+    SalsaTrackedStruct,
+    SalsaTrackedFn,
+    SalsaInterned,
+    SalsaAccumulator,
+    Trait,
+    Struct,
+    Enum,
+    Fn,
+}
+
+impl ApiItemKind {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::SalsaDb => "db trait",
+            Self::SalsaInput => "input",
+            Self::SalsaTrackedStruct => "tracked",
+            Self::SalsaTrackedFn => "tracked fn",
+            Self::SalsaInterned => "interned",
+            Self::SalsaAccumulator => "accumulator",
+            Self::Trait => "trait",
+            Self::Struct => "struct",
+            Self::Enum => "enum",
+            Self::Fn => "fn",
+        }
+    }
+}
+
+/// Scan a crate's source files for public API items.
+///
+/// Looks for `pub struct`, `pub enum`, `pub trait`, `pub fn` declarations,
+/// and Salsa annotations (`#[salsa::input]`, `#[salsa::tracked]`, etc.).
+fn scan_crate_api(crate_dir: &Path) -> Vec<ApiItem> {
+    let src_dir = crate_dir.join("src");
+    let mut items = Vec::new();
+
+    // First pass: scan lib.rs / main.rs for the crate root API
+    let root_file = if src_dir.join("lib.rs").exists() {
+        Some(src_dir.join("lib.rs"))
+    } else if src_dir.join("main.rs").exists() {
+        Some(src_dir.join("main.rs"))
+    } else {
+        None
+    };
+
+    // Collect pub use re-exports from the root to know what's part of the API
+    let mut reexported_names: HashSet<String> = HashSet::new();
+    if let Some(ref root) = root_file {
+        if let Ok(content) = std::fs::read_to_string(root) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                // Match: pub use something::Name;
+                if let Some(rest) = trimmed.strip_prefix("pub use ") {
+                    if let Some(name) = rest.rsplit("::").next() {
+                        let name = name.trim_end_matches(';').trim();
+                        if !name.is_empty() && name.chars().next().unwrap().is_uppercase() {
+                            reexported_names.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Scan all source files for Salsa-annotated items (these are always important)
+    // and pub items that are re-exported from the root
+    for path in collect_rs_files(&src_dir) {
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let is_root = root_file.as_deref() == Some(&path);
+        extract_api_items_filtered(&content, &mut items, is_root, &reexported_names);
+    }
+
+    // Deduplicate by name (keep highest-priority kind)
+    items.sort_by(|a, b| a.name.cmp(&b.name).then(a.kind.cmp(&b.kind)));
+    items.dedup_by(|a, b| a.name == b.name);
+    items
+}
+
+fn extract_api_items_filtered(
+    content: &str,
+    items: &mut Vec<ApiItem>,
+    _is_root: bool,
+    _reexported: &HashSet<String>,
+) {
+    let lines: Vec<&str> = content.lines().collect();
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        // Skip non-pub items
+        if !trimmed.starts_with("pub ") {
+            continue;
+        }
+
+        // Check preceding lines for Salsa annotations
+        let salsa_attr = (1..=5)
+            .filter_map(|offset| {
+                i.checked_sub(offset)
+                    .and_then(|idx| lines.get(idx))
+                    .map(|l| l.trim())
+            })
+            .find(|l| l.starts_with("#[salsa::"));
+
+        // Determine the item name and kind
+        let item = if let Some(name) = extract_item_name(trimmed, "pub trait ") {
+            if salsa_attr.is_some_and(|a| a.contains("salsa::db")) {
+                Some(ApiItem { name, kind: ApiItemKind::SalsaDb })
+            } else {
+                Some(ApiItem { name, kind: ApiItemKind::Trait })
+            }
+        } else if let Some(name) = extract_item_name(trimmed, "pub struct ") {
+            if let Some(attr) = salsa_attr {
+                if attr.contains("salsa::input") {
+                    Some(ApiItem { name, kind: ApiItemKind::SalsaInput })
+                } else if attr.contains("salsa::tracked") {
+                    Some(ApiItem { name, kind: ApiItemKind::SalsaTrackedStruct })
+                } else if attr.contains("salsa::interned") {
+                    Some(ApiItem { name, kind: ApiItemKind::SalsaInterned })
+                } else if attr.contains("salsa::accumulator") {
+                    Some(ApiItem { name, kind: ApiItemKind::SalsaAccumulator })
+                } else {
+                    Some(ApiItem { name, kind: ApiItemKind::Struct })
+                }
+            } else {
+                Some(ApiItem { name, kind: ApiItemKind::Struct })
+            }
+        } else if let Some(name) = extract_item_name(trimmed, "pub enum ") {
+            Some(ApiItem { name, kind: ApiItemKind::Enum })
+        } else if let Some(name) = extract_fn_name(trimmed) {
+            if salsa_attr.is_some_and(|a| a.contains("salsa::tracked")) {
+                Some(ApiItem { name, kind: ApiItemKind::SalsaTrackedFn })
+            } else {
+                Some(ApiItem { name, kind: ApiItemKind::Fn })
+            }
+        } else {
+            None
+        };
+
+        // Only show Salsa-annotated items — these define the architecture.
+        // Everything else is implementation detail for diagram purposes.
+        if let Some(item) = item {
+            if matches!(
+                item.kind,
+                ApiItemKind::SalsaDb
+                    | ApiItemKind::SalsaInput
+                    | ApiItemKind::SalsaTrackedStruct
+                    | ApiItemKind::SalsaTrackedFn
+                    | ApiItemKind::SalsaInterned
+                    | ApiItemKind::SalsaAccumulator
+            ) {
+                items.push(item);
+            }
+        }
+    }
+}
+
+fn extract_item_name(line: &str, prefix: &str) -> Option<String> {
+    let rest = line.strip_prefix(prefix)?;
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn extract_fn_name(line: &str) -> Option<String> {
+    // Match: pub fn name, pub async fn name, pub(crate) fn name
+    let rest = line.strip_prefix("pub ")?;
+    let rest = if let Some(r) = rest.strip_prefix("async ") {
+        r
+    } else {
+        rest
+    };
+    let rest = rest.strip_prefix("fn ")?;
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn collect_rs_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    fn visit(dir: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let path = entry.path();
+            if path.is_dir() {
+                visit(&path, files);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                files.push(path);
+            }
+        }
+    }
+    visit(dir, &mut files);
+    files
+}
+
 /// Generate a dependency graph SVG using graphviz-rust with cluster support.
 ///
 /// This function:
@@ -2034,6 +2255,24 @@ fn generate_dependency_graph_svg(
     let mut sorted_edges = edges.clone();
     sorted_edges.sort_unstable();
 
+    // Scan public APIs for each included crate
+    let crate_apis: HashMap<String, Vec<ApiItem>> = {
+        let packages_by_name: HashMap<&str, &cargo_metadata::Package> = metadata
+            .packages
+            .iter()
+            .map(|p| (p.name.as_str(), p))
+            .collect();
+        sorted_crates
+            .iter()
+            .filter_map(|&name| {
+                let pkg = packages_by_name.get(name)?;
+                let crate_dir = pkg.manifest_path.parent()?;
+                let items = scan_crate_api(crate_dir.as_std_path());
+                Some((name.to_string(), items))
+            })
+            .collect()
+    };
+
     // Extract namespace and tag from crate name
     let get_crate_parts = |name: &str| -> (String, Option<String>) {
         // Check name_exceptions across all namespaces first, before prefix matching
@@ -2284,10 +2523,36 @@ fn generate_dependency_graph_svg(
             };
 
             let id = node_id(crate_name);
-            let _ = writeln!(
-                dot,
-                "        {id} [label=\"{crate_name}\", fillcolor=\"{fill_color}\", color=\"{border_color}\", penwidth=2];"
-            );
+            let api_items = crate_apis.get(*crate_name);
+            let has_api = api_items.is_some_and(|items| !items.is_empty());
+
+            if has_api {
+                let items = api_items.unwrap();
+                let mut label = String::new();
+                label.push_str("<<TABLE BORDER=\"0\" CELLBORDER=\"0\" CELLSPACING=\"2\" CELLPADDING=\"4\">");
+                let _ = write!(
+                    label,
+                    "<TR><TD BGCOLOR=\"{fill_color}\"><B>{crate_name}</B></TD></TR>"
+                );
+                for item in items {
+                    let kind_label = item.kind.label();
+                    let _ = write!(
+                        label,
+                        "<TR><TD ALIGN=\"LEFT\"><FONT POINT-SIZE=\"9\">{} <I>({})</I></FONT></TD></TR>",
+                        item.name, kind_label
+                    );
+                }
+                label.push_str("</TABLE>>");
+                let _ = writeln!(
+                    dot,
+                    "        {id} [label={label}, shape=plain, fillcolor=\"{fill_color}\", color=\"{border_color}\", penwidth=2];"
+                );
+            } else {
+                let _ = writeln!(
+                    dot,
+                    "        {id} [label=\"{crate_name}\", fillcolor=\"{fill_color}\", color=\"{border_color}\", penwidth=2];"
+                );
+            }
         }
 
         // Add proxy nodes for link crates consumed by this namespace (sorted for deterministic output)
