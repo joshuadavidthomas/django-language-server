@@ -1,6 +1,7 @@
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
+use rustc_hash::FxHashSet;
 
 use super::graph::GenericForeignKey;
 use super::graph::ModelDef;
@@ -30,10 +31,16 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
     };
     let module = parsed.into_syntax();
 
-    extract_models_from_body(&module.body, module_path, source)
+    let model_aliases = collect_models_aliases(&module.body);
+    extract_models_from_body(&module.body, module_path, source, &model_aliases)
 }
 
-fn extract_models_from_body(body: &[Stmt], module_path: &str, source: &str) -> ModelGraph {
+fn extract_models_from_body(
+    body: &[Stmt],
+    module_path: &str,
+    source: &str,
+    model_aliases: &FxHashSet<String>,
+) -> ModelGraph {
     let mut graph = ModelGraph::new();
     let mut children: Vec<&StmtClassDef> = Vec::new();
 
@@ -47,7 +54,7 @@ fn extract_models_from_body(body: &[Stmt], module_path: &str, source: &str) -> M
             continue;
         };
 
-        if is_django_model(args.args.iter()) {
+        if is_django_model(args.args.iter(), model_aliases) {
             let line = line_number(source, class.range.start().to_usize());
             let mut model = ModelDef::new(class.name.to_string(), module_path, line);
 
@@ -157,14 +164,62 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>) -> bool {
+/// Collect names that alias `django.db.models` in this module.
+///
+/// Recognizes:
+/// - `from django.db import models as m` → `m`
+/// - `import django.db.models as m` → `m`
+///
+/// The canonical name `"models"` is always included.
+fn collect_models_aliases(body: &[Stmt]) -> FxHashSet<String> {
+    let mut aliases = FxHashSet::default();
+    aliases.insert("models".to_string());
+
+    for stmt in body {
+        match stmt {
+            // `from django.db import models` / `from django.db import models as m`
+            Stmt::ImportFrom(import) => {
+                let module = import
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str);
+                if module == Some("django.db") {
+                    for name in &import.names {
+                        if name.name.as_str() == "models" {
+                            let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
+                            aliases.insert(alias.to_string());
+                        }
+                    }
+                }
+            }
+            // `import django.db.models as m`
+            Stmt::Import(import) => {
+                for name in &import.names {
+                    if name.name.as_str() == "django.db.models" {
+                        if let Some(alias) = &name.asname {
+                            aliases.insert(alias.to_string());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    aliases
+}
+
+fn is_django_model<'a>(
+    bases: impl Iterator<Item = &'a Expr>,
+    model_aliases: &FxHashSet<String>,
+) -> bool {
     for base in bases {
         match base {
-            // models.Model
+            // models.Model / m.Model (where m is an alias for django.db.models)
             Expr::Attribute(attr) => {
                 if attr.attr.as_str() == "Model" {
                     if let Expr::Name(name) = attr.value.as_ref() {
-                        if name.id.as_str() == "models" {
+                        if model_aliases.contains(name.id.as_str()) {
                             return true;
                         }
                     }
@@ -401,6 +456,45 @@ class User(Model):
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("User").is_some());
+    }
+
+    #[test]
+    fn aliased_models_import() {
+        let source = r#"
+from django.db import models as m
+
+class User(m.Model):
+    name = m.CharField(max_length=100)
+"#;
+        let graph = extract_model_graph(source, "auth.models");
+        assert_eq!(graph.len(), 1);
+        assert!(graph.get("User").is_some());
+    }
+
+    #[test]
+    fn aliased_absolute_import() {
+        let source = r#"
+import django.db.models as db_models
+
+class User(db_models.Model):
+    pass
+"#;
+        let graph = extract_model_graph(source, "auth.models");
+        assert_eq!(graph.len(), 1);
+        assert!(graph.get("User").is_some());
+    }
+
+    #[test]
+    fn unrelated_alias_not_matched() {
+        // foo.Model should NOT be detected as a Django model
+        let source = r#"
+import foo
+
+class NotAModel(foo.Model):
+    pass
+"#;
+        let graph = extract_model_graph(source, "app.models");
+        assert!(graph.is_empty());
     }
 
     #[test]

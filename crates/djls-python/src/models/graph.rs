@@ -32,7 +32,7 @@ impl Relation {
         let lower = source_model.to_lowercase();
         match &self.related_name {
             Some(name) => {
-                let app_label = app_label_from_module_path(module_path);
+                let app_label = app_label_from_module_path(module_path).unwrap_or_default();
                 name.replace("%(class)s", &lower)
                     .replace("%(app_label)s", &app_label)
             }
@@ -47,18 +47,23 @@ impl Relation {
 /// Derive the app label from a dotted module path.
 ///
 /// Mirrors Django's convention: the component immediately before `models`
-/// in the module path. Falls back to the first component if `models` is
-/// not found (e.g., `"myapp"` → `"myapp"`).
-fn app_label_from_module_path(module_path: &str) -> String {
+/// in the module path. Returns `None` when no valid app label can be
+/// determined (e.g., bare `"models"` with no package prefix, or an empty
+/// path).
+fn app_label_from_module_path(module_path: &str) -> Option<String> {
     let parts: Vec<&str> = module_path.split('.').collect();
     // Find the component right before "models"
     for (i, part) in parts.iter().enumerate() {
         if *part == "models" && i > 0 {
-            return parts[i - 1].to_lowercase();
+            return Some(parts[i - 1].to_lowercase());
         }
     }
-    // Fallback: first component
-    parts.first().unwrap_or(&"").to_lowercase()
+    // Fallback: first component, but only if it isn't "models" itself
+    // (which would mean we have a bare "models" path with no package).
+    match parts.first() {
+        Some(&"models" | &"") | None => None,
+        Some(first) => Some(first.to_lowercase()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,6 +329,31 @@ mod tests {
             rel.effective_related_name("Permission", "django.contrib.auth.models"),
             "auth_permission_set"
         );
+    }
+
+    #[test]
+    fn app_label_bare_models_path() {
+        // A bare "models" module path has no valid app label — %(app_label)s
+        // should substitute as empty rather than producing "models".
+        let rel = Relation {
+            field_name: "user".into(),
+            target_model: "User".into(),
+            relation_type: RelationType::ForeignKey,
+            related_name: Some("%(app_label)s_%(class)s_set".into()),
+        };
+        assert_eq!(rel.effective_related_name("Order", "models"), "_order_set");
+    }
+
+    #[test]
+    fn app_label_no_models_component() {
+        // When "models" doesn't appear, falls back to first component.
+        let rel = Relation {
+            field_name: "user".into(),
+            target_model: "User".into(),
+            relation_type: RelationType::ForeignKey,
+            related_name: Some("%(app_label)s_set".into()),
+        };
+        assert_eq!(rel.effective_related_name("Order", "myapp"), "myapp_set");
     }
 
     #[test]
