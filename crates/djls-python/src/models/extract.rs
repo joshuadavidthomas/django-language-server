@@ -31,15 +31,15 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
     };
     let module = parsed.into_syntax();
 
-    let model_aliases = collect_models_aliases(&module.body);
-    extract_models_from_body(&module.body, module_path, source, &model_aliases)
+    let aliases = collect_import_aliases(&module.body);
+    extract_models_from_body(&module.body, module_path, source, &aliases)
 }
 
 fn extract_models_from_body(
     body: &[Stmt],
     module_path: &str,
     source: &str,
-    model_aliases: &FxHashSet<String>,
+    aliases: &ImportAliases,
 ) -> ModelGraph {
     let mut graph = ModelGraph::new();
     let mut children: Vec<&StmtClassDef> = Vec::new();
@@ -54,7 +54,7 @@ fn extract_models_from_body(
             continue;
         };
 
-        if is_django_model(args.args.iter(), model_aliases) {
+        if is_django_model(args.args.iter(), aliases) {
             let line = line_number(source, class.range.start().to_usize());
             let mut model = ModelDef::new(class.name.to_string(), module_path, line);
 
@@ -164,30 +164,72 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-/// Collect names that alias `django.db.models` in this module.
+/// Modules that parent `models` (for `from <parent> import models`).
+const DJANGO_MODEL_PARENTS: &[&str] = &["django.db", "django.contrib.gis.db"];
+
+/// Fully-qualified `models` modules (for `import <module> as ...`).
+const DJANGO_MODELS_MODULES: &[&str] = &["django.db.models", "django.contrib.gis.db.models"];
+
+/// Import aliases discovered from a module's import statements.
 ///
-/// Recognizes:
-/// - `from django.db import models as m` → `m`
-/// - `import django.db.models as m` → `m`
+/// Tracks two kinds of aliases:
+/// - **module aliases**: names that refer to `django.db.models` (or the
+///   `GeoDjango` equivalent), used to match the `x.Model` pattern.
+/// - **class aliases**: names that refer to the `Model` class directly,
+///   used to match bare-name patterns like `class Foo(M):`.
+struct ImportAliases {
+    /// Names aliasing `django.db.models` (always includes `"models"`).
+    module_aliases: FxHashSet<String>,
+    /// Names aliasing the `Model` class (always includes `"Model"`).
+    class_aliases: FxHashSet<String>,
+}
+
+/// Scan import statements for names that alias Django's `models` module
+/// or the `Model` class.
 ///
-/// The canonical name `"models"` is always included.
-fn collect_models_aliases(body: &[Stmt]) -> FxHashSet<String> {
-    let mut aliases = FxHashSet::default();
-    aliases.insert("models".to_string());
+/// Module aliases (for `x.Model` pattern):
+/// - `from django.db import models [as m]`
+/// - `from django.contrib.gis.db import models [as m]`
+/// - `import django.db.models as m`
+/// - `import django.contrib.gis.db.models as m`
+///
+/// Class aliases (for bare `M` pattern):
+/// - `from django.db.models import Model [as M]`
+/// - `from django.contrib.gis.db.models import Model [as M]`
+fn collect_import_aliases(body: &[Stmt]) -> ImportAliases {
+    let mut module_aliases = FxHashSet::default();
+    module_aliases.insert("models".to_string());
+
+    let mut class_aliases = FxHashSet::default();
+    class_aliases.insert("Model".to_string());
 
     for stmt in body {
         match stmt {
-            // `from django.db import models` / `from django.db import models as m`
             Stmt::ImportFrom(import) => {
-                let module = import
+                let Some(module) = import
                     .module
                     .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str);
-                if module == Some("django.db") {
+                    .map(ruff_python_ast::Identifier::as_str)
+                else {
+                    continue;
+                };
+
+                // `from django.db import models [as m]`
+                if DJANGO_MODEL_PARENTS.contains(&module) {
                     for name in &import.names {
                         if name.name.as_str() == "models" {
                             let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
-                            aliases.insert(alias.to_string());
+                            module_aliases.insert(alias.to_string());
+                        }
+                    }
+                }
+
+                // `from django.db.models import Model [as M]`
+                if DJANGO_MODELS_MODULES.contains(&module) {
+                    for name in &import.names {
+                        if name.name.as_str() == "Model" {
+                            let alias = name.asname.as_ref().map_or("Model", |a| a.as_str());
+                            class_aliases.insert(alias.to_string());
                         }
                     }
                 }
@@ -195,9 +237,9 @@ fn collect_models_aliases(body: &[Stmt]) -> FxHashSet<String> {
             // `import django.db.models as m`
             Stmt::Import(import) => {
                 for name in &import.names {
-                    if name.name.as_str() == "django.db.models" {
+                    if DJANGO_MODELS_MODULES.contains(&name.name.as_str()) {
                         if let Some(alias) = &name.asname {
-                            aliases.insert(alias.to_string());
+                            module_aliases.insert(alias.to_string());
                         }
                     }
                 }
@@ -206,28 +248,28 @@ fn collect_models_aliases(body: &[Stmt]) -> FxHashSet<String> {
         }
     }
 
-    aliases
+    ImportAliases {
+        module_aliases,
+        class_aliases,
+    }
 }
 
-fn is_django_model<'a>(
-    bases: impl Iterator<Item = &'a Expr>,
-    model_aliases: &FxHashSet<String>,
-) -> bool {
+fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAliases) -> bool {
     for base in bases {
         match base {
-            // models.Model / m.Model (where m is an alias for django.db.models)
+            // models.Model / m.Model (where m aliases django.db.models)
             Expr::Attribute(attr) => {
                 if attr.attr.as_str() == "Model" {
                     if let Expr::Name(name) = attr.value.as_ref() {
-                        if model_aliases.contains(name.id.as_str()) {
+                        if aliases.module_aliases.contains(name.id.as_str()) {
                             return true;
                         }
                     }
                 }
             }
-            // Model (direct import)
+            // Model / M (where M aliases django.db.models.Model)
             Expr::Name(name) => {
-                if name.id.as_str() == "Model" {
+                if aliases.class_aliases.contains(name.id.as_str()) {
                     return true;
                 }
             }
@@ -485,12 +527,77 @@ class User(db_models.Model):
     }
 
     #[test]
+    fn aliased_model_class_import() {
+        let source = r#"
+from django.db.models import Model as BaseModel
+
+class User(BaseModel):
+    pass
+"#;
+        let graph = extract_model_graph(source, "auth.models");
+        assert_eq!(graph.len(), 1);
+        assert!(graph.get("User").is_some());
+    }
+
+    #[test]
+    fn geodjango_models_import() {
+        let source = r#"
+from django.contrib.gis.db import models
+
+class Location(models.Model):
+    pass
+"#;
+        let graph = extract_model_graph(source, "geo.models");
+        assert_eq!(graph.len(), 1);
+        assert!(graph.get("Location").is_some());
+    }
+
+    #[test]
+    fn geodjango_aliased_import() {
+        let source = r#"
+from django.contrib.gis.db import models as gis
+
+class Location(gis.Model):
+    pass
+"#;
+        let graph = extract_model_graph(source, "geo.models");
+        assert_eq!(graph.len(), 1);
+        assert!(graph.get("Location").is_some());
+    }
+
+    #[test]
+    fn geodjango_model_class_import() {
+        let source = r#"
+from django.contrib.gis.db.models import Model as GeoModel
+
+class Location(GeoModel):
+    pass
+"#;
+        let graph = extract_model_graph(source, "geo.models");
+        assert_eq!(graph.len(), 1);
+        assert!(graph.get("Location").is_some());
+    }
+
+    #[test]
     fn unrelated_alias_not_matched() {
         // foo.Model should NOT be detected as a Django model
         let source = r#"
 import foo
 
 class NotAModel(foo.Model):
+    pass
+"#;
+        let graph = extract_model_graph(source, "app.models");
+        assert!(graph.is_empty());
+    }
+
+    #[test]
+    fn unrelated_model_name_not_matched() {
+        // A bare name that happens to not be "Model" should not match
+        let source = r#"
+from pydantic import BaseModel
+
+class NotDjango(BaseModel):
     pass
 "#;
         let graph = extract_model_graph(source, "app.models");
