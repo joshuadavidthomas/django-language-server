@@ -67,11 +67,11 @@ name_exceptions = { "djls-dev" = "djls-dev" }
 [graph]
 reduce_cross_namespace = true
 
-# Only show external deps that define a crate's role, not ubiquitous
+# Show deps that distinguish what a crate does. Every direct usage shown.
+# Omit salsa (used by 9 crates — pervasive like serde) and ubiquitous
 # infrastructure (serde, anyhow, camino, thiserror, tracing).
 external_deps = [
     "clap",
-    "salsa",
     "tokio",
     "tower-lsp-server",
 ]

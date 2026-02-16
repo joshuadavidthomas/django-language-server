@@ -1921,26 +1921,17 @@ fn generate_dependency_graph_svg(
                 let intermediate_namespace = config.get_namespace_for_crate(intermediate_name);
 
                 if config.graph.reduce_cross_namespace {
-                    // Unified reduction: any intermediate that can reach the
-                    // target makes this edge redundant, regardless of namespace.
-                    if !reachable[intermediate][dst] {
+                    // Never reduce external dep edges — every direct usage
+                    // is architecturally meaningful.
+                    if is_external_target {
                         return false;
                     }
-                    // For external targets, also check feature compatibility
-                    if is_external_target {
-                        let intermediate_features = crate_features
-                            .get(intermediate_name)
-                            .and_then(|deps| deps.get(*to));
-                        return match (source_features, intermediate_features) {
-                            (Some(src_feat), Some(int_feat)) => src_feat == int_feat,
-                            (None, None) => true,
-                            _ => false,
-                        };
-                    }
-                    return true;
+                    // For internal targets, reduce across all namespace
+                    // boundaries using full reachability.
+                    return reachable[intermediate][dst];
                 }
 
-                // Check namespace based on whether target is external or internal
+                // Default mode: namespace-aware reduction
                 let reference_namespace = if is_external_target {
                     source_namespace
                 } else {
@@ -1955,12 +1946,9 @@ fn generate_dependency_graph_svg(
                 }
 
                 if is_external_target {
-                    // For external targets, use full reachability (cross-namespace
-                    // paths are fine since the target is external anyway)
                     if !reachable[intermediate][dst] {
                         return false;
                     }
-                    // Also check if features are the same
                     let intermediate_features = crate_features
                         .get(intermediate_name)
                         .and_then(|deps| deps.get(*to));
@@ -1970,10 +1958,6 @@ fn generate_dependency_graph_svg(
                         _ => false,
                     }
                 } else {
-                    // For internal targets, only reduce if the intermediate can
-                    // reach the target through same-namespace nodes. This prevents
-                    // paths like sys_types -> bex_vm_types -> bex_resource_types
-                    // from making sys_native -> bex_resource_types appear redundant.
                     same_ns_reachable[intermediate][dst]
                 }
             });
