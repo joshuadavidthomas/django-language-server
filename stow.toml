@@ -14,3 +14,11 @@ name_exceptions = { "djls" = "djls" }
 
 [graph]
 external_deps = ["salsa", "tower-lsp-server", "anyhow", "camino", "thiserror", "serde", "tokio"]
+
+# When a crate depends on both the key and a value, the edge to the value
+# is hidden (visually implied by the key).
+[graph.implied_deps]
+# djls-conf brings in anyhow, camino, serde, thiserror
+djls-conf = ["anyhow", "camino", "serde", "thiserror"]
+# djls-source brings in camino, salsa, serde, thiserror
+djls-source = ["camino", "salsa", "serde", "thiserror"]

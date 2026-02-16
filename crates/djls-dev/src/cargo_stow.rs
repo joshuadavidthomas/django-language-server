@@ -1792,7 +1792,14 @@ fn generate_dependency_graph_svg(
 
             if should_include_crate(&dep_pkg.name) {
                 edges.push((&pkg.name, &dep_pkg.name));
-                if !visited.contains(&dep.pkg) {
+                included_crates.insert(&dep_pkg.name);
+                // Only continue BFS through namespace crates, not external deps.
+                // This prevents external deps (e.g., tower-lsp-server) from
+                // pulling their own transitive deps into the graph as orphan nodes.
+                let is_namespace_crate =
+                    config.get_namespace_for_crate(&dep_pkg.name).is_some()
+                        && !config.is_ignored_crate(&dep_pkg.name);
+                if is_namespace_crate && !visited.contains(&dep.pkg) {
                     visited.insert(&dep.pkg);
                     queue.push_back(&dep.pkg);
                 }
