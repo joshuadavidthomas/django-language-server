@@ -122,6 +122,17 @@ impl DjangoDatabase {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
     }
+
+    /// Refresh all external (non-workspace) project data.
+    ///
+    /// Queries the Python inspector subprocess for template libraries, then
+    /// scans the filesystem for external validation rules and model definitions.
+    /// Workspace files are handled separately by tracked Salsa queries.
+    pub fn refresh_external_data(&mut self) {
+        self.query_inspector_template_libraries();
+        self.scan_external_rules();
+        self.scan_external_models();
+    }
 }
 
 #[salsa::db]

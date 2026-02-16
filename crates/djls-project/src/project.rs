@@ -54,7 +54,7 @@ pub struct Project {
     pub template_libraries: TemplateLibraries,
     /// Extraction results from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
-    /// Populated by `refresh_inspector`. Workspace files use tracked queries
+    /// Populated by `refresh_external_data`. Workspace files use tracked queries
     /// via `collect_workspace_extraction_results` instead.
     #[returns(ref)]
     pub extracted_external_rules: FxHashMap<String, ExtractionResult>,

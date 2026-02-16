@@ -40,19 +40,8 @@ impl DjangoDatabase {
         true
     }
 
-    /// Refresh all project-derived data: inspector inventory, external rules,
-    /// and external models.
-    ///
-    /// Queries the Python inspector subprocess for template libraries, then
-    /// scans the filesystem for external rules and model definitions.
-    pub fn refresh_inspector(&mut self) {
-        self.query_inspector_template_libraries();
-        self.scan_external_rules();
-        self.scan_external_models();
-    }
-
     /// Query the Python inspector subprocess and update the project's template libraries.
-    fn query_inspector_template_libraries(&mut self) {
+    pub(crate) fn query_inspector_template_libraries(&mut self) {
         let Some(project) = self.project() else {
             return;
         };

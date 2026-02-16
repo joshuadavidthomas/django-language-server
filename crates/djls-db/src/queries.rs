@@ -29,7 +29,7 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
         specs.merge_extraction_results(extraction);
     }
 
-    // Merge external extraction results (from Project field, updated by refresh_inspector)
+    // Merge external extraction results (from Project field, updated by refresh_external_data)
     for extraction in project.extracted_external_rules(db).values() {
         specs.merge_extraction_results(extraction);
     }
@@ -93,7 +93,7 @@ pub fn compute_filter_arity_specs(
 pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph {
     let mut graph = ModelGraph::new();
 
-    // Merge external models (from Project field, updated by refresh_inspector)
+    // Merge external models (from Project field, updated by refresh_external_data)
     for model_graph in project.extracted_external_models(db).values() {
         graph.merge(model_graph.clone());
     }
@@ -153,7 +153,7 @@ fn collect_workspace_models(
 /// 3. Extracts rules from each (via tracked `djls_python::extract_module`)
 ///
 /// External modules are handled separately (cached on `Project` field,
-/// updated by `refresh_inspector`). This function only processes workspace
+/// updated by `refresh_external_data`). This function only processes workspace
 /// modules, giving them automatic Salsa invalidation when files change.
 #[salsa::tracked]
 fn collect_workspace_extraction_results(
