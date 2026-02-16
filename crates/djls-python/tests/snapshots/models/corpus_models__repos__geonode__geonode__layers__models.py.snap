@@ -1,0 +1,21 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Attribute:
+    name: Attribute
+    module_path: geonode.layers.models
+    line: 448
+    relations:
+      - field_name: dataset
+        relation_type: ForeignKey
+        target_model: Dataset
+        related_name: attribute_set
+    kind: concrete
+  Style:
+    name: Style
+    module_path: geonode.layers.models
+    line: 63
+    relations: []
+    kind: concrete

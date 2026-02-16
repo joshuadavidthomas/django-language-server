@@ -236,8 +236,8 @@ impl LanguageServer for DjangoLanguageServer {
                 let db = session_lock.db_mut();
 
                 let t = std::time::Instant::now();
-                db.refresh_inspector();
-                tracing::info!("Inspector refresh completed in {:?}", t.elapsed());
+                db.refresh_external_data();
+                tracing::info!("External data refresh completed in {:?}", t.elapsed());
 
                 if let Some(project) = db.project() {
                     let path = project.root(db).clone();
@@ -528,8 +528,8 @@ impl LanguageServer for DjangoLanguageServer {
                     }
 
                     let t = std::time::Instant::now();
-                    db.refresh_inspector();
-                    tracing::info!("Inspector refresh completed in {:?}", t.elapsed());
+                    db.refresh_external_data();
+                    tracing::info!("External data refresh completed in {:?}", t.elapsed());
 
                     if let Some(project) = db.project() {
                         project.initialize(db);

@@ -1,5 +1,7 @@
 use djls_project::build_search_paths;
 use djls_project::Project;
+use djls_python::ModelGraph;
+use djls_python::ModulePath;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -27,7 +29,7 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
         specs.merge_extraction_results(extraction);
     }
 
-    // Merge external extraction results (from Project field, updated by refresh_inspector)
+    // Merge external extraction results (from Project field, updated by refresh_external_data)
     for extraction in project.extracted_external_rules(db).values() {
         specs.merge_extraction_results(extraction);
     }
@@ -78,6 +80,70 @@ pub fn compute_filter_arity_specs(
     specs
 }
 
+/// Compute a merged `ModelGraph` from workspace and external model sources.
+///
+/// This tracked function reads `project.extracted_external_models(db)` to
+/// establish a Salsa dependency on external model data. It merges:
+/// 1. External models from site-packages (cached on `Project` field)
+/// 2. Workspace models from project `models.py` files (tracked, auto-invalidating)
+///
+/// Workspace models merge after external, so project models take precedence
+/// over installed package models for same-named models.
+#[salsa::tracked]
+pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph {
+    let mut graph = ModelGraph::new();
+
+    // Merge external models (from Project field, updated by refresh_external_data)
+    for model_graph in project.extracted_external_models(db).values() {
+        graph.merge(model_graph.clone());
+    }
+
+    // Merge workspace models (tracked, auto-invalidating on file change)
+    for (_module_path, model_graph) in collect_workspace_models(db, project) {
+        graph.merge(model_graph);
+    }
+
+    graph
+}
+
+/// Collect model graphs from all workspace `models.py` files.
+///
+/// This tracked query:
+/// 1. Discovers `models.py` files in the project root
+/// 2. Reads each via `db.get_or_create_file` for Salsa tracking
+/// 3. Extracts model graphs from each file
+///
+/// External `models.py` files (in site-packages) are handled separately
+/// via the `Project.extracted_external_models` field. This function only
+/// processes workspace files, giving them automatic Salsa invalidation
+/// when the user edits a `models.py`.
+#[salsa::tracked]
+fn collect_workspace_models(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(ModulePath, ModelGraph)> {
+    let root = project.root(db);
+
+    let model_files = djls_project::discover_workspace_model_files(root);
+    if model_files.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+
+    for (module_path, file_path) in model_files {
+        let file = db.get_or_create_file(&file_path);
+        let source = file.source(db);
+
+        let graph = djls_python::extract_model_graph(source.as_ref(), module_path.as_str());
+        if !graph.is_empty() {
+            results.push((module_path, graph));
+        }
+    }
+
+    results
+}
+
 /// Collect extracted rules from all workspace registration modules.
 ///
 /// This tracked query:
@@ -86,7 +152,7 @@ pub fn compute_filter_arity_specs(
 /// 3. Extracts rules from each (via tracked `djls_python::extract_module`)
 ///
 /// External modules are handled separately (cached on `Project` field,
-/// updated by `refresh_inspector`). This function only processes workspace
+/// updated by `refresh_external_data`). This function only processes workspace
 /// modules, giving them automatic Salsa invalidation when files change.
 #[salsa::tracked]
 fn collect_workspace_extraction_results(

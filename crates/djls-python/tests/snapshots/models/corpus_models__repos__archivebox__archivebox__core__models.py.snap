@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  SnapshotTag:
+    name: SnapshotTag
+    module_path: archivebox.core.models
+    line: 132
+    relations:
+      - field_name: snapshot
+        relation_type: ForeignKey
+        target_model: Snapshot
+        related_name: ~
+      - field_name: tag
+        relation_type: ForeignKey
+        target_model: Tag
+        related_name: ~
+    kind: concrete

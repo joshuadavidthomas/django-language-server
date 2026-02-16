@@ -23,7 +23,8 @@ fn is_download_relevant(path: &str) -> bool {
                 && matches!(
                     utf8.file_name(),
                     Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
-                ));
+                ))
+            || utf8.file_name() == Some("models.py");
     }
 
     if path.contains("/templates/") {

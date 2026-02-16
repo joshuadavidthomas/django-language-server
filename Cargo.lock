@@ -827,7 +827,7 @@ dependencies = [
  "djls-source",
  "djls-workspace",
  "dotenvy",
- "ruff_python_parser",
+ "ignore",
  "rustc-hash",
  "salsa",
  "serde",

@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_project::TemplateLibraries;
+use djls_python::ModelGraph;
 use djls_templates::Db as TemplateDb;
 
 use crate::errors::ValidationError;
@@ -32,6 +33,13 @@ pub trait Db: TemplateDb {
     /// Built from extraction results. Returns empty specs when no extraction
     /// data is available.
     fn filter_arity_specs(&self) -> FilterAritySpecs;
+
+    /// Get the merged model graph for the current project.
+    ///
+    /// Combines models from both workspace `models.py` files and installed
+    /// packages (site-packages). Returns an empty graph when no project is
+    /// configured.
+    fn model_graph(&self) -> ModelGraph;
 }
 
 #[salsa::accumulator]

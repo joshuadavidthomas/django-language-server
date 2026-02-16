@@ -1,0 +1,67 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  CharPKModel:
+    name: CharPKModel
+    module_path: guardian.testapp.models
+    line: 109
+    relations: []
+    kind: concrete
+  ChildTestModel:
+    name: ChildTestModel
+    module_path: guardian.testapp.models
+    line: 150
+    relations:
+      - field_name: parent_id
+        relation_type: OneToOne
+        target_model: ParentTestModel
+        related_name: ~
+    kind: concrete
+  Mixed:
+    name: Mixed
+    module_path: guardian.testapp.models
+    line: 75
+    relations: []
+    kind: concrete
+  ParentTestModel:
+    name: ParentTestModel
+    module_path: guardian.testapp.models
+    line: 146
+    relations: []
+    kind: concrete
+  Post:
+    name: Post
+    module_path: guardian.testapp.models
+    line: 13
+    relations: []
+    kind: concrete
+  Project:
+    name: Project
+    module_path: guardian.testapp.models
+    line: 41
+    relations: []
+    kind: concrete
+  ReverseMixed:
+    name: ReverseMixed
+    module_path: guardian.testapp.models
+    line: 91
+    relations: []
+    kind: concrete
+  UUIDPKModel:
+    name: UUIDPKModel
+    module_path: guardian.testapp.models
+    line: 118
+    relations: []
+    kind: concrete
+  UserProfile:
+    name: UserProfile
+    module_path: guardian.testapp.models
+    line: 56
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target_model: AUTH_USER_MODEL
+        related_name: profile
+    kind: concrete

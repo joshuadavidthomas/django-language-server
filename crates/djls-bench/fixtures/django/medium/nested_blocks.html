@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% load i18n static %}
+
+{% block title %}
+  {% if form.errors %}
+    {% translate "Error:" %} {{ error_count }}
+  {% endif %}
+  {{ block.super }}
+{% endblock %}
+
+{% block content %}
+  {% if user.is_authenticated %}
+    <h1>{{ user.get_full_name|title }}</h1>
+    {% for item in items %}
+      {% if item.is_active %}
+        <div class="item">
+          <span>{{ item.name|title }}</span>
+          <span>{{ item.price|floatformat }}</span>
+          {% if item.on_sale %}
+            <span class="sale">{{ item.discount|default:"10%" }}</span>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <p>{% translate "Please log in" %}</p>
+  {% endif %}
+
+  {% block sidebar %}
+    {% for category in categories %}
+      <a href="{{ category.url }}">{{ category.name|title }}</a>
+    {% endfor %}
+  {% endblock %}
+
+  {% block footer %}
+    <footer>
+      {% csrf_token %}
+      {% if show_copyright %}
+        <p>{{ copyright_year|default:"2025" }}</p>
+      {% endif %}
+    </footer>
+  {% endblock %}
+{% endblock %}

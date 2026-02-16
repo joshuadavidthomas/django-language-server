@@ -40,18 +40,8 @@ impl DjangoDatabase {
         true
     }
 
-    /// Refresh all inspector-derived data: inventory and external rules.
-    ///
-    /// Queries the Python inspector subprocess, updates Salsa inputs, extracts
-    /// external rules, and writes the response to the filesystem cache for
-    /// future startups.
-    pub fn refresh_inspector(&mut self) {
-        self.query_inspector_template_libraries();
-        self.extract_external_rules();
-    }
-
     /// Query the Python inspector subprocess and update the project's template libraries.
-    fn query_inspector_template_libraries(&mut self) {
+    pub(crate) fn query_inspector_template_libraries(&mut self) {
         let Some(project) = self.project() else {
             return;
         };
@@ -101,40 +91,6 @@ impl DjangoDatabase {
         let next = current.apply_inspector(response);
         if project.template_libraries(self) != &next {
             project.set_template_libraries(self).to(next);
-        }
-    }
-
-    /// Extract validation rules from external (non-workspace) registration modules
-    /// and update the project's extracted rules if they differ.
-    ///
-    /// Workspace modules are handled separately by `collect_workspace_extraction_results`
-    /// which uses tracked Salsa queries for automatic invalidation on file change.
-    fn extract_external_rules(&mut self) {
-        let Some(project) = self.project() else {
-            return;
-        };
-
-        let interpreter = project.interpreter(self).clone();
-        let root = project.root(self).clone();
-        let pythonpath = project.pythonpath(self).clone();
-
-        let modules: rustc_hash::FxHashSet<String> = project
-            .template_libraries(self)
-            .registration_modules()
-            .into_iter()
-            .map(|m| m.as_str().to_string())
-            .collect();
-
-        let new_extraction = if modules.is_empty() {
-            rustc_hash::FxHashMap::default()
-        } else {
-            djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
-        };
-
-        if project.extracted_external_rules(self) != &new_extraction {
-            project
-                .set_extracted_external_rules(self)
-                .to(new_extraction);
         }
     }
 }

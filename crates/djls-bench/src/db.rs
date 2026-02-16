@@ -121,4 +121,8 @@ impl SemanticDb for Db {
     fn filter_arity_specs(&self) -> FilterAritySpecs {
         (*self.filter_arity_specs).clone()
     }
+
+    fn model_graph(&self) -> djls_python::ModelGraph {
+        djls_python::ModelGraph::new()
+    }
 }

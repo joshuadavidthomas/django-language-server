@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BannedCompanyName:
+    name: BannedCompanyName
+    module_path: settings.models
+    line: 5
+    relations: []
+    kind: concrete
+  MassmailSettings:
+    name: MassmailSettings
+    module_path: settings.models
+    line: 34
+    relations: []
+    kind: concrete
+  PublicEmailDomain:
+    name: PublicEmailDomain
+    module_path: settings.models
+    line: 68
+    relations: []
+    kind: concrete
+  Reminders:
+    name: Reminders
+    module_path: settings.models
+    line: 104
+    relations: []
+    kind: concrete
+  StopPhrase:
+    name: StopPhrase
+    module_path: settings.models
+    line: 134
+    relations: []
+    kind: concrete

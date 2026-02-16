@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Admin:
+    name: Admin
+    module_path: wagtail.admin.models
+    line: 22
+    relations: []
+    kind: concrete
+  EditingSession:
+    name: EditingSession
+    module_path: wagtail.admin.models
+    line: 77
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: editing_sessions
+      - field_name: content_type
+        relation_type: ForeignKey
+        target_model: ContentType
+        related_name: +
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: concrete

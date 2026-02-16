@@ -26,6 +26,7 @@ use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
 
 use crate::queries::compute_filter_arity_specs;
+use crate::queries::compute_model_graph;
 use crate::queries::compute_tag_index;
 use crate::queries::compute_tag_specs;
 
@@ -121,6 +122,17 @@ impl DjangoDatabase {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
     }
+
+    /// Refresh all external (non-workspace) project data.
+    ///
+    /// Queries the Python inspector subprocess for template libraries, then
+    /// scans the filesystem for external validation rules and model definitions.
+    /// Workspace files are handled separately by tracked Salsa queries.
+    pub fn refresh_external_data(&mut self) {
+        self.query_inspector_template_libraries();
+        self.scan_external_rules();
+        self.scan_external_models();
+    }
 }
 
 #[salsa::db]
@@ -194,6 +206,14 @@ impl SemanticDb for DjangoDatabase {
             compute_filter_arity_specs(self, project)
         } else {
             djls_semantic::FilterAritySpecs::new()
+        }
+    }
+
+    fn model_graph(&self) -> djls_python::ModelGraph {
+        if let Some(project) = self.project() {
+            compute_model_graph(self, project)
+        } else {
+            djls_python::ModelGraph::new()
         }
     }
 }
@@ -306,6 +326,7 @@ mod invalidation_tests {
             Vec::new(),
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
+            rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
         );
         *db.project.lock().unwrap() = Some(project);
@@ -711,5 +732,96 @@ def my_filter(value, arg):
                 .as_ref(),
             "endcustomblock"
         );
+    }
+
+    #[test]
+    fn model_graph_empty_when_no_models() {
+        let (db, _event_log) = test_db_with_project();
+        let graph = db.model_graph();
+        assert!(graph.is_empty());
+    }
+
+    #[test]
+    fn model_graph_cached_on_repeated_access() {
+        let (db, event_log) = test_db_with_project();
+
+        let _graph1 = db.model_graph();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_model_graph"),
+            "compute_model_graph should execute on first call"
+        );
+
+        let _graph2 = db.model_graph();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_model_graph"),
+            "compute_model_graph should NOT re-execute on second call (cached)"
+        );
+    }
+
+    #[test]
+    fn external_models_change_invalidates_compute_model_graph() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime the cache
+        let _graph = db.model_graph();
+        event_log.take();
+
+        // Set external model data
+        let project = db.project.lock().unwrap().unwrap();
+        let mut model_graph = djls_python::ModelGraph::new();
+        let mut user = djls_python::ModelDef::new("User", "auth.models", 1);
+        user.relations.push(djls_python::Relation {
+            field_name: "profile".into(),
+            relation_type: djls_python::RelationType::OneToOne {
+                target_model: "Profile".into(),
+                related_name: None,
+            },
+        });
+        model_graph.add_model(user);
+
+        let mut external_models = rustc_hash::FxHashMap::default();
+        external_models.insert(djls_python::ModulePath::new("auth.models"), model_graph);
+        project
+            .set_extracted_external_models(&mut db)
+            .to(external_models);
+
+        // Access again — should re-execute
+        let graph = db.model_graph();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_model_graph"),
+            "compute_model_graph should re-execute after extracted_external_models change"
+        );
+
+        assert!(
+            graph.get("User").is_some(),
+            "model graph should include User from external models"
+        );
+    }
+
+    #[test]
+    fn external_models_stored_on_project() {
+        let (mut db, _event_log) = test_db_with_project();
+        let project = db.project.lock().unwrap().unwrap();
+
+        assert!(
+            project.extracted_external_models(&db).is_empty(),
+            "extracted_external_models should be empty initially"
+        );
+
+        let mut model_graph = djls_python::ModelGraph::new();
+        model_graph.add_model(djls_python::ModelDef::new("Article", "blog.models", 1));
+        let key = djls_python::ModulePath::new("blog.models");
+        let mut external_models = rustc_hash::FxHashMap::default();
+        external_models.insert(key.clone(), model_graph);
+        project
+            .set_extracted_external_models(&mut db)
+            .to(external_models);
+
+        let stored = project.extracted_external_models(&db);
+        assert_eq!(stored.len(), 1);
+        assert!(stored.contains_key(key.as_str()));
     }
 }

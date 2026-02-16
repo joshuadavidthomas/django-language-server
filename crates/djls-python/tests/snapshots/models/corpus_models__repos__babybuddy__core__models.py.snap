@@ -1,0 +1,147 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BMI:
+    name: BMI
+    module_path: core.models
+    line: 141
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: bmi
+    kind: concrete
+  Child:
+    name: Child
+    module_path: core.models
+    line: 168
+    relations: []
+    kind: concrete
+  DiaperChange:
+    name: DiaperChange
+    module_path: core.models
+    line: 230
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: diaper_change
+    kind: concrete
+  Feeding:
+    name: Feeding
+    module_path: core.models
+    line: 283
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: feeding
+    kind: concrete
+  HeadCircumference:
+    name: HeadCircumference
+    module_path: core.models
+    line: 351
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: head_circumference
+    kind: concrete
+  Height:
+    name: Height
+    module_path: core.models
+    line: 383
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: height
+    kind: concrete
+  HeightPercentile:
+    name: HeightPercentile
+    module_path: core.models
+    line: 413
+    relations: []
+    kind: concrete
+  Note:
+    name: Note
+    module_path: core.models
+    line: 438
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: note
+    kind: concrete
+  Pumping:
+    name: Pumping
+    module_path: core.models
+    line: 464
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: pumping
+    kind: concrete
+  Sleep:
+    name: Sleep
+    module_path: core.models
+    line: 515
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: sleep
+    kind: concrete
+  Temperature:
+    name: Temperature
+    module_path: core.models
+    line: 566
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: temperature
+    kind: concrete
+  Timer:
+    name: Timer
+    module_path: core.models
+    line: 598
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: timers
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: User
+        related_name: timers
+    kind: concrete
+  TummyTime:
+    name: TummyTime
+    module_path: core.models
+    line: 669
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: tummy_time
+    kind: concrete
+  Weight:
+    name: Weight
+    module_path: core.models
+    line: 717
+    relations:
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Child
+        related_name: weight
+    kind: concrete
+  WeightPercentile:
+    name: WeightPercentile
+    module_path: core.models
+    line: 747
+    relations: []
+    kind: concrete

@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  RoleCategoryACL:
+    name: RoleCategoryACL
+    module_path: misago.categories.models
+    line: 164
+    relations:
+      - field_name: role
+        relation_type: ForeignKey
+        target_model: Role
+        related_name: categories_acls
+      - field_name: category
+        relation_type: ForeignKey
+        target_model: Category
+        related_name: category_role_set
+      - field_name: category_role
+        relation_type: ForeignKey
+        target_model: CategoryRole
+        related_name: ~
+    kind: concrete

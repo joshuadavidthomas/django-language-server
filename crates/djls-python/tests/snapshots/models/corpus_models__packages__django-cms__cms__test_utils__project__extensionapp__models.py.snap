@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  MultiTableContentExtensionParent:
+    name: MultiTableContentExtensionParent
+    module_path: cms.test_utils.project.extensionapp.models
+    line: 39
+    relations: []
+    kind: concrete
+  MultiTablePageContentExtension:
+    name: MultiTablePageContentExtension
+    module_path: cms.test_utils.project.extensionapp.models
+    line: 43
+    relations: []
+    kind: concrete
+  MultiTablePageExtension:
+    name: MultiTablePageExtension
+    module_path: cms.test_utils.project.extensionapp.models
+    line: 32
+    relations: []
+    kind: concrete
+  MultiTablePageExtensionParent:
+    name: MultiTablePageExtensionParent
+    module_path: cms.test_utils.project.extensionapp.models
+    line: 28
+    relations: []
+    kind: concrete

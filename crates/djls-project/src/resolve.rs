@@ -2,8 +2,49 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_python::ModulePath;
 
 use crate::Interpreter;
+
+/// Derive a dotted module path from a relative filesystem path.
+///
+/// Strips the file extension and joins path components with dots.
+/// For `__init__.py`, drops the `__init__` component to yield the
+/// package path. For example:
+/// - `myapp/models.py` → `myapp.models`
+/// - `myapp/models/__init__.py` → `myapp.models`
+/// - `myapp/models/user.py` → `myapp.models.user`
+fn module_path_from_relative(rel: &Utf8Path) -> ModulePath {
+    let without_ext = rel.with_extension("");
+    let parts: Vec<&str> = without_ext.components().map(|c| c.as_str()).collect();
+    let dotted = if parts.last() == Some(&"__init__") {
+        parts[..parts.len() - 1].join(".")
+    } else {
+        parts.join(".")
+    };
+    ModulePath::new(dotted)
+}
+
+/// Check whether a file path is a Django model source file.
+///
+/// Matches `models.py` (single-file) and any `.py` file nested at any
+/// depth inside a `models/` package (a directory named `models` that
+/// contains `__init__.py`).
+fn is_model_file(path: &Utf8Path) -> bool {
+    if path.file_name() == Some("models.py") {
+        return true;
+    }
+    if path.extension() == Some("py") {
+        let mut dir = path.parent();
+        while let Some(d) = dir {
+            if d.file_name() == Some("models") {
+                return d.join("__init__.py").exists();
+            }
+            dir = d.parent();
+        }
+    }
+    false
+}
 
 /// Classification of where a module lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,6 +275,117 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
+/// Discover model source files in a directory tree and extract model graphs.
+///
+/// Walks the directory recursively looking for both `models.py` files and
+/// `.py` files inside `models/` packages (directories with `__init__.py`).
+/// Derives the dotted module path from the filesystem path relative to
+/// `base_dir` and extracts model definitions from each file.
+///
+/// Multiple files from the same models package produce separate entries
+/// keyed by their full module path (e.g., `myapp.models`, `myapp.models.user`).
+///
+/// Skips files that fail to read and empty graphs.
+fn scan_models_in_dir(
+    base_dir: &Utf8Path,
+) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
+    let mut results = rustc_hash::FxHashMap::default();
+
+    for entry in ignore::WalkBuilder::new(base_dir.as_std_path())
+        .hidden(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+    {
+        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
+            continue;
+        };
+
+        if !is_model_file(&path) {
+            continue;
+        }
+
+        let Some(rel) = path.strip_prefix(base_dir).ok() else {
+            continue;
+        };
+
+        let module_path = module_path_from_relative(rel);
+
+        let Ok(source) = std::fs::read_to_string(path.as_std_path()) else {
+            continue;
+        };
+
+        let graph = djls_python::extract_model_graph(&source, module_path.as_str());
+        if !graph.is_empty() {
+            results.insert(module_path, graph);
+        }
+    }
+
+    results
+}
+
+/// Extract model graphs from external (non-workspace) directories.
+///
+/// Scans site-packages for `models.py` files and extracts model graphs.
+/// Workspace `models.py` files should use tracked Salsa queries instead.
+#[must_use]
+pub fn extract_external_models(
+    interpreter: &Interpreter,
+    root: &Utf8Path,
+) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
+    let Some(site_packages) = find_site_packages(interpreter, root) else {
+        return rustc_hash::FxHashMap::default();
+    };
+
+    scan_models_in_dir(&site_packages)
+}
+
+/// Discover model source files in the workspace and return their resolved paths.
+///
+/// Walks the project root looking for `models.py` files and `.py` files
+/// inside `models/` packages. Returns a list of `(module_path, file_path)`
+/// pairs where `module_path` is the dotted module path relative to the
+/// project root.
+#[must_use]
+pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
+    let mut results = Vec::new();
+
+    for entry in ignore::WalkBuilder::new(root.as_std_path())
+        .hidden(true)
+        .git_ignore(true)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+    {
+        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
+            continue;
+        };
+
+        if !is_model_file(&path) {
+            continue;
+        }
+
+        // Skip anything in site-packages (external)
+        if path.components().any(|c| c.as_str() == "site-packages") {
+            continue;
+        }
+
+        let Some(rel) = path.strip_prefix(root).ok() else {
+            continue;
+        };
+
+        let module_path = module_path_from_relative(rel);
+
+        results.push((module_path, path));
+    }
+
+    results.sort_by(|(a, _), (b, _)| a.cmp(b));
+    results
+}
+
 /// Extract validation rules from external (non-workspace) registration modules.
 ///
 /// Resolves the given module paths, filters to external-only, reads each
@@ -405,5 +557,232 @@ mod tests {
         assert_eq!(external.len(), 1);
         assert_eq!(workspace[0].module_path, "myproject.templatetags.custom");
         assert_eq!(external[0].module_path, "django.templatetags.i18n");
+    }
+
+    #[test]
+    fn scan_models_in_dir_finds_models() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let app_dir = root.join("myapp");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("models.py"),
+            r"
+from django.db import models
+
+class Article(models.Model):
+    title = models.CharField(max_length=200)
+    author = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+",
+        )
+        .unwrap();
+
+        let results = scan_models_in_dir(&root);
+        assert_eq!(results.len(), 1);
+        assert!(results.contains_key("myapp.models"));
+        assert!(results["myapp.models"].get("Article").is_some());
+    }
+
+    #[test]
+    fn scan_models_in_dir_skips_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let app_dir = root.join("emptyapp");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
+
+        let results = scan_models_in_dir(&root);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn scan_models_in_dir_nested_apps() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        // Create two nested apps
+        for app in &["blog", "accounts"] {
+            let app_dir = root.join(app);
+            std::fs::create_dir_all(&app_dir).unwrap();
+            std::fs::write(
+                app_dir.join("models.py"),
+                format!(
+                    "from django.db import models\nclass {name}Model(models.Model):\n    pass\n",
+                    name = app.chars().next().unwrap().to_uppercase().to_string() + &app[1..]
+                ),
+            )
+            .unwrap();
+        }
+
+        let results = scan_models_in_dir(&root);
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key("blog.models"));
+        assert!(results.contains_key("accounts.models"));
+    }
+
+    #[test]
+    fn discover_workspace_model_files_finds_models() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let app_dir = root.join("myapp");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("models.py"),
+            "from django.db import models\nclass Foo(models.Model): pass\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.as_str(), "myapp.models");
+        assert!(results[0].1.ends_with("models.py"));
+    }
+
+    #[test]
+    fn scan_models_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let models_dir = root.join("myapp/models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+        std::fs::write(
+            models_dir.join("__init__.py"),
+            "from .user import User\nfrom .order import Order\n",
+        )
+        .unwrap();
+        std::fs::write(
+            models_dir.join("user.py"),
+            "from django.db import models\nclass User(models.Model):\n    pass\n",
+        )
+        .unwrap();
+        std::fs::write(
+            models_dir.join("order.py"),
+            "from django.db import models\nclass Order(models.Model):\n    user = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        )
+        .unwrap();
+
+        let results = scan_models_in_dir(&root);
+        // __init__.py has no model defs, so only the two submodules
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key("myapp.models.user"));
+        assert!(results.contains_key("myapp.models.order"));
+        assert!(results["myapp.models.user"].get("User").is_some());
+        assert!(results["myapp.models.order"].get("Order").is_some());
+    }
+
+    #[test]
+    fn discover_workspace_models_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let models_dir = root.join("myapp/models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+        std::fs::write(models_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            models_dir.join("user.py"),
+            "from django.db import models\nclass User(models.Model): pass\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+        assert!(
+            module_paths.contains(&"myapp.models"),
+            "should discover __init__.py as myapp.models"
+        );
+        assert!(
+            module_paths.contains(&"myapp.models.user"),
+            "should discover user.py as myapp.models.user"
+        );
+    }
+
+    #[test]
+    fn module_path_from_init_file() {
+        let path = Utf8Path::new("myapp/models/__init__.py");
+        assert_eq!(module_path_from_relative(path).as_str(), "myapp.models");
+    }
+
+    #[test]
+    fn module_path_from_submodule() {
+        let path = Utf8Path::new("myapp/models/user.py");
+        assert_eq!(
+            module_path_from_relative(path).as_str(),
+            "myapp.models.user"
+        );
+    }
+
+    #[test]
+    fn discover_workspace_models_nested_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let base_dir = root.join("myapp/models/base");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
+        std::fs::write(base_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            base_dir.join("abstract.py"),
+            "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+        assert!(
+            module_paths.contains(&"myapp.models.base.abstract"),
+            "should discover nested model files: got {:?}",
+            module_paths
+        );
+    }
+
+    #[test]
+    fn scan_models_nested_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        let base_dir = root.join("myapp/models/base");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
+        std::fs::write(base_dir.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            base_dir.join("abstract.py"),
+            "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
+        )
+        .unwrap();
+
+        let results = scan_models_in_dir(&root);
+        assert!(
+            results.contains_key("myapp.models.base.abstract"),
+            "should scan nested model files: got {:?}",
+            results.keys().collect::<Vec<_>>()
+        );
+        assert!(results["myapp.models.base.abstract"]
+            .get("BaseModel")
+            .is_some());
+    }
+
+    #[test]
+    fn discover_workspace_model_files_skips_site_packages() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        // Use a non-hidden venv path so the hidden filter doesn't mask
+        // the site-packages component check we're actually testing.
+        let sp = root.join("venv/lib/python3.12/site-packages/somelib");
+        std::fs::create_dir_all(&sp).unwrap();
+        std::fs::write(
+            sp.join("models.py"),
+            "from django.db import models\nclass Lib(models.Model): pass\n",
+        )
+        .unwrap();
+
+        let results = discover_workspace_model_files(&root);
+        assert!(
+            results.is_empty(),
+            "should not discover models in site-packages"
+        );
     }
 }

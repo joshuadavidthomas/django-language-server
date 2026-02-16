@@ -1,0 +1,35 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  DataImportColumnMap:
+    name: DataImportColumnMap
+    module_path: src.backend.InvenTree.importer.models
+    line: 399
+    relations:
+      - field_name: session
+        relation_type: ForeignKey
+        target_model: DataImportSession
+        related_name: column_mappings
+    kind: concrete
+  DataImportRow:
+    name: DataImportRow
+    module_path: src.backend.InvenTree.importer.models
+    line: 512
+    relations:
+      - field_name: session
+        relation_type: ForeignKey
+        target_model: DataImportSession
+        related_name: rows
+    kind: concrete
+  DataImportSession:
+    name: DataImportSession
+    module_path: src.backend.InvenTree.importer.models
+    line: 28
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: User
+        related_name: ~
+    kind: concrete

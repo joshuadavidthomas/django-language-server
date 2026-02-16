@@ -1,0 +1,27 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Process:
+    name: Process
+    module_path: archivebox.machine.models
+    line: 659
+    relations:
+      - field_name: machine
+        relation_type: ForeignKey
+        target_model: Machine
+        related_name: process_set
+      - field_name: parent
+        relation_type: ForeignKey
+        target_model: self
+        related_name: children
+      - field_name: binary
+        relation_type: ForeignKey
+        target_model: Binary
+        related_name: process_set
+      - field_name: iface
+        relation_type: ForeignKey
+        target_model: NetworkInterface
+        related_name: process_set
+    kind: concrete

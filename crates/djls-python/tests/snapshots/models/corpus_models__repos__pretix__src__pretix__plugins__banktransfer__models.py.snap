@@ -1,0 +1,55 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BankImportJob:
+    name: BankImportJob
+    module_path: src.pretix.plugins.banktransfer.models
+    line: 31
+    relations:
+      - field_name: event
+        relation_type: ForeignKey
+        target_model: Event
+        related_name: ~
+      - field_name: organizer
+        relation_type: ForeignKey
+        target_model: Organizer
+        related_name: ~
+    kind: concrete
+  BankTransaction:
+    name: BankTransaction
+    module_path: src.pretix.plugins.banktransfer.models
+    line: 60
+    relations:
+      - field_name: event
+        relation_type: ForeignKey
+        target_model: Event
+        related_name: ~
+      - field_name: organizer
+        relation_type: ForeignKey
+        target_model: Organizer
+        related_name: ~
+      - field_name: import_job
+        relation_type: ForeignKey
+        target_model: BankImportJob
+        related_name: transactions
+      - field_name: order
+        relation_type: ForeignKey
+        target_model: Order
+        related_name: ~
+    kind: concrete
+  RefundExport:
+    name: RefundExport
+    module_path: src.pretix.plugins.banktransfer.models
+    line: 115
+    relations:
+      - field_name: event
+        relation_type: ForeignKey
+        target_model: Event
+        related_name: banktransfer_refund_exports
+      - field_name: organizer
+        relation_type: ForeignKey
+        target_model: Organizer
+        related_name: banktransfer_refund_exports
+    kind: concrete

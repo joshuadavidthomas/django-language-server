@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PrivateThreadMember:
+    name: PrivateThreadMember
+    module_path: misago.privatethreads.models
+    line: 6
+    relations:
+      - field_name: thread
+        relation_type: ForeignKey
+        target_model: Thread
+        related_name: ~
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete

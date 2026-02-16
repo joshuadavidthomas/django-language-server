@@ -1,0 +1,39 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  AsynchronousHarvestingSession:
+    name: AsynchronousHarvestingSession
+    module_path: geonode.harvesting.models
+    line: 293
+    relations:
+      - field_name: harvester
+        relation_type: ForeignKey
+        target_model: Harvester
+        related_name: sessions
+    kind: concrete
+  HarvestableResource:
+    name: HarvestableResource
+    module_path: geonode.harvesting.models
+    line: 393
+    relations:
+      - field_name: harvester
+        relation_type: ForeignKey
+        target_model: Harvester
+        related_name: harvestable_resources
+      - field_name: geonode_resource
+        relation_type: ForeignKey
+        target_model: ResourceBase
+        related_name: ~
+    kind: concrete
+  Harvester:
+    name: Harvester
+    module_path: geonode.harvesting.models
+    line: 41
+    relations:
+      - field_name: default_owner
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete

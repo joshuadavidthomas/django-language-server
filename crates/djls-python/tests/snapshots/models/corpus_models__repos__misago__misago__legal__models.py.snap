@@ -1,0 +1,33 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Agreement:
+    name: Agreement
+    module_path: misago.legal.models
+    line: 38
+    relations:
+      - field_name: created_by
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: +
+      - field_name: last_modified_by
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: +
+    kind: concrete
+  UserAgreement:
+    name: UserAgreement
+    module_path: misago.legal.models
+    line: 98
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: agreement
+        relation_type: ForeignKey
+        target_model: Agreement
+        related_name: accepted_by
+    kind: concrete

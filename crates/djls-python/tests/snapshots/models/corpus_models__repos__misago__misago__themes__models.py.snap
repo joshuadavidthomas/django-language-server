@@ -1,0 +1,25 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Css:
+    name: Css
+    module_path: misago.themes.models
+    line: 48
+    relations:
+      - field_name: theme
+        relation_type: ForeignKey
+        target_model: Theme
+        related_name: css
+    kind: concrete
+  Media:
+    name: Media
+    module_path: misago.themes.models
+    line: 82
+    relations:
+      - field_name: theme
+        relation_type: ForeignKey
+        target_model: Theme
+        related_name: media
+    kind: concrete

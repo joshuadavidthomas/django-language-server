@@ -1,0 +1,43 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ModelWithConfig:
+    name: ModelWithConfig
+    module_path: archivebox.base_models.models
+    line: 100
+    relations: []
+    kind: abstract
+  ModelWithHealthStats:
+    name: ModelWithHealthStats
+    module_path: archivebox.base_models.models
+    line: 81
+    relations: []
+    kind: abstract
+  ModelWithNotes:
+    name: ModelWithNotes
+    module_path: archivebox.base_models.models
+    line: 73
+    relations: []
+    kind: abstract
+  ModelWithOutputDir:
+    name: ModelWithOutputDir
+    module_path: archivebox.base_models.models
+    line: 108
+    relations:
+      - field_name: created_by
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: ~
+    kind: abstract
+  ModelWithUUID:
+    name: ModelWithUUID
+    module_path: archivebox.base_models.models
+    line: 47
+    relations:
+      - field_name: created_by
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: ~
+    kind: abstract

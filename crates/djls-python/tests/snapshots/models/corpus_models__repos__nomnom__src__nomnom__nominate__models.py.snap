@@ -1,0 +1,101 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  AdminMessage:
+    name: AdminMessage
+    module_path: src.nomnom.nominate.models
+    line: 530
+    relations: []
+    kind: concrete
+  Category:
+    name: Category
+    module_path: src.nomnom.nominate.models
+    line: 306
+    relations:
+      - field_name: election
+        relation_type: ForeignKey
+        target_model: Election
+        related_name: ~
+    kind: concrete
+  Election:
+    name: Election
+    module_path: src.nomnom.nominate.models
+    line: 58
+    relations: []
+    kind: concrete
+  Finalist:
+    name: Finalist
+    module_path: src.nomnom.nominate.models
+    line: 452
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target_model: Category
+        related_name: ~
+    kind: concrete
+  NominatingMemberProfile:
+    name: NominatingMemberProfile
+    module_path: src.nomnom.nominate.models
+    line: 28
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target_model: UserModel
+        related_name: convention_profile
+    kind: concrete
+  Nomination:
+    name: Nomination
+    module_path: src.nomnom.nominate.models
+    line: 371
+    relations:
+      - field_name: nominator
+        relation_type: ForeignKey
+        target_model: NominatingMemberProfile
+        related_name: ~
+      - field_name: category
+        relation_type: ForeignKey
+        target_model: Category
+        related_name: ~
+    kind: concrete
+  NominationAdminData:
+    name: NominationAdminData
+    module_path: src.nomnom.nominate.models
+    line: 444
+    relations:
+      - field_name: nomination
+        relation_type: OneToOne
+        target_model: Nomination
+        related_name: admin
+    kind: concrete
+  Rank:
+    name: Rank
+    module_path: src.nomnom.nominate.models
+    line: 489
+    relations:
+      - field_name: membership
+        relation_type: ForeignKey
+        target_model: NominatingMemberProfile
+        related_name: ~
+      - field_name: finalist
+        relation_type: ForeignKey
+        target_model: Finalist
+        related_name: ~
+    kind: concrete
+  ReportRecipient:
+    name: ReportRecipient
+    module_path: src.nomnom.nominate.models
+    line: 520
+    relations: []
+    kind: concrete
+  VotingInformation:
+    name: VotingInformation
+    module_path: src.nomnom.nominate.models
+    line: 298
+    relations:
+      - field_name: election
+        relation_type: OneToOne
+        target_model: Election
+        related_name: voting_info
+    kind: concrete

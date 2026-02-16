@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  LessMixedPlugin:
+    name: LessMixedPlugin
+    module_path: cms.test_utils.project.mti_pluginapp.models
+    line: 88
+    relations: []
+    kind: concrete
+  MixedPlugin:
+    name: MixedPlugin
+    module_path: cms.test_utils.project.mti_pluginapp.models
+    line: 81
+    relations: []
+    kind: concrete
+  NonPluginModel:
+    name: NonPluginModel
+    module_path: cms.test_utils.project.mti_pluginapp.models
+    line: 73
+    relations: []
+    kind: concrete

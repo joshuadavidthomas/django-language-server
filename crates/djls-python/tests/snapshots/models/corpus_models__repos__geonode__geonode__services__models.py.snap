@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ServiceProfileRole:
+    name: ServiceProfileRole
+    module_path: geonode.services.models
+    line: 146
+    relations:
+      - field_name: profiles
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: service
+        relation_type: ForeignKey
+        target_model: Service
+        related_name: ~
+    kind: concrete

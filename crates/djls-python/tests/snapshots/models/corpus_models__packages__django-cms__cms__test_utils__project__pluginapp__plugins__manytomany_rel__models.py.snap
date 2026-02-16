@@ -1,0 +1,37 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Article:
+    name: Article
+    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    line: 6
+    relations:
+      - field_name: section
+        relation_type: ForeignKey
+        target_model: Section
+        related_name: ~
+    kind: concrete
+  FKModel:
+    name: FKModel
+    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    line: 32
+    relations:
+      - field_name: fk_field
+        relation_type: ForeignKey
+        target_model: PluginModelWithFKFromModel
+        related_name: ~
+    kind: concrete
+  M2MTargetModel:
+    name: M2MTargetModel
+    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    line: 36
+    relations: []
+    kind: concrete
+  Section:
+    name: Section
+    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    line: 14
+    relations: []
+    kind: concrete

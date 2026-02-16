@@ -1,0 +1,49 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Credential:
+    name: Credential
+    module_path: hc.accounts.models
+    line: 609
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: User
+        related_name: credentials
+    kind: concrete
+  Member:
+    name: Member
+    module_path: hc.accounts.models
+    line: 583
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: User
+        related_name: memberships
+      - field_name: project
+        relation_type: ForeignKey
+        target_model: Project
+        related_name: ~
+    kind: concrete
+  Profile:
+    name: Profile
+    module_path: hc.accounts.models
+    line: 76
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target_model: User
+        related_name: ~
+    kind: concrete
+  Project:
+    name: Project
+    module_path: hc.accounts.models
+    line: 429
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target_model: User
+        related_name: ~
+    kind: concrete

@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  ProcessingWorkflow:
+    name: ProcessingWorkflow
+    module_path: geonode.resource.processing.models
+    line: 55
+    relations:
+      - field_name: processing_tasks
+        relation_type: ManyToMany
+        target_model: AbstractProcessingTask
+        related_name: ~
+    kind: concrete
+  ProcessingWorkflowTasks:
+    name: ProcessingWorkflowTasks
+    module_path: geonode.resource.processing.models
+    line: 73
+    relations:
+      - field_name: workflow
+        relation_type: ForeignKey
+        target_model: ProcessingWorkflow
+        related_name: ~
+      - field_name: task
+        relation_type: ForeignKey
+        target_model: AbstractProcessingTask
+        related_name: link_to_workflow
+    kind: concrete

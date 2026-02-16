@@ -1,0 +1,67 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  PurchaseOrder:
+    name: PurchaseOrder
+    module_path: src.backend.InvenTree.order.models
+    line: 536
+    relations:
+      - field_name: supplier
+        relation_type: ForeignKey
+        target_model: Company
+        related_name: purchase_orders
+      - field_name: received_by
+        relation_type: ForeignKey
+        target_model: User
+        related_name: +
+    kind: concrete
+  ReturnOrder:
+    name: ReturnOrder
+    module_path: src.backend.InvenTree.order.models
+    line: 2633
+    relations:
+      - field_name: customer
+        relation_type: ForeignKey
+        target_model: Company
+        related_name: sales_orders
+    kind: concrete
+  SalesOrder:
+    name: SalesOrder
+    module_path: src.backend.InvenTree.order.models
+    line: 1242
+    relations:
+      - field_name: customer
+        relation_type: ForeignKey
+        target_model: Company
+        related_name: return_orders
+      - field_name: shipped_by
+        relation_type: ForeignKey
+        target_model: User
+        related_name: +
+    kind: concrete
+  SalesOrderAllocation:
+    name: SalesOrderAllocation
+    module_path: src.backend.InvenTree.order.models
+    line: 2483
+    relations:
+      - field_name: line
+        relation_type: ForeignKey
+        target_model: SalesOrderLineItem
+        related_name: allocations
+      - field_name: shipment
+        relation_type: ForeignKey
+        target_model: SalesOrderShipment
+        related_name: allocations
+      - field_name: item
+        relation_type: ForeignKey
+        target_model: StockItem
+        related_name: sales_order_allocations
+    kind: concrete
+  TotalPriceMixin:
+    name: TotalPriceMixin
+    module_path: src.backend.InvenTree.order.models
+    line: 65
+    relations: []
+    kind: abstract

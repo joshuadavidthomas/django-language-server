@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Redirect:
+    name: Redirect
+    module_path: django.contrib.redirects.models
+    line: 6
+    relations:
+      - field_name: site
+        relation_type: ForeignKey
+        target_model: Site
+        related_name: ~
+    kind: concrete

@@ -1,0 +1,107 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  APIProject:
+    name: APIProject
+    module_path: readthedocs.projects.models
+    line: 1584
+    relations: []
+    kind: concrete
+  EnvironmentVariable:
+    name: EnvironmentVariable
+    module_path: readthedocs.projects.models
+    line: 2206
+    relations:
+      - field_name: project
+        relation_type: ForeignKey
+        target_model: Project
+        related_name: ~
+    kind: concrete
+  Feature:
+    name: Feature
+    module_path: readthedocs.projects.models
+    line: 2056
+    relations:
+      - field_name: projects
+        relation_type: ManyToMany
+        target_model: Project
+        related_name: ~
+    kind: concrete
+  HTMLFile:
+    name: HTMLFile
+    module_path: readthedocs.projects.models
+    line: 1713
+    relations: []
+    kind: concrete
+  HTTPHeader:
+    name: HTTPHeader
+    module_path: readthedocs.projects.models
+    line: 2014
+    relations:
+      - field_name: domain
+        relation_type: ForeignKey
+        target_model: Domain
+        related_name: http_headers
+    kind: concrete
+  ImportedFile:
+    name: ImportedFile
+    module_path: readthedocs.projects.models
+    line: 1662
+    relations:
+      - field_name: project
+        relation_type: ForeignKey
+        target_model: Project
+        related_name: imported_files
+      - field_name: version
+        relation_type: ForeignKey
+        target_model: Version
+        related_name: imported_files
+    kind: concrete
+  Project:
+    name: Project
+    module_path: readthedocs.projects.models
+    line: 289
+    relations:
+      - field_name: users
+        relation_type: ManyToMany
+        target_model: User
+        related_name: projects
+      - field_name: related_projects
+        relation_type: ManyToMany
+        target_model: self
+        related_name: ~
+      - field_name: main_language_project
+        relation_type: ForeignKey
+        target_model: self
+        related_name: translations
+      - field_name: remote_repository
+        relation_type: ForeignKey
+        target_model: RemoteRepository
+        related_name: projects
+      - field_name: latest_build
+        relation_type: OneToOne
+        target_model: Build
+        related_name: +
+    kind: concrete
+  ProjectRelationship:
+    name: ProjectRelationship
+    module_path: readthedocs.projects.models
+    line: 84
+    relations:
+      - field_name: parent
+        relation_type: ForeignKey
+        target_model: Project
+        related_name: subprojects
+      - field_name: child
+        relation_type: ForeignKey
+        target_model: Project
+        related_name: superprojects
+    kind: concrete
+  WebHookEvent:
+    name: WebHookEvent
+    module_path: readthedocs.projects.models
+    line: 1768
+    relations: []
+    kind: concrete

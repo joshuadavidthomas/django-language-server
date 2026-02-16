@@ -1,0 +1,21 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  MainModel:
+    name: MainModel
+    module_path: cms.test_utils.project.fakemlng.models
+    line: 6
+    relations: []
+    kind: concrete
+  Translations:
+    name: Translations
+    module_path: cms.test_utils.project.fakemlng.models
+    line: 10
+    relations:
+      - field_name: master
+        relation_type: ForeignKey
+        target_model: MainModel
+        related_name: ~
+    kind: concrete
