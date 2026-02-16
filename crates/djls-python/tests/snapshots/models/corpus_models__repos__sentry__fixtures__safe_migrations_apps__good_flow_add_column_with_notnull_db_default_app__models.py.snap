@@ -8,5 +8,4 @@ models:
     module_path: fixtures.safe_migrations_apps.good_flow_add_column_with_notnull_db_default_app.models
     line: 4
     relations: []
-    generic_foreign_keys: []
     kind: concrete

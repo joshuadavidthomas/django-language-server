@@ -9,8 +9,7 @@ models:
     line: 22
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: OneToOne
+        target_model: AUTH_USER_MODEL
         related_name: wagtail_userprofile
-    generic_foreign_keys: []
     kind: concrete

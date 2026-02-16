@@ -8,5 +8,4 @@ models:
     module_path: hc.logs.models
     line: 18
     relations: []
-    generic_foreign_keys: []
     kind: concrete

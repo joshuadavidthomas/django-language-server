@@ -9,12 +9,11 @@ models:
     line: 146
     relations:
       - field_name: profiles
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
       - field_name: service
-        target_model: Service
         relation_type: ForeignKey
+        target_model: Service
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

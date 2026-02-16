@@ -9,12 +9,11 @@ models:
     line: 69
     relations:
       - field_name: item
-        target_model: Item
         relation_type: OneToOne
+        target_model: Item
         related_name: badge_assignment
       - field_name: layout
-        target_model: BadgeLayout
         relation_type: ForeignKey
+        target_model: BadgeLayout
         related_name: item_assignments
-    generic_foreign_keys: []
     kind: concrete

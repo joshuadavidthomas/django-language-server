@@ -7,9 +7,9 @@ models:
     name: Bookmark
     module_path: netbox.extras.models.models
     line: 842
-    relations: []
-    generic_foreign_keys:
+    relations:
       - field_name: object
+        relation_type: GenericForeignKey
         ct_field: object_type
         fk_field: object_id
     kind: concrete

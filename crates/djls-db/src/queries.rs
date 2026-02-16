@@ -1,6 +1,7 @@
 use djls_project::build_search_paths;
 use djls_project::Project;
 use djls_python::models::ModelGraph;
+use djls_python::models::ModulePath;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -118,7 +119,10 @@ pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph 
 /// processes workspace files, giving them automatic Salsa invalidation
 /// when the user edits a `models.py`.
 #[salsa::tracked]
-fn collect_workspace_models(db: &dyn SemanticDb, project: Project) -> Vec<(String, ModelGraph)> {
+fn collect_workspace_models(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(ModulePath, ModelGraph)> {
     let root = project.root(db);
 
     let model_files = djls_project::discover_workspace_model_files(root);
@@ -132,7 +136,7 @@ fn collect_workspace_models(db: &dyn SemanticDb, project: Project) -> Vec<(Strin
         let file = db.get_or_create_file(&file_path);
         let source = file.source(db);
 
-        let graph = djls_python::models::extract_model_graph(source.as_ref(), &module_path);
+        let graph = djls_python::models::extract_model_graph(source.as_ref(), module_path.as_str());
         if !graph.is_empty() {
             results.push((module_path, graph));
         }

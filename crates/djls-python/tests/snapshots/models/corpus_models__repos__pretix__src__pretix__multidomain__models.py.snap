@@ -9,14 +9,13 @@ models:
     line: 138
     relations:
       - field_name: domain
-        target_model: KnownDomain
         relation_type: ForeignKey
+        target_model: KnownDomain
         related_name: event_assignments
       - field_name: event
-        target_model: Event
         relation_type: OneToOne
+        target_model: Event
         related_name: alternative_domain_assignment
-    generic_foreign_keys: []
     kind: concrete
   KnownDomain:
     name: KnownDomain
@@ -24,12 +23,11 @@ models:
     line: 31
     relations:
       - field_name: organizer
-        target_model: Organizer
         relation_type: ForeignKey
+        target_model: Organizer
         related_name: domains
       - field_name: event
-        target_model: Event
         relation_type: OneToOne
+        target_model: Event
         related_name: domain
-    generic_foreign_keys: []
     kind: concrete

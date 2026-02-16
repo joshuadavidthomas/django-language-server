@@ -9,10 +9,9 @@ models:
     line: 609
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: credentials
-    generic_foreign_keys: []
     kind: concrete
   Member:
     name: Member
@@ -20,14 +19,13 @@ models:
     line: 583
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: memberships
       - field_name: project
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Profile:
     name: Profile
@@ -35,10 +33,9 @@ models:
     line: 76
     relations:
       - field_name: user
-        target_model: User
         relation_type: OneToOne
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Project:
     name: Project
@@ -46,8 +43,7 @@ models:
     line: 429
     relations:
       - field_name: owner
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

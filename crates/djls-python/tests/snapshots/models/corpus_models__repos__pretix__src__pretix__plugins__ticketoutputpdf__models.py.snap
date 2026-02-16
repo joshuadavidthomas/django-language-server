@@ -9,16 +9,15 @@ models:
     line: 347
     relations:
       - field_name: item
-        target_model: Item
         relation_type: ForeignKey
+        target_model: Item
         related_name: ticketlayout_assignments
       - field_name: layout
-        target_model: TicketLayout
         relation_type: ForeignKey
+        target_model: TicketLayout
         related_name: item_assignments
       - field_name: sales_channel
-        target_model: SalesChannel
         relation_type: ForeignKey
+        target_model: SalesChannel
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

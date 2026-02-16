@@ -9,14 +9,13 @@ models:
     line: 93
     relations:
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
       - field_name: contact
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   ExtraMetadata:
     name: ExtraMetadata
@@ -24,10 +23,9 @@ models:
     line: 2140
     relations:
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   GroupGeoLimit:
     name: GroupGeoLimit
@@ -35,21 +33,19 @@ models:
     line: 2134
     relations:
       - field_name: group
-        target_model: GroupProfile
         relation_type: ForeignKey
+        target_model: GroupProfile
         related_name: ~
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   License:
     name: License
     module_path: geonode.base.models
     line: 227
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Link:
     name: Link
@@ -57,14 +53,13 @@ models:
     line: 2014
     relations:
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
       - field_name: asset
-        target_model: Asset
         relation_type: ForeignKey
+        target_model: Asset
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   LinkedResource:
     name: LinkedResource
@@ -72,56 +67,49 @@ models:
     line: 1973
     relations:
       - field_name: source
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: linked_to
       - field_name: target
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: linked_by
-    generic_foreign_keys: []
     kind: concrete
   Menu:
     name: Menu
     module_path: geonode.base.models
     line: 2051
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   MenuItem:
     name: MenuItem
     module_path: geonode.base.models
     line: 2069
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   MenuPlaceholder:
     name: MenuPlaceholder
     module_path: geonode.base.models
     line: 2044
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   RestrictionCodeType:
     name: RestrictionCodeType
     module_path: geonode.base.models
     line: 206
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   SpatialRepresentationType:
     name: SpatialRepresentationType
     module_path: geonode.base.models
     line: 130
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Thesaurus:
     name: Thesaurus
     module_path: geonode.base.models
     line: 450
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   ThesaurusKeyword:
     name: ThesaurusKeyword
@@ -129,10 +117,9 @@ models:
     line: 505
     relations:
       - field_name: thesaurus
-        target_model: Thesaurus
         relation_type: ForeignKey
+        target_model: Thesaurus
         related_name: thesaurus
-    generic_foreign_keys: []
     kind: concrete
   ThesaurusKeywordLabel:
     name: ThesaurusKeywordLabel
@@ -140,10 +127,9 @@ models:
     line: 483
     relations:
       - field_name: keyword
-        target_model: ThesaurusKeyword
         relation_type: ForeignKey
+        target_model: ThesaurusKeyword
         related_name: keyword
-    generic_foreign_keys: []
     kind: concrete
   ThesaurusLabel:
     name: ThesaurusLabel
@@ -151,17 +137,15 @@ models:
     line: 547
     relations:
       - field_name: thesaurus
-        target_model: Thesaurus
         relation_type: ForeignKey
+        target_model: Thesaurus
         related_name: rel_thesaurus
-    generic_foreign_keys: []
     kind: concrete
   TopicCategory:
     name: TopicCategory
     module_path: geonode.base.models
     line: 108
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   UserGeoLimit:
     name: UserGeoLimit
@@ -169,12 +153,11 @@ models:
     line: 2128
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

@@ -763,14 +763,18 @@ def my_filter(value, arg):
         let mut user = djls_python::models::ModelDef::new("User", "auth.models", 1);
         user.relations.push(djls_python::models::Relation {
             field_name: "profile".into(),
-            target_model: "Profile".into(),
-            relation_type: djls_python::models::RelationType::OneToOne,
-            related_name: None,
+            relation_type: djls_python::models::RelationType::OneToOne {
+                target_model: "Profile".into(),
+                related_name: None,
+            },
         });
         model_graph.add_model(user);
 
         let mut external_models = rustc_hash::FxHashMap::default();
-        external_models.insert("auth.models".to_string(), model_graph);
+        external_models.insert(
+            djls_python::models::ModulePath::new("auth.models"),
+            model_graph,
+        );
         project
             .set_extracted_external_models(&mut db)
             .to(external_models);
@@ -805,14 +809,15 @@ def my_filter(value, arg):
             "blog.models",
             1,
         ));
+        let key = djls_python::models::ModulePath::new("blog.models");
         let mut external_models = rustc_hash::FxHashMap::default();
-        external_models.insert("blog.models".to_string(), model_graph);
+        external_models.insert(key.clone(), model_graph);
         project
             .set_extracted_external_models(&mut db)
             .to(external_models);
 
         let stored = project.extracted_external_models(&db);
         assert_eq!(stored.len(), 1);
-        assert!(stored.contains_key("blog.models"));
+        assert!(stored.contains_key(key.as_str()));
     }
 }

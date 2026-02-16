@@ -9,10 +9,9 @@ models:
     line: 227
     relations:
       - field_name: meeting
-        target_model: Meeting
         relation_type: ForeignKey
+        target_model: Meeting
         related_name: action_items
-    generic_foreign_keys: []
     kind: concrete
   ApprovedCorporateMember:
     name: ApprovedCorporateMember
@@ -20,10 +19,9 @@ models:
     line: 174
     relations:
       - field_name: approved_at
-        target_model: Meeting
         relation_type: ForeignKey
+        target_model: Meeting
         related_name: corporate_members_approved
-    generic_foreign_keys: []
     kind: concrete
   ApprovedGrant:
     name: ApprovedGrant
@@ -31,10 +29,9 @@ models:
     line: 124
     relations:
       - field_name: approved_at
-        target_model: Meeting
         relation_type: ForeignKey
+        target_model: Meeting
         related_name: grants_approved
-    generic_foreign_keys: []
     kind: concrete
   ApprovedIndividualMember:
     name: ApprovedIndividualMember
@@ -42,10 +39,9 @@ models:
     line: 159
     relations:
       - field_name: approved_at
-        target_model: Meeting
         relation_type: ForeignKey
+        target_model: Meeting
         related_name: individual_members_approved
-    generic_foreign_keys: []
     kind: concrete
   BoardMember:
     name: BoardMember
@@ -53,18 +49,17 @@ models:
     line: 39
     relations:
       - field_name: account
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
       - field_name: office
-        target_model: Office
         relation_type: ForeignKey
+        target_model: Office
         related_name: holders
       - field_name: term
-        target_model: Term
         relation_type: ForeignKey
+        target_model: Term
         related_name: board_members
-    generic_foreign_keys: []
     kind: concrete
   Business:
     name: Business
@@ -72,10 +67,9 @@ models:
     line: 189
     relations:
       - field_name: meeting
-        target_model: Meeting
         relation_type: ForeignKey
+        target_model: Meeting
         related_name: business
-    generic_foreign_keys: []
     kind: concrete
   CoreAward:
     name: CoreAward
@@ -83,17 +77,15 @@ models:
     line: 263
     relations:
       - field_name: cohort
-        target_model: CoreAwardCohort
         relation_type: ForeignKey
+        target_model: CoreAwardCohort
         related_name: recipients
-    generic_foreign_keys: []
     kind: concrete
   CoreAwardCohort:
     name: CoreAwardCohort
     module_path: foundation.models
     line: 243
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Meeting:
     name: Meeting
@@ -101,37 +93,33 @@ models:
     line: 72
     relations:
       - field_name: leader
-        target_model: BoardMember
         relation_type: ForeignKey
+        target_model: BoardMember
         related_name: meetings_led
       - field_name: board_attendees
-        target_model: BoardMember
         relation_type: ManyToMany
+        target_model: BoardMember
         related_name: meetings_attended
       - field_name: non_board_attendees
-        target_model: NonBoardAttendee
         relation_type: ManyToMany
+        target_model: NonBoardAttendee
         related_name: meetings_attended
-    generic_foreign_keys: []
     kind: concrete
   NonBoardAttendee:
     name: NonBoardAttendee
     module_path: foundation.models
     line: 55
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Office:
     name: Office
     module_path: foundation.models
     line: 15
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Term:
     name: Term
     module_path: foundation.models
     line: 27
     relations: []
-    generic_foreign_keys: []
     kind: concrete

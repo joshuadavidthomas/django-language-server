@@ -8,7 +8,6 @@ models:
     module_path: readthedocs.projects.models
     line: 1584
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   EnvironmentVariable:
     name: EnvironmentVariable
@@ -16,10 +15,9 @@ models:
     line: 2206
     relations:
       - field_name: project
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Feature:
     name: Feature
@@ -27,17 +25,15 @@ models:
     line: 2056
     relations:
       - field_name: projects
-        target_model: Project
         relation_type: ManyToMany
+        target_model: Project
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   HTMLFile:
     name: HTMLFile
     module_path: readthedocs.projects.models
     line: 1713
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   HTTPHeader:
     name: HTTPHeader
@@ -45,10 +41,9 @@ models:
     line: 2014
     relations:
       - field_name: domain
-        target_model: Domain
         relation_type: ForeignKey
+        target_model: Domain
         related_name: http_headers
-    generic_foreign_keys: []
     kind: concrete
   ImportedFile:
     name: ImportedFile
@@ -56,14 +51,13 @@ models:
     line: 1662
     relations:
       - field_name: project
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: imported_files
       - field_name: version
-        target_model: Version
         relation_type: ForeignKey
+        target_model: Version
         related_name: imported_files
-    generic_foreign_keys: []
     kind: concrete
   Project:
     name: Project
@@ -71,26 +65,25 @@ models:
     line: 289
     relations:
       - field_name: users
-        target_model: User
         relation_type: ManyToMany
+        target_model: User
         related_name: projects
       - field_name: related_projects
-        target_model: self
         relation_type: ManyToMany
+        target_model: self
         related_name: ~
       - field_name: main_language_project
-        target_model: self
         relation_type: ForeignKey
+        target_model: self
         related_name: translations
       - field_name: remote_repository
-        target_model: RemoteRepository
         relation_type: ForeignKey
+        target_model: RemoteRepository
         related_name: projects
       - field_name: latest_build
-        target_model: Build
         relation_type: OneToOne
+        target_model: Build
         related_name: +
-    generic_foreign_keys: []
     kind: concrete
   ProjectRelationship:
     name: ProjectRelationship
@@ -98,19 +91,17 @@ models:
     line: 84
     relations:
       - field_name: parent
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: subprojects
       - field_name: child
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: superprojects
-    generic_foreign_keys: []
     kind: concrete
   WebHookEvent:
     name: WebHookEvent
     module_path: readthedocs.projects.models
     line: 1768
     relations: []
-    generic_foreign_keys: []
     kind: concrete

@@ -8,5 +8,4 @@ models:
     module_path: django.contrib.sites.models
     line: 79
     relations: []
-    generic_foreign_keys: []
     kind: concrete

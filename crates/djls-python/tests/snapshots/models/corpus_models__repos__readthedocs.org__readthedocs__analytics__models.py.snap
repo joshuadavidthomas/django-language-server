@@ -9,12 +9,11 @@ models:
     line: 56
     relations:
       - field_name: project
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: page_views
       - field_name: version
-        target_model: Version
         relation_type: ForeignKey
+        target_model: Version
         related_name: page_views
-    generic_foreign_keys: []
     kind: concrete

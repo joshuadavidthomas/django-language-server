@@ -8,7 +8,6 @@ models:
     module_path: readthedocs.sso.models
     line: 68
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   SSOIntegration:
     name: SSOIntegration
@@ -16,16 +15,15 @@ models:
     line: 10
     relations:
       - field_name: organization
-        target_model: Organization
         relation_type: OneToOne
+        target_model: Organization
         related_name: ~
       - field_name: saml_app
-        target_model: SocialApp
         relation_type: OneToOne
+        target_model: SocialApp
         related_name: sso_integration
       - field_name: domains
-        target_model: SSODomain
         relation_type: ManyToMany
+        target_model: SSODomain
         related_name: ssointegrations
-    generic_foreign_keys: []
     kind: concrete

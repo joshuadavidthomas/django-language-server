@@ -8,5 +8,4 @@ models:
     module_path: src.backend.InvenTree.plugin.models
     line: 22
     relations: []
-    generic_foreign_keys: []
     kind: concrete

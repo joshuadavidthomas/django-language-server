@@ -8,6 +8,7 @@
 mod db;
 mod inspector;
 mod queries;
+mod scanning;
 mod settings;
 
 pub use db::DjangoDatabase;

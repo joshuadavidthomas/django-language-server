@@ -8,7 +8,6 @@ models:
     module_path: src.nomnom.nominate.models
     line: 530
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Category:
     name: Category
@@ -16,17 +15,15 @@ models:
     line: 306
     relations:
       - field_name: election
-        target_model: Election
         relation_type: ForeignKey
+        target_model: Election
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Election:
     name: Election
     module_path: src.nomnom.nominate.models
     line: 58
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Finalist:
     name: Finalist
@@ -34,10 +31,9 @@ models:
     line: 452
     relations:
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   NominatingMemberProfile:
     name: NominatingMemberProfile
@@ -45,10 +41,9 @@ models:
     line: 28
     relations:
       - field_name: user
-        target_model: UserModel
         relation_type: OneToOne
+        target_model: UserModel
         related_name: convention_profile
-    generic_foreign_keys: []
     kind: concrete
   Nomination:
     name: Nomination
@@ -56,14 +51,13 @@ models:
     line: 371
     relations:
       - field_name: nominator
-        target_model: NominatingMemberProfile
         relation_type: ForeignKey
+        target_model: NominatingMemberProfile
         related_name: ~
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   NominationAdminData:
     name: NominationAdminData
@@ -71,10 +65,9 @@ models:
     line: 444
     relations:
       - field_name: nomination
-        target_model: Nomination
         relation_type: OneToOne
+        target_model: Nomination
         related_name: admin
-    generic_foreign_keys: []
     kind: concrete
   Rank:
     name: Rank
@@ -82,21 +75,19 @@ models:
     line: 489
     relations:
       - field_name: membership
-        target_model: NominatingMemberProfile
         relation_type: ForeignKey
+        target_model: NominatingMemberProfile
         related_name: ~
       - field_name: finalist
-        target_model: Finalist
         relation_type: ForeignKey
+        target_model: Finalist
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   ReportRecipient:
     name: ReportRecipient
     module_path: src.nomnom.nominate.models
     line: 520
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   VotingInformation:
     name: VotingInformation
@@ -104,8 +95,7 @@ models:
     line: 298
     relations:
       - field_name: election
-        target_model: Election
         relation_type: OneToOne
+        target_model: Election
         related_name: voting_info
-    generic_foreign_keys: []
     kind: concrete

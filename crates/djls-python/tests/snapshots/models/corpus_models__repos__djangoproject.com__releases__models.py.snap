@@ -8,5 +8,4 @@ models:
     module_path: releases.models
     line: 164
     relations: []
-    generic_foreign_keys: []
     kind: concrete

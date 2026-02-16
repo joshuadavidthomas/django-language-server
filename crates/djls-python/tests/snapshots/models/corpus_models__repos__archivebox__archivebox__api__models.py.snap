@@ -9,8 +9,7 @@ models:
     line: 20
     relations:
       - field_name: created_by
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

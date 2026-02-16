@@ -9,17 +9,15 @@ models:
     line: 122
     relations:
       - field_name: social_media_card
-        target_model: ImageUpload
         relation_type: ForeignKey
+        target_model: ImageUpload
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Event:
     name: Event
     module_path: blog.models
     line: 255
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   ImageUpload:
     name: ImageUpload
@@ -27,8 +25,7 @@ models:
     line: 86
     relations:
       - field_name: uploaded_by
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

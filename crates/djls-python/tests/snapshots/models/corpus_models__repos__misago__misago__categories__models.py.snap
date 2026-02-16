@@ -9,16 +9,15 @@ models:
     line: 164
     relations:
       - field_name: role
-        target_model: Role
         relation_type: ForeignKey
+        target_model: Role
         related_name: categories_acls
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: category_role_set
       - field_name: category_role
-        target_model: CategoryRole
         relation_type: ForeignKey
+        target_model: CategoryRole
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

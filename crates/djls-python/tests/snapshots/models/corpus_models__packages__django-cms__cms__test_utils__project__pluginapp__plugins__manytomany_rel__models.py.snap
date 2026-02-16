@@ -9,10 +9,9 @@ models:
     line: 6
     relations:
       - field_name: section
-        target_model: Section
         relation_type: ForeignKey
+        target_model: Section
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   FKModel:
     name: FKModel
@@ -20,22 +19,19 @@ models:
     line: 32
     relations:
       - field_name: fk_field
-        target_model: PluginModelWithFKFromModel
         relation_type: ForeignKey
+        target_model: PluginModelWithFKFromModel
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   M2MTargetModel:
     name: M2MTargetModel
     module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 36
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Section:
     name: Section
     module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 14
     relations: []
-    generic_foreign_keys: []
     kind: concrete

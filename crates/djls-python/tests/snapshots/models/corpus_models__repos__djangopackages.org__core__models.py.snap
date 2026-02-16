@@ -8,5 +8,4 @@ models:
     module_path: core.models
     line: 7
     relations: []
-    generic_foreign_keys: []
     kind: abstract

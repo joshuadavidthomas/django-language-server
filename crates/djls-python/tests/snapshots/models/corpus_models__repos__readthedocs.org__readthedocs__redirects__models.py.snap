@@ -9,8 +9,7 @@ models:
     line: 40
     relations:
       - field_name: project
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: redirects
-    generic_foreign_keys: []
     kind: concrete

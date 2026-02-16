@@ -8,26 +8,22 @@ models:
     module_path: cms.test_utils.project.placeholderapp.models
     line: 81
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   DynamicPlaceholderSlotExample:
     name: DynamicPlaceholderSlotExample
     module_path: cms.test_utils.project.placeholderapp.models
     line: 74
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Example1:
     name: Example1
     module_path: cms.test_utils.project.placeholderapp.models
     line: 21
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   TwoPlaceholderExample:
     name: TwoPlaceholderExample
     module_path: cms.test_utils.project.placeholderapp.models
     line: 65
     relations: []
-    generic_foreign_keys: []
     kind: concrete

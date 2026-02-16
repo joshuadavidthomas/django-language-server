@@ -9,12 +9,11 @@ models:
     line: 25
     relations:
       - field_name: order
-        target_model: Order
         relation_type: ForeignKey
+        target_model: Order
         related_name: ~
       - field_name: payment
-        target_model: OrderPayment
         relation_type: ForeignKey
+        target_model: OrderPayment
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

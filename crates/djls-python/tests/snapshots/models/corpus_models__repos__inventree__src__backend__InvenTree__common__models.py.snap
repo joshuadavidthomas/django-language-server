@@ -8,14 +8,12 @@ models:
     module_path: src.backend.InvenTree.common.models
     line: 190
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   CustomUnit:
     name: CustomUnit
     module_path: src.backend.InvenTree.common.models
     line: 1791
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   DataOutput:
     name: DataOutput
@@ -23,10 +21,9 @@ models:
     line: 2860
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: +
-    generic_foreign_keys: []
     kind: concrete
   EmailMessage:
     name: EmailMessage
@@ -34,10 +31,9 @@ models:
     line: 2980
     relations:
       - field_name: thread
-        target_model: EmailThread
         relation_type: ForeignKey
+        target_model: EmailThread
         related_name: messages
-    generic_foreign_keys: []
     kind: concrete
   InvenTreeCustomUserStateModel:
     name: InvenTreeCustomUserStateModel
@@ -45,17 +41,15 @@ models:
     line: 2078
     relations:
       - field_name: model
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   InvenTreeSetting:
     name: InvenTreeSetting
     module_path: src.backend.InvenTree.common.models
     line: 1212
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   InvenTreeUserSetting:
     name: InvenTreeUserSetting
@@ -63,24 +57,21 @@ models:
     line: 1308
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   MetaMixin:
     name: MetaMixin
     module_path: src.backend.InvenTree.common.models
     line: 92
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   NewsFeedEntry:
     name: NewsFeedEntry
     module_path: src.backend.InvenTree.common.models
     line: 1725
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   NotesImage:
     name: NotesImage
@@ -88,17 +79,15 @@ models:
     line: 1761
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   NotificationEntry:
     name: NotificationEntry
     module_path: src.backend.InvenTree.common.models
     line: 1616
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   NotificationMessage:
     name: NotificationMessage
@@ -106,24 +95,25 @@ models:
     line: 1653
     relations:
       - field_name: target_content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: notification_target
-      - field_name: source_content_type
-        target_model: ContentType
-        relation_type: ForeignKey
-        related_name: notification_source
-      - field_name: user
-        target_model: User
-        relation_type: ForeignKey
-        related_name: ~
-    generic_foreign_keys:
       - field_name: target_object
+        relation_type: GenericForeignKey
         ct_field: target_content_type
         fk_field: target_object_id
+      - field_name: source_content_type
+        relation_type: ForeignKey
+        target_model: ContentType
+        related_name: notification_source
       - field_name: source_object
+        relation_type: GenericForeignKey
         ct_field: source_content_type
         fk_field: source_object_id
+      - field_name: user
+        relation_type: ForeignKey
+        target_model: User
+        related_name: ~
     kind: concrete
   Parameter:
     name: Parameter
@@ -131,28 +121,27 @@ models:
     line: 2578
     relations:
       - field_name: updated_by
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: "%(class)s_updated"
       - field_name: model_type
+        relation_type: ForeignKey
         target_model: ContentType
-        relation_type: ForeignKey
         related_name: ~
-      - field_name: template
-        target_model: ParameterTemplate
-        relation_type: ForeignKey
-        related_name: parameters
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: model_type
         fk_field: model_id
+      - field_name: template
+        relation_type: ForeignKey
+        target_model: ParameterTemplate
+        related_name: parameters
     kind: concrete
   PriceBreak:
     name: PriceBreak
     module_path: src.backend.InvenTree.common.models
     line: 1347
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   SelectionListEntry:
     name: SelectionListEntry
@@ -160,10 +149,9 @@ models:
     line: 2321
     relations:
       - field_name: list
-        target_model: SelectionList
         relation_type: ForeignKey
+        target_model: SelectionList
         related_name: entries
-    generic_foreign_keys: []
     kind: concrete
   UpdatedUserMixin:
     name: UpdatedUserMixin
@@ -171,10 +159,9 @@ models:
     line: 112
     relations:
       - field_name: updated_by
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: "%(class)s_updated"
-    generic_foreign_keys: []
     kind: abstract
   WebhookEndpoint:
     name: WebhookEndpoint
@@ -182,10 +169,9 @@ models:
     line: 1399
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   WebhookMessage:
     name: WebhookMessage
@@ -193,8 +179,7 @@ models:
     line: 1556
     relations:
       - field_name: endpoint
-        target_model: WebhookEndpoint
         relation_type: ForeignKey
+        target_model: WebhookEndpoint
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

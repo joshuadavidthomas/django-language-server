@@ -9,8 +9,7 @@ models:
     line: 120
     relations:
       - field_name: item
-        target_model: Item
         relation_type: ForeignKey
+        target_model: Item
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

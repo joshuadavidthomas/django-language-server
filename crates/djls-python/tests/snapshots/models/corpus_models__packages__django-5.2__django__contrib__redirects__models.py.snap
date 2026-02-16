@@ -9,8 +9,7 @@ models:
     line: 6
     relations:
       - field_name: site
-        target_model: Site
         relation_type: ForeignKey
+        target_model: Site
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

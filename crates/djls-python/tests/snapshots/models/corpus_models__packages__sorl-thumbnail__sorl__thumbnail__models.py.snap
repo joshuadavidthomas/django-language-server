@@ -8,5 +8,4 @@ models:
     module_path: sorl.thumbnail.models
     line: 6
     relations: []
-    generic_foreign_keys: []
     kind: concrete

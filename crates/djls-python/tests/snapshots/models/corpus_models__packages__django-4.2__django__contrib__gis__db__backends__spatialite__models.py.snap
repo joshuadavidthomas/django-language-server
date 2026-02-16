@@ -8,12 +8,10 @@ models:
     module_path: django.contrib.gis.db.backends.spatialite.models
     line: 8
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   SpatialiteSpatialRefSys:
     name: SpatialiteSpatialRefSys
     module_path: django.contrib.gis.db.backends.spatialite.models
     line: 51
     relations: []
-    generic_foreign_keys: []
     kind: concrete

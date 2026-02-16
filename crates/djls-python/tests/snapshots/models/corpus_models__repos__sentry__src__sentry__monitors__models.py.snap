@@ -8,33 +8,28 @@ models:
     module_path: src.sentry.monitors.models
     line: 213
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   MonitorCheckIn:
     name: MonitorCheckIn
     module_path: src.sentry.monitors.models
     line: 474
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   MonitorEnvBrokenDetection:
     name: MonitorEnvBrokenDetection
     module_path: src.sentry.monitors.models
     line: 808
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   MonitorEnvironment:
     name: MonitorEnvironment
     module_path: src.sentry.monitors.models
     line: 650
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   MonitorIncident:
     name: MonitorIncident
     module_path: src.sentry.monitors.models
     line: 756
     relations: []
-    generic_foreign_keys: []
     kind: concrete

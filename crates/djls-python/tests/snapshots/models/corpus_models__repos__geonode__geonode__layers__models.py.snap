@@ -9,15 +9,13 @@ models:
     line: 448
     relations:
       - field_name: dataset
-        target_model: Dataset
         relation_type: ForeignKey
+        target_model: Dataset
         related_name: attribute_set
-    generic_foreign_keys: []
     kind: concrete
   Style:
     name: Style
     module_path: geonode.layers.models
     line: 63
     relations: []
-    generic_foreign_keys: []
     kind: concrete

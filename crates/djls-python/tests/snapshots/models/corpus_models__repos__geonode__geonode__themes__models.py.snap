@@ -9,15 +9,13 @@ models:
     line: 52
     relations:
       - field_name: jumbotron_slide_show
-        target_model: JumbotronThemeSlide
         relation_type: ManyToMany
+        target_model: JumbotronThemeSlide
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   JumbotronThemeSlide:
     name: JumbotronThemeSlide
     module_path: geonode.themes.models
     line: 31
     relations: []
-    generic_foreign_keys: []
     kind: concrete

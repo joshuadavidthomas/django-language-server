@@ -8,5 +8,4 @@ models:
     module_path: avatar.models
     line: 91
     relations: []
-    generic_foreign_keys: []
     kind: concrete

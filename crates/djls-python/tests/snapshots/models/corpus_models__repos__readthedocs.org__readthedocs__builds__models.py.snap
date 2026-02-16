@@ -9,18 +9,17 @@ models:
     line: 632
     relations:
       - field_name: project
-        target_model: Project
         relation_type: ForeignKey
+        target_model: Project
         related_name: builds
       - field_name: version
-        target_model: Version
         relation_type: ForeignKey
+        target_model: Version
         related_name: builds
       - field_name: readthedocs_yaml_config
-        target_model: BuildConfig
         relation_type: ForeignKey
+        target_model: BuildConfig
         related_name: builds
-    generic_foreign_keys: []
     kind: concrete
   BuildCommandResult:
     name: BuildCommandResult
@@ -28,8 +27,7 @@ models:
     line: 1069
     relations:
       - field_name: build
-        target_model: Build
         relation_type: ForeignKey
+        target_model: Build
         related_name: commands
-    generic_foreign_keys: []
     kind: concrete

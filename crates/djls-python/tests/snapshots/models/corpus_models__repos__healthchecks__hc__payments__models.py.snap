@@ -9,8 +9,7 @@ models:
     line: 7
     relations:
       - field_name: user
-        target_model: User
         relation_type: OneToOne
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

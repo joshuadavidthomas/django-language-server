@@ -8,5 +8,4 @@ models:
     module_path: feedstats.models
     line: 4
     relations: []
-    generic_foreign_keys: []
     kind: concrete

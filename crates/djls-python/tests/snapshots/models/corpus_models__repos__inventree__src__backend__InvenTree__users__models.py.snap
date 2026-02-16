@@ -9,11 +9,11 @@ models:
     line: 296
     relations:
       - field_name: owner_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: owner
+        relation_type: GenericForeignKey
         ct_field: owner_type
         fk_field: owner_id
     kind: concrete
@@ -23,8 +23,7 @@ models:
     line: 201
     relations:
       - field_name: group
-        target_model: Group
         relation_type: ForeignKey
+        target_model: Group
         related_name: rule_sets
-    generic_foreign_keys: []
     kind: concrete

@@ -8,12 +8,10 @@ models:
     module_path: fixtures.safe_migrations_apps.good_flow_delete_pending_with_fk_constraints_app.models
     line: 6
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   TestTable:
     name: TestTable
     module_path: fixtures.safe_migrations_apps.good_flow_delete_pending_with_fk_constraints_app.models
     line: 10
     relations: []
-    generic_foreign_keys: []
     kind: concrete

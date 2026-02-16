@@ -9,10 +9,9 @@ models:
     line: 7
     relations:
       - field_name: public_extension
-        target_model: self
         relation_type: OneToOne
+        target_model: self
         related_name: draft_extension
-    generic_foreign_keys: []
     kind: abstract
   PageContentExtension:
     name: PageContentExtension
@@ -20,14 +19,13 @@ models:
     line: 84
     relations:
       - field_name: public_extension
-        target_model: self
         relation_type: OneToOne
+        target_model: self
         related_name: draft_extension
       - field_name: extended_object
-        target_model: PageContent
         relation_type: OneToOne
+        target_model: PageContent
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   PageExtension:
     name: PageExtension
@@ -35,12 +33,11 @@ models:
     line: 74
     relations:
       - field_name: public_extension
-        target_model: self
         relation_type: OneToOne
+        target_model: self
         related_name: draft_extension
       - field_name: extended_object
-        target_model: Page
         relation_type: OneToOne
+        target_model: Page
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract

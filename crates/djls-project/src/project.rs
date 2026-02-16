@@ -3,6 +3,7 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_python::models::ModelGraph;
+use djls_python::models::ModulePath;
 use djls_python::ExtractionResult;
 use rustc_hash::FxHashMap;
 
@@ -62,7 +63,7 @@ pub struct Project {
     /// the venv's site-packages directory. Workspace `models.py` files use
     /// tracked queries via `collect_workspace_models` instead.
     #[returns(ref)]
-    pub extracted_external_models: FxHashMap<String, ModelGraph>,
+    pub extracted_external_models: FxHashMap<ModulePath, ModelGraph>,
 }
 
 impl Project {

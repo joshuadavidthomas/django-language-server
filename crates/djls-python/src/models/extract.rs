@@ -4,19 +4,12 @@ use ruff_python_ast::StmtClassDef;
 use rustc_hash::FxHashSet;
 
 use super::graph::FieldName;
-use super::graph::GenericForeignKey;
 use super::graph::ModelDef;
 use super::graph::ModelGraph;
 use super::graph::ModelKind;
 use super::graph::ModelName;
 use super::graph::Relation;
 use super::graph::RelationType;
-
-const RELATION_FIELDS: &[(&str, RelationType)] = &[
-    ("ForeignKey", RelationType::ForeignKey),
-    ("OneToOneField", RelationType::OneToOne),
-    ("ManyToManyField", RelationType::ManyToMany),
-];
 
 /// Extract a model graph from Python source text.
 ///
@@ -94,16 +87,10 @@ fn resolve_children(
 
         // Snapshot model state at the start of each iteration so newly resolved
         // models become visible to the next iteration.
-        let abstract_data: Vec<(ModelName, Vec<Relation>, Vec<GenericForeignKey>)> = graph
+        let abstract_data: Vec<(ModelName, Vec<Relation>)> = graph
             .models()
             .filter(|m| m.kind == ModelKind::Abstract)
-            .map(|m| {
-                (
-                    m.name.clone(),
-                    m.relations.clone(),
-                    m.generic_foreign_keys.clone(),
-                )
-            })
+            .map(|m| (m.name.clone(), m.relations.clone()))
             .collect();
         let known_names: Vec<ModelName> = graph.models().map(|m| m.name.clone()).collect();
 
@@ -127,17 +114,16 @@ fn resolve_children(
             let line = line_number(source, class.range.start().to_usize());
             let mut model = ModelDef::new(class.name.to_string(), module_path, line);
 
-            // Copy relations and GFKs from ALL abstract parents
+            // Copy relations from ALL abstract parents
             for arg in &args.args {
                 let Some(parent_name) = base_class_name(arg) else {
                     continue;
                 };
-                if let Some((_, relations, gfks)) = abstract_data
+                if let Some((_, relations)) = abstract_data
                     .iter()
-                    .find(|(name, _, _)| name.as_str() == parent_name)
+                    .find(|(name, _)| name.as_str() == parent_name)
                 {
                     model.relations.extend(relations.iter().cloned());
-                    model.generic_foreign_keys.extend(gfks.iter().cloned());
                 }
             }
 
@@ -167,11 +153,21 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-/// Modules that parent `models` (for `from <parent> import models`).
-const DJANGO_MODEL_PARENTS: &[&str] = &["django.db", "django.contrib.gis.db"];
+/// Check if a module path is a known Django models parent module.
+///
+/// These are the modules from which `models` can be imported
+/// (e.g., `from django.db import models`).
+fn is_django_model_parent(module: &str) -> bool {
+    matches!(module, "django.db" | "django.contrib.gis.db")
+}
 
-/// Fully-qualified `models` modules (for `import <module> as ...`).
-const DJANGO_MODELS_MODULES: &[&str] = &["django.db.models", "django.contrib.gis.db.models"];
+/// Check if a module path is a known Django `models` module.
+///
+/// These are the fully-qualified paths to Django's model modules
+/// (for `import django.db.models as ...` or `from django.db.models import Model`).
+fn is_django_models_module(module: &str) -> bool {
+    matches!(module, "django.db.models" | "django.contrib.gis.db.models")
+}
 
 /// Import aliases discovered from a module's import statements.
 ///
@@ -218,7 +214,7 @@ fn collect_import_aliases(body: &[Stmt]) -> ImportAliases {
                 };
 
                 // `from django.db import models [as m]`
-                if DJANGO_MODEL_PARENTS.contains(&module) {
+                if is_django_model_parent(module) {
                     for name in &import.names {
                         if name.name.as_str() == "models" {
                             let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
@@ -228,7 +224,7 @@ fn collect_import_aliases(body: &[Stmt]) -> ImportAliases {
                 }
 
                 // `from django.db.models import Model [as M]`
-                if DJANGO_MODELS_MODULES.contains(&module) {
+                if is_django_models_module(module) {
                     for name in &import.names {
                         if name.name.as_str() == "Model" {
                             let alias = name.asname.as_ref().map_or("Model", |a| a.as_str());
@@ -240,7 +236,7 @@ fn collect_import_aliases(body: &[Stmt]) -> ImportAliases {
             // `import django.db.models as m`
             Stmt::Import(import) => {
                 for name in &import.names {
-                    if DJANGO_MODELS_MODULES.contains(&name.name.as_str()) {
+                    if is_django_models_module(name.name.as_str()) {
                         if let Some(alias) = &name.asname {
                             module_aliases.insert(alias.to_string());
                         }
@@ -295,7 +291,7 @@ fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
         }
     }
 
-    // Extract relation fields
+    // Extract relation fields (FK, O2O, M2M)
     if let Some(relation) = extract_relation(stmt) {
         model.relations.push(relation);
         return;
@@ -303,7 +299,7 @@ fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
 
     // Extract GenericForeignKey fields
     if let Some(gfk) = extract_generic_foreign_key(stmt) {
-        model.generic_foreign_keys.push(gfk);
+        model.relations.push(gfk);
     }
 }
 
@@ -333,28 +329,22 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
         return None;
     };
 
-    let relation_type = match call.func.as_ref() {
-        Expr::Attribute(attr) => lookup_relation_type(attr.attr.as_str()),
-        Expr::Name(name) => lookup_relation_type(name.id.as_str()),
-        _ => None,
-    }?;
+    let field_class_name = match call.func.as_ref() {
+        Expr::Attribute(attr) => attr.attr.as_str(),
+        Expr::Name(name) => name.id.as_str(),
+        _ => return None,
+    };
 
     let target_model = extract_target_model(call)?;
     let related_name = extract_related_name(call);
 
+    let relation_type =
+        RelationType::from_field_class(field_class_name, target_model, related_name)?;
+
     Some(Relation {
         field_name: FieldName::new(target.id.as_str()),
-        target_model,
         relation_type,
-        related_name,
     })
-}
-
-fn lookup_relation_type(name: &str) -> Option<RelationType> {
-    RELATION_FIELDS
-        .iter()
-        .find(|(field_name, _)| *field_name == name)
-        .map(|(_, rt)| *rt)
 }
 
 fn extract_target_model(call: &ruff_python_ast::ExprCall) -> Option<ModelName> {
@@ -390,7 +380,7 @@ fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
         })
 }
 
-fn extract_generic_foreign_key(stmt: &Stmt) -> Option<GenericForeignKey> {
+fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
     let Stmt::Assign(assign) = stmt else {
         return None;
     };
@@ -417,10 +407,12 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<GenericForeignKey> {
         extract_gfk_arg(call, 0, "ct_field").unwrap_or_else(|| "content_type".to_string());
     let fk_field = extract_gfk_arg(call, 1, "fk_field").unwrap_or_else(|| "object_id".to_string());
 
-    Some(GenericForeignKey {
+    Some(Relation {
         field_name: FieldName::new(target.id.as_str()),
-        ct_field: FieldName::new(ct_field),
-        fk_field: FieldName::new(fk_field),
+        relation_type: RelationType::GenericForeignKey {
+            ct_field: FieldName::new(ct_field),
+            fk_field: FieldName::new(fk_field),
+        },
     })
 }
 
@@ -624,9 +616,11 @@ class Order(models.Model):
 
         let rel = &order.relations[0];
         assert_eq!(rel.field_name.as_str(), "user");
-        assert_eq!(rel.target_model.as_str(), "User");
-        assert_eq!(rel.relation_type, RelationType::ForeignKey);
-        assert_eq!(rel.related_name, None);
+        assert_eq!(rel.target_model().unwrap().as_str(), "User");
+        assert!(matches!(
+            rel.relation_type,
+            RelationType::ForeignKey { ref related_name, .. } if related_name.is_none()
+        ));
     }
 
     #[test]
@@ -638,8 +632,14 @@ class Order(models.Model):
         let graph = extract_model_graph(source, "shop.models");
 
         let rel = &graph.get("Order").unwrap().relations[0];
-        assert_eq!(rel.related_name, Some("orders".into()));
-        assert_eq!(rel.effective_related_name("Order", "shop.models"), "orders");
+        assert!(matches!(
+            rel.relation_type,
+            RelationType::ForeignKey { ref related_name, .. } if related_name.as_deref() == Some("orders")
+        ));
+        assert_eq!(
+            rel.effective_related_name("Order", "shop.models"),
+            Some("orders".into())
+        );
     }
 
     #[test]
@@ -651,7 +651,8 @@ class Order(models.Model):
         let graph = extract_model_graph(source, "shop.models");
         assert_eq!(
             graph.get("Order").unwrap().relations[0]
-                .target_model
+                .target_model()
+                .unwrap()
                 .as_str(),
             "User"
         );
@@ -670,12 +671,21 @@ class Article(models.Model):
         let graph = extract_model_graph(source, "app.models");
 
         let profile = graph.get("Profile").unwrap();
-        assert_eq!(profile.relations[0].relation_type, RelationType::OneToOne);
+        assert!(matches!(
+            profile.relations[0].relation_type,
+            RelationType::OneToOne { .. }
+        ));
 
         let article = graph.get("Article").unwrap();
         assert_eq!(article.relations.len(), 2);
-        assert_eq!(article.relations[0].relation_type, RelationType::ForeignKey);
-        assert_eq!(article.relations[1].relation_type, RelationType::ManyToMany);
+        assert!(matches!(
+            article.relations[0].relation_type,
+            RelationType::ForeignKey { .. }
+        ));
+        assert!(matches!(
+            article.relations[1].relation_type,
+            RelationType::ManyToMany { .. }
+        ));
     }
 
     #[test]
@@ -716,7 +726,8 @@ class ConcreteOrder(BaseOrder):
         let targets: Vec<&str> = concrete
             .relations
             .iter()
-            .map(|r| r.target_model.as_str())
+            .filter_map(|r| r.target_model())
+            .map(|m| m.as_str())
             .collect();
         assert!(targets.contains(&"User"));
         assert!(targets.contains(&"Seller"));
@@ -743,7 +754,7 @@ class SpecialOrder(BaseOrder):
         let rel = &special.relations[0];
         assert_eq!(
             rel.effective_related_name("SpecialOrder", "shop.models"),
-            "specialorder_set"
+            Some("specialorder_set".into())
         );
     }
 
@@ -841,7 +852,8 @@ class Document(TimestampMixin, AuditMixin):
         let targets: Vec<&str> = doc
             .relations
             .iter()
-            .map(|r| r.target_model.as_str())
+            .filter_map(|r| r.target_model())
+            .map(|m| m.as_str())
             .collect();
         assert!(targets.contains(&"User"));
         assert!(targets.contains(&"Approver"));
@@ -864,7 +876,10 @@ class Restaurant(Place):
         let restaurant = graph.get("Restaurant").unwrap();
         assert_eq!(restaurant.relations.len(), 1);
         assert_eq!(restaurant.relations[0].field_name.as_str(), "owner");
-        assert_eq!(restaurant.relations[0].target_model.as_str(), "User");
+        assert_eq!(
+            restaurant.relations[0].target_model().unwrap().as_str(),
+            "User"
+        );
     }
 
     #[test]
@@ -886,7 +901,10 @@ class ConcreteOrder(some_module.BaseOrder):
 
         let concrete = graph.get("ConcreteOrder").unwrap();
         assert_eq!(concrete.relations.len(), 1);
-        assert_eq!(concrete.relations[0].target_model.as_str(), "User");
+        assert_eq!(
+            concrete.relations[0].target_model().unwrap().as_str(),
+            "User"
+        );
     }
 
     #[test]
@@ -914,13 +932,16 @@ class Concrete(MiddleMixin):
         let middle = graph.get("MiddleMixin").unwrap();
         assert_eq!(middle.kind, ModelKind::Abstract);
         assert_eq!(middle.relations.len(), 1);
-        assert_eq!(middle.relations[0].target_model.as_str(), "User");
+        assert_eq!(middle.relations[0].target_model().unwrap().as_str(), "User");
 
         // Concrete inherits through MiddleMixin
         let concrete = graph.get("Concrete").unwrap();
         assert_eq!(concrete.kind, ModelKind::Concrete);
         assert_eq!(concrete.relations.len(), 1);
-        assert_eq!(concrete.relations[0].target_model.as_str(), "User");
+        assert_eq!(
+            concrete.relations[0].target_model().unwrap().as_str(),
+            "User"
+        );
     }
 
     #[test]
@@ -934,14 +955,25 @@ class TaggedItem(models.Model):
         let graph = extract_model_graph(source, "tagging.models");
 
         let tagged = graph.get("TaggedItem").unwrap();
-        assert_eq!(tagged.relations.len(), 1);
-        assert_eq!(tagged.relations[0].field_name.as_str(), "content_type");
+        // Both FK and GFK are in the same relations list
+        assert_eq!(tagged.relations.len(), 2);
 
-        assert_eq!(tagged.generic_foreign_keys.len(), 1);
-        let gfk = &tagged.generic_foreign_keys[0];
-        assert_eq!(gfk.field_name.as_str(), "content_object");
-        assert_eq!(gfk.ct_field.as_str(), "content_type");
-        assert_eq!(gfk.fk_field.as_str(), "object_id");
+        // First relation: FK to ContentType
+        assert_eq!(tagged.relations[0].field_name.as_str(), "content_type");
+        assert!(matches!(
+            tagged.relations[0].relation_type,
+            RelationType::ForeignKey { .. }
+        ));
+
+        // Second relation: GFK
+        assert_eq!(tagged.relations[1].field_name.as_str(), "content_object");
+        assert!(matches!(
+            tagged.relations[1].relation_type,
+            RelationType::GenericForeignKey {
+                ref ct_field,
+                ref fk_field,
+            } if ct_field.as_str() == "content_type" && fk_field.as_str() == "object_id"
+        ));
     }
 
     #[test]
@@ -952,10 +984,15 @@ class TaggedItem(models.Model):
 "#;
         let graph = extract_model_graph(source, "tagging.models");
 
-        let gfk = &graph.get("TaggedItem").unwrap().generic_foreign_keys[0];
-        assert_eq!(gfk.field_name.as_str(), "content_object");
-        assert_eq!(gfk.ct_field.as_str(), "content_type");
-        assert_eq!(gfk.fk_field.as_str(), "object_id");
+        let rel = &graph.get("TaggedItem").unwrap().relations[0];
+        assert_eq!(rel.field_name.as_str(), "content_object");
+        assert!(matches!(
+            rel.relation_type,
+            RelationType::GenericForeignKey {
+                ref ct_field,
+                ref fk_field,
+            } if ct_field.as_str() == "content_type" && fk_field.as_str() == "object_id"
+        ));
     }
 
     #[test]
@@ -966,10 +1003,15 @@ class ObjectLog(models.Model):
 "#;
         let graph = extract_model_graph(source, "logs.models");
 
-        let gfk = &graph.get("ObjectLog").unwrap().generic_foreign_keys[0];
-        assert_eq!(gfk.field_name.as_str(), "parent");
-        assert_eq!(gfk.ct_field.as_str(), "object_type");
-        assert_eq!(gfk.fk_field.as_str(), "object_id");
+        let rel = &graph.get("ObjectLog").unwrap().relations[0];
+        assert_eq!(rel.field_name.as_str(), "parent");
+        assert!(matches!(
+            rel.relation_type,
+            RelationType::GenericForeignKey {
+                ref ct_field,
+                ref fk_field,
+            } if ct_field.as_str() == "object_type" && fk_field.as_str() == "object_id"
+        ));
     }
 
     #[test]
@@ -982,10 +1024,11 @@ class TaggedItem(models.Model):
 "#;
         let graph = extract_model_graph(source, "tagging.models");
 
-        assert_eq!(
-            graph.get("TaggedItem").unwrap().generic_foreign_keys.len(),
-            1
-        );
+        assert_eq!(graph.get("TaggedItem").unwrap().relations.len(), 1);
+        assert!(matches!(
+            graph.get("TaggedItem").unwrap().relations[0].relation_type,
+            RelationType::GenericForeignKey { .. }
+        ));
     }
 
     #[test]
@@ -1003,11 +1046,12 @@ class TaggedItem(GenericMixin):
         let graph = extract_model_graph(source, "tagging.models");
 
         let tagged = graph.get("TaggedItem").unwrap();
-        assert_eq!(tagged.generic_foreign_keys.len(), 1);
-        assert_eq!(
-            tagged.generic_foreign_keys[0].field_name.as_str(),
-            "content_object"
-        );
+        assert_eq!(tagged.relations.len(), 1);
+        assert_eq!(tagged.relations[0].field_name.as_str(), "content_object");
+        assert!(matches!(
+            tagged.relations[0].relation_type,
+            RelationType::GenericForeignKey { .. }
+        ));
     }
 
     #[test]
@@ -1020,16 +1064,22 @@ class Action(models.Model):
         let graph = extract_model_graph(source, "activity.models");
 
         let action = graph.get("Action").unwrap();
-        assert_eq!(action.generic_foreign_keys.len(), 2);
-        assert_eq!(action.generic_foreign_keys[0].field_name.as_str(), "actor");
-        assert_eq!(
-            action.generic_foreign_keys[0].ct_field.as_str(),
-            "actor_content_type"
-        );
-        assert_eq!(action.generic_foreign_keys[1].field_name.as_str(), "target");
-        assert_eq!(
-            action.generic_foreign_keys[1].ct_field.as_str(),
-            "target_content_type"
-        );
+        assert_eq!(action.relations.len(), 2);
+        assert_eq!(action.relations[0].field_name.as_str(), "actor");
+        assert!(matches!(
+            action.relations[0].relation_type,
+            RelationType::GenericForeignKey {
+                ref ct_field,
+                ..
+            } if ct_field.as_str() == "actor_content_type"
+        ));
+        assert_eq!(action.relations[1].field_name.as_str(), "target");
+        assert!(matches!(
+            action.relations[1].relation_type,
+            RelationType::GenericForeignKey {
+                ref ct_field,
+                ..
+            } if ct_field.as_str() == "target_content_type"
+        ));
     }
 }

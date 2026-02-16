@@ -8,7 +8,6 @@ models:
     module_path: cms.test_utils.project.fakemlng.models
     line: 6
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Translations:
     name: Translations
@@ -16,8 +15,7 @@ models:
     line: 10
     relations:
       - field_name: master
-        target_model: MainModel
         relation_type: ForeignKey
+        target_model: MainModel
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

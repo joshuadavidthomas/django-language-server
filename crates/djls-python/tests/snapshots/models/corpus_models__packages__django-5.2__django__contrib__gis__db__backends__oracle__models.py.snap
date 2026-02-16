@@ -8,12 +8,10 @@ models:
     module_path: django.contrib.gis.db.backends.oracle.models
     line: 15
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   OracleSpatialRefSys:
     name: OracleSpatialRefSys
     module_path: django.contrib.gis.db.backends.oracle.models
     line: 48
     relations: []
-    generic_foreign_keys: []
     kind: concrete

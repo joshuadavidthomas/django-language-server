@@ -9,14 +9,13 @@ models:
     line: 31
     relations:
       - field_name: event
-        target_model: Event
         relation_type: ForeignKey
+        target_model: Event
         related_name: ~
       - field_name: organizer
-        target_model: Organizer
         relation_type: ForeignKey
+        target_model: Organizer
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   BankTransaction:
     name: BankTransaction
@@ -24,22 +23,21 @@ models:
     line: 60
     relations:
       - field_name: event
-        target_model: Event
         relation_type: ForeignKey
+        target_model: Event
         related_name: ~
       - field_name: organizer
-        target_model: Organizer
         relation_type: ForeignKey
+        target_model: Organizer
         related_name: ~
       - field_name: import_job
-        target_model: BankImportJob
         relation_type: ForeignKey
+        target_model: BankImportJob
         related_name: transactions
       - field_name: order
-        target_model: Order
         relation_type: ForeignKey
+        target_model: Order
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   RefundExport:
     name: RefundExport
@@ -47,12 +45,11 @@ models:
     line: 115
     relations:
       - field_name: event
-        target_model: Event
         relation_type: ForeignKey
+        target_model: Event
         related_name: banktransfer_refund_exports
       - field_name: organizer
-        target_model: Organizer
         relation_type: ForeignKey
+        target_model: Organizer
         related_name: banktransfer_refund_exports
-    generic_foreign_keys: []
     kind: concrete

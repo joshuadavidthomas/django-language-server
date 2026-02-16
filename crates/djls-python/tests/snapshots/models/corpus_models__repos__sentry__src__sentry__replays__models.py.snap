@@ -8,5 +8,4 @@ models:
     module_path: src.sentry.replays.models
     line: 45
     relations: []
-    generic_foreign_keys: []
     kind: concrete

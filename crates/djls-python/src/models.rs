@@ -3,7 +3,6 @@ mod graph;
 
 pub use extract::extract_model_graph;
 pub use graph::FieldName;
-pub use graph::GenericForeignKey;
 pub use graph::ModelDef;
 pub use graph::ModelGraph;
 pub use graph::ModelKind;

@@ -8,7 +8,6 @@ models:
     module_path: src.pretix.api.models
     line: 168
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   WebHook:
     name: WebHook
@@ -16,14 +15,13 @@ models:
     line: 114
     relations:
       - field_name: organizer
-        target_model: Organizer
         relation_type: ForeignKey
+        target_model: Organizer
         related_name: webhooks
       - field_name: limit_events
-        target_model: Event
         relation_type: ManyToMany
+        target_model: Event
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   WebHookCall:
     name: WebHookCall
@@ -31,10 +29,9 @@ models:
     line: 140
     relations:
       - field_name: webhook
-        target_model: WebHook
         relation_type: ForeignKey
+        target_model: WebHook
         related_name: calls
-    generic_foreign_keys: []
     kind: concrete
   WebHookCallRetry:
     name: WebHookCallRetry
@@ -42,14 +39,13 @@ models:
     line: 156
     relations:
       - field_name: webhook
-        target_model: WebHook
         relation_type: ForeignKey
+        target_model: WebHook
         related_name: retries
       - field_name: logentry
-        target_model: LogEntry
         relation_type: ForeignKey
+        target_model: LogEntry
         related_name: webhook_retries
-    generic_foreign_keys: []
     kind: concrete
   WebHookEventListener:
     name: WebHookEventListener
@@ -57,8 +53,7 @@ models:
     line: 132
     relations:
       - field_name: webhook
-        target_model: WebHook
         relation_type: ForeignKey
+        target_model: WebHook
         related_name: listeners
-    generic_foreign_keys: []
     kind: concrete

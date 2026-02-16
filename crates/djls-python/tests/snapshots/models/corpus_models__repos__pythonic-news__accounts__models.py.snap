@@ -9,10 +9,9 @@ models:
     line: 75
     relations:
       - field_name: user
-        target_model: CustomUser
         relation_type: ForeignKey
+        target_model: CustomUser
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Invitation:
     name: Invitation
@@ -20,10 +19,9 @@ models:
     line: 52
     relations:
       - field_name: inviting_user
-        target_model: CustomUser
         relation_type: ForeignKey
+        target_model: CustomUser
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   PasswordResetRequest:
     name: PasswordResetRequest
@@ -31,8 +29,7 @@ models:
     line: 91
     relations:
       - field_name: user
-        target_model: CustomUser
         relation_type: ForeignKey
+        target_model: CustomUser
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

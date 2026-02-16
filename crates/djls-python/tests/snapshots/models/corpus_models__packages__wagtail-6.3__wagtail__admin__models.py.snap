@@ -8,7 +8,6 @@ models:
     module_path: wagtail.admin.models
     line: 22
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   EditingSession:
     name: EditingSession
@@ -16,15 +15,15 @@ models:
     line: 77
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: editing_sessions
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: +
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
     kind: concrete

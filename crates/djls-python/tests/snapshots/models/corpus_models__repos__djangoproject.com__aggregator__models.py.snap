@@ -9,14 +9,13 @@ models:
     line: 44
     relations:
       - field_name: feed_type
-        target_model: FeedType
         relation_type: ForeignKey
+        target_model: FeedType
         related_name: ~
       - field_name: owner
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: owned_feeds
-    generic_foreign_keys: []
     kind: concrete
   FeedItem:
     name: FeedItem
@@ -24,22 +23,19 @@ models:
     line: 123
     relations:
       - field_name: feed
-        target_model: Feed
         relation_type: ForeignKey
+        target_model: Feed
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   FeedType:
     name: FeedType
     module_path: aggregator.models
     line: 17
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   LocalDjangoCommunity:
     name: LocalDjangoCommunity
     module_path: aggregator.models
     line: 214
     relations: []
-    generic_foreign_keys: []
     kind: concrete

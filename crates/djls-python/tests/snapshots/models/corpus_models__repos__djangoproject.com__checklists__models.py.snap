@@ -9,14 +9,13 @@ models:
     line: 323
     relations:
       - field_name: releaser
-        target_model: Releaser
         relation_type: ForeignKey
+        target_model: Releaser
         related_name: ~
       - field_name: release
-        target_model: Release
         relation_type: OneToOne
+        target_model: Release
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   FeatureRelease:
     name: FeatureRelease
@@ -24,22 +23,21 @@ models:
     line: 255
     relations:
       - field_name: releaser
-        target_model: Releaser
         relation_type: ForeignKey
+        target_model: Releaser
         related_name: ~
       - field_name: release
-        target_model: Release
         relation_type: OneToOne
+        target_model: Release
         related_name: ~
       - field_name: eom_release
-        target_model: Release
         relation_type: ForeignKey
+        target_model: Release
         related_name: +
       - field_name: eol_release
-        target_model: Release
         relation_type: ForeignKey
+        target_model: Release
         related_name: +
-    generic_foreign_keys: []
     kind: concrete
   PreRelease:
     name: PreRelease
@@ -47,18 +45,17 @@ models:
     line: 290
     relations:
       - field_name: releaser
-        target_model: Releaser
         relation_type: ForeignKey
+        target_model: Releaser
         related_name: ~
       - field_name: release
-        target_model: Release
         relation_type: OneToOne
+        target_model: Release
         related_name: ~
       - field_name: feature_release
-        target_model: FeatureRelease
         relation_type: ForeignKey
+        target_model: FeatureRelease
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   ReleaseChecklist:
     name: ReleaseChecklist
@@ -66,10 +63,9 @@ models:
     line: 147
     relations:
       - field_name: releaser
-        target_model: Releaser
         relation_type: ForeignKey
+        target_model: Releaser
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   Releaser:
     name: Releaser
@@ -77,10 +73,9 @@ models:
     line: 131
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   SecurityIssue:
     name: SecurityIssue
@@ -88,14 +83,13 @@ models:
     line: 500
     relations:
       - field_name: release
-        target_model: SecurityRelease
         relation_type: ForeignKey
+        target_model: SecurityRelease
         related_name: ~
       - field_name: releases
-        target_model: Release
         relation_type: ManyToMany
+        target_model: Release
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   SecurityIssueReleasesThrough:
     name: SecurityIssueReleasesThrough
@@ -103,14 +97,13 @@ models:
     line: 467
     relations:
       - field_name: securityissue
-        target_model: SecurityIssue
         relation_type: ForeignKey
+        target_model: SecurityIssue
         related_name: ~
       - field_name: release
-        target_model: Release
         relation_type: ForeignKey
+        target_model: Release
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   SecurityRelease:
     name: SecurityRelease
@@ -118,8 +111,7 @@ models:
     line: 356
     relations:
       - field_name: releaser
-        target_model: Releaser
         relation_type: ForeignKey
+        target_model: Releaser
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

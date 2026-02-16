@@ -8,7 +8,6 @@ models:
     module_path: src.nomnom.advise.models
     line: 32
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Vote:
     name: Vote
@@ -16,12 +15,11 @@ models:
     line: 128
     relations:
       - field_name: membership
-        target_model: NominatingMemberProfile
         relation_type: ForeignKey
+        target_model: NominatingMemberProfile
         related_name: ~
       - field_name: proposal
-        target_model: Proposal
         relation_type: ForeignKey
+        target_model: Proposal
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

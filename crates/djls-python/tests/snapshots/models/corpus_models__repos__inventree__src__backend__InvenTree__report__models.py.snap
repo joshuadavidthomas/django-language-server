@@ -8,12 +8,10 @@ models:
     module_path: src.backend.InvenTree.report.models
     line: 820
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   ReportSnippet:
     name: ReportSnippet
     module_path: src.backend.InvenTree.report.models
     line: 797
     relations: []
-    generic_foreign_keys: []
     kind: concrete

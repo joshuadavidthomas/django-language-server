@@ -9,17 +9,15 @@ models:
     line: 141
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: bmi
-    generic_foreign_keys: []
     kind: concrete
   Child:
     name: Child
     module_path: core.models
     line: 168
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   DiaperChange:
     name: DiaperChange
@@ -27,10 +25,9 @@ models:
     line: 230
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: diaper_change
-    generic_foreign_keys: []
     kind: concrete
   Feeding:
     name: Feeding
@@ -38,10 +35,9 @@ models:
     line: 283
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: feeding
-    generic_foreign_keys: []
     kind: concrete
   HeadCircumference:
     name: HeadCircumference
@@ -49,10 +45,9 @@ models:
     line: 351
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: head_circumference
-    generic_foreign_keys: []
     kind: concrete
   Height:
     name: Height
@@ -60,17 +55,15 @@ models:
     line: 383
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: height
-    generic_foreign_keys: []
     kind: concrete
   HeightPercentile:
     name: HeightPercentile
     module_path: core.models
     line: 413
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Note:
     name: Note
@@ -78,10 +71,9 @@ models:
     line: 438
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: note
-    generic_foreign_keys: []
     kind: concrete
   Pumping:
     name: Pumping
@@ -89,10 +81,9 @@ models:
     line: 464
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: pumping
-    generic_foreign_keys: []
     kind: concrete
   Sleep:
     name: Sleep
@@ -100,10 +91,9 @@ models:
     line: 515
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: sleep
-    generic_foreign_keys: []
     kind: concrete
   Temperature:
     name: Temperature
@@ -111,10 +101,9 @@ models:
     line: 566
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: temperature
-    generic_foreign_keys: []
     kind: concrete
   Timer:
     name: Timer
@@ -122,14 +111,13 @@ models:
     line: 598
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: timers
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: timers
-    generic_foreign_keys: []
     kind: concrete
   TummyTime:
     name: TummyTime
@@ -137,10 +125,9 @@ models:
     line: 669
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: tummy_time
-    generic_foreign_keys: []
     kind: concrete
   Weight:
     name: Weight
@@ -148,15 +135,13 @@ models:
     line: 717
     relations:
       - field_name: child
-        target_model: Child
         relation_type: ForeignKey
+        target_model: Child
         related_name: weight
-    generic_foreign_keys: []
     kind: concrete
   WeightPercentile:
     name: WeightPercentile
     module_path: core.models
     line: 747
     relations: []
-    generic_foreign_keys: []
     kind: concrete

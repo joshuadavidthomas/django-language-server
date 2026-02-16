@@ -9,17 +9,15 @@ models:
     line: 257
     relations:
       - field_name: uploaded_by_user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   AbstractRendition:
     name: AbstractRendition
     module_path: wagtail.images.models
     line: 1267
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   Image:
     name: Image
@@ -27,10 +25,9 @@ models:
     line: 884
     relations:
       - field_name: uploaded_by_user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Rendition:
     name: Rendition
@@ -38,8 +35,7 @@ models:
     line: 1429
     relations:
       - field_name: image
-        target_model: Image
         relation_type: ForeignKey
+        target_model: Image
         related_name: renditions
-    generic_foreign_keys: []
     kind: concrete

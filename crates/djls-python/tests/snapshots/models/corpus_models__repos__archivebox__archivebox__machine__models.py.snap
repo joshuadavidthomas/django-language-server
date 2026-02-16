@@ -9,20 +9,19 @@ models:
     line: 659
     relations:
       - field_name: machine
-        target_model: Machine
         relation_type: ForeignKey
+        target_model: Machine
         related_name: process_set
       - field_name: parent
-        target_model: self
         relation_type: ForeignKey
+        target_model: self
         related_name: children
       - field_name: binary
-        target_model: Binary
         relation_type: ForeignKey
+        target_model: Binary
         related_name: process_set
       - field_name: iface
-        target_model: NetworkInterface
         relation_type: ForeignKey
+        target_model: NetworkInterface
         related_name: process_set
-    generic_foreign_keys: []
     kind: concrete

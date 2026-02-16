@@ -8,7 +8,6 @@ models:
     module_path: fundraising.models
     line: 61
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Donation:
     name: Donation
@@ -16,24 +15,21 @@ models:
     line: 105
     relations:
       - field_name: donor
-        target_model: DjangoHero
         relation_type: ForeignKey
+        target_model: DjangoHero
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   FundraisingModel:
     name: FundraisingModel
     module_path: fundraising.models
     line: 46
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   InKindDonor:
     name: InKindDonor
     module_path: fundraising.models
     line: 149
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Payment:
     name: Payment
@@ -41,15 +37,13 @@ models:
     line: 130
     relations:
       - field_name: donation
-        target_model: Donation
         relation_type: ForeignKey
+        target_model: Donation
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Testimonial:
     name: Testimonial
     module_path: fundraising.models
     line: 140
     relations: []
-    generic_foreign_keys: []
     kind: concrete

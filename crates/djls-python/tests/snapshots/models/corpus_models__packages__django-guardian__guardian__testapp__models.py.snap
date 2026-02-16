@@ -8,7 +8,6 @@ models:
     module_path: guardian.testapp.models
     line: 109
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   ChildTestModel:
     name: ChildTestModel
@@ -16,52 +15,45 @@ models:
     line: 150
     relations:
       - field_name: parent_id
-        target_model: ParentTestModel
         relation_type: OneToOne
+        target_model: ParentTestModel
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Mixed:
     name: Mixed
     module_path: guardian.testapp.models
     line: 75
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   ParentTestModel:
     name: ParentTestModel
     module_path: guardian.testapp.models
     line: 146
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Post:
     name: Post
     module_path: guardian.testapp.models
     line: 13
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Project:
     name: Project
     module_path: guardian.testapp.models
     line: 41
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   ReverseMixed:
     name: ReverseMixed
     module_path: guardian.testapp.models
     line: 91
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   UUIDPKModel:
     name: UUIDPKModel
     module_path: guardian.testapp.models
     line: 118
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   UserProfile:
     name: UserProfile
@@ -69,8 +61,7 @@ models:
     line: 56
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: OneToOne
+        target_model: AUTH_USER_MODEL
         related_name: profile
-    generic_foreign_keys: []
     kind: concrete

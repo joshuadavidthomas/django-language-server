@@ -9,31 +9,31 @@ models:
     line: 12
     relations:
       - field_name: content_type
+        relation_type: ForeignKey
         target_model: ContentType
-        relation_type: ForeignKey
         related_name: ~
-      - field_name: owner
-        target_model: AUTH_USER_MODEL
-        relation_type: ForeignKey
-        related_name: "%(app_label)s_%(class)s_owner_related"
-      - field_name: answer_to
-        target_model: self
-        relation_type: ForeignKey
-        related_name: "%(app_label)s_%(class)s_answer_to_related"
-      - field_name: topic
-        target_model: self
-        relation_type: ForeignKey
-        related_name: "%(app_label)s_%(class)s_topic_related"
-      - field_name: recipients
-        target_model: AUTH_USER_MODEL
-        relation_type: ManyToMany
-        related_name: "%(app_label)s_%(class)s_recipients_related"
-      - field_name: to
-        target_model: AUTH_USER_MODEL
-        relation_type: ManyToMany
-        related_name: "%(app_label)s_%(class)s_to_related"
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
+      - field_name: owner
+        relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
+        related_name: "%(app_label)s_%(class)s_owner_related"
+      - field_name: answer_to
+        relation_type: ForeignKey
+        target_model: self
+        related_name: "%(app_label)s_%(class)s_answer_to_related"
+      - field_name: topic
+        relation_type: ForeignKey
+        target_model: self
+        related_name: "%(app_label)s_%(class)s_topic_related"
+      - field_name: recipients
+        relation_type: ManyToMany
+        target_model: AUTH_USER_MODEL
+        related_name: "%(app_label)s_%(class)s_recipients_related"
+      - field_name: to
+        relation_type: ManyToMany
+        target_model: AUTH_USER_MODEL
+        related_name: "%(app_label)s_%(class)s_to_related"
     kind: concrete

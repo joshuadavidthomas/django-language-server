@@ -9,12 +9,11 @@ models:
     line: 26
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: gold
       - field_name: projects
-        target_model: Project
         relation_type: ManyToMany
+        target_model: Project
         related_name: gold_owners
-    generic_foreign_keys: []
     kind: concrete

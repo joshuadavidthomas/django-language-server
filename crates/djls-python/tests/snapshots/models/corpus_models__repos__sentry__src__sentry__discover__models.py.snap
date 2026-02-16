@@ -9,22 +9,19 @@ models:
     line: 81
     relations:
       - field_name: projects
-        target_model: Project
         relation_type: ManyToMany
+        target_model: Project
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   DiscoverSavedQueryProject:
     name: DiscoverSavedQueryProject
     module_path: src.sentry.discover.models
     line: 68
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   TeamKeyTransaction:
     name: TeamKeyTransaction
     module_path: src.sentry.discover.models
     line: 197
     relations: []
-    generic_foreign_keys: []
     kind: concrete

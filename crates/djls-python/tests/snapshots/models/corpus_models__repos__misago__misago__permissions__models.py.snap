@@ -9,14 +9,13 @@ models:
     line: 13
     relations:
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: ~
       - field_name: group
-        target_model: Group
         relation_type: ForeignKey
+        target_model: Group
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Moderator:
     name: Moderator
@@ -24,12 +23,11 @@ models:
     line: 41
     relations:
       - field_name: group
-        target_model: Group
         relation_type: ForeignKey
+        target_model: Group
         related_name: ~
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

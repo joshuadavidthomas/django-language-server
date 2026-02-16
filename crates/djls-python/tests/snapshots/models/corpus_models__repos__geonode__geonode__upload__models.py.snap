@@ -9,26 +9,23 @@ models:
     line: 143
     relations:
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
       - field_name: execution_request
-        target_model: ExecutionRequest
         relation_type: ForeignKey
+        target_model: ExecutionRequest
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   UploadParallelismLimit:
     name: UploadParallelismLimit
     module_path: geonode.upload.models
     line: 97
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   UploadSizeLimit:
     name: UploadSizeLimit
     module_path: geonode.upload.models
     line: 64
     relations: []
-    generic_foreign_keys: []
     kind: concrete

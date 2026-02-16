@@ -8,5 +8,4 @@ models:
     module_path: debug_toolbar.models
     line: 5
     relations: []
-    generic_foreign_keys: []
     kind: concrete

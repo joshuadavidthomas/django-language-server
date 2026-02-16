@@ -9,17 +9,15 @@ models:
     line: 93
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   SocialApp:
     name: SocialApp
     module_path: allauth.socialaccount.models
     line: 40
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   SocialToken:
     name: SocialToken
@@ -27,12 +25,11 @@ models:
     line: 157
     relations:
       - field_name: app
-        target_model: SocialApp
         relation_type: ForeignKey
+        target_model: SocialApp
         related_name: ~
       - field_name: account
-        target_model: SocialAccount
         relation_type: ForeignKey
+        target_model: SocialAccount
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

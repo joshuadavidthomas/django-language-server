@@ -8,19 +8,16 @@ models:
     module_path: src.sentry.snuba.models
     line: 139
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   SnubaQuery:
     name: SnubaQuery
     module_path: src.sentry.snuba.models
     line: 54
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   SnubaQueryEventType:
     name: SnubaQueryEventType
     module_path: src.sentry.snuba.models
     line: 114
     relations: []
-    generic_foreign_keys: []
     kind: concrete

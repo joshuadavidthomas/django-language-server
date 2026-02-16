@@ -9,14 +9,13 @@ models:
     line: 220
     relations:
       - field_name: tags
-        target_model: Tag
         relation_type: ManyToMany
+        target_model: Tag
         related_name: ~
       - field_name: series
-        target_model: Series
         relation_type: ForeignKey
+        target_model: Series
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   Blogmark:
     name: Blogmark
@@ -24,14 +23,13 @@ models:
     line: 379
     relations:
       - field_name: tags
-        target_model: Tag
         relation_type: ManyToMany
+        target_model: Tag
         related_name: ~
       - field_name: series
-        target_model: Series
         relation_type: ForeignKey
+        target_model: Series
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Comment:
     name: Comment
@@ -39,11 +37,11 @@ models:
     line: 532
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: item
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
     kind: concrete
@@ -53,14 +51,13 @@ models:
     line: 254
     relations:
       - field_name: tags
-        target_model: Tag
         relation_type: ManyToMany
+        target_model: Tag
         related_name: ~
       - field_name: series
-        target_model: Series
         relation_type: ForeignKey
+        target_model: Series
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   LiveUpdate:
     name: LiveUpdate
@@ -68,10 +65,9 @@ models:
     line: 328
     relations:
       - field_name: entry
-        target_model: Entry
         relation_type: ForeignKey
+        target_model: Entry
         related_name: updates
-    generic_foreign_keys: []
     kind: concrete
   Note:
     name: Note
@@ -79,21 +75,19 @@ models:
     line: 425
     relations:
       - field_name: tags
-        target_model: Tag
         relation_type: ManyToMany
+        target_model: Tag
         related_name: ~
       - field_name: series
-        target_model: Series
         relation_type: ForeignKey
+        target_model: Series
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Photo:
     name: Photo
     module_path: blog.models
     line: 452
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Photoset:
     name: Photoset
@@ -101,14 +95,13 @@ models:
     line: 481
     relations:
       - field_name: photos
-        target_model: Photo
         relation_type: ManyToMany
+        target_model: Photo
         related_name: in_photoset
       - field_name: primary
-        target_model: Photo
         relation_type: ForeignKey
+        target_model: Photo
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   PreviousTagName:
     name: PreviousTagName
@@ -116,10 +109,9 @@ models:
     line: 157
     relations:
       - field_name: tag
-        target_model: Tag
         relation_type: ForeignKey
+        target_model: Tag
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Quotation:
     name: Quotation
@@ -127,28 +119,25 @@ models:
     line: 337
     relations:
       - field_name: tags
-        target_model: Tag
         relation_type: ManyToMany
+        target_model: Tag
         related_name: ~
       - field_name: series
-        target_model: Series
         relation_type: ForeignKey
+        target_model: Series
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Series:
     name: Series
     module_path: blog.models
     line: 195
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Tag:
     name: Tag
     module_path: blog.models
     line: 22
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   TagMerge:
     name: TagMerge
@@ -156,8 +145,7 @@ models:
     line: 165
     relations:
       - field_name: destination_tag
-        target_model: Tag
         relation_type: ForeignKey
+        target_model: Tag
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

@@ -9,10 +9,9 @@ models:
     line: 48
     relations:
       - field_name: theme
-        target_model: Theme
         relation_type: ForeignKey
+        target_model: Theme
         related_name: css
-    generic_foreign_keys: []
     kind: concrete
   Media:
     name: Media
@@ -20,8 +19,7 @@ models:
     line: 82
     relations:
       - field_name: theme
-        target_model: Theme
         relation_type: ForeignKey
+        target_model: Theme
         related_name: media
-    generic_foreign_keys: []
     kind: concrete

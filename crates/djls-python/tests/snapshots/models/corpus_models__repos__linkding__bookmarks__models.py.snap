@@ -9,10 +9,9 @@ models:
     line: 490
     relations:
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: api_tokens
-    generic_foreign_keys: []
     kind: concrete
   Bookmark:
     name: Bookmark
@@ -20,18 +19,17 @@ models:
     line: 53
     relations:
       - field_name: owner
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
       - field_name: tags
-        target_model: Tag
         relation_type: ManyToMany
+        target_model: Tag
         related_name: ~
       - field_name: latest_snapshot
-        target_model: BookmarkAsset
         relation_type: ForeignKey
+        target_model: BookmarkAsset
         related_name: latest_snapshot
-    generic_foreign_keys: []
     kind: concrete
   BookmarkAsset:
     name: BookmarkAsset
@@ -39,10 +37,9 @@ models:
     line: 129
     relations:
       - field_name: bookmark
-        target_model: Bookmark
         relation_type: ForeignKey
+        target_model: Bookmark
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   BookmarkBundle:
     name: BookmarkBundle
@@ -50,10 +47,9 @@ models:
     line: 183
     relations:
       - field_name: owner
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   FeedToken:
     name: FeedToken
@@ -61,10 +57,9 @@ models:
     line: 464
     relations:
       - field_name: user
-        target_model: User
         relation_type: OneToOne
+        target_model: User
         related_name: feed_token
-    generic_foreign_keys: []
     kind: concrete
   GlobalSettings:
     name: GlobalSettings
@@ -72,10 +67,9 @@ models:
     line: 513
     relations:
       - field_name: guest_profile_user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Tag:
     name: Tag
@@ -83,10 +77,9 @@ models:
     line: 21
     relations:
       - field_name: owner
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Toast:
     name: Toast
@@ -94,10 +87,9 @@ models:
     line: 457
     relations:
       - field_name: owner
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   UserProfile:
     name: UserProfile
@@ -105,8 +97,7 @@ models:
     line: 320
     relations:
       - field_name: user
-        target_model: User
         relation_type: OneToOne
+        target_model: User
         related_name: profile
-    generic_foreign_keys: []
     kind: concrete

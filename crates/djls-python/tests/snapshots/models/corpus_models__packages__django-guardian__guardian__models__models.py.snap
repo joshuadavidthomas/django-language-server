@@ -9,11 +9,11 @@ models:
     line: 54
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: abstract
@@ -23,10 +23,9 @@ models:
     line: 13
     relations:
       - field_name: permission
-        target_model: Permission
         relation_type: ForeignKey
+        target_model: Permission
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   GroupObjectPermission:
     name: GroupObjectPermission
@@ -34,11 +33,11 @@ models:
     line: 179
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: concrete
@@ -48,11 +47,11 @@ models:
     line: 173
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: abstract
@@ -62,14 +61,13 @@ models:
     line: 134
     relations:
       - field_name: permission
-        target_model: Permission
         relation_type: ForeignKey
+        target_model: Permission
         related_name: ~
       - field_name: group
-        target_model: Group
         relation_type: ForeignKey
+        target_model: Group
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   UserObjectPermission:
     name: UserObjectPermission
@@ -77,11 +75,11 @@ models:
     line: 114
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: concrete
@@ -91,11 +89,11 @@ models:
     line: 108
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys:
       - field_name: content_object
+        relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_pk
     kind: abstract
@@ -105,12 +103,11 @@ models:
     line: 66
     relations:
       - field_name: permission
-        target_model: Permission
         relation_type: ForeignKey
+        target_model: Permission
         related_name: ~
       - field_name: user
-        target_model: user_model_label
         relation_type: ForeignKey
+        target_model: user_model_label
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract

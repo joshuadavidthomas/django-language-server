@@ -9,14 +9,13 @@ models:
     line: 3597
     relations:
       - field_name: category
-        target_model: PartCategory
         relation_type: ForeignKey
+        target_model: PartCategory
         related_name: starred_users
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: starred_categories
-    generic_foreign_keys: []
     kind: concrete
   PartStar:
     name: PartStar
@@ -24,14 +23,13 @@ models:
     line: 3567
     relations:
       - field_name: part
-        target_model: Part
         relation_type: ForeignKey
+        target_model: Part
         related_name: starred_users
       - field_name: user
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: starred_parts
-    generic_foreign_keys: []
     kind: concrete
   PartStocktake:
     name: PartStocktake
@@ -39,8 +37,7 @@ models:
     line: 3471
     relations:
       - field_name: part
-        target_model: Part
         relation_type: ForeignKey
+        target_model: Part
         related_name: stocktakes
-    generic_foreign_keys: []
     kind: concrete

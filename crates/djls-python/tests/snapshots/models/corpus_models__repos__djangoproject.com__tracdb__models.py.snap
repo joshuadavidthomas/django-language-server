@@ -8,28 +8,24 @@ models:
     module_path: tracdb.models
     line: 281
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Component:
     name: Component
     module_path: tracdb.models
     line: 175
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Milestone:
     name: Milestone
     module_path: tracdb.models
     line: 203
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Revision:
     name: Revision
     module_path: tracdb.models
     line: 242
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Ticket:
     name: Ticket
@@ -37,18 +33,17 @@ models:
     line: 79
     relations:
       - field_name: component
-        target_model: Component
         relation_type: ForeignKey
+        target_model: Component
         related_name: tickets
       - field_name: version
-        target_model: Version
         relation_type: ForeignKey
+        target_model: Version
         related_name: tickets
       - field_name: milestone
-        target_model: Milestone
         relation_type: ForeignKey
+        target_model: Milestone
         related_name: tickets
-    generic_foreign_keys: []
     kind: concrete
   TicketChange:
     name: TicketChange
@@ -56,10 +51,9 @@ models:
     line: 150
     relations:
       - field_name: ticket
-        target_model: Ticket
         relation_type: ForeignKey
+        target_model: Ticket
         related_name: changes
-    generic_foreign_keys: []
     kind: concrete
   TicketCustom:
     name: TicketCustom
@@ -67,22 +61,19 @@ models:
     line: 131
     relations:
       - field_name: ticket
-        target_model: Ticket
         relation_type: ForeignKey
+        target_model: Ticket
         related_name: custom_fields
-    generic_foreign_keys: []
     kind: concrete
   Version:
     name: Version
     module_path: tracdb.models
     line: 188
     relations: []
-    generic_foreign_keys: []
     kind: concrete
   Wiki:
     name: Wiki
     module_path: tracdb.models
     line: 262
     relations: []
-    generic_foreign_keys: []
     kind: concrete

@@ -8,5 +8,4 @@ models:
     module_path: cms.test_utils.project.placeholder_relation_field_app.models
     line: 7
     relations: []
-    generic_foreign_keys: []
     kind: concrete

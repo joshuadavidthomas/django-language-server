@@ -8,5 +8,4 @@ models:
     module_path: fixtures.safe_migrations_apps.safe_run_sql_app.models
     line: 6
     relations: []
-    generic_foreign_keys: []
     kind: concrete

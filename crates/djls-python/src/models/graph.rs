@@ -67,11 +67,63 @@ string_newtype! {
     pub struct FieldName
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The kind of relation a Django model field represents.
+///
+/// Each variant carries its own data, so fields that don't apply to a given
+/// relation kind (e.g., `target_model` on a `GenericForeignKey`) are simply
+/// absent rather than wrapped in `Option`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "relation_type")]
 pub enum RelationType {
-    ForeignKey,
-    OneToOne,
-    ManyToMany,
+    ForeignKey {
+        target_model: ModelName,
+        related_name: Option<String>,
+    },
+    OneToOne {
+        target_model: ModelName,
+        related_name: Option<String>,
+    },
+    ManyToMany {
+        target_model: ModelName,
+        related_name: Option<String>,
+    },
+    GenericForeignKey {
+        ct_field: FieldName,
+        fk_field: FieldName,
+    },
+}
+
+impl RelationType {
+    /// Construct a relation type from a Django field class name.
+    ///
+    /// Maps Python field class names to their corresponding variants:
+    /// - `"ForeignKey"` → [`RelationType::ForeignKey`]
+    /// - `"OneToOneField"` → [`RelationType::OneToOne`]
+    /// - `"ManyToManyField"` → [`RelationType::ManyToMany`]
+    ///
+    /// Returns `None` for unrecognized names.
+    #[must_use]
+    pub fn from_field_class(
+        name: &str,
+        target_model: ModelName,
+        related_name: Option<String>,
+    ) -> Option<Self> {
+        match name {
+            "ForeignKey" => Some(Self::ForeignKey {
+                target_model,
+                related_name,
+            }),
+            "OneToOneField" => Some(Self::OneToOne {
+                target_model,
+                related_name,
+            }),
+            "ManyToManyField" => Some(Self::ManyToMany {
+                target_model,
+                related_name,
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// What kind of Django model this is.
@@ -87,38 +139,67 @@ pub enum ModelKind {
     Abstract,
 }
 
+/// A relation field on a Django model.
+///
+/// The `relation_type` variant determines what data is available:
+/// concrete relations (FK, O2O, M2M) carry a `target_model` and optional
+/// `related_name`, while `GenericForeignKey` carries `ct_field`/`fk_field`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Relation {
     pub field_name: FieldName,
-    pub target_model: ModelName,
+    #[serde(flatten)]
     pub relation_type: RelationType,
-    pub related_name: Option<String>,
 }
 
 impl Relation {
+    /// Get the target model if this is a concrete relation (FK, O2O, M2M).
+    ///
+    /// Returns `None` for `GenericForeignKey` since its target is determined
+    /// at runtime via the content type.
+    #[must_use]
+    pub fn target_model(&self) -> Option<&ModelName> {
+        match &self.relation_type {
+            RelationType::ForeignKey { target_model, .. }
+            | RelationType::OneToOne { target_model, .. }
+            | RelationType::ManyToMany { target_model, .. } => Some(target_model),
+            RelationType::GenericForeignKey { .. } => None,
+        }
+    }
+
     /// Resolve the effective `related_name` for reverse lookups.
     ///
-    /// If an explicit `related_name` was provided, uses that (with `%(class)s`
-    /// and `%(app_label)s` substitution applied). Otherwise synthesizes
-    /// Django's default: `<model>_set` for FK/M2M, or `<model>` for `OneToOne`.
+    /// Returns `None` for `GenericForeignKey` (no static reverse name).
+    ///
+    /// For concrete relations: if an explicit `related_name` was provided,
+    /// uses that (with `%(class)s` and `%(app_label)s` substitution applied).
+    /// Otherwise synthesizes Django's default: `<model>_set` for FK/M2M, or
+    /// `<model>` for `OneToOne`.
     ///
     /// `module_path` is the dotted Python module path (e.g., `"myapp.models"`);
     /// the app label is derived as the component before `models`.
     #[must_use]
-    pub fn effective_related_name(&self, source_model: &str, module_path: &str) -> String {
+    pub fn effective_related_name(&self, source_model: &str, module_path: &str) -> Option<String> {
         let lower = source_model.to_lowercase();
-        match &self.related_name {
-            Some(name) => {
-                let app_label = app_label_from_module_path(module_path).unwrap_or_default();
-                name.replace("%(class)s", &lower)
-                    .replace("%(app_label)s", &app_label)
-            }
-            None => match self.relation_type {
-                RelationType::OneToOne => lower,
-                RelationType::ForeignKey | RelationType::ManyToMany => format!("{lower}_set"),
-            },
+        match &self.relation_type {
+            RelationType::ForeignKey { related_name, .. }
+            | RelationType::ManyToMany { related_name, .. } => Some(match related_name {
+                Some(name) => substitute_related_name(name, &lower, module_path),
+                None => format!("{lower}_set"),
+            }),
+            RelationType::OneToOne { related_name, .. } => Some(match related_name {
+                Some(name) => substitute_related_name(name, &lower, module_path),
+                None => lower,
+            }),
+            RelationType::GenericForeignKey { .. } => None,
         }
     }
+}
+
+fn substitute_related_name(template: &str, lower_model: &str, module_path: &str) -> String {
+    let app_label = app_label_from_module_path(module_path).unwrap_or_default();
+    template
+        .replace("%(class)s", lower_model)
+        .replace("%(app_label)s", &app_label)
 }
 
 /// Derive the app label from a dotted module path.
@@ -144,19 +225,11 @@ fn app_label_from_module_path(module_path: &str) -> Option<String> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenericForeignKey {
-    pub field_name: FieldName,
-    pub ct_field: FieldName,
-    pub fk_field: FieldName,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
     pub name: ModelName,
     pub module_path: ModulePath,
     pub line: usize,
     pub relations: Vec<Relation>,
-    pub generic_foreign_keys: Vec<GenericForeignKey>,
     pub kind: ModelKind,
 }
 
@@ -168,7 +241,6 @@ impl ModelDef {
             module_path: ModulePath::new(module_path),
             line,
             relations: Vec::new(),
-            generic_foreign_keys: Vec::new(),
             kind: ModelKind::Concrete,
         }
     }
@@ -210,6 +282,8 @@ impl ModelGraph {
     }
 
     /// Look up the target model for a forward relation field on `model_name`.
+    ///
+    /// Skips `GenericForeignKey` relations (no static target).
     #[must_use]
     pub fn resolve_forward(&self, model_name: &str, field_name: &str) -> Option<&str> {
         let model = self.models.get(model_name)?;
@@ -217,12 +291,14 @@ impl ModelGraph {
             .relations
             .iter()
             .find(|r| r.field_name.as_str() == field_name)
-            .map(|r| r.target_model.as_str())
+            .and_then(|r| r.target_model())
+            .map(ModelName::as_str)
     }
 
     /// Look up models that point at `model_name` via a reverse relation.
     ///
     /// Returns `(source_model_name, effective_related_name, relation)` triples.
+    /// Skips `GenericForeignKey` relations.
     pub fn resolve_reverse<'a>(
         &'a self,
         model_name: &'a str,
@@ -230,13 +306,10 @@ impl ModelGraph {
         self.models.values().flat_map(move |m| {
             m.relations
                 .iter()
-                .filter(move |r| r.target_model.as_str() == model_name)
-                .map(move |r| {
-                    (
-                        m.name.as_str(),
-                        r.effective_related_name(m.name.as_str(), m.module_path.as_str()),
-                        r,
-                    )
+                .filter(move |r| r.target_model().is_some_and(|t| t.as_str() == model_name))
+                .filter_map(move |r| {
+                    r.effective_related_name(m.name.as_str(), m.module_path.as_str())
+                        .map(|name| (m.name.as_str(), name, r))
                 })
         })
     }
@@ -284,17 +357,19 @@ mod tests {
         let mut order = ModelDef::new("Order", "shop.models", 1);
         order.relations.push(Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::ForeignKey,
-            related_name: Some("orders".into()),
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("User"),
+                related_name: Some("orders".into()),
+            },
         });
 
         let mut profile = ModelDef::new("Profile", "accounts.models", 1);
         profile.relations.push(Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::OneToOne,
-            related_name: None,
+            relation_type: RelationType::OneToOne {
+                target_model: ModelName::new("User"),
+                related_name: None,
+            },
         });
 
         graph.add_model(user);
@@ -337,13 +412,14 @@ mod tests {
     fn default_related_name_fk() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::ForeignKey,
-            related_name: None,
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("User"),
+                related_name: None,
+            },
         };
         assert_eq!(
             rel.effective_related_name("Order", "shop.models"),
-            "order_set"
+            Some("order_set".into())
         );
     }
 
@@ -351,13 +427,14 @@ mod tests {
     fn default_related_name_o2o() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::OneToOne,
-            related_name: None,
+            relation_type: RelationType::OneToOne {
+                target_model: ModelName::new("User"),
+                related_name: None,
+            },
         };
         assert_eq!(
             rel.effective_related_name("Profile", "accounts.models"),
-            "profile"
+            Some("profile".into())
         );
     }
 
@@ -365,13 +442,14 @@ mod tests {
     fn class_substitution_in_related_name() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::ForeignKey,
-            related_name: Some("%(class)s_orders".into()),
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("User"),
+                related_name: Some("%(class)s_orders".into()),
+            },
         };
         assert_eq!(
             rel.effective_related_name("SpecialOrder", "shop.models"),
-            "specialorder_orders"
+            Some("specialorder_orders".into())
         );
     }
 
@@ -379,13 +457,14 @@ mod tests {
     fn app_label_substitution_in_related_name() {
         let rel = Relation {
             field_name: "title".into(),
-            target_model: ModelName::new("Title"),
-            relation_type: RelationType::ForeignKey,
-            related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("Title"),
+                related_name: Some("attached_%(app_label)s_%(class)s_set".into()),
+            },
         };
         assert_eq!(
             rel.effective_related_name("Article", "blog.models"),
-            "attached_blog_article_set"
+            Some("attached_blog_article_set".into())
         );
     }
 
@@ -393,13 +472,14 @@ mod tests {
     fn app_label_from_nested_module_path() {
         let rel = Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::ForeignKey,
-            related_name: Some("%(app_label)s_%(class)s_set".into()),
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("User"),
+                related_name: Some("%(app_label)s_%(class)s_set".into()),
+            },
         };
         assert_eq!(
             rel.effective_related_name("Permission", "django.contrib.auth.models"),
-            "auth_permission_set"
+            Some("auth_permission_set".into())
         );
     }
 
@@ -409,11 +489,15 @@ mod tests {
         // should substitute as empty rather than producing "models".
         let rel = Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::ForeignKey,
-            related_name: Some("%(app_label)s_%(class)s_set".into()),
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("User"),
+                related_name: Some("%(app_label)s_%(class)s_set".into()),
+            },
         };
-        assert_eq!(rel.effective_related_name("Order", "models"), "_order_set");
+        assert_eq!(
+            rel.effective_related_name("Order", "models"),
+            Some("_order_set".into())
+        );
     }
 
     #[test]
@@ -421,11 +505,47 @@ mod tests {
         // When "models" doesn't appear, falls back to first component.
         let rel = Relation {
             field_name: "user".into(),
-            target_model: ModelName::new("User"),
-            relation_type: RelationType::ForeignKey,
-            related_name: Some("%(app_label)s_set".into()),
+            relation_type: RelationType::ForeignKey {
+                target_model: ModelName::new("User"),
+                related_name: Some("%(app_label)s_set".into()),
+            },
         };
-        assert_eq!(rel.effective_related_name("Order", "myapp"), "myapp_set");
+        assert_eq!(
+            rel.effective_related_name("Order", "myapp"),
+            Some("myapp_set".into())
+        );
+    }
+
+    #[test]
+    fn generic_foreign_key_has_no_related_name() {
+        let rel = Relation {
+            field_name: "content_object".into(),
+            relation_type: RelationType::GenericForeignKey {
+                ct_field: "content_type".into(),
+                fk_field: "object_id".into(),
+            },
+        };
+        assert_eq!(
+            rel.effective_related_name("TaggedItem", "tagging.models"),
+            None
+        );
+        assert_eq!(rel.target_model(), None);
+    }
+
+    #[test]
+    fn generic_foreign_key_skipped_in_forward_lookup() {
+        let mut graph = ModelGraph::new();
+        let mut model = ModelDef::new("TaggedItem", "tagging.models", 1);
+        model.relations.push(Relation {
+            field_name: "content_object".into(),
+            relation_type: RelationType::GenericForeignKey {
+                ct_field: "content_type".into(),
+                fk_field: "object_id".into(),
+            },
+        });
+        graph.add_model(model);
+
+        assert_eq!(graph.resolve_forward("TaggedItem", "content_object"), None);
     }
 
     #[test]

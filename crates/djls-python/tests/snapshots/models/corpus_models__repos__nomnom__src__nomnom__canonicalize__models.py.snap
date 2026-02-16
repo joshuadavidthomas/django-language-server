@@ -9,14 +9,13 @@ models:
     line: 91
     relations:
       - field_name: work
-        target_model: Work
         relation_type: ForeignKey
+        target_model: Work
         related_name: ~
       - field_name: nomination
-        target_model: Nomination
         relation_type: OneToOne
+        target_model: Nomination
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Work:
     name: Work
@@ -24,12 +23,11 @@ models:
     line: 16
     relations:
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: ~
       - field_name: nominations
-        target_model: Nomination
         relation_type: ManyToMany
+        target_model: Nomination
         related_name: works
-    generic_foreign_keys: []
     kind: concrete

@@ -9,12 +9,11 @@ models:
     line: 11
     relations:
       - field_name: site
-        target_model: Site
         relation_type: ForeignKey
+        target_model: Site
         related_name: redirects
       - field_name: redirect_page
-        target_model: Page
         relation_type: ForeignKey
+        target_model: Page
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

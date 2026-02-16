@@ -9,10 +9,9 @@ models:
     line: 25
     relations:
       - field_name: uploaded_by_user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   Document:
     name: Document
@@ -20,8 +19,7 @@ models:
     line: 212
     relations:
       - field_name: uploaded_by_user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

@@ -8,7 +8,6 @@ models:
     module_path: wagtail.contrib.forms.models
     line: 380
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   AbstractFormSubmission:
     name: AbstractFormSubmission
@@ -16,17 +15,15 @@ models:
     line: 36
     relations:
       - field_name: page
-        target_model: Page
         relation_type: ForeignKey
+        target_model: Page
         related_name: ~
-    generic_foreign_keys: []
     kind: abstract
   EmailFormMixin:
     name: EmailFormMixin
     module_path: wagtail.contrib.forms.models
     line: 320
     relations: []
-    generic_foreign_keys: []
     kind: abstract
   FormSubmission:
     name: FormSubmission
@@ -34,8 +31,7 @@ models:
     line: 70
     relations:
       - field_name: page
-        target_model: Page
         relation_type: ForeignKey
+        target_model: Page
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

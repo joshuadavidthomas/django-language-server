@@ -9,18 +9,17 @@ models:
     line: 220
     relations:
       - field_name: event
-        target_model: Event
         relation_type: ForeignKey
+        target_model: Event
         related_name: sendmail_rules
       - field_name: subevent
-        target_model: SubEvent
         relation_type: ForeignKey
+        target_model: SubEvent
         related_name: ~
       - field_name: limit_products
-        target_model: Item
         relation_type: ManyToMany
+        target_model: Item
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   ScheduledMail:
     name: ScheduledMail
@@ -28,16 +27,15 @@ models:
     line: 43
     relations:
       - field_name: rule
-        target_model: Rule
         relation_type: ForeignKey
+        target_model: Rule
         related_name: ~
       - field_name: subevent
-        target_model: SubEvent
         relation_type: ForeignKey
+        target_model: SubEvent
         related_name: ~
       - field_name: event
-        target_model: Event
         relation_type: ForeignKey
+        target_model: Event
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

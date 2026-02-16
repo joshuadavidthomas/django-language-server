@@ -9,8 +9,7 @@ models:
     line: 26
     relations:
       - field_name: resource
-        target_model: ResourceBase
         relation_type: ForeignKey
+        target_model: ResourceBase
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

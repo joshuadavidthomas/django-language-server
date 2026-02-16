@@ -9,10 +9,9 @@ models:
     line: 20
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   EmailConfirmation:
     name: EmailConfirmation
@@ -20,8 +19,7 @@ models:
     line: 136
     relations:
       - field_name: email_address
-        target_model: EmailAddress
         relation_type: ForeignKey
+        target_model: EmailAddress
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

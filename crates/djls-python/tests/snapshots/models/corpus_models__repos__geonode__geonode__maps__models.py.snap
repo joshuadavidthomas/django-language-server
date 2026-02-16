@@ -9,12 +9,11 @@ models:
     line: 200
     relations:
       - field_name: map
-        target_model: Map
         relation_type: ForeignKey
+        target_model: Map
         related_name: maplayers
       - field_name: dataset
-        target_model: Dataset
         relation_type: ForeignKey
+        target_model: Dataset
         related_name: maplayers
-    generic_foreign_keys: []
     kind: concrete

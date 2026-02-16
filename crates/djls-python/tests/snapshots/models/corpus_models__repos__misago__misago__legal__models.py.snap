@@ -9,14 +9,13 @@ models:
     line: 38
     relations:
       - field_name: created_by
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: +
       - field_name: last_modified_by
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: +
-    generic_foreign_keys: []
     kind: concrete
   UserAgreement:
     name: UserAgreement
@@ -24,12 +23,11 @@ models:
     line: 98
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
       - field_name: agreement
-        target_model: Agreement
         relation_type: ForeignKey
+        target_model: Agreement
         related_name: accepted_by
-    generic_foreign_keys: []
     kind: concrete

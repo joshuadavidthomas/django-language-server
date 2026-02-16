@@ -9,14 +9,13 @@ models:
     line: 334
     relations:
       - field_name: groups
-        target_model: Group
         relation_type: ManyToMany
+        target_model: Group
         related_name: user_set
       - field_name: user_permissions
-        target_model: Permission
         relation_type: ManyToMany
+        target_model: Permission
         related_name: user_set
-    generic_foreign_keys: []
     kind: abstract
   Group:
     name: Group
@@ -24,10 +23,9 @@ models:
     line: 98
     relations:
       - field_name: permissions
-        target_model: Permission
         relation_type: ManyToMany
+        target_model: Permission
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Permission:
     name: Permission
@@ -35,10 +33,9 @@ models:
     line: 38
     relations:
       - field_name: content_type
-        target_model: ContentType
         relation_type: ForeignKey
+        target_model: ContentType
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   PermissionsMixin:
     name: PermissionsMixin
@@ -46,14 +43,13 @@ models:
     line: 242
     relations:
       - field_name: groups
-        target_model: Group
         relation_type: ManyToMany
+        target_model: Group
         related_name: user_set
       - field_name: user_permissions
-        target_model: Permission
         relation_type: ManyToMany
+        target_model: Permission
         related_name: user_set
-    generic_foreign_keys: []
     kind: abstract
   User:
     name: User
@@ -61,12 +57,11 @@ models:
     line: 405
     relations:
       - field_name: groups
-        target_model: Group
         relation_type: ManyToMany
+        target_model: Group
         related_name: user_set
       - field_name: user_permissions
-        target_model: Permission
         relation_type: ManyToMany
+        target_model: Permission
         related_name: user_set
-    generic_foreign_keys: []
     kind: concrete

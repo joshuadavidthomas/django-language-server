@@ -2,6 +2,7 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_python::models::ModulePath;
 
 use crate::Interpreter;
 
@@ -13,14 +14,15 @@ use crate::Interpreter;
 /// - `myapp/models.py` → `myapp.models`
 /// - `myapp/models/__init__.py` → `myapp.models`
 /// - `myapp/models/user.py` → `myapp.models.user`
-fn module_path_from_relative(rel: &Utf8Path) -> String {
+fn module_path_from_relative(rel: &Utf8Path) -> ModulePath {
     let without_ext = rel.with_extension("");
     let parts: Vec<&str> = without_ext.components().map(|c| c.as_str()).collect();
-    if parts.last() == Some(&"__init__") {
+    let dotted = if parts.last() == Some(&"__init__") {
         parts[..parts.len() - 1].join(".")
     } else {
         parts.join(".")
-    }
+    };
+    ModulePath::new(dotted)
 }
 
 /// Check whether a file path is a Django model source file.
@@ -283,7 +285,7 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
 /// Skips files that fail to read and empty graphs.
 fn scan_models_in_dir(
     base_dir: &Utf8Path,
-) -> rustc_hash::FxHashMap<String, djls_python::models::ModelGraph> {
+) -> rustc_hash::FxHashMap<ModulePath, djls_python::models::ModelGraph> {
     let mut results = rustc_hash::FxHashMap::default();
 
     for entry in ignore::WalkBuilder::new(base_dir.as_std_path())
@@ -313,7 +315,7 @@ fn scan_models_in_dir(
             continue;
         };
 
-        let graph = djls_python::models::extract_model_graph(&source, &module_path);
+        let graph = djls_python::models::extract_model_graph(&source, module_path.as_str());
         if !graph.is_empty() {
             results.insert(module_path, graph);
         }
@@ -330,7 +332,7 @@ fn scan_models_in_dir(
 pub fn extract_external_models(
     interpreter: &Interpreter,
     root: &Utf8Path,
-) -> rustc_hash::FxHashMap<String, djls_python::models::ModelGraph> {
+) -> rustc_hash::FxHashMap<ModulePath, djls_python::models::ModelGraph> {
     let Some(site_packages) = find_site_packages(interpreter, root) else {
         return rustc_hash::FxHashMap::default();
     };
@@ -345,7 +347,7 @@ pub fn extract_external_models(
 /// pairs where `module_path` is the dotted module path relative to the
 /// project root.
 #[must_use]
-pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(String, Utf8PathBuf)> {
+pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
     let mut results = Vec::new();
 
     for entry in ignore::WalkBuilder::new(root.as_std_path())
@@ -576,8 +578,7 @@ class Article(models.Model):
         let results = scan_models_in_dir(&root);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
-        let graph = &results["myapp.models"];
-        assert!(graph.get("Article").is_some());
+        assert!(results["myapp.models"].get("Article").is_some());
     }
 
     #[test]
@@ -633,7 +634,7 @@ class Article(models.Model):
 
         let results = discover_workspace_model_files(&root);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, "myapp.models");
+        assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
     }
 
@@ -698,13 +699,16 @@ class Article(models.Model):
     #[test]
     fn module_path_from_init_file() {
         let path = Utf8Path::new("myapp/models/__init__.py");
-        assert_eq!(module_path_from_relative(path), "myapp.models");
+        assert_eq!(module_path_from_relative(path).as_str(), "myapp.models");
     }
 
     #[test]
     fn module_path_from_submodule() {
         let path = Utf8Path::new("myapp/models/user.py");
-        assert_eq!(module_path_from_relative(path), "myapp.models.user");
+        assert_eq!(
+            module_path_from_relative(path).as_str(),
+            "myapp.models.user"
+        );
     }
 
     #[test]

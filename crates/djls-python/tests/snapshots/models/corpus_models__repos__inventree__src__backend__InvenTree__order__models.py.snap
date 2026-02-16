@@ -9,14 +9,13 @@ models:
     line: 536
     relations:
       - field_name: supplier
-        target_model: Company
         relation_type: ForeignKey
+        target_model: Company
         related_name: purchase_orders
       - field_name: received_by
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: +
-    generic_foreign_keys: []
     kind: concrete
   ReturnOrder:
     name: ReturnOrder
@@ -24,10 +23,9 @@ models:
     line: 2633
     relations:
       - field_name: customer
-        target_model: Company
         relation_type: ForeignKey
+        target_model: Company
         related_name: sales_orders
-    generic_foreign_keys: []
     kind: concrete
   SalesOrder:
     name: SalesOrder
@@ -35,14 +33,13 @@ models:
     line: 1242
     relations:
       - field_name: customer
-        target_model: Company
         relation_type: ForeignKey
+        target_model: Company
         related_name: return_orders
       - field_name: shipped_by
-        target_model: User
         relation_type: ForeignKey
+        target_model: User
         related_name: +
-    generic_foreign_keys: []
     kind: concrete
   SalesOrderAllocation:
     name: SalesOrderAllocation
@@ -50,23 +47,21 @@ models:
     line: 2483
     relations:
       - field_name: line
-        target_model: SalesOrderLineItem
         relation_type: ForeignKey
+        target_model: SalesOrderLineItem
         related_name: allocations
       - field_name: shipment
-        target_model: SalesOrderShipment
         relation_type: ForeignKey
+        target_model: SalesOrderShipment
         related_name: allocations
       - field_name: item
-        target_model: StockItem
         relation_type: ForeignKey
+        target_model: StockItem
         related_name: sales_order_allocations
-    generic_foreign_keys: []
     kind: concrete
   TotalPriceMixin:
     name: TotalPriceMixin
     module_path: src.backend.InvenTree.order.models
     line: 65
     relations: []
-    generic_foreign_keys: []
     kind: abstract

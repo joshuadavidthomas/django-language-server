@@ -9,26 +9,25 @@ models:
     line: 15
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
       - field_name: actor
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: +
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: ~
       - field_name: thread
-        target_model: Thread
         relation_type: ForeignKey
+        target_model: Thread
         related_name: ~
       - field_name: post
-        target_model: Post
         relation_type: ForeignKey
+        target_model: Post
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   WatchedThread:
     name: WatchedThread
@@ -36,16 +35,15 @@ models:
     line: 59
     relations:
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
       - field_name: category
-        target_model: Category
         relation_type: ForeignKey
+        target_model: Category
         related_name: ~
       - field_name: thread
-        target_model: Thread
         relation_type: ForeignKey
+        target_model: Thread
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete

@@ -9,10 +9,9 @@ models:
     line: 35
     relations:
       - field_name: owner
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
   Token:
     name: Token
@@ -20,12 +19,11 @@ models:
     line: 198
     relations:
       - field_name: client
-        target_model: Client
         relation_type: ForeignKey
+        target_model: Client
         related_name: ~
       - field_name: user
-        target_model: AUTH_USER_MODEL
         relation_type: ForeignKey
+        target_model: AUTH_USER_MODEL
         related_name: ~
-    generic_foreign_keys: []
     kind: concrete
