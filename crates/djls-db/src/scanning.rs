@@ -1,5 +1,11 @@
+use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
+use djls_project::ResolvedModule;
+use djls_python::ExtractionResult;
+use djls_python::ModelGraph;
 use djls_python::ModulePath;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use salsa::Setter;
 
 /// Read discovered model files and extract model graphs.
@@ -8,9 +14,9 @@ use salsa::Setter;
 /// function in `djls-project`) and returns a map of module path to extracted
 /// model graph, skipping files that fail to read or produce empty graphs.
 fn extract_models_from_files(
-    files: &[(ModulePath, camino::Utf8PathBuf)],
-) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
-    let mut results = rustc_hash::FxHashMap::default();
+    files: &[(ModulePath, Utf8PathBuf)],
+) -> FxHashMap<ModulePath, ModelGraph> {
+    let mut results = FxHashMap::default();
 
     for (module_path, file_path) in files {
         let source = match std::fs::read_to_string(file_path.as_std_path()) {
@@ -34,10 +40,8 @@ fn extract_models_from_files(
 ///
 /// Takes resolved module metadata, reads each file from disk, and runs
 /// rule extraction. Skips files that fail to read or produce empty results.
-fn extract_rules_from_modules(
-    modules: Vec<djls_project::ResolvedModule>,
-) -> rustc_hash::FxHashMap<String, djls_python::ExtractionResult> {
-    let mut results = rustc_hash::FxHashMap::default();
+fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String, ExtractionResult> {
+    let mut results = FxHashMap::default();
 
     for resolved in modules {
         match std::fs::read_to_string(resolved.file_path.as_std_path()) {
@@ -76,7 +80,7 @@ pub(crate) fn scan_external_models(db: &mut dyn ProjectDb) {
             let files = djls_project::discover_model_files_in_dir(&site_packages);
             extract_models_from_files(&files)
         }
-        None => rustc_hash::FxHashMap::default(),
+        None => FxHashMap::default(),
     };
 
     if project.extracted_external_models(db) != &new_models {
@@ -98,7 +102,7 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
     let root = project.root(db).clone();
     let pythonpath = project.pythonpath(db).clone();
 
-    let modules: rustc_hash::FxHashSet<String> = project
+    let modules: FxHashSet<String> = project
         .template_libraries(db)
         .registration_modules()
         .into_iter()
@@ -106,7 +110,7 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
         .collect();
 
     let new_extraction = if modules.is_empty() {
-        rustc_hash::FxHashMap::default()
+        FxHashMap::default()
     } else {
         let search_paths = djls_project::build_search_paths(&interpreter, &root, &pythonpath);
         let (_workspace, external_modules) =

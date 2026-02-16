@@ -275,6 +275,45 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
+/// Shared walk-and-collect logic for model file discovery.
+///
+/// Configures a `WalkBuilder` via `builder_cfg`, walks the directory tree,
+/// and collects `(module_path, file_path)` pairs for files that pass
+/// `is_model_file` and the caller-supplied `filter` predicate.
+fn discover_model_files(
+    base_dir: &Utf8Path,
+    builder_cfg: impl FnOnce(&mut ignore::WalkBuilder),
+    filter: impl Fn(&Utf8Path) -> bool,
+) -> Vec<(ModulePath, Utf8PathBuf)> {
+    let mut builder = ignore::WalkBuilder::new(base_dir.as_std_path());
+    builder_cfg(&mut builder);
+
+    let mut results = Vec::new();
+
+    for entry in builder
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+    {
+        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
+            continue;
+        };
+
+        if !is_model_file(&path) || !filter(&path) {
+            continue;
+        }
+
+        let Some(rel) = path.strip_prefix(base_dir).ok() else {
+            continue;
+        };
+
+        results.push((module_path_from_relative(rel), path));
+    }
+
+    results.sort_by(|(a, _), (b, _)| a.cmp(b));
+    results
+}
+
 /// Discover model source files in a directory tree and return their resolved paths.
 ///
 /// Walks the directory recursively looking for both `models.py` files and
@@ -285,35 +324,16 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
 /// outside the workspace (e.g. site-packages).
 #[must_use]
 pub fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
-    let mut results = Vec::new();
-
-    for entry in ignore::WalkBuilder::new(base_dir.as_std_path())
-        .hidden(false)
-        .git_ignore(false)
-        .git_global(false)
-        .git_exclude(false)
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-    {
-        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
-            continue;
-        };
-
-        if !is_model_file(&path) {
-            continue;
-        }
-
-        let Some(rel) = path.strip_prefix(base_dir).ok() else {
-            continue;
-        };
-
-        let module_path = module_path_from_relative(rel);
-        results.push((module_path, path));
-    }
-
-    results.sort_by(|(a, _), (b, _)| a.cmp(b));
-    results
+    discover_model_files(
+        base_dir,
+        |wb| {
+            wb.hidden(false)
+                .git_ignore(false)
+                .git_global(false)
+                .git_exclude(false);
+        },
+        |_| true,
+    )
 }
 
 /// Discover model source files in the workspace and return their resolved paths.
@@ -324,39 +344,13 @@ pub fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8
 /// project root.
 #[must_use]
 pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
-    let mut results = Vec::new();
-
-    for entry in ignore::WalkBuilder::new(root.as_std_path())
-        .hidden(true)
-        .git_ignore(true)
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-    {
-        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
-            continue;
-        };
-
-        if !is_model_file(&path) {
-            continue;
-        }
-
-        // Skip anything in site-packages (external)
-        if path.components().any(|c| c.as_str() == "site-packages") {
-            continue;
-        }
-
-        let Some(rel) = path.strip_prefix(root).ok() else {
-            continue;
-        };
-
-        let module_path = module_path_from_relative(rel);
-
-        results.push((module_path, path));
-    }
-
-    results.sort_by(|(a, _), (b, _)| a.cmp(b));
-    results
+    discover_model_files(
+        root,
+        |wb| {
+            wb.hidden(true).git_ignore(true);
+        },
+        |path| !path.components().any(|c| c.as_str() == "site-packages"),
+    )
 }
 
 #[cfg(test)]
