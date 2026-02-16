@@ -31,7 +31,7 @@ Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots,
 - Imports: One per line, grouped (std/external/crate), vertical layout per `.rustfmt.toml`
 - Errors: `anyhow::Result` for binaries, `thiserror` for libraries
 - Naming: snake_case functions/variables, CamelCase types, SCREAMING_SNAKE constants
-- Comments: Avoid unless essential; use doc comments `///` for public APIs only
+- Comments: Don't state the obvious — no `/// Returns the name` above `fn name()`. Comments that explain *why* or provide context (Django conventions, Salsa tracking strategy, etc.) are welcome.
 - Testing: Use `insta` for snapshot tests in template parser. NEVER write standalone test files — always add test cases to existing test modules in the codebase
 - Python: Inspector runs via zipapp, test against all supported Django versions (see `DJ_VERSIONS` in `noxfile.py`)
 - Module convention: Uses `folder.rs` NOT `folder/mod.rs` (e.g. `templatetags.rs` + `templatetags/specs.rs`)
