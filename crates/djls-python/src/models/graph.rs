@@ -264,7 +264,10 @@ mod tests {
             relation_type: RelationType::ForeignKey,
             related_name: None,
         };
-        assert_eq!(rel.effective_related_name("Order", "shop.models"), "order_set");
+        assert_eq!(
+            rel.effective_related_name("Order", "shop.models"),
+            "order_set"
+        );
     }
 
     #[test]
@@ -275,7 +278,10 @@ mod tests {
             relation_type: RelationType::OneToOne,
             related_name: None,
         };
-        assert_eq!(rel.effective_related_name("Profile", "accounts.models"), "profile");
+        assert_eq!(
+            rel.effective_related_name("Profile", "accounts.models"),
+            "profile"
+        );
     }
 
     #[test]

@@ -312,10 +312,9 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<GenericForeignKey> {
         return None;
     }
 
-    let ct_field = extract_gfk_arg(call, 0, "ct_field")
-        .unwrap_or_else(|| "content_type".to_string());
-    let fk_field = extract_gfk_arg(call, 1, "fk_field")
-        .unwrap_or_else(|| "object_id".to_string());
+    let ct_field =
+        extract_gfk_arg(call, 0, "ct_field").unwrap_or_else(|| "content_type".to_string());
+    let fk_field = extract_gfk_arg(call, 1, "fk_field").unwrap_or_else(|| "object_id".to_string());
 
     Some(GenericForeignKey {
         field_name: target.id.to_string(),
@@ -326,11 +325,7 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<GenericForeignKey> {
 
 /// Extract a string argument from a GFK constructor call by positional index
 /// or keyword name.
-fn extract_gfk_arg(
-    call: &ruff_python_ast::ExprCall,
-    pos: usize,
-    keyword: &str,
-) -> Option<String> {
+fn extract_gfk_arg(call: &ruff_python_ast::ExprCall, pos: usize, keyword: &str) -> Option<String> {
     // Try keyword first
     if let Some(value) = call
         .arguments
@@ -795,7 +790,10 @@ class TaggedItem(models.Model):
 "#;
         let graph = extract_model_graph(source, "tagging.models");
 
-        assert_eq!(graph.get("TaggedItem").unwrap().generic_foreign_keys.len(), 1);
+        assert_eq!(
+            graph.get("TaggedItem").unwrap().generic_foreign_keys.len(),
+            1
+        );
     }
 
     #[test]
@@ -829,8 +827,14 @@ class Action(models.Model):
         let action = graph.get("Action").unwrap();
         assert_eq!(action.generic_foreign_keys.len(), 2);
         assert_eq!(action.generic_foreign_keys[0].field_name, "actor");
-        assert_eq!(action.generic_foreign_keys[0].ct_field, "actor_content_type");
+        assert_eq!(
+            action.generic_foreign_keys[0].ct_field,
+            "actor_content_type"
+        );
         assert_eq!(action.generic_foreign_keys[1].field_name, "target");
-        assert_eq!(action.generic_foreign_keys[1].ct_field, "target_content_type");
+        assert_eq!(
+            action.generic_foreign_keys[1].ct_field,
+            "target_content_type"
+        );
     }
 }
