@@ -46,11 +46,11 @@ impl ExtendsPosition {
 /// structure) into a single walk of the `NodeList`, reducing redundant traversals.
 pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
-    tag_specs: TagSpecs,
-    loaded_libraries: LoadedLibraries,
-    template_libraries: djls_project::TemplateLibraries,
+    tag_specs: &'a TagSpecs,
+    loaded_libraries: &'a LoadedLibraries,
+    template_libraries: &'a djls_project::TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
-    filter_arity_specs: FilterAritySpecs,
+    filter_arity_specs: &'a FilterAritySpecs,
 
     // Environment symbol caches
     env_tags: Option<
@@ -59,6 +59,13 @@ pub struct TemplateValidator<'a> {
     env_filters: Option<
         HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
+
+    // Cached AvailableSymbols keyed by the number of active load statements.
+    // Between two {% load %} tags, the load state is identical, so we reuse
+    // the AvailableSymbols rather than rebuilding from scratch per node.
+    // We track the count of statements active at the cached position as a
+    // cheap invalidation check (avoids comparing entire LoadState hash sets).
+    cached_symbols: Option<(usize, AvailableSymbols<'a>)>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
@@ -90,12 +97,37 @@ impl<'a> TemplateValidator<'a> {
             filter_arity_specs,
             env_tags,
             env_filters,
+            cached_symbols: None,
             extends_position: ExtendsPosition::default(),
         }
     }
 
     pub fn validate(mut self, nodes: &[Node]) {
         walk_nodelist(&mut self, nodes);
+    }
+
+    /// Ensure the cached `AvailableSymbols` is up-to-date for the given position.
+    ///
+    /// Counts load statements active at `position` and rebuilds the cache only
+    /// when a new `{% load %}` tag has been crossed. Since templates are walked
+    /// in source order, the active count is monotonically non-decreasing —
+    /// making it a cheap and sufficient invalidation key.
+    fn ensure_symbols_cached(&mut self, position: u32) {
+        let active_count = self
+            .loaded_libraries
+            .statements()
+            .iter()
+            .filter(|s| s.span().end() <= position)
+            .count();
+        let needs_rebuild = match &self.cached_symbols {
+            Some((cached_count, _)) => *cached_count != active_count,
+            None => true,
+        };
+        if needs_rebuild {
+            let load_state = self.loaded_libraries.available_at(position);
+            let symbols = AvailableSymbols::from_load_state(&load_state, self.template_libraries);
+            self.cached_symbols = Some((active_count, symbols));
+        }
     }
 }
 
@@ -134,18 +166,16 @@ impl Visitor for TemplateValidator<'_> {
 
         if !is_opaque {
             // 2. Scoping validation (skip structural tags and "load")
-            if name != "load" && !scoping::is_closer_or_intermediate(name, &self.tag_specs) {
-                let symbols = AvailableSymbols::at_position(
-                    &self.loaded_libraries,
-                    &self.template_libraries,
-                    span.start(),
-                );
+            if name != "load" && !scoping::is_closer_or_intermediate(name, self.tag_specs) {
+                self.ensure_symbols_cached(span.start());
+                let (_, symbols) = self.cached_symbols.as_ref().unwrap();
                 scoping::check_tag_scoping_rule(
                     self.db,
                     name,
                     span,
-                    &symbols,
+                    symbols,
                     self.env_tags.as_ref(),
+                    self.template_libraries.inspector_knowledge,
                 );
             }
 
@@ -158,7 +188,7 @@ impl Visitor for TemplateValidator<'_> {
 
             // 4. Load library validation
             if name == "load" {
-                scoping::check_load_libraries_rule(self.db, bits, span, &self.template_libraries);
+                scoping::check_load_libraries_rule(self.db, bits, span, self.template_libraries);
             }
 
             // 5. If expression validation
@@ -171,28 +201,26 @@ impl Visitor for TemplateValidator<'_> {
     }
 
     fn visit_variable(&mut self, _var: &str, filters: &[Filter], span: Span) {
-        if !self.opaque_regions.is_opaque(span.start()) {
-            let symbols = AvailableSymbols::at_position(
-                &self.loaded_libraries,
-                &self.template_libraries,
-                span.start(),
-            );
+        if !filters.is_empty() && !self.opaque_regions.is_opaque(span.start()) {
+            self.ensure_symbols_cached(span.start());
+            let (_, symbols) = self.cached_symbols.as_ref().unwrap();
 
             for filter in filters {
                 // 1. Filter Scoping
                 scoping::check_filter_scoping_rule(
                     self.db,
                     filter,
-                    &symbols,
+                    symbols,
                     self.env_filters.as_ref(),
+                    self.template_libraries.inspector_knowledge,
                 );
 
                 // 2. Filter Arity
                 filters::check_filter_arity_rule(
                     self.db,
                     filter,
-                    &self.filter_arity_specs,
-                    &self.template_libraries,
+                    self.filter_arity_specs,
+                    self.template_libraries.inspector_knowledge,
                 );
             }
         }

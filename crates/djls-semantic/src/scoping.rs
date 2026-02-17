@@ -5,6 +5,7 @@ use djls_templates::Node;
 use djls_templates::NodeList;
 pub use loads::parse_load_bits;
 pub use loads::LoadKind;
+pub use loads::LoadState;
 pub use loads::LoadStatement;
 pub use loads::LoadedLibraries;
 pub use symbols::AvailableSymbols;
@@ -20,7 +21,7 @@ use crate::db::Db;
 /// that supports position-aware availability queries.
 ///
 /// Cached by Salsa — re-computes only when the underlying [`NodeList`] changes.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLibraries {
     let statements: Vec<LoadStatement> = nodelist
         .nodelist(db)

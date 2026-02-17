@@ -169,11 +169,13 @@ impl TemplateDb for DjangoDatabase {}
 
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
-    fn tag_specs(&self) -> TagSpecs {
+    fn tag_specs(&self) -> &TagSpecs {
         if let Some(project) = self.project() {
             compute_tag_specs(self, project)
         } else {
-            djls_semantic::builtin_tag_specs()
+            static DEFAULT: std::sync::LazyLock<TagSpecs> =
+                std::sync::LazyLock::new(djls_semantic::builtin_tag_specs);
+            &DEFAULT
         }
     }
 
@@ -197,26 +199,25 @@ impl SemanticDb for DjangoDatabase {
         self.settings().diagnostics().clone()
     }
 
-    fn template_libraries(&self) -> TemplateLibraries {
+    fn template_libraries(&self) -> &TemplateLibraries {
         self.project()
-            .map(|project| project.template_libraries(self).clone())
-            .unwrap_or_default()
+            .map_or(TemplateLibraries::empty_ref(), |project| {
+                project.template_libraries(self)
+            })
     }
 
-    fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
-        if let Some(project) = self.project() {
-            compute_filter_arity_specs(self, project)
-        } else {
-            djls_semantic::FilterAritySpecs::new()
-        }
+    fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
+        self.project()
+            .map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
+                compute_filter_arity_specs(self, project)
+            })
     }
 
-    fn model_graph(&self) -> djls_python::ModelGraph {
-        if let Some(project) = self.project() {
-            compute_model_graph(self, project)
-        } else {
-            djls_python::ModelGraph::new()
-        }
+    fn model_graph(&self) -> &djls_python::ModelGraph {
+        self.project()
+            .map_or(djls_python::ModelGraph::empty_ref(), |project| {
+                compute_model_graph(self, project)
+            })
     }
 }
 

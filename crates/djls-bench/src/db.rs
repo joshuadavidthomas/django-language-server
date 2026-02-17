@@ -98,8 +98,8 @@ impl TemplateDb for Db {}
 
 #[salsa::db]
 impl SemanticDb for Db {
-    fn tag_specs(&self) -> TagSpecs {
-        (*self.tag_specs).clone()
+    fn tag_specs(&self) -> &TagSpecs {
+        &self.tag_specs
     }
 
     fn tag_index(&self) -> TagIndex<'_> {
@@ -114,15 +114,15 @@ impl SemanticDb for Db {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_libraries(&self) -> djls_project::TemplateLibraries {
-        (*self.template_libraries).clone()
+    fn template_libraries(&self) -> &djls_project::TemplateLibraries {
+        &self.template_libraries
     }
 
-    fn filter_arity_specs(&self) -> FilterAritySpecs {
-        (*self.filter_arity_specs).clone()
+    fn filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> djls_python::ModelGraph {
-        djls_python::ModelGraph::new()
+    fn model_graph(&self) -> &djls_python::ModelGraph {
+        djls_python::ModelGraph::empty_ref()
     }
 }

@@ -1,10 +1,11 @@
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
+use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::scoping::loads::LoadState;
-use crate::scoping::LoadedLibraries;
+use super::LoadState;
+use super::LoadedLibraries;
 
 /// The result of checking a tag name against the available symbols at a position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,8 +57,6 @@ pub struct AvailableSymbols<'a> {
     available_filters: FxHashSet<&'a str>,
     /// Filter names → set of candidate libraries. Only populated for filters NOT in `available_filters`.
     filter_candidates: FxHashMap<&'a str, Vec<&'a str>>,
-    /// The load state at this position, retained for library availability queries.
-    load_state: LoadState,
 }
 
 impl<'a> AvailableSymbols<'a> {
@@ -72,17 +71,41 @@ impl<'a> AvailableSymbols<'a> {
         Self::from_load_state(&load_state, template_libraries)
     }
 
-    /// Build available symbols from a pre-computed `LoadState` and template libraries.
+    /// Build available symbols from a pre-computed load state and template libraries.
     #[must_use]
-    pub fn from_load_state(
-        load_state: &LoadState,
+    pub(crate) fn from_load_state(
+        load_state: &LoadState<'_>,
         template_libraries: &'a TemplateLibraries,
     ) -> Self {
-        let mut available = FxHashSet::default();
-        let mut candidates: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
+        let (builtin_tag_count, builtin_filter_count) = template_libraries
+            .builtin_libraries()
+            .flat_map(|lib| &lib.symbols)
+            .fold((0usize, 0usize), |(tags, filters), sym| match sym.kind {
+                TemplateSymbolKind::Tag => (tags + 1, filters),
+                TemplateSymbolKind::Filter => (tags, filters + 1),
+            });
 
-        let mut available_filters = FxHashSet::default();
-        let mut filter_candidates: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
+        let (loadable_tag_count, loadable_filter_count) = template_libraries
+            .enabled_loadable_libraries()
+            .flat_map(|(_, lib)| &lib.symbols)
+            .fold((0usize, 0usize), |(tags, filters), sym| match sym.kind {
+                TemplateSymbolKind::Tag => (tags + 1, filters),
+                TemplateSymbolKind::Filter => (tags, filters + 1),
+            });
+
+        let mut available = FxHashSet::with_capacity_and_hasher(
+            builtin_tag_count + loadable_tag_count,
+            FxBuildHasher,
+        );
+        let mut candidates: FxHashMap<&str, Vec<&str>> =
+            FxHashMap::with_capacity_and_hasher(loadable_tag_count, FxBuildHasher);
+
+        let mut available_filters = FxHashSet::with_capacity_and_hasher(
+            builtin_filter_count + loadable_filter_count,
+            FxBuildHasher,
+        );
+        let mut filter_candidates: FxHashMap<&str, Vec<&str>> =
+            FxHashMap::with_capacity_and_hasher(loadable_filter_count, FxBuildHasher);
 
         // Builtins are always available.
         for library in template_libraries.builtin_libraries() {
@@ -125,9 +148,9 @@ impl<'a> AvailableSymbols<'a> {
 
         // Move loaded library tags from candidates → available.
         candidates.retain(|tag_name, libs| {
-            let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, tag_name)
-            });
+            let is_available = libs
+                .iter()
+                .any(|lib| load_state.is_symbol_available(lib, tag_name));
             if is_available {
                 available.insert(tag_name);
                 false
@@ -138,9 +161,9 @@ impl<'a> AvailableSymbols<'a> {
 
         // Move loaded library filters from filter_candidates → available_filters.
         filter_candidates.retain(|filter_name, libs| {
-            let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, filter_name)
-            });
+            let is_available = libs
+                .iter()
+                .any(|lib| load_state.is_symbol_available(lib, filter_name));
             if is_available {
                 available_filters.insert(filter_name);
                 false
@@ -164,7 +187,6 @@ impl<'a> AvailableSymbols<'a> {
             candidates,
             available_filters,
             filter_candidates,
-            load_state: load_state.clone(),
         }
     }
 
@@ -228,25 +250,6 @@ impl<'a> AvailableSymbols<'a> {
     #[must_use]
     pub fn unavailable_candidates(&self) -> &FxHashMap<&'a str, Vec<&'a str>> {
         &self.candidates
-    }
-
-    /// Check whether a library is fully loaded at this position.
-    ///
-    /// Used by filter completions to determine if a library's filters should
-    /// be shown. A library is considered loaded if it appears in a
-    /// `{% load lib %}` statement before the cursor position.
-    #[must_use]
-    pub fn is_library_loaded(&self, library: &str) -> bool {
-        self.load_state.is_fully_loaded(library)
-    }
-
-    /// Check whether a specific symbol from a library is available at this position.
-    ///
-    /// Returns true if the library is fully loaded, or if the symbol was
-    /// selectively imported via `{% load sym from lib %}`.
-    #[must_use]
-    pub fn is_symbol_imported(&self, library: &str, symbol: &str) -> bool {
-        self.load_state.is_symbol_available(library, symbol)
     }
 }
 

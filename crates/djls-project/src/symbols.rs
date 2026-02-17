@@ -227,6 +227,13 @@ impl Default for TemplateLibraries {
 
 impl TemplateLibraries {
     #[must_use]
+    pub fn empty_ref() -> &'static Self {
+        static EMPTY: std::sync::LazyLock<TemplateLibraries> =
+            std::sync::LazyLock::new(TemplateLibraries::default);
+        &EMPTY
+    }
+
+    #[must_use]
     pub fn registration_modules(&self) -> FxHashSet<PyModuleName> {
         if self.inspector_knowledge != Knowledge::Known {
             return FxHashSet::default();

@@ -193,8 +193,8 @@ impl djls_templates::Db for TestDatabase {}
 
 #[salsa::db]
 impl crate::Db for TestDatabase {
-    fn tag_specs(&self) -> TagSpecs {
-        self.tag_specs.clone()
+    fn tag_specs(&self) -> &TagSpecs {
+        &self.tag_specs
     }
 
     fn tag_index(&self) -> TagIndex<'_> {
@@ -209,16 +209,16 @@ impl crate::Db for TestDatabase {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_libraries(&self) -> TemplateLibraries {
-        self.template_libraries.clone()
+    fn template_libraries(&self) -> &TemplateLibraries {
+        &self.template_libraries
     }
 
-    fn filter_arity_specs(&self) -> FilterAritySpecs {
-        self.filter_arity_specs.clone()
+    fn filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> djls_python::ModelGraph {
-        djls_python::ModelGraph::new()
+    fn model_graph(&self) -> &djls_python::ModelGraph {
+        djls_python::ModelGraph::empty_ref()
     }
 }
 

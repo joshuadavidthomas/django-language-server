@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use djls_project::Knowledge;
 use djls_project::LibraryName;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
@@ -23,9 +24,9 @@ pub(crate) fn check_tag_scoping_rule(
     env_tags: Option<
         &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
+    inspector_knowledge: Knowledge,
 ) {
-    let template_libraries = db.template_libraries();
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if inspector_knowledge != Knowledge::Known {
         return;
     }
 
@@ -83,9 +84,9 @@ pub(crate) fn check_filter_scoping_rule(
     env_filters: Option<
         &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
+    inspector_knowledge: Knowledge,
 ) {
-    let template_libraries = db.template_libraries();
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if inspector_knowledge != Knowledge::Known {
         return;
     }
 
@@ -140,7 +141,7 @@ pub(crate) fn check_load_libraries_rule(
     span: Span,
     template_libraries: &djls_project::TemplateLibraries,
 ) {
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if template_libraries.inspector_knowledge != Knowledge::Known {
         return;
     }
 

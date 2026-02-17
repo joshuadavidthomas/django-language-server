@@ -12,7 +12,7 @@ use crate::structure::TagIndex;
 #[salsa::db]
 pub trait Db: TemplateDb {
     /// Get the Django tag specifications for semantic analysis
-    fn tag_specs(&self) -> TagSpecs;
+    fn tag_specs(&self) -> &TagSpecs;
 
     fn tag_index(&self) -> TagIndex<'_>;
 
@@ -26,20 +26,20 @@ pub trait Db: TemplateDb {
     /// This includes:
     /// - discovered libraries from scanning `sys.path`
     /// - installed libraries/symbols from the Django inspector (when available)
-    fn template_libraries(&self) -> TemplateLibraries;
+    fn template_libraries(&self) -> &TemplateLibraries;
 
     /// Get the filter arity specifications for filter argument validation.
     ///
     /// Built from extraction results. Returns empty specs when no extraction
     /// data is available.
-    fn filter_arity_specs(&self) -> FilterAritySpecs;
+    fn filter_arity_specs(&self) -> &FilterAritySpecs;
 
     /// Get the merged model graph for the current project.
     ///
     /// Combines models from both workspace `models.py` files and installed
     /// packages (site-packages). Returns an empty graph when no project is
     /// configured.
-    fn model_graph(&self) -> ModelGraph;
+    fn model_graph(&self) -> &ModelGraph;
 }
 
 #[salsa::accumulator]

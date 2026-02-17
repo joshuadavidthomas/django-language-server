@@ -1,3 +1,4 @@
+use djls_project::Knowledge;
 use djls_templates::Filter;
 use salsa::Accumulator;
 
@@ -11,9 +12,9 @@ pub(crate) fn check_filter_arity_rule(
     db: &dyn Db,
     filter: &Filter,
     arity_specs: &FilterAritySpecs,
-    template_libraries: &djls_project::TemplateLibraries,
+    inspector_knowledge: Knowledge,
 ) {
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if inspector_knowledge != Knowledge::Known {
         return;
     }
 
