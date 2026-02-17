@@ -9,17 +9,11 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::ValueEnum;
 use djls_db::DjangoDatabase;
-use djls_ide::render_template_error;
-use djls_ide::render_validation_error;
+use djls_db::FileCheckResult;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::ValidationError;
-use djls_semantic::ValidationErrorAccumulator;
 use djls_source::Db as SourceDb;
 use djls_source::DiagnosticRenderer;
 use djls_source::FileKind;
-use djls_source::Span;
-use djls_templates::TemplateError;
-use djls_templates::TemplateErrorAccumulator;
 use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
@@ -126,8 +120,8 @@ impl Command for Check {
                     let db = db.clone();
                     let tx = tx.clone();
                     scope.spawn(move |_| {
-                        let result = check_file(&db, &path);
-                        if result.has_diagnostics() {
+                        let result = check_file_with_source(&db, &path);
+                        if result.check.has_diagnostics() {
                             let _ = tx.send(result);
                         }
                     });
@@ -215,7 +209,7 @@ fn check_stdin(
     let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(mem_fs);
     let db = DjangoDatabase::new(fs, settings, Some(project_root));
 
-    let result = check_file(&db, &stdin_path);
+    let result = check_file_with_source(&db, &stdin_path);
     let rendered = result.render(config, fmt);
     if rendered.is_empty() {
         Ok(Exit::success())
@@ -231,77 +225,16 @@ fn check_stdin(
     }
 }
 
-/// Raw diagnostic data collected for a single file.
-///
-/// Produced in parallel by rayon tasks (only Salsa queries, no rendering).
-/// Rendered on the main thread after the parallel phase completes.
-struct FileCheckResult {
-    path: Utf8PathBuf,
-    source: String,
-    template_errors: Vec<TemplateError>,
-    validation_errors: Vec<ValidationError>,
-}
-
-impl FileCheckResult {
-    fn has_diagnostics(&self) -> bool {
-        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
-    }
-
-    fn render(
-        &self,
-        config: &djls_conf::DiagnosticsConfig,
-        fmt: &DiagnosticRenderer,
-    ) -> Vec<String> {
-        let mut results = Vec::new();
-        let path = self.path.as_str();
-        let source = self.source.as_str();
-
-        for error in &self.template_errors {
-            if let Some(output) = render_template_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        for error in &self.validation_errors {
-            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        results
-    }
-}
-
-fn check_file(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
+/// Run `check_file` and capture the source text for later rendering.
+fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
     let file = db.get_or_create_file(path);
     let source = file.source(db).to_string();
-
-    let nodelist = djls_templates::parse_template(db, file);
-
-    let template_errors: Vec<TemplateError> =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
-            .iter()
-            .map(|acc| acc.0.clone())
-            .collect();
-
-    let mut validation_errors: Vec<ValidationError> = Vec::new();
-
-    if let Some(nodelist) = nodelist {
-        djls_semantic::validate_nodelist(db, nodelist);
-
-        let accumulated = djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(
-            db, nodelist,
-        );
-
-        validation_errors = accumulated.iter().map(|acc| acc.0.clone()).collect();
-        validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
-    }
+    let check = djls_db::check_file(db, file);
 
     FileCheckResult {
         path: path.to_owned(),
         source,
-        template_errors,
-        validation_errors,
+        check,
     }
 }
 
