@@ -120,8 +120,7 @@ impl DjangoLanguageServer {
             .with_session_mut(|session| {
                 let db = session.db();
                 let file = db.get_or_create_file(&path);
-                let nodelist = djls_templates::parse_template(db, file);
-                djls_ide::collect_diagnostics(db, file, nodelist)
+                djls_ide::collect_diagnostics(db, file)
             })
             .await;
 
@@ -409,8 +408,7 @@ impl LanguageServer for DjangoLanguageServer {
                 self.with_session_mut(move |session| {
                     let db = session.db_mut();
                     let file = db.get_or_create_file(&path);
-                    let nodelist = djls_templates::parse_template(db, file);
-                    djls_ide::collect_diagnostics(db, file, nodelist)
+                    djls_ide::collect_diagnostics(db, file)
                 })
                 .await
             } else {

@@ -15,6 +15,16 @@ pub enum TemplateError {
     Config(String),
 }
 
+impl TemplateError {
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            TemplateError::Parser(_) => "T100",
+            TemplateError::Io(_) => "T900",
+            TemplateError::Config(_) => "T901",
+        }
+    }
+}
+
 impl From<ParseError> for TemplateError {
     fn from(err: ParseError) -> Self {
         Self::Parser(err.to_string())

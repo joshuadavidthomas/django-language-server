@@ -102,15 +102,11 @@ fn collect_diagnostics_minimal(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = Db::new();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-    let nodelist = djls_templates::parse_template(&db, file);
-    if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist(&db, nl);
-    }
-    let _ = djls_ide::collect_diagnostics(&db, file, nodelist);
+    // Warm up: trigger parse + validate
+    let _ = djls_ide::collect_diagnostics(&db, file);
 
     bencher.bench_local(move || {
-        let nodelist = djls_templates::parse_template(&db, file);
-        divan::black_box(djls_ide::collect_diagnostics(&db, file, nodelist));
+        divan::black_box(djls_ide::collect_diagnostics(&db, file));
     });
 }
 
@@ -125,15 +121,10 @@ fn collect_diagnostics_realistic(bencher: Bencher, fixture: &TemplateFixture) {
     // and allocator patterns are primed before measurement. Without this,
     // the accumulator-read path and diagnostic conversion allocations can
     // produce bimodal instruction counts under valgrind (CodSpeed).
-    let nodelist = djls_templates::parse_template(&db, file);
-    if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist(&db, nl);
-    }
-    let _ = djls_ide::collect_diagnostics(&db, file, nodelist);
+    let _ = djls_ide::collect_diagnostics(&db, file);
 
     bencher.bench_local(move || {
-        let nodelist = djls_templates::parse_template(&db, file);
-        divan::black_box(djls_ide::collect_diagnostics(&db, file, nodelist));
+        divan::black_box(djls_ide::collect_diagnostics(&db, file));
     });
 }
 
@@ -146,18 +137,15 @@ fn collect_diagnostics_all_realistic(bencher: Bencher) {
         .iter()
         .map(|fixture| {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            let nodelist = djls_templates::parse_template(&db, file);
-            if let Some(nl) = nodelist {
-                djls_semantic::validate_nodelist(&db, nl);
-            }
+            // Warm up
+            let _ = djls_ide::collect_diagnostics(&db, file);
             file
         })
         .collect();
 
     bencher.bench_local(move || {
         for file in &files {
-            let nodelist = djls_templates::parse_template(&db, *file);
-            divan::black_box(djls_ide::collect_diagnostics(&db, *file, nodelist));
+            divan::black_box(djls_ide::collect_diagnostics(&db, *file));
         }
     });
 }
@@ -169,11 +157,8 @@ fn collect_diagnostics_incremental(bencher: Bencher, fixture: &TemplateFixture) 
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-    let nodelist = djls_templates::parse_template(&db, file);
-    if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist(&db, nl);
-        let _ = djls_ide::collect_diagnostics(&db, file, Some(nl));
-    }
+    // Warm up
+    let _ = djls_ide::collect_diagnostics(&db, file);
 
     let original = fixture.source.clone();
     let modified = {
@@ -192,11 +177,7 @@ fn collect_diagnostics_incremental(bencher: Bencher, fixture: &TemplateFixture) 
         db.set_file_contents(file, contents, revision);
         revision = revision.wrapping_add(1);
 
-        let nodelist = djls_templates::parse_template(&db, file);
-        if let Some(nl) = nodelist {
-            djls_semantic::validate_nodelist(&db, nl);
-        }
-        divan::black_box(djls_ide::collect_diagnostics(&db, file, nodelist));
+        divan::black_box(djls_ide::collect_diagnostics(&db, file));
     });
 }
 
@@ -207,28 +188,14 @@ fn render_validation_errors(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-    let nodelist = djls_templates::parse_template(&db, file);
-    if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist(&db, nl);
-    }
-
-    let errors: Vec<_> = if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist::accumulated::<djls_semantic::ValidationErrorAccumulator>(
-            &db, nl,
-        )
-        .into_iter()
-        .map(|acc| acc.0.clone())
-        .collect()
-    } else {
-        Vec::new()
-    };
+    let check = djls_db::check_file(&db, file);
 
     let config = djls_conf::DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        for error in &errors {
-            divan::black_box(djls_ide::render_validation_error(
+        for error in &check.validation_errors {
+            divan::black_box(djls_db::render_validation_error(
                 &fixture.source,
                 fixture.path.as_str(),
                 error,
@@ -246,28 +213,14 @@ fn render_many_synthetic_errors(bencher: Bencher) {
     let mut db = realistic_db();
     let file = db.file_with_contents("bench.html".into(), MANY_ERRORS_SOURCE);
 
-    let nodelist = djls_templates::parse_template(&db, file);
-    if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist(&db, nl);
-    }
-
-    let errors: Vec<_> = if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist::accumulated::<djls_semantic::ValidationErrorAccumulator>(
-            &db, nl,
-        )
-        .into_iter()
-        .map(|acc| acc.0.clone())
-        .collect()
-    } else {
-        Vec::new()
-    };
+    let check = djls_db::check_file(&db, file);
 
     let config = djls_conf::DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        for error in &errors {
-            divan::black_box(djls_ide::render_validation_error(
+        for error in &check.validation_errors {
+            divan::black_box(djls_db::render_validation_error(
                 MANY_ERRORS_SOURCE,
                 "bench.html",
                 error,

@@ -12,7 +12,6 @@ djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
 camino = { workspace = true }
-salsa = { workspace = true }
 tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 

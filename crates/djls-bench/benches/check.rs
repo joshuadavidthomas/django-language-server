@@ -18,59 +18,36 @@ use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::Db;
 use djls_bench::TemplateFixture;
+use djls_db::render_template_error;
+use djls_db::render_validation_error;
 use djls_source::DiagnosticRenderer;
-use djls_source::Span;
 
 fn main() {
     divan::main();
 }
 
-// Replicate the core of `check_file` from the binary crate.
-fn run_check(db: &Db, file: djls_source::File) -> CheckResult {
+/// Run `check_file` and capture the source for rendering (mirrors CLI pattern).
+fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
     let source = file.source(db).to_string();
     let path = file.path(db).clone();
+    let check = djls_db::check_file(db, file);
 
-    let nodelist = djls_templates::parse_template(db, file);
-
-    let template_errors: Vec<djls_templates::TemplateError> =
-        djls_templates::parse_template::accumulated::<djls_templates::TemplateErrorAccumulator>(
-            db, file,
-        )
-        .iter()
-        .map(|acc| acc.0.clone())
-        .collect();
-
-    let mut validation_errors: Vec<djls_semantic::ValidationError> = Vec::new();
-
-    if let Some(nl) = nodelist {
-        djls_semantic::validate_nodelist(db, nl);
-
-        let accumulated = djls_semantic::validate_nodelist::accumulated::<
-            djls_semantic::ValidationErrorAccumulator,
-        >(db, nl);
-
-        validation_errors = accumulated.iter().map(|acc| acc.0.clone()).collect();
-        validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
-    }
-
-    CheckResult {
+    FileCheckResult {
         source,
         path,
-        template_errors,
-        validation_errors,
+        check,
     }
 }
 
-struct CheckResult {
+struct FileCheckResult {
     source: String,
     path: Utf8PathBuf,
-    template_errors: Vec<djls_templates::TemplateError>,
-    validation_errors: Vec<djls_semantic::ValidationError>,
+    check: djls_db::CheckResult,
 }
 
-impl CheckResult {
+impl FileCheckResult {
     fn has_diagnostics(&self) -> bool {
-        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
+        self.check.has_diagnostics()
     }
 
     fn render(
@@ -82,17 +59,14 @@ impl CheckResult {
         let path = self.path.as_str();
         let source = self.source.as_str();
 
-        for error in &self.template_errors {
-            if let Some(output) = djls_ide::render_template_error(source, path, error, config, fmt)
-            {
+        for error in &self.check.template_errors {
+            if let Some(output) = render_template_error(source, path, error, config, fmt) {
                 results.push(output);
             }
         }
 
-        for error in &self.validation_errors {
-            if let Some(output) =
-                djls_ide::render_validation_error(source, path, error, config, fmt)
-            {
+        for error in &self.check.validation_errors {
+            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
                 results.push(output);
             }
         }
