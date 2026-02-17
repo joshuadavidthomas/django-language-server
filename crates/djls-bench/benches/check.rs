@@ -18,8 +18,7 @@ use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::Db;
 use djls_bench::TemplateFixture;
-use djls_db::render_template_error;
-use djls_db::render_validation_error;
+use djls_db::FileCheckResult;
 use djls_source::DiagnosticRenderer;
 
 fn main() {
@@ -36,42 +35,6 @@ fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
         source,
         path,
         check,
-    }
-}
-
-struct FileCheckResult {
-    source: String,
-    path: Utf8PathBuf,
-    check: djls_db::CheckResult,
-}
-
-impl FileCheckResult {
-    fn has_diagnostics(&self) -> bool {
-        self.check.has_diagnostics()
-    }
-
-    fn render(
-        &self,
-        config: &djls_conf::DiagnosticsConfig,
-        fmt: &DiagnosticRenderer,
-    ) -> Vec<String> {
-        let mut results = Vec::new();
-        let path = self.path.as_str();
-        let source = self.source.as_str();
-
-        for error in &self.check.template_errors {
-            if let Some(output) = render_template_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        for error in &self.check.validation_errors {
-            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        results
     }
 }
 

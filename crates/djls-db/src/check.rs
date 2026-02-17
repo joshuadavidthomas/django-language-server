@@ -1,3 +1,4 @@
+use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ValidationError;
@@ -21,6 +22,7 @@ pub struct CheckResult {
 }
 
 impl CheckResult {
+    #[must_use]
     pub fn has_diagnostics(&self) -> bool {
         !self.template_errors.is_empty() || !self.validation_errors.is_empty()
     }
@@ -57,6 +59,45 @@ pub fn check_file(db: &dyn SemanticDb, file: File) -> CheckResult {
     }
 }
 
+/// Per-file check result bundled with the source text and path needed
+/// for rendering. Used by both the CLI and benchmarks.
+pub struct FileCheckResult {
+    pub path: Utf8PathBuf,
+    pub source: String,
+    pub check: CheckResult,
+}
+
+impl FileCheckResult {
+    #[must_use]
+    pub fn has_diagnostics(&self) -> bool {
+        self.check.has_diagnostics()
+    }
+
+    #[must_use]
+    pub fn render(&self, config: &DiagnosticsConfig, fmt: &DiagnosticRenderer) -> Vec<String> {
+        let mut results = Vec::new();
+        let path = self.path.as_str();
+        let source = self.source.as_str();
+
+        for error in &self.check.template_errors {
+            if let Some(output) = render_template_error(source, path, error, config, fmt) {
+                results.push(output);
+            }
+        }
+
+        for error in &self.check.validation_errors {
+            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
+                results.push(output);
+            }
+        }
+
+        results
+    }
+}
+
+// `Off` is never reached in practice — both `render_template_error` and
+// `render_validation_error` early-return before calling this. Kept as a
+// defensive fallback since the function signature accepts any severity.
 fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
     match severity {
         djls_conf::DiagnosticSeverity::Error => Severity::Error,
@@ -84,6 +125,8 @@ pub fn render_template_error(
     }
 
     let message = error.to_string();
+    // TemplateError loses position info during the ParseError → String
+    // conversion, so we use a zero-span (file-level) diagnostic for now.
     let diag = Diagnostic::new(
         source,
         path,

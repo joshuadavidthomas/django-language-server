@@ -16,6 +16,7 @@ pub enum TemplateError {
 }
 
 impl TemplateError {
+    #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
             TemplateError::Parser(_) => "T100",

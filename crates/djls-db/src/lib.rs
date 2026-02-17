@@ -20,6 +20,7 @@ pub use check::check_file;
 pub use check::render_template_error;
 pub use check::render_validation_error;
 pub use check::CheckResult;
+pub use check::FileCheckResult;
 pub use db::DjangoDatabase;
 pub use inspector::load_inspector_cache;
 pub use settings::SettingsUpdate;

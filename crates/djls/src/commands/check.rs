@@ -8,9 +8,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::ValueEnum;
-use djls_db::render_template_error;
-use djls_db::render_validation_error;
 use djls_db::DjangoDatabase;
+use djls_db::FileCheckResult;
 use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::DiagnosticRenderer;
@@ -223,39 +222,6 @@ fn check_stdin(
         let count = rendered.len();
         let word = if count == 1 { "error" } else { "errors" };
         Ok(Exit::error().with_message(format!("Found {count} {word}.")))
-    }
-}
-
-/// Per-file check result bundled with the source text and path needed for rendering.
-struct FileCheckResult {
-    path: Utf8PathBuf,
-    source: String,
-    check: djls_db::CheckResult,
-}
-
-impl FileCheckResult {
-    fn render(
-        &self,
-        config: &djls_conf::DiagnosticsConfig,
-        fmt: &DiagnosticRenderer,
-    ) -> Vec<String> {
-        let mut results = Vec::new();
-        let path = self.path.as_str();
-        let source = self.source.as_str();
-
-        for error in &self.check.template_errors {
-            if let Some(output) = render_template_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        for error in &self.check.validation_errors {
-            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
-                results.push(output);
-            }
-        }
-
-        results
     }
 }
 
