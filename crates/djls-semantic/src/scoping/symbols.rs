@@ -1,5 +1,6 @@
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
+use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -78,11 +79,35 @@ impl<'a> AvailableSymbols<'a> {
         load_state: &LoadState,
         template_libraries: &'a TemplateLibraries,
     ) -> Self {
-        let mut available = FxHashSet::default();
-        let mut candidates: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
+        let (builtin_tag_count, builtin_filter_count) = template_libraries
+            .builtin_libraries()
+            .flat_map(|lib| &lib.symbols)
+            .fold((0usize, 0usize), |(tags, filters), sym| match sym.kind {
+                TemplateSymbolKind::Tag => (tags + 1, filters),
+                TemplateSymbolKind::Filter => (tags, filters + 1),
+            });
 
-        let mut available_filters = FxHashSet::default();
-        let mut filter_candidates: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
+        let (loadable_tag_count, loadable_filter_count) = template_libraries
+            .enabled_loadable_libraries()
+            .flat_map(|(_, lib)| &lib.symbols)
+            .fold((0usize, 0usize), |(tags, filters), sym| match sym.kind {
+                TemplateSymbolKind::Tag => (tags + 1, filters),
+                TemplateSymbolKind::Filter => (tags, filters + 1),
+            });
+
+        let mut available = FxHashSet::with_capacity_and_hasher(
+            builtin_tag_count + loadable_tag_count,
+            FxBuildHasher,
+        );
+        let mut candidates: FxHashMap<&str, Vec<&str>> =
+            FxHashMap::with_capacity_and_hasher(loadable_tag_count, FxBuildHasher);
+
+        let mut available_filters = FxHashSet::with_capacity_and_hasher(
+            builtin_filter_count + loadable_filter_count,
+            FxBuildHasher,
+        );
+        let mut filter_candidates: FxHashMap<&str, Vec<&str>> =
+            FxHashMap::with_capacity_and_hasher(loadable_filter_count, FxBuildHasher);
 
         // Builtins are always available.
         for library in template_libraries.builtin_libraries() {
@@ -125,9 +150,9 @@ impl<'a> AvailableSymbols<'a> {
 
         // Move loaded library tags from candidates → available.
         candidates.retain(|tag_name, libs| {
-            let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, tag_name)
-            });
+            let is_available = libs
+                .iter()
+                .any(|lib| load_state.is_symbol_available(lib, tag_name));
             if is_available {
                 available.insert(tag_name);
                 false
@@ -138,9 +163,9 @@ impl<'a> AvailableSymbols<'a> {
 
         // Move loaded library filters from filter_candidates → available_filters.
         filter_candidates.retain(|filter_name, libs| {
-            let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, filter_name)
-            });
+            let is_available = libs
+                .iter()
+                .any(|lib| load_state.is_symbol_available(lib, filter_name));
             if is_available {
                 available_filters.insert(filter_name);
                 false
