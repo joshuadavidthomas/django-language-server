@@ -29,7 +29,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
-- **Internal**: Moved `check_file` orchestration and diagnostic rendering from `djls-ide`/CLI into `djls-db`. Simplified `collect_diagnostics` signature (dropped `nodelist` parameter). Removed `djls-ide`, `djls-templates`, and `djls-project` dependencies from the CLI binary.
+- **Internal**: Moved `check_file` orchestration and diagnostic rendering into `djls-db`. Removed `djls-ide`, `djls-templates`, and `djls-project` dependencies from the CLI binary.
 - **Internal**: Moved extraction orchestration from `djls-project` to `djls-db`. Removed unused `djls-workspace` dependency from `djls-project`.
 - Widened templatetag extraction to catch any uncaught exception in compilation functions, not just `TemplateSyntaxError`. Tags that raise `ValueError`, `TypeError`, or other exceptions in guards now produce validation constraints.
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
