@@ -99,6 +99,9 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
   '^version = "{pep440_version}"',
   '^current_version = "{version}"',
 ]
+"docs/pre-commit.md" = [
+  '    rev: v{version}',
+]
 
 [tool.djlint]
 blank_line_after_tag = "endblock,extends,load"
