@@ -275,27 +275,22 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
-/// Discover model source files in a directory tree and extract model graphs.
+/// Shared walk-and-collect logic for model file discovery.
 ///
-/// Walks the directory recursively looking for both `models.py` files and
-/// `.py` files inside `models/` packages (directories with `__init__.py`).
-/// Derives the dotted module path from the filesystem path relative to
-/// `base_dir` and extracts model definitions from each file.
-///
-/// Multiple files from the same models package produce separate entries
-/// keyed by their full module path (e.g., `myapp.models`, `myapp.models.user`).
-///
-/// Skips files that fail to read and empty graphs.
-fn scan_models_in_dir(
+/// Configures a `WalkBuilder` via `builder_cfg`, walks the directory tree,
+/// and collects `(module_path, file_path)` pairs for files that pass
+/// `is_model_file` and the caller-supplied `filter` predicate.
+fn discover_model_files(
     base_dir: &Utf8Path,
-) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
-    let mut results = rustc_hash::FxHashMap::default();
+    builder_cfg: impl FnOnce(&mut ignore::WalkBuilder),
+    filter: impl Fn(&Utf8Path) -> bool,
+) -> Vec<(ModulePath, Utf8PathBuf)> {
+    let mut builder = ignore::WalkBuilder::new(base_dir.as_std_path());
+    builder_cfg(&mut builder);
 
-    for entry in ignore::WalkBuilder::new(base_dir.as_std_path())
-        .hidden(false)
-        .git_ignore(false)
-        .git_global(false)
-        .git_exclude(false)
+    let mut results = Vec::new();
+
+    for entry in builder
         .build()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
@@ -304,7 +299,7 @@ fn scan_models_in_dir(
             continue;
         };
 
-        if !is_model_file(&path) {
+        if !is_model_file(&path) || !filter(&path) {
             continue;
         }
 
@@ -312,35 +307,33 @@ fn scan_models_in_dir(
             continue;
         };
 
-        let module_path = module_path_from_relative(rel);
-
-        let Ok(source) = std::fs::read_to_string(path.as_std_path()) else {
-            continue;
-        };
-
-        let graph = djls_python::extract_model_graph(&source, module_path.as_str());
-        if !graph.is_empty() {
-            results.insert(module_path, graph);
-        }
+        results.push((module_path_from_relative(rel), path));
     }
 
+    results.sort_by(|(a, _), (b, _)| a.cmp(b));
     results
 }
 
-/// Extract model graphs from external (non-workspace) directories.
+/// Discover model source files in a directory tree and return their resolved paths.
 ///
-/// Scans site-packages for `models.py` files and extracts model graphs.
-/// Workspace `models.py` files should use tracked Salsa queries instead.
+/// Walks the directory recursively looking for both `models.py` files and
+/// `.py` files inside `models/` packages (directories with `__init__.py`).
+/// Returns `(module_path, file_path)` pairs without reading file contents.
+///
+/// Uses a raw walk with no git-ignore filtering, suitable for directories
+/// outside the workspace (e.g. site-packages).
 #[must_use]
-pub fn extract_external_models(
-    interpreter: &Interpreter,
-    root: &Utf8Path,
-) -> rustc_hash::FxHashMap<ModulePath, djls_python::ModelGraph> {
-    let Some(site_packages) = find_site_packages(interpreter, root) else {
-        return rustc_hash::FxHashMap::default();
-    };
-
-    scan_models_in_dir(&site_packages)
+pub fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
+    discover_model_files(
+        base_dir,
+        |wb| {
+            wb.hidden(false)
+                .git_ignore(false)
+                .git_global(false)
+                .git_exclude(false);
+        },
+        |_| true,
+    )
 }
 
 /// Discover model source files in the workspace and return their resolved paths.
@@ -351,76 +344,13 @@ pub fn extract_external_models(
 /// project root.
 #[must_use]
 pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
-    let mut results = Vec::new();
-
-    for entry in ignore::WalkBuilder::new(root.as_std_path())
-        .hidden(true)
-        .git_ignore(true)
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-    {
-        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
-            continue;
-        };
-
-        if !is_model_file(&path) {
-            continue;
-        }
-
-        // Skip anything in site-packages (external)
-        if path.components().any(|c| c.as_str() == "site-packages") {
-            continue;
-        }
-
-        let Some(rel) = path.strip_prefix(root).ok() else {
-            continue;
-        };
-
-        let module_path = module_path_from_relative(rel);
-
-        results.push((module_path, path));
-    }
-
-    results.sort_by(|(a, _), (b, _)| a.cmp(b));
-    results
-}
-
-/// Extract validation rules from external (non-workspace) registration modules.
-///
-/// Resolves the given module paths, filters to external-only, reads each
-/// source file from disk, and runs extraction. Returns a per-module map.
-///
-/// Workspace modules should NOT be extracted this way — they use tracked
-/// Salsa queries for automatic invalidation on file change.
-pub fn extract_external_rules(
-    modules: &std::collections::HashSet<String, impl std::hash::BuildHasher>,
-    interpreter: &Interpreter,
-    root: &Utf8Path,
-    pythonpath: &[String],
-) -> rustc_hash::FxHashMap<String, djls_python::ExtractionResult> {
-    let search_paths = build_search_paths(interpreter, root, pythonpath);
-
-    let (_workspace, external_modules) =
-        resolve_modules(modules.iter().map(String::as_str), &search_paths, root);
-
-    let mut results = rustc_hash::FxHashMap::default();
-
-    for resolved in external_modules {
-        match std::fs::read_to_string(resolved.file_path.as_std_path()) {
-            Ok(source) => {
-                let module_result = djls_python::extract_rules(&source, &resolved.module_path);
-                if !module_result.is_empty() {
-                    results.insert(resolved.module_path, module_result);
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to read module file {}: {}", resolved.file_path, e);
-            }
-        }
-    }
-
-    results
+    discover_model_files(
+        root,
+        |wb| {
+            wb.hidden(true).git_ignore(true);
+        },
+        |path| !path.components().any(|c| c.as_str() == "site-packages"),
+    )
 }
 
 #[cfg(test)]
@@ -560,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_models_in_dir_finds_models() {
+    fn discover_model_files_in_dir_finds_models() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -578,14 +508,14 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = scan_models_in_dir(&root);
+        let results = discover_model_files_in_dir(&root);
         assert_eq!(results.len(), 1);
-        assert!(results.contains_key("myapp.models"));
-        assert!(results["myapp.models"].get("Article").is_some());
+        assert_eq!(results[0].0.as_str(), "myapp.models");
+        assert!(results[0].1.ends_with("models.py"));
     }
 
     #[test]
-    fn scan_models_in_dir_skips_empty() {
+    fn discover_model_files_in_dir_finds_files_without_inspecting_contents() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -593,16 +523,17 @@ class Article(models.Model):
         std::fs::create_dir_all(&app_dir).unwrap();
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let results = scan_models_in_dir(&root);
-        assert!(results.is_empty());
+        // Discovery finds the file (it doesn't inspect contents)
+        let results = discover_model_files_in_dir(&root);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.as_str(), "emptyapp.models");
     }
 
     #[test]
-    fn scan_models_in_dir_nested_apps() {
+    fn discover_model_files_in_dir_nested_apps() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        // Create two nested apps
         for app in &["blog", "accounts"] {
             let app_dir = root.join(app);
             std::fs::create_dir_all(&app_dir).unwrap();
@@ -616,10 +547,11 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let results = scan_models_in_dir(&root);
+        let results = discover_model_files_in_dir(&root);
         assert_eq!(results.len(), 2);
-        assert!(results.contains_key("blog.models"));
-        assert!(results.contains_key("accounts.models"));
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+        assert!(module_paths.contains(&"blog.models"));
+        assert!(module_paths.contains(&"accounts.models"));
     }
 
     #[test]
@@ -642,7 +574,7 @@ class Article(models.Model):
     }
 
     #[test]
-    fn scan_models_package() {
+    fn discover_model_files_in_dir_package() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -664,13 +596,13 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = scan_models_in_dir(&root);
-        // __init__.py has no model defs, so only the two submodules
-        assert_eq!(results.len(), 2);
-        assert!(results.contains_key("myapp.models.user"));
-        assert!(results.contains_key("myapp.models.order"));
-        assert!(results["myapp.models.user"].get("User").is_some());
-        assert!(results["myapp.models.order"].get("Order").is_some());
+        let results = discover_model_files_in_dir(&root);
+        // Discovers all three files (including __init__.py)
+        assert_eq!(results.len(), 3);
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+        assert!(module_paths.contains(&"myapp.models"));
+        assert!(module_paths.contains(&"myapp.models.user"));
+        assert!(module_paths.contains(&"myapp.models.order"));
     }
 
     #[test]
@@ -739,7 +671,7 @@ class Article(models.Model):
     }
 
     #[test]
-    fn scan_models_nested_package() {
+    fn discover_model_files_in_dir_nested_package() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -753,15 +685,13 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = scan_models_in_dir(&root);
+        let results = discover_model_files_in_dir(&root);
+        let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
-            results.contains_key("myapp.models.base.abstract"),
-            "should scan nested model files: got {:?}",
-            results.keys().collect::<Vec<_>>()
+            module_paths.contains(&"myapp.models.base.abstract"),
+            "should discover nested model files: got {:?}",
+            module_paths
         );
-        assert!(results["myapp.models.base.abstract"]
-            .get("BaseModel")
-            .is_some());
     }
 
     #[test]
