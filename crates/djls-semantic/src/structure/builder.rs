@@ -186,10 +186,10 @@ impl<'db> BlockTreeBuilder<'db> {
                 });
             }
             TagClass::Closer { opener_name } => {
-                self.close_block(&opener_name, bits, span);
+                self.close_block(opener_name, bits, span);
             }
             TagClass::Intermediate { possible_openers } => {
-                self.add_intermediate(name, &possible_openers, span);
+                self.add_intermediate(name, possible_openers, span);
             }
             TagClass::Unknown => {
                 if let Some(segment) = get_active_segment(&self.stack) {

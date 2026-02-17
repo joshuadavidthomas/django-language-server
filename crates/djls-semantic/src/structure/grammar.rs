@@ -1,20 +1,23 @@
 use rustc_hash::FxHashMap;
 
-/// Index for tag grammar lookups
+/// Role a tag plays in Django's block structure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TagRole {
+    Opener(EndMeta),
+    Closer { opener: String },
+    Intermediate { possible_openers: Vec<String> },
+}
+
+/// Index for tag grammar lookups.
+///
+/// Uses a single unified map from tag name to [`TagRole`], so every
+/// lookup (`classify`, `validate_close`, `is_end_required`) is a single
+/// hash probe instead of checking up to three separate maps.
 #[salsa::tracked(debug)]
 pub struct TagIndex<'db> {
-    /// Opener tags and their end tag metadata
     #[tracked]
     #[returns(ref)]
-    openers: FxHashMap<String, EndMeta>,
-    /// Map from closer tag name to opener tag name
-    #[tracked]
-    #[returns(ref)]
-    closers: FxHashMap<String, String>,
-    /// Map from intermediate tag name to list of possible opener tags
-    #[tracked]
-    #[returns(ref)]
-    intermediate_to_openers: FxHashMap<String, Vec<String>>,
+    roles: FxHashMap<String, TagRole>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,27 +26,24 @@ pub struct EndMeta {
 }
 
 impl<'db> TagIndex<'db> {
-    pub fn classify(self, db: &'db dyn crate::Db, tag_name: &str) -> TagClass {
-        if self.openers(db).contains_key(tag_name) {
-            return TagClass::Opener;
+    pub fn classify(self, db: &'db dyn crate::Db, tag_name: &str) -> TagClass<'db> {
+        match self.roles(db).get(tag_name) {
+            Some(TagRole::Opener(_)) => TagClass::Opener,
+            Some(TagRole::Closer { opener }) => TagClass::Closer {
+                opener_name: opener,
+            },
+            Some(TagRole::Intermediate { possible_openers }) => {
+                TagClass::Intermediate { possible_openers }
+            }
+            None => TagClass::Unknown,
         }
-        if let Some(opener) = self.closers(db).get(tag_name) {
-            return TagClass::Closer {
-                opener_name: opener.clone(),
-            };
-        }
-        if let Some(openers) = self.intermediate_to_openers(db).get(tag_name) {
-            return TagClass::Intermediate {
-                possible_openers: openers.clone(),
-            };
-        }
-        TagClass::Unknown
     }
 
     pub fn is_end_required(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
-        self.openers(db)
-            .get(opener_name)
-            .is_some_and(|meta| meta.required)
+        matches!(
+            self.roles(db).get(opener_name),
+            Some(TagRole::Opener(EndMeta { required: true }))
+        )
     }
 
     pub fn validate_close(
@@ -53,7 +53,7 @@ impl<'db> TagIndex<'db> {
         opener_bits: &[String],
         closer_bits: &[String],
     ) -> CloseValidation {
-        if !self.openers(db).contains_key(opener_name) {
+        if !matches!(self.roles(db).get(opener_name), Some(TagRole::Opener(_))) {
             return CloseValidation::NotABlock;
         }
 
@@ -84,9 +84,7 @@ impl<'db> TagIndex<'db> {
     /// need to build the index without going through `db.tag_specs()`.
     #[must_use]
     pub fn from_tag_specs(db: &'db dyn crate::Db, specs: &crate::TagSpecs) -> Self {
-        let mut openers = FxHashMap::default();
-        let mut closers = FxHashMap::default();
-        let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
+        let mut roles: FxHashMap<String, TagRole> = FxHashMap::default();
 
         for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
@@ -94,33 +92,45 @@ impl<'db> TagIndex<'db> {
                     required: end_tag.required,
                 };
 
-                // opener -> meta
-                openers.insert(name.clone(), meta);
-                // closer -> opener
-                closers.insert(end_tag.name.as_ref().to_owned(), name.clone());
-                // intermediates -> opener
+                roles.insert(name.clone(), TagRole::Opener(meta));
+                roles.insert(
+                    end_tag.name.as_ref().to_owned(),
+                    TagRole::Closer {
+                        opener: name.clone(),
+                    },
+                );
+
                 for inter in spec.intermediate_tags.iter() {
-                    intermediate_to_openers
+                    roles
                         .entry(inter.name.as_ref().to_owned())
-                        .or_default()
-                        .push(name.clone());
+                        .and_modify(|role| {
+                            if let TagRole::Intermediate { possible_openers } = role {
+                                possible_openers.push(name.clone());
+                            }
+                        })
+                        .or_insert_with(|| TagRole::Intermediate {
+                            possible_openers: vec![name.clone()],
+                        });
                 }
             }
         }
 
-        TagIndex::new(db, openers, closers, intermediate_to_openers)
+        TagIndex::new(db, roles)
     }
 }
 
-/// Classification of a tag based on its role
+/// Classification of a tag based on its role.
+///
+/// Borrows data from the [`TagIndex`]'s Salsa-tracked storage, avoiding
+/// clones of opener names and possible-opener lists.
 #[derive(Clone, Debug)]
-pub enum TagClass {
+pub enum TagClass<'a> {
     /// This tag opens a block
     Opener,
     /// This tag closes a block
-    Closer { opener_name: String },
+    Closer { opener_name: &'a str },
     /// This tag is an intermediate (elif, else, etc.)
-    Intermediate { possible_openers: Vec<String> },
+    Intermediate { possible_openers: &'a [String] },
     /// Unknown tag - treat as leaf
     Unknown,
 }
