@@ -34,6 +34,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Widened templatetag extraction to catch any uncaught exception in compilation functions, not just `TemplateSyntaxError`. Tags that raise `ValueError`, `TypeError`, or other exceptions in guards now produce validation constraints.
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
 - **Internal**: `AvailableSymbols` now borrows `&str` from `TemplateLibraries` instead of cloning owned `String`s, cutting validation overhead by 30-60% across benchmarks.
+- **Internal**: `LoadState` now borrows `&str` from `LoadedLibraries` instead of cloning strings, and `compute_loaded_libraries` returns a reference via `returns(ref)`. Eliminates all string allocations in `available_at`.
 
 ### Removed
 

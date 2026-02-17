@@ -357,7 +357,7 @@ impl LanguageServer for DjangoLanguageServer {
                                     encoding,
                                 );
                                 djls_semantic::AvailableSymbols::at_position(
-                                    &loaded,
+                                    loaded,
                                     template_libraries,
                                     byte_offset.get(),
                                 )

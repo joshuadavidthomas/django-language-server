@@ -83,13 +83,16 @@ pub fn parse_load_bits(bits: &[String]) -> Option<LoadKind> {
 }
 
 /// The state of loaded libraries at a given position in a template.
+///
+/// Borrows library and symbol names from the [`LoadedLibraries`] that produced
+/// it, avoiding per-query string allocations.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoadState {
-    fully_loaded: HashSet<String>,
-    selective: HashMap<String, HashSet<String>>,
+pub struct LoadState<'a> {
+    fully_loaded: HashSet<&'a str>,
+    selective: HashMap<&'a str, HashSet<&'a str>>,
 }
 
-impl LoadState {
+impl<'a> LoadState<'a> {
     #[must_use]
     pub fn is_fully_loaded(&self, library: &str) -> bool {
         self.fully_loaded.contains(library)
@@ -105,12 +108,12 @@ impl LoadState {
     }
 
     #[must_use]
-    pub fn fully_loaded_libraries(&self) -> &HashSet<String> {
+    pub fn fully_loaded_libraries(&self) -> &HashSet<&'a str> {
         &self.fully_loaded
     }
 
     #[must_use]
-    pub fn selective_imports(&self) -> &HashMap<String, HashSet<String>> {
+    pub fn selective_imports(&self) -> &HashMap<&'a str, HashSet<&'a str>> {
         &self.selective
     }
 }
@@ -150,10 +153,13 @@ impl LoadedLibraries {
     ///   selective imports for those libraries
     /// - `{% load sym from X %}` (selective): if X is NOT fully loaded, add
     ///   `sym` to `selective[X]`
+    ///
+    /// The returned `LoadState` borrows library and symbol names from `self`,
+    /// avoiding all string allocations.
     #[must_use]
-    pub fn available_at(&self, position: u32) -> LoadState {
+    pub fn available_at(&self, position: u32) -> LoadState<'_> {
         let mut fully_loaded = HashSet::default();
-        let mut selective: HashMap<String, HashSet<String>> = HashMap::default();
+        let mut selective: HashMap<&str, HashSet<&str>> = HashMap::default();
 
         for stmt in &self.statements {
             if stmt.span.end() > position {
@@ -163,15 +169,15 @@ impl LoadedLibraries {
             match &stmt.kind {
                 LoadKind::FullLoad { libraries } => {
                     for lib in libraries {
-                        fully_loaded.insert(lib.clone());
-                        selective.remove(lib);
+                        fully_loaded.insert(lib.as_str());
+                        selective.remove(lib.as_str());
                     }
                 }
                 LoadKind::SelectiveImport { symbols, library } => {
-                    if !fully_loaded.contains(library) {
-                        let entry = selective.entry(library.clone()).or_default();
+                    if !fully_loaded.contains(library.as_str()) {
+                        let entry = selective.entry(library.as_str()).or_default();
                         for sym in symbols {
-                            entry.insert(sym.clone());
+                            entry.insert(sym.as_str());
                         }
                     }
                 }

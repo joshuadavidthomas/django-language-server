@@ -21,7 +21,7 @@ use crate::db::Db;
 /// that supports position-aware availability queries.
 ///
 /// Cached by Salsa — re-computes only when the underlying [`NodeList`] changes.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLibraries {
     let statements: Vec<LoadStatement> = nodelist
         .nodelist(db)

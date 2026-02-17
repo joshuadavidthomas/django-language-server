@@ -4,8 +4,8 @@ use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::scoping::loads::LoadState;
-use crate::scoping::LoadedLibraries;
+use super::LoadState;
+use super::LoadedLibraries;
 
 /// The result of checking a tag name against the available symbols at a position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,8 +57,6 @@ pub struct AvailableSymbols<'a> {
     available_filters: FxHashSet<&'a str>,
     /// Filter names → set of candidate libraries. Only populated for filters NOT in `available_filters`.
     filter_candidates: FxHashMap<&'a str, Vec<&'a str>>,
-    /// The load state at this position, retained for library availability queries.
-    load_state: LoadState,
 }
 
 impl<'a> AvailableSymbols<'a> {
@@ -73,10 +71,10 @@ impl<'a> AvailableSymbols<'a> {
         Self::from_load_state(&load_state, template_libraries)
     }
 
-    /// Build available symbols from a pre-computed `LoadState` and template libraries.
+    /// Build available symbols from a pre-computed load state and template libraries.
     #[must_use]
-    pub fn from_load_state(
-        load_state: &LoadState,
+    pub(crate) fn from_load_state(
+        load_state: &LoadState<'_>,
         template_libraries: &'a TemplateLibraries,
     ) -> Self {
         let (builtin_tag_count, builtin_filter_count) = template_libraries
@@ -189,7 +187,6 @@ impl<'a> AvailableSymbols<'a> {
             candidates,
             available_filters,
             filter_candidates,
-            load_state: load_state.clone(),
         }
     }
 
@@ -253,25 +250,6 @@ impl<'a> AvailableSymbols<'a> {
     #[must_use]
     pub fn unavailable_candidates(&self) -> &FxHashMap<&'a str, Vec<&'a str>> {
         &self.candidates
-    }
-
-    /// Check whether a library is fully loaded at this position.
-    ///
-    /// Used by filter completions to determine if a library's filters should
-    /// be shown. A library is considered loaded if it appears in a
-    /// `{% load lib %}` statement before the cursor position.
-    #[must_use]
-    pub fn is_library_loaded(&self, library: &str) -> bool {
-        self.load_state.is_fully_loaded(library)
-    }
-
-    /// Check whether a specific symbol from a library is available at this position.
-    ///
-    /// Returns true if the library is fully loaded, or if the symbol was
-    /// selectively imported via `{% load sym from lib %}`.
-    #[must_use]
-    pub fn is_symbol_imported(&self, library: &str, symbol: &str) -> bool {
-        self.load_state.is_symbol_available(library, symbol)
     }
 }
 

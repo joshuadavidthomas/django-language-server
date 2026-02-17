@@ -13,7 +13,6 @@ use djls_templates::Filter;
 
 use crate::db::Db;
 use crate::scoping::AvailableSymbols;
-use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
@@ -48,7 +47,7 @@ impl ExtendsPosition {
 pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
-    loaded_libraries: LoadedLibraries,
+    loaded_libraries: &'a LoadedLibraries,
     template_libraries: &'a djls_project::TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
@@ -61,10 +60,12 @@ pub struct TemplateValidator<'a> {
         HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 
-    // Cached AvailableSymbols keyed by LoadState.
-    // Between two {% load %} tags, the LoadState is identical, so we reuse
+    // Cached AvailableSymbols keyed by the number of active load statements.
+    // Between two {% load %} tags, the load state is identical, so we reuse
     // the AvailableSymbols rather than rebuilding from scratch per node.
-    cached_symbols: Option<(LoadState, AvailableSymbols<'a>)>,
+    // We track the count of statements active at the cached position as a
+    // cheap invalidation check (avoids comparing entire LoadState hash sets).
+    cached_symbols: Option<(usize, AvailableSymbols<'a>)>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
@@ -107,17 +108,25 @@ impl<'a> TemplateValidator<'a> {
 
     /// Ensure the cached `AvailableSymbols` is up-to-date for the given position.
     ///
-    /// Computes the `LoadState` at `position` and rebuilds the cache only when
-    /// the state has changed (i.e., a new `{% load %}` tag has been crossed).
+    /// Counts load statements active at `position` and rebuilds the cache only
+    /// when a new `{% load %}` tag has been crossed. Since templates are walked
+    /// in source order, the active count is monotonically non-decreasing —
+    /// making it a cheap and sufficient invalidation key.
     fn ensure_symbols_cached(&mut self, position: u32) {
-        let load_state = self.loaded_libraries.available_at(position);
+        let active_count = self
+            .loaded_libraries
+            .statements()
+            .iter()
+            .filter(|s| s.span().end() <= position)
+            .count();
         let needs_rebuild = match &self.cached_symbols {
-            Some((cached_state, _)) => *cached_state != load_state,
+            Some((cached_count, _)) => *cached_count != active_count,
             None => true,
         };
         if needs_rebuild {
+            let load_state = self.loaded_libraries.available_at(position);
             let symbols = AvailableSymbols::from_load_state(&load_state, self.template_libraries);
-            self.cached_symbols = Some((load_state, symbols));
+            self.cached_symbols = Some((active_count, symbols));
         }
     }
 }
