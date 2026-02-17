@@ -339,7 +339,6 @@ impl LanguageServer for DjangoLanguageServer {
                 let supports_snippets = session.client_info().supports_snippets();
 
                 // Compute position-aware available symbols for load-scoped completions.
-                // Uses the Salsa-tracked SymbolIndex for O(log n) position lookups.
                 let available_symbols = if file_kind == FileKind::Template {
                     if let Some(template_libraries) = template_libraries {
                         if template_libraries.inspector_knowledge == djls_project::Knowledge::Known

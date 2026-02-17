@@ -41,11 +41,6 @@ pub enum FilterAvailability {
 
 /// The set of tags and filters available at a given position in a template,
 /// plus a mapping of unavailable-but-known symbols to their required library/libraries.
-///
-/// Constructed from `LoadedLibraries`, installed template libraries, and a byte
-/// position in the template.
-///
-/// Owns all string data so it can be stored in Salsa-tracked return values.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableSymbols {
     /// Tag names that are available at this position (builtins + loaded library tags).
@@ -72,10 +67,7 @@ impl AvailableSymbols {
 
     /// Build available symbols from a pre-computed load state and template libraries.
     #[must_use]
-    fn from_load_state(
-        load_state: &LoadState<'_>,
-        template_libraries: &TemplateLibraries,
-    ) -> Self {
+    fn from_load_state(load_state: &LoadState<'_>, template_libraries: &TemplateLibraries) -> Self {
         let (builtin_tag_count, builtin_filter_count) = template_libraries
             .builtin_libraries()
             .flat_map(|lib| &lib.symbols)
@@ -256,10 +248,6 @@ impl AvailableSymbols {
 }
 
 /// Precomputed symbol availability at each `{% load %}` boundary in a template.
-///
-/// Built once per (template, `template_libraries`) pair by a Salsa-tracked
-/// function, then queried cheaply via binary search during validation and
-/// completion.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SymbolIndex {
     /// Symbols available before any `{% load %}` tags (builtins only).
@@ -271,9 +259,6 @@ pub struct SymbolIndex {
 
 impl SymbolIndex {
     /// Build a `SymbolIndex` from loaded libraries and template libraries.
-    ///
-    /// Precomputes `AvailableSymbols` at each `{% load %}` tag boundary,
-    /// enabling O(log n) position-based lookups instead of per-node rebuilds.
     #[must_use]
     pub fn build(
         loaded_libraries: &LoadedLibraries,
@@ -294,6 +279,11 @@ impl SymbolIndex {
             })
             .collect();
 
+        debug_assert!(
+            boundaries.windows(2).all(|w| w[0].0 <= w[1].0),
+            "SymbolIndex boundaries must be sorted by position"
+        );
+
         Self {
             initial,
             boundaries,
@@ -301,9 +291,6 @@ impl SymbolIndex {
     }
 
     /// Look up the available symbols at a given byte position.
-    ///
-    /// Uses binary search over load-statement boundaries — O(log n) where
-    /// n is the number of `{% load %}` tags in the template.
     #[must_use]
     pub fn symbols_at(&self, position: u32) -> &AvailableSymbols {
         let idx = self.boundaries.partition_point(|&(pos, _)| pos <= position);
