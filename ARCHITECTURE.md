@@ -52,9 +52,7 @@ A `SessionSnapshot` type (idea borrowed from Ruff/ty, natch) exists for cloning 
 
 ### `crates/djls-db`
 
-The concrete Salsa database and shared check pipeline. `DjangoDatabase` implements every `Db` trait defined across the other crates — it's the single type that ties the whole trait hierarchy together. Both the LSP server and the `djls check` CLI use it.
-
-`check_file` is the unified per-file check orchestration: parse the template, collect parse errors, run semantic validation, collect validation errors. It takes `&dyn SemanticDb` (not the concrete type) so benchmarks and tests can use it too. The CLI calls `check_file` then renders results to the terminal; the LSP server goes through `djls-ide::collect_diagnostics` which triggers the same Salsa queries but converts to LSP types.
+The concrete Salsa database. `DjangoDatabase` implements every `Db` trait defined across the other crates — it's the single type that ties the whole trait hierarchy together. Both the LSP server and the `djls check` CLI use it.
 
 This crate also owns the inspector refresh logic: querying the Python subprocess, updating Salsa inputs with the results, and managing the disk cache at `~/.cache/djls/inspector/`.
 
@@ -86,9 +84,9 @@ This crate also owns:
 
 ### `crates/djls-ide`
 
-IDE features: completions, diagnostics conversion, snippets, goto definition, find references. This is the boundary between internal domain knowledge and the LSP protocol — it takes everything the semantic model knows and translates it into LSP-shaped output that editors can consume. The CLI doesn't depend on this crate; it uses `djls-db::check_file` and the render functions there directly.
+IDE features: completions, diagnostics, snippets, goto definition, find references. This is the boundary between internal domain knowledge and the outside world — it takes everything the semantic model knows and translates it into LSP-shaped output that editors can consume.
 
-**Architecture Invariant:** `djls-ide` is the LSP translation layer. Everything below it — `djls-semantic`, `djls-templates`, `djls-python`, `djls-source` — is LSP-unaware. `djls-server` does reach into domain crates directly in places (calling `parse_template`, `compute_loaded_libraries`), so the boundary isn't perfectly clean in that direction yet.
+**Architecture Invariant:** `djls-ide` is the translation layer. Everything below it — `djls-semantic`, `djls-templates`, `djls-python`, `djls-source` — is LSP-unaware. `djls-server` does reach into domain crates directly in places (calling `parse_template`, `validate_nodelist`, `compute_loaded_libraries`), so the boundary isn't perfectly clean in that direction yet.
 
 ### `crates/djls-python`
 
@@ -118,7 +116,7 @@ Settings and diagnostics configuration. Merges configuration from multiple sourc
 
 ### `crates/djls-bench`
 
-Benchmarks using [divan](https://github.com/nvzqz/divan). Owns a `BenchDatabase` that implements `SemanticDb` with realistic tag specs, plus benchmarks for parsing, validation, extraction, diagnostics collection, and full-pipeline `djls check` runs (using `djls_db::check_file`). `just dev profile <bench> [filter]` generates flamegraphs.
+Benchmarks using [divan](https://github.com/nvzqz/divan). Owns a `BenchDatabase` that implements `SemanticDb` with realistic tag specs, plus benchmarks for parsing, validation, extraction, and full-pipeline `djls check` runs. `just dev profile <bench> [filter]` generates flamegraphs.
 
 ### `crates/djls-corpus`
 
@@ -183,7 +181,7 @@ When a template file opens or changes, it flows through a series of stages. Each
 2. **Parsing** — produces a flat `NodeList`. Parse errors become `Node::Error` entries and are also emitted via `TemplateErrorAccumulator`.
 3. **Structural analysis** — builds a `BlockTree` from the flat list, matching openers (`{% if %}`) with intermediates (`{% elif %}`, `{% else %}`) and closers (`{% endif %}`). Structural errors (unclosed tags, orphaned intermediates) accumulate as `ValidationError`s.
 4. **Validation** — a single-pass visitor checks load scoping, argument counts, filter arity, expression syntax, `{% extends %}` rules. Skips nodes inside opaque regions (`{% verbatim %}`, `{% comment %}`). Errors accumulate as `ValidationError`s.
-5. **Diagnostics** — `check_file` in `djls-db` retrieves accumulated errors from both the parsing and validation accumulators, returning raw `CheckResult` data. The CLI renders these directly to the terminal; the LSP path goes through `collect_diagnostics` in `djls-ide`, which performs the same accumulator reads (cached by Salsa) and converts to LSP diagnostics with severity overrides from the diagnostics configuration.
+5. **Diagnostics** — `collect_diagnostics` in `djls-ide` retrieves accumulated errors from both the parsing and validation accumulators, converts them to LSP diagnostics, and applies severity overrides from the diagnostics configuration.
 
 The key insight is that no stage blocks on errors from a previous stage. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.
 
@@ -208,7 +206,7 @@ Template parsing and semantic validation currently use Salsa accumulators to rep
 
 Infrastructure code — the CLI, the inspector subprocess, file I/O, cache operations, configuration loading — uses `anyhow::Result`. These are operations that can genuinely fail (disk full, Python not installed, malformed TOML), and the failure should propagate up to the user.
 
-The boundary between these two worlds is `check_file` in `djls-db` (for the CLI) and `collect_diagnostics` in `djls-ide` (for the LSP server): both reach into the Salsa accumulators and gather everything. Neither ever fails — if there's nothing to report, they return empty results.
+The boundary between these two worlds is `collect_diagnostics` in `djls-ide`: it reaches into the Salsa accumulators, gathers everything, and produces a flat `Vec<Diagnostic>`. That function itself never fails — if there's nothing to report, it returns an empty vec.
 
 ### Observability
 
