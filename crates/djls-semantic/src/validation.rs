@@ -46,11 +46,11 @@ impl ExtendsPosition {
 /// structure) into a single walk of the `NodeList`, reducing redundant traversals.
 pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
-    tag_specs: TagSpecs,
+    tag_specs: &'a TagSpecs,
     loaded_libraries: LoadedLibraries,
-    template_libraries: djls_project::TemplateLibraries,
+    template_libraries: &'a djls_project::TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
-    filter_arity_specs: FilterAritySpecs,
+    filter_arity_specs: &'a FilterAritySpecs,
 
     // Environment symbol caches
     env_tags: Option<
@@ -134,10 +134,10 @@ impl Visitor for TemplateValidator<'_> {
 
         if !is_opaque {
             // 2. Scoping validation (skip structural tags and "load")
-            if name != "load" && !scoping::is_closer_or_intermediate(name, &self.tag_specs) {
+            if name != "load" && !scoping::is_closer_or_intermediate(name, self.tag_specs) {
                 let symbols = AvailableSymbols::at_position(
                     &self.loaded_libraries,
-                    &self.template_libraries,
+                    self.template_libraries,
                     span.start(),
                 );
                 scoping::check_tag_scoping_rule(
@@ -158,7 +158,7 @@ impl Visitor for TemplateValidator<'_> {
 
             // 4. Load library validation
             if name == "load" {
-                scoping::check_load_libraries_rule(self.db, bits, span, &self.template_libraries);
+                scoping::check_load_libraries_rule(self.db, bits, span, self.template_libraries);
             }
 
             // 5. If expression validation
@@ -174,7 +174,7 @@ impl Visitor for TemplateValidator<'_> {
         if !self.opaque_regions.is_opaque(span.start()) {
             let symbols = AvailableSymbols::at_position(
                 &self.loaded_libraries,
-                &self.template_libraries,
+                self.template_libraries,
                 span.start(),
             );
 
@@ -191,8 +191,8 @@ impl Visitor for TemplateValidator<'_> {
                 filters::check_filter_arity_rule(
                     self.db,
                     filter,
-                    &self.filter_arity_specs,
-                    &self.template_libraries,
+                    self.filter_arity_specs,
+                    self.template_libraries,
                 );
             }
         }

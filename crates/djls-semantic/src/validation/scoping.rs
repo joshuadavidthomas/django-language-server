@@ -24,8 +24,7 @@ pub(crate) fn check_tag_scoping_rule(
         &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 ) {
-    let template_libraries = db.template_libraries();
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if db.template_libraries().inspector_knowledge != djls_project::Knowledge::Known {
         return;
     }
 
@@ -84,8 +83,7 @@ pub(crate) fn check_filter_scoping_rule(
         &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 ) {
-    let template_libraries = db.template_libraries();
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if db.template_libraries().inspector_knowledge != djls_project::Knowledge::Known {
         return;
     }
 

@@ -378,7 +378,7 @@ impl LanguageServer for DjangoLanguageServer {
                     encoding,
                     file_kind,
                     template_libraries,
-                    Some(&tag_specs),
+                    Some(tag_specs),
                     available_symbols.as_ref(),
                     supports_snippets,
                 );

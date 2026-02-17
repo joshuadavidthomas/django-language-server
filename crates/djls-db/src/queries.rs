@@ -15,7 +15,7 @@ use djls_semantic::TagSpecs;
 /// the Project field).
 ///
 /// Does NOT read from `Arc<Mutex<Settings>>`.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let _libraries = project.template_libraries(db);
     let tagspecs = project.tagspecs(db);
@@ -51,7 +51,7 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
 #[salsa::tracked]
 pub fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> {
     let specs = compute_tag_specs(db, project);
-    TagIndex::from_tag_specs(db, &specs)
+    TagIndex::from_tag_specs(db, specs)
 }
 
 /// Compute `FilterAritySpecs` from a project's extraction results.
@@ -59,7 +59,7 @@ pub fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> 
 /// Merges filter arity data from both workspace (tracked) and external
 /// extraction results, with last-wins semantics for name collisions
 /// (matching Django's builtin ordering).
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn compute_filter_arity_specs(
     db: &dyn SemanticDb,
     project: Project,
@@ -89,7 +89,7 @@ pub fn compute_filter_arity_specs(
 ///
 /// Workspace models merge after external, so project models take precedence
 /// over installed package models for same-named models.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph {
     let mut graph = ModelGraph::new();
 

@@ -75,7 +75,7 @@ impl<'db> TagIndex<'db> {
 
     #[must_use]
     pub fn from_specs(db: &'db dyn crate::Db) -> Self {
-        Self::from_tag_specs(db, &db.tag_specs())
+        Self::from_tag_specs(db, db.tag_specs())
     }
 
     /// Build a `TagIndex` from an explicit `TagSpecs` value.

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
@@ -191,10 +192,13 @@ impl djls_source::Db for TestDatabase {
 #[salsa::db]
 impl djls_templates::Db for TestDatabase {}
 
+static DEFAULT_MODEL_GRAPH: LazyLock<djls_python::ModelGraph> =
+    LazyLock::new(djls_python::ModelGraph::new);
+
 #[salsa::db]
 impl crate::Db for TestDatabase {
-    fn tag_specs(&self) -> TagSpecs {
-        self.tag_specs.clone()
+    fn tag_specs(&self) -> &TagSpecs {
+        &self.tag_specs
     }
 
     fn tag_index(&self) -> TagIndex<'_> {
@@ -209,16 +213,16 @@ impl crate::Db for TestDatabase {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_libraries(&self) -> TemplateLibraries {
-        self.template_libraries.clone()
+    fn template_libraries(&self) -> &TemplateLibraries {
+        &self.template_libraries
     }
 
-    fn filter_arity_specs(&self) -> FilterAritySpecs {
-        self.filter_arity_specs.clone()
+    fn filter_arity_specs(&self) -> &FilterAritySpecs {
+        &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> djls_python::ModelGraph {
-        djls_python::ModelGraph::new()
+    fn model_graph(&self) -> &djls_python::ModelGraph {
+        &DEFAULT_MODEL_GRAPH
     }
 }
 

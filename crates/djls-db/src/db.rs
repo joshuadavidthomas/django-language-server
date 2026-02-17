@@ -5,6 +5,7 @@
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
@@ -167,13 +168,21 @@ impl WorkspaceDb for DjangoDatabase {
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {}
 
+static DEFAULT_TAG_SPECS: LazyLock<TagSpecs> = LazyLock::new(djls_semantic::builtin_tag_specs);
+static DEFAULT_TEMPLATE_LIBRARIES: LazyLock<TemplateLibraries> =
+    LazyLock::new(TemplateLibraries::default);
+static DEFAULT_FILTER_ARITY_SPECS: LazyLock<djls_semantic::FilterAritySpecs> =
+    LazyLock::new(djls_semantic::FilterAritySpecs::new);
+static DEFAULT_MODEL_GRAPH: LazyLock<djls_python::ModelGraph> =
+    LazyLock::new(djls_python::ModelGraph::new);
+
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
-    fn tag_specs(&self) -> TagSpecs {
+    fn tag_specs(&self) -> &TagSpecs {
         if let Some(project) = self.project() {
             compute_tag_specs(self, project)
         } else {
-            djls_semantic::builtin_tag_specs()
+            &DEFAULT_TAG_SPECS
         }
     }
 
@@ -197,25 +206,26 @@ impl SemanticDb for DjangoDatabase {
         self.settings().diagnostics().clone()
     }
 
-    fn template_libraries(&self) -> TemplateLibraries {
+    fn template_libraries(&self) -> &TemplateLibraries {
         self.project()
-            .map(|project| project.template_libraries(self).clone())
-            .unwrap_or_default()
+            .map_or(&DEFAULT_TEMPLATE_LIBRARIES, |project| {
+                project.template_libraries(self)
+            })
     }
 
-    fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
+    fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
         if let Some(project) = self.project() {
             compute_filter_arity_specs(self, project)
         } else {
-            djls_semantic::FilterAritySpecs::new()
+            &DEFAULT_FILTER_ARITY_SPECS
         }
     }
 
-    fn model_graph(&self) -> djls_python::ModelGraph {
+    fn model_graph(&self) -> &djls_python::ModelGraph {
         if let Some(project) = self.project() {
             compute_model_graph(self, project)
         } else {
-            djls_python::ModelGraph::new()
+            &DEFAULT_MODEL_GRAPH
         }
     }
 }

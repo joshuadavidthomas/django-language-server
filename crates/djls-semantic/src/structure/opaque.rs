@@ -59,7 +59,7 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
     let blocks = block_tree.blocks(db);
     let mut spans = Vec::new();
 
-    collect_opaque_spans_from_roots(block_tree.roots(db), blocks, &tag_specs, &mut spans);
+    collect_opaque_spans_from_roots(block_tree.roots(db), blocks, tag_specs, &mut spans);
 
     OpaqueRegions::new(spans)
 }
