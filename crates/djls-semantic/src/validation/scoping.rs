@@ -141,7 +141,7 @@ pub(crate) fn check_load_libraries_rule(
     span: Span,
     template_libraries: &djls_project::TemplateLibraries,
 ) {
-    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
+    if template_libraries.inspector_knowledge != Knowledge::Known {
         return;
     }
 

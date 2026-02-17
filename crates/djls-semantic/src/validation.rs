@@ -194,7 +194,7 @@ impl Visitor for TemplateValidator<'_> {
                     self.db,
                     filter,
                     self.filter_arity_specs,
-                    self.template_libraries,
+                    self.template_libraries.inspector_knowledge,
                 );
             }
         }
