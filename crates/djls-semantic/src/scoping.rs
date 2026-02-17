@@ -5,6 +5,7 @@ use djls_templates::Node;
 use djls_templates::NodeList;
 pub use loads::parse_load_bits;
 pub use loads::LoadKind;
+pub use loads::LoadState;
 pub use loads::LoadStatement;
 pub use loads::LoadedLibraries;
 pub use symbols::AvailableSymbols;
