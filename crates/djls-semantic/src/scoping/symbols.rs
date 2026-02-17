@@ -653,8 +653,6 @@ mod tests {
         assert_eq!(symbols.check("shared"), TagAvailability::Available);
     }
 
-    // --- Filter availability tests ---
-
     fn test_inventory_with_filters() -> TemplateLibraries {
         let tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
         let filters = vec![
@@ -797,8 +795,6 @@ mod tests {
             }
         );
     }
-
-    // --- SymbolIndex tests ---
 
     #[test]
     fn symbol_index_no_loads_uses_initial() {
