@@ -902,7 +902,6 @@ mod tests {
 
     #[test]
     fn symbol_index_matches_at_position() {
-        // Verify SymbolIndex gives same results as AvailableSymbols::at_position
         let inventory = test_inventory();
         let loaded = LoadedLibraries::new(vec![
             make_load(
@@ -930,6 +929,32 @@ mod tests {
                     from_index.check(tag),
                     from_direct.check(tag),
                     "Mismatch at position {pos} for tag '{tag}'"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn symbol_index_filter_boundary() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![make_load(
+            (50, 20),
+            LoadKind::FullLoad {
+                libraries: vec!["humanize".into()],
+            },
+        )]);
+
+        let index = SymbolIndex::build(&loaded, &inventory);
+
+        for pos in [0, 5, 10, 49, 50, 69, 70, 100, 200] {
+            let from_index = index.symbols_at(pos);
+            let from_direct = AvailableSymbols::at_position(&loaded, &inventory, pos);
+
+            for filter in ["title", "lower", "apnumber", "intcomma", "nonexistent"] {
+                assert_eq!(
+                    from_index.check_filter(filter),
+                    from_direct.check_filter(filter),
+                    "Filter mismatch at position {pos} for filter '{filter}'"
                 );
             }
         }
