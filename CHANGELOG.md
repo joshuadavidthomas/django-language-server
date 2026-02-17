@@ -29,11 +29,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- **Internal**: Replaced manual `AvailableSymbols` cache in `TemplateValidator` with `SymbolIndex`. Symbol availability is now precomputed per `{% load %}` boundary and memoized across revisions, eliminating per-walk rebuilds and hand-rolled invalidation logic.
 - **Internal**: Moved `check_file` orchestration and diagnostic rendering into `djls-db`. Removed `djls-ide`, `djls-templates`, and `djls-project` dependencies from the CLI binary.
 - **Internal**: Moved extraction orchestration from `djls-project` to `djls-db`. Removed unused `djls-workspace` dependency from `djls-project`.
 - Widened templatetag extraction to catch any uncaught exception in compilation functions, not just `TemplateSyntaxError`. Tags that raise `ValueError`, `TypeError`, or other exceptions in guards now produce validation constraints.
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
-- **Internal**: `AvailableSymbols` now borrows `&str` from `TemplateLibraries` instead of cloning owned `String`s, cutting validation overhead by 30-60% across benchmarks.
 - **Internal**: `LoadState` now borrows `&str` from `LoadedLibraries` instead of cloning strings, and `compute_loaded_libraries` returns a reference via `returns(ref)`. Eliminated all string allocations in `available_at`.
 - **Internal**: Consolidated `TagIndex` from three separate tracked fields into a single `roles` map, reducing `classify` from 3 Salsa field accesses to 1. `TagClass` now borrows from Salsa storage instead of cloning.
 

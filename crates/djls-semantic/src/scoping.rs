@@ -10,17 +10,12 @@ pub use loads::LoadStatement;
 pub use loads::LoadedLibraries;
 pub use symbols::AvailableSymbols;
 pub use symbols::FilterAvailability;
+pub use symbols::SymbolIndex;
 pub use symbols::TagAvailability;
 
 use crate::db::Db;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
-///
-/// Iterates all nodes, identifies `{% load %}` tags, parses each into a
-/// [`LoadStatement`], and returns an ordered [`LoadedLibraries`] collection
-/// that supports position-aware availability queries.
-///
-/// Cached by Salsa — re-computes only when the underlying [`NodeList`] changes.
 #[salsa::tracked(returns(ref))]
 pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLibraries {
     let statements: Vec<LoadStatement> = nodelist
@@ -38,4 +33,12 @@ pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLi
         .collect();
 
     LoadedLibraries::new(statements)
+}
+
+/// Compute a [`SymbolIndex`] for position-based symbol availability lookups.
+#[salsa::tracked(returns(ref))]
+pub fn compute_symbol_index(db: &dyn Db, nodelist: NodeList<'_>) -> SymbolIndex {
+    let loaded_libraries = compute_loaded_libraries(db, nodelist);
+    let template_libraries = db.template_libraries();
+    SymbolIndex::build(loaded_libraries, template_libraries)
 }

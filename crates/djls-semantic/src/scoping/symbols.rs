@@ -41,30 +41,24 @@ pub enum FilterAvailability {
 
 /// The set of tags and filters available at a given position in a template,
 /// plus a mapping of unavailable-but-known symbols to their required library/libraries.
-///
-/// Constructed from `LoadedLibraries`, installed template libraries, and a byte
-/// position in the template.
-///
-/// Borrows string data from the `TemplateLibraries` that produced it, avoiding
-/// per-symbol heap allocations.
-#[derive(Clone, Debug)]
-pub struct AvailableSymbols<'a> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableSymbols {
     /// Tag names that are available at this position (builtins + loaded library tags).
-    available: FxHashSet<&'a str>,
+    available: FxHashSet<String>,
     /// Tag names → set of candidate libraries. Only populated for tags NOT in `available`.
-    candidates: FxHashMap<&'a str, Vec<&'a str>>,
+    candidates: FxHashMap<String, Vec<String>>,
     /// Filter names that are available at this position (builtins + loaded library filters).
-    available_filters: FxHashSet<&'a str>,
+    available_filters: FxHashSet<String>,
     /// Filter names → set of candidate libraries. Only populated for filters NOT in `available_filters`.
-    filter_candidates: FxHashMap<&'a str, Vec<&'a str>>,
+    filter_candidates: FxHashMap<String, Vec<String>>,
 }
 
-impl<'a> AvailableSymbols<'a> {
+impl AvailableSymbols {
     /// Build available symbols for a given position using load state and template libraries.
     #[must_use]
     pub fn at_position(
         loaded_libraries: &LoadedLibraries,
-        template_libraries: &'a TemplateLibraries,
+        template_libraries: &TemplateLibraries,
         position: u32,
     ) -> Self {
         let load_state = loaded_libraries.available_at(position);
@@ -73,10 +67,7 @@ impl<'a> AvailableSymbols<'a> {
 
     /// Build available symbols from a pre-computed load state and template libraries.
     #[must_use]
-    pub(crate) fn from_load_state(
-        load_state: &LoadState<'_>,
-        template_libraries: &'a TemplateLibraries,
-    ) -> Self {
+    fn from_load_state(load_state: &LoadState<'_>, template_libraries: &TemplateLibraries) -> Self {
         let (builtin_tag_count, builtin_filter_count) = template_libraries
             .builtin_libraries()
             .flat_map(|lib| &lib.symbols)
@@ -97,25 +88,26 @@ impl<'a> AvailableSymbols<'a> {
             builtin_tag_count + loadable_tag_count,
             FxBuildHasher,
         );
-        let mut candidates: FxHashMap<&str, Vec<&str>> =
+        let mut candidates: FxHashMap<String, Vec<String>> =
             FxHashMap::with_capacity_and_hasher(loadable_tag_count, FxBuildHasher);
 
         let mut available_filters = FxHashSet::with_capacity_and_hasher(
             builtin_filter_count + loadable_filter_count,
             FxBuildHasher,
         );
-        let mut filter_candidates: FxHashMap<&str, Vec<&str>> =
+        let mut filter_candidates: FxHashMap<String, Vec<String>> =
             FxHashMap::with_capacity_and_hasher(loadable_filter_count, FxBuildHasher);
 
         // Builtins are always available.
         for library in template_libraries.builtin_libraries() {
             for symbol in &library.symbols {
+                let name = symbol.name.as_str().to_string();
                 match symbol.kind {
                     TemplateSymbolKind::Tag => {
-                        available.insert(symbol.name.as_str());
+                        available.insert(name);
                     }
                     TemplateSymbolKind::Filter => {
-                        available_filters.insert(symbol.name.as_str());
+                        available_filters.insert(name);
                     }
                 }
             }
@@ -126,20 +118,22 @@ impl<'a> AvailableSymbols<'a> {
             let load_name = name.as_str();
 
             for symbol in &library.symbols {
+                let symbol_name = symbol.name.as_str();
                 match symbol.kind {
                     TemplateSymbolKind::Tag => {
-                        let symbol_name = symbol.name.as_str();
                         if !available.contains(symbol_name) {
-                            candidates.entry(symbol_name).or_default().push(load_name);
+                            candidates
+                                .entry(symbol_name.to_string())
+                                .or_default()
+                                .push(load_name.to_string());
                         }
                     }
                     TemplateSymbolKind::Filter => {
-                        let symbol_name = symbol.name.as_str();
                         if !available_filters.contains(symbol_name) {
                             filter_candidates
-                                .entry(symbol_name)
+                                .entry(symbol_name.to_string())
                                 .or_default()
-                                .push(load_name);
+                                .push(load_name.to_string());
                         }
                     }
                 }
@@ -150,9 +144,9 @@ impl<'a> AvailableSymbols<'a> {
         candidates.retain(|tag_name, libs| {
             let is_available = libs
                 .iter()
-                .any(|lib| load_state.is_symbol_available(lib, tag_name));
+                .any(|lib| load_state.is_symbol_available(lib, tag_name.as_str()));
             if is_available {
-                available.insert(tag_name);
+                available.insert(tag_name.clone());
                 false
             } else {
                 true
@@ -163,9 +157,9 @@ impl<'a> AvailableSymbols<'a> {
         filter_candidates.retain(|filter_name, libs| {
             let is_available = libs
                 .iter()
-                .any(|lib| load_state.is_symbol_available(lib, filter_name));
+                .any(|lib| load_state.is_symbol_available(lib, filter_name.as_str()));
             if is_available {
-                available_filters.insert(filter_name);
+                available_filters.insert(filter_name.clone());
                 false
             } else {
                 true
@@ -201,10 +195,10 @@ impl<'a> AvailableSymbols<'a> {
             return match libs.as_slice() {
                 [] => TagAvailability::Unknown,
                 [single] => TagAvailability::Unloaded {
-                    library: (*single).to_string(),
+                    library: single.clone(),
                 },
                 _ => TagAvailability::AmbiguousUnloaded {
-                    libraries: libs.iter().map(|s| (*s).to_string()).collect(),
+                    libraries: libs.clone(),
                 },
             };
         }
@@ -223,10 +217,10 @@ impl<'a> AvailableSymbols<'a> {
             return match libs.as_slice() {
                 [] => FilterAvailability::Unknown,
                 [single] => FilterAvailability::Unloaded {
-                    library: (*single).to_string(),
+                    library: single.clone(),
                 },
                 _ => FilterAvailability::AmbiguousUnloaded {
-                    libraries: libs.iter().map(|s| (*s).to_string()).collect(),
+                    libraries: libs.clone(),
                 },
             };
         }
@@ -236,20 +230,75 @@ impl<'a> AvailableSymbols<'a> {
 
     /// Returns the set of available tag names.
     #[must_use]
-    pub fn available_tags(&self) -> &FxHashSet<&'a str> {
+    pub fn available_tags(&self) -> &FxHashSet<String> {
         &self.available
     }
 
     /// Returns the set of available filter names.
     #[must_use]
-    pub fn available_filters(&self) -> &FxHashSet<&'a str> {
+    pub fn available_filters(&self) -> &FxHashSet<String> {
         &self.available_filters
     }
 
     /// Returns the mapping of unavailable tag names to their candidate libraries.
     #[must_use]
-    pub fn unavailable_candidates(&self) -> &FxHashMap<&'a str, Vec<&'a str>> {
+    pub fn unavailable_candidates(&self) -> &FxHashMap<String, Vec<String>> {
         &self.candidates
+    }
+}
+
+/// Precomputed symbol availability at each `{% load %}` boundary in a template.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SymbolIndex {
+    /// Symbols available before any `{% load %}` tags (builtins only).
+    initial: AvailableSymbols,
+    /// Sorted by position. Entry at index `i` covers positions from
+    /// `boundaries[i].0` (inclusive) to `boundaries[i+1].0` (exclusive).
+    boundaries: Vec<(u32, AvailableSymbols)>,
+}
+
+impl SymbolIndex {
+    /// Build a `SymbolIndex` from loaded libraries and template libraries.
+    #[must_use]
+    pub fn build(
+        loaded_libraries: &LoadedLibraries,
+        template_libraries: &TemplateLibraries,
+    ) -> Self {
+        let empty_loaded = LoadedLibraries::new(vec![]);
+        let empty_state = empty_loaded.available_at(0);
+        let initial = AvailableSymbols::from_load_state(&empty_state, template_libraries);
+
+        let boundaries: Vec<(u32, AvailableSymbols)> = loaded_libraries
+            .statements()
+            .iter()
+            .map(|stmt| {
+                let position = stmt.span().end();
+                let load_state = loaded_libraries.available_at(position);
+                let symbols = AvailableSymbols::from_load_state(&load_state, template_libraries);
+                (position, symbols)
+            })
+            .collect();
+
+        debug_assert!(
+            boundaries.windows(2).all(|w| w[0].0 <= w[1].0),
+            "SymbolIndex boundaries must be sorted by position"
+        );
+
+        Self {
+            initial,
+            boundaries,
+        }
+    }
+
+    /// Look up the available symbols at a given byte position.
+    #[must_use]
+    pub fn symbols_at(&self, position: u32) -> &AvailableSymbols {
+        let idx = self.boundaries.partition_point(|&(pos, _)| pos <= position);
+        if idx == 0 {
+            &self.initial
+        } else {
+            &self.boundaries[idx - 1].1
+        }
     }
 }
 
@@ -559,8 +608,8 @@ mod tests {
         assert!(candidates.contains_key("get_static_prefix"));
 
         // Each should map to their library
-        assert!(candidates["trans"].contains(&"i18n"));
-        assert!(candidates["static"].contains(&"static"));
+        assert!(candidates["trans"].contains(&"i18n".to_string()));
+        assert!(candidates["static"].contains(&"static".to_string()));
     }
 
     #[test]
@@ -603,8 +652,6 @@ mod tests {
         // Should be available because we imported it from lib_a
         assert_eq!(symbols.check("shared"), TagAvailability::Available);
     }
-
-    // --- Filter availability tests ---
 
     fn test_inventory_with_filters() -> TemplateLibraries {
         let tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
@@ -747,5 +794,169 @@ mod tests {
                 library: "humanize".into()
             }
         );
+    }
+
+    #[test]
+    fn symbol_index_no_loads_uses_initial() {
+        let inventory = test_inventory();
+        let loaded = LoadedLibraries::new(vec![]);
+
+        let index = SymbolIndex::build(&loaded, &inventory);
+
+        // All positions return builtins only
+        let symbols = index.symbols_at(0);
+        assert_eq!(symbols.check("if"), TagAvailability::Available);
+        assert_eq!(
+            symbols.check("trans"),
+            TagAvailability::Unloaded {
+                library: "i18n".into()
+            }
+        );
+
+        let symbols = index.symbols_at(1000);
+        assert_eq!(symbols.check("if"), TagAvailability::Available);
+        assert_eq!(
+            symbols.check("trans"),
+            TagAvailability::Unloaded {
+                library: "i18n".into()
+            }
+        );
+    }
+
+    #[test]
+    fn symbol_index_boundary_lookup() {
+        let inventory = test_inventory();
+        let loaded = LoadedLibraries::new(vec![make_load(
+            (50, 20),
+            LoadKind::FullLoad {
+                libraries: vec!["i18n".into()],
+            },
+        )]);
+
+        let index = SymbolIndex::build(&loaded, &inventory);
+
+        // Before load: trans is unloaded
+        let symbols = index.symbols_at(10);
+        assert_eq!(
+            symbols.check("trans"),
+            TagAvailability::Unloaded {
+                library: "i18n".into()
+            }
+        );
+
+        // After load: trans is available
+        let symbols = index.symbols_at(100);
+        assert_eq!(symbols.check("trans"), TagAvailability::Available);
+    }
+
+    #[test]
+    fn symbol_index_multiple_boundaries() {
+        let inventory = test_inventory();
+        let loaded = LoadedLibraries::new(vec![
+            make_load(
+                (10, 20),
+                LoadKind::FullLoad {
+                    libraries: vec!["i18n".into()],
+                },
+            ),
+            make_load(
+                (80, 20),
+                LoadKind::FullLoad {
+                    libraries: vec!["static".into()],
+                },
+            ),
+        ]);
+
+        let index = SymbolIndex::build(&loaded, &inventory);
+
+        // Before first load
+        let symbols = index.symbols_at(5);
+        assert_eq!(
+            symbols.check("trans"),
+            TagAvailability::Unloaded {
+                library: "i18n".into()
+            }
+        );
+        assert_eq!(
+            symbols.check("static"),
+            TagAvailability::Unloaded {
+                library: "static".into()
+            }
+        );
+
+        // Between loads
+        let symbols = index.symbols_at(50);
+        assert_eq!(symbols.check("trans"), TagAvailability::Available);
+        assert_eq!(
+            symbols.check("static"),
+            TagAvailability::Unloaded {
+                library: "static".into()
+            }
+        );
+
+        // After both loads
+        let symbols = index.symbols_at(200);
+        assert_eq!(symbols.check("trans"), TagAvailability::Available);
+        assert_eq!(symbols.check("static"), TagAvailability::Available);
+    }
+
+    #[test]
+    fn symbol_index_matches_at_position() {
+        let inventory = test_inventory();
+        let loaded = LoadedLibraries::new(vec![
+            make_load(
+                (10, 20),
+                LoadKind::FullLoad {
+                    libraries: vec!["i18n".into()],
+                },
+            ),
+            make_load(
+                (80, 20),
+                LoadKind::FullLoad {
+                    libraries: vec!["static".into()],
+                },
+            ),
+        ]);
+
+        let index = SymbolIndex::build(&loaded, &inventory);
+
+        for pos in [0, 5, 10, 29, 30, 50, 79, 80, 99, 100, 200] {
+            let from_index = index.symbols_at(pos);
+            let from_direct = AvailableSymbols::at_position(&loaded, &inventory, pos);
+
+            for tag in ["if", "for", "block", "trans", "blocktrans", "static"] {
+                assert_eq!(
+                    from_index.check(tag),
+                    from_direct.check(tag),
+                    "Mismatch at position {pos} for tag '{tag}'"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn symbol_index_filter_boundary() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![make_load(
+            (50, 20),
+            LoadKind::FullLoad {
+                libraries: vec!["humanize".into()],
+            },
+        )]);
+
+        let index = SymbolIndex::build(&loaded, &inventory);
+
+        for pos in [0, 5, 10, 49, 50, 69, 70, 100, 200] {
+            let from_index = index.symbols_at(pos);
+            let from_direct = AvailableSymbols::at_position(&loaded, &inventory, pos);
+
+            for filter in ["title", "lower", "apnumber", "intcomma", "nonexistent"] {
+                assert_eq!(
+                    from_index.check_filter(filter),
+                    from_direct.check_filter(filter),
+                    "Filter mismatch at position {pos} for filter '{filter}'"
+                );
+            }
+        }
     }
 }
