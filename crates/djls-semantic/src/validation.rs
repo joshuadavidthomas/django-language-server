@@ -146,6 +146,7 @@ impl Visitor for TemplateValidator<'_> {
                     span,
                     &symbols,
                     self.env_tags.as_ref(),
+                    self.template_libraries.inspector_knowledge,
                 );
             }
 
@@ -185,6 +186,7 @@ impl Visitor for TemplateValidator<'_> {
                     filter,
                     &symbols,
                     self.env_filters.as_ref(),
+                    self.template_libraries.inspector_knowledge,
                 );
 
                 // 2. Filter Arity
