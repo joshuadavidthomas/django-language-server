@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal**: Replaced manual `AvailableSymbols` cache in `TemplateValidator` with Salsa-tracked `SymbolIndex`. Symbol availability is now precomputed per `{% load %}` boundary and memoized across revisions, eliminating per-walk rebuilds and hand-rolled invalidation logic.
+
 ### Added
 
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.

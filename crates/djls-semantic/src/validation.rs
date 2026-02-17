@@ -12,8 +12,7 @@ use djls_templates::visitor::Visitor;
 use djls_templates::Filter;
 
 use crate::db::Db;
-use crate::scoping::AvailableSymbols;
-use crate::scoping::LoadedLibraries;
+use crate::scoping::SymbolIndex;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
 use crate::structure::OpaqueRegions;
@@ -47,7 +46,7 @@ impl ExtendsPosition {
 pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
-    loaded_libraries: &'a LoadedLibraries,
+    symbol_index: &'a SymbolIndex,
     template_libraries: &'a djls_project::TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
@@ -59,13 +58,6 @@ pub struct TemplateValidator<'a> {
     env_filters: Option<
         HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
-
-    // Cached AvailableSymbols keyed by the number of active load statements.
-    // Between two {% load %} tags, the load state is identical, so we reuse
-    // the AvailableSymbols rather than rebuilding from scratch per node.
-    // We track the count of statements active at the cached position as a
-    // cheap invalidation check (avoids comparing entire LoadState hash sets).
-    cached_symbols: Option<(usize, AvailableSymbols<'a>)>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
@@ -80,7 +72,7 @@ impl<'a> TemplateValidator<'a> {
     ) -> Self {
         let template_libraries = db.template_libraries();
         let tag_specs = db.tag_specs();
-        let loaded_libraries = crate::scoping::compute_loaded_libraries(db, nodelist);
+        let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
         let filter_arity_specs = db.filter_arity_specs();
 
         let env_tags = template_libraries
@@ -91,43 +83,18 @@ impl<'a> TemplateValidator<'a> {
         Self {
             db,
             tag_specs,
-            loaded_libraries,
+            symbol_index,
             template_libraries,
             opaque_regions,
             filter_arity_specs,
             env_tags,
             env_filters,
-            cached_symbols: None,
             extends_position: ExtendsPosition::default(),
         }
     }
 
     pub fn validate(mut self, nodes: &[Node]) {
         walk_nodelist(&mut self, nodes);
-    }
-
-    /// Ensure the cached `AvailableSymbols` is up-to-date for the given position.
-    ///
-    /// Counts load statements active at `position` and rebuilds the cache only
-    /// when a new `{% load %}` tag has been crossed. Since templates are walked
-    /// in source order, the active count is monotonically non-decreasing —
-    /// making it a cheap and sufficient invalidation key.
-    fn ensure_symbols_cached(&mut self, position: u32) {
-        let active_count = self
-            .loaded_libraries
-            .statements()
-            .iter()
-            .filter(|s| s.span().end() <= position)
-            .count();
-        let needs_rebuild = match &self.cached_symbols {
-            Some((cached_count, _)) => *cached_count != active_count,
-            None => true,
-        };
-        if needs_rebuild {
-            let load_state = self.loaded_libraries.available_at(position);
-            let symbols = AvailableSymbols::from_load_state(&load_state, self.template_libraries);
-            self.cached_symbols = Some((active_count, symbols));
-        }
     }
 }
 
@@ -167,8 +134,7 @@ impl Visitor for TemplateValidator<'_> {
         if !is_opaque {
             // 2. Scoping validation (skip structural tags and "load")
             if name != "load" && !scoping::is_closer_or_intermediate(name, self.tag_specs) {
-                self.ensure_symbols_cached(span.start());
-                let (_, symbols) = self.cached_symbols.as_ref().unwrap();
+                let symbols = self.symbol_index.symbols_at(span.start());
                 scoping::check_tag_scoping_rule(
                     self.db,
                     name,
@@ -202,8 +168,7 @@ impl Visitor for TemplateValidator<'_> {
 
     fn visit_variable(&mut self, _var: &str, filters: &[Filter], span: Span) {
         if !filters.is_empty() && !self.opaque_regions.is_opaque(span.start()) {
-            self.ensure_symbols_cached(span.start());
-            let (_, symbols) = self.cached_symbols.as_ref().unwrap();
+            let symbols = self.symbol_index.symbols_at(span.start());
 
             for filter in filters {
                 // 1. Filter Scoping

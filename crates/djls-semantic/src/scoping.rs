@@ -10,6 +10,7 @@ pub use loads::LoadStatement;
 pub use loads::LoadedLibraries;
 pub use symbols::AvailableSymbols;
 pub use symbols::FilterAvailability;
+pub use symbols::SymbolIndex;
 pub use symbols::TagAvailability;
 
 use crate::db::Db;
@@ -38,4 +39,18 @@ pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLi
         .collect();
 
     LoadedLibraries::new(statements)
+}
+
+/// Compute a [`SymbolIndex`] for position-based symbol availability lookups.
+///
+/// Precomputes [`AvailableSymbols`] at each `{% load %}` boundary in the
+/// template, enabling O(log n) lookups during validation and completion.
+///
+/// Cached by Salsa — recomputes only when the template's load statements
+/// or the project's template libraries change.
+#[salsa::tracked(returns(ref))]
+pub fn compute_symbol_index(db: &dyn Db, nodelist: NodeList<'_>) -> SymbolIndex {
+    let loaded_libraries = compute_loaded_libraries(db, nodelist);
+    let template_libraries = db.template_libraries();
+    SymbolIndex::build(loaded_libraries, template_libraries)
 }

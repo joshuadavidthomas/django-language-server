@@ -339,7 +339,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let supports_snippets = session.client_info().supports_snippets();
 
                 // Compute position-aware available symbols for load-scoped completions.
-                // Only computed when inspector-derived libraries are known and file is a template.
+                // Uses the Salsa-tracked SymbolIndex for O(log n) position lookups.
                 let available_symbols = if file_kind == FileKind::Template {
                     if let Some(template_libraries) = template_libraries {
                         if template_libraries.inspector_knowledge == djls_project::Knowledge::Known
@@ -348,7 +348,7 @@ impl LanguageServer for DjangoLanguageServer {
                             let nodelist = djls_templates::parse_template(db, file);
 
                             nodelist.map(|nl| {
-                                let loaded = djls_semantic::compute_loaded_libraries(db, nl);
+                                let symbol_index = djls_semantic::compute_symbol_index(db, nl);
                                 let line_index = file.line_index(db);
                                 let source_text = file.source(db);
                                 let byte_offset = line_index.offset(
@@ -356,11 +356,7 @@ impl LanguageServer for DjangoLanguageServer {
                                     djls_source::LineCol::new(position.line, position.character),
                                     encoding,
                                 );
-                                djls_semantic::AvailableSymbols::at_position(
-                                    loaded,
-                                    template_libraries,
-                                    byte_offset.get(),
-                                )
+                                symbol_index.symbols_at(byte_offset.get()).clone()
                             })
                         } else {
                             None
