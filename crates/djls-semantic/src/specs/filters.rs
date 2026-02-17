@@ -16,6 +16,13 @@ pub struct FilterAritySpecs {
 
 impl FilterAritySpecs {
     #[must_use]
+    pub fn empty_ref() -> &'static Self {
+        static EMPTY: std::sync::LazyLock<FilterAritySpecs> =
+            std::sync::LazyLock::new(FilterAritySpecs::new);
+        &EMPTY
+    }
+
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

@@ -5,7 +5,6 @@
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
@@ -168,21 +167,15 @@ impl WorkspaceDb for DjangoDatabase {
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {}
 
-static DEFAULT_TAG_SPECS: LazyLock<TagSpecs> = LazyLock::new(djls_semantic::builtin_tag_specs);
-static DEFAULT_TEMPLATE_LIBRARIES: LazyLock<TemplateLibraries> =
-    LazyLock::new(TemplateLibraries::default);
-static DEFAULT_FILTER_ARITY_SPECS: LazyLock<djls_semantic::FilterAritySpecs> =
-    LazyLock::new(djls_semantic::FilterAritySpecs::new);
-static DEFAULT_MODEL_GRAPH: LazyLock<djls_python::ModelGraph> =
-    LazyLock::new(djls_python::ModelGraph::new);
-
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         if let Some(project) = self.project() {
             compute_tag_specs(self, project)
         } else {
-            &DEFAULT_TAG_SPECS
+            static DEFAULT: std::sync::LazyLock<TagSpecs> =
+                std::sync::LazyLock::new(djls_semantic::builtin_tag_specs);
+            &DEFAULT
         }
     }
 
@@ -208,25 +201,23 @@ impl SemanticDb for DjangoDatabase {
 
     fn template_libraries(&self) -> &TemplateLibraries {
         self.project()
-            .map_or(&DEFAULT_TEMPLATE_LIBRARIES, |project| {
+            .map_or(TemplateLibraries::empty_ref(), |project| {
                 project.template_libraries(self)
             })
     }
 
     fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
-        if let Some(project) = self.project() {
-            compute_filter_arity_specs(self, project)
-        } else {
-            &DEFAULT_FILTER_ARITY_SPECS
-        }
+        self.project()
+            .map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
+                compute_filter_arity_specs(self, project)
+            })
     }
 
     fn model_graph(&self) -> &djls_python::ModelGraph {
-        if let Some(project) = self.project() {
-            compute_model_graph(self, project)
-        } else {
-            &DEFAULT_MODEL_GRAPH
-        }
+        self.project()
+            .map_or(djls_python::ModelGraph::empty_ref(), |project| {
+                compute_model_graph(self, project)
+            })
     }
 }
 

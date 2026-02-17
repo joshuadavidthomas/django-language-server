@@ -258,6 +258,12 @@ pub struct ModelGraph {
 
 impl ModelGraph {
     #[must_use]
+    pub fn empty_ref() -> &'static Self {
+        static EMPTY: std::sync::LazyLock<ModelGraph> = std::sync::LazyLock::new(ModelGraph::new);
+        &EMPTY
+    }
+
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
