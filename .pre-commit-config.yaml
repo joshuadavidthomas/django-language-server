@@ -14,7 +14,21 @@ repos:
       - id: trailing-whitespace
       - id: no-commit-to-branch
         args: ["--branch", "main"]
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: just fmt
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: just clippy
+        language: system
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/woodruffw/zizmor-pre-commit
     rev: v1.22.0
     hooks:
-    - id: zizmor
+      - id: zizmor
