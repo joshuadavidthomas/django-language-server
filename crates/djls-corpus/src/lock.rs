@@ -140,7 +140,12 @@ fn resolve_repo(
         }
         Some(prev) if prev.git_ref == git_ref => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
-            tracing::info!(name = repo.name, tag, git_ref = short, "current (fetching license)");
+            tracing::info!(
+                name = repo.name,
+                tag,
+                git_ref = short,
+                "current (fetching license)"
+            );
             let text = fetch_license_text(client, &repo.url, &git_ref);
             write_license_file(&license_path, text.as_deref());
         }
@@ -325,10 +330,11 @@ fn fetch_license_text(
 ) -> Option<String> {
     let (host, path) = parse_git_host(url)?;
 
-    for name in LICENSE_BASENAMES
-        .iter()
-        .flat_map(|base| LICENSE_EXTENSIONS.iter().map(move |ext| format!("{base}{ext}")))
-    {
+    for name in LICENSE_BASENAMES.iter().flat_map(|base| {
+        LICENSE_EXTENSIONS
+            .iter()
+            .map(move |ext| format!("{base}{ext}"))
+    }) {
         let raw_url = match &host {
             GitHost::GitHub => {
                 format!("https://raw.githubusercontent.com/{path}/{git_ref}/{name}")
@@ -337,7 +343,6 @@ fn fetch_license_text(
                 format!("https://{domain}/{path}/-/raw/{git_ref}/{name}")
             }
         };
-
 
         if let Ok(resp) = client.get(&raw_url).send() {
             if resp.status().is_success() {
