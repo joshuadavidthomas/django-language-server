@@ -7,94 +7,68 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 #[derive(Clone)]
-pub struct TemplateFixture {
+pub struct Fixture {
     pub label: String,
     pub path: Utf8PathBuf,
     pub source: String,
 }
 
-impl fmt::Display for TemplateFixture {
+impl fmt::Display for Fixture {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.label)
     }
 }
 
-#[derive(Clone)]
-pub struct PythonFixture {
-    pub label: String,
-    pub path: Utf8PathBuf,
-    pub source: String,
+pub type TemplateFixture = Fixture;
+pub type PythonFixture = Fixture;
+pub type ModelFixture = Fixture;
+
+pub fn template_fixtures() -> &'static [Fixture] {
+    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
+    FIXTURES
+        .get_or_init(|| load_fixtures("django", &["html", "htm", "txt", "xml"], "template"))
+        .as_slice()
 }
 
-impl fmt::Display for PythonFixture {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.label)
-    }
+pub fn python_fixtures() -> &'static [Fixture] {
+    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
+    FIXTURES
+        .get_or_init(|| load_fixtures("python", &["py"], "Python"))
+        .as_slice()
 }
 
-pub fn template_fixtures() -> &'static [TemplateFixture] {
-    static FIXTURES: OnceLock<Vec<TemplateFixture>> = OnceLock::new();
-    FIXTURES.get_or_init(load_template_fixtures).as_slice()
-}
-
-pub fn python_fixtures() -> &'static [PythonFixture] {
-    static FIXTURES: OnceLock<Vec<PythonFixture>> = OnceLock::new();
-    FIXTURES.get_or_init(load_python_fixtures).as_slice()
+pub fn model_fixtures() -> &'static [Fixture] {
+    static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();
+    FIXTURES
+        .get_or_init(|| load_fixtures("models", &["py"], "model"))
+        .as_slice()
 }
 
 pub(crate) fn crate_root() -> Utf8PathBuf {
     Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-bench")
 }
 
-fn load_template_fixtures() -> Vec<TemplateFixture> {
-    let root = crate_root().join("fixtures").join("django");
+fn load_fixtures(subdir: &str, extensions: &[&str], kind: &str) -> Vec<Fixture> {
+    let root = crate_root().join("fixtures").join(subdir);
 
-    let mut fixtures = Vec::new();
-    collect_files(
-        root.as_path(),
-        root.as_path(),
-        &["html", "htm", "txt", "xml"],
-        &mut fixtures,
-    )
-    .unwrap_or_else(|err| panic!("failed to load template fixtures: {err}"));
+    let mut raw = Vec::new();
+    collect_files(root.as_path(), root.as_path(), extensions, &mut raw)
+        .unwrap_or_else(|err| panic!("failed to load {kind} fixtures: {err}"));
 
-    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+    raw.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let fixtures = fixtures
+    let fixtures: Vec<Fixture> = raw
         .into_iter()
-        .map(|(label, path, source)| TemplateFixture {
+        .map(|(label, path, source)| Fixture {
             label,
             path,
             source,
         })
-        .collect::<Vec<_>>();
-
-    assert!(!fixtures.is_empty(), "no templates discovered under {root}");
-
-    fixtures
-}
-
-fn load_python_fixtures() -> Vec<PythonFixture> {
-    let root = crate_root().join("fixtures").join("python");
-
-    let mut fixtures = Vec::new();
-    collect_files(root.as_path(), root.as_path(), &["py"], &mut fixtures)
-        .unwrap_or_else(|err| panic!("failed to load Python fixtures: {err}"));
-
-    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let fixtures = fixtures
-        .into_iter()
-        .map(|(label, path, source)| PythonFixture {
-            label,
-            path,
-            source,
-        })
-        .collect::<Vec<_>>();
+        .collect();
 
     assert!(
         !fixtures.is_empty(),
-        "no Python files discovered under {root}"
+        "no {kind} files discovered under {root}"
     );
 
     fixtures

@@ -89,9 +89,7 @@ struct CorpusTemplates {
 fn load_corpus_inner(
     get_paths: impl FnOnce(&djls_corpus::Corpus) -> Option<Vec<Utf8PathBuf>>,
 ) -> Option<CorpusTemplates> {
-    let corpus_dir =
-        Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-corpus/.corpus");
-    if !corpus_dir.as_std_path().exists() {
+    if !djls_corpus::Corpus::is_available() {
         return None;
     }
 

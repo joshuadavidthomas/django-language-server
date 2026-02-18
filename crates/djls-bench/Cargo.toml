@@ -31,6 +31,10 @@ name = "extraction"
 harness = false
 
 [[bench]]
+name = "models"
+harness = false
+
+[[bench]]
 name = "diagnostics"
 harness = false
 
