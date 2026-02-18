@@ -2,8 +2,8 @@
 //!
 //! This crate is the **single source of truth** for real Python source code
 //! and Django templates used across the test suite. It syncs pinned versions
-//! of Django, popular third-party packages, and open-source project repos,
-//! then provides helpers to enumerate and locate files within them.
+//! of Django, popular third-party libraries, and open-source Django projects
+//! as git repos, then provides helpers to enumerate and locate files within them.
 //!
 //! **All tests that analyze Python source (extraction rules, registrations,
 //! filter arities, block specs) should use corpus files, not fabricated
@@ -32,7 +32,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use ignore::WalkBuilder;
 
-pub mod add;
 pub(crate) mod archive;
 pub mod lock;
 pub mod manifest;
@@ -72,9 +71,9 @@ impl Corpus {
 
     /// Derive the corpus entry directory for a path under the corpus root.
     ///
-    /// Corpus entries are direct children of `packages/` or `repos/`.
+    /// Corpus entries are direct children of `repos/`.
     /// For example:
-    /// - `{root}/packages/django-6.0/...` -> `{root}/packages/django-6.0`
+    /// - `{root}/repos/django-6.0/...` -> `{root}/repos/django-6.0`
     /// - `{root}/repos/sentry/...` -> `{root}/repos/sentry`
     #[must_use]
     pub fn entry_dir_for_path(&self, path: &Utf8Path) -> Option<Utf8PathBuf> {
@@ -84,29 +83,30 @@ impl Corpus {
         let category = components.next()?;
         let entry = components.next()?;
 
-        match category.as_str() {
-            "packages" | "repos" => Some(self.root().join(category.as_str()).join(entry.as_str())),
-            _ => None,
+        if category.as_str() == "repos" {
+            Some(self.root().join(category.as_str()).join(entry.as_str()))
+        } else {
+            None
         }
     }
 
     /// Whether an entry directory represents a Django package.
     ///
     /// True for:
-    /// - `packages/django`
-    /// - `packages/django-<version>`
+    /// - `repos/django`
+    /// - `repos/django-<version>`
     #[must_use]
     pub fn is_django_entry(&self, entry_dir: &Utf8Path) -> bool {
         let Some(entry_name) = entry_dir.file_name() else {
             return false;
         };
 
-        let is_packages = entry_dir
+        let is_repos = entry_dir
             .parent()
             .and_then(|p| p.file_name())
-            .is_some_and(|cat| cat == "packages");
+            .is_some_and(|cat| cat == "repos");
 
-        if !is_packages {
+        if !is_repos {
             return false;
         }
 
@@ -115,24 +115,23 @@ impl Corpus {
                 && entry_name["django-".len()..].starts_with(|c: char| c.is_ascii_digit()))
     }
 
-    /// Latest synced version directory for a package under `packages/`.
+    /// Latest synced version directory for a package under `repos/`.
     ///
-    /// Handles the flat corpus layout where single-version packages are
-    /// stored as `packages/{name}/` and multi-version packages as
-    /// `packages/{name}-{version}/`.
+    /// Handles both single-entry names (e.g. `repos/django-allauth/`)
+    /// and multi-version names (e.g. `repos/django-6.0/`).
     #[must_use]
     pub fn latest_package(&self, name: &str) -> Option<Utf8PathBuf> {
-        let packages_dir = self.root().join("packages");
+        let repos_dir = self.root().join("repos");
 
-        // Single-version: packages/{name}/
-        let exact = packages_dir.join(name);
+        // Single-version: repos/{name}/
+        let exact = repos_dir.join(name);
         if exact.join(".complete.json").as_std_path().exists() {
             return Some(exact);
         }
 
-        // Multi-version: packages/{name}-{version}/ — find highest version
+        // Multi-version: repos/{name}-{version}/ — find highest version
         let prefix = format!("{name}-");
-        let Ok(entries) = std::fs::read_dir(packages_dir.as_std_path()) else {
+        let Ok(entries) = std::fs::read_dir(repos_dir.as_std_path()) else {
             return None;
         };
 
@@ -189,21 +188,21 @@ impl Corpus {
     /// All synced directories for a package (handles both single and multi-version).
     ///
     /// Returns a sorted list of directories. For multi-version packages like
-    /// django, returns `[packages/django-4.2, packages/django-5.2, packages/django-6.0]`.
+    /// django, returns `[repos/django-4.2, repos/django-5.2, repos/django-6.0]`.
     /// For single-version packages, returns a single-element list.
     #[must_use]
     pub fn package_dirs(&self, name: &str) -> Vec<Utf8PathBuf> {
-        let packages_dir = self.root().join("packages");
+        let repos_dir = self.root().join("repos");
 
-        // Single-version: packages/{name}/
-        let exact = packages_dir.join(name);
+        // Single-version: repos/{name}/
+        let exact = repos_dir.join(name);
         if exact.join(".complete.json").as_std_path().exists() {
             return vec![exact];
         }
 
-        // Multi-version: packages/{name}-{version}/
+        // Multi-version: repos/{name}-{version}/
         let prefix = format!("{name}-");
-        let Ok(entries) = std::fs::read_dir(packages_dir.as_std_path()) else {
+        let Ok(entries) = std::fs::read_dir(repos_dir.as_std_path()) else {
             return Vec::new();
         };
 
@@ -382,9 +381,8 @@ fn synced_children(parent: &Utf8Path) -> Vec<Utf8PathBuf> {
 
 /// Derive a dotted Python module path from a file path within the corpus.
 ///
-/// Handles the flat corpus layout:
-/// - Packages: `.corpus/packages/{name_or_name-version}/{python_code}...`
-/// - Repos: `.corpus/repos/{name}/{python_code}...`
+/// Handles the corpus layout where entries live under `repos/`:
+/// - `.corpus/repos/{name}/{python_code}...`
 ///
 /// Falls back to a heuristic for non-corpus paths (looks for version-like
 /// path components).
@@ -394,13 +392,13 @@ fn synced_children(parent: &Utf8Path) -> Vec<Utf8PathBuf> {
 /// ```
 /// # use camino::Utf8Path;
 /// # use djls_corpus::module_path_from_file;
-/// let path = Utf8Path::new(".corpus/packages/django-6.0.2/django/template/defaulttags.py");
+/// let path = Utf8Path::new(".corpus/repos/django-6.0/django/template/defaulttags.py");
 /// assert_eq!(module_path_from_file(path), "django.template.defaulttags");
 ///
 /// let path = Utf8Path::new(".corpus/repos/sentry/sentry/templatetags/sentry_helpers.py");
 /// assert_eq!(module_path_from_file(path), "sentry.templatetags.sentry_helpers");
 ///
-/// let path = Utf8Path::new(".corpus/packages/django-allauth/allauth/templatetags/allauth.py");
+/// let path = Utf8Path::new(".corpus/repos/django-allauth/allauth/templatetags/allauth.py");
 /// assert_eq!(module_path_from_file(path), "allauth.templatetags.allauth");
 /// ```
 #[must_use]
@@ -413,12 +411,9 @@ pub fn module_path_from_file(file: &Utf8Path) -> String {
         })
         .collect();
 
-    // Flat layout: "packages" or "repos" followed by {dir_name}/{python_code}...
+    // Layout: "repos" followed by {dir_name}/{python_code}...
     // Skip 2 components after marker (the marker itself + the directory name).
-    let start = if let Some(pos) = components
-        .iter()
-        .position(|c| *c == "packages" || *c == "repos")
-    {
+    let start = if let Some(pos) = components.iter().position(|c| *c == "repos") {
         pos + 2
     } else {
         // Fallback for non-corpus paths: look for version-like directory
