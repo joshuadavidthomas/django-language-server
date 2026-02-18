@@ -28,6 +28,8 @@ pub struct LockedPackage {
     pub resolved: String,
     pub url: String,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +39,8 @@ pub struct LockedRepo {
     pub tag: String,
     #[serde(rename = "ref")]
     pub git_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
 }
 
 impl Lockfile {
@@ -144,7 +148,11 @@ pub fn lock_corpus(
             continue;
         }
 
-        match resolve_repo(repo, existing_repos.get(repo.name.as_str()).copied()) {
+        match resolve_repo(
+            &client,
+            repo,
+            existing_repos.get(repo.name.as_str()).copied(),
+        ) {
             Ok(locked) => repos.push(locked),
             Err(e) => {
                 tracing::error!(name = repo.name, error = %e, "failed to resolve repo");
@@ -190,10 +198,15 @@ fn resolve_package(
         resolved: resolved.version,
         url: resolved.url,
         sha256: resolved.sha256,
+        license: resolved.license,
     })
 }
 
-fn resolve_repo(repo: &Repo, existing: Option<&LockedRepo>) -> anyhow::Result<LockedRepo> {
+fn resolve_repo(
+    client: &reqwest::blocking::Client,
+    repo: &Repo,
+    existing: Option<&LockedRepo>,
+) -> anyhow::Result<LockedRepo> {
     let (tag, git_ref) = match &repo.git_ref {
         Some(r) if looks_like_sha(r) => (r.clone(), r.clone()),
         Some(r) => resolve_ref(&repo.url, r)?,
@@ -221,11 +234,14 @@ fn resolve_repo(repo: &Repo, existing: Option<&LockedRepo>) -> anyhow::Result<Lo
         }
     }
 
+    let license = fetch_repo_license(client, &repo.url);
+
     Ok(LockedRepo {
         name: repo.name.clone(),
         url: repo.url.clone(),
         tag,
         git_ref,
+        license,
     })
 }
 
@@ -237,6 +253,7 @@ struct ResolvedPackage {
     version: String,
     url: String,
     sha256: String,
+    license: Option<String>,
 }
 
 fn parse_version(s: &str) -> Option<Vec<u32>> {
@@ -300,10 +317,13 @@ fn resolve_pypi_package(
         .ok_or_else(|| anyhow::anyhow!("No SHA256 in sdist for {name}-{resolved_version}"))?
         .to_string();
 
+    let license = extract_pypi_license(&json);
+
     Ok(ResolvedPackage {
         version: resolved_version.to_string(),
         url,
         sha256,
+        license,
     })
 }
 
@@ -436,6 +456,110 @@ fn resolve_latest_tag(url: &str) -> anyhow::Result<(String, String)> {
     Ok((tag, sha))
 }
 
+/// Extract the SPDX license expression from the PyPI JSON response.
+///
+/// Prefers `info.license_expression` (PEP 639) over the older `info.license`.
+/// Returns `None` if neither field contains a usable value.
+fn extract_pypi_license(json: &serde_json::Value) -> Option<String> {
+    let info = json.get("info")?;
+
+    // PEP 639: structured SPDX expression (preferred)
+    if let Some(expr) = info.get("license_expression").and_then(|v| v.as_str()) {
+        let trimmed = expr.trim();
+        if !trimmed.is_empty() && trimmed != "UNKNOWN" {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    // Older field: free-text license string
+    if let Some(license) = info.get("license").and_then(|v| v.as_str()) {
+        let trimmed = license.trim();
+        if !trimmed.is_empty() && trimmed != "UNKNOWN" {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    None
+}
+
+/// Fetch the SPDX license identifier for a git repository from its
+/// hosting platform's API. Supports GitHub and GitLab; returns `None`
+/// for unrecognised hosts.
+fn fetch_repo_license(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
+    let (host, path) = parse_git_host(url)?;
+
+    let api_url = match host {
+        GitHost::GitHub => {
+            format!("https://api.github.com/repos/{path}/license")
+        }
+        GitHost::GitLab(domain) => {
+            let encoded = path.replace('/', "%2F");
+            format!("https://{domain}/api/v4/projects/{encoded}?license=true")
+        }
+    };
+
+    let mut req = client.get(&api_url);
+    if matches!(host, GitHost::GitHub) {
+        req = req.header("Accept", "application/vnd.github.v3+json");
+    }
+
+    let resp = req.send().ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let json: serde_json::Value = resp.json().ok()?;
+
+    // GitHub: { "license": { "spdx_id": "MIT" } }
+    // GitLab: { "license": { "key": "mit", "name": "MIT License" } }
+    let license_obj = json.get("license")?;
+
+    let spdx = license_obj
+        .get("spdx_id")
+        .or_else(|| license_obj.get("key"))
+        .and_then(|v| v.as_str())?;
+
+    let trimmed = spdx.trim();
+    if trimmed.is_empty() || trimmed == "NOASSERTION" {
+        return None;
+    }
+
+    Some(trimmed.to_string())
+}
+
+enum GitHost<'a> {
+    GitHub,
+    GitLab(&'a str),
+}
+
+/// Parse a git URL into its host kind and `owner/repo` path.
+fn parse_git_host(url: &str) -> Option<(GitHost<'_>, &str)> {
+    let after_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+
+    let (host, path) = after_scheme.split_once('/')?;
+    let path = path.trim_end_matches(".git");
+
+    if path.is_empty() {
+        return None;
+    }
+
+    if host == "github.com" {
+        // Ensure it's exactly owner/repo (two segments)
+        if path.contains('/') && !path.ends_with('/') {
+            return Some((GitHost::GitHub, path));
+        }
+        return None;
+    }
+
+    if host == "gitlab.com" || host.starts_with("gitlab.") {
+        return Some((GitHost::GitLab(host), path));
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,5 +614,94 @@ mod tests {
     fn parse_tag_version_not_a_version() {
         assert_eq!(parse_tag_version("release-candidate"), None);
         assert_eq!(parse_tag_version("nightly"), None);
+    }
+
+    #[test]
+    fn extract_license_prefers_license_expression() {
+        let json = serde_json::json!({
+            "info": {
+                "license_expression": "BSD-3-Clause",
+                "license": "BSD License"
+            }
+        });
+        assert_eq!(
+            extract_pypi_license(&json),
+            Some("BSD-3-Clause".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_license_falls_back_to_license() {
+        let json = serde_json::json!({
+            "info": {
+                "license": "MIT License"
+            }
+        });
+        assert_eq!(extract_pypi_license(&json), Some("MIT License".to_string()));
+    }
+
+    #[test]
+    fn extract_license_skips_unknown() {
+        let json = serde_json::json!({
+            "info": {
+                "license_expression": "UNKNOWN",
+                "license": "UNKNOWN"
+            }
+        });
+        assert_eq!(extract_pypi_license(&json), None);
+    }
+
+    #[test]
+    fn extract_license_skips_empty() {
+        let json = serde_json::json!({
+            "info": {
+                "license_expression": "",
+                "license": ""
+            }
+        });
+        assert_eq!(extract_pypi_license(&json), None);
+    }
+
+    #[test]
+    fn extract_license_none_when_no_info() {
+        let json = serde_json::json!({});
+        assert_eq!(extract_pypi_license(&json), None);
+    }
+
+    #[test]
+    fn parse_git_host_github() {
+        let (host, path) =
+            parse_git_host("https://github.com/getsentry/sentry.git").unwrap();
+        assert!(matches!(host, GitHost::GitHub));
+        assert_eq!(path, "getsentry/sentry");
+    }
+
+    #[test]
+    fn parse_git_host_github_no_dot_git() {
+        let (host, path) =
+            parse_git_host("https://github.com/django/djangoproject.com").unwrap();
+        assert!(matches!(host, GitHost::GitHub));
+        assert_eq!(path, "django/djangoproject.com");
+    }
+
+    #[test]
+    fn parse_git_host_gitlab_com() {
+        let (host, path) =
+            parse_git_host("https://gitlab.com/group/project.git").unwrap();
+        assert!(matches!(host, GitHost::GitLab("gitlab.com")));
+        assert_eq!(path, "group/project");
+    }
+
+    #[test]
+    fn parse_git_host_gitlab_self_hosted() {
+        let (host, path) =
+            parse_git_host("https://gitlab.example.com/team/project.git").unwrap();
+        assert!(matches!(host, GitHost::GitLab("gitlab.example.com")));
+        assert_eq!(path, "team/project");
+    }
+
+    #[test]
+    fn parse_git_host_unknown() {
+        assert!(parse_git_host("https://codeberg.org/user/project.git").is_none());
     }
 }
