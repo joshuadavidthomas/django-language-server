@@ -1,0 +1,5 @@
+*
+!.gitignore
+!hooks/
+!hooks/lint.sh
+!settings.json
