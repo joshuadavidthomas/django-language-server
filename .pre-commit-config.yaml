@@ -27,7 +27,7 @@ repos:
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --all-targets --all-features --benches --fix -- -D warnings
+        entry: cargo clippy --all-targets --all-features --benches --fix --allow-dirty -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
