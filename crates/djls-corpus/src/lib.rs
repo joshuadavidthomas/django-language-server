@@ -49,6 +49,12 @@ pub struct Corpus {
 }
 
 impl Corpus {
+    /// Check whether the corpus directory exists without panicking.
+    #[must_use]
+    pub fn is_available() -> bool {
+        Utf8Path::new(CORPUS_DIR).as_std_path().exists()
+    }
+
     /// Get the corpus, panicking with a helpful message if not synced.
     ///
     /// # Panics
@@ -57,7 +63,7 @@ impl Corpus {
     #[must_use]
     pub fn require() -> Self {
         assert!(
-            Utf8Path::new(CORPUS_DIR).as_std_path().exists(),
+            Self::is_available(),
             "Corpus not synced. Run: cargo run --bin djls-corpus -- sync",
         );
         Self { _private: () }
