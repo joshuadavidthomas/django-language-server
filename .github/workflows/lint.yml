@@ -53,7 +53,7 @@ jobs:
 
       - name: Run pre-commit
         run: |
-          SKIP=no-commit-to-branch \
+          SKIP=no-commit-to-branch,cargo-fmt,cargo-clippy \
           uv run --no-project --with "nox[uv]" nox --session lint
 
   rust-changes:
