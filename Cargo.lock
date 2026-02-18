@@ -762,6 +762,7 @@ name = "djls-corpus"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64",
  "camino",
  "clap",
  "flate2",

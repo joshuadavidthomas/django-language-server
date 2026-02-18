@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use base64::Engine;
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -23,8 +25,6 @@ pub struct LockedRepo {
     pub tag: String,
     #[serde(rename = "ref")]
     pub git_ref: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub license: Option<String>,
 }
 
 impl Lockfile {
@@ -59,11 +59,14 @@ pub fn lock_corpus(
     manifest: &Manifest,
     existing: &Lockfile,
     filter: &LockFilter,
+    licenses_dir: &Utf8Path,
 ) -> anyhow::Result<(Lockfile, Vec<String>)> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent("djls-corpus")
         .build()?;
+
+    std::fs::create_dir_all(licenses_dir.as_std_path())?;
 
     let existing_repos: HashMap<&str, &LockedRepo> = existing
         .repos
@@ -86,6 +89,7 @@ pub fn lock_corpus(
             &client,
             repo,
             existing_repos.get(repo.name.as_str()).copied(),
+            licenses_dir,
         ) {
             Ok(locked) => repos.push(locked),
             Err(e) => {
@@ -98,6 +102,22 @@ pub fn lock_corpus(
         }
     }
 
+    // Remove license files for repos no longer in the manifest
+    if matches!(filter, LockFilter::All) {
+        let locked_names: std::collections::HashSet<&str> =
+            repos.iter().map(|r| r.name.as_str()).collect();
+        if let Ok(entries) = std::fs::read_dir(licenses_dir.as_std_path()) {
+            for entry in entries.filter_map(Result::ok) {
+                let Some(name) = entry.file_name().to_str().map(String::from) else {
+                    continue;
+                };
+                if !locked_names.contains(name.as_str()) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
     Ok((Lockfile { repos }, errors))
 }
 
@@ -105,6 +125,7 @@ fn resolve_repo(
     client: &reqwest::blocking::Client,
     repo: &Repo,
     existing: Option<&LockedRepo>,
+    licenses_dir: &Utf8Path,
 ) -> anyhow::Result<LockedRepo> {
     let (tag, git_ref) = match &repo.git_ref {
         Some(r) if looks_like_sha(r) => (r.clone(), r.clone()),
@@ -112,11 +133,18 @@ fn resolve_repo(
         None => resolve_latest_tag(&repo.url)?,
     };
 
-    let license = match existing {
-        Some(prev) if prev.git_ref == git_ref => {
+    let license_path = licenses_dir.join(&repo.name);
+
+    match existing {
+        Some(prev) if prev.git_ref == git_ref && license_path.exists() => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
             tracing::info!(name = repo.name, tag, git_ref = short, "current");
-            prev.license.clone()
+        }
+        Some(prev) if prev.git_ref == git_ref => {
+            let short = git_ref.get(..12).unwrap_or(&git_ref);
+            tracing::info!(name = repo.name, tag, git_ref = short, "current (fetching license)");
+            let text = fetch_license_text(client, &repo.url);
+            write_license_file(&license_path, text.as_deref());
         }
         Some(prev) => {
             let old_short = prev.git_ref.get(..12).unwrap_or(&prev.git_ref);
@@ -127,22 +155,31 @@ fn resolve_repo(
                 to = format!("{tag} ({new_short})"),
                 "updated"
             );
-            fetch_repo_license(client, &repo.url)
+            let text = fetch_license_text(client, &repo.url);
+            write_license_file(&license_path, text.as_deref());
         }
         None => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
             tracing::info!(name = repo.name, tag, git_ref = short, "new");
-            fetch_repo_license(client, &repo.url)
+            let text = fetch_license_text(client, &repo.url);
+            write_license_file(&license_path, text.as_deref());
         }
-    };
+    }
 
     Ok(LockedRepo {
         name: repo.name.clone(),
         url: repo.url.clone(),
         tag,
         git_ref,
-        license,
     })
+}
+
+fn write_license_file(path: &Utf8PathBuf, text: Option<&str>) {
+    if let Some(text) = text {
+        if let Err(e) = std::fs::write(path.as_std_path(), text) {
+            tracing::warn!(path = %path, error = %e, "failed to write license file");
+        }
+    }
 }
 
 fn looks_like_sha(s: &str) -> bool {
@@ -278,52 +315,76 @@ fn resolve_latest_tag(url: &str) -> anyhow::Result<(String, String)> {
     Ok((tag, sha))
 }
 
-/// Fetch the license identifier for a git repository from its hosting
-/// platform's API. Supports GitHub and GitLab; returns `None` for
-/// unrecognised hosts or repos without a detected license.
-///
-/// GitHub returns SPDX identifiers (e.g. `"MIT"`); GitLab returns its
-/// own key format (e.g. `"gpl-3.0"`).
-fn fetch_repo_license(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
+/// Fetch the license file text for a git repository from its hosting
+/// platform's API. Returns `None` for unrecognised hosts or repos
+/// without a detectable license file.
+fn fetch_license_text(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
     let (host, path) = parse_git_host(url)?;
 
-    let api_url = match host {
-        GitHost::GitHub => {
-            format!("https://api.github.com/repos/{path}/license")
-        }
-        GitHost::GitLab(domain) => {
-            let encoded = path.replace('/', "%2F");
-            format!("https://{domain}/api/v4/projects/{encoded}?license=true")
-        }
-    };
-
-    let mut req = client.get(&api_url);
-    if matches!(host, GitHost::GitHub) {
-        req = req.header("Accept", "application/vnd.github.v3+json");
+    match host {
+        GitHost::GitHub => fetch_github_license_text(client, path),
+        GitHost::GitLab(domain) => fetch_gitlab_license_text(client, domain, path),
     }
+}
 
-    let resp = req.send().ok()?;
+fn fetch_github_license_text(client: &reqwest::blocking::Client, path: &str) -> Option<String> {
+    let api_url = format!("https://api.github.com/repos/{path}/license");
+    let resp = client
+        .get(&api_url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .ok()?;
+
     if !resp.status().is_success() {
         return None;
     }
 
     let json: serde_json::Value = resp.json().ok()?;
 
-    // GitHub: { "license": { "spdx_id": "MIT" } }
-    // GitLab: { "license": { "key": "mit", "name": "MIT License" } }
-    let license_obj = json.get("license")?;
+    // Decode the license file content (base64 with embedded newlines)
+    json.get("content")
+        .and_then(|v| v.as_str())
+        .and_then(|b64| {
+            let clean = b64.replace('\n', "");
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&clean)
+                .ok()?;
+            String::from_utf8(bytes).ok()
+        })
+}
 
-    let spdx = license_obj
-        .get("spdx_id")
-        .or_else(|| license_obj.get("key"))
-        .and_then(|v| v.as_str())?;
+fn fetch_gitlab_license_text(
+    client: &reqwest::blocking::Client,
+    domain: &str,
+    path: &str,
+) -> Option<String> {
+    let encoded = path.replace('/', "%2F");
+    fetch_gitlab_license_file(client, domain, &encoded)
+}
 
-    let trimmed = spdx.trim();
-    if trimmed.is_empty() || trimmed == "NOASSERTION" {
-        return None;
+/// Try common license file names via the GitLab Repository Files API.
+fn fetch_gitlab_license_file(
+    client: &reqwest::blocking::Client,
+    domain: &str,
+    encoded_project: &str,
+) -> Option<String> {
+    const LICENSE_NAMES: &[&str] = &["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"];
+
+    for name in LICENSE_NAMES {
+        let url = format!(
+            "https://{domain}/api/v4/projects/{encoded_project}/repository/files/{name}/raw?ref=HEAD"
+        );
+        if let Ok(resp) = client.get(&url).send() {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text() {
+                    if !text.is_empty() {
+                        return Some(text);
+                    }
+                }
+            }
+        }
     }
-
-    Some(trimmed.to_string())
+    None
 }
 
 enum GitHost<'a> {

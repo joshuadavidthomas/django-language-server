@@ -289,7 +289,6 @@ mod tests {
             url: url.to_string(),
             tag: "main".to_string(),
             git_ref: "abc123def456".to_string(),
-            license: None,
         }
     }
 

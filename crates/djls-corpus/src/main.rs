@@ -119,8 +119,14 @@ fn update_lockfile(
         Lockfile::default()
     };
 
+    let licenses_dir = manifest_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Invalid manifest path: no parent directory"))?
+        .join("licenses");
+
     tracing::info!("resolving latest versions");
-    let (lockfile, errors) = djls_corpus::lock::lock_corpus(&manifest, &existing, filter)?;
+    let (lockfile, errors) =
+        djls_corpus::lock::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
     lockfile.save(lockfile_path)?;
     tracing::info!(%lockfile_path, "lockfile updated");
 
