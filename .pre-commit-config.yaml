@@ -1,3 +1,6 @@
+ci:
+  skip: [cargo-fmt, cargo-clippy]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -14,7 +17,21 @@ repos:
       - id: trailing-whitespace
       - id: no-commit-to-branch
         args: ["--branch", "main"]
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo +nightly fmt
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features --benches --fix --allow-dirty -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/woodruffw/zizmor-pre-commit
     rev: v1.22.0
     hooks:
-    - id: zizmor
+      - id: zizmor
