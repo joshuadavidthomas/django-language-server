@@ -7,10 +7,10 @@ This crate syncs pinned versions of Django, popular third-party libraries, and o
 ## Commands
 
 ```bash
-just corpus lock             # Resolve versions and update the lockfile
-just corpus sync             # Download repos from the lockfile
-just corpus sync -U          # Re-resolve versions then sync
-just corpus clean            # Remove all synced corpus data
+cargo run -p djls-corpus -- lock          # Resolve versions and update the lockfile
+cargo run -p djls-corpus -- sync          # Download repos from the lockfile
+cargo run -p djls-corpus -- sync -U       # Re-resolve versions then sync
+cargo run -p djls-corpus -- clean         # Remove all synced corpus data
 ```
 
 ## Licensing
