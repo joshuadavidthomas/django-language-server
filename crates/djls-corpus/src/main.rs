@@ -4,7 +4,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
-use djls_corpus::add::Bounds;
 use djls_corpus::lock::LockFilter;
 use djls_corpus::lock::Lockfile;
 use djls_corpus::manifest::Manifest;
@@ -22,22 +21,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Add `PyPI` packages to the manifest and update the lockfile
-    Add {
-        /// `PyPI` package names
-        #[arg(required = true)]
-        names: Vec<String>,
-
-        /// Version pinning level
-        #[arg(long, default_value = "exact")]
-        bounds: Bounds,
-    },
     /// Resolve latest versions and update the lockfile
     Lock {
-        /// Package or repo names to lock (locks all if omitted)
+        /// Repo names to lock (locks all if omitted)
         names: Vec<String>,
     },
-    /// Download and extract corpus packages/repos from the lockfile
+    /// Download and extract corpus repos from the lockfile
     Sync {
         /// Re-resolve versions before syncing, ignoring pinned versions in the lockfile
         #[arg(short = 'U', long)]
@@ -47,9 +36,9 @@ enum Command {
         #[arg(long)]
         no_prune: bool,
     },
-    /// Remove synced corpus data (all by default, or specific packages/repos)
+    /// Remove synced corpus data (all by default, or specific repos)
     Clean {
-        /// Package or repo names to remove (removes all if omitted)
+        /// Repo names to remove (removes all if omitted)
         names: Vec<String>,
     },
 }
@@ -72,10 +61,6 @@ fn main() -> anyhow::Result<()> {
     let lockfile_path = manifest_path.with_extension("lock");
 
     match cli.command {
-        Command::Add { names, bounds } => {
-            djls_corpus::add::add_packages(&manifest_path, &names, bounds)?;
-            update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
-        }
         Command::Lock { names } => {
             let filter = if names.is_empty() {
                 LockFilter::All
@@ -114,7 +99,7 @@ fn main() -> anyhow::Result<()> {
                 std::fs::remove_dir_all(corpus_root.as_std_path())?;
                 tracing::info!("corpus cleaned");
             } else {
-                djls_corpus::sync::clean_packages(&corpus_root, &names)?;
+                djls_corpus::sync::clean_entries(&corpus_root, &names)?;
             }
         }
     }

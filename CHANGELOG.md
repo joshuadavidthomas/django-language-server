@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal**: Unified `djls-corpus` to repo-only format, removing the PyPI package path. All corpus entries are now `[[repo]]` in `manifest.toml`, fetched as git archives. Removed `sha2`, `toml_edit` dependencies and the `add` CLI command.
+
 ### Added
 
 - Added pre-commit hook for running `djls check` on Django template files.

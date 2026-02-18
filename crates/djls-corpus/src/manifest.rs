@@ -2,13 +2,10 @@ use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use serde::Deserialize;
-use serde::Deserializer;
 
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
     pub corpus: CorpusConfig,
-    #[serde(default, rename = "package")]
-    pub packages: Vec<Package>,
     #[serde(default, rename = "repo")]
     pub repos: Vec<Repo>,
 }
@@ -16,38 +13,6 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 pub struct CorpusConfig {
     pub root_dir: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Package {
-    #[serde(deserialize_with = "deserialize_pypi_name")]
-    pub name: String,
-    pub version: String,
-}
-
-/// Deserialize and normalize a `PyPI` package name per PEP 503: lowercase,
-/// runs of `[-_.]` become a single `-`.
-pub(crate) fn deserialize_pypi_name<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<String, D::Error> {
-    let raw = String::deserialize(deserializer)?;
-    let mut result = String::with_capacity(raw.len());
-    let mut prev_sep = false;
-    for c in raw.chars() {
-        if c == '-' || c == '_' || c == '.' {
-            if !prev_sep && !result.is_empty() {
-                result.push('-');
-            }
-            prev_sep = true;
-        } else {
-            result.push(c.to_ascii_lowercase());
-            prev_sep = false;
-        }
-    }
-    if result.ends_with('-') {
-        result.pop();
-    }
-    Ok(result)
 }
 
 #[derive(Debug, Deserialize)]

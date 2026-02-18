@@ -1,164 +1,6 @@
 [corpus]
 root_dir = ".corpus"
 
-[[package]]
-name = "HyperKitty"
-version = "1.3.12"
-
-# https://endoflife.date/django
-[[package]]
-name = "django"
-version = "6.0"
-
-[[package]]
-name = "django"
-version = "5.2"
-
-[[package]]
-name = "django"
-version = "4.2"
-
-[[package]]
-name = "django-activity-stream"
-version = "2.0.0"
-
-[[package]]
-name = "django-allauth"
-version = "65.14.1"
-
-[[package]]
-name = "django-avatar"
-version = "9.0.0"
-
-[[package]]
-name = "django-bootstrap3"
-version = "26.1"
-
-[[package]]
-name = "django-cms"
-version = "5.0.5"
-
-[[package]]
-name = "django-compressor"
-version = "4.6.0"
-
-[[package]]
-name = "django-crispy-forms"
-version = "2.5"
-
-[[package]]
-name = "django-debug-toolbar"
-version = "6.2.0"
-
-[[package]]
-name = "django-fastdev"
-version = "1.13.0"
-
-[[package]]
-name = "django-forms-bootstrap"
-version = "3.1.0"
-
-[[package]]
-name = "django-formset-js-improved"
-version = "0.5.0.5"
-
-[[package]]
-name = "django-grappelli"
-version = "4.0.3"
-
-[[package]]
-name = "django-guardian"
-version = "3.2.0"
-
-[[package]]
-name = "django-htmx"
-version = "1.27.0"
-
-[[package]]
-name = "django-imagekit"
-version = "6.0.0"
-
-[[package]]
-name = "django-import-export"
-version = "4.4.0"
-
-[[package]]
-name = "django-jazzmin"
-version = "3.0.2"
-
-[[package]]
-name = "django-markdownify"
-version = "0.9.6"
-
-[[package]]
-name = "django-oscar"
-version = "4.1"
-
-[[package]]
-name = "django-permission"
-version = "1.0.5"
-
-[[package]]
-name = "django-pipeline"
-version = "4.1.0"
-
-[[package]]
-name = "django-qr-code"
-version = "4.2.0"
-
-[[package]]
-name = "django-sekizai"
-version = "4.1.0"
-
-[[package]]
-name = "django-simple-history"
-version = "3.11.0"
-
-[[package]]
-name = "django-statici18n"
-version = "2.6.0"
-
-[[package]]
-name = "django-tables2"
-version = "2.8.0"
-
-[[package]]
-name = "django-typogrify"
-version = "1.3.3"
-
-[[package]]
-name = "django-unfold"
-version = "1.0.0"
-
-[[package]]
-name = "django-widget-tweaks"
-version = "1.5.1"
-
-[[package]]
-name = "horizon"
-version = "25.5.1"
-
-[[package]]
-name = "sorl-thumbnail"
-version = "13.0.0"
-
-# https://endoflife.date/wagtail
-[[package]]
-name = "wagtail"
-version = "7.3"
-
-[[package]]
-name = "wagtail"
-version = "7.2"
-
-[[package]]
-name = "wagtail"
-version = "7.0"
-
-[[package]]
-name = "wagtail"
-version = "6.3"
-
 [[repo]]
 name = "archivebox"
 url = "https://github.com/ArchiveBox/ArchiveBox.git"
@@ -170,14 +12,175 @@ url = "https://github.com/babybuddy/babybuddy.git"
 ref = "master"
 
 [[repo]]
+name = "django-activity-stream"
+url = "https://github.com/justquick/django-activity-stream.git"
+ref = "2.0.0"
+
+[[repo]]
+name = "django-allauth"
+url = "https://github.com/pennersr/django-allauth.git"
+ref = "65.14.1"
+
+[[repo]]
+name = "django-avatar"
+url = "https://github.com/jazzband/django-avatar.git"
+ref = "9.0.0"
+
+[[repo]]
 name = "django-baton"
 url = "https://github.com/otto-torino/django-baton.git"
 ref = "master"
 
 [[repo]]
+name = "django-bootstrap3"
+url = "https://github.com/zostera/django-bootstrap3.git"
+ref = "26.1"
+
+[[repo]]
+name = "django-cms"
+url = "https://github.com/django-cms/django-cms.git"
+ref = "5.0.5"
+
+[[repo]]
+name = "django-compressor"
+url = "https://github.com/django-compressor/django-compressor.git"
+ref = "4.6"
+
+[[repo]]
+name = "django-crispy-forms"
+url = "https://github.com/django-crispy-forms/django-crispy-forms.git"
+ref = "2.5"
+
+[[repo]]
 name = "django-crm"
 url = "https://github.com/DjangoCRM/django-crm.git"
 ref = "main"
+
+[[repo]]
+name = "django-debug-toolbar"
+url = "https://github.com/django-debug-toolbar/django-debug-toolbar.git"
+ref = "6.2"
+
+[[repo]]
+name = "django-fastdev"
+url = "https://github.com/boxed/django-fastdev.git"
+ref = "1.13.0"
+
+[[repo]]
+name = "django-forms-bootstrap"
+url = "https://github.com/pinax/django-forms-bootstrap.git"
+ref = "3.1.0"
+
+[[repo]]
+name = "django-formset-js-improved"
+url = "https://github.com/pretix/django-formset-js.git"
+ref = "0.5.0.5"
+
+[[repo]]
+name = "django-grappelli"
+url = "https://github.com/sehmaschine/django-grappelli.git"
+ref = "4.0.3"
+
+[[repo]]
+name = "django-guardian"
+url = "https://github.com/django-guardian/django-guardian.git"
+ref = "3.2.0"
+
+[[repo]]
+name = "django-htmx"
+url = "https://github.com/adamchainz/django-htmx.git"
+ref = "1.27.0"
+
+[[repo]]
+name = "django-imagekit"
+url = "https://github.com/matthewwithanm/django-imagekit.git"
+ref = "6.0.0"
+
+[[repo]]
+name = "django-import-export"
+url = "https://github.com/django-import-export/django-import-export.git"
+ref = "4.4.0"
+
+[[repo]]
+name = "django-jazzmin"
+url = "https://github.com/farridav/django-jazzmin.git"
+ref = "3.0.2"
+
+[[repo]]
+name = "django-markdownify"
+url = "https://github.com/erwinmatijsen/django-markdownify.git"
+ref = "0.9.6"
+
+[[repo]]
+name = "django-oscar"
+url = "https://github.com/django-oscar/django-oscar.git"
+ref = "4.1"
+
+[[repo]]
+name = "django-permission"
+url = "https://github.com/lambdalisue/django-permission.git"
+ref = "1.0.5"
+
+[[repo]]
+name = "django-pipeline"
+url = "https://github.com/jazzband/django-pipeline.git"
+ref = "4.1.0"
+
+[[repo]]
+name = "django-qr-code"
+url = "https://github.com/dprog-philippe-docourt/django-qr-code.git"
+ref = "4.2.0"
+
+[[repo]]
+name = "django-sekizai"
+url = "https://github.com/django-cms/django-sekizai.git"
+ref = "4.1.0"
+
+[[repo]]
+name = "django-simple-history"
+url = "https://github.com/jazzband/django-simple-history.git"
+ref = "3.11.0"
+
+[[repo]]
+name = "django-statici18n"
+url = "https://github.com/zyegfryed/django-statici18n.git"
+ref = "2.6.0"
+
+[[repo]]
+name = "django-tables2"
+url = "https://github.com/jieter/django-tables2.git"
+ref = "v2.8.0"
+
+[[repo]]
+name = "django-typogrify"
+url = "https://github.com/chrisdrackett/django-typogrify.git"
+ref = "1.3.3"
+
+[[repo]]
+name = "django-unfold"
+url = "https://github.com/unfoldadmin/django-unfold.git"
+ref = "1.0.0"
+
+[[repo]]
+name = "django-widget-tweaks"
+url = "https://github.com/jazzband/django-widget-tweaks.git"
+ref = "1.5.1"
+
+# https://endoflife.date/django
+[[repo]]
+name = "django-4.2"
+url = "https://github.com/django/django.git"
+ref = "4.2.28"
+
+[[repo]]
+name = "django-5.2"
+url = "https://github.com/django/django.git"
+ref = "5.2.11"
+
+[[repo]]
+name = "django-6.0"
+url = "https://github.com/django/django.git"
+ref = "6.0.2"
 
 [[repo]]
 name = "djangopackages.org"
@@ -198,6 +201,16 @@ ref = "master"
 name = "healthchecks"
 url = "https://github.com/healthchecks/healthchecks.git"
 ref = "master"
+
+[[repo]]
+name = "horizon"
+url = "https://github.com/openstack/horizon.git"
+ref = "25.5.1"
+
+[[repo]]
+name = "hyperkitty"
+url = "https://gitlab.com/mailman/hyperkitty.git"
+ref = "1.3.12"
 
 [[repo]]
 name = "inventree"
@@ -248,3 +261,29 @@ ref = "26.1.0"
 name = "simonwillison.net"
 url = "https://github.com/simonw/simonwillisonblog.git"
 ref = "main"
+
+[[repo]]
+name = "sorl-thumbnail"
+url = "https://github.com/jazzband/sorl-thumbnail.git"
+ref = "13.0.0"
+
+# https://endoflife.date/wagtail
+[[repo]]
+name = "wagtail-6.3"
+url = "https://github.com/wagtail/wagtail.git"
+ref = "v6.3.6"
+
+[[repo]]
+name = "wagtail-7.0"
+url = "https://github.com/wagtail/wagtail.git"
+ref = "v7.0.4"
+
+[[repo]]
+name = "wagtail-7.2"
+url = "https://github.com/wagtail/wagtail.git"
+ref = "v7.2.2"
+
+[[repo]]
+name = "wagtail-7.3"
+url = "https://github.com/wagtail/wagtail.git"
+ref = "v7.3"
