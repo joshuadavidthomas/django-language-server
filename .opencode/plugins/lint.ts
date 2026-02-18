@@ -33,7 +33,7 @@ export const LintFeedbackPlugin: Plugin = async ({ client, $ }) => {
       }
 
       const sessionID = event.properties.sessionID
-      const result = await $`SKIP=no-commit-to-branch just lint`.nothrow().quiet()
+      const result = await $`SKIP=no-commit-to-branch just lint --quiet`.nothrow().quiet()
 
       if (result.exitCode === 0) {
         filesEdited = false

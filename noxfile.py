@@ -115,6 +115,7 @@ def lint(session):
     for python_version in reversed(PY_VERSIONS):
         with tempfile.TemporaryFile(mode="w+") as output_file:
             try:
+                args = [arg for arg in session.posargs if arg]
                 session.run(
                     "uvx",
                     "--python",
@@ -125,6 +126,7 @@ def lint(session):
                     "--show-diff-on-failure",
                     "--color",
                     "always",
+                    *args,
                     stdout=output_file,
                     stderr=output_file,
                 )

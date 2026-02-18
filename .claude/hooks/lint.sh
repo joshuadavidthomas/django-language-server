@@ -24,7 +24,7 @@ if [ "$RETRIES" -ge "$MAX_RETRIES" ]; then
   exit 0
 fi
 
-OUTPUT=$(SKIP=no-commit-to-branch just lint 2>&1) && EXIT_CODE=0 || EXIT_CODE=$?
+OUTPUT=$(SKIP=no-commit-to-branch just lint --quiet 2>&1) && EXIT_CODE=0 || EXIT_CODE=$?
 
 if [ "$EXIT_CODE" -eq 0 ]; then
   rm -f "$COUNTER_FILE"

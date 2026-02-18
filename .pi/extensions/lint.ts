@@ -99,11 +99,9 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    ctx.ui.setStatus("lint", "Running lint...");
-    const result = await pi.exec("bash", ["-c", "export SKIP=no-commit-to-branch && just lint"], {
+    const result = await pi.exec("bash", ["-c", "export SKIP=no-commit-to-branch && just lint --quiet"], {
       timeout: 120_000,
     });
-    ctx.ui.setStatus("lint", undefined);
 
     if (result.code === 0) {
       pi.sendMessage({
