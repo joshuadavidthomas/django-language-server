@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Post:
+    name: Post
+    module_path: example_project_custom_group.posts.models
+    line: 5
+    relations: []
+    kind: concrete

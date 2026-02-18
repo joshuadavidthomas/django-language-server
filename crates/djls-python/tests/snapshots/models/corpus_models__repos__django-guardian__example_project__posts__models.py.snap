@@ -3,9 +3,9 @@ source: crates/djls-python/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseModel:
-    name: BaseModel
-    module_path: core.models
-    line: 7
+  Post:
+    name: Post
+    module_path: example_project.posts.models
+    line: 5
     relations: []
-    kind: abstract
+    kind: concrete

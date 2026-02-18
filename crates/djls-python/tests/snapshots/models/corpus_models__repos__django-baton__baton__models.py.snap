@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  BatonTheme:
+    name: BatonTheme
+    module_path: baton.models
+    line: 4
+    relations: []
+    kind: concrete

@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  Abstract:
+    name: Abstract
+    module_path: runtests.testapp.models
+    line: 13
+    relations: []
+    kind: abstract
+  Player:
+    name: Player
+    module_path: runtests.testapp.models
+    line: 6
+    relations: []
+    kind: concrete
+  Unregistered:
+    name: Unregistered
+    module_path: runtests.testapp.models
+    line: 23
+    relations: []
+    kind: concrete
