@@ -286,6 +286,12 @@ tag = "master"
 ref = "6ce518f3612ae1ee8d49de3434aacf48e15c0724"
 
 [[repo]]
+name = "django-baton"
+url = "https://github.com/otto-torino/django-baton.git"
+tag = "master"
+ref = "ef398761cff1a885f1c37799cd17186e54e4b081"
+
+[[repo]]
 name = "django-crm"
 url = "https://github.com/DjangoCRM/django-crm.git"
 tag = "main"
