@@ -18,14 +18,15 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: just fmt
-        language: system
+        entry: cargo fmt
+        language: rust
+        language_version: nightly
         types: [rust]
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
-        entry: just clippy
-        language: system
+        entry: cargo clippy --all-targets --all-features --benches --fix -- -D warnings
+        language: rust
         types: [rust]
         pass_filenames: false
   - repo: https://github.com/woodruffw/zizmor-pre-commit
