@@ -1,0 +1,5 @@
+- id: djls-check
+  name: djls check
+  entry: djls check
+  language: system
+  require_serial: true
