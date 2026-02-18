@@ -31,7 +31,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - **Internal**: Unified `djls-corpus` to repo-only format, removing the PyPI package path. All corpus entries are now `[[repo]]` in `manifest.toml`, fetched as git archives. Removed `sha2`, `toml_edit` dependencies and the `add` CLI command.
-- **Internal**: `djls-corpus lock` now derives licenses from PyPI, GitHub, and GitLab APIs and records them in `manifest.lock`.
+- **Internal**: `djls-corpus lock` now derives licenses from GitHub and GitLab APIs and records them in `manifest.lock`.
 - **Internal**: Replaced manual `AvailableSymbols` cache in `TemplateValidator` with `SymbolIndex`. Symbol availability is now precomputed per `{% load %}` boundary and memoized across revisions, eliminating per-walk rebuilds and hand-rolled invalidation logic.
 - **Internal**: Moved `check_file` orchestration and diagnostic rendering into `djls-db`. Removed `djls-ide`, `djls-templates`, and `djls-project` dependencies from the CLI binary.
 - **Internal**: Moved extraction orchestration from `djls-project` to `djls-db`. Removed unused `djls-workspace` dependency from `djls-project`.

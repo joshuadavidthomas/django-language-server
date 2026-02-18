@@ -166,12 +166,12 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> 
         tracing::info!(skipped, "already synced");
     }
 
-    if work.is_empty() {
-        return Ok(());
-    }
-
-    tracing::info!(count = work.len(), "downloading");
-    let errors = sync_parallel(&client, &work);
+    let errors = if work.is_empty() {
+        Vec::new()
+    } else {
+        tracing::info!(count = work.len(), "downloading");
+        sync_parallel(&client, &work)
+    };
 
     if prune {
         prune_corpus(lockfile, corpus_root)?;

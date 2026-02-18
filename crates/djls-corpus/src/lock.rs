@@ -112,10 +112,11 @@ fn resolve_repo(
         None => resolve_latest_tag(&repo.url)?,
     };
 
-    match existing {
+    let license = match existing {
         Some(prev) if prev.git_ref == git_ref => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
             tracing::info!(name = repo.name, tag, git_ref = short, "current");
+            prev.license.clone()
         }
         Some(prev) => {
             let old_short = prev.git_ref.get(..12).unwrap_or(&prev.git_ref);
@@ -126,14 +127,14 @@ fn resolve_repo(
                 to = format!("{tag} ({new_short})"),
                 "updated"
             );
+            fetch_repo_license(client, &repo.url)
         }
         None => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
             tracing::info!(name = repo.name, tag, git_ref = short, "new");
+            fetch_repo_license(client, &repo.url)
         }
-    }
-
-    let license = fetch_repo_license(client, &repo.url);
+    };
 
     Ok(LockedRepo {
         name: repo.name.clone(),
@@ -277,9 +278,12 @@ fn resolve_latest_tag(url: &str) -> anyhow::Result<(String, String)> {
     Ok((tag, sha))
 }
 
-/// Fetch the SPDX license identifier for a git repository from its
-/// hosting platform's API. Supports GitHub and GitLab; returns `None`
-/// for unrecognised hosts.
+/// Fetch the license identifier for a git repository from its hosting
+/// platform's API. Supports GitHub and GitLab; returns `None` for
+/// unrecognised hosts or repos without a detected license.
+///
+/// GitHub returns SPDX identifiers (e.g. `"MIT"`); GitLab returns its
+/// own key format (e.g. `"gpl-3.0"`).
 fn fetch_repo_license(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
     let (host, path) = parse_git_host(url)?;
 
@@ -341,7 +345,7 @@ fn parse_git_host(url: &str) -> Option<(GitHost<'_>, &str)> {
     }
 
     if host == "github.com" {
-        // Ensure it's exactly owner/repo (two segments)
+        // Require at least owner/repo
         if path.contains('/') && !path.ends_with('/') {
             return Some((GitHost::GitHub, path));
         }

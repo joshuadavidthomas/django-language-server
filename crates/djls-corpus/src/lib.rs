@@ -2,8 +2,8 @@
 //!
 //! This crate is the **single source of truth** for real Python source code
 //! and Django templates used across the test suite. It syncs pinned versions
-//! of Django, popular third-party packages, and open-source project repos,
-//! then provides helpers to enumerate and locate files within them.
+//! of Django, popular third-party libraries, and open-source Django projects
+//! as git repos, then provides helpers to enumerate and locate files within them.
 //!
 //! **All tests that analyze Python source (extraction rules, registrations,
 //! filter arities, block specs) should use corpus files, not fabricated
