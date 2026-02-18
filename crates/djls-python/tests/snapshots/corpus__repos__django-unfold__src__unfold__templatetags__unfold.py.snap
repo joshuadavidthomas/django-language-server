@@ -16,31 +16,57 @@ tag_rules:
         kind: Variable
         position: 0
     as_var: strip
+  "src.unfold.templatetags.unfold::tag::action_list":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "src.unfold.templatetags.unfold::tag::admin_object_app_url":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: object
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::capture":
     arg_constraints:
       - Max: 4
     required_keywords:
       - position:
           Forward: 1
-        value: silent
-      - position:
-          Forward: 1
         value: as
+      - position:
+          Forward: 3
+        value: silent
     choice_at_constraints: []
     known_options: ~
     extracted_args:
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 0
+      - name: variable_name
+        required: true
+        kind: Variable
+        position: 1
       - name: silent
         required: true
         kind:
           Literal: silent
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
-      - name: arg3
-        required: true
-        kind: Variable
         position: 2
     as_var: keep
   "src.unfold.templatetags.unfold::tag::component":
@@ -72,6 +98,23 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    as_var: strip
+  "src.unfold.templatetags.unfold::tag::elided_page_range":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: paginator
+        required: true
+        kind: Variable
+        position: 0
+      - name: number
+        required: true
+        kind: Variable
+        position: 1
     as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_line_classes":
     arg_constraints:
@@ -110,6 +153,31 @@ tag_rules:
         kind: Variable
         position: 0
     as_var: strip
+  "src.unfold.templatetags.unfold::tag::header_title":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "src.unfold.templatetags.unfold::tag::infinite_paginator_url":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: cl
+        required: true
+        kind: Variable
+        position: 0
+      - name: i
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::preserve_filters":
     arg_constraints:
       - Max: 1
@@ -118,6 +186,23 @@ tag_rules:
     known_options: ~
     extracted_args: []
     as_var: keep
+  "src.unfold.templatetags.unfold::tag::querystring_params":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: query_key
+        required: true
+        kind: Variable
+        position: 0
+      - name: query_value
+        required: true
+        kind: Variable
+        position: 1
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::render_section":
     arg_constraints:
       - Min: 3
@@ -152,6 +237,30 @@ tag_rules:
         kind: Variable
         position: 1
     as_var: strip
+  "src.unfold.templatetags.unfold::tag::tabs_primary_active":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: inlines
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "src.unfold.templatetags.unfold::tag::unfold_querystring":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    as_var: strip
 filter_arities:
   "src.unfold.templatetags.unfold::filter::add_css_class":
     expects_arg: true
@@ -165,10 +274,22 @@ filter_arities:
   "src.unfold.templatetags.unfold::filter::class_name":
     expects_arg: false
     arg_optional: false
+  "src.unfold.templatetags.unfold::filter::has_active_item":
+    expects_arg: false
+    arg_optional: false
   "src.unfold.templatetags.unfold::filter::index":
     expects_arg: true
     arg_optional: false
+  "src.unfold.templatetags.unfold::filter::is_list":
+    expects_arg: false
+    arg_optional: false
   "src.unfold.templatetags.unfold::filter::tabs":
+    expects_arg: false
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::tabs_active":
+    expects_arg: false
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::tabs_errors_count":
     expects_arg: false
     arg_optional: false
 block_specs:

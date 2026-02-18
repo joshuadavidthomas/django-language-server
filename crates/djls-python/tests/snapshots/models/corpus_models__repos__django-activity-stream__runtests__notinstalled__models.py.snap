@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus_models.rs
+expression: graph
+---
+models:
+  NotInstalledModel:
+    name: NotInstalledModel
+    module_path: runtests.notinstalled.models
+    line: 4
+    relations: []
+    kind: concrete
