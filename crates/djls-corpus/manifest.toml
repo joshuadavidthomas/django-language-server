@@ -170,6 +170,11 @@ url = "https://github.com/babybuddy/babybuddy.git"
 ref = "master"
 
 [[repo]]
+name = "django-baton"
+url = "https://github.com/otto-torino/django-baton.git"
+ref = "master"
+
+[[repo]]
 name = "django-crm"
 url = "https://github.com/DjangoCRM/django-crm.git"
 ref = "main"
