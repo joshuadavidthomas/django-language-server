@@ -36,9 +36,9 @@ fmt *ARGS:
     cargo +nightly fmt {{ ARGS }}
 
 # run pre-commit on all files
-lint:
+lint *ARGS:
     @just --fmt
-    @just nox lint
+    @just nox lint {{ ARGS }}
 
 test *ARGS:
     @just nox test {{ ARGS }}
