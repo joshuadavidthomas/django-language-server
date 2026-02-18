@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use base64::Engine;
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -143,7 +141,7 @@ fn resolve_repo(
         Some(prev) if prev.git_ref == git_ref => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
             tracing::info!(name = repo.name, tag, git_ref = short, "current (fetching license)");
-            let text = fetch_license_text(client, &repo.url);
+            let text = fetch_license_text(client, &repo.url, &git_ref);
             write_license_file(&license_path, text.as_deref());
         }
         Some(prev) => {
@@ -155,13 +153,13 @@ fn resolve_repo(
                 to = format!("{tag} ({new_short})"),
                 "updated"
             );
-            let text = fetch_license_text(client, &repo.url);
+            let text = fetch_license_text(client, &repo.url, &git_ref);
             write_license_file(&license_path, text.as_deref());
         }
         None => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
             tracing::info!(name = repo.name, tag, git_ref = short, "new");
-            let text = fetch_license_text(client, &repo.url);
+            let text = fetch_license_text(client, &repo.url, &git_ref);
             write_license_file(&license_path, text.as_deref());
         }
     }
@@ -174,7 +172,7 @@ fn resolve_repo(
     })
 }
 
-fn write_license_file(path: &Utf8PathBuf, text: Option<&str>) {
+fn write_license_file(path: &Utf8Path, text: Option<&str>) {
     if let Some(text) = text {
         if let Err(e) = std::fs::write(path.as_std_path(), text) {
             tracing::warn!(path = %path, error = %e, "failed to write license file");
@@ -315,66 +313,33 @@ fn resolve_latest_tag(url: &str) -> anyhow::Result<(String, String)> {
     Ok((tag, sha))
 }
 
-/// Fetch the license file text for a git repository from its hosting
-/// platform's API. Returns `None` for unrecognised hosts or repos
-/// without a detectable license file.
-fn fetch_license_text(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
+const LICENSE_BASENAMES: &[&str] = &["LICENSE", "LICENCE", "COPYING"];
+const LICENSE_EXTENSIONS: &[&str] = &["", ".md", ".txt", ".rst"];
+
+/// Fetch the license file text for a repo at the given ref by trying
+/// common license filenames against the host's raw content URL.
+fn fetch_license_text(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    git_ref: &str,
+) -> Option<String> {
     let (host, path) = parse_git_host(url)?;
 
-    match host {
-        GitHost::GitHub => fetch_github_license_text(client, path),
-        GitHost::GitLab(domain) => fetch_gitlab_license_text(client, domain, path),
-    }
-}
+    for name in LICENSE_BASENAMES
+        .iter()
+        .flat_map(|base| LICENSE_EXTENSIONS.iter().map(move |ext| format!("{base}{ext}")))
+    {
+        let raw_url = match &host {
+            GitHost::GitHub => {
+                format!("https://raw.githubusercontent.com/{path}/{git_ref}/{name}")
+            }
+            GitHost::GitLab(domain) => {
+                format!("https://{domain}/{path}/-/raw/{git_ref}/{name}")
+            }
+        };
 
-fn fetch_github_license_text(client: &reqwest::blocking::Client, path: &str) -> Option<String> {
-    let api_url = format!("https://api.github.com/repos/{path}/license");
-    let resp = client
-        .get(&api_url)
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .ok()?;
 
-    if !resp.status().is_success() {
-        return None;
-    }
-
-    let json: serde_json::Value = resp.json().ok()?;
-
-    // Decode the license file content (base64 with embedded newlines)
-    json.get("content")
-        .and_then(|v| v.as_str())
-        .and_then(|b64| {
-            let clean = b64.replace('\n', "");
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(&clean)
-                .ok()?;
-            String::from_utf8(bytes).ok()
-        })
-}
-
-fn fetch_gitlab_license_text(
-    client: &reqwest::blocking::Client,
-    domain: &str,
-    path: &str,
-) -> Option<String> {
-    let encoded = path.replace('/', "%2F");
-    fetch_gitlab_license_file(client, domain, &encoded)
-}
-
-/// Try common license file names via the GitLab Repository Files API.
-fn fetch_gitlab_license_file(
-    client: &reqwest::blocking::Client,
-    domain: &str,
-    encoded_project: &str,
-) -> Option<String> {
-    const LICENSE_NAMES: &[&str] = &["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"];
-
-    for name in LICENSE_NAMES {
-        let url = format!(
-            "https://{domain}/api/v4/projects/{encoded_project}/repository/files/{name}/raw?ref=HEAD"
-        );
-        if let Ok(resp) = client.get(&url).send() {
+        if let Ok(resp) = client.get(&raw_url).send() {
             if resp.status().is_success() {
                 if let Ok(text) = resp.text() {
                     if !text.is_empty() {
@@ -384,6 +349,7 @@ fn fetch_gitlab_license_file(
             }
         }
     }
+
     None
 }
 
