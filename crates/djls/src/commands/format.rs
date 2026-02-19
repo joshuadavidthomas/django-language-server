@@ -14,7 +14,6 @@ use djls_fmt::FormatConfig;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 use rayon::prelude::*;
-use similar::TextDiff;
 
 use crate::args::Args;
 use crate::commands::common::discover_files;
@@ -242,13 +241,8 @@ fn format_stdin(
 }
 
 fn render_diff(file: &FormattedFile, color_mode: &ColorMode) -> String {
-    let old_header = format!("a/{}", file.path);
-    let new_header = format!("b/{}", file.path);
-
-    let diff = TextDiff::from_lines(&file.source, &file.formatted)
-        .unified_diff()
-        .header(&old_header, &new_header)
-        .to_string();
+    let diff = djls_fmt::unified_diff(file.path.as_str(), &file.source, &file.formatted)
+        .unwrap_or_default();
 
     if should_use_color(color_mode) {
         colorize_unified_diff(&diff)

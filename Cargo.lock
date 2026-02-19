@@ -720,7 +720,6 @@ dependencies = [
  "djls-source",
  "djls-workspace",
  "rayon",
- "similar",
  "tempfile",
 ]
 

@@ -14,25 +14,6 @@ pub struct Edit {
     pub new_text: String,
 }
 
-impl Edit {
-    #[must_use]
-    pub fn new(
-        start_line: u32,
-        start_char: u32,
-        end_line: u32,
-        end_char: u32,
-        new_text: String,
-    ) -> Self {
-        Self {
-            start_line,
-            start_char,
-            end_line,
-            end_char,
-            new_text,
-        }
-    }
-}
-
 /// Quick check: did formatting change anything?
 ///
 /// This is a fast-path that avoids full diff computation.
@@ -109,13 +90,13 @@ fn flush_hunk(
     hunk_new_text: &mut String,
 ) {
     if let Some(start) = hunk_start_line.take() {
-        edits.push(Edit::new(
-            start,
-            0,
-            hunk_end_line,
-            0,
-            std::mem::take(hunk_new_text),
-        ));
+        edits.push(Edit {
+            start_line: start,
+            start_char: 0,
+            end_line: hunk_end_line,
+            end_char: 0,
+            new_text: std::mem::take(hunk_new_text),
+        });
     }
 }
 
@@ -158,7 +139,16 @@ mod tests {
         let edits = compute_text_edits(original, formatted);
 
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0], Edit::new(1, 0, 2, 0, "BBB\n".to_owned()),);
+        assert_eq!(
+            edits[0],
+            Edit {
+                start_line: 1,
+                start_char: 0,
+                end_line: 2,
+                end_char: 0,
+                new_text: "BBB\n".to_owned(),
+            }
+        );
     }
 
     #[test]
