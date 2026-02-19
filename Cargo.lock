@@ -802,6 +802,7 @@ name = "djls-fmt"
 version = "0.0.0"
 dependencies = [
  "djls-conf",
+ "similar",
 ]
 
 [[package]]
