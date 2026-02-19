@@ -9,36 +9,26 @@ use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
-use clap::ValueEnum;
 use djls_db::DjangoDatabase;
 use djls_fmt::FormatConfig;
-use djls_semantic::Db as SemanticDb;
-use djls_source::FileKind;
-use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 use rayon::prelude::*;
 use similar::TextDiff;
 
 use crate::args::Args;
+use crate::commands::common::discover_files;
+use crate::commands::common::resolve_project_root;
+use crate::commands::common::ColorMode;
 use crate::commands::Command;
 use crate::exit::Exit;
-
-#[derive(Clone, Debug, Default, ValueEnum)]
-enum ColorMode {
-    /// Use colors when output is a terminal.
-    #[default]
-    Auto,
-    /// Always use colors.
-    Always,
-    /// Never use colors.
-    Never,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OutputMode {
     WriteInPlace,
     Check,
+    /// Diff-only mode always exits successfully; pair with `--check` to fail
+    /// when formatting changes are needed.
     Diff,
     CheckWithDiff,
 }
@@ -77,7 +67,8 @@ pub struct Format {
     #[arg(long, default_value_t = false)]
     check: bool,
 
-    /// Print unified diffs for files that would be reformatted.
+    /// Print unified diffs for files that would be reformatted. Does not
+    /// change exit status; use `--check` to fail when formatting is needed.
     #[arg(long, default_value_t = false)]
     diff: bool,
 
@@ -156,15 +147,10 @@ impl Command for Format {
             return Ok(Exit::success());
         }
 
-        let formatted = files
+        let formatted_files = files
             .into_par_iter()
             .map(|path| format_file(&path, &format_config))
-            .collect::<Vec<_>>();
-
-        let mut formatted_files = Vec::with_capacity(formatted.len());
-        for result in formatted {
-            formatted_files.push(result?);
-        }
+            .collect::<Result<Vec<_>>>()?;
 
         apply_output_mode(output_mode, &formatted_files, &self.color, args.quiet)
     }
@@ -214,35 +200,6 @@ fn apply_output_mode(
     }
 }
 
-fn discover_files(
-    paths: &[Utf8PathBuf],
-    db: &DjangoDatabase,
-    project_root: &Utf8Path,
-    options: &WalkOptions,
-) -> Vec<Utf8PathBuf> {
-    if !paths.is_empty() {
-        let resolved: Vec<Utf8PathBuf> = paths
-            .iter()
-            .map(|path| {
-                if path.is_relative() {
-                    project_root.join(path)
-                } else {
-                    path.clone()
-                }
-            })
-            .collect();
-
-        return walk_files(&resolved, is_template, options);
-    }
-
-    if let Some(dirs) = db.template_dirs() {
-        let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_files(&dirs, is_template, options)
-    } else {
-        walk_files(&[project_root.to_owned()], is_template, options)
-    }
-}
-
 fn format_file(path: &Utf8Path, format_config: &FormatConfig) -> Result<FormattedFile> {
     let source = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file for formatting: {path}"))?;
@@ -282,16 +239,6 @@ fn format_stdin(
     }
 
     apply_output_mode(output_mode, &[file], color, quiet)
-}
-
-fn resolve_project_root() -> Result<Utf8PathBuf> {
-    let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    Utf8PathBuf::from_path_buf(cwd)
-        .map_err(|_| anyhow::anyhow!("Current directory is not valid UTF-8"))
-}
-
-fn is_template(path: &Utf8Path) -> bool {
-    FileKind::is_template(path)
 }
 
 fn render_diff(file: &FormattedFile, color_mode: &ColorMode) -> String {
@@ -390,5 +337,31 @@ mod tests {
         assert!(diff.contains("+++ b/templates/page.html"));
         assert!(diff.contains("-<p>before</p>"));
         assert!(diff.contains("+<p>after</p>"));
+    }
+
+    #[test]
+    fn diff_mode_exits_zero_when_files_change() {
+        let files = vec![FormattedFile {
+            path: Utf8PathBuf::from("templates/page.html"),
+            source: "before\n".to_owned(),
+            formatted: "after\n".to_owned(),
+        }];
+
+        let exit = apply_output_mode(OutputMode::Diff, &files, &ColorMode::Never, true).unwrap();
+
+        assert_eq!(exit.as_raw(), 0);
+    }
+
+    #[test]
+    fn check_mode_exits_one_when_files_change() {
+        let files = vec![FormattedFile {
+            path: Utf8PathBuf::from("templates/page.html"),
+            source: "before\n".to_owned(),
+            formatted: "after\n".to_owned(),
+        }];
+
+        let exit = apply_output_mode(OutputMode::Check, &files, &ColorMode::Never, true).unwrap();
+
+        assert_eq!(exit.as_raw(), 1);
     }
 }

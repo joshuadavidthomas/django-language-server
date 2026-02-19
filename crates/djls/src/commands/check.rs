@@ -8,31 +8,19 @@ use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
-use clap::ValueEnum;
 use djls_db::DjangoDatabase;
 use djls_db::FileCheckResult;
-use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::DiagnosticRenderer;
-use djls_source::FileKind;
-use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 
 use crate::args::Args;
+use crate::commands::common::discover_files;
+use crate::commands::common::resolve_project_root;
+use crate::commands::common::ColorMode;
 use crate::commands::Command;
 use crate::exit::Exit;
-
-#[derive(Clone, Debug, Default, ValueEnum)]
-enum ColorMode {
-    /// Use colors when output is a terminal.
-    #[default]
-    Auto,
-    /// Always use colors.
-    Always,
-    /// Never use colors.
-    Never,
-}
 
 #[derive(Debug, Parser)]
 pub struct Check {
@@ -170,34 +158,6 @@ impl Command for Check {
     }
 }
 
-fn discover_files(
-    paths: &[Utf8PathBuf],
-    db: &DjangoDatabase,
-    project_root: &Utf8Path,
-    options: &WalkOptions,
-) -> Vec<Utf8PathBuf> {
-    if !paths.is_empty() {
-        let resolved: Vec<Utf8PathBuf> = paths
-            .iter()
-            .map(|p| {
-                if p.is_relative() {
-                    project_root.join(p)
-                } else {
-                    p.clone()
-                }
-            })
-            .collect();
-        return walk_files(&resolved, is_template, options);
-    }
-
-    if let Some(dirs) = db.template_dirs() {
-        let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_files(&dirs, is_template, options)
-    } else {
-        walk_files(&[project_root.to_owned()], is_template, options)
-    }
-}
-
 fn check_stdin(
     project_root: &Utf8Path,
     settings: &djls_conf::Settings,
@@ -261,16 +221,6 @@ fn build_diagnostics_config(
     }
 
     config
-}
-
-fn resolve_project_root() -> Result<Utf8PathBuf> {
-    let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    Utf8PathBuf::from_path_buf(cwd)
-        .map_err(|_| anyhow::anyhow!("Current directory is not valid UTF-8"))
-}
-
-fn is_template(path: &Utf8Path) -> bool {
-    FileKind::is_template(path)
 }
 
 fn pick_renderer(color: &ColorMode) -> DiagnosticRenderer {
