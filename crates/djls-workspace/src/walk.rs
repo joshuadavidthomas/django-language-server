@@ -302,7 +302,7 @@ mod tests {
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&target, walked.path().join("link")).unwrap();
 
-        let without = walk_files(&[walked_path.clone()], is_html, &defaults());
+        let without = walk_files(std::slice::from_ref(&walked_path), is_html, &defaults());
         assert!(
             without.is_empty(),
             "file should not be found without follow_links"

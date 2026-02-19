@@ -1,4 +1,6 @@
 mod check;
+mod common;
+mod format;
 mod serve;
 
 use anyhow::Result;
@@ -15,6 +17,8 @@ pub trait Command {
 pub enum DjlsCommand {
     /// Check Django template files for errors
     Check(self::check::Check),
+    /// Format Django template files
+    Format(self::format::Format),
     /// Start the LSP server
     Serve(self::serve::Serve),
 }

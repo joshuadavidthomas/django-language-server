@@ -714,12 +714,13 @@ dependencies = [
  "clap",
  "djls-conf",
  "djls-db",
+ "djls-fmt",
  "djls-semantic",
  "djls-server",
  "djls-source",
  "djls-workspace",
  "rayon",
- "serde_json",
+ "similar",
  "tempfile",
 ]
 

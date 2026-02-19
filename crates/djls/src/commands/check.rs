@@ -2,36 +2,25 @@ use std::io::IsTerminal;
 use std::io::Read as _;
 use std::sync::Arc;
 
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
-use clap::ValueEnum;
 use djls_db::DjangoDatabase;
 use djls_db::FileCheckResult;
-use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::DiagnosticRenderer;
-use djls_source::FileKind;
-use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 
 use crate::args::Args;
+use crate::commands::common::discover_files;
+use crate::commands::common::resolve_project_root;
+use crate::commands::common::ColorMode;
 use crate::commands::Command;
 use crate::exit::Exit;
-
-#[derive(Clone, Debug, Default, ValueEnum)]
-enum ColorMode {
-    /// Use colors when output is a terminal.
-    #[default]
-    Auto,
-    /// Always use colors.
-    Always,
-    /// Never use colors.
-    Never,
-}
 
 #[derive(Debug, Parser)]
 pub struct Check {
@@ -84,7 +73,12 @@ impl Command for Check {
         let fmt = pick_renderer(&self.color);
         let quiet = args.quiet;
 
-        let reading_stdin = self.paths.iter().any(|p| p.as_str() == "-");
+        let reading_stdin = self.paths.iter().any(|path| path.as_str() == "-");
+        let has_non_stdin_path = self.paths.iter().any(|path| path.as_str() != "-");
+
+        if reading_stdin && has_non_stdin_path {
+            bail!("Cannot mix `-` (stdin) with file or directory paths");
+        }
 
         if reading_stdin {
             return check_stdin(&project_root, &settings, &config, &fmt, quiet);
@@ -111,7 +105,7 @@ impl Command for Check {
         // Clone the db per rayon task (each clone gets its own Salsa cache).
         // Collect raw diagnostic data in parallel, render on the main thread
         // after — the renderer is not Send and doesn't need to be.
-        let raw_results: Vec<FileCheckResult> = {
+        let mut raw_results: Vec<FileCheckResult> = {
             let db = db;
             let (tx, rx) = std::sync::mpsc::channel();
 
@@ -130,6 +124,7 @@ impl Command for Check {
 
             rx.into_iter().collect()
         };
+        raw_results.sort_by(|left, right| left.path.cmp(&right.path));
 
         let mut error_count: usize = 0;
         let mut file_count: usize = 0;
@@ -160,34 +155,6 @@ impl Command for Check {
         } else {
             Ok(Exit::success())
         }
-    }
-}
-
-fn discover_files(
-    paths: &[Utf8PathBuf],
-    db: &DjangoDatabase,
-    project_root: &Utf8Path,
-    options: &WalkOptions,
-) -> Vec<Utf8PathBuf> {
-    if !paths.is_empty() {
-        let resolved: Vec<Utf8PathBuf> = paths
-            .iter()
-            .map(|p| {
-                if p.is_relative() {
-                    project_root.join(p)
-                } else {
-                    p.clone()
-                }
-            })
-            .collect();
-        return walk_files(&resolved, is_template, options);
-    }
-
-    if let Some(dirs) = db.template_dirs() {
-        let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_files(&dirs, is_template, options)
-    } else {
-        walk_files(&[project_root.to_owned()], is_template, options)
     }
 }
 
@@ -254,16 +221,6 @@ fn build_diagnostics_config(
     }
 
     config
-}
-
-fn resolve_project_root() -> Result<Utf8PathBuf> {
-    let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    Utf8PathBuf::from_path_buf(cwd)
-        .map_err(|_| anyhow::anyhow!("Current directory is not valid UTF-8"))
-}
-
-fn is_template(path: &Utf8Path) -> bool {
-    FileKind::is_template(path)
 }
 
 fn pick_renderer(color: &ColorMode) -> DiagnosticRenderer {

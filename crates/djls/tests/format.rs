@@ -44,20 +44,50 @@ name = "endfor"
 }
 
 #[test]
-fn check_clean_template_exits_zero() {
+fn format_passthrough_exits_zero_and_keeps_content() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+
+    let template_path = templates.join("page.html");
+    let source = "{% if user %}<p>{{ user.name }}</p>{% endif %}\n";
+    std::fs::write(&template_path, source).unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["format", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "Expected exit 0, got {:?}\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let formatted = std::fs::read_to_string(template_path).unwrap();
+    assert_eq!(formatted, source);
+}
+
+#[test]
+fn format_check_exits_zero_for_passthrough_formatter() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());
 
     let templates = dir.path().join("templates");
     std::fs::create_dir_all(&templates).unwrap();
     std::fs::write(
-        templates.join("good.html"),
-        "{% block content %}<p>Hello</p>{% endblock %}\n",
+        templates.join("page.djhtml"),
+        "{%if user%}{{user.name}}{%endif%}\n",
     )
     .unwrap();
 
     let output = Command::new(djls_binary())
-        .args(["check", "templates/"])
+        .args(["format", "--check", "templates/"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -72,70 +102,12 @@ fn check_clean_template_exits_zero() {
 }
 
 #[test]
-fn check_broken_template_exits_one() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
-
-    let templates = dir.path().join("templates");
-    std::fs::create_dir_all(&templates).unwrap();
-    std::fs::write(
-        templates.join("broken.html"),
-        "{% block content %}\n<p>Hello</p>\n",
-    )
-    .unwrap();
-
-    let output = Command::new(djls_binary())
-        .args(["check", "templates/"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-
-    assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("S100"),
-        "Expected S100 error code in output:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("Unclosed tag"),
-        "Expected 'Unclosed tag' in output:\n{stdout}"
-    );
-}
-
-#[test]
-fn check_ignore_suppresses_errors() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
-
-    let templates = dir.path().join("templates");
-    std::fs::create_dir_all(&templates).unwrap();
-    std::fs::write(
-        templates.join("broken.html"),
-        "{% block content %}\n<p>Hello</p>\n",
-    )
-    .unwrap();
-
-    let output = Command::new(djls_binary())
-        .args(["check", "--ignore", "S100", "templates/"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "Expected exit 0 with --ignore S100, got {:?}\nstdout: {}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stdout),
-    );
-}
-
-#[test]
-fn check_stdin_detects_errors() {
+fn format_stdin_passthrough() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());
 
     let mut child = Command::new(djls_binary())
-        .args(["check", "-"])
+        .args(["format", "-"])
         .current_dir(dir.path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -143,30 +115,36 @@ fn check_stdin_detects_errors() {
         .spawn()
         .unwrap();
 
+    let source = "{%if user%}{{user.name}}{%endif%}\n";
+
     child
         .stdin
         .take()
         .unwrap()
-        .write_all(b"{% block content %}<p>Hello</p>\n")
+        .write_all(source.as_bytes())
         .unwrap();
 
     let output = child.wait_with_output().unwrap();
 
-    assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("S100"),
-        "Expected S100 in stdin output:\n{stdout}"
+        output.status.success(),
+        "Expected exit 0, got {:?}\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
     );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, source);
 }
 
 #[test]
-fn check_rejects_mixed_stdin_and_paths() {
+fn format_rejects_mixed_stdin_and_paths() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());
 
     let output = Command::new(djls_binary())
-        .args(["check", "-", "templates/"])
+        .args(["format", "-", "templates/"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -180,22 +158,24 @@ fn check_rejects_mixed_stdin_and_paths() {
 }
 
 #[test]
-fn check_no_templates_exits_zero() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_project(dir.path());
-
-    let empty_dir = dir.path().join("templates");
-    std::fs::create_dir_all(&empty_dir).unwrap();
-
+fn format_help_shows_expected_flags() {
     let output = Command::new(djls_binary())
-        .args(["check", "templates/"])
-        .current_dir(dir.path())
+        .args(["format", "--help"])
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "Expected exit 0 for empty dir, got {:?}",
+        "Expected --help to exit 0, got {:?}",
         output.status.code(),
     );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--check"));
+    assert!(stdout.contains("--diff"));
+    assert!(stdout.contains("--glob"));
+    assert!(stdout.contains("--no-ignore"));
+    assert!(stdout.contains("--follow"));
+    assert!(stdout.contains("--max-depth"));
+    assert!(stdout.contains("--color"));
 }
