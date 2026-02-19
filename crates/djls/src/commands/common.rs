@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
@@ -18,6 +20,16 @@ pub(crate) enum ColorMode {
     Always,
     /// Never use colors.
     Never,
+}
+
+impl ColorMode {
+    pub(crate) fn should_use_color(&self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => std::io::stdout().is_terminal(),
+        }
+    }
 }
 
 pub(crate) fn discover_files(

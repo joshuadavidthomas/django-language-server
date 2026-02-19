@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::io::Read as _;
 use std::io::Write as _;
 use std::sync::Arc;
@@ -244,18 +243,10 @@ fn render_diff(file: &FormattedFile, color_mode: &ColorMode) -> String {
     let diff = djls_fmt::unified_diff(file.path.as_str(), &file.source, &file.formatted)
         .unwrap_or_default();
 
-    if should_use_color(color_mode) {
+    if color_mode.should_use_color() {
         colorize_unified_diff(&diff)
     } else {
         diff
-    }
-}
-
-fn should_use_color(color_mode: &ColorMode) -> bool {
-    match color_mode {
-        ColorMode::Always => true,
-        ColorMode::Never => false,
-        ColorMode::Auto => std::io::stdout().is_terminal(),
     }
 }
 

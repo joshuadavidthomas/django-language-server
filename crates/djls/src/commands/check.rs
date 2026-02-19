@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::io::Read as _;
 use std::sync::Arc;
 
@@ -224,12 +223,7 @@ fn build_diagnostics_config(
 }
 
 fn pick_renderer(color: &ColorMode) -> DiagnosticRenderer {
-    let use_color = match color {
-        ColorMode::Always => true,
-        ColorMode::Never => false,
-        ColorMode::Auto => std::io::stdout().is_terminal(),
-    };
-    if use_color {
+    if color.should_use_color() {
         DiagnosticRenderer::styled()
     } else {
         DiagnosticRenderer::plain()
