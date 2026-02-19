@@ -714,6 +714,7 @@ dependencies = [
  "clap",
  "djls-conf",
  "djls-db",
+ "djls-fmt",
  "djls-semantic",
  "djls-server",
  "djls-source",
@@ -794,6 +795,14 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "djls-fmt"
+version = "0.0.0"
+dependencies = [
+ "djls-conf",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -881,6 +890,7 @@ dependencies = [
  "dashmap",
  "djls-conf",
  "djls-db",
+ "djls-fmt",
  "djls-ide",
  "djls-project",
  "djls-semantic",

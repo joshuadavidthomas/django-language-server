@@ -64,6 +64,65 @@ pub enum ConfigError {
     PyprojectSerialize(#[from] toml::ser::Error),
 }
 
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum IndentStyle {
+    #[default]
+    Spaces,
+    Tabs,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ContentType {
+    #[default]
+    Auto,
+    Html,
+    Text,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(default)]
+pub struct FormatConfig {
+    indent_width: u16,
+    indent_style: IndentStyle,
+    content_type: ContentType,
+    print_width: u16,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self {
+            indent_width: 4,
+            indent_style: IndentStyle::Spaces,
+            content_type: ContentType::Auto,
+            print_width: 80,
+        }
+    }
+}
+
+impl FormatConfig {
+    #[must_use]
+    pub fn indent_width(&self) -> u16 {
+        self.indent_width
+    }
+
+    #[must_use]
+    pub fn indent_style(&self) -> IndentStyle {
+        self.indent_style
+    }
+
+    #[must_use]
+    pub fn content_type(&self) -> ContentType {
+        self.content_type
+    }
+
+    #[must_use]
+    pub fn print_width(&self) -> u16 {
+        self.print_width
+    }
+}
+
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
 pub struct Settings {
     #[serde(default)]
@@ -77,6 +136,8 @@ pub struct Settings {
     tagspecs: TagSpecDef,
     #[serde(default)]
     diagnostics: DiagnosticsConfig,
+    #[serde(default)]
+    format: FormatConfig,
 }
 
 fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
@@ -131,6 +192,9 @@ impl Settings {
             // For diagnostics, override if the config is non-default
             if overrides.diagnostics != DiagnosticsConfig::default() {
                 settings.diagnostics = overrides.diagnostics;
+            }
+            if overrides.format != FormatConfig::default() {
+                settings.format = overrides.format;
             }
         }
 
@@ -214,6 +278,11 @@ impl Settings {
     pub fn diagnostics(&self) -> &DiagnosticsConfig {
         &self.diagnostics
     }
+
+    #[must_use]
+    pub fn format(&self) -> &FormatConfig {
+        &self.format
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +310,7 @@ mod tests {
                     env_file: None,
                     tagspecs: TagSpecDef::default(),
                     diagnostics: DiagnosticsConfig::default(),
+                    format: FormatConfig::default(),
                 }
             );
         }
@@ -368,6 +438,55 @@ T100 = "hint"
             assert_eq!(
                 settings.diagnostics.get_severity("T100"),
                 DiagnosticSeverity::Hint
+            );
+        }
+
+        #[test]
+        fn test_load_format_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[format]
+indent_width = 2
+indent_style = "tabs"
+content_type = "html"
+print_width = 100
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            assert_eq!(
+                settings.format(),
+                &FormatConfig {
+                    indent_width: 2,
+                    indent_style: IndentStyle::Tabs,
+                    content_type: ContentType::Html,
+                    print_width: 100,
+                }
+            );
+        }
+
+        #[test]
+        fn test_load_format_config_defaults_missing_fields() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[format]
+content_type = "text"
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            assert_eq!(
+                settings.format(),
+                &FormatConfig {
+                    content_type: ContentType::Text,
+                    ..FormatConfig::default()
+                }
             );
         }
     }
