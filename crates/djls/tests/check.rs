@@ -161,6 +161,25 @@ fn check_stdin_detects_errors() {
 }
 
 #[test]
+fn check_rejects_mixed_stdin_and_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let output = Command::new(djls_binary())
+        .args(["check", "-", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Cannot mix `-` (stdin) with file or directory paths"),
+        "Expected mixed-stdin error message, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn check_no_templates_exits_zero() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());
@@ -274,6 +293,40 @@ fn format_stdin_passthrough() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout, source);
+}
+
+#[test]
+fn format_rejects_mixed_stdin_and_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let output = Command::new(djls_binary())
+        .args(["format", "-", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Cannot mix `-` (stdin) with file or directory paths"),
+        "Expected mixed-stdin error message, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn serve_tcp_reports_unsupported_connection_type() {
+    let output = Command::new(djls_binary())
+        .args(["serve", "--connection-type", "tcp"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("`djls serve --connection-type tcp` is not supported yet"),
+        "Expected unsupported connection-type message, got:\n{stdout}"
+    );
 }
 
 #[test]

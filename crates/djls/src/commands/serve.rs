@@ -1,3 +1,4 @@
+use anyhow::bail;
 use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
@@ -12,7 +13,7 @@ pub struct Serve {
     connection_type: ConnectionType,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum ConnectionType {
     Stdio,
     Tcp,
@@ -20,10 +21,12 @@ enum ConnectionType {
 
 impl Command for Serve {
     fn execute(&self, _args: &Args) -> Result<Exit> {
-        djls_server::run()?;
-
-        Exit::success()
-            .with_message("Server completed successfully")
-            .process_exit()
+        match self.connection_type {
+            ConnectionType::Stdio => {
+                djls_server::run()?;
+                Ok(Exit::success())
+            }
+            ConnectionType::Tcp => bail!("`djls serve --connection-type tcp` is not supported yet"),
+        }
     }
 }
