@@ -69,7 +69,7 @@ impl Command for Check {
             djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
-        let fmt = pick_renderer(&self.color);
+        let fmt = pick_renderer(self.color);
         let quiet = args.quiet;
 
         let reading_stdin = self.paths.iter().any(|path| path.as_str() == "-");
@@ -222,7 +222,7 @@ fn build_diagnostics_config(
     config
 }
 
-fn pick_renderer(color: &ColorMode) -> DiagnosticRenderer {
+fn pick_renderer(color: ColorMode) -> DiagnosticRenderer {
     if color.should_use_color() {
         DiagnosticRenderer::styled()
     } else {

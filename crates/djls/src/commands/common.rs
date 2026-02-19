@@ -11,7 +11,7 @@ use djls_source::FileKind;
 use djls_workspace::walk_files;
 use djls_workspace::WalkOptions;
 
-#[derive(Clone, Debug, Default, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
 pub(crate) enum ColorMode {
     /// Use colors when output is a terminal.
     #[default]
@@ -23,7 +23,7 @@ pub(crate) enum ColorMode {
 }
 
 impl ColorMode {
-    pub(crate) fn should_use_color(&self) -> bool {
+    pub(crate) fn should_use_color(self) -> bool {
         match self {
             Self::Always => true,
             Self::Never => false,
