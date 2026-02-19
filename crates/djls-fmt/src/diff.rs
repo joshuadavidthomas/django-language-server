@@ -274,37 +274,25 @@ mod tests {
     /// Apply a set of [`Edit`]s to source text, producing the transformed
     /// output. Used only in tests to validate round-trip correctness.
     fn apply_edits(source: &str, edits: &[Edit]) -> String {
-        let lines: Vec<&str> = source.lines().collect();
+        let lines: Vec<&str> = source.split_inclusive('\n').collect();
         let mut result = String::new();
         let mut current_line: u32 = 0;
 
         for edit in edits {
-            // Copy unchanged lines before this edit.
             while current_line < edit.start_line {
                 if let Some(line) = lines.get(current_line as usize) {
                     result.push_str(line);
-                    result.push('\n');
                 }
                 current_line += 1;
             }
 
-            // Insert the replacement text.
             result.push_str(&edit.new_text);
-
-            // Skip over the replaced original lines.
             current_line = edit.end_line;
         }
 
-        // Copy remaining lines after the last edit.
         while (current_line as usize) < lines.len() {
             result.push_str(lines[current_line as usize]);
-            result.push('\n');
             current_line += 1;
-        }
-
-        // Preserve a missing trailing newline in the original.
-        if !source.is_empty() && !source.ends_with('\n') && result.ends_with('\n') {
-            result.pop();
         }
 
         result
