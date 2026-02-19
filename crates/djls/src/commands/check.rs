@@ -9,7 +9,7 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use djls_db::DjangoDatabase;
 use djls_db::FileCheckResult;
-use djls_source::Db as SourceDb;
+use djls_source::Db as _;
 use djls_source::DiagnosticRenderer;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;

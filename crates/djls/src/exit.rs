@@ -1,8 +1,6 @@
 use std::error::Error;
 use std::fmt;
 
-use anyhow::Result;
-
 type ExitMessage = Option<String>;
 
 #[derive(Debug)]
@@ -72,14 +70,6 @@ impl Exit {
             println!("{message}");
         }
         std::process::exit(self.status.as_raw())
-    }
-
-    #[allow(dead_code)]
-    pub fn ok(self) -> Result<()> {
-        match self.status {
-            ExitStatus::Success => Ok(()),
-            ExitStatus::Error => Err(self.into()),
-        }
     }
 
     #[allow(dead_code)]

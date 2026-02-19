@@ -6,7 +6,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::ValueEnum;
 use djls_db::DjangoDatabase;
-use djls_semantic::Db as SemanticDb;
+use djls_semantic::Db as _;
 use djls_source::FileKind;
 use djls_workspace::walk_files;
 use djls_workspace::WalkOptions;
