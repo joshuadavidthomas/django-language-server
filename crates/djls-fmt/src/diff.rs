@@ -369,7 +369,6 @@ mod tests {
         let mut current_line: u32 = 0;
 
         for edit in edits {
-            // Copy unchanged lines before this edit.
             while current_line < edit.start_line {
                 if let Some(line) = lines.get(current_line as usize) {
                     result.push_str(line);
@@ -377,14 +376,10 @@ mod tests {
                 current_line += 1;
             }
 
-            // Insert the replacement text.
             result.push_str(&edit.new_text);
-
-            // Skip over the replaced original lines.
             current_line = edit.end_line;
         }
 
-        // Copy remaining lines after the last edit.
         while (current_line as usize) < lines.len() {
             result.push_str(lines[current_line as usize]);
             current_line += 1;
