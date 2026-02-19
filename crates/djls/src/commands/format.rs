@@ -3,6 +3,7 @@ use std::io::Read as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
@@ -17,6 +18,7 @@ use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 use rayon::prelude::*;
+use similar::TextDiff;
 
 use crate::args::Args;
 use crate::commands::Command;
@@ -124,10 +126,15 @@ impl Command for Format {
         let project_root = resolve_project_root()?;
         let settings =
             djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
-        let format_config = build_format_config(&settings);
+        let format_config = settings.format().clone();
         let output_mode = OutputMode::from_flags(self.check, self.diff);
 
         let reading_stdin = self.paths.iter().any(|path| path.as_str() == "-");
+        let has_non_stdin_path = self.paths.iter().any(|path| path.as_str() != "-");
+        if reading_stdin && has_non_stdin_path {
+            bail!("Cannot mix `-` (stdin) with file or directory paths");
+        }
+
         if reading_stdin {
             return format_stdin(&format_config, output_mode, &self.color, args.quiet);
         }
@@ -186,7 +193,7 @@ fn apply_output_mode(
 
     if mode.should_print_diff() && !quiet {
         for file in &changed_files {
-            println!("{}", render_diff_placeholder(file, color));
+            println!("{}", render_diff(file, color));
         }
     }
 
@@ -205,10 +212,6 @@ fn apply_output_mode(
     } else {
         Ok(Exit::success())
     }
-}
-
-fn build_format_config(settings: &djls_conf::Settings) -> FormatConfig {
-    settings.format().clone()
 }
 
 fn discover_files(
@@ -291,22 +294,52 @@ fn is_template(path: &Utf8Path) -> bool {
     FileKind::is_template(path)
 }
 
-fn render_diff_placeholder(file: &FormattedFile, color_mode: &ColorMode) -> String {
-    let use_color = match color_mode {
+fn render_diff(file: &FormattedFile, color_mode: &ColorMode) -> String {
+    let old_header = format!("a/{}", file.path);
+    let new_header = format!("b/{}", file.path);
+
+    let diff = TextDiff::from_lines(&file.source, &file.formatted)
+        .unified_diff()
+        .header(&old_header, &new_header)
+        .to_string();
+
+    if should_use_color(color_mode) {
+        colorize_unified_diff(&diff)
+    } else {
+        diff
+    }
+}
+
+fn should_use_color(color_mode: &ColorMode) -> bool {
+    match color_mode {
         ColorMode::Always => true,
         ColorMode::Never => false,
         ColorMode::Auto => std::io::stdout().is_terminal(),
-    };
+    }
+}
 
-    let mut old_header = format!("--- {}", file.path);
-    let mut new_header = format!("+++ {}", file.path);
+fn colorize_unified_diff(diff: &str) -> String {
+    let mut output = String::new();
 
-    if use_color {
-        old_header = format!("\u{1b}[31m{old_header}\u{1b}[0m");
-        new_header = format!("\u{1b}[32m{new_header}\u{1b}[0m");
+    for line in diff.lines() {
+        let colored = if line.starts_with("+++") {
+            format!("\u{1b}[32m{line}\u{1b}[0m")
+        } else if line.starts_with("---") {
+            format!("\u{1b}[31m{line}\u{1b}[0m")
+        } else if line.starts_with("@@") {
+            format!("\u{1b}[36m{line}\u{1b}[0m")
+        } else if line.starts_with('+') {
+            format!("\u{1b}[32m{line}\u{1b}[0m")
+        } else if line.starts_with('-') {
+            format!("\u{1b}[31m{line}\u{1b}[0m")
+        } else {
+            line.to_owned()
+        };
+        output.push_str(&colored);
+        output.push('\n');
     }
 
-    format!("{old_header}\n{new_header}\n@@ unified diff pending @@")
+    output
 }
 
 #[cfg(test)]
@@ -341,5 +374,21 @@ mod tests {
         assert!(names.contains(&"partial.htm"));
         assert!(names.contains(&"email.djhtml"));
         assert!(!names.contains(&"notes.txt"));
+    }
+
+    #[test]
+    fn render_diff_outputs_unified_diff() {
+        let file = FormattedFile {
+            path: Utf8PathBuf::from("templates/page.html"),
+            source: "<p>before</p>\n".to_owned(),
+            formatted: "<p>after</p>\n".to_owned(),
+        };
+
+        let diff = render_diff(&file, &ColorMode::Never);
+
+        assert!(diff.contains("--- a/templates/page.html"));
+        assert!(diff.contains("+++ b/templates/page.html"));
+        assert!(diff.contains("-<p>before</p>"));
+        assert!(diff.contains("+<p>after</p>"));
     }
 }

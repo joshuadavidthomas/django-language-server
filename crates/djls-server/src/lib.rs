@@ -17,25 +17,15 @@ pub use crate::session::Session;
 /// Run the Django language server.
 pub fn run() -> Result<()> {
     if std::io::stdin().is_terminal() {
-        eprintln!(
-            "---------------------------------------------------------------------------------"
-        );
         eprintln!("Django Language Server is running directly in a terminal.");
         eprintln!(
             "This server is designed to communicate over stdin/stdout with a language client."
         );
         eprintln!("It is not intended to be used directly in a terminal.");
         eprintln!();
-        eprintln!(
-            "Note: The server is now waiting for LSP messages, but since you're in a terminal,"
-        );
-        eprintln!("no editor is connected and the server won't do anything.");
-        eprintln!();
-        eprintln!("To exit: Press ENTER to send invalid input and trigger an error exit.");
-        eprintln!("Ctrl+C will not work as expected due to LSP stdio communication.");
-        eprintln!(
-            "---------------------------------------------------------------------------------"
-        );
+        eprintln!("The server is now waiting for LSP messages, but no editor is connected.");
+        eprintln!("To exit: press ENTER to send invalid input and trigger an error exit.");
+        eprintln!("Ctrl+C may not work as expected due to LSP stdio communication.");
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()

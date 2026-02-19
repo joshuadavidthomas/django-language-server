@@ -2,6 +2,7 @@ use std::io::IsTerminal;
 use std::io::Read as _;
 use std::sync::Arc;
 
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
@@ -84,7 +85,12 @@ impl Command for Check {
         let fmt = pick_renderer(&self.color);
         let quiet = args.quiet;
 
-        let reading_stdin = self.paths.iter().any(|p| p.as_str() == "-");
+        let reading_stdin = self.paths.iter().any(|path| path.as_str() == "-");
+        let has_non_stdin_path = self.paths.iter().any(|path| path.as_str() != "-");
+
+        if reading_stdin && has_non_stdin_path {
+            bail!("Cannot mix `-` (stdin) with file or directory paths");
+        }
 
         if reading_stdin {
             return check_stdin(&project_root, &settings, &config, &fmt, quiet);
@@ -111,7 +117,7 @@ impl Command for Check {
         // Clone the db per rayon task (each clone gets its own Salsa cache).
         // Collect raw diagnostic data in parallel, render on the main thread
         // after — the renderer is not Send and doesn't need to be.
-        let raw_results: Vec<FileCheckResult> = {
+        let mut raw_results: Vec<FileCheckResult> = {
             let db = db;
             let (tx, rx) = std::sync::mpsc::channel();
 
@@ -130,6 +136,7 @@ impl Command for Check {
 
             rx.into_iter().collect()
         };
+        raw_results.sort_by(|left, right| left.path.cmp(&right.path));
 
         let mut error_count: usize = 0;
         let mut file_count: usize = 0;
