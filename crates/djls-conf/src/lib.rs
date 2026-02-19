@@ -2,6 +2,7 @@ pub mod diagnostics;
 pub mod tagspecs;
 
 use std::fs;
+use std::num::NonZeroU16;
 use std::path::Path;
 
 use anyhow::Context;
@@ -84,19 +85,21 @@ pub enum ContentType {
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 #[serde(default)]
 pub struct FormatConfig {
-    indent_width: u16,
+    #[serde(deserialize_with = "deserialize_nonzero_u16")]
+    indent_width: NonZeroU16,
     indent_style: IndentStyle,
     content_type: ContentType,
-    print_width: u16,
+    #[serde(deserialize_with = "deserialize_nonzero_u16")]
+    print_width: NonZeroU16,
 }
 
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
-            indent_width: 4,
+            indent_width: NonZeroU16::new(4).expect("format default indent_width is non-zero"),
             indent_style: IndentStyle::Spaces,
             content_type: ContentType::Auto,
-            print_width: 80,
+            print_width: NonZeroU16::new(80).expect("format default print_width is non-zero"),
         }
     }
 }
@@ -104,7 +107,7 @@ impl Default for FormatConfig {
 impl FormatConfig {
     #[must_use]
     pub fn indent_width(&self) -> u16 {
-        self.indent_width
+        self.indent_width.get()
     }
 
     #[must_use]
@@ -119,8 +122,18 @@ impl FormatConfig {
 
     #[must_use]
     pub fn print_width(&self) -> u16 {
-        self.print_width
+        self.print_width.get()
     }
+}
+
+fn deserialize_nonzero_u16<'de, D>(deserializer: D) -> Result<NonZeroU16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value = u16::deserialize(deserializer)?;
+    NonZeroU16::new(value).ok_or_else(|| D::Error::custom("expected a non-zero integer"))
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
@@ -457,15 +470,10 @@ print_width = 100
             .unwrap();
 
             let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            assert_eq!(
-                settings.format(),
-                &FormatConfig {
-                    indent_width: 2,
-                    indent_style: IndentStyle::Tabs,
-                    content_type: ContentType::Html,
-                    print_width: 100,
-                }
-            );
+            assert_eq!(settings.format().indent_width(), 2);
+            assert_eq!(settings.format().indent_style(), IndentStyle::Tabs);
+            assert_eq!(settings.format().content_type(), ContentType::Html);
+            assert_eq!(settings.format().print_width(), 100);
         }
 
         #[test]
@@ -488,6 +496,24 @@ content_type = "text"
                     ..FormatConfig::default()
                 }
             );
+        }
+
+        #[test]
+        fn test_load_format_config_rejects_zero_widths() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r"
+[format]
+indent_width = 0
+print_width = 0
+",
+            )
+            .unwrap();
+
+            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
         }
     }
 

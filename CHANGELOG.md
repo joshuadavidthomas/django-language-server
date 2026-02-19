@@ -27,7 +27,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.
 - **Internal**: Added `[profile.bench]` with `debug = 2` to `Cargo.toml` for symbolized bench profiles.
-- **Internal**: Scaffolded `djls-fmt` with a passthrough `format_source` API and added `djls-conf` formatter settings (`[format].indent_width`, `indent_style`, `content_type`, `print_width`).
 
 ### Changed
 

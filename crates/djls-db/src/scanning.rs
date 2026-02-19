@@ -126,7 +126,6 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
 #[cfg(test)]
 mod tests {
     use camino::Utf8PathBuf;
-    use djls_python::ModulePath;
 
     use super::*;
 
