@@ -797,6 +797,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-fmt"
+version = "0.0.0"
+dependencies = [
+ "djls-conf",
+]
+
+[[package]]
 name = "djls-ide"
 version = "0.0.0"
 dependencies = [

@@ -1,0 +1,10 @@
+[package]
+name = "djls-fmt"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+djls-conf = { workspace = true }
+
+[lints]
+workspace = true
