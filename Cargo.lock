@@ -802,6 +802,7 @@ version = "0.0.0"
 dependencies = [
  "djls-conf",
  "similar",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

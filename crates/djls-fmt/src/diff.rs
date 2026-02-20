@@ -1,6 +1,15 @@
 use similar::ChangeTag;
 use similar::TextDiff;
 
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+#[error("edit start ({start_line}:{start_char}) is after end ({end_line}:{end_char})")]
+pub struct InvalidEditRange {
+    start_line: u32,
+    start_char: u32,
+    end_line: u32,
+    end_char: u32,
+}
+
 /// A text edit representing a replacement of a range in the original document.
 ///
 /// Uses zero-indexed line/character positions, matching LSP conventions so
@@ -12,6 +21,36 @@ pub struct Edit {
     pub end_line: u32,
     pub end_char: u32,
     pub new_text: String,
+}
+
+impl Edit {
+    /// Create a text edit replacing the range `[start, end)` with `new_text`.
+    ///
+    /// Returns an error if the start position is after the end position.
+    pub fn new(
+        start_line: u32,
+        start_char: u32,
+        end_line: u32,
+        end_char: u32,
+        new_text: String,
+    ) -> Result<Self, InvalidEditRange> {
+        if start_line > end_line || (start_line == end_line && start_char > end_char) {
+            return Err(InvalidEditRange {
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+            });
+        }
+
+        Ok(Self {
+            start_line,
+            start_char,
+            end_line,
+            end_char,
+            new_text,
+        })
+    }
 }
 
 /// Quick check: did formatting change anything?
@@ -90,13 +129,12 @@ fn flush_hunk(
     hunk_new_text: &mut String,
 ) {
     if let Some(start) = hunk_start_line.take() {
-        edits.push(Edit {
-            start_line: start,
-            start_char: 0,
-            end_line: hunk_end_line,
-            end_char: 0,
-            new_text: std::mem::take(hunk_new_text),
-        });
+        // Range is constructed from forward iteration over diff output,
+        // so start <= end is guaranteed.
+        edits.push(
+            Edit::new(start, 0, hunk_end_line, 0, std::mem::take(hunk_new_text))
+                .expect("hunk produced an invalid edit range"),
+        );
     }
 }
 
@@ -139,16 +177,7 @@ mod tests {
         let edits = compute_text_edits(original, formatted);
 
         assert_eq!(edits.len(), 1);
-        assert_eq!(
-            edits[0],
-            Edit {
-                start_line: 1,
-                start_char: 0,
-                end_line: 2,
-                end_char: 0,
-                new_text: "BBB\n".to_owned(),
-            }
-        );
+        assert_eq!(edits[0], Edit::new(1, 0, 2, 0, "BBB\n".to_owned()).unwrap());
     }
 
     #[test]
@@ -271,6 +300,42 @@ mod tests {
         assert_eq!(result, formatted);
     }
 
+    #[test]
+    fn edit_allows_empty_range() {
+        // An insertion: start == end is valid (zero-width range).
+        let edit = Edit::new(3, 5, 3, 5, "inserted".to_owned()).unwrap();
+        assert_eq!(edit.start_line, 3);
+        assert_eq!(edit.end_char, 5);
+    }
+
+    #[test]
+    fn edit_rejects_backwards_lines() {
+        let err = Edit::new(5, 0, 3, 0, String::new()).unwrap_err();
+        assert_eq!(
+            err,
+            InvalidEditRange {
+                start_line: 5,
+                start_char: 0,
+                end_line: 3,
+                end_char: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn edit_rejects_backwards_chars_on_same_line() {
+        let err = Edit::new(2, 10, 2, 5, String::new()).unwrap_err();
+        assert_eq!(
+            err,
+            InvalidEditRange {
+                start_line: 2,
+                start_char: 10,
+                end_line: 2,
+                end_char: 5,
+            }
+        );
+    }
+
     /// Apply a set of [`Edit`]s to source text, producing the transformed
     /// output. Used only in tests to validate round-trip correctness.
     fn apply_edits(source: &str, edits: &[Edit]) -> String {
@@ -279,6 +344,7 @@ mod tests {
         let mut current_line: u32 = 0;
 
         for edit in edits {
+            // Copy unchanged lines before this edit.
             while current_line < edit.start_line {
                 if let Some(line) = lines.get(current_line as usize) {
                     result.push_str(line);
@@ -286,10 +352,14 @@ mod tests {
                 current_line += 1;
             }
 
+            // Insert the replacement text.
             result.push_str(&edit.new_text);
+
+            // Skip over the replaced original lines.
             current_line = edit.end_line;
         }
 
+        // Copy remaining lines after the last edit.
         while (current_line as usize) < lines.len() {
             result.push_str(lines[current_line as usize]);
             current_line += 1;
