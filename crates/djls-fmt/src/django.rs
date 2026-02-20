@@ -100,18 +100,16 @@ impl FmtToken {
     }
 }
 
-// Pass 1+2: Normalize block tag content.
-//
-// Trims leading/trailing whitespace (pass 1) and normalizes argument
-// spacing to single spaces while preserving quoted strings (pass 2).
-// When `sort_load_libraries` is enabled, load tag libraries are sorted.
+// Normalize block tag content: trim whitespace, collapse argument spacing
+// to single spaces (preserving quoted strings), and optionally sort load
+// tag libraries.
 fn normalize_block_content(content: &str, config: &FormatConfig) -> String {
     let parts = split_on_whitespace(content.trim());
     if parts.is_empty() {
         return String::new();
     }
 
-    // Pass 4: Sort load libraries (skip `{% load X from Y %}` syntax)
+    // Sort load libraries (skip `{% load X from Y %}` syntax)
     let is_simple_load =
         parts[0] == "load" && parts.len() > 1 && !parts.iter().any(|p| p == "from");
     if config.sort_load_libraries() && is_simple_load {
@@ -124,10 +122,8 @@ fn normalize_block_content(content: &str, config: &FormatConfig) -> String {
     parts.join(" ")
 }
 
-// Pass 3: Normalize variable content.
-//
-// Trims whitespace and removes spaces around `|` (filter separator)
-// and `:` (filter argument separator), preserving quoted strings.
+// Normalize variable content: trim whitespace and collapse spaces around
+// `|` (filter separator) and `:` (filter argument), preserving quoted strings.
 fn normalize_variable_content(content: &str) -> String {
     let trimmed = content.trim();
     if trimmed.is_empty() {
@@ -188,11 +184,11 @@ fn is_simple_load_block(token: &FmtToken) -> bool {
     }
 }
 
-// Pass 5: Merge consecutive `{% load %}` tags.
+// Merge consecutive `{% load %}` tags into a single tag.
 //
 // Finds runs of simple load blocks (not `{% load X from Y %}`) separated
-// only by whitespace/newlines, merges their libraries into a single load
-// tag, and removes the redundant tokens.
+// only by whitespace/newlines, merges their libraries into one load tag,
+// and removes the redundant tokens.
 fn merge_load_tags(tokens: &mut Vec<FmtToken>) {
     // Collect groups of consecutive load block indices
     let mut groups: Vec<Vec<usize>> = Vec::new();
@@ -219,9 +215,6 @@ fn merge_load_tags(tokens: &mut Vec<FmtToken>) {
             }
             i = j;
         } else {
-            if !current_group.is_empty() {
-                current_group.clear();
-            }
             i += 1;
         }
     }
@@ -252,7 +245,7 @@ fn merge_load_tags(tokens: &mut Vec<FmtToken>) {
     }
 }
 
-// Pass 6: Label unlabeled `{% endblock %}` tags.
+// Label unlabeled `{% endblock %}` tags with the block name.
 //
 // When a closing `{% endblock %}` sits on a different line from its
 // matching `{% block name %}`, and it doesn't already carry the block
@@ -261,12 +254,8 @@ fn label_endblocks(tokens: &mut [FmtToken]) {
     // Stack of (block_name, crossed_newline)
     let mut block_stack: Vec<(String, bool)> = Vec::new();
 
-    // We need index-based iteration here because the loop both reads token
-    // content to update the block stack and conditionally replaces tokens.
-    // An iterator-based approach would require splitting the borrow.
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..tokens.len() {
-        match &tokens[i] {
+    for token in tokens.iter_mut() {
+        match token {
             FmtToken::Block(content) => {
                 let parts = split_on_whitespace(content.trim());
                 let tag_name = parts.first().map(String::as_str);
@@ -280,7 +269,7 @@ fn label_endblocks(tokens: &mut [FmtToken]) {
                         if let Some((name, crossed_newline)) = block_stack.pop() {
                             let has_label = parts.len() > 1;
                             if crossed_newline && !has_label && !name.is_empty() {
-                                tokens[i] = FmtToken::Block(format!("endblock {name}"));
+                                *token = FmtToken::Block(format!("endblock {name}"));
                             }
                         }
                     }
@@ -300,10 +289,7 @@ fn label_endblocks(tokens: &mut [FmtToken]) {
     }
 }
 
-// Quote-aware string splitting utilities.
-//
-// These are formatting-specific: they return slices (not owned strings)
-// and handle the minimal quoting rules needed for Django template syntax.
+// Quote-aware string splitting utilities for Django template syntax.
 
 /// Split `s` on whitespace while preserving quoted regions.
 fn split_on_whitespace(s: &str) -> Vec<String> {
