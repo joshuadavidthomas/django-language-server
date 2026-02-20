@@ -1,0 +1,17 @@
+---
+source: crates/djls-fmt/src/django.rs
+expression: result
+---
+{% load i18n %}
+{% autoescape off %}
+Dear {{ name|title }},
+
+{% blocktrans with amount=order.total %}
+Your order total is {{ amount|floatformat:2 }}.
+{% endblocktrans %}
+
+{% if has_discount %}
+{# show discount info #}
+Discount: {{ discount|default:"0%" }}
+{% endif %}
+{% endautoescape %}

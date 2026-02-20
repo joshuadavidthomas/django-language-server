@@ -74,7 +74,7 @@ fn format_passthrough_exits_zero_and_keeps_content() {
 }
 
 #[test]
-fn format_check_exits_zero_for_passthrough_formatter() {
+fn format_check_exits_zero_for_already_formatted() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());
 
@@ -82,7 +82,7 @@ fn format_check_exits_zero_for_passthrough_formatter() {
     std::fs::create_dir_all(&templates).unwrap();
     std::fs::write(
         templates.join("page.djhtml"),
-        "{%if user%}{{user.name}}{%endif%}\n",
+        "{% if user %}{{ user.name }}{% endif %}\n",
     )
     .unwrap();
 
@@ -102,7 +102,36 @@ fn format_check_exits_zero_for_passthrough_formatter() {
 }
 
 #[test]
-fn format_stdin_passthrough() {
+fn format_check_exits_nonzero_for_unformatted() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(
+        templates.join("page.djhtml"),
+        "{%if user%}{{user.name}}{%endif%}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["format", "--check", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Expected exit 1 for unformatted file, got {:?}\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn format_stdin_formats_django_syntax() {
     let dir = tempfile::tempdir().unwrap();
     setup_project(dir.path());
 
@@ -135,7 +164,7 @@ fn format_stdin_passthrough() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout, source);
+    assert_eq!(stdout, "{% if user %}{{ user.name }}{% endif %}\n");
 }
 
 #[test]

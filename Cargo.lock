@@ -801,6 +801,8 @@ name = "djls-fmt"
 version = "0.0.0"
 dependencies = [
  "djls-conf",
+ "djls-templates",
+ "insta",
  "similar",
  "thiserror 2.0.18",
 ]
