@@ -2,7 +2,6 @@
 // Stripped to HTML + Jinja/Django + XML only
 // Django fixes applied to block tag list
 
-use std::cmp::Ordering;
 use std::iter::Peekable;
 use std::ops::ControlFlow;
 use std::str::CharIndices;
@@ -70,17 +69,22 @@ impl<'s> Parser<'s> {
     }
 
     fn pos_to_line_col(&self, pos: usize) -> (usize, usize) {
+        // Track (line_number, line_start_byte) where line_start_byte is the
+        // byte offset of the first character on that line.
         let search = memchr::memchr_iter(b'\n', self.source.as_bytes()).try_fold(
-            (1, 0),
-            |(line, prev_offset), offset| match pos.cmp(&offset) {
-                Ordering::Less | Ordering::Equal => ControlFlow::Break((line, prev_offset)),
-                Ordering::Greater => ControlFlow::Continue((line + 1, offset)),
+            (1, 0usize),
+            |(line, _line_start), newline_offset| {
+                if pos <= newline_offset {
+                    ControlFlow::Break((line, _line_start))
+                } else {
+                    ControlFlow::Continue((line + 1, newline_offset + 1))
+                }
             },
         );
-        let (line, offset) = match search {
+        let (line, line_start) = match search {
             ControlFlow::Break(result) | ControlFlow::Continue(result) => result,
         };
-        (line, pos - offset + 1)
+        (line, pos - line_start + 1)
     }
 
     fn skip_ws(&mut self) {
@@ -198,8 +202,10 @@ impl<'s> Parser<'s> {
                             end += self.parse_mustache_interpolation()?.0.len() + "{{}}".len();
                         }
                         Some((_, c)) => {
-                            end += c.len_utf8();
-                            self.chars.next();
+                            // Consume both '{' and the following char
+                            self.chars.next(); // '{'
+                            self.chars.next(); // the char `c`
+                            end += '{'.len_utf8() + c.len_utf8();
                         }
                         None => break,
                     }
@@ -281,10 +287,9 @@ impl<'s> Parser<'s> {
                                     .parse_jinja_tag_or_block(None, &mut Parser::parse_node)
                                     .is_ok()
                                 {
-                                    end =
-                                        self.chars.peek().map(|(i, _)| i - 1).ok_or_else(|| {
-                                            self.emit_error(SyntaxErrorKind::ExpectAttrValue)
-                                        })?;
+                                    end = self.chars.peek().map(|(i, _)| *i).ok_or_else(|| {
+                                        self.emit_error(SyntaxErrorKind::ExpectAttrValue)
+                                    })?;
                                 } else {
                                     self.chars.next();
                                 }
@@ -292,7 +297,7 @@ impl<'s> Parser<'s> {
                             Some((_, '{')) => {
                                 chars.next();
                                 let (interpolation, _) = self.parse_mustache_interpolation()?;
-                                end += interpolation.len() + "{{}}".len() - 1;
+                                end += interpolation.len() + "{{}}".len();
                             }
                             _ => {
                                 self.chars.next();
@@ -300,14 +305,14 @@ impl<'s> Parser<'s> {
                         }
                     }
                     Some((i, c)) if is_unquoted_attr_value_char(*c) => {
-                        end = *i;
+                        end = *i + c.len_utf8();
                         self.chars.next();
                     }
                     _ => break,
                 }
             }
 
-            Ok((unsafe { self.source.get_unchecked(start..=end) }, start))
+            Ok((unsafe { self.source.get_unchecked(start..end) }, start))
         }
     }
 
