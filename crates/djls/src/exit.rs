@@ -59,7 +59,7 @@ impl Exit {
 
     pub fn process_exit(self) -> ! {
         if let Some(message) = self.message {
-            println!("{message}");
+            eprintln!("{message}");
         }
         std::process::exit(self.status.as_raw())
     }

@@ -172,10 +172,10 @@ fn check_rejects_mixed_stdin_and_paths() {
         .unwrap();
 
     assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stdout.contains("Cannot mix `-` (stdin) with file or directory paths"),
-        "Expected mixed-stdin error message, got:\n{stdout}"
+        stderr.contains("Cannot mix `-` (stdin) with file or directory paths"),
+        "Expected mixed-stdin error message, got:\n{stderr}"
     );
 }
 

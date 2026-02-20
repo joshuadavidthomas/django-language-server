@@ -16,11 +16,11 @@ pub struct InvalidEditRange {
 /// conversion at the server boundary is a trivial field copy.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edit {
-    pub start_line: u32,
-    pub start_char: u32,
-    pub end_line: u32,
-    pub end_char: u32,
-    pub new_text: String,
+    start_line: u32,
+    start_char: u32,
+    end_line: u32,
+    end_char: u32,
+    new_text: String,
 }
 
 impl Edit {
@@ -50,6 +50,26 @@ impl Edit {
             end_char,
             new_text,
         })
+    }
+
+    pub fn start_line(&self) -> u32 {
+        self.start_line
+    }
+
+    pub fn start_char(&self) -> u32 {
+        self.start_char
+    }
+
+    pub fn end_line(&self) -> u32 {
+        self.end_line
+    }
+
+    pub fn end_char(&self) -> u32 {
+        self.end_char
+    }
+
+    pub fn new_text(&self) -> &str {
+        &self.new_text
     }
 }
 
