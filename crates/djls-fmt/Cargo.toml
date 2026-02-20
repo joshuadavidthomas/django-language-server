@@ -7,8 +7,15 @@ edition = "2021"
 djls-conf = { workspace = true }
 djls-templates = { workspace = true }
 
+aho-corasick = { workspace = true }
+camino = { workspace = true }
+css_dataset = { workspace = true }
+itertools = { workspace = true }
+malva = { workspace = true }
+memchr = { workspace = true }
 similar = { workspace = true }
 thiserror = { workspace = true }
+tiny_pretty = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

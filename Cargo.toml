@@ -23,10 +23,12 @@ djls-workspace = { path = "crates/djls-workspace" }
 salsa = "0.26.0"
 tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
 
+aho-corasick = "1.1"
 annotate-snippets = "0.12"
 anyhow = "1.0"
 camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.5", features = ["derive"] }
+css_dataset = { version = "0.4", default-features = false, features = ["tags"] }
 config = { version = "0.15", features = ["toml"] }
 dashmap = "6.1"
 datatest-stable = "0.3.3"
@@ -36,7 +38,9 @@ dotenvy = "0.15"
 dunce = "1.0"
 flate2 = "1.1"
 ignore = "0.4"
+itertools = "0.14"
 insta = { version = "1.46", features = ["glob", "yaml"] }
+malva = "0.11"
 memchr = "2.8"
 notify = "8.2"
 percent-encoding = "2.3"
@@ -50,6 +54,7 @@ similar = "2.7"
 tar = "0.4"
 tempfile = "3.25"
 thiserror = "2.0"
+tiny_pretty = { version = "0.2", features = ["unicode-width"] }
 tokio = { version = "1.49", features = ["full"] }
 toml = "1.0"
 tracing = "0.1"
