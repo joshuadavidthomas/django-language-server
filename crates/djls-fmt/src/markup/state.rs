@@ -1,4 +1,4 @@
-// Vendored from markup_fmt v0.26.0
+// Vendored from markup_fmt v0.26.0 — MIT License (see LICENSE)
 
 #[derive(Clone)]
 pub(crate) struct State<'s> {

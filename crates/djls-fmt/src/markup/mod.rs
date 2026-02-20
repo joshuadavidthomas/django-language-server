@@ -1,6 +1,9 @@
-// Vendored from markup_fmt v0.26.0 + tiny_pretty v0.2.1
-// Stripped to HTML + Jinja/Django + XML only
-// Django-specific parser fixes applied
+// Vendored from markup_fmt v0.26.0
+// https://github.com/g-plane/markup_fmt
+// Copyright (c) 2023-present Pig Fang — MIT License (see LICENSE)
+//
+// Stripped to HTML + Jinja/Django + XML only.
+// Django-specific parser fixes applied (see parser.rs).
 
 mod ast;
 pub mod config;

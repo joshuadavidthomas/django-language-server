@@ -1,4 +1,4 @@
-// Vendored from markup_fmt v0.26.0
+// Vendored from markup_fmt v0.26.0 — MIT License (see LICENSE)
 // Stripped to HTML + Jinja/Django + XML only
 
 #[derive(Debug)]
