@@ -85,6 +85,12 @@ impl FormatConfig {
     }
 
     #[must_use]
+    pub fn with_content_type(mut self, value: ContentType) -> Self {
+        self.content_type = value;
+        self
+    }
+
+    #[must_use]
     pub fn with_sort_load_libraries(mut self, value: bool) -> Self {
         self.sort_load_libraries = value;
         self

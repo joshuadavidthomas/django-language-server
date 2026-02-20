@@ -309,7 +309,7 @@ mod tests {
     fn edits_apply_correctly_on_deletion() {
         let original = "aaa\nbbb\nccc\n";
         let formatted = "aaa\nccc\n";
-        let edits = compute_text_edits(original, &formatted);
+        let edits = compute_text_edits(original, formatted);
 
         let result = apply_edits(original, &edits);
         assert_eq!(result, formatted);
