@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+export PATH="$HOME/.cargo/bin:${PATH:-}"
+
 INPUT=$(cat)
 STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')

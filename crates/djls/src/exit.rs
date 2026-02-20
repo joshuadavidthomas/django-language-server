@@ -1,6 +1,10 @@
 use std::error::Error;
 use std::fmt;
 
+use anyhow::Result;
+
+type ExitMessage = Option<String>;
+
 #[derive(Debug)]
 pub enum ExitStatus {
     Success,
@@ -23,6 +27,12 @@ impl ExitStatus {
     }
 }
 
+impl From<ExitStatus> for i32 {
+    fn from(status: ExitStatus) -> Self {
+        status.as_raw()
+    }
+}
+
 impl fmt::Display for ExitStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = self.as_str();
@@ -33,7 +43,7 @@ impl fmt::Display for ExitStatus {
 #[derive(Debug)]
 pub struct Exit {
     status: ExitStatus,
-    message: Option<String>,
+    message: ExitMessage,
 }
 
 impl Exit {
@@ -62,6 +72,14 @@ impl Exit {
             println!("{message}");
         }
         std::process::exit(self.status.as_raw())
+    }
+
+    #[allow(dead_code)]
+    pub fn ok(self) -> Result<()> {
+        match self.status {
+            ExitStatus::Success => Ok(()),
+            ExitStatus::Error => Err(self.into()),
+        }
     }
 
     #[cfg(test)]
