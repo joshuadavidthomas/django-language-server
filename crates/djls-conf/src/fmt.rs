@@ -29,6 +29,9 @@ pub struct FormatConfig {
     content_type: ContentType,
     #[serde(deserialize_with = "deserialize_nonzero_u16")]
     print_width: NonZeroU16,
+    sort_load_libraries: bool,
+    merge_load_tags: bool,
+    label_endblocks: bool,
 }
 
 impl Default for FormatConfig {
@@ -38,6 +41,9 @@ impl Default for FormatConfig {
             indent_style: IndentStyle::Spaces,
             content_type: ContentType::Auto,
             print_width: NonZeroU16::new(80).expect("format default print_width is non-zero"),
+            sort_load_libraries: true,
+            merge_load_tags: true,
+            label_endblocks: true,
         }
     }
 }
@@ -61,6 +67,39 @@ impl FormatConfig {
     #[must_use]
     pub fn print_width(&self) -> u16 {
         self.print_width.get()
+    }
+
+    #[must_use]
+    pub fn sort_load_libraries(&self) -> bool {
+        self.sort_load_libraries
+    }
+
+    #[must_use]
+    pub fn merge_load_tags(&self) -> bool {
+        self.merge_load_tags
+    }
+
+    #[must_use]
+    pub fn label_endblocks(&self) -> bool {
+        self.label_endblocks
+    }
+
+    #[must_use]
+    pub fn with_sort_load_libraries(mut self, value: bool) -> Self {
+        self.sort_load_libraries = value;
+        self
+    }
+
+    #[must_use]
+    pub fn with_merge_load_tags(mut self, value: bool) -> Self {
+        self.merge_load_tags = value;
+        self
+    }
+
+    #[must_use]
+    pub fn with_label_endblocks(mut self, value: bool) -> Self {
+        self.label_endblocks = value;
+        self
     }
 }
 

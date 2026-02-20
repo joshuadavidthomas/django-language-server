@@ -5,9 +5,13 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
+djls-templates = { workspace = true }
 
 similar = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
 
 [lints]
 workspace = true

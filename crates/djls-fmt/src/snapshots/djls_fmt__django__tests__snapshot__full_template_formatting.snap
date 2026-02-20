@@ -1,0 +1,12 @@
+---
+source: crates/djls-fmt/src/django.rs
+expression: result
+---
+{% load humanize i18n %}
+{% block content %}
+  <h1>{{ title|upper }}</h1>
+  {% if user.is_authenticated %}
+    <p>Welcome, {{ user.name|default:"Anonymous"|title }}!</p>
+    {# todo: add logout link #}
+  {% endif %}
+{% endblock content %}
