@@ -10,7 +10,10 @@ use djls_templates::Lexer;
 #[must_use]
 pub fn format_django_syntax(source: &str, config: &FormatConfig) -> String {
     let tokens = Lexer::new(source).tokenize();
-    let mut fmt_tokens: Vec<FmtToken> = tokens.into_iter().map(FmtToken::from_token).collect();
+    let mut fmt_tokens: Vec<FmtToken> = tokens
+        .into_iter()
+        .map(|t| FmtToken::from_token(t, source))
+        .collect();
 
     // Multi-token passes (order matters: merge before sort so merged tags get sorted)
     if config.merge_load_tags() {
@@ -23,7 +26,7 @@ pub fn format_django_syntax(source: &str, config: &FormatConfig) -> String {
     // Per-token formatting during reconstruction
     let mut out = String::with_capacity(source.len());
     for token in &fmt_tokens {
-        out.push_str(&token.render(config));
+        token.render_to(&mut out, config);
     }
     out
 }
@@ -46,52 +49,64 @@ enum FmtToken {
 }
 
 impl FmtToken {
-    fn from_token(token: Token) -> Self {
+    fn from_token(token: Token, source: &str) -> Self {
         match token {
             Token::Block { content, .. } => Self::Block(content),
             Token::Variable { content, .. } => Self::Variable(content),
             Token::Comment { content, .. } => Self::Comment(content),
             Token::Text { content, .. } | Token::Error { content, .. } => Self::Text(content),
-            Token::Whitespace { .. } => Self::Whitespace(token.content()),
-            Token::Newline { .. } => Self::Newline(token.content()),
+            Token::Whitespace { span } => {
+                let start = span.start() as usize;
+                Self::Whitespace(source[start..start + span.length_usize()].to_string())
+            }
+            Token::Newline { span } => {
+                let start = span.start() as usize;
+                Self::Newline(source[start..start + span.length_usize()].to_string())
+            }
             Token::Eof => Self::Text(String::new()),
         }
     }
 
-    /// Render this token as a formatted string.
+    /// Write this token's formatted representation into `out`.
     ///
     /// Block and variable tokens have their content normalized (whitespace,
     /// filter chains, load sorting). Text, whitespace, and newlines pass
     /// through unchanged.
-    fn render(&self, config: &FormatConfig) -> String {
+    fn render_to(&self, out: &mut String, config: &FormatConfig) {
         match self {
             Self::Block(content) => {
                 let normalized = normalize_block_content(content, config);
                 if normalized.is_empty() {
-                    "{%  %}".to_string()
+                    out.push_str("{%  %}");
                 } else {
-                    format!("{{% {normalized} %}}")
+                    out.push_str("{% ");
+                    out.push_str(&normalized);
+                    out.push_str(" %}");
                 }
             }
             Self::Variable(content) => {
                 let normalized = normalize_variable_content(content);
                 if normalized.is_empty() {
-                    "{{  }}".to_string()
+                    out.push_str("{{  }}");
                 } else {
-                    format!("{{{{ {normalized} }}}}")
+                    out.push_str("{{ ");
+                    out.push_str(&normalized);
+                    out.push_str(" }}");
                 }
             }
             Self::Comment(content) => {
                 let trimmed = content.trim();
                 if trimmed.is_empty() {
-                    "{#  #}".to_string()
+                    out.push_str("{#  #}");
                 } else {
-                    format!("{{# {trimmed} #}}")
+                    out.push_str("{# ");
+                    out.push_str(trimmed);
+                    out.push_str(" #}");
                 }
             }
-            Self::Text(text) => text.clone(),
-            Self::Whitespace(ws) => ws.clone(),
-            Self::Newline(nl) => nl.clone(),
+            Self::Text(text) => out.push_str(text),
+            Self::Whitespace(ws) => out.push_str(ws),
+            Self::Newline(nl) => out.push_str(nl),
         }
     }
 

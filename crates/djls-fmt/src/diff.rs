@@ -78,36 +78,6 @@ impl Edit {
     }
 }
 
-impl Edit {
-    /// Create a text edit replacing the range `[start, end)` with `new_text`.
-    ///
-    /// Returns an error if the start position is after the end position.
-    pub fn new(
-        start_line: u32,
-        start_char: u32,
-        end_line: u32,
-        end_char: u32,
-        new_text: String,
-    ) -> Result<Self, InvalidEditRange> {
-        if start_line > end_line || (start_line == end_line && start_char > end_char) {
-            return Err(InvalidEditRange {
-                start_line,
-                start_char,
-                end_line,
-                end_char,
-            });
-        }
-
-        Ok(Self {
-            start_line,
-            start_char,
-            end_line,
-            end_char,
-            new_text,
-        })
-    }
-}
-
 /// Quick check: did formatting change anything?
 ///
 /// This is a fast-path that avoids full diff computation.
