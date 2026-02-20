@@ -77,10 +77,10 @@ impl<'s> Parser<'s> {
                 Ordering::Greater => ControlFlow::Continue((line + 1, offset)),
             },
         );
-        match search {
-            ControlFlow::Break((line, offset)) => (line, pos - offset + 1),
-            ControlFlow::Continue((line, _)) => (line, 0),
-        }
+        let (line, offset) = match search {
+            ControlFlow::Break(result) | ControlFlow::Continue(result) => result,
+        };
+        (line, pos - offset + 1)
     }
 
     fn skip_ws(&mut self) {
@@ -707,11 +707,10 @@ impl<'s> Parser<'s> {
                         body.push(JinjaTagOrChildren::Tag(next_tag));
                         break;
                     }
-                    // Intermediate tags: elif/elseif/else for if/for,
-                    // "empty" only for Django's {% for %}...{% empty %}...{% endfor %}
-                    if (tag_name == "if" || tag_name == "for")
-                        && matches!(next_tag_name, "elif" | "elseif" | "else")
-                        || tag_name == "for" && next_tag_name == "empty"
+                    // Intermediate tags: elif/elseif/else for if blocks,
+                    // else/empty for Django's {% for %} blocks
+                    if tag_name == "if" && matches!(next_tag_name, "elif" | "elseif" | "else")
+                        || tag_name == "for" && matches!(next_tag_name, "else" | "empty")
                     {
                         body.push(JinjaTagOrChildren::Tag(next_tag));
                     } else if let Some(JinjaTagOrChildren::Children(nodes)) = body.last_mut() {
