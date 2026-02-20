@@ -78,6 +78,36 @@ impl Edit {
     }
 }
 
+impl Edit {
+    /// Create a text edit replacing the range `[start, end)` with `new_text`.
+    ///
+    /// Returns an error if the start position is after the end position.
+    pub fn new(
+        start_line: u32,
+        start_char: u32,
+        end_line: u32,
+        end_char: u32,
+        new_text: String,
+    ) -> Result<Self, InvalidEditRange> {
+        if start_line > end_line || (start_line == end_line && start_char > end_char) {
+            return Err(InvalidEditRange {
+                start_line,
+                start_char,
+                end_line,
+                end_char,
+            });
+        }
+
+        Ok(Self {
+            start_line,
+            start_char,
+            end_line,
+            end_char,
+            new_text,
+        })
+    }
+}
+
 /// Quick check: did formatting change anything?
 ///
 /// This is a fast-path that avoids full diff computation.
@@ -369,6 +399,7 @@ mod tests {
         let mut current_line: u32 = 0;
 
         for edit in edits {
+            // Copy unchanged lines before this edit.
             while current_line < edit.start_line {
                 if let Some(line) = lines.get(current_line as usize) {
                     result.push_str(line);
@@ -376,10 +407,14 @@ mod tests {
                 current_line += 1;
             }
 
+            // Insert the replacement text.
             result.push_str(&edit.new_text);
+
+            // Skip over the replaced original lines.
             current_line = edit.end_line;
         }
 
+        // Copy remaining lines after the last edit.
         while (current_line as usize) < lines.len() {
             result.push_str(lines[current_line as usize]);
             current_line += 1;
