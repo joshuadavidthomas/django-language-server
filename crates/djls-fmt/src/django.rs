@@ -95,14 +95,6 @@ impl FmtToken {
         }
     }
 
-    /// Extract the tag name from a block token (first whitespace-delimited word).
-    fn block_tag_name(&self) -> Option<&str> {
-        match self {
-            Self::Block(content) => content.split_whitespace().next(),
-            _ => None,
-        }
-    }
-
     fn is_whitespace_or_newline(&self) -> bool {
         matches!(self, Self::Whitespace(_) | Self::Newline(_))
     }
@@ -119,8 +111,10 @@ fn normalize_block_content(content: &str, config: &FormatConfig) -> String {
         return String::new();
     }
 
-    // Pass 4: Sort load libraries
-    if config.sort_load_libraries() && parts[0] == "load" && parts.len() > 1 {
+    // Pass 4: Sort load libraries (skip `{% load X from Y %}` syntax)
+    let is_simple_load =
+        parts[0] == "load" && parts.len() > 1 && !parts.iter().any(|p| p == "from");
+    if config.sort_load_libraries() && is_simple_load {
         let mut libs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
         libs.sort_unstable();
         libs.dedup();
@@ -177,11 +171,28 @@ fn normalize_filter_segment(segment: &str) -> String {
     }
 }
 
+/// Check whether a block token is a simple `{% load lib1 lib2 %}` (not `{% load X from Y %}`).
+fn is_simple_load_block(token: &FmtToken) -> bool {
+    match token {
+        FmtToken::Block(content) => {
+            let parts = split_on_whitespace(content.trim());
+            parts.first().map(String::as_str) == Some("load")
+                && parts.len() > 1
+                && !parts.iter().any(|p| p == "from")
+        }
+        FmtToken::Variable(_)
+        | FmtToken::Comment(_)
+        | FmtToken::Text(_)
+        | FmtToken::Whitespace(_)
+        | FmtToken::Newline(_) => false,
+    }
+}
+
 // Pass 5: Merge consecutive `{% load %}` tags.
 //
-// Finds runs of load blocks separated only by whitespace/newlines,
-// merges their libraries into a single load tag, and removes the
-// redundant tokens.
+// Finds runs of simple load blocks (not `{% load X from Y %}`) separated
+// only by whitespace/newlines, merges their libraries into a single load
+// tag, and removes the redundant tokens.
 fn merge_load_tags(tokens: &mut Vec<FmtToken>) {
     // Collect groups of consecutive load block indices
     let mut groups: Vec<Vec<usize>> = Vec::new();
@@ -189,14 +200,14 @@ fn merge_load_tags(tokens: &mut Vec<FmtToken>) {
     let mut i = 0;
 
     while i < tokens.len() {
-        if tokens[i].block_tag_name() == Some("load") {
+        if is_simple_load_block(&tokens[i]) {
             current_group.push(i);
             // Look ahead past whitespace/newlines for another load
             let mut j = i + 1;
             while j < tokens.len() && tokens[j].is_whitespace_or_newline() {
                 j += 1;
             }
-            if j < tokens.len() && tokens[j].block_tag_name() == Some("load") {
+            if j < tokens.len() && is_simple_load_block(&tokens[j]) {
                 i = j;
                 continue;
             }
@@ -277,11 +288,14 @@ fn label_endblocks(tokens: &mut [FmtToken]) {
                 }
             }
             FmtToken::Newline(_) => {
-                if let Some((_, crossed)) = block_stack.last_mut() {
+                for (_, crossed) in &mut block_stack {
                     *crossed = true;
                 }
             }
-            _ => {}
+            FmtToken::Variable(_)
+            | FmtToken::Comment(_)
+            | FmtToken::Text(_)
+            | FmtToken::Whitespace(_) => {}
         }
     }
 }
@@ -558,6 +572,13 @@ mod tests {
             let result = format_django_syntax(input, &config_no_sort());
             assert_eq!(result, "{% load i18n humanize %}");
         }
+
+        #[test]
+        fn load_from_syntax_preserved() {
+            let input = "{% load i18n from django.utils %}";
+            let result = format_django_syntax(input, &default_config());
+            assert_eq!(result, "{% load i18n from django.utils %}");
+        }
     }
 
     mod load_merging {
@@ -597,6 +618,26 @@ mod tests {
             let input = "{% load i18n %}  \n  {% load humanize %}";
             let result = format_django_syntax(input, &default_config());
             assert_eq!(result, "{% load humanize i18n %}");
+        }
+
+        #[test]
+        fn load_from_not_merged() {
+            let input = "{% load i18n from django.utils %}\n{% load humanize %}";
+            let result = format_django_syntax(input, &default_config());
+            assert_eq!(
+                result,
+                "{% load i18n from django.utils %}\n{% load humanize %}"
+            );
+        }
+
+        #[test]
+        fn simple_load_not_merged_with_from() {
+            let input = "{% load humanize %}\n{% load i18n from django.utils %}";
+            let result = format_django_syntax(input, &default_config());
+            assert_eq!(
+                result,
+                "{% load humanize %}\n{% load i18n from django.utils %}"
+            );
         }
     }
 
@@ -639,6 +680,16 @@ mod tests {
         }
 
         #[test]
+        fn deeply_nested_blocks_all_labeled() {
+            let input = "{% block base %}\n{% block outer %}\n{% block inner %}\ncontent\n{% endblock %}\n{% endblock %}\n{% endblock %}";
+            let result = format_django_syntax(input, &default_config());
+            assert_eq!(
+                result,
+                "{% block base %}\n{% block outer %}\n{% block inner %}\ncontent\n{% endblock inner %}\n{% endblock outer %}\n{% endblock base %}"
+            );
+        }
+
+        #[test]
         fn labeling_disabled() {
             let input = "{% block content %}\n  <p>hello</p>\n{% endblock %}";
             let result = format_django_syntax(input, &config_no_endblock_label());
@@ -655,7 +706,9 @@ mod tests {
                 "{%if user%}{{user.name}}{%endif%}",
                 "{% load i18n humanize static %}",
                 "{% load i18n %}\n{% load humanize %}",
+                "{% load i18n from django.utils %}",
                 "{% block content %}\n  <p>hello</p>\n{% endblock %}",
+                "{% block base %}\n{% block outer %}\n{% block inner %}\ncontent\n{% endblock %}\n{% endblock %}\n{% endblock %}",
                 "{{ value | default : \"nothing\" | title }}",
                 "{#note#}",
             ];
