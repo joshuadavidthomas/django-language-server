@@ -204,21 +204,70 @@ mod tests {
     }
 
     #[test]
-    fn format_html_verbatim_block() {
-        let source = "<div>{% verbatim %}{{ not_rendered }}{% endverbatim %}</div>";
+    fn format_html_verbatim_preserves_content() {
+        // {% verbatim %} content must NOT be reformatted — the {{ }} and {% %}
+        // inside are literal text, not template syntax
+        let source = "<div>{% verbatim %}{{ not_rendered }}{% if fake %}nope{% endif %}{% endverbatim %}</div>";
         let config = FormatConfig::default().with_content_type(ContentType::Html);
         let formatted = format_source(source, &config);
-        assert!(formatted.contains("verbatim"));
-        assert!(formatted.contains("endverbatim"));
+        assert!(
+            formatted.contains("{{ not_rendered }}"),
+            "verbatim content should be preserved literally: {formatted}"
+        );
+        assert!(
+            formatted.contains("{% if fake %}nope{% endif %}"),
+            "verbatim content should not be parsed as template tags: {formatted}"
+        );
     }
 
     #[test]
-    fn format_html_comment_block() {
-        let source = "<div>{% comment %}This is hidden{% endcomment %}</div>";
+    fn format_html_comment_preserves_content() {
+        // {% comment %} content must NOT be parsed as template syntax
+        let source = "<div>{% comment %}{{ var }} {% if x %}{% endif %}{% endcomment %}</div>";
         let config = FormatConfig::default().with_content_type(ContentType::Html);
         let formatted = format_source(source, &config);
-        assert!(formatted.contains("comment"));
-        assert!(formatted.contains("endcomment"));
+        assert!(
+            formatted.contains("{{ var }}"),
+            "comment content should be preserved: {formatted}"
+        );
+    }
+
+    #[test]
+    fn format_html_ifchanged_else() {
+        let source =
+            "<div>{% ifchanged obj.date %}{{ obj.date }}{% else %}same{% endifchanged %}</div>";
+        let config = FormatConfig::default().with_content_type(ContentType::Html);
+        let formatted = format_source(source, &config);
+        assert!(
+            formatted.contains("{% else %}"),
+            "else should be an intermediate for ifchanged: {formatted}"
+        );
+        assert!(
+            formatted.contains("endifchanged"),
+            "block should close properly: {formatted}"
+        );
+    }
+
+    #[test]
+    fn format_html_blocktrans_plural() {
+        let source = "<p>{% blocktrans count counter=list|length %}There is {{ counter }} item.{% plural %}There are {{ counter }} items.{% endblocktrans %}</p>";
+        let config = FormatConfig::default().with_content_type(ContentType::Html);
+        let formatted = format_source(source, &config);
+        // plural is recognized as an intermediate tag (not a nested child block)
+        // and the block closes with endblocktrans
+        assert!(
+            formatted.contains("plural"),
+            "plural should be an intermediate for blocktrans: {formatted}"
+        );
+        assert!(
+            formatted.contains("endblocktrans"),
+            "block should close properly: {formatted}"
+        );
+        // Content after {% plural %} should be preserved
+        assert!(
+            formatted.contains("There are"),
+            "content after plural should be preserved: {formatted}"
+        );
     }
 
     #[test]
