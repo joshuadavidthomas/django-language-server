@@ -1,15 +1,17 @@
+use std::io::IsTerminal;
+
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::ValueEnum;
 use djls_db::DjangoDatabase;
-use djls_semantic::Db as SemanticDb;
+use djls_semantic::Db as _;
 use djls_source::FileKind;
 use djls_workspace::walk_files;
 use djls_workspace::WalkOptions;
 
-#[derive(Clone, Debug, Default, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
 pub(crate) enum ColorMode {
     /// Use colors when output is a terminal.
     #[default]
@@ -18,6 +20,16 @@ pub(crate) enum ColorMode {
     Always,
     /// Never use colors.
     Never,
+}
+
+impl ColorMode {
+    pub(crate) fn should_use_color(self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => std::io::stdout().is_terminal(),
+        }
+    }
 }
 
 pub(crate) fn discover_files(

@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::io::Read as _;
 use std::io::Write as _;
 use std::sync::Arc;
@@ -14,7 +13,6 @@ use djls_fmt::FormatConfig;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 use rayon::prelude::*;
-use similar::TextDiff;
 
 use crate::args::Args;
 use crate::commands::common::discover_files;
@@ -127,7 +125,7 @@ impl Command for Format {
         }
 
         if reading_stdin {
-            return format_stdin(&format_config, output_mode, &self.color, args.quiet);
+            return format_stdin(&format_config, output_mode, self.color, args.quiet);
         }
 
         let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
@@ -152,14 +150,14 @@ impl Command for Format {
             .map(|path| format_file(&path, &format_config))
             .collect::<Result<Vec<_>>>()?;
 
-        apply_output_mode(output_mode, &formatted_files, &self.color, args.quiet)
+        apply_output_mode(output_mode, &formatted_files, self.color, args.quiet)
     }
 }
 
 fn apply_output_mode(
     mode: OutputMode,
     files: &[FormattedFile],
-    color: &ColorMode,
+    color: ColorMode,
     quiet: bool,
 ) -> Result<Exit> {
     let changed_files: Vec<&FormattedFile> = files.iter().filter(|file| file.changed()).collect();
@@ -215,7 +213,7 @@ fn format_file(path: &Utf8Path, format_config: &FormatConfig) -> Result<Formatte
 fn format_stdin(
     format_config: &FormatConfig,
     output_mode: OutputMode,
-    color: &ColorMode,
+    color: ColorMode,
     quiet: bool,
 ) -> Result<Exit> {
     let mut source = String::new();
@@ -241,27 +239,14 @@ fn format_stdin(
     apply_output_mode(output_mode, &[file], color, quiet)
 }
 
-fn render_diff(file: &FormattedFile, color_mode: &ColorMode) -> String {
-    let old_header = format!("a/{}", file.path);
-    let new_header = format!("b/{}", file.path);
+fn render_diff(file: &FormattedFile, color_mode: ColorMode) -> String {
+    let diff = djls_fmt::unified_diff(file.path.as_str(), &file.source, &file.formatted)
+        .unwrap_or_default();
 
-    let diff = TextDiff::from_lines(&file.source, &file.formatted)
-        .unified_diff()
-        .header(&old_header, &new_header)
-        .to_string();
-
-    if should_use_color(color_mode) {
+    if color_mode.should_use_color() {
         colorize_unified_diff(&diff)
     } else {
         diff
-    }
-}
-
-fn should_use_color(color_mode: &ColorMode) -> bool {
-    match color_mode {
-        ColorMode::Always => true,
-        ColorMode::Never => false,
-        ColorMode::Auto => std::io::stdout().is_terminal(),
     }
 }
 
@@ -331,7 +316,7 @@ mod tests {
             formatted: "<p>after</p>\n".to_owned(),
         };
 
-        let diff = render_diff(&file, &ColorMode::Never);
+        let diff = render_diff(&file, ColorMode::Never);
 
         assert!(diff.contains("--- a/templates/page.html"));
         assert!(diff.contains("+++ b/templates/page.html"));
@@ -347,7 +332,7 @@ mod tests {
             formatted: "after\n".to_owned(),
         }];
 
-        let exit = apply_output_mode(OutputMode::Diff, &files, &ColorMode::Never, true).unwrap();
+        let exit = apply_output_mode(OutputMode::Diff, &files, ColorMode::Never, true).unwrap();
 
         assert_eq!(exit.as_raw(), 0);
     }
@@ -360,7 +345,7 @@ mod tests {
             formatted: "after\n".to_owned(),
         }];
 
-        let exit = apply_output_mode(OutputMode::Check, &files, &ColorMode::Never, true).unwrap();
+        let exit = apply_output_mode(OutputMode::Check, &files, ColorMode::Never, true).unwrap();
 
         assert_eq!(exit.as_raw(), 1);
     }

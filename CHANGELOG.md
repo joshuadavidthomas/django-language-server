@@ -20,6 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- **Internal**: Added `djls-fmt` diff utilities (`Edit` type, `compute_text_edits`, `unified_diff`, `is_changed`) for computing minimal text edits between original and formatted source.
 - Added pre-commit hook for running `djls check` on Django template files.
 - Added rg-style file filtering flags to `djls check`: `-g/--glob` for glob patterns, `--no-ignore` to skip ignore files, `-L/--follow` for symlinks, `-d/--max-depth` for recursion depth, `--color always|auto|never`, and `-q/--quiet`.
 - Added `djls format` CLI command with in-place formatting, `--check`, unified `--diff` output, stdin support, and rg-style file discovery flags.

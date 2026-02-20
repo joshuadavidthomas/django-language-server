@@ -13,9 +13,9 @@ fn serve_tcp_reports_unsupported_connection_type() {
         .unwrap();
 
     assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stdout.contains("`djls serve --connection-type tcp` is not supported yet"),
-        "Expected unsupported connection-type message, got:\n{stdout}"
+        stderr.contains("`djls serve --connection-type tcp` is not supported yet"),
+        "Expected unsupported connection-type message, got:\n{stderr}"
     );
 }

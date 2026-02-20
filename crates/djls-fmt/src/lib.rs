@@ -1,3 +1,10 @@
+pub mod diff;
+
+pub use diff::compute_text_edits;
+pub use diff::is_changed;
+pub use diff::unified_diff;
+pub use diff::Edit;
+pub use diff::InvalidEditRange;
 pub use djls_conf::ContentType;
 pub use djls_conf::FormatConfig;
 pub use djls_conf::IndentStyle;

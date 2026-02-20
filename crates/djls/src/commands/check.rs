@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::io::Read as _;
 use std::sync::Arc;
 
@@ -10,7 +9,7 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use djls_db::DjangoDatabase;
 use djls_db::FileCheckResult;
-use djls_source::Db as SourceDb;
+use djls_source::Db as _;
 use djls_source::DiagnosticRenderer;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
@@ -70,7 +69,7 @@ impl Command for Check {
             djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
-        let fmt = pick_renderer(&self.color);
+        let fmt = pick_renderer(self.color);
         let quiet = args.quiet;
 
         let reading_stdin = self.paths.iter().any(|path| path.as_str() == "-");
@@ -223,13 +222,8 @@ fn build_diagnostics_config(
     config
 }
 
-fn pick_renderer(color: &ColorMode) -> DiagnosticRenderer {
-    let use_color = match color {
-        ColorMode::Always => true,
-        ColorMode::Never => false,
-        ColorMode::Auto => std::io::stdout().is_terminal(),
-    };
-    if use_color {
+fn pick_renderer(color: ColorMode) -> DiagnosticRenderer {
+    if color.should_use_color() {
         DiagnosticRenderer::styled()
     } else {
         DiagnosticRenderer::plain()

@@ -16,7 +16,6 @@ anyhow = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true }
 rayon = { workspace = true }
-similar = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
