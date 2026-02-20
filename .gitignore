@@ -209,3 +209,4 @@ perf.data*
 # dex
 /.dex/*
 !/.dex/config.toml
+.scratch/
