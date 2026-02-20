@@ -110,10 +110,9 @@ fn normalize_block_content(content: &str, config: &FormatConfig) -> String {
     }
 
     // Sort load libraries (skip `{% load X from Y %}` syntax)
-    let is_simple_load =
-        parts[0] == "load" && parts.len() > 1 && !parts.iter().any(|p| p == "from");
+    let is_simple_load = parts[0] == "load" && parts.len() > 1 && !parts.contains(&"from");
     if config.sort_load_libraries() && is_simple_load {
-        let mut libs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+        let mut libs = parts[1..].to_vec();
         libs.sort_unstable();
         libs.dedup();
         return format!("load {}", libs.join(" "));
@@ -172,9 +171,7 @@ fn is_simple_load_block(token: &FmtToken) -> bool {
     match token {
         FmtToken::Block(content) => {
             let parts = split_on_whitespace(content.trim());
-            parts.first().map(String::as_str) == Some("load")
-                && parts.len() > 1
-                && !parts.iter().any(|p| p == "from")
+            parts.first().copied() == Some("load") && parts.len() > 1 && !parts.contains(&"from")
         }
         FmtToken::Variable(_)
         | FmtToken::Comment(_)
@@ -225,7 +222,7 @@ fn merge_load_tags(tokens: &mut Vec<FmtToken>) {
         let last_idx = *group.last().expect("group is non-empty");
 
         // Collect all library names from the group
-        let mut all_libs: Vec<String> = Vec::new();
+        let mut all_libs: Vec<&str> = Vec::new();
         for &idx in &group {
             if let FmtToken::Block(content) = &tokens[idx] {
                 let parts = split_on_whitespace(content.trim());
@@ -258,11 +255,11 @@ fn label_endblocks(tokens: &mut [FmtToken]) {
         match token {
             FmtToken::Block(content) => {
                 let parts = split_on_whitespace(content.trim());
-                let tag_name = parts.first().map(String::as_str);
+                let tag_name = parts.first().copied();
 
                 match tag_name {
                     Some("block") => {
-                        let name = parts.get(1).cloned().unwrap_or_default();
+                        let name = parts.get(1).copied().unwrap_or_default().to_string();
                         block_stack.push((name, false));
                     }
                     Some("endblock") => {
@@ -292,7 +289,7 @@ fn label_endblocks(tokens: &mut [FmtToken]) {
 // Quote-aware string splitting utilities for Django template syntax.
 
 /// Split `s` on whitespace while preserving quoted regions.
-fn split_on_whitespace(s: &str) -> Vec<String> {
+fn split_on_whitespace(s: &str) -> Vec<&str> {
     let mut pieces = Vec::with_capacity(4);
     let mut start: Option<usize> = None;
     let mut in_quote: Option<char> = None;
@@ -318,7 +315,7 @@ fn split_on_whitespace(s: &str) -> Vec<String> {
             }
             _ if ch.is_whitespace() => {
                 if let Some(s_start) = start.take() {
-                    pieces.push(s[s_start..i].to_owned());
+                    pieces.push(&s[s_start..i]);
                 }
             }
             _ => {
@@ -329,7 +326,7 @@ fn split_on_whitespace(s: &str) -> Vec<String> {
         }
     }
     if let Some(s_start) = start {
-        pieces.push(s[s_start..].to_owned());
+        pieces.push(&s[s_start..]);
     }
     pieces
 }
