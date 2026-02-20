@@ -708,9 +708,10 @@ impl<'s> Parser<'s> {
                         break;
                     }
                     // Intermediate tags: elif/elseif/else for if/for,
-                    // "empty" for Django's {% for %}...{% empty %}...{% endfor %}
+                    // "empty" only for Django's {% for %}...{% empty %}...{% endfor %}
                     if (tag_name == "if" || tag_name == "for")
-                        && matches!(next_tag_name, "elif" | "elseif" | "else" | "empty")
+                        && matches!(next_tag_name, "elif" | "elseif" | "else")
+                        || tag_name == "for" && next_tag_name == "empty"
                     {
                         body.push(JinjaTagOrChildren::Tag(next_tag));
                     } else if let Some(JinjaTagOrChildren::Children(nodes)) = body.last_mut() {
@@ -1140,7 +1141,7 @@ pub fn parse_as_interpolated(
     let mut dynamics = Vec::new();
     let mut chars = text.char_indices().peekable();
     let mut pos = 0;
-    let mut brace_stack = 0u8;
+    let mut brace_stack: usize = 0;
     while let Some((i, c)) = chars.next() {
         match c {
             '{' => {

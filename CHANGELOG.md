@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added HTML-aware template formatting via vendored `markup_fmt` with Django-specific parser fixes: `{% trans %}` treated as self-closing, added `{% blocktrans %}`, `{% verbatim %}`, `{% spaceless %}`, `{% cache %}`, `{% ifchanged %}`, `{% comment %}` as block tags, and `{% empty %}` as intermediate tag for `{% for %}` loops.
+- Added HTML-aware template formatting via vendored `markup_fmt` with Django-specific parser fixes (correct handling of common Django block and inline tags).
 - Added content-type detection for template formatting: `.html`/`.htm`/`.djhtml` files use HTML-aware formatting, other extensions fall back to Django syntax-only formatting.
 - Added embedded CSS formatting in `<style>` blocks via `malva`.
 - **Internal**: Added `djls-fmt` diff utilities (`Edit` type, `compute_text_edits`, `unified_diff`, `is_changed`) for computing minimal text edits between original and formatted source.

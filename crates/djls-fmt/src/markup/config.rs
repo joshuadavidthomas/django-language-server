@@ -91,8 +91,8 @@ impl Default for LanguageOptions {
             whitespace_sensitivity: WhitespaceSensitivity::default(),
             doctype_keyword_case: DoctypeKeywordCase::default(),
             script_formatter: None,
-            ignore_comment_directive: "markup-fmt-ignore".into(),
-            ignore_file_comment_directive: "markup-fmt-ignore-file".into(),
+            ignore_comment_directive: "djls-fmt-ignore".into(),
+            ignore_file_comment_directive: "djls-fmt-ignore-file".into(),
         }
     }
 }

@@ -642,12 +642,7 @@ impl<'s> DocGen<'s> for NativeAttribute<'s> {
     {
         let name = Doc::text(self.name);
         if let Some((value, _value_start)) = self.value {
-            let value = if !matches!(ctx.language, Language::Xml) && self.name.starts_with("on") {
-                // For event handlers, pass through without formatting
-                Cow::from(value)
-            } else {
-                Cow::from(value)
-            };
+            let value = Cow::from(value);
             let quote;
             let mut docs = Vec::with_capacity(5);
             docs.push(name);
@@ -1047,23 +1042,6 @@ fn has_two_more_non_text_children(children: &[Node], language: Language) -> bool
         .filter(|child| !is_text_like(child, language))
         .count()
         > 1
-}
-
-fn format_attr_value(value: impl AsRef<str>, quotes: &Quotes) -> Doc<'_> {
-    let value = value.as_ref();
-    let quote = if value.contains('"') {
-        Doc::text("'")
-    } else if value.contains('\'') {
-        Doc::text("\"")
-    } else if let Quotes::Double = quotes {
-        Doc::text("\"")
-    } else {
-        Doc::text("'")
-    };
-    quote
-        .clone()
-        .concat(reflow_with_indent(value, true))
-        .append(quote)
 }
 
 fn format_children_with_inserting_linebreak<'s, E, F>(

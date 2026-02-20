@@ -28,8 +28,8 @@ annotate-snippets = "0.12"
 anyhow = "1.0"
 camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.5", features = ["derive"] }
-css_dataset = { version = "0.4", default-features = false, features = ["tags"] }
 config = { version = "0.15", features = ["toml"] }
+css_dataset = { version = "0.4", default-features = false, features = ["tags"] }
 dashmap = "6.1"
 datatest-stable = "0.3.3"
 directories = "6.0"
@@ -38,8 +38,8 @@ dotenvy = "0.15"
 dunce = "1.0"
 flate2 = "1.1"
 ignore = "0.4"
-itertools = "0.14"
 insta = { version = "1.46", features = ["glob", "yaml"] }
+itertools = "0.14"
 malva = "0.11"
 memchr = "2.8"
 notify = "8.2"
