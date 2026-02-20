@@ -550,16 +550,16 @@ impl<'s> Parser<'s> {
             c.is_ascii_alphanumeric() || c == '-' || c == '_' || !c.is_ascii() || c == '\\'
         }
 
-        let Some((start, _)) = self.chars.next_if(|(_, c)| is_identifier_char(*c)) else {
+        let Some((start, c)) = self.chars.next_if(|(_, c)| is_identifier_char(*c)) else {
             return Err(self.emit_error(SyntaxErrorKind::ExpectIdentifier));
         };
-        let mut end = start;
+        let mut end = start + c.len_utf8();
 
-        while let Some((i, _)) = self.chars.next_if(|(_, c)| is_identifier_char(*c)) {
-            end = i;
+        while let Some((i, c)) = self.chars.next_if(|(_, c)| is_identifier_char(*c)) {
+            end = i + c.len_utf8();
         }
 
-        unsafe { Ok(self.source.get_unchecked(start..=end)) }
+        unsafe { Ok(self.source.get_unchecked(start..end)) }
     }
 
     fn parse_jinja_block_children<T, F>(&mut self, children_parser: &mut F) -> PResult<Vec<T>>
@@ -1166,7 +1166,7 @@ pub fn parse_as_interpolated(
                 }
                 match language {
                     Language::Jinja => {
-                        if chars.next_if(|(_, c)| *c == '}').is_some() {
+                        if brace_stack > 0 && chars.next_if(|(_, c)| *c == '}').is_some() {
                             dynamics.push((
                                 unsafe { text.get_unchecked(pos + 2..i) },
                                 base_start + pos + 2,
