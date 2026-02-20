@@ -52,22 +52,27 @@ impl Edit {
         })
     }
 
+    #[must_use]
     pub fn start_line(&self) -> u32 {
         self.start_line
     }
 
+    #[must_use]
     pub fn start_char(&self) -> u32 {
         self.start_char
     }
 
+    #[must_use]
     pub fn end_line(&self) -> u32 {
         self.end_line
     }
 
+    #[must_use]
     pub fn end_char(&self) -> u32 {
         self.end_char
     }
 
+    #[must_use]
     pub fn new_text(&self) -> &str {
         &self.new_text
     }
