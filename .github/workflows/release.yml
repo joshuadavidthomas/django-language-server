@@ -39,7 +39,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
 
       - name: Publish to PyPI
-        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad
         with:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
