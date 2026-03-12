@@ -109,7 +109,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.platform.target }}-homebrew-
 
-      - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
+      - uses: actions-rust-lang/setup-rust-toolchain@a0b538fa0b742a6aa35d6e2c169b4bd06d225a98
         with:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ env.TARGET }}
@@ -206,7 +206,7 @@ jobs:
           echo "ARTIFACT_PATH=${ARCHIVE}.tar.gz*" >> $GITHUB_ENV
 
       - name: Upload binary
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: binary-${{ env.OS }}-${{ env.ARCH }}
           path: ${{ env.ARTIFACT_PATH }}
@@ -231,7 +231,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -239,7 +239,7 @@ jobs:
           manylinux: auto
 
       - name: Upload wheels
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
@@ -264,7 +264,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -272,7 +272,7 @@ jobs:
           manylinux: musllinux_1_2
 
       - name: Upload wheels
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wheels-musllinux-${{ matrix.platform.target }}
           path: dist
@@ -318,14 +318,14 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Build wheels
-        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wheels-windows-${{ matrix.platform.target }}
           path: dist
@@ -372,14 +372,14 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Build wheels
-        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
@@ -393,13 +393,13 @@ jobs:
           persist-credentials: false
 
       - name: Build sdist
-        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021
+        uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad
         with:
           command: sdist
           args: --out dist
 
       - name: Upload sdist
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wheels-sdist
           path: dist
@@ -415,7 +415,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
 
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
             binary-*/*
