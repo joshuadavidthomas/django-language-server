@@ -26,7 +26,7 @@ tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
 annotate-snippets = "0.12"
 anyhow = "1.0"
 camino = { version = "1.2", features = ["serde1"] }
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 config = { version = "0.15", features = ["toml"] }
 dashmap = "6.1"
 datatest-stable = "0.3.3"
