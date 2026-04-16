@@ -47,7 +47,7 @@ jobs:
         run: cargo codspeed build -p djls-bench
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@4deb3275dd364fb96fb074c953133d29ec96f80f
+        uses: CodSpeedHQ/action@db35df748deb45fdef0960669f57d627c1956c30
         with:
           mode: instrumentation
           run: cargo codspeed run -p djls-bench
