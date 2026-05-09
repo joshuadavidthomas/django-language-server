@@ -26,12 +26,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606
+      - uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
         with:
           toolchain: stable
 
       - name: Cache corpus
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: crates/djls-corpus/.corpus
           key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-corpus/manifest.lock') }}
@@ -47,7 +47,7 @@ jobs:
         run: cargo codspeed build -p djls-bench
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@4deb3275dd364fb96fb074c953133d29ec96f80f
+        uses: CodSpeedHQ/action@db35df748deb45fdef0960669f57d627c1956c30
         with:
           mode: instrumentation
           run: cargo codspeed run -p djls-bench
