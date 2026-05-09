@@ -9,19 +9,9 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::analysis;
-use crate::blocks;
 use crate::ext::ExprExt;
-use crate::filters;
-use crate::signature;
 use crate::types::AsVar;
-use crate::types::BlockSpec;
-use crate::types::FilterArity;
-use crate::types::TagRule;
 use crate::SymbolKind;
-
-/// Decorator helper names on `django.template.Library` that register filters.
-const FILTER_DECORATORS: &[&str] = &["filter"];
 
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,15 +31,6 @@ pub enum RegistrationKind {
     Filter,
 }
 
-/// Output of [`RegistrationKind::extract`], distinguishing filter vs tag results.
-pub(crate) enum ExtractionOutput {
-    Filter(FilterArity),
-    Tag {
-        rule: Option<TagRule>,
-        block_spec: Option<BlockSpec>,
-    },
-}
-
 impl RegistrationKind {
     #[must_use]
     pub fn symbol_kind(self) -> SymbolKind {
@@ -66,31 +47,6 @@ impl RegistrationKind {
         match self {
             Self::SimpleTag | Self::SimpleBlockTag => AsVar::Strip,
             Self::Tag | Self::InclusionTag | Self::Filter => AsVar::Keep,
-        }
-    }
-
-    /// Run the appropriate extraction for this registration kind.
-    ///
-    /// For filters, extracts argument arity from the function signature.
-    /// For tag variants, extracts validation rules (via signature analysis or
-    /// AST/control-flow analysis) and block structure.
-    #[must_use]
-    pub(crate) fn extract(self, func: &StmtFunctionDef) -> ExtractionOutput {
-        match self {
-            Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
-            Self::SimpleTag | Self::InclusionTag => {
-                let rule = signature::extract_parse_bits_rule(func, self.as_var());
-                let rule = rule.has_content().then_some(rule);
-                let block_spec = blocks::extract_block_spec(func);
-                ExtractionOutput::Tag { rule, block_spec }
-            }
-            Self::Tag | Self::SimpleBlockTag => {
-                let mut rule = analysis::analyze_compile_function(func);
-                rule.as_var = self.as_var();
-                let rule = rule.has_content().then_some(rule);
-                let block_spec = blocks::extract_block_spec(func);
-                ExtractionOutput::Tag { rule, block_spec }
-            }
         }
     }
 }
@@ -209,7 +165,7 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
 fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
     // Bare decorator: `@register.filter`
     if let Expr::Attribute(ExprAttribute { attr, .. }) = expr {
-        if FILTER_DECORATORS.contains(&attr.as_str()) {
+        if attr.as_str() == "filter" {
             return Some(func_name.to_string());
         }
     }
@@ -220,7 +176,7 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
     }) = expr
     {
         if let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref() {
-            if FILTER_DECORATORS.contains(&attr.as_str()) {
+            if attr.as_str() == "filter" {
                 let name_override = kw_name_from(&arguments.keywords);
                 let positional_name = first_string_arg(&arguments.args);
                 let name = name_override
@@ -318,7 +274,7 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
     let Expr::Attribute(ExprAttribute { attr, .. }) = call.func.as_ref() else {
         return None;
     };
-    if !FILTER_DECORATORS.contains(&attr.as_str()) {
+    if attr.as_str() != "filter" {
         return None;
     }
 
@@ -367,14 +323,9 @@ fn tag_decorator_kind(attr: &str) -> Option<RegistrationKind> {
 
 /// Extract the `name=` keyword argument value as a string.
 fn kw_name_from(keywords: &[Keyword]) -> Option<String> {
-    kw_constant_str(keywords, "name")
-}
-
-/// Extract a keyword argument's string constant value by argument name.
-fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
     for kw in keywords {
         let Some(arg) = &kw.arg else { continue };
-        if arg.as_str() != name {
+        if arg.as_str() != "name" {
             continue;
         }
         if let Some(s) = kw.value.string_literal() {

@@ -174,20 +174,6 @@ pub enum SplitPosition {
 }
 
 impl SplitPosition {
-    /// Returns `true` if this position refers to the tag name (index 0).
-    #[must_use]
-    pub fn is_tag_name(&self) -> bool {
-        matches!(self, Self::Forward(0))
-    }
-
-    /// Returns the raw numeric value as stored (always non-negative).
-    #[must_use]
-    pub fn raw(&self) -> usize {
-        match self {
-            Self::Forward(n) | Self::Backward(n) => *n,
-        }
-    }
-
     /// Convert to a 0-based argument index (in `bits` coordinates where tag
     /// name is excluded).
     ///
@@ -226,15 +212,6 @@ impl SplitPosition {
                     Some(bits_len - n)
                 }
             }
-        }
-    }
-}
-
-impl std::fmt::Display for SplitPosition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Forward(n) => write!(f, "{n}"),
-            Self::Backward(n) => write!(f, "-{n}"),
         }
     }
 }

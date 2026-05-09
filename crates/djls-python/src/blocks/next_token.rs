@@ -31,11 +31,15 @@ use crate::types::BlockSpec;
 ///     raise TemplateSyntaxError(...)
 /// ```
 pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
-    if !has_next_token_loop(body, parser_var) {
+    let mut loop_finder = NextTokenLoopFinder::new(parser_var);
+    loop_finder.visit_body(body);
+    if !loop_finder.found {
         return None;
     }
 
-    let token_comparisons = collect_token_content_comparisons(body, token_var);
+    let mut comparison_visitor = TokenComparisonVisitor::new(token_var);
+    comparison_visitor.visit_body(body);
+    let token_comparisons = comparison_visitor.comparisons;
     let has_dynamic_end = dynamic_end::has_dynamic_end_tag_format(body);
 
     if token_comparisons.is_empty() && !has_dynamic_end {
@@ -66,13 +70,6 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option
     })
 }
 
-/// Check if a body contains `while parser.tokens:` with `parser.next_token()`.
-fn has_next_token_loop(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = NextTokenLoopFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
-}
-
 struct NextTokenLoopFinder<'a> {
     parser_var: &'a str,
     found: bool,
@@ -95,9 +92,9 @@ impl StatementVisitor<'_> for NextTokenLoopFinder<'_> {
 
         match stmt {
             Stmt::While(while_stmt) => {
-                if is_parser_tokens_check(&while_stmt.test, self.parser_var)
-                    && body_has_next_token_call(&while_stmt.body, self.parser_var)
-                {
+                let mut call_finder = NextTokenCallFinder::new(self.parser_var);
+                call_finder.visit_body(&while_stmt.body);
+                if is_parser_tokens_check(&while_stmt.test, self.parser_var) && call_finder.found {
                     self.found = true;
                     return;
                 }
@@ -120,13 +117,6 @@ fn is_parser_tokens_check(expr: &Expr, parser_var: &str) -> bool {
         }
     }
     false
-}
-
-/// Check if a body contains a `parser.next_token()` call.
-fn body_has_next_token_call(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = NextTokenCallFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
 }
 
 struct NextTokenCallFinder<'a> {
@@ -184,18 +174,12 @@ fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
     false
 }
 
-/// Collect string literals compared against `token.contents` in a body.
+/// Collects string literals compared against `token.contents` in a body.
 ///
 /// Looks for patterns like:
 /// - `token.contents.strip() != "plural"`
 /// - `token.contents == "endblocktrans"`
 /// - `token.contents.strip() != end_tag_name` (skipped — dynamic)
-fn collect_token_content_comparisons(body: &[Stmt], token_var: &str) -> Vec<String> {
-    let mut visitor = TokenComparisonVisitor::new(token_var);
-    visitor.visit_body(body);
-    visitor.comparisons
-}
-
 struct TokenComparisonVisitor<'a> {
     token_var: &'a str,
     comparisons: Vec<String>,

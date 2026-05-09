@@ -21,7 +21,10 @@ use crate::types::BlockSpec;
 /// Returns a `BlockSpec` with `end_tag: None` (dynamic, not statically known)
 /// when the function uses f-string or format-string patterns for the end tag.
 pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
-    if !has_dynamic_end_in_body(body, parser_var) {
+    let mut visitor = DynamicEndFinder::new(parser_var);
+    visitor.visit_body(body);
+
+    if !visitor.found {
         return None;
     }
     Some(BlockSpec {
@@ -29,12 +32,6 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
         intermediates: Vec::new(),
         opaque: false,
     })
-}
-
-fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = DynamicEndFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
 }
 
 struct DynamicEndFinder<'a> {
@@ -124,7 +121,7 @@ fn is_dynamic_end_parse_call(expr: &Expr, parser_var: &str) -> bool {
 }
 
 /// Check if an expression is an f-string starting with "end".
-pub(super) fn is_end_fstring(expr: &Expr) -> bool {
+fn is_end_fstring(expr: &Expr) -> bool {
     let Expr::FString(ExprFString { value, .. }) = expr else {
         return false;
     };

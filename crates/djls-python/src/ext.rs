@@ -18,9 +18,6 @@ pub(crate) trait ExprExt {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn non_negative_integer(&self) -> Option<usize>;
 
-    /// Check if the expression is a boolean `True` literal.
-    fn is_true_literal(&self) -> bool;
-
     /// Map elements of a collection expression (tuple, list, or set) through
     /// a fallible function. Returns `None` if the expression is not a
     /// collection or if any element mapping fails.
@@ -60,10 +57,6 @@ impl ExprExt for Expr {
             }
         }
         None
-    }
-
-    fn is_true_literal(&self) -> bool {
-        matches!(self, Expr::BooleanLiteral(lit) if lit.value)
     }
 
     fn collection_map<T>(&self, f: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {

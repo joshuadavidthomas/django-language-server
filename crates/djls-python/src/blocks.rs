@@ -85,24 +85,17 @@ pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
 ///
 /// Does not resolve variable references.
 pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
-    match expr {
-        Expr::Tuple(t) => t
-            .elts
-            .iter()
-            .filter_map(ExprExt::string_literal_first_word)
-            .collect(),
-        Expr::List(l) => l
-            .elts
-            .iter()
-            .filter_map(ExprExt::string_literal_first_word)
-            .collect(),
-        Expr::Set(s) => s
-            .elts
-            .iter()
-            .filter_map(ExprExt::string_literal_first_word)
-            .collect(),
-        _ => Vec::new(),
-    }
+    let elements = match expr {
+        Expr::Tuple(t) => &t.elts,
+        Expr::List(l) => &l.elts,
+        Expr::Set(s) => &s.elts,
+        _ => return Vec::new(),
+    };
+
+    elements
+        .iter()
+        .filter_map(ExprExt::string_literal_first_word)
+        .collect()
 }
 
 /// Check if an expression accesses token contents.

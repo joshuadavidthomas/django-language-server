@@ -12,7 +12,10 @@ use crate::types::BlockSpec;
 
 /// Detect opaque block patterns: `parser.skip_past("endtag")`.
 pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
-    let skip_past_tokens = collect_skip_past_tokens(body, parser_var);
+    let mut visitor = SkipPastVisitor::new(parser_var);
+    visitor.visit_body(body);
+    let skip_past_tokens = visitor.tokens;
+
     if skip_past_tokens.is_empty() {
         return None;
     }
@@ -26,16 +29,6 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
         intermediates: Vec::new(),
         opaque: true,
     })
-}
-
-/// Collect all `parser.skip_past("token")` calls in a statement body.
-///
-/// Uses Ruff's statement visitor to avoid hand-written recursion across
-/// statement variants.
-fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
-    let mut visitor = SkipPastVisitor::new(parser_var);
-    visitor.visit_body(body);
-    visitor.tokens
 }
 
 struct SkipPastVisitor<'a> {

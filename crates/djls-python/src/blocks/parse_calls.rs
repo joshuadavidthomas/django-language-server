@@ -20,7 +20,9 @@ use crate::types::BlockSpec;
 /// or end-tags based on whether they lead to further parse calls (intermediate) or
 /// return/construction (end-tag).
 pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
-    let parse_calls = collect_parser_parse_calls(body, parser_var);
+    let mut collector = ParseCallCollector::new(parser_var);
+    collector.visit_body(body);
+    let parse_calls = collector.calls;
 
     if parse_calls.is_empty() {
         return None;
@@ -33,16 +35,6 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option
 #[derive(Debug)]
 struct ParseCallInfo {
     stop_tokens: Vec<String>,
-}
-
-/// Collect all `parser.parse((...))` calls in a statement body.
-///
-/// Uses Ruff's statement visitor to avoid hand-written recursion across
-/// statement variants.
-fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
-    let mut visitor = ParseCallCollector::new(parser_var);
-    visitor.visit_body(body);
-    visitor.calls
 }
 
 struct ParseCallCollector<'a> {

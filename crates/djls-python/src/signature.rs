@@ -2,7 +2,6 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::AsVar;
 use crate::types::ExtractedArg;
@@ -21,7 +20,17 @@ use crate::types::TagRule;
 pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> TagRule {
     let params = &func.parameters;
 
-    let takes_context = has_takes_context(func);
+    let takes_context = func.decorator_list.iter().any(|decorator| {
+        let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression else {
+            return false;
+        };
+        arguments.keywords.iter().any(|kw| {
+            kw.arg
+                .as_ref()
+                .is_some_and(|arg| arg.as_str() == "takes_context")
+                && matches!(&kw.value, Expr::BooleanLiteral(lit) if lit.value)
+        })
+    });
 
     let skip = usize::from(takes_context);
 
@@ -96,22 +105,6 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
         extracted_args,
         as_var,
     }
-}
-
-/// Check if a function's decorator includes `takes_context=True`.
-fn has_takes_context(func: &StmtFunctionDef) -> bool {
-    for decorator in &func.decorator_list {
-        if let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression {
-            for kw in &arguments.keywords {
-                if let Some(arg) = &kw.arg {
-                    if arg.as_str() == "takes_context" && kw.value.is_true_literal() {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]

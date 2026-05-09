@@ -9,7 +9,6 @@ pub(crate) mod statements;
 pub(crate) use calls::extract_return_value;
 pub use calls::AbstractValueKey;
 use djls_source::File;
-use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::analysis::rules::ConstraintSet;
@@ -65,33 +64,6 @@ impl AnalysisResult {
     }
 }
 
-/// Validated representation of a Django template tag compile function.
-///
-/// Ensures the function has at least two positional parameters (parser and token)
-/// before analysis begins. Use `from_ast` to construct from a `StmtFunctionDef`.
-struct CompileFunction<'a> {
-    parser_param: &'a str,
-    token_param: &'a str,
-    body: &'a [Stmt],
-}
-
-impl<'a> CompileFunction<'a> {
-    /// Extract a `CompileFunction` from an AST function definition.
-    ///
-    /// Returns `None` if the function has fewer than 2 positional parameters,
-    /// since a valid Django compile function requires at least `parser` and `token`.
-    fn from_ast(func: &'a StmtFunctionDef) -> Option<Self> {
-        let params = &func.parameters;
-        let parser_param = params.args.first()?.parameter.name.as_str();
-        let token_param = params.args.get(1)?.parameter.name.as_str();
-        Some(CompileFunction {
-            parser_param,
-            token_param,
-            body: &func.body,
-        })
-    }
-}
-
 /// Analyze a compile function to extract argument constraints.
 ///
 /// This is the main entry point for the analyzer. It tracks `token`
@@ -103,25 +75,31 @@ impl<'a> CompileFunction<'a> {
 /// (no database), helper calls evaluate to `Unknown`.
 #[must_use]
 pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
-    let Some(compile_fn) = CompileFunction::from_ast(func) else {
+    let Some(parser_param) = func.parameters.args.first() else {
+        return TagRule::default();
+    };
+    let Some(token_param) = func.parameters.args.get(1) else {
         return TagRule::default();
     };
 
-    let mut env = state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
+    let mut env = state::Env::for_compile_function(
+        parser_param.parameter.name.as_str(),
+        token_param.parameter.name.as_str(),
+    );
     let mut ctx = CallContext {
         db: None,
         file: None,
     };
 
-    let result = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
+    let result = statements::process_statements(&func.body, &mut env, &mut ctx);
 
     let extracted_args = extract_arg_names(
         &env,
         &result.constraints.required_keywords,
         &result.constraints.arg_constraints,
         &[
-            compile_fn.parser_param.to_string(),
-            compile_fn.token_param.to_string(),
+            parser_param.parameter.name.to_string(),
+            token_param.parameter.name.to_string(),
             "tag_name".to_string(),
         ],
     );
@@ -188,7 +166,18 @@ fn extract_arg_names(
         })
         .max()
         .unwrap_or(0);
-    let max_from_constraints = infer_max_position(arg_constraints);
+    let max_from_constraints = arg_constraints
+        .iter()
+        .map(|constraint| match constraint {
+            ArgumentCountConstraint::Exact(n)
+            | ArgumentCountConstraint::Min(n)
+            | ArgumentCountConstraint::Max(n) => n.saturating_sub(1),
+            ArgumentCountConstraint::OneOf(vals) => {
+                vals.iter().copied().max().unwrap_or(0).saturating_sub(1)
+            }
+        })
+        .max()
+        .unwrap_or(0);
 
     let max_pos = max_from_env
         .max(max_from_keywords)
@@ -237,25 +226,6 @@ fn extract_arg_names(
     }
 
     args
-}
-
-/// Infer the maximum argument position from constraints.
-///
-/// Returns the highest position (in `split_contents` coordinates, including tag name).
-fn infer_max_position(constraints: &[ArgumentCountConstraint]) -> usize {
-    let mut max = 0;
-    for c in constraints {
-        let candidate = match c {
-            ArgumentCountConstraint::Exact(n)
-            | ArgumentCountConstraint::Min(n)
-            | ArgumentCountConstraint::Max(n) => n.saturating_sub(1),
-            ArgumentCountConstraint::OneOf(vals) => {
-                vals.iter().copied().max().unwrap_or(0).saturating_sub(1)
-            }
-        };
-        max = max.max(candidate);
-    }
-    max
 }
 
 #[cfg(test)]

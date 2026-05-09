@@ -49,7 +49,6 @@ use crate::analysis::state::Env;
 use crate::analysis::statements::process_statements;
 use crate::analysis::AbstractValueKey;
 use crate::analysis::CallContext;
-use crate::registry::ExtractionOutput;
 
 /// Parsed Python module AST, cached by Salsa.
 ///
@@ -245,25 +244,45 @@ pub(crate) fn extract_rules_from_body(
             kind: reg.kind.symbol_kind(),
         };
 
-        match reg.kind.extract(func) {
-            ExtractionOutput::Filter(arity) => {
+        match reg.kind {
+            RegistrationKind::Filter => {
+                let arity = filters::extract_filter_arity(func);
                 result.filter_arities.insert(key, arity);
             }
-            ExtractionOutput::Tag { rule, block_spec } => {
-                if let Some(rule) = rule {
-                    result.tag_rules.insert(key.clone(), rule);
-                }
-                if let Some(mut block_spec) = block_spec {
-                    if block_spec.end_tag.is_none() {
-                        block_spec.end_tag = Some(format!("end{}", key.name));
-                    }
-                    result.block_specs.insert(key, block_spec);
-                }
+            RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
+                let rule = signature::extract_parse_bits_rule(func, reg.kind.as_var());
+                let rule = rule.has_content().then_some(rule);
+                let block_spec = blocks::extract_block_spec(func);
+                insert_tag_extraction(&mut result, key, rule, block_spec);
+            }
+            RegistrationKind::Tag | RegistrationKind::SimpleBlockTag => {
+                let mut rule = analysis::analyze_compile_function(func);
+                rule.as_var = reg.kind.as_var();
+                let rule = rule.has_content().then_some(rule);
+                let block_spec = blocks::extract_block_spec(func);
+                insert_tag_extraction(&mut result, key, rule, block_spec);
             }
         }
     }
 
     result
+}
+
+fn insert_tag_extraction(
+    result: &mut ExtractionResult,
+    key: SymbolKey,
+    rule: Option<TagRule>,
+    block_spec: Option<BlockSpec>,
+) {
+    if let Some(rule) = rule {
+        result.tag_rules.insert(key.clone(), rule);
+    }
+    if let Some(mut block_spec) = block_spec {
+        if block_spec.end_tag.is_none() {
+            block_spec.end_tag = Some(format!("end{}", key.name));
+        }
+        result.block_specs.insert(key, block_spec);
+    }
 }
 
 /// Recursively collect all function definitions from a module body.
