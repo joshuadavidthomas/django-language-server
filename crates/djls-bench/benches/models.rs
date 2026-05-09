@@ -46,7 +46,7 @@ fn merge_graphs(bencher: Bencher) {
         .collect();
 
     bencher.bench_local(move || {
-        let mut merged = ModelGraph::new();
+        let mut merged = ModelGraph::default();
         for graph in &graphs {
             merged.merge(graph.clone());
         }
@@ -160,7 +160,7 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
     bencher
         .counter(divan::counter::ItemsCount::new(file_count))
         .bench_local(move || {
-            let mut merged = ModelGraph::new();
+            let mut merged = ModelGraph::default();
             for (source, module_path) in &corpus.files {
                 let graph = djls_python::extract_model_graph(source, module_path);
                 merged.merge(graph);

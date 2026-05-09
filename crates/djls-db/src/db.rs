@@ -773,7 +773,7 @@ def my_filter(value, arg):
 
         // Set external model data
         let project = db.project.lock().unwrap().unwrap();
-        let mut model_graph = djls_python::ModelGraph::new();
+        let mut model_graph = djls_python::ModelGraph::default();
         let mut user = djls_python::ModelDef::new("User", "auth.models", 1);
         user.relations.push(djls_python::Relation {
             field_name: "profile".into(),
@@ -814,7 +814,7 @@ def my_filter(value, arg):
             "extracted_external_models should be empty initially"
         );
 
-        let mut model_graph = djls_python::ModelGraph::new();
+        let mut model_graph = djls_python::ModelGraph::default();
         model_graph.add_model(djls_python::ModelDef::new("Article", "blog.models", 1));
         let key = djls_python::ModulePath::new("blog.models");
         let mut external_models = rustc_hash::FxHashMap::default();

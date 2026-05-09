@@ -216,6 +216,15 @@ impl SplitPosition {
     }
 }
 
+impl std::fmt::Display for SplitPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forward(n) => write!(f, "{n}"),
+            Self::Backward(n) => write!(f, "-{n}"),
+        }
+    }
+}
+
 /// A keyword that must appear at a specific position in the argument list.
 ///
 /// For example, `{% cycle ... as name %}` requires `"as"` at a specific position.

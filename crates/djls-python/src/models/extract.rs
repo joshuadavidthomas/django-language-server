@@ -57,7 +57,7 @@ impl<'a> ModelCollector<'a> {
             source,
             module_aliases: FxHashSet::from_iter(["models".to_string()]),
             class_aliases: FxHashSet::from_iter(["Model".to_string()]),
-            graph: ModelGraph::new(),
+            graph: ModelGraph::default(),
             children: Vec::new(),
         }
     }

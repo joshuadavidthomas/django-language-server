@@ -91,7 +91,7 @@ pub fn compute_filter_arity_specs(
 /// over installed package models for same-named models.
 #[salsa::tracked(returns(ref))]
 pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph {
-    let mut graph = ModelGraph::new();
+    let mut graph = ModelGraph::default();
 
     // Merge external models (from Project field, updated by refresh_external_data)
     for model_graph in project.extracted_external_models(db).values() {

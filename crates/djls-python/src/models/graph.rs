@@ -226,13 +226,9 @@ pub struct ModelGraph {
 impl ModelGraph {
     #[must_use]
     pub fn empty_ref() -> &'static Self {
-        static EMPTY: std::sync::LazyLock<ModelGraph> = std::sync::LazyLock::new(ModelGraph::new);
+        static EMPTY: std::sync::LazyLock<ModelGraph> =
+            std::sync::LazyLock::new(ModelGraph::default);
         &EMPTY
-    }
-
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
     }
 
     pub fn add_model(&mut self, model: ModelDef) {
@@ -327,7 +323,7 @@ mod tests {
     use super::*;
 
     fn user_order_graph() -> ModelGraph {
-        let mut graph = ModelGraph::new();
+        let mut graph = ModelGraph::default();
 
         let user = ModelDef::new("User", "auth.models", 1);
 
@@ -511,7 +507,7 @@ mod tests {
 
     #[test]
     fn generic_foreign_key_skipped_in_forward_lookup() {
-        let mut graph = ModelGraph::new();
+        let mut graph = ModelGraph::default();
         let mut model = ModelDef::new("TaggedItem", "tagging.models", 1);
         model.relations.push(Relation {
             field_name: "content_object".into(),
@@ -527,10 +523,10 @@ mod tests {
 
     #[test]
     fn merge_graphs() {
-        let mut g1 = ModelGraph::new();
+        let mut g1 = ModelGraph::default();
         g1.add_model(ModelDef::new("User", "auth.models", 1));
 
-        let mut g2 = ModelGraph::new();
+        let mut g2 = ModelGraph::default();
         g2.add_model(ModelDef::new("Order", "shop.models", 1));
 
         g1.merge(g2);

@@ -23,8 +23,9 @@ Done:
 - Removed small single-use helpers: `CompileFunction`, `infer_max_position`, `has_takes_context`, `ExprExt::is_true_literal`, `FILTER_DECORATORS`, `kw_constant_str`, and `first_string_arg`.
 - Removed `PatternShape`, `pattern_literal`, duplicate direct-raise visitor, and `eval_range_constraint`.
 - Removed `ParseCallInfo` single-field wrapper.
-- Inlined model import alias bookkeeping and `RelationType::from_field_class`.
+- Inlined model import alias bookkeeping, `ModelCollector::finish`, and `RelationType::from_field_class`.
 - Centralized `token_kwargs` side-effect handling.
+- Removed `ModelGraph::new`; callers use `ModelGraph::default()`.
 
 Still open:
 
@@ -220,23 +221,11 @@ The strategy split is not absurd because `parse_calls.rs` and `next_token.rs` ar
 - `types.rs::SplitPosition::raw`
   - No call sites. Delete.
 
-- `impl Display for SplitPosition`
-  - No call sites. Delete unless intended public API.
-
-- `models/graph.rs::ModelGraph::new`
-  - Just `Self::default()`.
-  - Some callers already use `ModelGraph::default()`.
-  - Pick one.
-
-- `models/extract.rs::ModelCollector::finish`
-  - One caller.
-  - Slightly defensible because it consumes the collector, but can inline.
-
 ## Suggested first cleanup branch
 
 Keep the first diff boring:
 
-1. Delete unused `SplitPosition` methods/display.
+1. Delete unused `SplitPosition` methods.
 2. Remove `OptionPopFinder` and `OptionCheckVisitor`.
 3. Run `cargo test -p djls-python`.
 
