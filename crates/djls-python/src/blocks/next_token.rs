@@ -7,7 +7,7 @@ use ruff_python_ast::ExprName;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
-use super::dynamic_end;
+use super::has_dynamic_end_tag_format;
 use super::is_token_contents_expr;
 use crate::ext::ExprExt;
 use crate::types::BlockSpec;
@@ -40,7 +40,7 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option
     let mut comparison_visitor = TokenComparisonVisitor::new(token_var);
     comparison_visitor.visit_body(body);
     let token_comparisons = comparison_visitor.comparisons;
-    let has_dynamic_end = dynamic_end::has_dynamic_end_tag_format(body);
+    let has_dynamic_end = has_dynamic_end_tag_format(body);
 
     if token_comparisons.is_empty() && !has_dynamic_end {
         return None;
