@@ -238,6 +238,7 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Made `dynamic_end::is_end_fstring` private.
 - Collapsed `blocks.rs::extract_string_sequence` to one element collection path.
 - Removed `parse_calls::ParseCallInfo`, a single-field wrapper around `Vec<String>`.
+- Merged `blocks/opaque.rs` into `blocks.rs` and deleted the one-strategy module.
 
 ### Models / graph extraction
 
@@ -260,12 +261,11 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 
 `blocks.rs::extract_block_spec` is still the only caller of these detector entrypoints:
 
-- `blocks/opaque.rs::detect`
 - `blocks/parse_calls.rs::detect`
 - `blocks/dynamic_end.rs::detect`
 - `blocks/next_token.rs::detect`
 
-The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_token.rs` still have enough meat to justify separate files. `opaque.rs` and `dynamic_end.rs` are more borderline.
+The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_token.rs` still have enough meat to justify separate files. `dynamic_end.rs` is more borderline.
 
 ### Model API shape
 
