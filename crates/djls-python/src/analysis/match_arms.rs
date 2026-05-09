@@ -52,7 +52,7 @@ pub(super) fn extract_match_constraints(
                             .count();
                         match min_variable_length {
                             Some(current) if min_len < current => {
-                                min_variable_length = Some(min_len)
+                                min_variable_length = Some(min_len);
                             }
                             None => min_variable_length = Some(min_len),
                             _ => {}
