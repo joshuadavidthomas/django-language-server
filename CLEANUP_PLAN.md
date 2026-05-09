@@ -24,6 +24,7 @@ Done:
 - Removed `PatternShape`, `pattern_literal`, duplicate direct-raise visitor, and `eval_range_constraint`.
 - Removed `ParseCallInfo` single-field wrapper.
 - Inlined model import alias bookkeeping and `RelationType::from_field_class`.
+- Centralized `token_kwargs` side-effect handling.
 
 Still open:
 
@@ -35,8 +36,7 @@ Still open:
 
 1. Merge `filters.rs`, and maybe `signature.rs`, into `registry.rs`.
 2. Re-evaluate whether `blocks/{opaque,parse_calls,dynamic_end,next_token}.rs` should stay split.
-3. Continue analysis cleanup: `token_kwargs` duplication.
-4. Continue model cleanup: questionable tiny types and public convenience methods.
+3. Continue model cleanup: questionable tiny types and public convenience methods.
 
 ## `blocks` extraction
 

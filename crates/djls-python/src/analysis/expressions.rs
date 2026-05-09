@@ -153,10 +153,7 @@ fn eval_call_with_ctx(
 
         // Hardcoded external summary: token_kwargs(bits, parser)
         // Mutates bits → mark it Unknown, return Unknown
-        if name == "token_kwargs" {
-            if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
-                env.set(arg_name.to_string(), AbstractValue::Unknown);
-            }
+        if apply_token_kwargs_side_effect(call, env) {
             return AbstractValue::Unknown;
         }
 
@@ -173,6 +170,19 @@ fn eval_call_with_ctx(
     }
 
     AbstractValue::Unknown
+}
+
+pub(super) fn apply_token_kwargs_side_effect(call: &ExprCall, env: &mut Env) -> bool {
+    let Expr::Name(ExprName { id, .. }) = call.func.as_ref() else {
+        return false;
+    };
+    if id.as_str() != "token_kwargs" {
+        return false;
+    }
+    if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
+        env.set(arg_name.to_string(), AbstractValue::Unknown);
+    }
+    true
 }
 
 /// Handle `token.contents.split(...)` patterns.

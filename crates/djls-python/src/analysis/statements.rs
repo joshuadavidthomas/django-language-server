@@ -5,6 +5,7 @@ use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
+use super::expressions::apply_token_kwargs_side_effect;
 use super::expressions::eval_expr;
 use super::expressions::eval_expr_with_ctx;
 use super::match_arms::extract_match_constraints;
@@ -38,8 +39,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
     match stmt {
         Stmt::Assign(StmtAssign { targets, value, .. }) => {
             // Check for token_kwargs side effect: marks the bits arg as Unknown
-            if let Some(var_name) = try_extract_token_kwargs_call(value) {
-                env.set(var_name, AbstractValue::Unknown);
+            if let Expr::Call(call) = value.as_ref() {
+                apply_token_kwargs_side_effect(call, env);
             }
 
             // Check if RHS is a pop call that needs side effects
@@ -121,8 +122,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
             if let Some(pop_info) = try_extract_pop_call(&stmt_expr.value) {
                 apply_pop_mutation(env, &pop_info);
             }
-            if let Some(var_name) = try_extract_token_kwargs_call(&stmt_expr.value) {
-                env.set(var_name, AbstractValue::Unknown);
+            if let Expr::Call(call) = stmt_expr.value.as_ref() {
+                apply_token_kwargs_side_effect(call, env);
             }
         }
 
@@ -154,25 +155,6 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
     }
 
     result
-}
-
-/// Try to detect `token_kwargs(bits, parser)` calls and return the first
-/// argument name so we can mark it as Unknown (`token_kwargs` mutates bits).
-fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
-    let Expr::Call(call) = expr else {
-        return None;
-    };
-    let Expr::Name(ExprName { id, .. }) = call.func.as_ref() else {
-        return None;
-    };
-    if id.as_str() != "token_kwargs" {
-        return None;
-    }
-    // First argument is the bits variable that gets mutated
-    if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
-        return Some(arg_name.to_string());
-    }
-    None
 }
 
 /// Check if a condition expression involves comparing a `SplitElement` value.
