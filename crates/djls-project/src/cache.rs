@@ -9,6 +9,7 @@
 //! The cache is best-effort: startup always kicks off a real inspector query in
 //! the background. The cache just provides data to work with while waiting.
 
+use std::fmt::Write;
 use std::fs;
 
 use camino::Utf8Path;
@@ -52,7 +53,12 @@ fn cache_key(
         hasher.update(path.as_bytes());
         hasher.update(b"\0");
     }
-    format!("{:x}", hasher.finalize())
+    let digest = hasher.finalize();
+    let mut key = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    key
 }
 
 /// Resolve the cache directory for a given project environment.
