@@ -238,11 +238,12 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Made `dynamic_end::is_end_fstring` private.
 - Collapsed `blocks.rs::extract_string_sequence` to one element collection path.
 - Removed `parse_calls::ParseCallInfo`, a single-field wrapper around `Vec<String>`.
-- Merged `blocks/opaque.rs` into `blocks.rs` and deleted the one-strategy module.
-- Merged `blocks/dynamic_end.rs` into `blocks.rs` and deleted the one-strategy module.
-- Renamed the remaining generic detector entrypoints to strategy-specific extraction helpers:
-  - `blocks/parse_calls.rs::extract_parse_call_block_spec`
-  - `blocks/next_token.rs::extract_next_token_block_spec`
+- Merged all block extraction strategies into `blocks.rs` and deleted the one-strategy modules:
+  - `blocks/opaque.rs`
+  - `blocks/dynamic_end.rs`
+  - `blocks/parse_calls.rs`
+  - `blocks/next_token.rs`
+- Inlined the former parse-call and next-token detector entrypoint bodies into `extract_block_spec`; only the visitor/helper pieces remain below the single dispatch point.
 
 ### Models / graph extraction
 
@@ -261,15 +262,6 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Kept `Display for SplitPosition`; broader workspace tests showed `djls-semantic` uses it.
 
 ## Remaining candidates
-
-### Re-evaluate block module split
-
-`blocks.rs::extract_block_spec` is still the only caller of the parser-parse and parser-next-token block extraction helpers. The generic `detect` facades were renamed to strategy-specific entrypoints so callers show which extraction path is being tried:
-
-- `blocks/parse_calls.rs::extract_parse_call_block_spec`
-- `blocks/next_token.rs::extract_next_token_block_spec`
-
-The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_token.rs` still have enough meat to justify separate files.
 
 ### Model API shape
 
