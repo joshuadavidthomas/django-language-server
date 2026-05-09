@@ -10,7 +10,12 @@ use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ext::ExprExt;
+use crate::types::ArgumentCountConstraint;
 use crate::types::AsVar;
+use crate::types::ExtractedArg;
+use crate::types::ExtractedArgKind;
+use crate::types::FilterArity;
+use crate::types::TagRule;
 use crate::SymbolKind;
 
 /// Information about a single tag or filter registration found in source code.
@@ -360,10 +365,153 @@ fn callable_name(expr: &Expr) -> Option<String> {
     }
 }
 
+/// Extract filter argument arity from a filter function's signature.
+///
+/// Django filters receive the value being filtered as their first positional
+/// argument. Some filters accept an additional argument after the colon
+/// (e.g., `{{ value|default:"nothing" }}`).
+#[must_use]
+pub(crate) fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
+    let params = &func.parameters;
+
+    let all_positional: Vec<&ruff_python_ast::ParameterWithDefault> = params
+        .posonlyargs
+        .iter()
+        .chain(params.args.iter())
+        .collect();
+
+    if all_positional.is_empty() {
+        return FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        };
+    }
+
+    let skip_self = usize::from(
+        all_positional
+            .first()
+            .is_some_and(|p| p.parameter.name.as_str() == "self"),
+    );
+
+    let after_self = &all_positional[skip_self..];
+
+    if after_self.len() <= 1 {
+        return FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        };
+    }
+
+    let extra_params = &after_self[1..];
+    let all_have_defaults = extra_params.iter().all(|p| p.default.is_some());
+
+    FilterArity {
+        expects_arg: true,
+        arg_optional: all_have_defaults,
+    }
+}
+
+/// Extract rules from a `simple_tag` or `inclusion_tag` function signature.
+///
+/// These tags use Django's `parse_bits` for argument validation, so we derive
+/// constraints from the function signature.
+#[must_use]
+pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> TagRule {
+    let params = &func.parameters;
+
+    let takes_context = func.decorator_list.iter().any(|decorator| {
+        let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression else {
+            return false;
+        };
+        arguments.keywords.iter().any(|kw| {
+            kw.arg
+                .as_ref()
+                .is_some_and(|arg| arg.as_str() == "takes_context")
+                && matches!(&kw.value, Expr::BooleanLiteral(lit) if lit.value)
+        })
+    });
+
+    let skip = usize::from(takes_context);
+
+    let effective_params: Vec<&ruff_python_ast::ParameterWithDefault> =
+        params.args.iter().skip(skip).collect();
+
+    let num_defaults = effective_params
+        .iter()
+        .filter(|p| p.default.is_some())
+        .count();
+    let num_required = effective_params.len().saturating_sub(num_defaults);
+
+    let has_varargs = params.vararg.is_some();
+    let has_kwargs = params.kwarg.is_some();
+
+    let mut arg_constraints = Vec::new();
+
+    if !has_varargs {
+        if num_required > 0 {
+            arg_constraints.push(ArgumentCountConstraint::Min(num_required + 1));
+        }
+        if !has_kwargs {
+            let max_positional = effective_params.len();
+            let kwonly_count = params.kwonlyargs.len();
+            arg_constraints.push(ArgumentCountConstraint::Max(
+                max_positional + kwonly_count + 1,
+            ));
+        }
+    } else if num_required > 0 {
+        arg_constraints.push(ArgumentCountConstraint::Min(num_required + 1));
+    }
+
+    let mut extracted_args = Vec::new();
+    for (i, param) in effective_params.iter().enumerate() {
+        let name = param.parameter.name.to_string();
+        let required = param.default.is_none();
+        extracted_args.push(ExtractedArg {
+            name,
+            required,
+            kind: ExtractedArgKind::Variable,
+            position: i,
+        });
+    }
+
+    if has_varargs {
+        if let Some(vararg) = &params.vararg {
+            extracted_args.push(ExtractedArg {
+                name: vararg.name.to_string(),
+                required: false,
+                kind: ExtractedArgKind::VarArgs,
+                position: effective_params.len(),
+            });
+        }
+    }
+
+    for (i, kwonly) in params.kwonlyargs.iter().enumerate() {
+        let name = kwonly.parameter.name.to_string();
+        let required = kwonly.default.is_none();
+        extracted_args.push(ExtractedArg {
+            name,
+            required,
+            kind: ExtractedArgKind::Keyword,
+            position: effective_params.len() + usize::from(has_varargs) + i,
+        });
+    }
+
+    TagRule {
+        arg_constraints,
+        required_keywords: Vec::new(),
+        choice_at_constraints: Vec::new(),
+        known_options: None,
+        extracted_args,
+        as_var,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::django_function;
     use crate::testing::django_source;
+    use crate::testing::find_function_in_source;
 
     fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
         let parsed = ruff_python_parser::parse_module(source).expect("valid Python");
@@ -375,6 +523,216 @@ mod tests {
         regs.iter()
             .find(|r| r.name == name)
             .unwrap_or_else(|| panic!("registration '{name}' not found"))
+    }
+
+    #[test]
+    fn no_arg_filter() {
+        let func = django_function("django/template/defaultfilters.py", "title").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(!arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn no_arg_filter_upper() {
+        let func = django_function("django/template/defaultfilters.py", "upper").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(!arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn required_arg_filter() {
+        let func = django_function("django/template/defaultfilters.py", "cut").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn required_arg_filter_add() {
+        let func = django_function("django/template/defaultfilters.py", "add").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn optional_arg_filter() {
+        let func = django_function("django/template/defaultfilters.py", "floatformat").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn optional_arg_filter_none_default() {
+        let func = django_function("django/template/defaultfilters.py", "date").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn method_style_no_arg() {
+        let source = "def my_filter(self, value):\n    return value.upper()\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(!arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn method_style_with_arg() {
+        let source = "def my_filter(self, value, arg):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn method_style_with_optional_arg() {
+        let source = "def my_filter(self, value, arg=\"default\"):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn no_params_at_all() {
+        let source = "def weird_filter():\n    return 'nothing'\n";
+        let func = find_function_in_source(source, "weird_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(!arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn self_only() {
+        let source = "def weird_method(self):\n    return 'nothing'\n";
+        let func = find_function_in_source(source, "weird_method").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(!arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn posonly_params() {
+        let source = "def my_filter(value, /, arg):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn posonly_with_default() {
+        let source = "def my_filter(value, /, arg=\"x\"):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn multiple_extra_args_all_with_defaults() {
+        let source = "def my_filter(value, arg1=\"a\", arg2=\"b\"):\n    return value\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn multiple_extra_args_mixed_defaults() {
+        let source = "def my_filter(value, arg1, arg2=\"b\"):\n    return value\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn is_safe_does_not_affect_arity() {
+        let func = django_function("django/template/defaultfilters.py", "floatformat").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn stringfilter_does_not_affect_arity() {
+        let func = django_function("django/template/defaultfilters.py", "title").unwrap();
+        let arity = extract_filter_arity(&func);
+        assert!(!arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    #[test]
+    fn simple_tag_no_params() {
+        let func =
+            django_function("tests/template_tests/templatetags/custom.py", "no_params").unwrap();
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        assert!(rule
+            .arg_constraints
+            .iter()
+            .all(|c| matches!(c, ArgumentCountConstraint::Max(_))));
+    }
+
+    #[test]
+    fn simple_tag_required_params() {
+        let func = django_function(
+            "tests/template_tests/templatetags/custom.py",
+            "simple_two_params",
+        )
+        .unwrap();
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        assert!(rule
+            .arg_constraints
+            .contains(&ArgumentCountConstraint::Min(3)));
+    }
+
+    #[test]
+    fn simple_tag_with_defaults() {
+        let func = django_function(
+            "tests/template_tests/templatetags/custom.py",
+            "simple_one_default",
+        )
+        .unwrap();
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        assert!(rule
+            .arg_constraints
+            .contains(&ArgumentCountConstraint::Min(2)));
+    }
+
+    #[test]
+    fn simple_tag_with_varargs() {
+        let source = r"
+@register.simple_tag
+def concat(*args):
+    return ''.join(str(a) for a in args)
+";
+        let func = find_function_in_source(source, "concat").unwrap();
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        assert!(!rule
+            .arg_constraints
+            .iter()
+            .any(|c| matches!(c, ArgumentCountConstraint::Max(_))));
+    }
+
+    #[test]
+    fn simple_tag_takes_context() {
+        let func = django_function(
+            "django/contrib/admin/templatetags/admin_urls.py",
+            "add_preserved_filters",
+        )
+        .unwrap();
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        assert!(rule
+            .arg_constraints
+            .contains(&ArgumentCountConstraint::Min(2)));
     }
 
     // Corpus: `autoescape` in django/template/defaulttags.py uses `@register.tag` (bare)

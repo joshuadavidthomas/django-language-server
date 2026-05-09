@@ -6,10 +6,8 @@ mod testing;
 mod analysis;
 mod blocks;
 mod ext;
-mod filters;
 mod models;
 mod registry;
-mod signature;
 
 use djls_source::File;
 use djls_source::FileKind;
@@ -246,11 +244,11 @@ pub(crate) fn extract_rules_from_body(
 
         match reg.kind {
             RegistrationKind::Filter => {
-                let arity = filters::extract_filter_arity(func);
+                let arity = registry::extract_filter_arity(func);
                 result.filter_arities.insert(key, arity);
             }
             RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
-                let rule = signature::extract_parse_bits_rule(func, reg.kind.as_var());
+                let rule = registry::extract_parse_bits_rule(func, reg.kind.as_var());
                 let rule = rule.has_content().then_some(rule);
                 let block_spec = blocks::extract_block_spec(func);
                 insert_tag_extraction(&mut result, key, rule, block_spec);

@@ -210,6 +210,8 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
   - `first_string_arg`
 - Inlined `ExprExt::is_true_literal` and removed that trait method.
 - Inlined `signature.rs::has_takes_context`.
+- Merged `filters.rs::extract_filter_arity` into `registry.rs` and deleted `filters.rs`.
+- Merged `signature.rs::extract_parse_bits_rule` into `registry.rs` and deleted `signature.rs`.
 
 ### Analysis helpers
 
@@ -253,17 +255,6 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Kept `Display for SplitPosition`; broader workspace tests showed `djls-semantic` uses it.
 
 ## Remaining candidates
-
-### Merge single-caller modules
-
-- `filters.rs::extract_filter_arity`
-  - One production caller: `registry.rs`.
-  - The module mostly exists for one function plus tests.
-  - Candidate: move the function and tests into `registry.rs`.
-
-- `signature.rs::extract_parse_bits_rule`
-  - One production caller: `registry.rs`.
-  - Candidate: move into `registry.rs` if keeping all registration extraction together is preferable.
 
 ### Re-evaluate block module split
 
