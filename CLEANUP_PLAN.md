@@ -20,7 +20,7 @@ Done:
 - Removed fake visitors in `analysis/mutations.rs`.
 - Collapsed `ExtractionOutput` and `RegistrationKind::extract`.
 - Inlined the smallest single-use wrappers in `blocks/*`.
-- Removed small single-use helpers: `CompileFunction`, `infer_max_position`, `has_takes_context`, `ExprExt::is_true_literal`, `FILTER_DECORATORS`, and `kw_constant_str`.
+- Removed small single-use helpers: `CompileFunction`, `infer_max_position`, `has_takes_context`, `ExprExt::is_true_literal`, `FILTER_DECORATORS`, `kw_constant_str`, and `first_string_arg`.
 - Removed `PatternShape`, `pattern_literal`, duplicate direct-raise visitor, and `eval_range_constraint`.
 - Removed `ParseCallInfo` single-field wrapper.
 - Inlined model import alias bookkeeping and `RelationType::from_field_class`.

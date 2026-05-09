@@ -142,7 +142,7 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
                 let name_override = kw_name_from(&arguments.keywords);
 
                 let positional_name = if attr.as_str() == "tag" {
-                    first_string_arg(&arguments.args)
+                    arguments.args.first().and_then(ExprExt::string_literal)
                 } else {
                     None
                 };
@@ -178,7 +178,7 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
         if let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref() {
             if attr.as_str() == "filter" {
                 let name_override = kw_name_from(&arguments.keywords);
-                let positional_name = first_string_arg(&arguments.args);
+                let positional_name = arguments.args.first().and_then(ExprExt::string_literal);
                 let name = name_override
                     .or(positional_name)
                     .unwrap_or_else(|| func_name.to_string());
@@ -346,11 +346,6 @@ fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String
         }
     }
     None
-}
-
-/// Extract the first positional argument's string value.
-fn first_string_arg(args: &[Expr]) -> Option<String> {
-    args.first().and_then(ExprExt::string_literal)
 }
 
 /// Best-effort callable name extraction for debugging / registration mapping.
