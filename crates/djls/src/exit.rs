@@ -63,11 +63,6 @@ impl Exit {
         }
         std::process::exit(self.status.as_raw())
     }
-
-    #[cfg(test)]
-    pub fn as_raw(&self) -> i32 {
-        self.status.as_raw()
-    }
 }
 
 impl fmt::Display for Exit {

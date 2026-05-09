@@ -64,7 +64,7 @@ It lexes and parses template source into a flat `NodeList` — the same represen
 
 **Architecture Invariant:** the parser never fails. It produces `(Vec<Node>, Vec<ParseError>)` rather than `Result<NodeList, Error>`. This is critical for an IDE: users are *always* in the middle of typing something invalid, and the rest of the pipeline needs to keep working around the errors.
 
-**Architecture Invariant:** this crate knows nothing about Django semantics. It can't tell whether `{% load i18n %}` refers to a real library, whether `{% if %}` has the right number of arguments, or whether a filter exists. It handles only template *syntax*: delimiters, tag structure, filter chains, token boundaries. This separation matters because it means you can use the parser for things like syntax highlighting or formatting without needing any Django project context at all.
+**Architecture Invariant:** this crate knows nothing about Django semantics. It can't tell whether `{% load i18n %}` refers to a real library, whether `{% if %}` has the right number of arguments, or whether a filter exists. It handles only template *syntax*: delimiters, tag structure, filter chains, token boundaries. This separation matters because it means you can use the parser for syntax highlighting or other syntax-only tooling without needing any Django project context at all.
 
 ### `crates/djls-semantic`
 

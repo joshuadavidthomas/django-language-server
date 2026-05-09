@@ -9,7 +9,6 @@ djls-bench = { path = "crates/djls-bench" }
 djls-conf = { path = "crates/djls-conf" }
 djls-corpus = { path = "crates/djls-corpus" }
 djls-db = { path = "crates/djls-db" }
-djls-fmt = { path = "crates/djls-fmt" }
 djls-ide = { path = "crates/djls-ide" }
 djls-project = { path = "crates/djls-project" }
 djls-python = { path = "crates/djls-python" }
@@ -46,7 +45,6 @@ rustc-hash = "2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
-similar = "3.1"
 tar = "0.4"
 tempfile = "3.26"
 thiserror = "2.0"
@@ -75,4 +73,3 @@ debug = 2
 
 [profile.dev.package]
 insta.opt-level = 3
-similar.opt-level = 3
