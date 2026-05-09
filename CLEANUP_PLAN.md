@@ -240,6 +240,9 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Removed `parse_calls::ParseCallInfo`, a single-field wrapper around `Vec<String>`.
 - Merged `blocks/opaque.rs` into `blocks.rs` and deleted the one-strategy module.
 - Merged `blocks/dynamic_end.rs` into `blocks.rs` and deleted the one-strategy module.
+- Renamed the remaining generic detector entrypoints to strategy-specific extraction helpers:
+  - `blocks/parse_calls.rs::extract_parse_call_block_spec`
+  - `blocks/next_token.rs::extract_next_token_block_spec`
 
 ### Models / graph extraction
 
@@ -261,10 +264,10 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 
 ### Re-evaluate block module split
 
-`blocks.rs::extract_block_spec` is still the only caller of these detector entrypoints:
+`blocks.rs::extract_block_spec` is still the only caller of the parser-parse and parser-next-token block extraction helpers. The generic `detect` facades were renamed to strategy-specific entrypoints so callers show which extraction path is being tried:
 
-- `blocks/parse_calls.rs::detect`
-- `blocks/next_token.rs::detect`
+- `blocks/parse_calls.rs::extract_parse_call_block_spec`
+- `blocks/next_token.rs::extract_next_token_block_spec`
 
 The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_token.rs` still have enough meat to justify separate files.
 

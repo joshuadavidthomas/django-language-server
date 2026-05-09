@@ -12,7 +12,7 @@ use super::is_token_contents_expr;
 use crate::ext::ExprExt;
 use crate::types::BlockSpec;
 
-/// Detect block structure from `parser.next_token()` loop patterns.
+/// Extract block structure from `parser.next_token()` loop patterns.
 ///
 /// Handles tags like `blocktrans`/`blocktranslate` that manually iterate
 /// tokens instead of using `parser.parse((...))`. The pattern is:
@@ -30,7 +30,11 @@ use crate::types::BlockSpec;
 /// if token.contents.strip() != end_tag_name:
 ///     raise TemplateSyntaxError(...)
 /// ```
-pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
+pub(super) fn extract_next_token_block_spec(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+) -> Option<BlockSpec> {
     let mut loop_finder = NextTokenLoopFinder::new(parser_var);
     loop_finder.visit_body(body);
     if !loop_finder.found {

@@ -50,7 +50,9 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     }
 
     // Try parser.parse((...)) calls with control flow classification
-    if let Some(spec) = parse_calls::detect(&func.body, &parser_var, &token_var) {
+    if let Some(spec) =
+        parse_calls::extract_parse_call_block_spec(&func.body, &parser_var, &token_var)
+    {
         return Some(spec);
     }
 
@@ -60,7 +62,7 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     }
 
     // Try parser.next_token() loop patterns (e.g., blocktrans/blocktranslate)
-    next_token::detect(&func.body, &parser_var, &token_var)
+    next_token::extract_next_token_block_spec(&func.body, &parser_var, &token_var)
 }
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.

@@ -14,12 +14,16 @@ use super::is_token_contents_expr;
 use crate::ext::ExprExt;
 use crate::types::BlockSpec;
 
-/// Detect block structure from `parser.parse((...))` calls with control flow analysis.
+/// Extract block structure from `parser.parse((...))` calls with control flow analysis.
 ///
 /// Collects all stop-tokens from parse calls, then classifies them as intermediates
 /// or end-tags based on whether they lead to further parse calls (intermediate) or
 /// return/construction (end-tag).
-pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
+pub(super) fn extract_parse_call_block_spec(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+) -> Option<BlockSpec> {
     let mut collector = ParseCallCollector::new(parser_var);
     collector.visit_body(body);
     let parse_calls = collector.calls;
