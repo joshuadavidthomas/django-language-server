@@ -17,8 +17,6 @@ just corpus sync -U              # Re-resolve corpus and sync
 
 Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo doc --open`.
 
-Formatting uses `cargo +nightly fmt` through `just fmt` because `.rustfmt.toml` enables nightly-only import formatting features. Do not run `cargo fmt --check` directly; use `just fmt --check`.
-
 ## Testing
 **All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated".
 
@@ -26,6 +24,7 @@ Formatting uses `cargo +nightly fmt` through `just fmt` because `.rustfmt.toml` 
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
 - Use `camino::Utf8Path`/`Utf8PathBuf` as canonical path types. Convert from `std::path` only at API boundaries.
 - Imports are one per line, grouped std/external/crate, formatted by `.rustfmt.toml`.
+- Formatting uses `cargo +nightly fmt` through `just fmt` because `.rustfmt.toml` enables nightly-only import formatting features. Do not run `cargo fmt --check` directly; use `just fmt --check`.
 - Use `anyhow::Result` in binaries and `thiserror` in libraries.
 - Prefer comments that explain why; do not write obvious doc comments.
 - Use `folder.rs`, not `folder/mod.rs`.
