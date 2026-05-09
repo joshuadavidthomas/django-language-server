@@ -20,10 +20,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- **Internal**: Added `djls-fmt` diff utilities (`Edit` type, `compute_text_edits`, `unified_diff`, `is_changed`) for computing minimal text edits between original and formatted source.
 - Added pre-commit hook for running `djls check` on Django template files.
 - Added rg-style file filtering flags to `djls check`: `-g/--glob` for glob patterns, `--no-ignore` to skip ignore files, `-L/--follow` for symlinks, `-d/--max-depth` for recursion depth, `--color always|auto|never`, and `-q/--quiet`.
-- Added `djls format` CLI command with in-place formatting, `--check`, unified `--diff` output, stdin support, and rg-style file discovery flags.
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
 - Filesystem cache for inspector responses (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.
@@ -50,8 +48,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Fixed
 
 - Suppressed `failed to send notification` ERROR log spam during server shutdown by disabling the LSP log forwarding layer on shutdown.
-- Fixed `djls format --diff` to emit real unified diffs instead of a placeholder.
-- Fixed `djls check` and `djls format` silently ignoring file arguments when `-` (stdin) was also passed. These commands now return an error for mixed stdin/path input.
+- Fixed `djls check` silently ignoring file arguments when `-` (stdin) was also passed. This command now returns an error for mixed stdin/path input.
 - Fixed `djls serve --connection-type tcp` silently using stdio. The command now errors with an unsupported-mode message.
 
 ## [6.0.2]

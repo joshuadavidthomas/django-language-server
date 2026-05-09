@@ -36,7 +36,6 @@ A language server for the Django web framework.
 - [ ] **Find references** - See where templates and blocks are used
 - [ ] **Hover** - View documentation and type info on hover
 - [ ] **Rename** - Refactor names across files
-- [ ] **Formatting** - Auto-format templates
 - [ ] **Code actions** - Quick fixes and refactorings
 - [ ] **Document symbols** - Outline view of template structure
 - [ ] **Workspace symbols** - Search across all project templates

@@ -758,7 +758,6 @@ dependencies = [
  "clap",
  "djls-conf",
  "djls-db",
- "djls-fmt",
  "djls-semantic",
  "djls-server",
  "djls-source",
@@ -838,17 +837,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
-]
-
-[[package]]
-name = "djls-fmt"
-version = "0.0.0"
-dependencies = [
- "djls-conf",
- "djls-templates",
- "insta",
- "similar 3.1.0",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1659,7 +1647,7 @@ dependencies = [
  "globset",
  "once_cell",
  "serde",
- "similar 2.7.0",
+ "similar",
  "tempfile",
  "walkdir",
 ]
@@ -2955,15 +2943,6 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
-
-[[package]]
-name = "similar"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04d93e861ede2e497b47833469b8ec9d5c07fa4c78ce7a00f6eb7dd8168b4b3f"
-dependencies = [
- "bstr",
-]
 
 [[package]]
 name = "siphasher"

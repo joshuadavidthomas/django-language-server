@@ -119,9 +119,7 @@ mod tests {
 
     mod interpreter_discovery {
         use system::mock::MockGuard;
-        use system::mock::{
-            self as sys_mock,
-        };
+        use system::mock::{self as sys_mock};
 
         use super::*;
 
@@ -167,9 +165,7 @@ mod tests {
 
     mod interpreter_resolution {
         use system::mock::MockGuard;
-        use system::mock::{
-            self as sys_mock,
-        };
+        use system::mock::{self as sys_mock};
         use which::Error as WhichError;
 
         use super::*;
