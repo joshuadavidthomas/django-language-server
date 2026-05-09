@@ -31,15 +31,9 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option
     classify_stop_tokens(body, parser_var, token_var, &parse_calls)
 }
 
-/// Information about a single `parser.parse((...))` call site.
-#[derive(Debug)]
-struct ParseCallInfo {
-    stop_tokens: Vec<String>,
-}
-
 struct ParseCallCollector<'a> {
     parser_var: &'a str,
-    calls: Vec<ParseCallInfo>,
+    calls: Vec<Vec<String>>,
 }
 
 impl<'a> ParseCallCollector<'a> {
@@ -74,7 +68,7 @@ impl StatementVisitor<'_> for ParseCallCollector<'_> {
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
-fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInfo> {
+fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<Vec<String>> {
     let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
@@ -102,7 +96,7 @@ fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInf
         return None;
     }
 
-    Some(ParseCallInfo { stop_tokens })
+    Some(stop_tokens)
 }
 
 /// Classify stop-tokens into end-tags and intermediates using control flow analysis.
@@ -116,11 +110,11 @@ fn classify_stop_tokens(
     body: &[Stmt],
     parser_var: &str,
     token_var: &str,
-    parse_calls: &[ParseCallInfo],
+    parse_calls: &[Vec<String>],
 ) -> Option<BlockSpec> {
     let mut all_tokens: Vec<String> = Vec::new();
-    for call in parse_calls {
-        for token in &call.stop_tokens {
+    for stop_tokens in parse_calls {
+        for token in stop_tokens {
             if !all_tokens.contains(token) {
                 all_tokens.push(token.clone());
             }
@@ -150,20 +144,20 @@ fn classify_stop_tokens(
     if intermediates.is_empty() && end_tags.is_empty() {
         if parse_calls.len() >= 2 {
             let last_call = parse_calls.last().unwrap();
-            for token in &last_call.stop_tokens {
+            for token in last_call {
                 if !end_tags.contains(token) {
                     end_tags.push(token.clone());
                 }
             }
-            for call in &parse_calls[..parse_calls.len() - 1] {
-                for token in &call.stop_tokens {
+            for stop_tokens in &parse_calls[..parse_calls.len() - 1] {
+                for token in stop_tokens {
                     if !end_tags.contains(token) && !intermediates.contains(token) {
                         intermediates.push(token.clone());
                     }
                 }
             }
         } else if parse_calls.len() == 1 {
-            let tokens = &parse_calls[0].stop_tokens;
+            let tokens = &parse_calls[0];
             if tokens.len() == 1 {
                 end_tags.push(tokens[0].clone());
             } else {

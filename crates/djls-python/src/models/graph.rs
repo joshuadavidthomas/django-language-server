@@ -93,39 +93,6 @@ pub enum RelationType {
     },
 }
 
-impl RelationType {
-    /// Construct a relation type from a Django field class name.
-    ///
-    /// Maps Python field class names to their corresponding variants:
-    /// - `"ForeignKey"` → [`RelationType::ForeignKey`]
-    /// - `"OneToOneField"` → [`RelationType::OneToOne`]
-    /// - `"ManyToManyField"` → [`RelationType::ManyToMany`]
-    ///
-    /// Returns `None` for unrecognized names.
-    #[must_use]
-    pub fn from_field_class(
-        name: &str,
-        target_model: ModelName,
-        related_name: Option<String>,
-    ) -> Option<Self> {
-        match name {
-            "ForeignKey" => Some(Self::ForeignKey {
-                target_model,
-                related_name,
-            }),
-            "OneToOneField" => Some(Self::OneToOne {
-                target_model,
-                related_name,
-            }),
-            "ManyToManyField" => Some(Self::ManyToMany {
-                target_model,
-                related_name,
-            }),
-            _ => None,
-        }
-    }
-}
-
 /// What kind of Django model this is.
 ///
 /// Currently tracks concrete vs. abstract models. An enum (rather than a

@@ -4,7 +4,6 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::MatchCase;
 use ruff_python_ast::Pattern;
-use ruff_python_ast::PatternMatchAs;
 use ruff_python_ast::PatternMatchSequence;
 use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
@@ -41,27 +40,46 @@ pub(super) fn extract_match_constraints(
             continue;
         }
 
-        match analyze_case_pattern(&case.pattern) {
-            PatternShape::Fixed(len) => {
-                if !valid_lengths.contains(&len) {
-                    valid_lengths.push(len);
+        let mut pattern = &case.pattern;
+        loop {
+            match pattern {
+                Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) => {
+                    if patterns.iter().any(|p| matches!(p, Pattern::MatchStar(_))) {
+                        has_variable_length = true;
+                        let min_len = patterns
+                            .iter()
+                            .filter(|p| !matches!(p, Pattern::MatchStar(_)))
+                            .count();
+                        match min_variable_length {
+                            Some(current) if min_len < current => {
+                                min_variable_length = Some(min_len)
+                            }
+                            None => min_variable_length = Some(min_len),
+                            _ => {}
+                        }
+                    } else if !valid_lengths.contains(&patterns.len()) {
+                        valid_lengths.push(patterns.len());
+                    }
+                    break;
                 }
-            }
-            PatternShape::Variable { min_len } => {
-                has_variable_length = true;
-                match min_variable_length {
-                    Some(current) if min_len < current => min_variable_length = Some(min_len),
-                    None => min_variable_length = Some(min_len),
-                    _ => {}
+                // `case _:` or `case x:` — wildcard/capture, matches anything
+                Pattern::MatchAs(match_as) if match_as.pattern.is_none() => {
+                    // Wildcard/irrefutable pattern — matches anything including zero-length,
+                    // so unconditionally override any prior minimum to 0.
+                    has_variable_length = true;
+                    min_variable_length = Some(0);
+                    break;
                 }
+                // `case pattern as x:` — delegate to inner pattern.
+                Pattern::MatchAs(match_as) => {
+                    if let Some(inner) = &match_as.pattern {
+                        pattern = inner;
+                    } else {
+                        break;
+                    }
+                }
+                _ => break,
             }
-            PatternShape::Wildcard => {
-                // Wildcard/irrefutable pattern — matches anything including zero-length,
-                // so unconditionally override any prior minimum to 0
-                has_variable_length = true;
-                min_variable_length = Some(0);
-            }
-            PatternShape::Unknown => {}
         }
     }
 
@@ -112,47 +130,6 @@ pub(super) fn extract_match_constraints(
     })
 }
 
-/// Shape determined from analyzing a match case pattern.
-enum PatternShape {
-    /// Fixed number of elements (from `PatternMatchSequence` without star)
-    Fixed(usize),
-    /// Variable number of elements (from `PatternMatchSequence` with star)
-    Variable { min_len: usize },
-    /// Wildcard/irrefutable pattern (`case _:` or `case x:`)
-    Wildcard,
-    /// Unrecognized pattern
-    Unknown,
-}
-
-/// Analyze a case pattern to determine its shape.
-fn analyze_case_pattern(pattern: &Pattern) -> PatternShape {
-    match pattern {
-        Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) => {
-            let has_star = patterns.iter().any(|p| matches!(p, Pattern::MatchStar(_)));
-            if has_star {
-                // Count non-star elements for minimum length
-                let fixed_count = patterns
-                    .iter()
-                    .filter(|p| !matches!(p, Pattern::MatchStar(_)))
-                    .count();
-                PatternShape::Variable {
-                    min_len: fixed_count,
-                }
-            } else {
-                PatternShape::Fixed(patterns.len())
-            }
-        }
-        // `case _:` or `case x:` — wildcard/capture, matches anything
-        Pattern::MatchAs(PatternMatchAs { pattern: None, .. }) => PatternShape::Wildcard,
-        // `case pattern as x:` — delegate to inner pattern
-        Pattern::MatchAs(PatternMatchAs {
-            pattern: Some(inner),
-            ..
-        }) => analyze_case_pattern(inner),
-        _ => PatternShape::Unknown,
-    }
-}
-
 /// Extract required keyword literals from valid (non-error) match cases.
 ///
 /// When ALL valid cases of the same length agree on a literal at a specific position,
@@ -170,7 +147,21 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
             if patterns.iter().any(|p| matches!(p, Pattern::MatchStar(_))) {
                 continue; // Skip variable-length patterns for keyword extraction
             }
-            let literals: Vec<Option<String>> = patterns.iter().map(pattern_literal).collect();
+            let literals: Vec<Option<String>> = patterns
+                .iter()
+                .map(|pattern| match pattern {
+                    Pattern::MatchValue(PatternMatchValue { value, .. }) => {
+                        if let Expr::StringLiteral(ExprStringLiteral { value: s, .. }) =
+                            value.as_ref()
+                        {
+                            Some(s.to_str().to_string())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .collect();
             by_length.entry(patterns.len()).or_default().push(literals);
         }
     }
@@ -205,20 +196,6 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
     }
 
     keywords
-}
-
-/// Extract a string literal from a pattern element, if it is one.
-fn pattern_literal(pattern: &Pattern) -> Option<String> {
-    match pattern {
-        Pattern::MatchValue(PatternMatchValue { value, .. }) => {
-            if let Expr::StringLiteral(ExprStringLiteral { value: s, .. }) = value.as_ref() {
-                Some(s.to_str().to_string())
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
 }
 
 /// Check if any code path in a body contains a `raise` with an exception.

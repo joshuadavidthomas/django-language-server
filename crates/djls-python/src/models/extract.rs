@@ -30,13 +30,22 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
 
     let mut collector = ModelCollector::new(module_path, source);
     collector.visit_body(&module.body);
-    collector.finish()
+    resolve_children(
+        &mut collector.graph,
+        &collector.children,
+        collector.module_path,
+        collector.source,
+    );
+    collector.graph
 }
 
 struct ModelCollector<'a> {
     module_path: &'a str,
     source: &'a str,
-    aliases: ImportAliases,
+    /// Names aliasing `django.db.models` (always includes `"models"`).
+    module_aliases: FxHashSet<String>,
+    /// Names aliasing the `Model` class (always includes `"Model"`).
+    class_aliases: FxHashSet<String>,
     graph: ModelGraph,
     children: Vec<&'a StmtClassDef>,
 }
@@ -46,20 +55,11 @@ impl<'a> ModelCollector<'a> {
         Self {
             module_path,
             source,
-            aliases: ImportAliases::new(),
+            module_aliases: FxHashSet::from_iter(["models".to_string()]),
+            class_aliases: FxHashSet::from_iter(["Model".to_string()]),
             graph: ModelGraph::new(),
             children: Vec::new(),
         }
-    }
-
-    fn finish(mut self) -> ModelGraph {
-        resolve_children(
-            &mut self.graph,
-            &self.children,
-            self.module_path,
-            self.source,
-        );
-        self.graph
     }
 }
 
@@ -75,29 +75,32 @@ impl<'a> StatementVisitor<'a> for ModelCollector<'a> {
                     return;
                 };
 
-                if is_django_model_parent(module) {
+                if matches!(module, "django.db" | "django.contrib.gis.db") {
                     for name in &import.names {
                         if name.name.as_str() == "models" {
                             let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
-                            self.aliases.module_aliases.insert(alias.to_string());
+                            self.module_aliases.insert(alias.to_string());
                         }
                     }
                 }
 
-                if is_django_models_module(module) {
+                if matches!(module, "django.db.models" | "django.contrib.gis.db.models") {
                     for name in &import.names {
                         if name.name.as_str() == "Model" {
                             let alias = name.asname.as_ref().map_or("Model", |a| a.as_str());
-                            self.aliases.class_aliases.insert(alias.to_string());
+                            self.class_aliases.insert(alias.to_string());
                         }
                     }
                 }
             }
             Stmt::Import(import) => {
                 for name in &import.names {
-                    if is_django_models_module(name.name.as_str()) {
+                    if matches!(
+                        name.name.as_str(),
+                        "django.db.models" | "django.contrib.gis.db.models"
+                    ) {
                         if let Some(alias) = &name.asname {
-                            self.aliases.module_aliases.insert(alias.to_string());
+                            self.module_aliases.insert(alias.to_string());
                         }
                     }
                 }
@@ -107,7 +110,7 @@ impl<'a> StatementVisitor<'a> for ModelCollector<'a> {
                     return;
                 };
 
-                if is_django_model(args.args.iter(), &self.aliases) {
+                if is_django_model(args.args.iter(), &self.module_aliases, &self.class_aliases) {
                     let line = line_number(self.source, class.range.start().to_usize());
                     let mut model = ModelDef::new(class.name.to_string(), self.module_path, line);
 
@@ -208,61 +211,18 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-/// Check if a module path is a known Django models parent module.
-///
-/// These are the modules from which `models` can be imported
-/// (e.g., `from django.db import models`).
-fn is_django_model_parent(module: &str) -> bool {
-    matches!(module, "django.db" | "django.contrib.gis.db")
-}
-
-/// Check if a module path is a known Django `models` module.
-///
-/// These are the fully-qualified paths to Django's model modules
-/// (for `import django.db.models as ...` or `from django.db.models import Model`).
-fn is_django_models_module(module: &str) -> bool {
-    matches!(module, "django.db.models" | "django.contrib.gis.db.models")
-}
-
-/// Import aliases discovered from a module's import statements.
-///
-/// Tracks two kinds of aliases:
-/// - **module aliases**: names that refer to `django.db.models` (or the
-///   `GeoDjango` equivalent), used to match the `x.Model` pattern.
-///   Recognized imports:
-///   - `from django.db import models [as m]`
-///   - `from django.contrib.gis.db import models [as m]`
-///   - `import django.db.models as m`
-///   - `import django.contrib.gis.db.models as m`
-/// - **class aliases**: names that refer to the `Model` class directly,
-///   used to match bare-name patterns like `class Foo(M):`.
-///   Recognized imports:
-///   - `from django.db.models import Model [as M]`
-///   - `from django.contrib.gis.db.models import Model [as M]`
-struct ImportAliases {
-    /// Names aliasing `django.db.models` (always includes `"models"`).
-    module_aliases: FxHashSet<String>,
-    /// Names aliasing the `Model` class (always includes `"Model"`).
-    class_aliases: FxHashSet<String>,
-}
-
-impl ImportAliases {
-    fn new() -> Self {
-        Self {
-            module_aliases: FxHashSet::from_iter(["models".to_string()]),
-            class_aliases: FxHashSet::from_iter(["Model".to_string()]),
-        }
-    }
-}
-
-fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAliases) -> bool {
+fn is_django_model<'a>(
+    bases: impl Iterator<Item = &'a Expr>,
+    module_aliases: &FxHashSet<String>,
+    class_aliases: &FxHashSet<String>,
+) -> bool {
     for base in bases {
         match base {
             // models.Model / m.Model (where m aliases django.db.models)
             Expr::Attribute(attr) => {
                 if attr.attr.as_str() == "Model" {
                     if let Expr::Name(name) = attr.value.as_ref() {
-                        if aliases.module_aliases.contains(name.id.as_str()) {
+                        if module_aliases.contains(name.id.as_str()) {
                             return true;
                         }
                     }
@@ -270,7 +230,7 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAl
             }
             // Model / M (where M aliases django.db.models.Model)
             Expr::Name(name) => {
-                if aliases.class_aliases.contains(name.id.as_str()) {
+                if class_aliases.contains(name.id.as_str()) {
                     return true;
                 }
             }
@@ -340,8 +300,21 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
     let target_model = extract_target_model(call)?;
     let related_name = extract_related_name(call);
 
-    let relation_type =
-        RelationType::from_field_class(field_class_name, target_model, related_name)?;
+    let relation_type = match field_class_name {
+        "ForeignKey" => RelationType::ForeignKey {
+            target_model,
+            related_name,
+        },
+        "OneToOneField" => RelationType::OneToOne {
+            target_model,
+            related_name,
+        },
+        "ManyToManyField" => RelationType::ManyToMany {
+            target_model,
+            related_name,
+        },
+        _ => return None,
+    };
 
     Some(Relation {
         field_name: FieldName::new(target.id.as_str()),

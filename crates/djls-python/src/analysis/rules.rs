@@ -7,7 +7,6 @@
 //! Any uncaught raise in an if-body is treated as a validation constraint,
 //! regardless of exception type (e.g., `TemplateSyntaxError`, `ValueError`).
 
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
@@ -275,11 +274,40 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
 fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
-        if let Some(range_constraints) = eval_range_constraint(compare, env) {
-            return ConstraintSet {
-                arg_constraints: range_constraints,
-                ..Default::default()
-            };
+        let middle = eval_expr(&compare.comparators[0], env);
+        if let AbstractValue::SplitLength(split) = middle {
+            if let (Some(lower), Some(upper)) = (
+                compare.left.non_negative_integer(),
+                compare.comparators[1].non_negative_integer(),
+            ) {
+                let op1 = &compare.ops[0];
+                let op2 = &compare.ops[1];
+
+                if matches!(op1, CmpOp::Lt | CmpOp::LtE) && matches!(op2, CmpOp::Lt | CmpOp::LtE) {
+                    let min_val = if matches!(op1, CmpOp::LtE) {
+                        lower
+                    } else {
+                        lower + 1
+                    };
+                    let max_val = if matches!(op2, CmpOp::LtE) {
+                        Some(upper)
+                    } else {
+                        upper.checked_sub(1)
+                    };
+
+                    if let Some(max_val) = max_val {
+                        if min_val <= max_val {
+                            return ConstraintSet {
+                                arg_constraints: vec![
+                                    ArgumentCountConstraint::Min(split.resolve_length(min_val)),
+                                    ArgumentCountConstraint::Max(split.resolve_length(max_val)),
+                                ],
+                                ..Default::default()
+                            };
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -306,81 +334,17 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
     ConstraintSet::default()
 }
 
-/// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.
-///
-/// Only valid in negated context: `not (2 <= len(bits) <= 4)` means "error when
-/// NOT in [2,4]", so the valid range IS [2,4] → `Min(2), Max(4)`.
-fn eval_range_constraint(
-    compare: &ExprCompare,
-    env: &mut Env,
-) -> Option<Vec<ArgumentCountConstraint>> {
-    if compare.ops.len() != 2 || compare.comparators.len() != 2 {
-        return None;
-    }
-
-    let middle = eval_expr(&compare.comparators[0], env);
-    let AbstractValue::SplitLength(split) = middle else {
-        return None;
-    };
-    let lower = compare.left.non_negative_integer()?;
-    let upper = compare.comparators[1].non_negative_integer()?;
-
-    let op1 = &compare.ops[0];
-    let op2 = &compare.ops[1];
-
-    if !matches!(op1, CmpOp::Lt | CmpOp::LtE) || !matches!(op2, CmpOp::Lt | CmpOp::LtE) {
-        return None;
-    }
-
-    let min_val = if matches!(op1, CmpOp::LtE) {
-        lower
-    } else {
-        lower + 1
-    };
-    let max_val = if matches!(op2, CmpOp::LtE) {
-        upper
-    } else {
-        upper.checked_sub(1)?
-    };
-
-    if min_val > max_val {
-        return None;
-    }
-
-    Some(vec![
-        ArgumentCountConstraint::Min(split.resolve_length(min_val)),
-        ArgumentCountConstraint::Max(split.resolve_length(max_val)),
-    ])
-}
-
 /// Check whether a statement body contains a direct `raise` with an exception.
 ///
 /// Only checks direct children (does not recurse into nested control flow).
 /// Any exception type counts — `TemplateSyntaxError`, `ValueError`, etc.
 pub(super) fn body_raises_exception(body: &[Stmt]) -> bool {
-    let mut visitor = RaiseFinder::default();
-    visitor.visit_body(body);
-    visitor.found
-}
-
-#[derive(Default)]
-struct RaiseFinder {
-    found: bool,
-}
-
-impl StatementVisitor<'_> for RaiseFinder {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        if matches!(
+    body.iter().any(|stmt| {
+        matches!(
             stmt,
             Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. })
-        ) {
-            self.found = true;
-        }
-    }
+        )
+    })
 }
 
 #[cfg(test)]
