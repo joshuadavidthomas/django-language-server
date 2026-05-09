@@ -4,7 +4,6 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 use rustc_hash::FxHashSet;
 
-use super::graph::FieldName;
 use super::graph::ModelDef;
 use super::graph::ModelGraph;
 use super::graph::ModelKind;
@@ -317,7 +316,7 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
     };
 
     Some(Relation {
-        field_name: FieldName::new(target.id.as_str()),
+        field_name: target.id.to_string(),
         relation_type,
     })
 }
@@ -383,11 +382,8 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
     let fk_field = extract_gfk_arg(call, 1, "fk_field").unwrap_or_else(|| "object_id".to_string());
 
     Some(Relation {
-        field_name: FieldName::new(target.id.as_str()),
-        relation_type: RelationType::GenericForeignKey {
-            ct_field: FieldName::new(ct_field),
-            fk_field: FieldName::new(fk_field),
-        },
+        field_name: target.id.to_string(),
+        relation_type: RelationType::GenericForeignKey { ct_field, fk_field },
     })
 }
 

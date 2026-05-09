@@ -249,6 +249,7 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Inlined `ModelCollector::finish`.
 - Inlined `RelationType::from_field_class` into `extract_relation` and removed the method.
 - Removed `ModelGraph::new`; callers now use `ModelGraph::default()`.
+- Removed the `FieldName` newtype; relation field names now use plain `String`.
 
 ### Types
 
@@ -268,10 +269,6 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_token.rs` still have enough meat to justify separate files.
 
 ### Model API shape
-
-- `models/graph.rs::FieldName`
-  - Newtype with no validation and little use outside relation construction.
-  - `ModelName` and `ModulePath` earn their distinction more; `FieldName` is questionable.
 
 - `models/graph.rs::ModelKind`
   - Currently `Concrete | Abstract`.

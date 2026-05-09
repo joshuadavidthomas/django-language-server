@@ -61,12 +61,6 @@ string_newtype! {
     pub struct ModulePath
 }
 
-string_newtype! {
-    /// A Python field/attribute name on a Django model (e.g., `"user"`,
-    /// `"content_type"`).
-    pub struct FieldName
-}
-
 /// The kind of relation a Django model field represents.
 ///
 /// Each variant carries its own data, so fields that don't apply to a given
@@ -88,8 +82,8 @@ pub enum RelationType {
         related_name: Option<String>,
     },
     GenericForeignKey {
-        ct_field: FieldName,
-        fk_field: FieldName,
+        ct_field: String,
+        fk_field: String,
     },
 }
 
@@ -112,7 +106,7 @@ pub enum ModelKind {
 /// `related_name`, while `GenericForeignKey` carries `ct_field`/`fk_field`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Relation {
-    pub field_name: FieldName,
+    pub field_name: String,
     #[serde(flatten)]
     pub relation_type: RelationType,
 }
@@ -263,7 +257,7 @@ impl ModelGraph {
         model
             .relations
             .iter()
-            .find(|r| r.field_name.as_str() == field_name)
+            .find(|r| r.field_name == field_name)
             .and_then(|r| r.target_model())
             .map(ModelName::as_str)
     }

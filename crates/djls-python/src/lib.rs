@@ -12,7 +12,6 @@ mod registry;
 use djls_source::File;
 use djls_source::FileKind;
 pub use models::extract_model_graph;
-pub use models::FieldName;
 pub use models::ModelDef;
 pub use models::ModelGraph;
 pub use models::ModelKind;
