@@ -471,10 +471,10 @@ mod tests {
 
     #[test]
     fn simple_model() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     name = models.CharField(max_length=100)
-"#;
+";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
 
@@ -487,12 +487,12 @@ class User(models.Model):
 
     #[test]
     fn direct_model_import() {
-        let source = r#"
+        let source = r"
 from django.db.models import Model
 
 class User(Model):
     name = models.CharField(max_length=100)
-"#;
+";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("User").is_some());
@@ -500,12 +500,12 @@ class User(Model):
 
     #[test]
     fn aliased_models_import() {
-        let source = r#"
+        let source = r"
 from django.db import models as m
 
 class User(m.Model):
     name = m.CharField(max_length=100)
-"#;
+";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("User").is_some());
@@ -513,12 +513,12 @@ class User(m.Model):
 
     #[test]
     fn aliased_absolute_import() {
-        let source = r#"
+        let source = r"
 import django.db.models as db_models
 
 class User(db_models.Model):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("User").is_some());
@@ -526,12 +526,12 @@ class User(db_models.Model):
 
     #[test]
     fn aliased_model_class_import() {
-        let source = r#"
+        let source = r"
 from django.db.models import Model as BaseModel
 
 class User(BaseModel):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("User").is_some());
@@ -539,12 +539,12 @@ class User(BaseModel):
 
     #[test]
     fn geodjango_models_import() {
-        let source = r#"
+        let source = r"
 from django.contrib.gis.db import models
 
 class Location(models.Model):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "geo.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("Location").is_some());
@@ -552,12 +552,12 @@ class Location(models.Model):
 
     #[test]
     fn geodjango_aliased_import() {
-        let source = r#"
+        let source = r"
 from django.contrib.gis.db import models as gis
 
 class Location(gis.Model):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "geo.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("Location").is_some());
@@ -565,12 +565,12 @@ class Location(gis.Model):
 
     #[test]
     fn geodjango_model_class_import() {
-        let source = r#"
+        let source = r"
 from django.contrib.gis.db.models import Model as GeoModel
 
 class Location(GeoModel):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "geo.models");
         assert_eq!(graph.len(), 1);
         assert!(graph.get("Location").is_some());
@@ -579,12 +579,12 @@ class Location(GeoModel):
     #[test]
     fn unrelated_alias_not_matched() {
         // foo.Model should NOT be detected as a Django model
-        let source = r#"
+        let source = r"
 import foo
 
 class NotAModel(foo.Model):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
         assert!(graph.is_empty());
     }
@@ -592,25 +592,25 @@ class NotAModel(foo.Model):
     #[test]
     fn unrelated_model_name_not_matched() {
         // A bare name that happens to not be "Model" should not match
-        let source = r#"
+        let source = r"
 from pydantic import BaseModel
 
 class NotDjango(BaseModel):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
         assert!(graph.is_empty());
     }
 
     #[test]
     fn foreign_key() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
 class Order(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-"#;
+";
         let graph = extract_model_graph(source, "shop.models");
 
         let order = graph.get("Order").unwrap();
@@ -662,14 +662,14 @@ class Order(models.Model):
 
     #[test]
     fn all_relation_types() {
-        let source = r#"
+        let source = r"
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
 class Article(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE)
     tags = models.ManyToManyField(Tag)
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
 
         let profile = graph.get("Profile").unwrap();
@@ -692,18 +692,18 @@ class Article(models.Model):
 
     #[test]
     fn abstract_model() {
-        let source = r#"
+        let source = r"
 class BaseModel(models.Model):
     class Meta:
         abstract = True
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
         assert_eq!(graph.get("BaseModel").unwrap().kind, ModelKind::Abstract);
     }
 
     #[test]
     fn abstract_inheritance() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
@@ -718,7 +718,7 @@ class BaseOrder(models.Model):
 
 class ConcreteOrder(BaseOrder):
     seller = models.ForeignKey(Seller, on_delete=models.CASCADE)
-"#;
+";
         let graph = extract_model_graph(source, "shop.models");
 
         let concrete = graph.get("ConcreteOrder").unwrap();
@@ -729,7 +729,7 @@ class ConcreteOrder(BaseOrder):
             .relations
             .iter()
             .filter_map(|r| r.target_model())
-            .map(|m| m.as_str())
+            .map(super::super::graph::ModelName::as_str)
             .collect();
         assert!(targets.contains(&"User"));
         assert!(targets.contains(&"Seller"));
@@ -783,13 +783,13 @@ class Order(models.Model):
 
     #[test]
     fn default_reverse_name() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
 class Order(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-"#;
+";
         let graph = extract_model_graph(source, "shop.models");
 
         // Default FK reverse name is <model>_set
@@ -824,7 +824,7 @@ class Comment(models.Model):
 
     #[test]
     fn multiple_abstract_parents() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
@@ -845,7 +845,7 @@ class AuditMixin(models.Model):
 
 class Document(TimestampMixin, AuditMixin):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
 
         let doc = graph.get("Document").unwrap();
@@ -855,7 +855,7 @@ class Document(TimestampMixin, AuditMixin):
             .relations
             .iter()
             .filter_map(|r| r.target_model())
-            .map(|m| m.as_str())
+            .map(super::super::graph::ModelName::as_str)
             .collect();
         assert!(targets.contains(&"User"));
         assert!(targets.contains(&"Approver"));
@@ -863,7 +863,7 @@ class Document(TimestampMixin, AuditMixin):
 
     #[test]
     fn concrete_model_inheritance() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
@@ -872,7 +872,7 @@ class Place(models.Model):
 
 class Restaurant(Place):
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
 
         let restaurant = graph.get("Restaurant").unwrap();
@@ -886,7 +886,7 @@ class Restaurant(Place):
 
     #[test]
     fn qualified_base_class_inheritance() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
@@ -898,7 +898,7 @@ class BaseOrder(models.Model):
 
 class ConcreteOrder(some_module.BaseOrder):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "shop.models");
 
         let concrete = graph.get("ConcreteOrder").unwrap();
@@ -911,7 +911,7 @@ class ConcreteOrder(some_module.BaseOrder):
 
     #[test]
     fn multi_level_inheritance_chain() {
-        let source = r#"
+        let source = r"
 class User(models.Model):
     pass
 
@@ -927,7 +927,7 @@ class MiddleMixin(BaseMixin):
 
 class Concrete(MiddleMixin):
     pass
-"#;
+";
         let graph = extract_model_graph(source, "app.models");
 
         // MiddleMixin inherits BaseMixin's FK to User
@@ -980,10 +980,10 @@ class TaggedItem(models.Model):
 
     #[test]
     fn generic_foreign_key_defaults() {
-        let source = r#"
+        let source = r"
 class TaggedItem(models.Model):
     content_object = GenericForeignKey()
-"#;
+";
         let graph = extract_model_graph(source, "tagging.models");
 
         let rel = &graph.get("TaggedItem").unwrap().relations[0];
@@ -999,10 +999,10 @@ class TaggedItem(models.Model):
 
     #[test]
     fn generic_foreign_key_keyword_args() {
-        let source = r#"
+        let source = r"
 class ObjectLog(models.Model):
     parent = GenericForeignKey(ct_field='object_type', fk_field='object_id')
-"#;
+";
         let graph = extract_model_graph(source, "logs.models");
 
         let rel = &graph.get("ObjectLog").unwrap().relations[0];
@@ -1058,11 +1058,11 @@ class TaggedItem(GenericMixin):
 
     #[test]
     fn multiple_generic_foreign_keys() {
-        let source = r#"
+        let source = r"
 class Action(models.Model):
     actor = GenericForeignKey('actor_content_type', 'actor_object_id')
     target = GenericForeignKey('target_content_type', 'target_object_id')
-"#;
+";
         let graph = extract_model_graph(source, "activity.models");
 
         let action = graph.get("Action").unwrap();

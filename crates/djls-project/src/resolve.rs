@@ -665,8 +665,7 @@ class Article(models.Model):
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
-            "should discover nested model files: got {:?}",
-            module_paths
+            "should discover nested model files: got {module_paths:?}"
         );
     }
 
@@ -689,8 +688,7 @@ class Article(models.Model):
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
-            "should discover nested model files: got {:?}",
-            module_paths
+            "should discover nested model files: got {module_paths:?}"
         );
     }
 
