@@ -240,6 +240,8 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Removed `parse_calls::ParseCallInfo`, a single-field wrapper around `Vec<String>`.
 - Merged `blocks/opaque.rs` into `blocks.rs` and deleted the one-strategy module.
 - Merged `blocks/dynamic_end.rs` into `blocks.rs` and deleted the one-strategy module.
+- Merged `blocks/parse_calls.rs` and `blocks/next_token.rs` into `blocks.rs`.
+- Inlined all four `detect` dispatches directly inside `extract_block_spec`.
 
 ### Models / graph extraction
 
@@ -258,15 +260,6 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Kept `Display for SplitPosition`; broader workspace tests showed `djls-semantic` uses it.
 
 ## Remaining candidates
-
-### Re-evaluate block module split
-
-`blocks.rs::extract_block_spec` is still the only caller of these detector entrypoints:
-
-- `blocks/parse_calls.rs::detect`
-- `blocks/next_token.rs::detect`
-
-The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_token.rs` still have enough meat to justify separate files.
 
 ### Model API shape
 
@@ -287,7 +280,7 @@ The split is now less noisy after wrapper removal. `parse_calls.rs` and `next_to
 - `analysis/expressions.rs::eval_expr`
   - Thin wrapper around `eval_expr_with_ctx(..., None)`, but useful as a no-context entrypoint.
 
-- `blocks/parse_calls.rs::ParseCallFinder`
+- `blocks.rs::ParseCallFinder`
   - Still a visitor type, but it has multiple call sites through `body_has_parse_call` and avoids collecting when only existence is needed.
 
 ## Current validation used

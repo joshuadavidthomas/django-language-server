@@ -1,6 +1,4 @@
-mod next_token;
-mod parse_calls;
-
+use ruff_python_ast::statement_visitor::walk_body;
 use ruff_python_ast::statement_visitor::walk_stmt;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
@@ -15,6 +13,7 @@ use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtReturn;
 
 use crate::ext::ExprExt;
@@ -44,36 +43,82 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
         .get(1)
         .map(|p| p.parameter.name.to_string())?;
 
-    // Check for opaque block patterns first: parser.skip_past("endtag")
-    if let Some(spec) = extract_opaque_block_spec(&func.body, &parser_var) {
-        return Some(spec);
+    let body = &func.body;
+
+    // Opaque block: parser.skip_past("endtag")
+    let mut skip_past_visitor = SkipPastVisitor::new(&parser_var);
+    skip_past_visitor.visit_body(body);
+    if !skip_past_visitor.tokens.is_empty() {
+        let end_tag = if skip_past_visitor.tokens.len() == 1 {
+            Some(skip_past_visitor.tokens[0].clone())
+        } else {
+            None
+        };
+        return Some(BlockSpec {
+            end_tag,
+            intermediates: Vec::new(),
+            opaque: true,
+        });
     }
 
-    // Try parser.parse((...)) calls with control flow classification
-    if let Some(spec) = parse_calls::detect(&func.body, &parser_var, &token_var) {
-        return Some(spec);
+    // parser.parse((...)) with control flow classification
+    let mut parse_call_collector = ParseCallCollector::new(&parser_var);
+    parse_call_collector.visit_body(body);
+    if !parse_call_collector.calls.is_empty() {
+        if let Some(spec) =
+            classify_stop_tokens(body, &parser_var, &token_var, &parse_call_collector.calls)
+        {
+            return Some(spec);
+        }
     }
 
-    // Try dynamic end-tag patterns: parser.parse((f"end{tag_name}",))
-    if let Some(spec) = extract_dynamic_end_block_spec(&func.body, &parser_var) {
-        return Some(spec);
+    // Dynamic end-tag: parser.parse((f"end{tag_name}",))
+    let mut dynamic_end_finder = DynamicEndFinder::new(&parser_var);
+    dynamic_end_finder.visit_body(body);
+    if dynamic_end_finder.found {
+        return Some(BlockSpec {
+            end_tag: None,
+            intermediates: Vec::new(),
+            opaque: false,
+        });
     }
 
-    // Try parser.next_token() loop patterns (e.g., blocktrans/blocktranslate)
-    next_token::detect(&func.body, &parser_var, &token_var)
-}
-
-/// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.
-fn extract_dynamic_end_block_spec(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
-    let mut visitor = DynamicEndFinder::new(parser_var);
-    visitor.visit_body(body);
-
-    if !visitor.found {
+    // parser.next_token() loop patterns, e.g. blocktrans/blocktranslate.
+    let mut loop_finder = NextTokenLoopFinder::new(&parser_var);
+    loop_finder.visit_body(body);
+    if !loop_finder.found {
         return None;
     }
+
+    let mut comparison_visitor = TokenComparisonVisitor::new(&token_var);
+    comparison_visitor.visit_body(body);
+    let token_comparisons = comparison_visitor.comparisons;
+    let has_dynamic_end = has_dynamic_end_tag_format(body);
+
+    if token_comparisons.is_empty() && !has_dynamic_end {
+        return None;
+    }
+
+    let mut intermediates = Vec::new();
+    let mut end_tag = None;
+
+    for token in &token_comparisons {
+        if token.starts_with("end") {
+            end_tag = Some(token.clone());
+        } else {
+            intermediates.push(token.clone());
+        }
+    }
+
+    if end_tag.is_none() && !has_dynamic_end && intermediates.is_empty() {
+        return None;
+    }
+
+    intermediates.sort();
+
     Some(BlockSpec {
-        end_tag: None,
-        intermediates: Vec::new(),
+        end_tag,
+        intermediates,
         opaque: false,
     })
 }
@@ -195,7 +240,7 @@ fn is_end_fstring(expr: &Expr) -> bool {
 }
 
 /// Check for dynamic end-tag format strings: `"end%s" % bits[0]` or `f"end{bits[0]}"`.
-pub(super) fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
+fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
     let mut visitor = DynamicEndFormatFinder::default();
     visitor.visit_body(body);
     visitor.found
@@ -252,27 +297,6 @@ fn is_end_format_expr(expr: &Expr) -> bool {
         }
     }
     is_end_fstring(expr)
-}
-
-/// Detect opaque block patterns: `parser.skip_past("endtag")`.
-fn extract_opaque_block_spec(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
-    let mut visitor = SkipPastVisitor::new(parser_var);
-    visitor.visit_body(body);
-    let skip_past_tokens = visitor.tokens;
-
-    if skip_past_tokens.is_empty() {
-        return None;
-    }
-    let end_tag = if skip_past_tokens.len() == 1 {
-        Some(skip_past_tokens[0].clone())
-    } else {
-        None
-    };
-    Some(BlockSpec {
-        end_tag,
-        intermediates: Vec::new(),
-        opaque: true,
-    })
 }
 
 struct SkipPastVisitor<'a> {
@@ -341,8 +365,644 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
     arguments.args[0].string_literal()
 }
 
+struct ParseCallCollector<'a> {
+    parser_var: &'a str,
+    calls: Vec<Vec<String>>,
+}
+
+impl<'a> ParseCallCollector<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            calls: Vec::new(),
+        }
+    }
+}
+
+impl StatementVisitor<'_> for ParseCallCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                if let Some(info) = extract_parse_call_info(&expr_stmt.value, self.parser_var) {
+                    self.calls.push(info);
+                }
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                if let Some(info) = extract_parse_call_info(value, self.parser_var) {
+                    self.calls.push(info);
+                }
+            }
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) => {
+                walk_stmt(self, stmt);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
+fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<Vec<String>> {
+    let Expr::Call(ExprCall {
+        func, arguments, ..
+    }) = expr
+    else {
+        return None;
+    };
+    let Expr::Attribute(ExprAttribute {
+        attr, value: obj, ..
+    }) = func.as_ref()
+    else {
+        return None;
+    };
+    if attr.as_str() != "parse" {
+        return None;
+    }
+    if !is_parser_receiver(obj, parser_var) {
+        return None;
+    }
+    if arguments.args.is_empty() {
+        return None;
+    }
+
+    let stop_tokens = extract_string_sequence(&arguments.args[0]);
+    if stop_tokens.is_empty() {
+        return None;
+    }
+
+    Some(stop_tokens)
+}
+
+/// Classify stop-tokens into end-tags and intermediates using control flow analysis.
+fn classify_stop_tokens(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+    parse_calls: &[Vec<String>],
+) -> Option<BlockSpec> {
+    let mut all_tokens: Vec<String> = Vec::new();
+    for stop_tokens in parse_calls {
+        for token in stop_tokens {
+            if !all_tokens.contains(token) {
+                all_tokens.push(token.clone());
+            }
+        }
+    }
+
+    if all_tokens.is_empty() {
+        return None;
+    }
+
+    let Classification {
+        mut intermediates,
+        mut end_tags,
+    } = classify_in_body(body, parser_var, token_var, &all_tokens);
+
+    // After flow analysis: any token that was found in stop-token lists but NOT
+    // classified as intermediate is a candidate end-tag.
+    if !intermediates.is_empty() {
+        for token in &all_tokens {
+            if !intermediates.contains(token) && !end_tags.contains(token) {
+                end_tags.push(token.clone());
+            }
+        }
+    }
+
+    // If flow analysis couldn't classify anything, try structural fallbacks.
+    if intermediates.is_empty() && end_tags.is_empty() {
+        if parse_calls.len() >= 2 {
+            let last_call = parse_calls.last().unwrap();
+            for token in last_call {
+                if !end_tags.contains(token) {
+                    end_tags.push(token.clone());
+                }
+            }
+            for stop_tokens in &parse_calls[..parse_calls.len() - 1] {
+                for token in stop_tokens {
+                    if !end_tags.contains(token) && !intermediates.contains(token) {
+                        intermediates.push(token.clone());
+                    }
+                }
+            }
+        } else if parse_calls.len() == 1 {
+            let tokens = &parse_calls[0];
+            if tokens.len() == 1 {
+                end_tags.push(tokens[0].clone());
+            } else {
+                for token in tokens {
+                    if token.starts_with("end") {
+                        end_tags.push(token.clone());
+                    } else {
+                        intermediates.push(token.clone());
+                    }
+                }
+                if end_tags.is_empty() {
+                    return None;
+                }
+            }
+        }
+    }
+
+    intermediates.retain(|t| !end_tags.contains(t));
+
+    if end_tags.is_empty() && intermediates.is_empty() {
+        return None;
+    }
+
+    let end_tag = match end_tags.len() {
+        1 => Some(end_tags[0].clone()),
+        _ => None,
+    };
+
+    intermediates.sort();
+
+    Some(BlockSpec {
+        end_tag,
+        intermediates,
+        opaque: false,
+    })
+}
+
+/// Result of classifying stop-tokens into intermediates and end-tags.
+#[derive(Debug, Default)]
+struct Classification {
+    intermediates: Vec<String>,
+    end_tags: Vec<String>,
+}
+
+impl Classification {
+    fn merge(&mut self, other: Classification) {
+        for token in other.intermediates {
+            if !self.intermediates.contains(&token) {
+                self.intermediates.push(token);
+            }
+        }
+        for token in other.end_tags {
+            if !self.end_tags.contains(&token) {
+                self.end_tags.push(token);
+            }
+        }
+    }
+
+    fn add_intermediate(&mut self, token: String) {
+        if !self.intermediates.contains(&token) {
+            self.intermediates.push(token);
+        }
+    }
+
+    fn add_end_tag(&mut self, token: String) {
+        if !self.end_tags.contains(&token) {
+            self.end_tags.push(token);
+        }
+    }
+}
+
+/// Walk body statements classifying tokens based on control flow patterns.
+fn classify_in_body(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+    all_tokens: &[String],
+) -> Classification {
+    let mut result = Classification::default();
+
+    for (i, stmt) in body.iter().enumerate() {
+        if let Stmt::If(if_stmt) = stmt {
+            result.merge(classify_from_if_chain(
+                if_stmt, parser_var, token_var, all_tokens,
+            ));
+        }
+
+        if let Stmt::While(while_stmt) = stmt {
+            if let Some(token) = extract_token_check(&while_stmt.test, token_var, all_tokens)
+                .or_else(|| extract_startswith_check(&while_stmt.test, token_var, all_tokens))
+            {
+                if body_has_parse_call(&while_stmt.body, parser_var)
+                    || body_has_parse_call(&while_stmt.orelse, parser_var)
+                {
+                    result.add_intermediate(token);
+                } else {
+                    result.add_end_tag(token);
+                }
+            }
+            result.merge(classify_in_body(
+                &while_stmt.body,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+            result.merge(classify_in_body(
+                &while_stmt.orelse,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+        }
+
+        if let Stmt::For(for_stmt) = stmt {
+            result.merge(classify_in_body(
+                &for_stmt.body,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+            result.merge(classify_in_body(
+                &for_stmt.orelse,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+        }
+
+        if let Stmt::Try(try_stmt) = stmt {
+            result.merge(classify_in_body(
+                &try_stmt.body,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+            for handler in &try_stmt.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                result.merge(classify_in_body(&h.body, parser_var, token_var, all_tokens));
+            }
+            result.merge(classify_in_body(
+                &try_stmt.orelse,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+            result.merge(classify_in_body(
+                &try_stmt.finalbody,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+        }
+
+        let has_parse_call = match stmt {
+            Stmt::Expr(expr_stmt) => {
+                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                extract_parse_call_info(value, parser_var).is_some()
+            }
+            _ => false,
+        };
+        if has_parse_call {
+            if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
+                result.merge(classify_from_if_chain(
+                    if_stmt, parser_var, token_var, all_tokens,
+                ));
+            }
+        }
+    }
+
+    result
+}
+
+/// Classify tokens from an if/elif/else chain.
+fn classify_from_if_chain(
+    if_stmt: &StmtIf,
+    parser_var: &str,
+    token_var: &str,
+    all_tokens: &[String],
+) -> Classification {
+    let mut result = Classification::default();
+
+    if let Some(token) = extract_token_check(&if_stmt.test, token_var, all_tokens) {
+        if body_has_parse_call(&if_stmt.body, parser_var) {
+            result.add_intermediate(token);
+        } else {
+            result.add_end_tag(token);
+        }
+    }
+
+    for clause in &if_stmt.elif_else_clauses {
+        if let Some(test) = &clause.test {
+            if let Some(token) = extract_token_check(test, token_var, all_tokens) {
+                if body_has_parse_call(&clause.body, parser_var) {
+                    result.add_intermediate(token);
+                } else {
+                    result.add_end_tag(token);
+                }
+            }
+        }
+    }
+
+    result.merge(classify_in_body(
+        &if_stmt.body,
+        parser_var,
+        token_var,
+        all_tokens,
+    ));
+    for clause in &if_stmt.elif_else_clauses {
+        result.merge(classify_in_body(
+            &clause.body,
+            parser_var,
+            token_var,
+            all_tokens,
+        ));
+    }
+
+    result
+}
+
+/// Check if a condition expression checks a token string against known stop-tokens.
+fn extract_token_check(expr: &Expr, token_var: &str, known_tokens: &[String]) -> Option<String> {
+    if let Expr::Compare(compare) = expr {
+        if compare.ops.len() == 1 && compare.comparators.len() == 1 {
+            let left = &compare.left;
+            let right = &compare.comparators[0];
+
+            if is_token_contents_expr(left, Some(token_var)) {
+                if let Some(s) = right.string_literal() {
+                    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
+                    if known_tokens.contains(&cmd) {
+                        return Some(cmd);
+                    }
+                }
+            }
+            if is_token_contents_expr(right, Some(token_var)) {
+                if let Some(s) = left.string_literal() {
+                    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
+                    if known_tokens.contains(&cmd) {
+                        return Some(cmd);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if a condition is a `startswith` check against known tokens.
+fn extract_startswith_check(
+    expr: &Expr,
+    token_var: &str,
+    known_tokens: &[String],
+) -> Option<String> {
+    let Expr::Call(ExprCall {
+        func, arguments, ..
+    }) = expr
+    else {
+        return None;
+    };
+    let Expr::Attribute(ExprAttribute {
+        attr, value: obj, ..
+    }) = func.as_ref()
+    else {
+        return None;
+    };
+    if attr.as_str() != "startswith" {
+        return None;
+    }
+    if !is_token_contents_expr(obj, Some(token_var)) {
+        return None;
+    }
+    if arguments.args.is_empty() {
+        return None;
+    }
+    let s = arguments.args[0].string_literal()?;
+    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
+    if known_tokens.contains(&cmd) {
+        Some(cmd)
+    } else {
+        None
+    }
+}
+
+/// Check if a statement body contains a `parser.parse(...)` call.
+fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
+    let mut visitor = ParseCallFinder::new(parser_var);
+    visitor.visit_body(body);
+    visitor.found
+}
+
+struct ParseCallFinder<'a> {
+    parser_var: &'a str,
+    found: bool,
+}
+
+impl<'a> ParseCallFinder<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            found: false,
+        }
+    }
+}
+
+impl StatementVisitor<'_> for ParseCallFinder<'_> {
+    fn visit_body(&mut self, body: &[Stmt]) {
+        if self.found {
+            return;
+        }
+        walk_body(self, body);
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                self.found = extract_parse_call_info(&expr_stmt.value, self.parser_var).is_some();
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                self.found = extract_parse_call_info(value, self.parser_var).is_some();
+            }
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) => {
+                walk_stmt(self, stmt);
+            }
+            _ => {}
+        }
+    }
+}
+
+struct NextTokenLoopFinder<'a> {
+    parser_var: &'a str,
+    found: bool,
+}
+
+impl<'a> NextTokenLoopFinder<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            found: false,
+        }
+    }
+}
+
+impl StatementVisitor<'_> for NextTokenLoopFinder<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::While(while_stmt) => {
+                let mut call_finder = NextTokenCallFinder::new(self.parser_var);
+                call_finder.visit_body(&while_stmt.body);
+                if is_parser_tokens_check(&while_stmt.test, self.parser_var) && call_finder.found {
+                    self.found = true;
+                    return;
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::If(_) | Stmt::For(_) | Stmt::Try(_) => walk_stmt(self, stmt),
+            _ => {}
+        }
+    }
+}
+
+/// Check if an expression is `parser.tokens` (the token list attribute).
+fn is_parser_tokens_check(expr: &Expr, parser_var: &str) -> bool {
+    if let Expr::Attribute(ExprAttribute { attr, value, .. }) = expr {
+        if attr.as_str() == "tokens" {
+            if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
+                return id.as_str() == parser_var;
+            }
+        }
+    }
+    false
+}
+
+struct NextTokenCallFinder<'a> {
+    parser_var: &'a str,
+    found: bool,
+}
+
+impl<'a> NextTokenCallFinder<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            found: false,
+        }
+    }
+}
+
+impl StatementVisitor<'_> for NextTokenCallFinder<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                self.found = is_next_token_call(value, self.parser_var);
+            }
+            Stmt::Expr(expr_stmt) => {
+                self.found = is_next_token_call(&expr_stmt.value, self.parser_var);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Check if an expression is `parser.next_token()`.
+fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
+    let Expr::Call(ExprCall {
+        func, arguments, ..
+    }) = expr
+    else {
+        return false;
+    };
+    if !arguments.args.is_empty() {
+        return false;
+    }
+    let Expr::Attribute(ExprAttribute { attr, value, .. }) = func.as_ref() else {
+        return false;
+    };
+    if attr.as_str() != "next_token" {
+        return false;
+    }
+    if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
+        return id.as_str() == parser_var;
+    }
+    false
+}
+
+/// Collects string literals compared against `token.contents` in a body.
+struct TokenComparisonVisitor<'a> {
+    token_var: &'a str,
+    comparisons: Vec<String>,
+}
+
+impl<'a> TokenComparisonVisitor<'a> {
+    fn new(token_var: &'a str) -> Self {
+        Self {
+            token_var,
+            comparisons: Vec::new(),
+        }
+    }
+
+    fn add_all(&mut self, values: Vec<String>) {
+        for value in values {
+            if !self.comparisons.contains(&value) {
+                self.comparisons.push(value);
+            }
+        }
+    }
+}
+
+impl StatementVisitor<'_> for TokenComparisonVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::If(if_stmt) => {
+                self.add_all(extract_comparisons_from_expr(&if_stmt.test, self.token_var));
+                for clause in &if_stmt.elif_else_clauses {
+                    if let Some(test) = &clause.test {
+                        self.add_all(extract_comparisons_from_expr(test, self.token_var));
+                    }
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::While(while_stmt) => {
+                self.add_all(extract_comparisons_from_expr(
+                    &while_stmt.test,
+                    self.token_var,
+                ));
+                walk_stmt(self, stmt);
+            }
+            Stmt::For(_) | Stmt::Try(_) => walk_stmt(self, stmt),
+            _ => {}
+        }
+    }
+}
+
+/// Extract string comparisons against token.contents from a comparison expression.
+fn extract_comparisons_from_expr(expr: &Expr, token_var: &str) -> Vec<String> {
+    let mut comparisons = Vec::new();
+    if let Expr::Compare(compare) = expr {
+        let operands: Vec<&Expr> = std::iter::once(compare.left.as_ref())
+            .chain(compare.comparators.iter())
+            .collect();
+
+        for window in operands.windows(2) {
+            let left = window[0];
+            let right = window[1];
+
+            if is_token_contents_expr(left, Some(token_var))
+                || is_token_contents_expr(right, Some(token_var))
+            {
+                if let Some(s) = left.string_literal() {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
+                if let Some(s) = right.string_literal() {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
+            }
+        }
+    }
+    comparisons
+}
+
 /// Check if an expression is the parser variable (or `self.parser`).
-pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
+fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
     if let Expr::Name(ExprName { id, .. }) = expr {
         if id.as_str() == parser_var {
             return true;
@@ -370,7 +1030,7 @@ pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
 /// - `("endif",)`
 ///
 /// Does not resolve variable references.
-pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
+fn extract_string_sequence(expr: &Expr) -> Vec<String> {
     let elements = match expr {
         Expr::Tuple(t) => &t.elts,
         Expr::List(l) => &l.elts,
@@ -387,7 +1047,7 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
 /// Check if an expression accesses token contents.
 ///
 /// Matches: `token.contents`, `token.contents.split()[0]`, `token.contents.strip()`
-pub(super) fn is_token_contents_expr(expr: &Expr, token_var: Option<&str>) -> bool {
+fn is_token_contents_expr(expr: &Expr, token_var: Option<&str>) -> bool {
     match expr {
         Expr::Attribute(ExprAttribute { attr, value, .. }) => {
             if attr.as_str() == "contents" {
