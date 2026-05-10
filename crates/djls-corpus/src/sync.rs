@@ -121,7 +121,7 @@ fn repo_archive_url(repo: &LockedRepo) -> anyhow::Result<String> {
         .and_then(|s| s.split('/').next())
         .unwrap_or_default();
 
-    if host == "gitlab.com" || host.starts_with("gitlab.") {
+    if host == "gitlab.com" {
         let project = base_url
             .rsplit('/')
             .next()
@@ -419,16 +419,6 @@ mod tests {
         assert_eq!(
             url,
             "https://gitlab.com/group/subgroup/project/-/archive/abc123def456/project-abc123def456.tar.gz"
-        );
-    }
-
-    #[test]
-    fn gitlab_self_hosted() {
-        let repo = locked_repo("https://gitlab.example.com/team/project.git");
-        let url = repo_archive_url(&repo).unwrap();
-        assert_eq!(
-            url,
-            "https://gitlab.example.com/team/project/-/archive/abc123def456/project-abc123def456.tar.gz"
         );
     }
 }
