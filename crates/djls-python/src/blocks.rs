@@ -30,6 +30,7 @@ use crate::types::BlockSpec;
 ///
 /// Returns `None` when no block structure is detected or inference is ambiguous.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     let parser_var = func
         .parameters
@@ -65,10 +66,84 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     let mut parse_call_collector = ParseCallCollector::new(&parser_var);
     parse_call_collector.visit_body(body);
     if !parse_call_collector.calls.is_empty() {
-        if let Some(spec) =
-            classify_stop_tokens(body, &parser_var, &token_var, &parse_call_collector.calls)
-        {
-            return Some(spec);
+        let mut all_tokens = Vec::new();
+        for stop_tokens in &parse_call_collector.calls {
+            for token in stop_tokens {
+                if !all_tokens.contains(token) {
+                    all_tokens.push(token.clone());
+                }
+            }
+        }
+
+        if !all_tokens.is_empty() {
+            let Classification {
+                mut intermediates,
+                mut end_tags,
+            } = classify_in_body(body, &parser_var, &token_var, &all_tokens);
+
+            // After flow analysis: any token that was found in stop-token lists but NOT
+            // classified as intermediate is a candidate end-tag.
+            if !intermediates.is_empty() {
+                for token in &all_tokens {
+                    if !intermediates.contains(token) && !end_tags.contains(token) {
+                        end_tags.push(token.clone());
+                    }
+                }
+            }
+
+            // If flow analysis couldn't classify anything, try structural fallbacks.
+            if intermediates.is_empty() && end_tags.is_empty() {
+                if parse_call_collector.calls.len() >= 2 {
+                    let last_call = parse_call_collector.calls.last().unwrap();
+                    for token in last_call {
+                        if !end_tags.contains(token) {
+                            end_tags.push(token.clone());
+                        }
+                    }
+                    for stop_tokens in
+                        &parse_call_collector.calls[..parse_call_collector.calls.len() - 1]
+                    {
+                        for token in stop_tokens {
+                            if !end_tags.contains(token) && !intermediates.contains(token) {
+                                intermediates.push(token.clone());
+                            }
+                        }
+                    }
+                } else if parse_call_collector.calls.len() == 1 {
+                    let tokens = &parse_call_collector.calls[0];
+                    if tokens.len() == 1 {
+                        end_tags.push(tokens[0].clone());
+                    } else {
+                        for token in tokens {
+                            if token.starts_with("end") {
+                                end_tags.push(token.clone());
+                            } else {
+                                intermediates.push(token.clone());
+                            }
+                        }
+                        if end_tags.is_empty() {
+                            return None;
+                        }
+                    }
+                }
+            }
+
+            intermediates.retain(|t| !end_tags.contains(t));
+
+            if !end_tags.is_empty() || !intermediates.is_empty() {
+                let end_tag = match end_tags.len() {
+                    1 => Some(end_tags[0].clone()),
+                    _ => None,
+                };
+
+                intermediates.sort();
+
+                return Some(BlockSpec {
+                    end_tag,
+                    intermediates,
+                    opaque: false,
+                });
+            }
         }
     }
 
@@ -93,7 +168,10 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     let mut comparison_visitor = TokenComparisonVisitor::new(&token_var);
     comparison_visitor.visit_body(body);
     let token_comparisons = comparison_visitor.comparisons;
-    let has_dynamic_end = has_dynamic_end_tag_format(body);
+
+    let mut dynamic_end_format_finder = DynamicEndFormatFinder::default();
+    dynamic_end_format_finder.visit_body(body);
+    let has_dynamic_end = dynamic_end_format_finder.found;
 
     if token_comparisons.is_empty() && !has_dynamic_end {
         return None;
@@ -237,13 +315,6 @@ fn is_end_fstring(expr: &Expr) -> bool {
     }
 
     false
-}
-
-/// Check for dynamic end-tag format strings: `"end%s" % bits[0]` or `f"end{bits[0]}"`.
-fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
-    let mut visitor = DynamicEndFormatFinder::default();
-    visitor.visit_body(body);
-    visitor.found
 }
 
 #[derive(Default)]
@@ -430,96 +501,6 @@ fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<Vec<String>>
     }
 
     Some(stop_tokens)
-}
-
-/// Classify stop-tokens into end-tags and intermediates using control flow analysis.
-fn classify_stop_tokens(
-    body: &[Stmt],
-    parser_var: &str,
-    token_var: &str,
-    parse_calls: &[Vec<String>],
-) -> Option<BlockSpec> {
-    let mut all_tokens: Vec<String> = Vec::new();
-    for stop_tokens in parse_calls {
-        for token in stop_tokens {
-            if !all_tokens.contains(token) {
-                all_tokens.push(token.clone());
-            }
-        }
-    }
-
-    if all_tokens.is_empty() {
-        return None;
-    }
-
-    let Classification {
-        mut intermediates,
-        mut end_tags,
-    } = classify_in_body(body, parser_var, token_var, &all_tokens);
-
-    // After flow analysis: any token that was found in stop-token lists but NOT
-    // classified as intermediate is a candidate end-tag.
-    if !intermediates.is_empty() {
-        for token in &all_tokens {
-            if !intermediates.contains(token) && !end_tags.contains(token) {
-                end_tags.push(token.clone());
-            }
-        }
-    }
-
-    // If flow analysis couldn't classify anything, try structural fallbacks.
-    if intermediates.is_empty() && end_tags.is_empty() {
-        if parse_calls.len() >= 2 {
-            let last_call = parse_calls.last().unwrap();
-            for token in last_call {
-                if !end_tags.contains(token) {
-                    end_tags.push(token.clone());
-                }
-            }
-            for stop_tokens in &parse_calls[..parse_calls.len() - 1] {
-                for token in stop_tokens {
-                    if !end_tags.contains(token) && !intermediates.contains(token) {
-                        intermediates.push(token.clone());
-                    }
-                }
-            }
-        } else if parse_calls.len() == 1 {
-            let tokens = &parse_calls[0];
-            if tokens.len() == 1 {
-                end_tags.push(tokens[0].clone());
-            } else {
-                for token in tokens {
-                    if token.starts_with("end") {
-                        end_tags.push(token.clone());
-                    } else {
-                        intermediates.push(token.clone());
-                    }
-                }
-                if end_tags.is_empty() {
-                    return None;
-                }
-            }
-        }
-    }
-
-    intermediates.retain(|t| !end_tags.contains(t));
-
-    if end_tags.is_empty() && intermediates.is_empty() {
-        return None;
-    }
-
-    let end_tag = match end_tags.len() {
-        1 => Some(end_tags[0].clone()),
-        _ => None,
-    };
-
-    intermediates.sort();
-
-    Some(BlockSpec {
-        end_tag,
-        intermediates,
-        opaque: false,
-    })
 }
 
 /// Result of classifying stop-tokens into intermediates and end-tags.
@@ -841,9 +822,15 @@ impl StatementVisitor<'_> for NextTokenLoopFinder<'_> {
 
         match stmt {
             Stmt::While(while_stmt) => {
-                let mut call_finder = NextTokenCallFinder::new(self.parser_var);
-                call_finder.visit_body(&while_stmt.body);
-                if is_parser_tokens_check(&while_stmt.test, self.parser_var) && call_finder.found {
+                let has_next_token_call = while_stmt.body.iter().any(|stmt| match stmt {
+                    Stmt::Assign(StmtAssign { value, .. }) => {
+                        is_next_token_call(value, self.parser_var)
+                    }
+                    Stmt::Expr(expr_stmt) => is_next_token_call(&expr_stmt.value, self.parser_var),
+                    _ => false,
+                });
+                if is_parser_tokens_check(&while_stmt.test, self.parser_var) && has_next_token_call
+                {
                     self.found = true;
                     return;
                 }
@@ -865,38 +852,6 @@ fn is_parser_tokens_check(expr: &Expr, parser_var: &str) -> bool {
         }
     }
     false
-}
-
-struct NextTokenCallFinder<'a> {
-    parser_var: &'a str,
-    found: bool,
-}
-
-impl<'a> NextTokenCallFinder<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            found: false,
-        }
-    }
-}
-
-impl StatementVisitor<'_> for NextTokenCallFinder<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        match stmt {
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                self.found = is_next_token_call(value, self.parser_var);
-            }
-            Stmt::Expr(expr_stmt) => {
-                self.found = is_next_token_call(&expr_stmt.value, self.parser_var);
-            }
-            _ => {}
-        }
-    }
 }
 
 /// Check if an expression is `parser.next_token()`.

@@ -242,6 +242,7 @@ The strategy split was not absurd because `parse_calls.rs` and `next_token.rs` a
 - Merged `blocks/dynamic_end.rs` into `blocks.rs` and deleted the one-strategy module.
 - Merged `blocks/parse_calls.rs` and `blocks/next_token.rs` into `blocks.rs`.
 - Inlined all four `detect` dispatches directly inside `extract_block_spec`.
+- Inlined `classify_stop_tokens`, `has_dynamic_end_tag_format`, and `NextTokenCallFinder`.
 
 ### Models / graph extraction
 
