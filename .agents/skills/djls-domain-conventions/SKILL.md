@@ -15,11 +15,13 @@ Use this for changes to template parsing, semantic validation, environment scann
 
 ## Environment scanning
 
-- Environment scan functions live in `djls-project/src/scanning.rs`.
-- Environment types live in `djls-python/src/environment/types.rs`:
-  - `EnvironmentInventory`
-  - `EnvironmentLibrary`
-  - `EnvironmentSymbol`
+- External rule/model scan orchestration lives in `crates/djls-db/src/scanning.rs`.
+- Project context, inspector data, and module resolution live in `crates/djls-semantic/src/project/`:
+  - `project.rs` defines `Project`.
+  - `symbols.rs` defines `TemplateLibraries`, `TemplateLibrary`, `TemplateSymbol`, and inspector response types.
+  - `resolve.rs` handles Python module and model-file discovery.
+  - `python.rs` handles interpreter discovery.
+- Static Python extraction lives in `crates/djls-semantic/src/python/`.
 
 ## Validation errors
 
