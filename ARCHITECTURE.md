@@ -37,6 +37,10 @@ All crates live in `crates/`.
 
 Throughout the code map you'll see **Architecture Invariant** callouts. These are constraints we maintain deliberately — things that are true about the code on purpose and that we'd like to keep true.
 
+### `crates/djls`
+
+The CLI binary. It parses command-line arguments, starts the LSP server for `djls serve`, and runs the black-box template validation flow for `djls check`. This is also the only crate that carries the release version; internal library crates use `0.0.0`.
+
 ### `crates/djls-server`
 
 The LSP server. This is the crate that wires everything together at runtime.

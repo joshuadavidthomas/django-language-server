@@ -31,6 +31,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - Changed `djls serve` terminal warning output to plain text without decorative separator lines.
+- **Internal**: Consolidated `djls-project` and `djls-python` into `djls-semantic` as the unified Django semantic model.
 - **Internal**: Unified `djls-corpus` to repo-only format, removing the PyPI package path. All corpus entries are now `[[repo]]` in `manifest.toml`, fetched as git archives. Removed `sha2`, `toml_edit` dependencies and the `add` CLI command.
 - **Internal**: Added license file fetching to `djls-corpus lock`. License text is saved to `crates/djls-corpus/licenses/` for attribution.
 - **Internal**: Replaced manual `AvailableSymbols` cache in `TemplateValidator` with `SymbolIndex`. Symbol availability is now precomputed per `{% load %}` boundary and memoized across revisions, eliminating per-walk rebuilds and hand-rolled invalidation logic.
