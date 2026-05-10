@@ -12,13 +12,13 @@ models:
   CustomUnit:
     name: CustomUnit
     module_path: src.backend.InvenTree.common.models
-    line: 1791
+    line: 1790
     relations: []
     kind: concrete
   DataOutput:
     name: DataOutput
     module_path: src.backend.InvenTree.common.models
-    line: 2860
+    line: 2859
     relations:
       - field_name: user
         relation_type: ForeignKey
@@ -28,7 +28,7 @@ models:
   EmailMessage:
     name: EmailMessage
     module_path: src.backend.InvenTree.common.models
-    line: 2980
+    line: 2979
     relations:
       - field_name: thread
         relation_type: ForeignKey
@@ -38,7 +38,7 @@ models:
   InvenTreeCustomUserStateModel:
     name: InvenTreeCustomUserStateModel
     module_path: src.backend.InvenTree.common.models
-    line: 2078
+    line: 2077
     relations:
       - field_name: model
         relation_type: ForeignKey
@@ -54,7 +54,7 @@ models:
   InvenTreeUserSetting:
     name: InvenTreeUserSetting
     module_path: src.backend.InvenTree.common.models
-    line: 1308
+    line: 1307
     relations:
       - field_name: user
         relation_type: ForeignKey
@@ -70,13 +70,13 @@ models:
   NewsFeedEntry:
     name: NewsFeedEntry
     module_path: src.backend.InvenTree.common.models
-    line: 1725
+    line: 1724
     relations: []
     kind: concrete
   NotesImage:
     name: NotesImage
     module_path: src.backend.InvenTree.common.models
-    line: 1761
+    line: 1760
     relations:
       - field_name: user
         relation_type: ForeignKey
@@ -86,13 +86,13 @@ models:
   NotificationEntry:
     name: NotificationEntry
     module_path: src.backend.InvenTree.common.models
-    line: 1616
+    line: 1615
     relations: []
     kind: concrete
   NotificationMessage:
     name: NotificationMessage
     module_path: src.backend.InvenTree.common.models
-    line: 1653
+    line: 1652
     relations:
       - field_name: target_content_type
         relation_type: ForeignKey
@@ -118,7 +118,7 @@ models:
   Parameter:
     name: Parameter
     module_path: src.backend.InvenTree.common.models
-    line: 2578
+    line: 2577
     relations:
       - field_name: updated_by
         relation_type: ForeignKey
@@ -140,13 +140,13 @@ models:
   PriceBreak:
     name: PriceBreak
     module_path: src.backend.InvenTree.common.models
-    line: 1347
+    line: 1346
     relations: []
     kind: abstract
   SelectionListEntry:
     name: SelectionListEntry
     module_path: src.backend.InvenTree.common.models
-    line: 2321
+    line: 2320
     relations:
       - field_name: list
         relation_type: ForeignKey
@@ -166,7 +166,7 @@ models:
   WebhookEndpoint:
     name: WebhookEndpoint
     module_path: src.backend.InvenTree.common.models
-    line: 1399
+    line: 1398
     relations:
       - field_name: user
         relation_type: ForeignKey
@@ -176,7 +176,7 @@ models:
   WebhookMessage:
     name: WebhookMessage
     module_path: src.backend.InvenTree.common.models
-    line: 1556
+    line: 1555
     relations:
       - field_name: endpoint
         relation_type: ForeignKey

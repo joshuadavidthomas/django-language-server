@@ -6,13 +6,13 @@ models:
   AdminMessage:
     name: AdminMessage
     module_path: src.nomnom.nominate.models
-    line: 530
+    line: 534
     relations: []
     kind: concrete
   Category:
     name: Category
     module_path: src.nomnom.nominate.models
-    line: 306
+    line: 310
     relations:
       - field_name: election
         relation_type: ForeignKey
@@ -28,7 +28,7 @@ models:
   Finalist:
     name: Finalist
     module_path: src.nomnom.nominate.models
-    line: 452
+    line: 456
     relations:
       - field_name: category
         relation_type: ForeignKey
@@ -48,7 +48,7 @@ models:
   Nomination:
     name: Nomination
     module_path: src.nomnom.nominate.models
-    line: 371
+    line: 375
     relations:
       - field_name: nominator
         relation_type: ForeignKey
@@ -62,7 +62,7 @@ models:
   NominationAdminData:
     name: NominationAdminData
     module_path: src.nomnom.nominate.models
-    line: 444
+    line: 448
     relations:
       - field_name: nomination
         relation_type: OneToOne
@@ -72,7 +72,7 @@ models:
   Rank:
     name: Rank
     module_path: src.nomnom.nominate.models
-    line: 489
+    line: 493
     relations:
       - field_name: membership
         relation_type: ForeignKey
@@ -86,13 +86,13 @@ models:
   ReportRecipient:
     name: ReportRecipient
     module_path: src.nomnom.nominate.models
-    line: 520
+    line: 524
     relations: []
     kind: concrete
   VotingInformation:
     name: VotingInformation
     module_path: src.nomnom.nominate.models
-    line: 298
+    line: 302
     relations:
       - field_name: election
         relation_type: OneToOne
