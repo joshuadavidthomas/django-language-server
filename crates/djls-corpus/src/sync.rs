@@ -50,14 +50,12 @@ impl From<&LockedRepo> for RepoMarker {
     }
 }
 
-fn read_marker(out_dir: &Utf8Path) -> anyhow::Result<RepoMarker> {
-    let marker_path = out_dir.join(COMPLETE_MARKER);
-    let content = std::fs::read_to_string(marker_path.as_std_path())?;
-    Ok(serde_json::from_str(&content)?)
-}
-
 fn is_synced(repo: &LockedRepo, out_dir: &Utf8Path) -> bool {
-    read_marker(out_dir).is_ok_and(|marker| marker == RepoMarker::from(repo))
+    let marker_path = out_dir.join(COMPLETE_MARKER);
+    std::fs::read_to_string(marker_path.as_std_path())
+        .ok()
+        .and_then(|content| serde_json::from_str::<RepoMarker>(&content).ok())
+        .is_some_and(|marker| marker == RepoMarker::from(repo))
 }
 
 /// Validate that the local corpus checkout matches the lockfile.
