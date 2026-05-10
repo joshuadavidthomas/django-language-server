@@ -828,12 +828,12 @@ def do_tag(parser, token):
     #[test]
     fn bare_raise_not_extracted() {
         let c = extract_from_source(
-            r#"
+            r"
 def do_tag(parser, token):
     bits = token.split_contents()
     if len(bits) < 2:
         raise
-"#,
+",
         );
         assert!(c.arg_constraints.is_empty());
     }

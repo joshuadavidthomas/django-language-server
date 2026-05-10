@@ -1,7 +1,6 @@
 [workspace]
 members = ["crates/*"]
 resolver = "2"
-default-members = ["crates/djls"]
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }

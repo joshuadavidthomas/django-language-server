@@ -38,6 +38,7 @@ pub mod manifest;
 pub mod sync;
 
 const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
+const LOCKFILE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.lock");
 
 /// A validated corpus root directory.
 ///
@@ -66,7 +67,13 @@ impl Corpus {
             Self::is_available(),
             "Corpus not synced. Run: cargo run --bin djls-corpus -- sync",
         );
-        Self { _private: () }
+        let corpus = Self { _private: () };
+        let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH))
+            .expect("Corpus lockfile missing or invalid. Run: just corpus lock");
+        sync::validate_synced_corpus(&lockfile, corpus.root()).unwrap_or_else(|error| {
+            panic!("{error}");
+        });
+        corpus
     }
 
     /// The corpus root directory.
