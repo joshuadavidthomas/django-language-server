@@ -115,8 +115,13 @@ fn download_tarball(
 
 fn repo_archive_url(repo: &LockedRepo) -> anyhow::Result<String> {
     let base_url = repo.url.trim_end_matches(".git");
+    let host = base_url
+        .strip_prefix("https://")
+        .or_else(|| base_url.strip_prefix("http://"))
+        .and_then(|s| s.split('/').next())
+        .unwrap_or_default();
 
-    if is_gitlab_url(base_url) {
+    if host == "gitlab.com" || host.starts_with("gitlab.") {
         let project = base_url
             .rsplit('/')
             .next()
@@ -129,16 +134,6 @@ fn repo_archive_url(repo: &LockedRepo) -> anyhow::Result<String> {
     } else {
         Ok(format!("{base_url}/archive/{}.tar.gz", repo.git_ref))
     }
-}
-
-fn is_gitlab_url(url: &str) -> bool {
-    let host = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .and_then(|s| s.split('/').next())
-        .unwrap_or_default();
-
-    host == "gitlab.com" || host.starts_with("gitlab.")
 }
 
 fn sync_repo(
@@ -435,25 +430,5 @@ mod tests {
             url,
             "https://gitlab.example.com/team/project/-/archive/abc123def456/project-abc123def456.tar.gz"
         );
-    }
-
-    #[test]
-    fn is_gitlab_detects_gitlab_com() {
-        assert!(is_gitlab_url("https://gitlab.com/group/project"));
-    }
-
-    #[test]
-    fn is_gitlab_detects_self_hosted() {
-        assert!(is_gitlab_url("https://gitlab.example.com/team/project"));
-    }
-
-    #[test]
-    fn is_gitlab_rejects_github() {
-        assert!(!is_gitlab_url("https://github.com/owner/project"));
-    }
-
-    #[test]
-    fn is_gitlab_rejects_other() {
-        assert!(!is_gitlab_url("https://codeberg.org/user/project"));
     }
 }
