@@ -40,6 +40,9 @@ lint *ARGS:
     @just --fmt
     @just nox lint {{ ARGS }}
 
+run *ARGS:
+    cargo run -p djls -- {{ ARGS }}
+
 test *ARGS:
     @just nox test {{ ARGS }}
 
