@@ -1,11 +1,11 @@
-use djls_project::TemplateLibraries;
-use djls_project::TemplateSymbolKind;
 use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use super::LoadState;
 use super::LoadedLibraries;
+use crate::TemplateLibraries;
+use crate::TemplateSymbolKind;
 
 /// The result of checking a tag name against the available symbols at a position.
 #[derive(Clone, Debug, PartialEq, Eq)]

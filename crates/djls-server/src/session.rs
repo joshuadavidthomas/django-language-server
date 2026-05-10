@@ -7,7 +7,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
-use djls_project::Db as ProjectDb;
+use djls_semantic::ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
@@ -108,7 +108,7 @@ impl Session {
     }
 
     /// Get the current project for this session
-    pub fn project(&self) -> Option<djls_project::Project> {
+    pub fn project(&self) -> Option<djls_semantic::Project> {
         self.db.project()
     }
 

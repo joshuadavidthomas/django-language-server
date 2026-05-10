@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::model_fixtures;
 use djls_bench::ModelFixture;
-use djls_python::ModelGraph;
+use djls_semantic::ModelGraph;
 
 fn main() {
     divan::main();
@@ -14,7 +14,7 @@ fn main() {
 
 #[divan::bench(args = model_fixtures())]
 fn extract_model_graph(fixture: &ModelFixture) {
-    divan::black_box(djls_python::extract_model_graph(
+    divan::black_box(djls_semantic::extract_model_graph(
         &fixture.source,
         "bench.models",
     ));
@@ -27,7 +27,7 @@ fn extract_all_models(bencher: Bencher) {
     let fixtures = model_fixtures();
     bencher.bench_local(move || {
         for fixture in fixtures {
-            divan::black_box(djls_python::extract_model_graph(
+            divan::black_box(djls_semantic::extract_model_graph(
                 &fixture.source,
                 "bench.models",
             ));
@@ -42,7 +42,7 @@ fn merge_graphs(bencher: Bencher) {
     let fixtures = model_fixtures();
     let graphs: Vec<ModelGraph> = fixtures
         .iter()
-        .map(|f| djls_python::extract_model_graph(&f.source, "bench.models"))
+        .map(|f| djls_semantic::extract_model_graph(&f.source, "bench.models"))
         .collect();
 
     bencher.bench_local(move || {
@@ -64,7 +64,7 @@ fn auth_graph() -> &'static ModelGraph {
             .iter()
             .find(|f| f.label == "medium_auth.py")
             .expect("medium_auth fixture missing");
-        djls_python::extract_model_graph(&auth.source, "django.contrib.auth.models")
+        djls_semantic::extract_model_graph(&auth.source, "django.contrib.auth.models")
     })
 }
 
@@ -162,7 +162,7 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
         .bench_local(move || {
             let mut merged = ModelGraph::new();
             for (source, module_path) in &corpus.files {
-                let graph = djls_python::extract_model_graph(source, module_path);
+                let graph = djls_semantic::extract_model_graph(source, module_path);
                 merged.merge(graph);
             }
             divan::black_box(merged);

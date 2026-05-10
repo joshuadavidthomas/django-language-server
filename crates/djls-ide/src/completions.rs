@@ -3,15 +3,15 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
-use djls_project::InstalledSymbolCandidate;
-use djls_project::InstalledSymbolOrigin;
-use djls_project::Knowledge;
-use djls_project::TemplateLibraries;
-use djls_project::TemplateSymbol;
-use djls_project::TemplateSymbolKind;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::CompletionArgKind;
+use djls_semantic::InstalledSymbolCandidate;
+use djls_semantic::InstalledSymbolOrigin;
+use djls_semantic::Knowledge;
 use djls_semantic::TagSpecs;
+use djls_semantic::TemplateLibraries;
+use djls_semantic::TemplateSymbol;
+use djls_semantic::TemplateSymbolKind;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
 use djls_workspace::TextDocument;
@@ -992,8 +992,8 @@ mod tests {
         library_module: &str,
         module: &str,
         doc: Option<&str>,
-    ) -> djls_project::InspectorLibrarySymbol {
-        djls_project::InspectorLibrarySymbol {
+    ) -> djls_semantic::InspectorLibrarySymbol {
+        djls_semantic::InspectorLibrarySymbol {
             kind: Some(kind),
             name: name.to_string(),
             load_name: load_name.map(str::to_string),
@@ -1004,11 +1004,11 @@ mod tests {
     }
 
     fn response_from_symbols(
-        symbols: Vec<djls_project::InspectorLibrarySymbol>,
+        symbols: Vec<djls_semantic::InspectorLibrarySymbol>,
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> djls_project::TemplateLibrariesResponse {
-        djls_project::TemplateLibrariesResponse {
+    ) -> djls_semantic::TemplateLibrariesResponse {
+        djls_semantic::TemplateLibrariesResponse {
             symbols,
             libraries: libraries
                 .iter()
@@ -1529,7 +1529,7 @@ mod tests {
             ),
         ];
 
-        let response = djls_project::TemplateLibrariesResponse {
+        let response = djls_semantic::TemplateLibrariesResponse {
             symbols,
             libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
@@ -1787,10 +1787,10 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let mut symbols: Vec<djls_project::InspectorLibrarySymbol> = tags;
+        let mut symbols: Vec<djls_semantic::InspectorLibrarySymbol> = tags;
         symbols.extend(filters);
 
-        let response = djls_project::TemplateLibrariesResponse {
+        let response = djls_semantic::TemplateLibrariesResponse {
             symbols,
             libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,

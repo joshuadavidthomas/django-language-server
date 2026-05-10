@@ -1,8 +1,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::ProjectDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
@@ -341,7 +341,7 @@ impl LanguageServer for DjangoLanguageServer {
                 // Compute position-aware available symbols for load-scoped completions.
                 let available_symbols = if file_kind == FileKind::Template {
                     if let Some(template_libraries) = template_libraries {
-                        if template_libraries.inspector_knowledge == djls_project::Knowledge::Known
+                        if template_libraries.inspector_knowledge == djls_semantic::Knowledge::Known
                         {
                             let file = db.get_or_create_file(&path);
                             let nodelist = djls_templates::parse_template(db, file);

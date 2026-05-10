@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use djls_project::Knowledge;
-use djls_project::LibraryName;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Filter;
@@ -12,6 +10,8 @@ use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;
 use crate::specs::tags::TagSpecs;
+use crate::Knowledge;
+use crate::LibraryName;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
@@ -21,9 +21,7 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    env_tags: Option<
-        &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
-    >,
+    env_tags: Option<&HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
     inspector_knowledge: Knowledge,
 ) {
     if inspector_knowledge != Knowledge::Known {
@@ -36,7 +34,7 @@ pub(crate) fn check_tag_scoping_rule(
         TagAvailability::Available => {}
         TagAvailability::Unknown => {
             if let Some(env_tags) = env_tags {
-                if let Ok(key) = djls_project::TemplateSymbolName::parse(name) {
+                if let Ok(key) = crate::TemplateSymbolName::parse(name) {
                     if let Some(env_symbols) = env_tags.get(&key) {
                         if let Some(sym) = env_symbols.first() {
                             ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
@@ -81,9 +79,7 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    env_filters: Option<
-        &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
-    >,
+    env_filters: Option<&HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
     inspector_knowledge: Knowledge,
 ) {
     if inspector_knowledge != Knowledge::Known {
@@ -94,7 +90,7 @@ pub(crate) fn check_filter_scoping_rule(
         FilterAvailability::Available => {}
         FilterAvailability::Unknown => {
             if let Some(env_filters) = env_filters {
-                if let Ok(key) = djls_project::TemplateSymbolName::parse(filter.name.as_str()) {
+                if let Ok(key) = crate::TemplateSymbolName::parse(filter.name.as_str()) {
                     if let Some(env_symbols) = env_filters.get(&key) {
                         if let Some(sym) = env_symbols.first() {
                             ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
@@ -139,7 +135,7 @@ pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
     bits: &[String],
     span: Span,
-    template_libraries: &djls_project::TemplateLibraries,
+    template_libraries: &crate::TemplateLibraries,
 ) {
     if template_libraries.inspector_knowledge != Knowledge::Known {
         return;

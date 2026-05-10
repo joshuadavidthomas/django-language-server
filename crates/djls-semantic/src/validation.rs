@@ -47,17 +47,13 @@ pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
     symbol_index: &'a SymbolIndex,
-    template_libraries: &'a djls_project::TemplateLibraries,
+    template_libraries: &'a crate::TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
 
     // Environment symbol caches
-    env_tags: Option<
-        HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
-    >,
-    env_filters: Option<
-        HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
-    >,
+    env_tags: Option<HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
+    env_filters: Option<HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
@@ -75,10 +71,10 @@ impl<'a> TemplateValidator<'a> {
         let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
         let filter_arity_specs = db.filter_arity_specs();
 
-        let env_tags = template_libraries
-            .discovered_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Tag);
+        let env_tags =
+            template_libraries.discovered_symbol_candidates_by_name(crate::TemplateSymbolKind::Tag);
         let env_filters = template_libraries
-            .discovered_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Filter);
+            .discovered_symbol_candidates_by_name(crate::TemplateSymbolKind::Filter);
 
         Self {
             db,

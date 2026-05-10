@@ -18,7 +18,7 @@ use salsa::Setter;
 pub struct Db {
     sources: Arc<FxDashMap<Utf8PathBuf, String>>,
     tag_specs: Arc<TagSpecs>,
-    template_libraries: Arc<djls_project::TemplateLibraries>,
+    template_libraries: Arc<djls_semantic::TemplateLibraries>,
     filter_arity_specs: Arc<FilterAritySpecs>,
     storage: salsa::Storage<Self>,
 }
@@ -29,7 +29,7 @@ impl Db {
         Self {
             sources: Arc::new(FxDashMap::default()),
             tag_specs: Arc::new(TagSpecs::default()),
-            template_libraries: Arc::new(djls_project::TemplateLibraries::default()),
+            template_libraries: Arc::new(djls_semantic::TemplateLibraries::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             storage: salsa::Storage::default(),
         }
@@ -42,7 +42,7 @@ impl Db {
     }
 
     #[must_use]
-    pub fn with_template_libraries(mut self, libs: djls_project::TemplateLibraries) -> Self {
+    pub fn with_template_libraries(mut self, libs: djls_semantic::TemplateLibraries) -> Self {
         self.template_libraries = Arc::new(libs);
         self
     }
@@ -114,7 +114,7 @@ impl SemanticDb for Db {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_libraries(&self) -> &djls_project::TemplateLibraries {
+    fn template_libraries(&self) -> &djls_semantic::TemplateLibraries {
         &self.template_libraries
     }
 
@@ -122,7 +122,7 @@ impl SemanticDb for Db {
         &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> &djls_python::ModelGraph {
-        djls_python::ModelGraph::empty_ref()
+    fn model_graph(&self) -> &djls_semantic::ModelGraph {
+        djls_semantic::ModelGraph::empty_ref()
     }
 }

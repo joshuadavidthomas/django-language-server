@@ -10,14 +10,14 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
-use djls_project::template_dirs;
-use djls_project::Db as ProjectDb;
-use djls_project::Inspector;
-use djls_project::Project;
-use djls_project::TemplateLibraries;
+use djls_semantic::template_dirs;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::Inspector;
+use djls_semantic::Project;
+use djls_semantic::ProjectDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
+use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FxDashMap;
@@ -213,9 +213,9 @@ impl SemanticDb for DjangoDatabase {
             })
     }
 
-    fn model_graph(&self) -> &djls_python::ModelGraph {
+    fn model_graph(&self) -> &djls_semantic::ModelGraph {
         self.project()
-            .map_or(djls_python::ModelGraph::empty_ref(), |project| {
+            .map_or(djls_semantic::ModelGraph::empty_ref(), |project| {
                 compute_model_graph(self, project)
             })
     }
@@ -251,11 +251,11 @@ mod invalidation_tests {
     use std::sync::Mutex;
 
     use djls_conf::Settings;
-    use djls_project::Interpreter;
-    use djls_project::Knowledge;
-    use djls_project::Project;
-    use djls_project::TemplateLibraries;
     use djls_semantic::Db as SemanticDb;
+    use djls_semantic::Interpreter;
+    use djls_semantic::Knowledge;
+    use djls_semantic::Project;
+    use djls_semantic::TemplateLibraries;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
@@ -300,7 +300,7 @@ mod invalidation_tests {
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            inspector: Arc::new(djls_project::Inspector::new()),
+            inspector: Arc::new(djls_semantic::Inspector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -369,7 +369,7 @@ mod invalidation_tests {
         // Update template_libraries on the project
         let project = db.project.lock().unwrap().unwrap();
 
-        let response = djls_project::TemplateLibrariesResponse {
+        let response = djls_semantic::TemplateLibrariesResponse {
             symbols: Vec::new(),
             libraries: BTreeMap::new(),
             builtins: Vec::new(),
@@ -465,10 +465,10 @@ mod invalidation_tests {
 
         // Change extraction results to produce different TagSpecs
         let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = djls_semantic::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_python::SymbolKey::tag("test.module", "mytag"),
-            djls_python::BlockSpec {
+            djls_semantic::SymbolKey::tag("test.module", "mytag"),
+            djls_semantic::BlockSpec {
                 end_tag: Some("endmytag".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -526,7 +526,7 @@ mod invalidation_tests {
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
 
         // First extraction
-        let _result1 = djls_python::extract_module(&db, file);
+        let _result1 = djls_semantic::extract_module(&db, file);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "extract_module"),
@@ -534,7 +534,7 @@ mod invalidation_tests {
         );
 
         // Second call — cached
-        let _result2 = djls_python::extract_module(&db, file);
+        let _result2 = djls_semantic::extract_module(&db, file);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_module"),
@@ -548,7 +548,7 @@ mod invalidation_tests {
 
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let _result = djls_python::extract_module(&db, file);
+        let _result = djls_semantic::extract_module(&db, file);
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
@@ -556,7 +556,7 @@ mod invalidation_tests {
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
         // so extract_module does NOT re-execute (correct behavior)
-        let _result = djls_python::extract_module(&db, file);
+        let _result = djls_semantic::extract_module(&db, file);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_module"),
@@ -591,7 +591,7 @@ def my_filter(value, arg):
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            inspector: Arc::new(djls_project::Inspector::new()),
+            inspector: Arc::new(djls_semantic::Inspector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -602,10 +602,10 @@ def my_filter(value, arg):
         };
 
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let result = djls_python::extract_module(&db, file);
+        let result = djls_semantic::extract_module(&db, file);
 
         // Should extract the filter
-        let key = djls_python::SymbolKey::filter("", "my_filter");
+        let key = djls_semantic::SymbolKey::filter("", "my_filter");
         assert!(
             result.filter_arities.contains_key(&key),
             "should extract filter from file content"
@@ -625,10 +625,10 @@ def my_filter(value, arg):
         );
 
         // Set some extraction results
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = djls_semantic::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_python::SymbolKey::tag("test.module", "mytag"),
-            djls_python::BlockSpec {
+            djls_semantic::SymbolKey::tag("test.module", "mytag"),
+            djls_semantic::BlockSpec {
                 end_tag: Some("endmytag".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -696,10 +696,10 @@ def my_filter(value, arg):
 
         // Set extraction results on the project
         let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = djls_semantic::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_python::SymbolKey::tag("test.module", "customblock"),
-            djls_python::BlockSpec {
+            djls_semantic::SymbolKey::tag("test.module", "customblock"),
+            djls_semantic::BlockSpec {
                 end_tag: Some("endcustomblock".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -773,11 +773,11 @@ def my_filter(value, arg):
 
         // Set external model data
         let project = db.project.lock().unwrap().unwrap();
-        let mut model_graph = djls_python::ModelGraph::new();
-        let mut user = djls_python::ModelDef::new("User", "auth.models", 1);
-        user.relations.push(djls_python::Relation {
+        let mut model_graph = djls_semantic::ModelGraph::new();
+        let mut user = djls_semantic::ModelDef::new("User", "auth.models", 1);
+        user.relations.push(djls_semantic::Relation {
             field_name: "profile".into(),
-            relation_type: djls_python::RelationType::OneToOne {
+            relation_type: djls_semantic::RelationType::OneToOne {
                 target_model: "Profile".into(),
                 related_name: None,
             },
@@ -785,7 +785,7 @@ def my_filter(value, arg):
         model_graph.add_model(user);
 
         let mut external_models = rustc_hash::FxHashMap::default();
-        external_models.insert(djls_python::ModulePath::new("auth.models"), model_graph);
+        external_models.insert(djls_semantic::ModulePath::new("auth.models"), model_graph);
         project
             .set_extracted_external_models(&mut db)
             .to(external_models);
@@ -814,9 +814,9 @@ def my_filter(value, arg):
             "extracted_external_models should be empty initially"
         );
 
-        let mut model_graph = djls_python::ModelGraph::new();
-        model_graph.add_model(djls_python::ModelDef::new("Article", "blog.models", 1));
-        let key = djls_python::ModulePath::new("blog.models");
+        let mut model_graph = djls_semantic::ModelGraph::new();
+        model_graph.add_model(djls_semantic::ModelDef::new("Article", "blog.models", 1));
+        let key = djls_semantic::ModulePath::new("blog.models");
         let mut external_models = rustc_hash::FxHashMap::default();
         external_models.insert(key.clone(), model_graph);
         project
