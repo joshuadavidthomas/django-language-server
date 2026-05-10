@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use serde::Deserialize;
 use serde::Serialize;
 
 use crate::archive::extract_tarball;
@@ -23,7 +24,7 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 const COMPLETE_MARKER: &str = ".complete.json";
 const MAX_TARBALL_BYTES: u64 = 512 * 1024 * 1024;
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct RepoMarker {
     name: String,
     url: String,
@@ -38,8 +39,45 @@ fn write_marker(out_dir: &Utf8Path, value: &impl Serialize) -> anyhow::Result<()
     Ok(())
 }
 
-fn is_synced(out_dir: &Utf8Path) -> bool {
-    out_dir.join(COMPLETE_MARKER).as_std_path().exists()
+impl From<&LockedRepo> for RepoMarker {
+    fn from(repo: &LockedRepo) -> Self {
+        Self {
+            name: repo.name.clone(),
+            url: repo.url.clone(),
+            git_ref: repo.git_ref.clone(),
+            tag: repo.tag.clone(),
+        }
+    }
+}
+
+fn read_marker(out_dir: &Utf8Path) -> anyhow::Result<RepoMarker> {
+    let marker_path = out_dir.join(COMPLETE_MARKER);
+    let content = std::fs::read_to_string(marker_path.as_std_path())?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+fn is_synced(repo: &LockedRepo, out_dir: &Utf8Path) -> bool {
+    read_marker(out_dir).is_ok_and(|marker| marker == RepoMarker::from(repo))
+}
+
+/// Validate that the local corpus checkout matches the lockfile.
+pub fn validate_synced_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+    let repos_dir = corpus_root.join("repos");
+    let stale: Vec<&str> = lockfile
+        .repos
+        .iter()
+        .filter(|repo| !is_synced(repo, &repos_dir.join(&repo.name)))
+        .map(|repo| repo.name.as_str())
+        .collect();
+
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Corpus is out of sync with manifest.lock for: {}. Run: just corpus sync",
+        stale.join(", ")
+    );
 }
 
 /// Download a tarball to a temp file.
@@ -122,15 +160,7 @@ fn sync_repo(
         tracing::warn!("{w}");
     }
 
-    write_marker(
-        out_dir,
-        &RepoMarker {
-            name: repo.name.clone(),
-            url: repo.url.clone(),
-            git_ref: repo.git_ref.clone(),
-            tag: repo.tag.clone(),
-        },
-    )?;
+    write_marker(out_dir, &RepoMarker::from(repo))?;
 
     Ok(())
 }
@@ -151,9 +181,13 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> 
         let out_dir = repos_dir.join(&repo.name);
         let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
         let label = format!("{} @ {} ({short_ref})", repo.name, repo.tag);
-        if is_synced(&out_dir) {
+        if is_synced(repo, &out_dir) {
             skipped += 1;
         } else {
+            if out_dir.as_std_path().exists() {
+                tracing::info!(repo = repo.name, "removing stale corpus checkout");
+                std::fs::remove_dir_all(out_dir.as_std_path())?;
+            }
             work.push(SyncItem {
                 repo,
                 out_dir,
@@ -290,6 +324,69 @@ mod tests {
             tag: "main".to_string(),
             git_ref: "abc123def456".to_string(),
         }
+    }
+
+    fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        (dir, path)
+    }
+
+    #[test]
+    fn synced_repo_requires_matching_marker() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let (_dir, out) = temp_dir();
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&repo)).unwrap();
+
+        assert!(is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn synced_repo_rejects_stale_marker_ref() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let mut stale = locked_repo("https://github.com/owner/project.git");
+        stale.git_ref = "old-ref".to_string();
+        let (_dir, out) = temp_dir();
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+
+        assert!(!is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn synced_repo_rejects_missing_marker() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let (_dir, out) = temp_dir();
+
+        assert!(!is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn validate_synced_corpus_accepts_matching_markers() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let lockfile = Lockfile { repos: vec![repo] };
+        let (_dir, root) = temp_dir();
+        let out = root.join("repos/test");
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&lockfile.repos[0])).unwrap();
+
+        validate_synced_corpus(&lockfile, &root).unwrap();
+    }
+
+    #[test]
+    fn validate_synced_corpus_rejects_stale_markers() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let lockfile = Lockfile { repos: vec![repo] };
+        let mut stale = locked_repo("https://github.com/owner/project.git");
+        stale.git_ref = "old-ref".to_string();
+        let (_dir, root) = temp_dir();
+        let out = root.join("repos/test");
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+
+        let error = validate_synced_corpus(&lockfile, &root).unwrap_err();
+        assert!(error.to_string().contains("test"));
     }
 
     #[test]
