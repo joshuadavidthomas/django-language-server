@@ -60,6 +60,26 @@ fn is_synced(repo: &LockedRepo, out_dir: &Utf8Path) -> bool {
     read_marker(out_dir).is_ok_and(|marker| marker == RepoMarker::from(repo))
 }
 
+/// Validate that the local corpus checkout matches the lockfile.
+pub fn validate_synced_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+    let repos_dir = corpus_root.join("repos");
+    let stale: Vec<&str> = lockfile
+        .repos
+        .iter()
+        .filter(|repo| !is_synced(repo, &repos_dir.join(&repo.name)))
+        .map(|repo| repo.name.as_str())
+        .collect();
+
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Corpus is out of sync with manifest.lock for: {}. Run: just corpus sync",
+        stale.join(", ")
+    );
+}
+
 /// Download a tarball to a temp file.
 fn download_tarball(
     client: &reqwest::blocking::Client,
@@ -340,6 +360,33 @@ mod tests {
         let (_dir, out) = temp_dir();
 
         assert!(!is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn validate_synced_corpus_accepts_matching_markers() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let lockfile = Lockfile { repos: vec![repo] };
+        let (_dir, root) = temp_dir();
+        let out = root.join("repos/test");
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&lockfile.repos[0])).unwrap();
+
+        validate_synced_corpus(&lockfile, &root).unwrap();
+    }
+
+    #[test]
+    fn validate_synced_corpus_rejects_stale_markers() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let lockfile = Lockfile { repos: vec![repo] };
+        let mut stale = locked_repo("https://github.com/owner/project.git");
+        stale.git_ref = "old-ref".to_string();
+        let (_dir, root) = temp_dir();
+        let out = root.join("repos/test");
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+
+        let error = validate_synced_corpus(&lockfile, &root).unwrap_err();
+        assert!(error.to_string().contains("test"));
     }
 
     #[test]
