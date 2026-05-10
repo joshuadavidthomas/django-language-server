@@ -6,7 +6,7 @@ models:
   Build:
     name: Build
     module_path: readthedocs.builds.models
-    line: 632
+    line: 645
     relations:
       - field_name: project
         relation_type: ForeignKey
@@ -24,7 +24,7 @@ models:
   BuildCommandResult:
     name: BuildCommandResult
     module_path: readthedocs.builds.models
-    line: 1069
+    line: 1082
     relations:
       - field_name: build
         relation_type: ForeignKey

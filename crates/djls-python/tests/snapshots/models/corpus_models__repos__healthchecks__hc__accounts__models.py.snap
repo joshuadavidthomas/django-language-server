@@ -6,7 +6,7 @@ models:
   Credential:
     name: Credential
     module_path: hc.accounts.models
-    line: 609
+    line: 602
     relations:
       - field_name: user
         relation_type: ForeignKey
@@ -16,7 +16,7 @@ models:
   Member:
     name: Member
     module_path: hc.accounts.models
-    line: 583
+    line: 576
     relations:
       - field_name: user
         relation_type: ForeignKey
@@ -30,7 +30,7 @@ models:
   Profile:
     name: Profile
     module_path: hc.accounts.models
-    line: 76
+    line: 75
     relations:
       - field_name: user
         relation_type: OneToOne
@@ -40,7 +40,7 @@ models:
   Project:
     name: Project
     module_path: hc.accounts.models
-    line: 429
+    line: 427
     relations:
       - field_name: owner
         relation_type: ForeignKey

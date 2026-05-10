@@ -12,12 +12,12 @@ models:
   WirelessLAN:
     name: WirelessLAN
     module_path: netbox.wireless.models
-    line: 76
+    line: 79
     relations: []
     kind: concrete
   WirelessLink:
     name: WirelessLink
     module_path: netbox.wireless.models
-    line: 129
+    line: 132
     relations: []
     kind: concrete

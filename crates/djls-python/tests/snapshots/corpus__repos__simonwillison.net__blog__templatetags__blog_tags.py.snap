@@ -97,6 +97,14 @@ tag_rules:
         kind: Variable
         position: 0
     as_var: strip
+  "blog.templatetags.blog_tags::tag::remove_id_filters":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
   "blog.templatetags.blog_tags::tag::remove_qsarg":
     arg_constraints:
       - Min: 3
