@@ -1,12 +1,12 @@
-//! Filesystem cache for inspector responses.
+//! Filesystem cache for template library snapshots.
 //!
-//! Caches the `TemplateLibrarySnapshot` from the Python inspector subprocess
+//! Caches the active `TemplateLibrarySnapshot` for a project environment
 //! to avoid blocking startup on Python process spawn + Django import. The cache
 //! is keyed by a hash of the project environment (root, interpreter, settings
 //! module, pythonpath) and stamped with the djls version to avoid stale data
 //! after upgrades.
 //!
-//! The cache is best-effort: startup always kicks off a real inspector query in
+//! The cache is best-effort: startup always kicks off a fresh backend query in
 //! the background. The cache just provides data to work with while waiting.
 
 use std::fmt::Write;
@@ -22,19 +22,19 @@ use sha2::Sha256;
 use crate::project::Interpreter;
 use crate::project::TemplateLibrarySnapshot;
 
-/// Envelope wrapping a cached inspector response with version metadata.
+/// Envelope wrapping a cached template library snapshot with version metadata.
 #[derive(Serialize, Deserialize)]
 struct CacheEnvelope {
     /// djls version that wrote this cache entry.
     djls_version: String,
-    /// The cached inspector response.
+    /// The cached template library snapshot.
     response: TemplateLibrarySnapshot,
 }
 
 /// Compute a hex-encoded SHA-256 hash of the project environment.
 ///
-/// The cache key is derived from the inputs that determine the inspector's
-/// output: project root, interpreter specification, Django settings module,
+/// The cache key is derived from the inputs that determine template library
+/// discovery: project root, interpreter specification, Django settings module,
 /// and PYTHONPATH entries.
 fn cache_key(
     root: &Utf8Path,
@@ -71,20 +71,22 @@ fn cache_dir(
     let base = djls_conf::project_dirs()
         .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
     let key = cache_key(root, interpreter, django_settings_module, pythonpath);
+    // Keep the legacy `inspector` directory for on-disk cache compatibility.
     Some(base.join("inspector").join(&key[..16]))
 }
 
-/// Load a cached inspector response from disk.
+/// Load a cached template library snapshot from disk.
 ///
 /// Returns `None` if the cache file doesn't exist, is corrupt, or was written
 /// by a different djls version.
-pub fn load_cached_inspector_response(
+pub fn load_cached_template_library_snapshot(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
 ) -> Option<TemplateLibrarySnapshot> {
     let dir = cache_dir(root, interpreter, django_settings_module, pythonpath)?;
+    // Keep the legacy filename for on-disk cache compatibility.
     let path = dir.join("inspector.json");
 
     let content = fs::read_to_string(path.as_std_path()).ok()?;
@@ -92,21 +94,21 @@ pub fn load_cached_inspector_response(
 
     if envelope.djls_version != env!("CARGO_PKG_VERSION") {
         tracing::debug!(
-            "Inspector cache version mismatch: cached={}, current={}",
+            "Template library snapshot cache version mismatch: cached={}, current={}",
             envelope.djls_version,
             env!("CARGO_PKG_VERSION"),
         );
         return None;
     }
 
-    tracing::info!("Loaded inspector response from cache: {}", path);
+    tracing::info!("Loaded template library snapshot from cache: {}", path);
     Some(envelope.response)
 }
 
-/// Write an inspector response to the filesystem cache.
+/// Write a template library snapshot to the filesystem cache.
 ///
 /// Best-effort: logs warnings on failure but never panics.
-pub fn save_inspector_response(
+pub fn save_template_library_snapshot(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
@@ -118,11 +120,11 @@ pub fn save_inspector_response(
     };
 
     let Ok(response_value) = serde_json::to_value(response) else {
-        tracing::warn!("Failed to serialize inspector response for cache");
+        tracing::warn!("Failed to serialize template library snapshot for cache");
         return;
     };
     let Ok(response_copy) = serde_json::from_value(response_value) else {
-        tracing::warn!("Failed to roundtrip inspector response for cache");
+        tracing::warn!("Failed to roundtrip template library snapshot for cache");
         return;
     };
     let envelope = CacheEnvelope {
@@ -131,7 +133,7 @@ pub fn save_inspector_response(
     };
 
     if let Err(e) = fs::create_dir_all(dir.as_std_path()) {
-        tracing::warn!("Failed to create inspector cache directory: {e}");
+        tracing::warn!("Failed to create template library snapshot cache directory: {e}");
         return;
     }
 
@@ -139,13 +141,13 @@ pub fn save_inspector_response(
     match serde_json::to_string(&envelope) {
         Ok(json) => {
             if let Err(e) = fs::write(path.as_std_path(), json) {
-                tracing::warn!("Failed to write inspector cache: {e}");
+                tracing::warn!("Failed to write template library snapshot cache: {e}");
             } else {
-                tracing::debug!("Saved inspector response to cache: {}", path);
+                tracing::debug!("Saved template library snapshot to cache: {}", path);
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to serialize inspector cache: {e}");
+            tracing::warn!("Failed to serialize template library snapshot cache: {e}");
         }
     }
 }
@@ -195,8 +197,8 @@ mod tests {
 
         let response = test_response();
 
-        save_inspector_response(&root, &interpreter, None, &[], &response);
-        let loaded = load_cached_inspector_response(&root, &interpreter, None, &[]);
+        save_template_library_snapshot(&root, &interpreter, None, &[], &response);
+        let loaded = load_cached_template_library_snapshot(&root, &interpreter, None, &[]);
 
         // Cache reads from the XDG dir, not from the project root — so this
         // only works if project_dirs() resolves. If it doesn't (CI), the

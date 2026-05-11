@@ -9,8 +9,8 @@ mod python;
 mod resolve;
 mod symbols;
 
-pub use cache::load_cached_inspector_response;
-pub use cache::save_inspector_response;
+pub use cache::load_cached_template_library_snapshot;
+pub use cache::save_template_library_snapshot;
 pub use db::Db;
 pub use django::template_dirs;
 pub use input::load_env_file;
