@@ -1,6 +1,6 @@
 use djls_semantic::ProjectDb;
-use djls_semantic::TemplateLibrariesRequest;
-use djls_semantic::TemplateLibrariesResponse;
+use djls_semantic::TemplateLibrarySnapshot;
+use djls_semantic::TemplateLibrarySnapshotRequest;
 use salsa::Setter;
 
 /// Populate template libraries from the filesystem cache, if available.
@@ -29,7 +29,7 @@ pub fn load_inspector_cache(db: &mut dyn ProjectDb) -> bool {
     };
 
     let current = project.template_libraries(db).clone();
-    let next = current.apply_inspector(Some(response));
+    let next = current.apply_active_snapshot(Some(response));
     if project.template_libraries(db) != &next {
         project.set_template_libraries(db).to(next);
     }
@@ -51,13 +51,13 @@ pub(crate) fn query_inspector_template_libraries(db: &mut dyn ProjectDb) {
     let pythonpath = project.pythonpath(db).clone();
     let env_vars = project.env_vars(db).clone();
 
-    let response = match inspector.query::<TemplateLibrariesRequest, TemplateLibrariesResponse>(
+    let response = match inspector.query::<TemplateLibrarySnapshotRequest, TemplateLibrarySnapshot>(
         &interpreter,
         &root,
         dsm.as_deref(),
         &pythonpath,
         &env_vars,
-        &TemplateLibrariesRequest,
+        &TemplateLibrarySnapshotRequest,
     ) {
         Ok(response) if response.ok => response.data,
         Ok(response) => {
@@ -85,7 +85,7 @@ pub(crate) fn query_inspector_template_libraries(db: &mut dyn ProjectDb) {
     }
 
     let current = project.template_libraries(db).clone();
-    let next = current.apply_inspector(response);
+    let next = current.apply_active_snapshot(response);
     if project.template_libraries(db) != &next {
         project.set_template_libraries(db).to(next);
     }

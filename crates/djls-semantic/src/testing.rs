@@ -18,11 +18,11 @@ use djls_workspace::InMemoryFileSystem;
 
 use crate::specs::tags::builtin_tag_specs;
 use crate::FilterAritySpecs;
-use crate::InspectorLibrarySymbol;
 use crate::TagIndex;
 use crate::TagSpecs;
 use crate::TemplateLibraries;
-use crate::TemplateLibrariesResponse;
+use crate::TemplateLibrarySnapshot;
+use crate::TemplateSymbolSnapshot;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
@@ -76,7 +76,7 @@ pub(crate) fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    let mut symbols: Vec<InspectorLibrarySymbol> = tags
+    let mut symbols: Vec<TemplateSymbolSnapshot> = tags
         .iter()
         .cloned()
         .map(serde_json::from_value)
@@ -88,11 +88,11 @@ pub(crate) fn make_template_libraries(
             .iter()
             .cloned()
             .map(serde_json::from_value)
-            .collect::<Result<Vec<InspectorLibrarySymbol>, _>>()
+            .collect::<Result<Vec<TemplateSymbolSnapshot>, _>>()
             .unwrap(),
     );
 
-    let response = TemplateLibrariesResponse {
+    let response = TemplateLibrarySnapshot {
         symbols,
         libraries: libraries
             .iter()
@@ -101,7 +101,7 @@ pub(crate) fn make_template_libraries(
         builtins: builtins.to_vec(),
     };
 
-    TemplateLibraries::default().apply_inspector(Some(response))
+    TemplateLibraries::default().apply_active_snapshot(Some(response))
 }
 
 pub(crate) fn make_template_libraries_tags_only(

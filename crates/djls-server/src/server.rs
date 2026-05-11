@@ -341,8 +341,7 @@ impl LanguageServer for DjangoLanguageServer {
                 // Compute position-aware available symbols for load-scoped completions.
                 let available_symbols = if file_kind == FileKind::Template {
                     if let Some(template_libraries) = template_libraries {
-                        if template_libraries.inspector_knowledge == djls_semantic::Knowledge::Known
-                        {
+                        if template_libraries.active_knowledge == djls_semantic::Knowledge::Known {
                             let file = db.get_or_create_file(&path);
                             let nodelist = djls_templates::parse_template(db, file);
 

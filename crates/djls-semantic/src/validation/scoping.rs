@@ -22,9 +22,9 @@ pub(crate) fn check_tag_scoping_rule(
     span: Span,
     symbols: &AvailableSymbols,
     env_tags: Option<&HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
-    inspector_knowledge: Knowledge,
+    active_knowledge: Knowledge,
 ) {
-    if inspector_knowledge != Knowledge::Known {
+    if active_knowledge != Knowledge::Known {
         return;
     }
 
@@ -80,9 +80,9 @@ pub(crate) fn check_filter_scoping_rule(
     filter: &Filter,
     symbols: &AvailableSymbols,
     env_filters: Option<&HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
-    inspector_knowledge: Knowledge,
+    active_knowledge: Knowledge,
 ) {
-    if inspector_knowledge != Knowledge::Known {
+    if active_knowledge != Knowledge::Known {
         return;
     }
 
@@ -137,7 +137,7 @@ pub(crate) fn check_load_libraries_rule(
     span: Span,
     template_libraries: &crate::TemplateLibraries,
 ) {
-    if template_libraries.inspector_knowledge != Knowledge::Known {
+    if template_libraries.active_knowledge != Knowledge::Known {
         return;
     }
 

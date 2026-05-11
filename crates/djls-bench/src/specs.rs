@@ -3,12 +3,12 @@ use std::sync::OnceLock;
 
 use djls_semantic::FilterArity;
 use djls_semantic::FilterAritySpecs;
-use djls_semantic::InspectorLibrarySymbol;
 use djls_semantic::SymbolKey;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateLibrariesResponse;
+use djls_semantic::TemplateLibrarySnapshot;
 use djls_semantic::TemplateSymbolKind;
+use djls_semantic::TemplateSymbolSnapshot;
 
 use crate::Db;
 
@@ -17,8 +17,8 @@ const DEFAULTFILTERS: &str = "django.template.defaultfilters";
 const I18N: &str = "django.templatetags.i18n";
 const STATIC: &str = "django.templatetags.static";
 
-fn builtin_tag(name: &str, module: &str) -> InspectorLibrarySymbol {
-    InspectorLibrarySymbol {
+fn builtin_tag(name: &str, module: &str) -> TemplateSymbolSnapshot {
+    TemplateSymbolSnapshot {
         kind: Some(TemplateSymbolKind::Tag),
         name: name.to_string(),
         load_name: None,
@@ -28,8 +28,8 @@ fn builtin_tag(name: &str, module: &str) -> InspectorLibrarySymbol {
     }
 }
 
-fn library_tag(name: &str, load_name: &str, module: &str) -> InspectorLibrarySymbol {
-    InspectorLibrarySymbol {
+fn library_tag(name: &str, load_name: &str, module: &str) -> TemplateSymbolSnapshot {
+    TemplateSymbolSnapshot {
         kind: Some(TemplateSymbolKind::Tag),
         name: name.to_string(),
         load_name: Some(load_name.to_string()),
@@ -39,8 +39,8 @@ fn library_tag(name: &str, load_name: &str, module: &str) -> InspectorLibrarySym
     }
 }
 
-fn builtin_filter(name: &str, module: &str) -> InspectorLibrarySymbol {
-    InspectorLibrarySymbol {
+fn builtin_filter(name: &str, module: &str) -> TemplateSymbolSnapshot {
+    TemplateSymbolSnapshot {
         kind: Some(TemplateSymbolKind::Filter),
         name: name.to_string(),
         load_name: None,
@@ -56,7 +56,7 @@ struct RealisticSpecs {
     filter_arity_specs: FilterAritySpecs,
 }
 
-fn build_inspector_symbols() -> Vec<InspectorLibrarySymbol> {
+fn build_template_symbol_snapshots() -> Vec<TemplateSymbolSnapshot> {
     vec![
         builtin_tag("if", DEFAULTTAGS),
         builtin_tag("for", DEFAULTTAGS),
@@ -144,7 +144,7 @@ fn build_filter_arities(
 }
 
 fn build_realistic_specs() -> RealisticSpecs {
-    let symbols = build_inspector_symbols();
+    let symbols = build_template_symbol_snapshots();
 
     let mut libraries_map = BTreeMap::new();
     libraries_map.insert("i18n".to_string(), I18N.to_string());
@@ -152,13 +152,13 @@ fn build_realistic_specs() -> RealisticSpecs {
 
     let builtins = vec![DEFAULTTAGS.to_string(), DEFAULTFILTERS.to_string()];
 
-    let response = TemplateLibrariesResponse {
+    let response = TemplateLibrarySnapshot {
         symbols,
         libraries: libraries_map,
         builtins,
     };
 
-    let template_libraries = TemplateLibraries::default().apply_inspector(Some(response));
+    let template_libraries = TemplateLibraries::default().apply_active_snapshot(Some(response));
 
     let mut tag_specs = TagSpecs::default();
 
