@@ -7,7 +7,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::project::db::Db as ProjectDb;
-use crate::project::inspector;
 use crate::project::inspector::InspectorRequest;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
@@ -193,7 +192,8 @@ impl InspectorRequest for TemplateLibrarySnapshotRequest {
 /// Fetch the active template library snapshot for the current project.
 #[must_use]
 pub fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
-    inspector::query(db, &TemplateLibrarySnapshotRequest)
+    db.project_introspector()
+        .query(db, &TemplateLibrarySnapshotRequest)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

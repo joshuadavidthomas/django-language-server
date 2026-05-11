@@ -15,7 +15,7 @@ pub use db::Db;
 pub use django::template_dirs;
 pub use input::load_env_file;
 pub use input::Project;
-pub use inspector::Inspector;
+pub use inspector::ProjectIntrospector;
 pub use names::LibraryName;
 pub use names::PyModuleName;
 pub use names::TemplateSymbolName;

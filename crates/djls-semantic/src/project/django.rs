@@ -3,7 +3,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::project::db::Db as ProjectDb;
-use crate::project::inspector;
 use crate::project::inspector::InspectorRequest;
 use crate::project::Project;
 
@@ -24,7 +23,9 @@ impl InspectorRequest for DjangoInitRequest {
 /// Returns true if Django was successfully initialized, false otherwise.
 #[salsa::tracked]
 pub fn django_available(db: &dyn ProjectDb, _project: Project) -> bool {
-    inspector::query(db, &DjangoInitRequest).is_some()
+    db.project_introspector()
+        .query(db, &DjangoInitRequest)
+        .is_some()
 }
 
 #[derive(Serialize)]
@@ -44,7 +45,7 @@ impl InspectorRequest for TemplateDirsRequest {
 pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<Vec<Utf8PathBuf>> {
     tracing::debug!("Requesting template directories from inspector");
 
-    let response = inspector::query(db, &TemplateDirsRequest)?;
+    let response = db.project_introspector().query(db, &TemplateDirsRequest)?;
 
     let dir_count = response.dirs.len();
     tracing::info!(
