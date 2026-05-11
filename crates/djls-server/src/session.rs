@@ -211,9 +211,7 @@ impl Session {
     /// Warm template caches and semantic diagnostics for the updated file.
     fn handle_file(&self, file: File) {
         if FileKind::from(file.path(&self.db)) == FileKind::Template {
-            if let Some(nodelist) = djls_templates::parse_template(&self.db, file) {
-                djls_semantic::validate_nodelist(&self.db, nodelist);
-            }
+            djls_semantic::validate_template_file(&self.db, file);
         }
     }
 }

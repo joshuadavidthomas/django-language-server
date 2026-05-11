@@ -89,6 +89,8 @@ pub fn collect_diagnostics(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_typ
 
     let config = db.diagnostics_config();
 
+    djls_semantic::validate_template_file(db, file);
+
     let template_errors =
         djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 
@@ -99,16 +101,13 @@ pub fn collect_diagnostics(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_typ
         push_with_severity(diagnostic, &config, &mut diagnostics);
     }
 
-    let nodelist = djls_templates::parse_template(db, file);
-    if let Some(nodelist) = nodelist {
-        let validation_errors = djls_semantic::validate_nodelist::accumulated::<
-            djls_semantic::ValidationErrorAccumulator,
-        >(db, nodelist);
+    let validation_errors = djls_semantic::validate_template_file::accumulated::<
+        djls_semantic::ValidationErrorAccumulator,
+    >(db, file);
 
-        for error_acc in validation_errors {
-            let diagnostic = error_acc.0.as_diagnostic(line_index);
-            push_with_severity(diagnostic, &config, &mut diagnostics);
-        }
+    for error_acc in validation_errors {
+        let diagnostic = error_acc.0.as_diagnostic(line_index);
+        push_with_severity(diagnostic, &config, &mut diagnostics);
     }
 
     diagnostics

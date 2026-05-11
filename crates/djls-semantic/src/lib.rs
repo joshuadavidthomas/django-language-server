@@ -109,6 +109,20 @@ pub use structure::OpaqueRegions;
 pub use structure::TagIndex;
 pub use validation::TemplateValidator;
 
+/// Validate a Django template file.
+///
+/// This is a semantic convenience entrypoint: parsing still lives in
+/// `djls-templates`, while this function triggers validation for callers that
+/// need Django meaning for a file.
+#[salsa::tracked]
+pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
+    let Some(nodelist) = djls_templates::parse_template(db, file) else {
+        return;
+    };
+
+    validate_nodelist(db, nodelist);
+}
+
 /// Validate a Django template node list and return validation errors.
 ///
 /// This function builds a `BlockTree` from the parsed node list and, during

@@ -32,9 +32,9 @@ impl CheckResult {
 ///
 /// This is the shared orchestration that both the CLI and LSP server
 /// use to drive diagnostics. Under the hood it triggers Salsa-tracked
-/// `parse_template` and `validate_nodelist` queries (cached across calls).
+/// `parse_template` and `validate_template_file` queries (cached across calls).
 pub fn check_file(db: &dyn SemanticDb, file: File) -> CheckResult {
-    let nodelist = djls_templates::parse_template(db, file);
+    djls_semantic::validate_template_file(db, file);
 
     let template_errors: Vec<TemplateError> =
         djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
@@ -42,16 +42,12 @@ pub fn check_file(db: &dyn SemanticDb, file: File) -> CheckResult {
             .map(|acc| acc.0.clone())
             .collect();
 
-    let mut validation_errors: Vec<ValidationError> = Vec::new();
+    let accumulated =
+        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
 
-    if let Some(nodelist) = nodelist {
-        let accumulated = djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(
-            db, nodelist,
-        );
-
-        validation_errors = accumulated.iter().map(|acc| acc.0.clone()).collect();
-        validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
-    }
+    let mut validation_errors: Vec<ValidationError> =
+        accumulated.iter().map(|acc| acc.0.clone()).collect();
+    validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
 
     CheckResult {
         template_errors,
