@@ -174,18 +174,18 @@ pub enum Knowledge {
 }
 
 #[derive(Serialize)]
-pub struct TemplateLibrariesRequest;
+pub struct TemplateLibrarySnapshotRequest;
 
 #[derive(Serialize, Deserialize)]
-pub struct TemplateLibrariesResponse {
-    pub symbols: Vec<InspectorLibrarySymbol>,
+pub struct TemplateLibrarySnapshot {
+    pub symbols: Vec<TemplateSymbolSnapshot>,
     pub libraries: BTreeMap<String, String>,
     pub builtins: Vec<String>,
 }
 
-impl InspectorRequest for TemplateLibrariesRequest {
+impl InspectorRequest for TemplateLibrarySnapshotRequest {
     const NAME: &'static str = "template_libraries";
-    type Response = TemplateLibrariesResponse;
+    type Response = TemplateLibrarySnapshot;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -208,7 +208,7 @@ pub struct DiscoveredSymbolCandidate {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateLibraries {
-    pub inspector_knowledge: Knowledge,
+    pub active_knowledge: Knowledge,
     pub discovery_knowledge: Knowledge,
     pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
     pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
@@ -217,7 +217,7 @@ pub struct TemplateLibraries {
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
-            inspector_knowledge: Knowledge::Unknown,
+            active_knowledge: Knowledge::Unknown,
             discovery_knowledge: Knowledge::Unknown,
             loadable: BTreeMap::new(),
             builtins: BTreeMap::new(),
@@ -235,7 +235,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn registration_modules(&self) -> FxHashSet<PyModuleName> {
-        if self.inspector_knowledge != Knowledge::Known {
+        if self.active_knowledge != Knowledge::Known {
             return FxHashSet::default();
         }
 
@@ -469,14 +469,14 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn apply_inspector(mut self, response: Option<TemplateLibrariesResponse>) -> Self {
+    pub fn apply_active_snapshot(mut self, response: Option<TemplateLibrarySnapshot>) -> Self {
         let Some(response) = response else {
-            self.inspector_knowledge = Knowledge::Unknown;
+            self.active_knowledge = Knowledge::Unknown;
             self.builtins.clear();
             return self;
         };
 
-        self.inspector_knowledge = Knowledge::Known;
+        self.active_knowledge = Knowledge::Known;
 
         let mut enabled: BTreeMap<LibraryName, PyModuleName> = BTreeMap::new();
         for (name, module) in response.libraries {
@@ -554,38 +554,38 @@ impl TemplateLibraries {
         }
 
         for symbol in response.symbols {
-            self.apply_inspector_symbol(&enabled, symbol);
+            self.apply_active_snapshot_symbol(&enabled, symbol);
         }
 
         self
     }
 
-    fn apply_inspector_symbol(
+    fn apply_active_snapshot_symbol(
         &mut self,
         enabled: &BTreeMap<LibraryName, PyModuleName>,
-        wire: InspectorLibrarySymbol,
+        snapshot: TemplateSymbolSnapshot,
     ) {
-        let Some(kind) = wire.kind else {
+        let Some(kind) = snapshot.kind else {
             return;
         };
 
-        let Ok(name) = TemplateSymbolName::parse(&wire.name) else {
+        let Ok(name) = TemplateSymbolName::parse(&snapshot.name) else {
             return;
         };
 
-        let definition = PyModuleName::parse(&wire.module)
+        let definition = PyModuleName::parse(&snapshot.module)
             .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
 
         let symbol = TemplateSymbol {
             kind,
             name,
             definition,
-            doc: wire.doc,
+            doc: snapshot.doc,
         };
 
-        match wire.load_name {
+        match snapshot.load_name {
             None => {
-                let Ok(module) = PyModuleName::parse(&wire.library_module) else {
+                let Ok(module) = PyModuleName::parse(&snapshot.library_module) else {
                     return;
                 };
 
@@ -601,7 +601,7 @@ impl TemplateLibraries {
                 let module = enabled
                     .get(&library_name)
                     .cloned()
-                    .or_else(|| PyModuleName::parse(&wire.library_module).ok());
+                    .or_else(|| PyModuleName::parse(&snapshot.library_module).ok());
 
                 let Some(module) = module else {
                     return;
@@ -618,7 +618,7 @@ impl TemplateLibraries {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InspectorLibrarySymbol {
+pub struct TemplateSymbolSnapshot {
     #[serde(default)]
     pub kind: Option<TemplateSymbolKind>,
     pub name: String,

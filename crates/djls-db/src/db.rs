@@ -369,13 +369,13 @@ mod invalidation_tests {
         // Update template_libraries on the project
         let project = db.project.lock().unwrap().unwrap();
 
-        let response = djls_semantic::TemplateLibrariesResponse {
+        let response = djls_semantic::TemplateLibrarySnapshot {
             symbols: Vec::new(),
             libraries: BTreeMap::new(),
             builtins: Vec::new(),
         };
 
-        let new_libraries = TemplateLibraries::default().apply_inspector(Some(response));
+        let new_libraries = TemplateLibraries::default().apply_active_snapshot(Some(response));
 
         project.set_template_libraries(&mut db).to(new_libraries);
 

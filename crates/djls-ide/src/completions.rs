@@ -500,8 +500,8 @@ fn generate_discovered_tag_name_completions(
 /// Generate completions for tag names
 ///
 /// When `available_symbols` is `Some`, only tags that are available at the cursor
-/// position (builtins + tags from loaded libraries) are shown. When `None` (inspector
-/// unavailable), all tags from `template_tags` are shown as a fallback.
+/// position (builtins + tags from loaded libraries) are shown. When `None` (active
+/// project knowledge unavailable), all tags from `template_tags` are shown as a fallback.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn generate_tag_name_completions(
     partial: &str,
@@ -519,7 +519,7 @@ fn generate_tag_name_completions(
         return Vec::new();
     };
 
-    if template_libraries.inspector_knowledge != Knowledge::Known {
+    if template_libraries.active_knowledge != Knowledge::Known {
         return generate_discovered_tag_name_completions(
             partial,
             needs_space,
@@ -858,7 +858,7 @@ fn generate_library_completions(
 
 /// Generate completion items from a collection of template symbols.
 ///
-/// When `available_symbols` is `Some` (inspector healthy), only symbols that are
+/// When `available_symbols` is `Some` (active project knowledge is available), only symbols that are
 /// available at the cursor position (builtins + loaded library symbols) are shown.
 fn generate_completions(
     symbols: impl IntoIterator<Item = InstalledSymbolCandidate>,
@@ -914,9 +914,9 @@ fn generate_completions(
 
 /// Generate completions for filter names in `{{ var|filter }}` context.
 ///
-/// When `available_symbols` is `Some` (inspector healthy), only shows builtin filters
-/// and filters from loaded libraries at the cursor position. When `None` (inspector
-/// unavailable), shows all known filters as a fallback.
+/// When `available_symbols` is `Some` (active project knowledge is available), only shows builtin filters
+/// and filters from loaded libraries at the cursor position. When `None` (active project
+/// knowledge unavailable), shows all known filters as a fallback.
 fn generate_filter_completions(
     partial: &str,
     template_libraries: Option<&TemplateLibraries>,
@@ -926,7 +926,7 @@ fn generate_filter_completions(
         return Vec::new();
     };
 
-    if template_libraries.inspector_knowledge == Knowledge::Known {
+    if template_libraries.active_knowledge == Knowledge::Known {
         let filters = template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
         return generate_completions(filters, partial, available_symbols);
     }
@@ -992,8 +992,8 @@ mod tests {
         library_module: &str,
         module: &str,
         doc: Option<&str>,
-    ) -> djls_semantic::InspectorLibrarySymbol {
-        djls_semantic::InspectorLibrarySymbol {
+    ) -> djls_semantic::TemplateSymbolSnapshot {
+        djls_semantic::TemplateSymbolSnapshot {
             kind: Some(kind),
             name: name.to_string(),
             load_name: load_name.map(str::to_string),
@@ -1004,11 +1004,11 @@ mod tests {
     }
 
     fn response_from_symbols(
-        symbols: Vec<djls_semantic::InspectorLibrarySymbol>,
+        symbols: Vec<djls_semantic::TemplateSymbolSnapshot>,
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> djls_semantic::TemplateLibrariesResponse {
-        djls_semantic::TemplateLibrariesResponse {
+    ) -> djls_semantic::TemplateLibrarySnapshot {
+        djls_semantic::TemplateLibrarySnapshot {
             symbols,
             libraries: libraries
                 .iter()
@@ -1051,7 +1051,7 @@ mod tests {
 
         let response = response_from_symbols(symbols, libraries, builtins);
 
-        TemplateLibraries::default().apply_inspector(Some(response))
+        TemplateLibraries::default().apply_active_snapshot(Some(response))
     }
 
     #[test]
@@ -1162,25 +1162,25 @@ mod tests {
     }
 
     #[test]
-    fn test_library_completions_inspector_unavailable_returns_empty() {
+    fn test_library_completions_without_active_knowledge_returns_empty() {
         let completions = generate_library_completions("", &ClosingBrace::None, None);
         assert!(
             completions.is_empty(),
-            "Library completions should be empty when inspector is unavailable"
+            "Library completions should be empty when active project knowledge is unavailable"
         );
     }
 
     #[test]
-    fn test_library_completions_inspector_unavailable_with_partial_returns_empty() {
+    fn test_library_completions_without_active_knowledge_with_partial_returns_empty() {
         let completions = generate_library_completions("stat", &ClosingBrace::None, None);
         assert!(
             completions.is_empty(),
-            "Library completions should be empty even with partial input when inspector is unavailable"
+            "Library completions should be empty even with partial input when active project knowledge is unavailable"
         );
     }
 
     #[test]
-    fn test_library_completions_healthy_inspector_returns_names() {
+    fn test_library_completions_with_active_knowledge_returns_names() {
         let mut libraries = HashMap::new();
         libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
@@ -1529,13 +1529,13 @@ mod tests {
             ),
         ];
 
-        let response = djls_semantic::TemplateLibrariesResponse {
+        let response = djls_semantic::TemplateLibrarySnapshot {
             symbols,
             libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
         };
 
-        TemplateLibraries::default().apply_inspector(Some(response))
+        TemplateLibraries::default().apply_active_snapshot(Some(response))
     }
 
     #[test]
@@ -1649,10 +1649,10 @@ mod tests {
     }
 
     #[test]
-    fn test_tag_completions_inspector_unavailable_shows_all_tags() {
+    fn test_tag_completions_without_active_knowledge_shows_all_tags() {
         let template_libraries = build_test_libraries();
 
-        // No available_symbols = inspector unavailable → show all tags
+        // No available_symbols = active project knowledge unavailable → show all tags
         let completions = generate_tag_name_completions(
             "",
             false,
@@ -1787,16 +1787,16 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let mut symbols: Vec<djls_semantic::InspectorLibrarySymbol> = tags;
+        let mut symbols: Vec<djls_semantic::TemplateSymbolSnapshot> = tags;
         symbols.extend(filters);
 
-        let response = djls_semantic::TemplateLibrariesResponse {
+        let response = djls_semantic::TemplateLibrarySnapshot {
             symbols,
             libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
         };
 
-        TemplateLibraries::default().apply_inspector(Some(response))
+        TemplateLibraries::default().apply_active_snapshot(Some(response))
     }
 
     #[test]
@@ -1961,7 +1961,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_completions_inspector_unavailable_shows_all() {
+    fn test_filter_completions_without_active_knowledge_shows_all() {
         let template_libraries = build_test_filter_libraries();
 
         // No available_symbols → show all installed filters

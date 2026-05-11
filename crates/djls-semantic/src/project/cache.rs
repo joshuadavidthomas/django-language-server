@@ -1,6 +1,6 @@
 //! Filesystem cache for inspector responses.
 //!
-//! Caches the `TemplateLibrariesResponse` from the Python inspector subprocess
+//! Caches the `TemplateLibrarySnapshot` from the Python inspector subprocess
 //! to avoid blocking startup on Python process spawn + Django import. The cache
 //! is keyed by a hash of the project environment (root, interpreter, settings
 //! module, pythonpath) and stamped with the djls version to avoid stale data
@@ -20,7 +20,7 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use crate::project::Interpreter;
-use crate::project::TemplateLibrariesResponse;
+use crate::project::TemplateLibrarySnapshot;
 
 /// Envelope wrapping a cached inspector response with version metadata.
 #[derive(Serialize, Deserialize)]
@@ -28,7 +28,7 @@ struct CacheEnvelope {
     /// djls version that wrote this cache entry.
     djls_version: String,
     /// The cached inspector response.
-    response: TemplateLibrariesResponse,
+    response: TemplateLibrarySnapshot,
 }
 
 /// Compute a hex-encoded SHA-256 hash of the project environment.
@@ -83,7 +83,7 @@ pub fn load_cached_inspector_response(
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
-) -> Option<TemplateLibrariesResponse> {
+) -> Option<TemplateLibrarySnapshot> {
     let dir = cache_dir(root, interpreter, django_settings_module, pythonpath)?;
     let path = dir.join("inspector.json");
 
@@ -111,7 +111,7 @@ pub fn save_inspector_response(
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
-    response: &TemplateLibrariesResponse,
+    response: &TemplateLibrarySnapshot,
 ) {
     let Some(dir) = cache_dir(root, interpreter, django_settings_module, pythonpath) else {
         return;
@@ -154,8 +154,8 @@ pub fn save_inspector_response(
 mod tests {
     use super::*;
 
-    fn test_response() -> TemplateLibrariesResponse {
-        TemplateLibrariesResponse {
+    fn test_response() -> TemplateLibrarySnapshot {
+        TemplateLibrarySnapshot {
             symbols: vec![],
             libraries: std::collections::BTreeMap::from([(
                 "i18n".to_string(),
