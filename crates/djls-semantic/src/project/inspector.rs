@@ -35,52 +35,75 @@ pub struct InspectorResponse<T = serde_json::Value> {
     pub error: Option<String>,
 }
 
-pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::Response> {
-    let project = db.project()?;
-    let interpreter = project.interpreter(db);
-    let project_path = project.root(db);
-    let django_settings_module = project.django_settings_module(db);
-    let pythonpath = project.pythonpath(db);
-    let env_vars = project.env_vars(db);
+#[derive(Clone, Debug)]
+pub struct ProjectIntrospector {
+    inspector: Inspector,
+}
 
-    tracing::debug!(
-        "Inspector query '{}': interpreter={:?}, project_path={}, django_settings_module={:?}, pythonpath={:?}, env_vars_count={}",
-        Q::NAME,
-        interpreter,
-        project_path,
-        django_settings_module,
-        pythonpath,
-        env_vars.len()
-    );
-
-    let inspector = db.inspector();
-    match inspector.query::<Q, Q::Response>(
-        interpreter,
-        project_path,
-        django_settings_module.as_deref(),
-        pythonpath,
-        env_vars,
-        request,
-    ) {
-        Ok(response) if response.ok => {
-            tracing::debug!("Inspector query '{}' succeeded with data", Q::NAME);
-            response.data
+impl ProjectIntrospector {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inspector: Inspector::new(),
         }
-        Ok(response) => {
-            if let Some(ref error) = response.error {
-                tracing::warn!("Inspector query '{}' failed: {}", Q::NAME, error);
-            } else {
-                tracing::warn!(
-                    "Inspector query '{}' returned an error with no details",
-                    Q::NAME,
-                );
+    }
+
+    pub(crate) fn query<Q: InspectorRequest>(
+        &self,
+        db: &dyn ProjectDb,
+        request: &Q,
+    ) -> Option<Q::Response> {
+        let project = db.project()?;
+        let interpreter = project.interpreter(db);
+        let project_path = project.root(db);
+        let django_settings_module = project.django_settings_module(db);
+        let pythonpath = project.pythonpath(db);
+        let env_vars = project.env_vars(db);
+
+        tracing::debug!(
+            "Inspector query '{}': interpreter={:?}, project_path={}, django_settings_module={:?}, pythonpath={:?}, env_vars_count={}",
+            Q::NAME,
+            interpreter,
+            project_path,
+            django_settings_module,
+            pythonpath,
+            env_vars.len()
+        );
+
+        match self.inspector.query::<Q, Q::Response>(
+            interpreter,
+            project_path,
+            django_settings_module.as_deref(),
+            pythonpath,
+            env_vars,
+            request,
+        ) {
+            Ok(response) if response.ok => {
+                tracing::debug!("Inspector query '{}' succeeded with data", Q::NAME);
+                response.data
             }
-            None
+            Ok(response) => {
+                if let Some(ref error) = response.error {
+                    tracing::warn!("Inspector query '{}' failed: {}", Q::NAME, error);
+                } else {
+                    tracing::warn!(
+                        "Inspector query '{}' returned an error with no details",
+                        Q::NAME,
+                    );
+                }
+                None
+            }
+            Err(e) => {
+                tracing::error!("Inspector query '{}' failed: {}", Q::NAME, e);
+                None
+            }
         }
-        Err(e) => {
-            tracing::error!("Inspector query '{}' failed: {}", Q::NAME, e);
-            None
-        }
+    }
+}
+
+impl Default for ProjectIntrospector {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -152,7 +175,8 @@ impl Inspector {
     }
 
     /// Manually close the inspector process
-    pub fn close(&self) {
+    #[cfg(test)]
+    fn close(&self) {
         self.inner().shutdown_process();
     }
 }

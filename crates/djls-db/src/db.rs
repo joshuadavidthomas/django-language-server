@@ -12,9 +12,9 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_semantic::template_dirs;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::Inspector;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
+use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
@@ -53,8 +53,8 @@ pub struct DjangoDatabase {
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
 
-    /// Shared inspector for executing Python queries
-    pub(crate) inspector: Arc<Inspector>,
+    /// Shared introspector for external project facts.
+    pub(crate) project_introspector: Arc<ProjectIntrospector>,
 
     pub(crate) storage: salsa::Storage<Self>,
 
@@ -76,7 +76,7 @@ impl Default for DjangoDatabase {
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
-            inspector: Arc::new(Inspector::new()),
+            project_introspector: Arc::new(ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -107,7 +107,7 @@ impl DjangoDatabase {
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            inspector: Arc::new(Inspector::new()),
+            project_introspector: Arc::new(ProjectIntrospector::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -227,8 +227,8 @@ impl ProjectDb for DjangoDatabase {
         *self.project.lock().unwrap()
     }
 
-    fn inspector(&self) -> Arc<Inspector> {
-        self.inspector.clone()
+    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
+        self.project_introspector.clone()
     }
 }
 
@@ -300,7 +300,7 @@ mod invalidation_tests {
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            inspector: Arc::new(djls_semantic::Inspector::new()),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -591,7 +591,7 @@ def my_filter(value, arg):
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            inspector: Arc::new(djls_semantic::Inspector::new()),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
