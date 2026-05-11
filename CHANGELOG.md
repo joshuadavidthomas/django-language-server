@@ -32,6 +32,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Bumped Rust toolchain from 1.93 to 1.95.
 - **Internal**: Stabilized benchmarks with sized diagnostics fixtures, repeated microbench companions, validation-rendering contract assertions, and deterministic corpus input ordering.
+- **Internal**: Combined validation scoping checks for closing and intermediate tags into a single tag-spec pass.
 - Changed `djls serve` terminal warning output to plain text without decorative separator lines.
 - Improved `djls check --quiet` performance by counting diagnostics without rendering formatted output.
 - **Internal**: Consolidated `djls-project` and `djls-python` into `djls-semantic` as the unified Django semantic model.
