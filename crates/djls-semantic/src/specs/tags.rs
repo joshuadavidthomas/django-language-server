@@ -330,13 +330,11 @@ impl TagSpecs {
                                         value,
                                     });
                                 }
-                                ExtractedArgKind::Choice(values) => {
-                                    if !values.is_empty() {
-                                        rule.choice_at_constraints.push(ChoiceAt {
-                                            position: SplitPosition::Forward(pos + 1),
-                                            values,
-                                        });
-                                    }
+                                ExtractedArgKind::Choice(values) if !values.is_empty() => {
+                                    rule.choice_at_constraints.push(ChoiceAt {
+                                        position: SplitPosition::Forward(pos + 1),
+                                        values,
+                                    });
                                 }
                                 _ => {}
                             }

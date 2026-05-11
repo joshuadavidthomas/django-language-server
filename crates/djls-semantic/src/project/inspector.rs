@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn test_inspector_with_custom_timeout() {
         // Test creation with custom timeout
-        let _inspector = Inspector::with_timeout(Duration::from_secs(120));
+        let _inspector = Inspector::with_timeout(Duration::from_mins(2));
         // Cleanup thread starts automatically
     }
 

@@ -161,7 +161,7 @@ fn sync_repo(
 pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(300))
+        .timeout(Duration::from_mins(5))
         .build()?;
 
     let repos_dir = corpus_root.join("repos");
