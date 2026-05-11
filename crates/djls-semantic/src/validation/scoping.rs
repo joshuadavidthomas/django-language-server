@@ -182,5 +182,13 @@ pub(crate) fn check_load_libraries_rule(
 }
 
 pub(crate) fn is_closer_or_intermediate(name: &str, tag_specs: &TagSpecs) -> bool {
-    tag_specs.is_closer(name) || tag_specs.is_intermediate(name)
+    tag_specs.values().any(|spec| {
+        spec.end_tag
+            .as_ref()
+            .is_some_and(|end_tag| end_tag.name.as_ref() == name)
+            || spec
+                .intermediate_tags
+                .iter()
+                .any(|tag| tag.name.as_ref() == name)
+    })
 }
