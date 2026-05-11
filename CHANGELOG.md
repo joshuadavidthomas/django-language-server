@@ -23,7 +23,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added pre-commit hook for running `djls check` on Django template files.
 - Added rg-style file filtering flags to `djls check`: `-g/--glob` for glob patterns, `--no-ignore` to skip ignore files, `-L/--follow` for symlinks, `-d/--max-depth` for recursion depth, `--color always|auto|never`, and `-q/--quiet`.
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
-- Filesystem cache for inspector responses (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
+- Filesystem cache for template library snapshots (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
 - **Internal**: Added venv model scanning, workspace model discovery, and Salsa wiring for `compute_model_graph` — the model graph is now populated from both site-packages and workspace `models.py` files with automatic invalidation on edit.
 - **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.
 - **Internal**: Added `[profile.bench]` with `debug = 2` to `Cargo.toml` for symbolized bench profiles.
@@ -32,7 +32,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Changed `djls serve` terminal warning output to plain text without decorative separator lines.
 - **Internal**: Consolidated `djls-project` and `djls-python` into `djls-semantic` as the unified Django semantic model.
-- **Internal**: Renamed template library snapshot types around backend-neutral semantic snapshots instead of inspector responses.
+- **Internal**: Renamed template library snapshot types and cache APIs around backend-neutral semantic snapshots instead of inspector responses.
 - **Internal**: Unified `djls-corpus` to repo-only format, removing the PyPI package path. All corpus entries are now `[[repo]]` in `manifest.toml`, fetched as git archives. Removed `sha2`, `toml_edit` dependencies and the `add` CLI command.
 - **Internal**: Added license file fetching to `djls-corpus lock`. License text is saved to `crates/djls-corpus/licenses/` for attribution.
 - **Internal**: Replaced manual `AvailableSymbols` cache in `TemplateValidator` with `SymbolIndex`. Symbol availability is now precomputed per `{% load %}` boundary and memoized across revisions, eliminating per-walk rebuilds and hand-rolled invalidation logic.
