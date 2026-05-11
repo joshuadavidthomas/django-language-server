@@ -60,7 +60,7 @@ pub fn lock_corpus(
     licenses_dir: &Utf8Path,
 ) -> anyhow::Result<(Lockfile, Vec<String>)> {
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_mins(1))
         .user_agent("djls-corpus")
         .build()?;
 

@@ -259,20 +259,16 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAl
     for base in bases {
         match base {
             // models.Model / m.Model (where m aliases django.db.models)
-            Expr::Attribute(attr) => {
-                if attr.attr.as_str() == "Model" {
-                    if let Expr::Name(name) = attr.value.as_ref() {
-                        if aliases.module_aliases.contains(name.id.as_str()) {
-                            return true;
-                        }
+            Expr::Attribute(attr) if attr.attr.as_str() == "Model" => {
+                if let Expr::Name(name) = attr.value.as_ref() {
+                    if aliases.module_aliases.contains(name.id.as_str()) {
+                        return true;
                     }
                 }
             }
             // Model / M (where M aliases django.db.models.Model)
-            Expr::Name(name) => {
-                if aliases.class_aliases.contains(name.id.as_str()) {
-                    return true;
-                }
+            Expr::Name(name) if aliases.class_aliases.contains(name.id.as_str()) => {
+                return true;
             }
             _ => {}
         }

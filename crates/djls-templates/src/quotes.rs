@@ -31,10 +31,8 @@ pub(crate) fn for_each_unquoted(
                 quote = Some(ch);
             }
             _ if quote.is_some() => {}
-            _ if delimiter(ch) => {
-                if cb(idx) {
-                    return;
-                }
+            _ if delimiter(ch) && cb(idx) => {
+                return;
             }
             _ => {}
         }
