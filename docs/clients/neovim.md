@@ -122,6 +122,25 @@ vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
 })
 ```
 
+## Folding ranges
+
+Django template folding ranges work with Neovim's LSP fold expression:
+
+```lua
+vim.api.nvim_create_autocmd("LspAttach", {
+  callback = function(args)
+    local client = vim.lsp.get_client_by_id(args.data.client_id)
+    if client and client.name == "djls" then
+      vim.bo[args.buf].foldmethod = "expr"
+      vim.bo[args.buf].foldexpr = "v:lua.vim.lsp.foldexpr()"
+      vim.bo[args.buf].foldlevel = 99
+    end
+  end,
+})
+```
+
+Use normal Vim fold commands such as `zc`, `zo`, `za`, `zM`, and `zR`.
+
 ## Troubleshooting
 
 Run `:checkhealth vim.lsp` to diagnose issues.

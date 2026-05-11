@@ -32,6 +32,8 @@ A language server for the Django web framework.
 - [x] **Diagnostics** - Real-time error checking and validation
   ![Diagnostics](docs/assets/diagnostics.png)
 
+- [x] **Folding ranges** - Fold Django template block and comment regions
+
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
 - [ ] **Find references** - See where templates and blocks are used
 - [ ] **Hover** - View documentation and type info on hover
@@ -65,6 +67,7 @@ Once configured, open any Django template file in your project to get:
 
 - Template tag completions with snippets
 - Real-time syntax validation and diagnostics
+- Folding for template block and comment regions
 - Navigation to template definitions and references
 
 ## Documentation
