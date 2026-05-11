@@ -22,12 +22,11 @@ PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
 PY_DEFAULT = PY_VERSIONS[0]
 PY_LATEST = PY_VERSIONS[-1]
 
-DJ42 = "4.2"
 DJ52 = "5.2"
 DJ60 = "6.0"
 DJMAIN = "main"
 DJMAIN_MIN_PY = PY312
-DJ_VERSIONS = [DJ42, DJ52, DJ60, DJMAIN]
+DJ_VERSIONS = [DJ52, DJ60, DJMAIN]
 DJ_LTS = [
     version for version in DJ_VERSIONS if version.endswith(".2") and version != DJMAIN
 ]
@@ -158,7 +157,7 @@ def lint(session):
 
 
 @nox.session
-@nox.parametrize("django", [DJ42, DJ52, DJ60, DJMAIN])
+@nox.parametrize("django", [DJ52, DJ60, DJMAIN])
 def analyze_tags(session, django):
     """Analyze Django template tags and generate TagSpec suggestions."""
     if django == DJMAIN:
