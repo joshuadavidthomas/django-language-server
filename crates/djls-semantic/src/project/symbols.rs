@@ -6,6 +6,8 @@ use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::project::db::Db as ProjectDb;
+use crate::project::inspector;
 use crate::project::inspector::InspectorRequest;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
@@ -174,7 +176,7 @@ pub enum Knowledge {
 }
 
 #[derive(Serialize)]
-pub struct TemplateLibrarySnapshotRequest;
+struct TemplateLibrarySnapshotRequest;
 
 #[derive(Serialize, Deserialize)]
 pub struct TemplateLibrarySnapshot {
@@ -186,6 +188,12 @@ pub struct TemplateLibrarySnapshot {
 impl InspectorRequest for TemplateLibrarySnapshotRequest {
     const NAME: &'static str = "template_libraries";
     type Response = TemplateLibrarySnapshot;
+}
+
+/// Fetch the active template library snapshot for the current project.
+#[must_use]
+pub fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
+    inspector::query(db, &TemplateLibrarySnapshotRequest)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

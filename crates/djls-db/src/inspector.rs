@@ -1,6 +1,4 @@
 use djls_semantic::ProjectDb;
-use djls_semantic::TemplateLibrarySnapshot;
-use djls_semantic::TemplateLibrarySnapshotRequest;
 use salsa::Setter;
 
 /// Populate template libraries from the filesystem cache, if available.
@@ -42,36 +40,12 @@ pub(crate) fn query_inspector_template_libraries(db: &mut dyn ProjectDb) {
         return;
     };
 
-    let inspector = db.inspector();
-
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
     let dsm = project.django_settings_module(db).clone();
     let pythonpath = project.pythonpath(db).clone();
-    let env_vars = project.env_vars(db).clone();
 
-    let response = match inspector.query::<TemplateLibrarySnapshotRequest, TemplateLibrarySnapshot>(
-        &interpreter,
-        &root,
-        dsm.as_deref(),
-        &pythonpath,
-        &env_vars,
-        &TemplateLibrarySnapshotRequest,
-    ) {
-        Ok(response) if response.ok => response.data,
-        Ok(response) => {
-            if let Some(ref error) = response.error {
-                tracing::warn!("query_inspector: inspector failed: {}", error);
-            } else {
-                tracing::warn!("query_inspector: inspector returned an error with no details");
-            }
-            None
-        }
-        Err(e) => {
-            tracing::error!("query_inspector: inspector query failed: {}", e);
-            None
-        }
-    };
+    let response = djls_semantic::fetch_template_library_snapshot(db);
 
     if let Some(ref response) = response {
         djls_semantic::save_template_library_snapshot(
