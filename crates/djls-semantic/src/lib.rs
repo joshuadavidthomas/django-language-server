@@ -104,9 +104,12 @@ pub use specs::tags::TagSpec;
 pub use specs::tags::TagSpecs;
 pub use structure::build_block_tree;
 pub use structure::build_semantic_forest;
+pub use structure::collect_template_folds;
 pub use structure::compute_opaque_regions;
 pub use structure::OpaqueRegions;
 pub use structure::TagIndex;
+pub use structure::TemplateFold;
+pub use structure::TemplateFoldKind;
 pub use validation::TemplateValidator;
 
 /// Validate a Django template file.

@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod folding;
 pub mod forest;
 pub mod grammar;
 pub mod opaque;
@@ -6,6 +7,9 @@ pub mod snapshot;
 pub mod tree;
 
 pub use builder::BlockTreeBuilder;
+pub use folding::collect_template_folds;
+pub use folding::TemplateFold;
+pub use folding::TemplateFoldKind;
 pub use forest::build_semantic_forest;
 pub use grammar::TagIndex;
 pub use opaque::compute_opaque_regions;
