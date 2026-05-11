@@ -1,4 +1,5 @@
 use std::io::Read as _;
+use std::io::Write as _;
 use std::sync::Arc;
 
 use anyhow::bail;
@@ -128,16 +129,25 @@ impl Command for Check {
         let mut error_count: usize = 0;
         let mut file_count: usize = 0;
 
-        for result in &raw_results {
-            let rendered = result.render(&config, &fmt);
-            if !rendered.is_empty() {
-                file_count += 1;
-                if !quiet {
-                    for output in &rendered {
-                        println!("{output}\n");
-                    }
+        if quiet {
+            for result in &raw_results {
+                let count = result.renderable_diagnostic_count(&config);
+                if count > 0 {
+                    file_count += 1;
+                    error_count += count;
                 }
-                error_count += rendered.len();
+            }
+        } else {
+            let mut stdout = std::io::stdout().lock();
+            for result in &raw_results {
+                let rendered = result.render(&config, &fmt);
+                if !rendered.is_empty() {
+                    file_count += 1;
+                    for output in &rendered {
+                        writeln!(stdout, "{output}\n")?;
+                    }
+                    error_count += rendered.len();
+                }
             }
         }
 
@@ -176,14 +186,21 @@ fn check_stdin(
     let db = DjangoDatabase::new(fs, settings, Some(project_root));
 
     let result = check_file_with_source(&db, &stdin_path);
+    if quiet {
+        return if result.renderable_diagnostic_count(config) > 0 {
+            Ok(Exit::error())
+        } else {
+            Ok(Exit::success())
+        };
+    }
+
     let rendered = result.render(config, fmt);
     if rendered.is_empty() {
         Ok(Exit::success())
-    } else if quiet {
-        Ok(Exit::error())
     } else {
+        let mut stdout = std::io::stdout().lock();
         for output in &rendered {
-            println!("{output}\n");
+            writeln!(stdout, "{output}\n")?;
         }
         let count = rendered.len();
         let word = if count == 1 { "error" } else { "errors" };
@@ -194,7 +211,7 @@ fn check_stdin(
 /// Run `check_file` and capture the source text for later rendering.
 fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
     let file = db.get_or_create_file(path);
-    let source = file.source(db).to_string();
+    let source = file.source(db);
     let check = djls_db::check_file(db, file);
 
     FileCheckResult {

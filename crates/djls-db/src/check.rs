@@ -7,6 +7,7 @@ use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
 use djls_source::Severity;
+use djls_source::SourceText;
 use djls_source::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
@@ -47,7 +48,7 @@ pub fn check_file(db: &dyn SemanticDb, file: File) -> CheckResult {
 
     let mut validation_errors: Vec<ValidationError> =
         accumulated.iter().map(|acc| acc.0.clone()).collect();
-    validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
+    validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
 
     CheckResult {
         template_errors,
@@ -59,7 +60,7 @@ pub fn check_file(db: &dyn SemanticDb, file: File) -> CheckResult {
 /// for rendering. Used by both the CLI and benchmarks.
 pub struct FileCheckResult {
     pub path: Utf8PathBuf,
-    pub source: String,
+    pub source: SourceText,
     pub check: CheckResult,
 }
 
@@ -70,8 +71,25 @@ impl FileCheckResult {
     }
 
     #[must_use]
+    pub fn renderable_diagnostic_count(&self, config: &DiagnosticsConfig) -> usize {
+        self.check
+            .template_errors
+            .iter()
+            .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
+            .count()
+            + self
+                .check
+                .validation_errors
+                .iter()
+                .filter(|error| {
+                    diagnostic_is_enabled(config, error.code()) && error.primary_span().is_some()
+                })
+                .count()
+    }
+
+    #[must_use]
     pub fn render(&self, config: &DiagnosticsConfig, fmt: &DiagnosticRenderer) -> Vec<String> {
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(self.renderable_diagnostic_count(config));
         let path = self.path.as_str();
         let source = self.source.as_str();
 
@@ -89,6 +107,10 @@ impl FileCheckResult {
 
         results
     }
+}
+
+fn diagnostic_is_enabled(config: &DiagnosticsConfig, code: &str) -> bool {
+    config.get_severity(code) != djls_conf::DiagnosticSeverity::Off
 }
 
 // `Off` is never reached in practice — both `render_template_error` and

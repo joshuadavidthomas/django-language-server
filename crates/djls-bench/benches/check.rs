@@ -27,7 +27,7 @@ fn main() {
 
 /// Run `check_file` and capture the source for rendering (mirrors CLI pattern).
 fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
-    let source = file.source(db).to_string();
+    let source = file.source(db);
     let path = file.path(db).clone();
     let check = djls_db::check_file(db, file);
 
