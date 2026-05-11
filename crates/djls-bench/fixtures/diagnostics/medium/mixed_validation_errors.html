@@ -1,0 +1,19 @@
+{% load static %}
+
+{% block content %}
+  <section>
+    <h1>{{ title|title:"extra" }}</h1>
+    <p>{{ summary|truncatewords }}</p>
+
+    {% if and user.is_staff %}
+      <a href="{% static %}">Admin</a>
+    {% endif %}
+
+    {% for %}
+      <p>Empty loop arguments.</p>
+    {% endfor %}
+
+    {% unknown_tag %}
+    {{ value|bogus }}
+  </section>
+{% endblock sidebar %}
