@@ -20,6 +20,9 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 ## Testing
 **All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated".
 
+## Generated Content
+- Do not edit text inside cog-generated blocks by hand. Update the source of truth, then run `just cog` to regenerate the block.
+
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
 - Use `camino::Utf8Path`/`Utf8PathBuf` as canonical path types. Convert from `std::path` only at API boundaries.

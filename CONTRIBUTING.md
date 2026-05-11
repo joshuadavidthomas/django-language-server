@@ -276,7 +276,8 @@ Available recipes:
     clippy *ARGS
     corpus *ARGS
     fmt *ARGS
-    lint          # run pre-commit on all files
+    lint *ARGS    # run pre-commit on all files
+    run *ARGS
     test *ARGS
     testall *ARGS
     dev:
