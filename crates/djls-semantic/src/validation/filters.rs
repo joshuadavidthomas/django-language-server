@@ -1,9 +1,9 @@
-use djls_project::Knowledge;
 use djls_templates::Filter;
 use salsa::Accumulator;
 
 use crate::db::Db;
 use crate::specs::filters::FilterAritySpecs;
+use crate::Knowledge;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 

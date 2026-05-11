@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use djls_python::ArgumentCountConstraint;
-use djls_python::ChoiceAt;
-use djls_python::KnownOptions;
-use djls_python::RequiredKeyword;
-use djls_python::SplitPosition;
-use djls_python::TagRule;
 use djls_source::Span;
 
+use crate::ArgumentCountConstraint;
+use crate::ChoiceAt;
+use crate::KnownOptions;
+use crate::RequiredKeyword;
+use crate::SplitPosition;
+use crate::TagRule;
 use crate::ValidationError;
 
 trait Constraint {
@@ -22,7 +22,7 @@ trait Constraint {
 ///
 /// Returns `None` if the position is out of bounds or refers to the tag name
 /// — the argument count constraint should catch those cases.
-fn resolve_position_index(position: &djls_python::SplitPosition, bits_len: usize) -> Option<usize> {
+fn resolve_position_index(position: &crate::SplitPosition, bits_len: usize) -> Option<usize> {
     position.to_bits_index(bits_len)
 }
 
@@ -248,10 +248,9 @@ fn evaluate_known_options(
 
 #[cfg(test)]
 mod tests {
-    use djls_python::AsVar;
-    use djls_python::SplitPosition;
-
     use super::*;
+    use crate::AsVar;
+    use crate::SplitPosition;
 
     fn make_span() -> Span {
         Span::new(0, 10)

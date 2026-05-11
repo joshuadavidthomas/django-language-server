@@ -27,7 +27,7 @@ If you're already familiar with LSP, `crates/djls-server/src/server.rs` is a goo
 
 If you want to understand how templates get parsed, start in `crates/djls-templates/src/` — the lexer and a hand-written recursive descent parser live there.
 
-If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-python/src/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact because I've never come across one (and who says I'll make it out with mine?). It's early and rough, but it's one of the more interesting parts of the project.
+If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-semantic/src/python/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact because I've never come across one (and who says I'll make it out with mine?). It's early and rough, but it's one of the more interesting parts of the project.
 
 If you're interested in how parsing, extraction, and project knowledge come together to give templates *meaning*, start with `crates/djls-semantic/src/lib.rs` — that's where "is this tag valid here?" actually gets answered.
 
@@ -36,6 +36,10 @@ If you're interested in how parsing, extraction, and project knowledge come toge
 All crates live in `crates/`.
 
 Throughout the code map you'll see **Architecture Invariant** callouts. These are constraints we maintain deliberately — things that are true about the code on purpose and that we'd like to keep true.
+
+### `crates/djls`
+
+The CLI binary. It parses command-line arguments, starts the LSP server for `djls serve`, and runs the black-box template validation flow for `djls check`. This is also the only crate that carries the release version; internal library crates use `0.0.0`.
 
 ### `crates/djls-server`
 
@@ -78,29 +82,25 @@ It takes the flat node list from `djls-templates` and does two things:
 All errors go through a `ValidationErrorAccumulator` — the validator never returns errors directly. Callers retrieve them with `validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)`.
 
 This crate also owns:
+- **Project context** — `Project`, interpreter discovery, Django settings, template libraries, module resolution, inspector cache data, and external extraction results
+- **Python static extraction** — Ruff-based analysis of templatetag and model Python source
 - **Load scoping** — tracking which tags and filters are available at each position based on preceding `{% load %}` tags
 - **Template name resolution** — resolving template names to files on disk
-- **Tag specifications** — the merged view of validation rules (extracted by `djls-python`, combined with manual specs) that the validator checks against
+- **Tag specifications** — the merged view of validation rules (extracted from Python source and combined with manual specs) that the validator checks against
+
+`crates/djls-semantic/src/python/` parses Python source into a Ruff AST, then walks it looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators. From the decorated functions it extracts validation rules — argument count constraints, required keywords, `as var` support, block specs, filter arity — by analyzing function signatures, decorators, and `if condition: raise ...` guard patterns.
+
+**Architecture Invariant:** static extraction never imports Django or runs Python. It parses Python source as text with the same Ruff parser that powers the Ruff linter. If a templatetag file is syntactically valid Python, we can analyze it. We don't need a working Django installation, a virtual environment, or even a Python interpreter.
+
+**Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
+
+`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template libraries, and extraction results. This module also owns the Python inspector subprocess (`Inspector`), module resolution, and the `TemplateLibraries` type that holds the combined knowledge from inspector results and environment scanning.
 
 ### `crates/djls-ide`
 
 IDE features: completions, diagnostics, snippets, goto definition, find references. This is the boundary between internal domain knowledge and the outside world — it takes everything the semantic model knows and translates it into LSP-shaped output that editors can consume.
 
-**Architecture Invariant:** `djls-ide` is the translation layer. Everything below it — `djls-semantic`, `djls-templates`, `djls-python`, `djls-source` — is LSP-unaware. `djls-server` does reach into domain crates directly in places (calling `parse_template`, `validate_nodelist`, `compute_loaded_libraries`), so the boundary isn't perfectly clean in that direction yet.
-
-### `crates/djls-python`
-
-Static analysis of Python templatetag files using the [Ruff](https://github.com/astral-sh/ruff) parser. This crate parses Python source into an AST, then walks it looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators. From the decorated functions it extracts validation rules — argument count constraints, required keywords, `as var` support, block specs, filter arity — by analyzing function signatures, decorators, and `if condition: raise ...` guard patterns.
-
-**Architecture Invariant:** this crate never imports Django or runs Python. It parses Python source as text with the same Ruff parser that powers the Ruff linter. If a templatetag file is syntactically valid Python, we can analyze it. We don't need a working Django installation, a virtual environment, or even a Python interpreter.
-
-**Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
-
-### `crates/djls-project`
-
-Project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template libraries, and extraction results.
-
-This crate owns the Python inspector subprocess (`Inspector`), module resolution, and template library discovery. It also defines the `TemplateLibraries` type that holds the combined knowledge from inspector results and environment scanning.
+**Architecture Invariant:** `djls-ide` is the translation layer. Everything below it — `djls-semantic`, `djls-templates`, `djls-source` — is LSP-unaware. `djls-server` does reach into domain crates directly in places (calling `parse_template`, `validate_nodelist`, `compute_loaded_libraries`), so the boundary isn't perfectly clean in that direction yet.
 
 ### `crates/djls-source`
 
@@ -132,7 +132,7 @@ salsa::Database
 │   ├── WorkspaceDb   (djls-workspace) — file system access (overlay → disk)
 │   └── TemplateDb    (djls-templates) — marker trait for template parsing context
 │       └── SemanticDb (djls-semantic) — tag specs, filter specs, template libraries, diagnostics config
-└── ProjectDb         (djls-project)   — project input, inspector access
+└── ProjectDb         (djls-semantic)  — project input, inspector access
 ```
 
 Note the two independent roots: `SourceDb` and `ProjectDb` both extend `salsa::Database` directly. `TemplateDb` extends `SourceDb` (not `WorkspaceDb`) — it needs file access but not the overlay filesystem.
@@ -148,7 +148,7 @@ Note the two independent roots: `SourceDb` and `ProjectDb` both extend `salsa::D
 
 The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, templatetag libraries, and the symbols they export. A Python subprocess currently provides this.
 
-A small Python program (`python/dist/djls_inspector.pyz`) ships embedded in the binary as a zipapp. At startup the server writes it to a temp file and runs it against the project's Python interpreter with Django configured. The inspector queries Django's template engine registry and returns JSON describing installed libraries and their symbols.
+A small Python program from `crates/djls-semantic/inspector/` ships embedded in the binary as a zipapp. At startup the server writes it to a temp file and runs it against the project's Python interpreter with Django configured. The inspector queries Django's template engine registry and returns JSON describing installed libraries and their symbols.
 
 Startup uses two phases to avoid blocking the editor:
 
@@ -161,7 +161,7 @@ This means that in the common case (you've opened this project before and the en
 
 The inspector reports *what* tags and filters exist. But to actually validate usage — "does this tag accept these arguments?" — the server needs to know *how* each tag and filter works. Django's template engine answers this question at runtime, by calling the tag's compilation function and seeing what happens. We don't have a runtime.
 
-Instead, `djls-python` parses templatetag Python source files with the Ruff parser and extracts validation rules directly from the AST. It walks each module looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators, then analyzes the decorated function's signature, decorators, and `if condition: raise ...` guard patterns to infer:
+Instead, `djls-semantic` parses templatetag Python source files with the Ruff parser and extracts validation rules directly from the AST. It walks each module looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators, then analyzes the decorated function's signature, decorators, and `if condition: raise ...` guard patterns to infer:
 
 - **Tag rules** — argument count constraints (min/max positional args), required keywords, choice-constrained positions, `as var` support, block specs (which intermediate and end tags a block tag expects)
 - **Filter arity** — whether a filter requires an argument, accepts one optionally, or takes none

@@ -776,8 +776,6 @@ dependencies = [
  "djls-corpus",
  "djls-db",
  "djls-ide",
- "djls-project",
- "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -825,8 +823,6 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
- "djls-project",
- "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -845,7 +841,6 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
- "djls-project",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -855,16 +850,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "djls-project"
+name = "djls-semantic"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "camino",
  "djls-conf",
- "djls-python",
+ "djls-corpus",
  "djls-source",
+ "djls-templates",
+ "djls-workspace",
  "dotenvy",
  "ignore",
+ "insta",
+ "ruff_python_ast",
+ "ruff_python_parser",
  "rustc-hash",
  "salsa",
  "serde",
@@ -877,45 +877,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "djls-python"
-version = "0.0.0"
-dependencies = [
- "camino",
- "djls-corpus",
- "djls-source",
- "insta",
- "ruff_python_ast",
- "ruff_python_parser",
- "rustc-hash",
- "salsa",
- "serde",
- "tempfile",
-]
-
-[[package]]
-name = "djls-semantic"
-version = "0.0.0"
-dependencies = [
- "camino",
- "djls-conf",
- "djls-corpus",
- "djls-project",
- "djls-python",
- "djls-source",
- "djls-templates",
- "djls-workspace",
- "ignore",
- "insta",
- "rustc-hash",
- "salsa",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "djls-server"
 version = "0.0.0"
 dependencies = [
@@ -925,7 +886,6 @@ dependencies = [
  "djls-conf",
  "djls-db",
  "djls-ide",
- "djls-project",
  "djls-semantic",
  "djls-source",
  "djls-templates",

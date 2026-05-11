@@ -1,17 +1,17 @@
 use camino::Utf8PathBuf;
-use djls_project::Db as ProjectDb;
-use djls_project::ResolvedModule;
-use djls_python::ExtractionResult;
-use djls_python::ModelGraph;
-use djls_python::ModulePath;
+use djls_semantic::ExtractionResult;
+use djls_semantic::ModelGraph;
+use djls_semantic::ModulePath;
+use djls_semantic::ProjectDb;
+use djls_semantic::ResolvedModule;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use salsa::Setter;
 
 /// Read discovered model files and extract model graphs.
 ///
-/// Takes a list of `(module_path, file_path)` pairs (produced by a discovery
-/// function in `djls-project`) and returns a map of module path to extracted
+/// Takes a list of `(module_path, file_path)` pairs (produced by semantic
+/// module discovery) and returns a map of module path to extracted
 /// model graph, skipping files that fail to read or produce empty graphs.
 fn extract_models_from_files(
     files: &[(ModulePath, Utf8PathBuf)],
@@ -27,7 +27,7 @@ fn extract_models_from_files(
             }
         };
 
-        let graph = djls_python::extract_model_graph(&source, module_path.as_str());
+        let graph = djls_semantic::extract_model_graph(&source, module_path.as_str());
         if !graph.is_empty() {
             results.insert(module_path.clone(), graph);
         }
@@ -46,7 +46,7 @@ fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String,
     for resolved in modules {
         match std::fs::read_to_string(resolved.file_path.as_std_path()) {
             Ok(source) => {
-                let module_result = djls_python::extract_rules(&source, &resolved.module_path);
+                let module_result = djls_semantic::extract_rules(&source, &resolved.module_path);
                 if !module_result.is_empty() {
                     results.insert(resolved.module_path, module_result);
                 }
@@ -75,9 +75,9 @@ pub(crate) fn scan_external_models(db: &mut dyn ProjectDb) {
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
 
-    let new_models = match djls_project::find_site_packages(&interpreter, &root) {
+    let new_models = match djls_semantic::find_site_packages(&interpreter, &root) {
         Some(site_packages) => {
-            let files = djls_project::discover_model_files_in_dir(&site_packages);
+            let files = djls_semantic::discover_model_files_in_dir(&site_packages);
             extract_models_from_files(&files)
         }
         None => FxHashMap::default(),
@@ -112,9 +112,12 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
     let new_extraction = if modules.is_empty() {
         FxHashMap::default()
     } else {
-        let search_paths = djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-        let (_workspace, external_modules) =
-            djls_project::resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
+        let search_paths = djls_semantic::build_search_paths(&interpreter, &root, &pythonpath);
+        let (_workspace, external_modules) = djls_semantic::resolve_modules(
+            modules.iter().map(String::as_str),
+            &search_paths,
+            &root,
+        );
         extract_rules_from_modules(external_modules)
     };
 
@@ -148,7 +151,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = djls_project::discover_model_files_in_dir(&root);
+        let files = djls_semantic::discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
@@ -164,7 +167,7 @@ class Article(models.Model):
         std::fs::create_dir_all(&app_dir).unwrap();
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let files = djls_project::discover_model_files_in_dir(&root);
+        let files = djls_semantic::discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert!(results.is_empty());
     }
@@ -187,7 +190,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let files = djls_project::discover_model_files_in_dir(&root);
+        let files = djls_semantic::discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
@@ -217,7 +220,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = djls_project::discover_model_files_in_dir(&root);
+        let files = djls_semantic::discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
@@ -242,7 +245,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = djls_project::discover_model_files_in_dir(&root);
+        let files = djls_semantic::discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert!(
             results.contains_key("myapp.models.base.abstract"),

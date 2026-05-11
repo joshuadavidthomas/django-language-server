@@ -1,6 +1,6 @@
-use djls_project::Db as ProjectDb;
-use djls_project::TemplateLibrariesRequest;
-use djls_project::TemplateLibrariesResponse;
+use djls_semantic::ProjectDb;
+use djls_semantic::TemplateLibrariesRequest;
+use djls_semantic::TemplateLibrariesResponse;
 use salsa::Setter;
 
 /// Populate template libraries from the filesystem cache, if available.
@@ -19,7 +19,7 @@ pub fn load_inspector_cache(db: &mut dyn ProjectDb) -> bool {
     let dsm = project.django_settings_module(db).clone();
     let pythonpath = project.pythonpath(db).clone();
 
-    let Some(response) = djls_project::load_cached_inspector_response(
+    let Some(response) = djls_semantic::load_cached_inspector_response(
         &root,
         &interpreter,
         dsm.as_deref(),
@@ -75,7 +75,7 @@ pub(crate) fn query_inspector_template_libraries(db: &mut dyn ProjectDb) {
     };
 
     if let Some(ref response) = response {
-        djls_project::save_inspector_response(
+        djls_semantic::save_inspector_response(
             &root,
             &interpreter,
             dsm.as_deref(),

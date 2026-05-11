@@ -7,9 +7,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_project::InspectorLibrarySymbol;
-use djls_project::TemplateLibraries;
-use djls_project::TemplateLibrariesResponse;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -21,8 +18,11 @@ use djls_workspace::InMemoryFileSystem;
 
 use crate::specs::tags::builtin_tag_specs;
 use crate::FilterAritySpecs;
+use crate::InspectorLibrarySymbol;
 use crate::TagIndex;
 use crate::TagSpecs;
+use crate::TemplateLibraries;
+use crate::TemplateLibrariesResponse;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
@@ -217,8 +217,8 @@ impl crate::Db for TestDatabase {
         &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> &djls_python::ModelGraph {
-        djls_python::ModelGraph::empty_ref()
+    fn model_graph(&self) -> &crate::ModelGraph {
+        crate::ModelGraph::empty_ref()
     }
 }
 
@@ -291,7 +291,7 @@ pub(crate) fn extract_and_merge(
         };
 
         let module_path = module_path_from_file(file_path);
-        let result = djls_python::extract_rules(&source, &module_path);
+        let result = crate::extract_rules(&source, &module_path);
         arities.merge_extraction_result(&result);
         specs.merge_extraction_results(&result);
     }

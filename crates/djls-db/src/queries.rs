@@ -1,8 +1,8 @@
-use djls_project::build_search_paths;
-use djls_project::Project;
-use djls_python::ModelGraph;
-use djls_python::ModulePath;
+use djls_semantic::build_search_paths;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::ModelGraph;
+use djls_semantic::ModulePath;
+use djls_semantic::Project;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 
@@ -124,7 +124,7 @@ fn collect_workspace_models(
 ) -> Vec<(ModulePath, ModelGraph)> {
     let root = project.root(db);
 
-    let model_files = djls_project::discover_workspace_model_files(root);
+    let model_files = djls_semantic::discover_workspace_model_files(root);
     if model_files.is_empty() {
         return Vec::new();
     }
@@ -135,7 +135,7 @@ fn collect_workspace_models(
         let file = db.get_or_create_file(&file_path);
         let source = file.source(db);
 
-        let graph = djls_python::extract_model_graph(source.as_ref(), module_path.as_str());
+        let graph = djls_semantic::extract_model_graph(source.as_ref(), module_path.as_str());
         if !graph.is_empty() {
             results.push((module_path, graph));
         }
@@ -149,7 +149,7 @@ fn collect_workspace_models(
 /// This tracked query:
 /// 1. Gets registration modules from inspector inventory
 /// 2. Resolves workspace modules to `File` inputs via `get_or_create_file`
-/// 3. Extracts rules from each (via tracked `djls_python::extract_module`)
+/// 3. Extracts rules from each (via tracked `djls_semantic::extract_module`)
 ///
 /// External modules are handled separately (cached on `Project` field,
 /// updated by `refresh_external_data`). This function only processes workspace
@@ -158,7 +158,7 @@ fn collect_workspace_models(
 fn collect_workspace_extraction_results(
     db: &dyn SemanticDb,
     project: Project,
-) -> Vec<(String, djls_python::ExtractionResult)> {
+) -> Vec<(String, djls_semantic::ExtractionResult)> {
     let template_libraries = project.template_libraries(db);
     let interpreter = project.interpreter(db);
     let root = project.root(db);
@@ -176,14 +176,17 @@ fn collect_workspace_extraction_results(
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
-    let (workspace_modules, _external) =
-        djls_project::resolve_modules(module_paths.iter().map(String::as_str), &search_paths, root);
+    let (workspace_modules, _external) = djls_semantic::resolve_modules(
+        module_paths.iter().map(String::as_str),
+        &search_paths,
+        root,
+    );
 
     let mut results = Vec::new();
 
     for resolved in workspace_modules {
         let file = db.get_or_create_file(&resolved.file_path);
-        let mut extraction = djls_python::extract_module(db, file);
+        let mut extraction = djls_semantic::extract_module(db, file);
 
         if !extraction.is_empty() {
             extraction.rekey_module(&resolved.module_path);

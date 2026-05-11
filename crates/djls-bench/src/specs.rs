@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use djls_project::InspectorLibrarySymbol;
-use djls_project::TemplateLibraries;
-use djls_project::TemplateLibrariesResponse;
-use djls_project::TemplateSymbolKind;
-use djls_python::FilterArity;
-use djls_python::SymbolKey;
+use djls_semantic::FilterArity;
 use djls_semantic::FilterAritySpecs;
+use djls_semantic::InspectorLibrarySymbol;
+use djls_semantic::SymbolKey;
 use djls_semantic::TagSpecs;
+use djls_semantic::TemplateLibraries;
+use djls_semantic::TemplateLibrariesResponse;
+use djls_semantic::TemplateSymbolKind;
 
 use crate::Db;
 
@@ -110,7 +110,7 @@ fn build_inspector_symbols() -> Vec<InspectorLibrarySymbol> {
 
 fn build_filter_arities(
     defaultfilters: &str,
-    extraction: &djls_python::ExtractionResult,
+    extraction: &djls_semantic::ExtractionResult,
 ) -> FilterAritySpecs {
     let mut specs = FilterAritySpecs::new();
     specs.merge_extraction_result(extraction);
@@ -166,12 +166,12 @@ fn build_realistic_specs() -> RealisticSpecs {
     let defaulttags_source = std::fs::read_to_string(fixture_root.join("large/defaulttags.py"))
         .unwrap_or_else(|err| panic!("failed to load defaulttags.py fixture: {err}"));
 
-    let mut extraction = djls_python::extract_rules(&defaulttags_source, DEFAULTTAGS);
+    let mut extraction = djls_semantic::extract_rules(&defaulttags_source, DEFAULTTAGS);
     tag_specs.merge_extraction_results(&extraction);
 
     let i18n_source = std::fs::read_to_string(fixture_root.join("medium/i18n.py"))
         .unwrap_or_else(|err| panic!("failed to load i18n.py fixture: {err}"));
-    let i18n_extraction = djls_python::extract_rules(&i18n_source, I18N);
+    let i18n_extraction = djls_semantic::extract_rules(&i18n_source, I18N);
     tag_specs.merge_extraction_results(&i18n_extraction);
     extraction.merge(i18n_extraction);
 

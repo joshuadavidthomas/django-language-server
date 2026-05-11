@@ -1,13 +1,13 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_project::TemplateLibraries;
-use djls_python::ModelGraph;
 use djls_templates::Db as TemplateDb;
 
 use crate::errors::ValidationError;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
 use crate::structure::TagIndex;
+use crate::ModelGraph;
+use crate::TemplateLibraries;
 
 #[salsa::db]
 pub trait Db: TemplateDb {

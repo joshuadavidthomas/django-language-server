@@ -12,7 +12,7 @@ pub(crate) fn check_tag_arguments_rule(
     name: &str,
     bits: &[String],
     span: Span,
-    rules: &djls_python::TagRule,
+    rules: &crate::TagRule,
 ) {
     let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
     for error in evaluate_tag_rules(name, bits, rules, marker_span) {

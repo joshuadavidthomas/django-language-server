@@ -107,13 +107,10 @@ impl TagSpecs {
     /// Block specs from extraction override existing end-tag/intermediate info.
     /// This enriches the handcoded `builtins.rs` defaults with information
     /// extracted from actual Python source code.
-    pub fn merge_extraction_results(
-        &mut self,
-        extraction: &djls_python::ExtractionResult,
-    ) -> &mut Self {
+    pub fn merge_extraction_results(&mut self, extraction: &crate::ExtractionResult) -> &mut Self {
         // Merge block specs (end tags, intermediates, opaque)
         for (key, block_spec) in &extraction.block_specs {
-            if key.kind != djls_python::SymbolKind::Tag {
+            if key.kind != crate::SymbolKind::Tag {
                 continue;
             }
             if let Some(spec) = self.0.get_mut(&key.name) {
@@ -168,7 +165,7 @@ impl TagSpecs {
 
         // Merge tag rules (argument validation constraints from extraction)
         for (key, tag_rule) in &extraction.tag_rules {
-            if key.kind != djls_python::SymbolKind::Tag {
+            if key.kind != crate::SymbolKind::Tag {
                 continue;
             }
 
@@ -266,13 +263,13 @@ impl TagSpecs {
                 let extracted_rules = if tag_def.args.is_empty() {
                     None
                 } else {
-                    use djls_python::ArgumentCountConstraint;
-                    use djls_python::ChoiceAt;
-                    use djls_python::ExtractedArg;
-                    use djls_python::ExtractedArgKind;
-                    use djls_python::RequiredKeyword;
-                    use djls_python::SplitPosition;
-                    use djls_python::TagRule;
+                    use crate::ArgumentCountConstraint;
+                    use crate::ChoiceAt;
+                    use crate::ExtractedArg;
+                    use crate::ExtractedArgKind;
+                    use crate::RequiredKeyword;
+                    use crate::SplitPosition;
+                    use crate::TagRule;
 
                     let mut rule = TagRule::default();
 
@@ -415,7 +412,7 @@ pub struct TagSpec {
     ///
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `extracted_args`.
-    pub extracted_rules: Option<djls_python::TagRule>,
+    pub extracted_rules: Option<crate::TagRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -436,17 +433,13 @@ pub struct CompletionArg {
 }
 
 impl CompletionArg {
-    fn from_extracted(arg: &djls_python::ExtractedArg) -> Self {
+    fn from_extracted(arg: &crate::ExtractedArg) -> Self {
         let kind = match &arg.kind {
-            djls_python::ExtractedArgKind::Literal(value) => {
-                CompletionArgKind::Literal(value.clone())
-            }
-            djls_python::ExtractedArgKind::Choice(values) => {
-                CompletionArgKind::Choice(values.clone())
-            }
-            djls_python::ExtractedArgKind::Variable => CompletionArgKind::Variable,
-            djls_python::ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
-            djls_python::ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
+            crate::ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
+            crate::ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
+            crate::ExtractedArgKind::Variable => CompletionArgKind::Variable,
+            crate::ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
+            crate::ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
         };
 
         Self {
@@ -457,16 +450,16 @@ impl CompletionArg {
         }
     }
 
-    fn into_extracted(self) -> djls_python::ExtractedArg {
+    fn into_extracted(self) -> crate::ExtractedArg {
         let kind = match self.kind {
-            CompletionArgKind::Literal(value) => djls_python::ExtractedArgKind::Literal(value),
-            CompletionArgKind::Choice(values) => djls_python::ExtractedArgKind::Choice(values),
-            CompletionArgKind::Variable => djls_python::ExtractedArgKind::Variable,
-            CompletionArgKind::Keyword => djls_python::ExtractedArgKind::Keyword,
-            CompletionArgKind::VarArgs => djls_python::ExtractedArgKind::VarArgs,
+            CompletionArgKind::Literal(value) => crate::ExtractedArgKind::Literal(value),
+            CompletionArgKind::Choice(values) => crate::ExtractedArgKind::Choice(values),
+            CompletionArgKind::Variable => crate::ExtractedArgKind::Variable,
+            CompletionArgKind::Keyword => crate::ExtractedArgKind::Keyword,
+            CompletionArgKind::VarArgs => crate::ExtractedArgKind::VarArgs,
         };
 
-        djls_python::ExtractedArg {
+        crate::ExtractedArg {
             name: self.name,
             required: self.required,
             kind,
@@ -893,10 +886,10 @@ mod tests {
         assert!(specs.get("if").unwrap().end_tag.is_some());
         assert_eq!(specs.get("if").unwrap().intermediate_tags.len(), 2);
 
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = crate::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_python::SymbolKey::tag("django.template.defaulttags", "if"),
-            djls_python::BlockSpec {
+            crate::SymbolKey::tag("django.template.defaulttags", "if"),
+            crate::BlockSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 opaque: false,
@@ -919,10 +912,10 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = crate::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_python::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
-            djls_python::BlockSpec {
+            crate::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
+            crate::BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
                 opaque: false,
@@ -947,10 +940,10 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = crate::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_python::SymbolKey::filter("module", "lower"),
-            djls_python::BlockSpec {
+            crate::SymbolKey::filter("module", "lower"),
+            crate::BlockSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -967,7 +960,7 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let extraction = djls_python::ExtractionResult::default();
+        let extraction = crate::ExtractionResult::default();
         specs.merge_extraction_results(&extraction);
         assert_eq!(specs.len(), original_count);
     }
@@ -976,28 +969,28 @@ mod tests {
     fn test_merge_extraction_results_stores_rules() {
         let mut specs = create_test_specs();
 
-        let mut extraction = djls_python::ExtractionResult::default();
+        let mut extraction = crate::ExtractionResult::default();
         extraction.tag_rules.insert(
-            djls_python::SymbolKey::tag("django.template.defaulttags", "for"),
-            djls_python::TagRule {
-                arg_constraints: vec![djls_python::ArgumentCountConstraint::Min(4)],
+            crate::SymbolKey::tag("django.template.defaulttags", "for"),
+            crate::TagRule {
+                arg_constraints: vec![crate::ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
-                    djls_python::ExtractedArg {
+                    crate::ExtractedArg {
                         name: "item".to_string(),
                         required: true,
-                        kind: djls_python::ExtractedArgKind::Variable,
+                        kind: crate::ExtractedArgKind::Variable,
                         position: 0,
                     },
-                    djls_python::ExtractedArg {
+                    crate::ExtractedArg {
                         name: "in".to_string(),
                         required: true,
-                        kind: djls_python::ExtractedArgKind::Literal("in".to_string()),
+                        kind: crate::ExtractedArgKind::Literal("in".to_string()),
                         position: 1,
                     },
-                    djls_python::ExtractedArg {
+                    crate::ExtractedArg {
                         name: "iterable".to_string(),
                         required: true,
-                        kind: djls_python::ExtractedArgKind::Variable,
+                        kind: crate::ExtractedArgKind::Variable,
                         position: 2,
                     },
                 ],
