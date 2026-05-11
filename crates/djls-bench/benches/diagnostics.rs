@@ -1,8 +1,10 @@
 use divan::Bencher;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
+use djls_bench::validation_error_fixtures;
 use djls_bench::Db;
 use djls_bench::TemplateFixture;
+use djls_bench::ValidationErrorFixture;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::Severity;
@@ -36,10 +38,8 @@ static MANY_ERRORS_SOURCE: &str = concat!(
     "{% block a %}{% endblock b %}\n",
 );
 
-#[divan::bench]
-fn render_single_span(bencher: Bencher) {
-    let renderer = DiagnosticRenderer::plain();
-    let diag = Diagnostic::new(
+fn single_span_diagnostic() -> Diagnostic<'static> {
+    Diagnostic::new(
         SINGLE_SPAN_SOURCE,
         "templates/page.html",
         "S100",
@@ -47,17 +47,11 @@ fn render_single_span(bencher: Bencher) {
         Severity::Error,
         span_of(SINGLE_SPAN_SOURCE, "{% block content %}"),
         "this block tag is never closed",
-    );
-
-    bencher.bench_local(move || {
-        divan::black_box(renderer.render(&diag));
-    });
+    )
 }
 
-#[divan::bench]
-fn render_multi_span(bencher: Bencher) {
-    let renderer = DiagnosticRenderer::plain();
-    let diag = Diagnostic::new(
+fn multi_span_diagnostic() -> Diagnostic<'static> {
+    Diagnostic::new(
         MULTI_SPAN_SOURCE,
         "templates/layout.html",
         "S103",
@@ -70,7 +64,23 @@ fn render_multi_span(bencher: Bencher) {
         span_of(MULTI_SPAN_SOURCE, "{% block sidebar %}"),
         "opening tag is 'sidebar'",
         false,
-    );
+    )
+}
+
+#[divan::bench]
+fn render_single_span(bencher: Bencher) {
+    let renderer = DiagnosticRenderer::plain();
+    let diag = single_span_diagnostic();
+
+    bencher.bench_local(move || {
+        divan::black_box(renderer.render(&diag));
+    });
+}
+
+#[divan::bench]
+fn render_multi_span(bencher: Bencher) {
+    let renderer = DiagnosticRenderer::plain();
+    let diag = multi_span_diagnostic();
 
     bencher.bench_local(move || {
         divan::black_box(renderer.render(&diag));
@@ -80,18 +90,27 @@ fn render_multi_span(bencher: Bencher) {
 #[divan::bench]
 fn render_styled_single_span(bencher: Bencher) {
     let renderer = DiagnosticRenderer::styled();
-    let diag = Diagnostic::new(
-        SINGLE_SPAN_SOURCE,
-        "templates/page.html",
-        "S100",
-        "Unclosed tag: block",
-        Severity::Error,
-        span_of(SINGLE_SPAN_SOURCE, "{% block content %}"),
-        "this block tag is never closed",
-    );
+    let diag = single_span_diagnostic();
 
     bencher.bench_local(move || {
         divan::black_box(renderer.render(&diag));
+    });
+}
+
+#[divan::bench]
+fn render_synthetic_diagnostics_repeated(bencher: Bencher) {
+    let plain = DiagnosticRenderer::plain();
+    let styled = DiagnosticRenderer::styled();
+    let diagnostics = [single_span_diagnostic(), multi_span_diagnostic()];
+
+    bencher.bench_local(move || {
+        let mut total = 0;
+        for _ in 0..100 {
+            total += plain.render(&diagnostics[0]).len();
+            total += plain.render(&diagnostics[1]).len();
+            total += styled.render(&diagnostics[0]).len();
+        }
+        divan::black_box(total);
     });
 }
 
@@ -183,26 +202,75 @@ fn collect_diagnostics_incremental(bencher: Bencher, fixture: &TemplateFixture) 
 
 // Render validation errors from real templates (realistic db)
 
-#[divan::bench(args = template_fixtures())]
-fn render_validation_errors(bencher: Bencher, fixture: &TemplateFixture) {
+struct ValidationRenderFixture<'a> {
+    source: &'a str,
+    path: &'a str,
+    check: djls_db::CheckResult,
+}
+
+fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRenderFixture<'_> {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-
     let check = djls_db::check_file(&db, file);
+    assert!(
+        !check.validation_errors.is_empty(),
+        "validation error rendering fixture '{}' produced no validation errors",
+        fixture.label,
+    );
 
+    ValidationRenderFixture {
+        source: &fixture.source,
+        path: fixture.path.as_str(),
+        check,
+    }
+}
+
+#[divan::bench(args = validation_error_fixtures())]
+fn render_validation_errors(bencher: Bencher, fixture: &ValidationErrorFixture) {
+    let fixture = validation_render_fixture(fixture);
     let config = djls_conf::DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        for error in &check.validation_errors {
+        for error in &fixture.check.validation_errors {
             divan::black_box(djls_db::render_validation_error(
-                &fixture.source,
-                fixture.path.as_str(),
+                fixture.source,
+                fixture.path,
                 error,
                 &config,
                 &renderer,
             ));
         }
+    });
+}
+
+#[divan::bench]
+fn render_validation_errors_batch(bencher: Bencher) {
+    let fixtures: Vec<_> = validation_error_fixtures()
+        .iter()
+        .map(validation_render_fixture)
+        .collect();
+    let config = djls_conf::DiagnosticsConfig::default();
+    let renderer = DiagnosticRenderer::plain();
+
+    bencher.bench_local(move || {
+        let mut rendered_count = 0;
+        for fixture in &fixtures {
+            for error in &fixture.check.validation_errors {
+                if djls_db::render_validation_error(
+                    fixture.source,
+                    fixture.path,
+                    error,
+                    &config,
+                    &renderer,
+                )
+                .is_some()
+                {
+                    rendered_count += 1;
+                }
+            }
+        }
+        divan::black_box(rendered_count);
     });
 }
 
@@ -214,6 +282,10 @@ fn render_many_synthetic_errors(bencher: Bencher) {
     let file = db.file_with_contents("bench.html".into(), MANY_ERRORS_SOURCE);
 
     let check = djls_db::check_file(&db, file);
+    assert!(
+        !check.validation_errors.is_empty(),
+        "synthetic validation error benchmark produced no validation errors",
+    );
 
     let config = djls_conf::DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();

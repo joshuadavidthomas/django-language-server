@@ -94,7 +94,8 @@ fn load_corpus_inner(
     }
 
     let corpus = djls_corpus::Corpus::require();
-    let template_paths = get_paths(&corpus)?;
+    let mut template_paths = get_paths(&corpus)?;
+    template_paths.sort();
 
     let files: Vec<(Utf8PathBuf, String)> = template_paths
         .into_iter()

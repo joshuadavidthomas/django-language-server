@@ -31,6 +31,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - Bumped Rust toolchain from 1.93 to 1.95.
+- **Internal**: Stabilized benchmarks with sized diagnostics fixtures, repeated microbench companions, validation-rendering contract assertions, and deterministic corpus input ordering.
 - Changed `djls serve` terminal warning output to plain text without decorative separator lines.
 - **Internal**: Consolidated `djls-project` and `djls-python` into `djls-semantic` as the unified Django semantic model.
 - **Internal**: Renamed template library snapshot types and cache APIs around backend-neutral semantic snapshots instead of inspector responses.

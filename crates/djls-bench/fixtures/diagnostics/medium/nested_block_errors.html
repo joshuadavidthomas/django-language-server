@@ -1,0 +1,14 @@
+{% block layout %}
+  <main>
+    {% block content %}
+      {% if and object %}
+        <article>
+          <h2>{{ object.name|title:"extra" }}</h2>
+          {% block card %}
+            {{ object.description|truncatewords }}
+          {% endblock panel %}
+        </article>
+      {% endif %}
+    {% endblock body %}
+  </main>
+{% endblock shell %}

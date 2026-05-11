@@ -96,6 +96,38 @@ fn resolve_relation(bencher: Bencher) {
     });
 }
 
+#[divan::bench]
+fn resolve_relations_repeated(bencher: Bencher) {
+    let graph = auth_graph();
+    let forward_queries = [
+        ("Permission", "content_type"),
+        ("Group", "permissions"),
+        ("User", "groups"),
+    ];
+    let reverse_queries = ["Group", "Permission", "ContentType"];
+    let relation_queries = [
+        ("Group", "user_set"),
+        ("Permission", "group_set"),
+        ("Permission", "user_set"),
+    ];
+
+    bencher.bench_local(|| {
+        let mut resolved = 0;
+        for _ in 0..100 {
+            for (model, field) in forward_queries {
+                resolved += usize::from(graph.resolve_forward(model, field).is_some());
+            }
+            for model in reverse_queries {
+                resolved += graph.resolve_reverse(model).count();
+            }
+            for (model, relation) in relation_queries {
+                resolved += usize::from(graph.resolve_relation(model, relation).is_some());
+            }
+        }
+        divan::black_box(resolved);
+    });
+}
+
 // Corpus-scale: extract all models.py from Django, then from the full corpus
 
 struct CorpusModels {
@@ -110,7 +142,8 @@ fn load_corpus_models_inner(
     }
 
     let corpus = djls_corpus::Corpus::require();
-    let paths = get_paths(&corpus)?;
+    let mut paths = get_paths(&corpus)?;
+    paths.sort();
 
     let files: Vec<(String, String)> = paths
         .into_iter()
