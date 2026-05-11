@@ -12,6 +12,7 @@ pub use collections::FxDashSet;
 pub use db::Db;
 pub use file::File;
 pub use file::FileKind;
+pub use file::SourceText;
 pub use line::LineIndex;
 pub use path::safe_join;
 pub use path::SafeJoinError;
