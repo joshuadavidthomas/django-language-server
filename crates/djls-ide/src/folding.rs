@@ -9,10 +9,16 @@ use crate::ext::FoldingRangeKindExt;
 use crate::ext::SpanExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Fold {
-    Region(Span),
-    Comment(Span),
-    Imports(Span),
+pub(crate) enum FoldKind {
+    Region,
+    Comment,
+    Imports { starts_with_extends: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FoldSpan {
+    span: Span,
+    kind: FoldKind,
 }
 
 #[must_use]
@@ -35,22 +41,22 @@ pub fn collect_folding_ranges(
     let nodes = nodelist.nodelist(db);
     for node in nodes {
         if let Node::Comment { .. } = node {
-            folds.push(Fold::Comment(node.full_span()));
+            folds.push(FoldSpan {
+                span: node.full_span(),
+                kind: FoldKind::Comment,
+            });
         }
     }
     collect_import_folds(nodes, file.source(db).as_str(), &mut folds);
 
-    folds.sort_by_key(|fold| {
-        let span = fold.span();
-        (span.start(), span.end(), fold.kind_key())
-    });
+    folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
     folds.dedup();
 
     let line_index = file.line_index(db);
     folds
         .into_iter()
         .filter_map(|fold| {
-            let range = fold.span().to_lsp_range(line_index);
+            let range = fold.span.to_lsp_range(line_index);
 
             if range.start.line >= range.end.line {
                 return None;
@@ -61,14 +67,14 @@ pub fn collect_folding_ranges(
                 start_character: Some(range.start.character),
                 end_line: range.end.line,
                 end_character: Some(range.end.character),
-                kind: Some(fold.to_lsp_kind()),
+                kind: Some(fold.kind.to_lsp_kind()),
                 collapsed_text: None,
             })
         })
         .collect()
 }
 
-fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<Fold>) {
+fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
     let SemanticNode::Tag {
         marker_span,
         segments,
@@ -79,7 +85,10 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<Fold>) {
     };
 
     if let Some(span) = fold_span(*marker_span, segments) {
-        folds.push(fold_for_node(node, span));
+        folds.push(FoldSpan {
+            span,
+            kind: fold_kind(node),
+        });
     }
 
     for segment in segments {
@@ -89,14 +98,14 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<Fold>) {
     }
 }
 
-fn fold_for_node(node: &SemanticNode, span: Span) -> Fold {
+fn fold_kind(node: &SemanticNode) -> FoldKind {
     match node {
-        SemanticNode::Tag { name, .. } if name == "comment" => Fold::Comment(span),
-        SemanticNode::Tag { .. } | SemanticNode::Leaf { .. } => Fold::Region(span),
+        SemanticNode::Tag { name, .. } if name == "comment" => FoldKind::Comment,
+        SemanticNode::Tag { .. } | SemanticNode::Leaf { .. } => FoldKind::Region,
     }
 }
 
-fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<Fold>) {
+fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
     let mut import = PendingImport::Empty;
 
     for node in nodes {
@@ -121,8 +130,14 @@ fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<Fold>) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PendingImport {
     Empty,
-    Extends { start: u32 },
-    Imports { start: u32, end: u32 },
+    Extends {
+        start: u32,
+    },
+    Imports {
+        start: u32,
+        end: u32,
+        starts_with_extends: bool,
+    },
 }
 
 impl PendingImport {
@@ -132,13 +147,32 @@ impl PendingImport {
             Self::Empty => Self::Imports {
                 start: span.start(),
                 end,
+                starts_with_extends: false,
             },
-            Self::Extends { start } | Self::Imports { start, .. } => Self::Imports { start, end },
+            Self::Extends { start } => Self::Imports {
+                start,
+                end,
+                starts_with_extends: true,
+            },
+            Self::Imports {
+                start,
+                starts_with_extends,
+                ..
+            } => Self::Imports {
+                start,
+                end,
+                starts_with_extends,
+            },
         };
     }
 
-    fn push(&mut self, folds: &mut Vec<Fold>) {
-        let Self::Imports { start, end } = *self else {
+    fn push(&mut self, folds: &mut Vec<FoldSpan>) {
+        let Self::Imports {
+            start,
+            end,
+            starts_with_extends,
+        } = *self
+        else {
             *self = Self::Empty;
             return;
         };
@@ -149,10 +183,12 @@ impl PendingImport {
             return;
         }
 
-        folds.push(Fold::Imports(Span::saturating_from_bounds_usize(
-            start as usize,
-            end as usize,
-        )));
+        folds.push(FoldSpan {
+            span: Span::saturating_from_bounds_usize(start as usize, end as usize),
+            kind: FoldKind::Imports {
+                starts_with_extends,
+            },
+        });
     }
 }
 
@@ -178,18 +214,12 @@ fn fold_span(marker_span: Span, segments: &[SemanticSegment]) -> Option<Span> {
     ))
 }
 
-impl Fold {
-    fn span(self) -> Span {
-        match self {
-            Self::Region(span) | Self::Comment(span) | Self::Imports(span) => span,
-        }
-    }
-
+impl FoldSpan {
     fn kind_key(self) -> u8 {
-        match self {
-            Self::Region(_) => 0,
-            Self::Comment(_) => 1,
-            Self::Imports(_) => 2,
+        match self.kind {
+            FoldKind::Region => 0,
+            FoldKind::Comment => 1,
+            FoldKind::Imports { .. } => 2,
         }
     }
 }
