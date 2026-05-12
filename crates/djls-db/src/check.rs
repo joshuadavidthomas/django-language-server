@@ -219,7 +219,7 @@ mod tests {
         )
         .expect("diagnostic should render");
 
-        assert!(rendered.contains("T109"));
+        assert!(rendered.contains("T100"));
         assert!(rendered.contains("Hello {{ value"));
         assert!(rendered.contains("      ^^"));
     }

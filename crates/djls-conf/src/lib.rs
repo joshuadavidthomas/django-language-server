@@ -363,7 +363,7 @@ mod tests {
 S100 = "off"
 S101 = "warning"
 "T" = "off"
-T109 = "hint"
+T100 = "hint"
 "#,
             )
             .unwrap();
@@ -381,7 +381,7 @@ T109 = "hint"
                 DiagnosticSeverity::Off
             );
             assert_eq!(
-                settings.diagnostics.get_severity("T109"),
+                settings.diagnostics.get_severity("T100"),
                 DiagnosticSeverity::Hint
             );
         }

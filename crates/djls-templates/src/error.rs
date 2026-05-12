@@ -19,7 +19,7 @@ impl TemplateError {
     #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            TemplateError::Parser(error) => parse_error_code(error),
+            TemplateError::Parser(_) => "T100",
             TemplateError::Io(_) => "T900",
             TemplateError::Config(_) => "T901",
         }
@@ -31,21 +31,6 @@ impl TemplateError {
             TemplateError::Parser(error) => parse_error_span(error),
             TemplateError::Io(_) | TemplateError::Config(_) => None,
         }
-    }
-}
-
-fn parse_error_code(error: &ParseError) -> &'static str {
-    match error {
-        ParseError::UnexpectedToken { .. } => "T101",
-        ParseError::MissingCondition { .. } => "T102",
-        ParseError::MissingIterator { .. } => "T103",
-        ParseError::MalformedVariable { .. } => "T104",
-        ParseError::InvalidFilterSyntax { .. } => "T105",
-        ParseError::UnclosedTag { .. } => "T106",
-        ParseError::InvalidSyntax { .. } => "T107",
-        ParseError::EmptyTag { .. } => "T108",
-        ParseError::MalformedConstruct { .. } => "T109",
-        ParseError::StreamError { .. } => "T110",
     }
 }
 
@@ -90,73 +75,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parser_errors_keep_specific_diagnostic_codes() {
-        let cases = [
-            (
-                ParseError::UnexpectedToken {
-                    expected: vec!["block".to_string()],
-                    found: "variable".to_string(),
-                    position: 4,
-                },
-                "T101",
-            ),
-            (
-                ParseError::MissingCondition {
-                    tag: "if".to_string(),
-                    position: 10,
-                },
-                "T102",
-            ),
-            (ParseError::MissingIterator { position: 8 }, "T103"),
-            (
-                ParseError::MalformedVariable {
-                    position: 2,
-                    content: "value|".to_string(),
-                },
-                "T104",
-            ),
-            (
-                ParseError::InvalidFilterSyntax {
-                    position: 7,
-                    reason: "missing filter name".to_string(),
-                },
-                "T105",
-            ),
-            (
-                ParseError::UnclosedTag {
-                    opener: 12,
-                    expected_closer: "endif".to_string(),
-                },
-                "T106",
-            ),
-            (
-                ParseError::InvalidSyntax {
-                    position: 4,
-                    context: "Expected Block token".to_string(),
-                },
-                "T107",
-            ),
-            (ParseError::EmptyTag { position: 4 }, "T108"),
-            (
-                ParseError::MalformedConstruct {
-                    position: 15,
-                    opener: "{{".to_string(),
-                    closer: "}}".to_string(),
-                    content: "value".to_string(),
-                },
-                "T109",
-            ),
-            (
-                ParseError::StreamError {
-                    kind: crate::parser::StreamError::AtEnd,
-                },
-                "T110",
-            ),
-        ];
+    fn parser_errors_keep_legacy_diagnostic_code() {
+        let error = ParseError::MalformedConstruct {
+            position: 15,
+            opener: "{{".to_string(),
+            closer: "}}".to_string(),
+            content: "value".to_string(),
+        };
 
-        for (error, code) in cases {
-            assert_eq!(TemplateError::from(error).diagnostic_code(), code);
-        }
+        assert_eq!(TemplateError::from(error).diagnostic_code(), "T100");
     }
 
     #[test]
@@ -193,7 +120,7 @@ mod tests {
         assert_eq!(errors.len(), 1);
         let error = TemplateError::from(errors.into_iter().next().unwrap());
 
-        assert_eq!(error.diagnostic_code(), "T109");
+        assert_eq!(error.diagnostic_code(), "T100");
         assert_eq!(error.primary_span(), Some((6, 2)));
     }
 }

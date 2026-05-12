@@ -4,7 +4,7 @@ Prioritized by user-visible value, reuse of existing data, and avoiding large ar
 
 1. ✅ **Preserve parse error structure/spans** — GH #443, part of #525
    - Fixed diagnostics that land at `(0,0)` for parser errors with source positions.
-   - Parser diagnostics now preserve structured `ParseError` variants and use `T101`–`T110` codes.
+   - Parser diagnostics now preserve structured `ParseError` variants while retaining the existing `T100` public code.
    - Improves editor squiggles, CLI rendering, future code actions, and diagnostic docs.
 
 2. **Diagnostics performance first slice** — GH #525

@@ -28,13 +28,13 @@ pub enum DiagnosticSeverity {
 ///
 /// # Prefixes for bulk configuration
 /// "T" = "off"     # Disable all template errors
-/// T109 = "hint"   # But show malformed construct errors as hints
+/// T100 = "hint"   # But show parser errors as hints
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 pub struct DiagnosticsConfig {
     /// Map of diagnostic codes/prefixes to severity levels.
     /// Supports:
-    /// - Specific codes: "S100", "T109"
+    /// - Specific codes: "S100", "T100"
     /// - Prefixes: "S" (all S-series), "T" (all T-series), "S1" (S100-S199)
     /// - More specific patterns override less specific ones
     #[serde(default)]
@@ -95,7 +95,7 @@ mod tests {
     fn test_get_severity_default() {
         let config = DiagnosticsConfig::default();
         assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Error);
-        assert_eq!(config.get_severity("T109"), DiagnosticSeverity::Error);
+        assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Error);
     }
 
     #[test]
@@ -121,7 +121,7 @@ mod tests {
 
         assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Warning);
         assert_eq!(config.get_severity("S101"), DiagnosticSeverity::Warning);
-        assert_eq!(config.get_severity("T109"), DiagnosticSeverity::Off);
+        assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Off);
         assert_eq!(config.get_severity("T900"), DiagnosticSeverity::Off);
     }
 
@@ -165,7 +165,7 @@ mod tests {
     fn test_is_enabled_default() {
         let config = DiagnosticsConfig::default();
         assert!(config.is_enabled("S100"));
-        assert!(config.is_enabled("T109"));
+        assert!(config.is_enabled("T100"));
     }
 
     #[test]
@@ -186,7 +186,7 @@ mod tests {
 
         let config = DiagnosticsConfig { severity };
 
-        assert!(!config.is_enabled("T109"));
+        assert!(!config.is_enabled("T100"));
         assert!(!config.is_enabled("T900"));
         assert!(config.is_enabled("S100"));
     }
@@ -195,12 +195,12 @@ mod tests {
     fn test_is_enabled_prefix_off_with_specific_override() {
         let mut severity = HashMap::new();
         severity.insert("T".to_string(), DiagnosticSeverity::Off);
-        severity.insert("T109".to_string(), DiagnosticSeverity::Hint);
+        severity.insert("T100".to_string(), DiagnosticSeverity::Hint);
 
         let config = DiagnosticsConfig { severity };
 
-        // T109 has specific override, so it's enabled
-        assert!(config.is_enabled("T109"));
+        // T100 has specific override, so it's enabled
+        assert!(config.is_enabled("T100"));
         // Other T codes are off
         assert!(!config.is_enabled("T900"));
         assert!(!config.is_enabled("T901"));
@@ -214,7 +214,7 @@ mod tests {
             S101 = "warning"
             S102 = "hint"
             "T" = "off"
-            T109 = "info"
+            T100 = "info"
         "#;
 
         let config: DiagnosticsConfig = toml::from_str(toml).unwrap();
@@ -223,8 +223,8 @@ mod tests {
         assert_eq!(config.get_severity("S102"), DiagnosticSeverity::Hint);
         // T prefix applies to T900
         assert_eq!(config.get_severity("T900"), DiagnosticSeverity::Off);
-        // T109 has specific override
-        assert_eq!(config.get_severity("T109"), DiagnosticSeverity::Info);
+        // T100 has specific override
+        assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Info);
     }
 
     #[test]
@@ -232,8 +232,8 @@ mod tests {
         let mut severity = HashMap::new();
         // Disable all template errors
         severity.insert("T".to_string(), DiagnosticSeverity::Off);
-        // But show malformed construct errors as hints
-        severity.insert("T109".to_string(), DiagnosticSeverity::Hint);
+        // But show parser errors as hints
+        severity.insert("T100".to_string(), DiagnosticSeverity::Hint);
         // Make all semantic errors warnings
         severity.insert("S".to_string(), DiagnosticSeverity::Warning);
         // Except S100 which is completely off
@@ -255,9 +255,9 @@ mod tests {
         assert_eq!(config.get_severity("S200"), DiagnosticSeverity::Warning);
         assert!(config.is_enabled("S200"));
 
-        // T109 has exact match - hint
-        assert_eq!(config.get_severity("T109"), DiagnosticSeverity::Hint);
-        assert!(config.is_enabled("T109"));
+        // T100 has exact match - hint
+        assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Hint);
+        assert!(config.is_enabled("T100"));
 
         // T900 matches T prefix - off
         assert_eq!(config.get_severity("T900"), DiagnosticSeverity::Off);

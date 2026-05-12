@@ -121,7 +121,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn template_parse_diagnostics_use_structured_code_and_range() {
+    fn template_parse_diagnostics_use_legacy_code_and_structured_range() {
         let source = "Hello {{ value";
         let line_index = LineIndex::from(source);
         let error = TemplateError::from(ParseError::MalformedConstruct {
@@ -135,7 +135,7 @@ mod tests {
 
         assert_eq!(
             diagnostic.code,
-            Some(ls_types::NumberOrString::String("T109".to_string()))
+            Some(ls_types::NumberOrString::String("T100".to_string()))
         );
         assert_eq!(diagnostic.range.start, ls_types::Position::new(0, 6));
         assert_eq!(diagnostic.range.end, ls_types::Position::new(0, 8));
