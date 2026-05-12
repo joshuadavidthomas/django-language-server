@@ -33,15 +33,10 @@ pub fn collect_folding_ranges(
     let block_tree = djls_semantic::build_block_tree(db, nodelist);
     let forest = djls_semantic::build_semantic_forest(db, block_tree, nodelist);
 
-    let mut folds: Vec<_> = forest
-        .roots(db)
-        .iter()
-        .flat_map(collect_node_folds)
-        .collect();
-    folds.extend(collect_template_node_folds(
-        nodelist.nodelist(db),
-        file.source(db).as_str(),
-    ));
+    let mut folds = collect_structure_folds(forest.roots(db));
+    let template_folds =
+        collect_template_node_folds(nodelist.nodelist(db), file.source(db).as_str());
+    folds.extend(template_folds);
 
     folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
     folds.dedup();
@@ -68,17 +63,24 @@ pub fn collect_folding_ranges(
         .collect()
 }
 
-fn collect_node_folds(node: &SemanticNode) -> Vec<FoldSpan> {
+fn collect_structure_folds(roots: &[SemanticNode]) -> Vec<FoldSpan> {
+    let mut folds = Vec::new();
+    for root in roots {
+        collect_node_folds(root, &mut folds);
+    }
+    folds
+}
+
+fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
     let SemanticNode::Tag {
         marker_span,
         segments,
         ..
     } = node
     else {
-        return Vec::new();
+        return;
     };
 
-    let mut folds = Vec::new();
     if let Some(span) = fold_span(*marker_span, segments) {
         folds.push(FoldSpan {
             span,
@@ -88,11 +90,9 @@ fn collect_node_folds(node: &SemanticNode) -> Vec<FoldSpan> {
 
     for segment in segments {
         for child in &segment.children {
-            folds.extend(collect_node_folds(child));
+            collect_node_folds(child, folds);
         }
     }
-
-    folds
 }
 
 fn fold_kind(node: &SemanticNode) -> FoldKind {
