@@ -135,12 +135,12 @@ fn append_header_folds(
     folds: &mut Vec<FoldSpan>,
 ) {
     let source = file.source(db);
-    let mut import = ImportHeader::Empty;
+    let mut import: Option<ImportHeader> = None;
 
     for node in nodelist.nodelist(db) {
         match node {
             Node::Comment { .. } => {
-                if let Some(fold) = import.take_fold() {
+                if let Some(fold) = import.take().and_then(ImportHeader::into_fold) {
                     folds.push(fold);
                 }
                 folds.push(FoldSpan {
@@ -149,15 +149,18 @@ fn append_header_folds(
                 });
             }
             Node::Tag { name, .. } if name == "extends" => {
-                if let Some(fold) = import.take_fold() {
+                if let Some(fold) = import.take().and_then(ImportHeader::into_fold) {
                     folds.push(fold);
                 }
-                import = ImportHeader::Extends {
+                import = Some(ImportHeader::Extends {
                     start: node.full_span().start(),
-                };
+                });
             }
             Node::Tag { name, .. } if name == "load" => {
-                import.include_load(node.full_span());
+                import = Some(match import.take() {
+                    Some(header) => header.with_load(node.full_span()),
+                    None => ImportHeader::from_load(node.full_span()),
+                });
             }
             Node::Text { span }
                 if source
@@ -165,39 +168,43 @@ fn append_header_folds(
                     .get(span.start_usize()..span.end() as usize)
                     .is_some_and(|text| text.trim().is_empty()) => {}
             _ => {
-                if let Some(fold) = import.take_fold() {
+                if let Some(fold) = import.take().and_then(ImportHeader::into_fold) {
                     folds.push(fold);
                 }
             }
         }
     }
 
-    if let Some(fold) = import.take_fold() {
+    if let Some(fold) = import.and_then(ImportHeader::into_fold) {
         folds.push(fold);
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ImportHeader {
-    Empty,
     Extends { start: u32 },
     Imports { start: u32, end: u32 },
 }
 
 impl ImportHeader {
-    fn include_load(&mut self, span: Span) {
-        let end = span.end();
-        *self = match *self {
-            Self::Empty => Self::Imports {
-                start: span.start(),
-                end,
-            },
-            Self::Extends { start } | Self::Imports { start, .. } => Self::Imports { start, end },
-        };
+    fn from_load(span: Span) -> Self {
+        Self::Imports {
+            start: span.start(),
+            end: span.end(),
+        }
     }
 
-    fn take_fold(&mut self) -> Option<FoldSpan> {
-        let Self::Imports { start, end } = std::mem::replace(self, Self::Empty) else {
+    fn with_load(self, span: Span) -> Self {
+        match self {
+            Self::Extends { start } | Self::Imports { start, .. } => Self::Imports {
+                start,
+                end: span.end(),
+            },
+        }
+    }
+
+    fn into_fold(self) -> Option<FoldSpan> {
+        let Self::Imports { start, end } = self else {
             return None;
         };
 
