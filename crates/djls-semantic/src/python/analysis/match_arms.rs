@@ -109,7 +109,6 @@ pub(super) fn extract_match_constraints(
         arg_constraints,
         required_keywords,
         choice_at_constraints: Vec::new(),
-        diagnostic_messages: Vec::new(),
     })
 }
 

@@ -30,7 +30,10 @@ use crate::python::types::ExtractedDiagnosticMessage;
 use crate::python::types::ExtractedMessageTemplate;
 use crate::python::types::RequiredKeyword;
 
-/// Collected constraints from analyzing a function body.
+/// Constraints inferred from a guard condition.
+///
+/// This type models condition semantics only. Exception messages are attached
+/// by `GuardRule`, after the raising guard has been evaluated.
 ///
 /// Provides algebraic `or()` and `and()` methods that encode boolean
 /// composition semantics from if/raise guard analysis:
@@ -42,6 +45,12 @@ pub struct ConstraintSet {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
+}
+
+/// Rule fragments contributed by one or more raising guards.
+#[derive(Debug, Clone, Default)]
+pub struct GuardRule {
+    pub constraints: ConstraintSet,
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
 }
 
@@ -73,7 +82,6 @@ impl ConstraintSet {
         self.required_keywords.extend(other.required_keywords);
         self.choice_at_constraints
             .extend(other.choice_at_constraints);
-        self.diagnostic_messages.extend(other.diagnostic_messages);
         self
     }
 
@@ -84,13 +92,10 @@ impl ConstraintSet {
         required_keywords.extend(other.required_keywords);
         let mut choice_at_constraints = self.choice_at_constraints;
         choice_at_constraints.extend(other.choice_at_constraints);
-        let mut diagnostic_messages = self.diagnostic_messages;
-        diagnostic_messages.extend(other.diagnostic_messages);
         Self {
             arg_constraints: Vec::new(),
             required_keywords,
             choice_at_constraints,
-            diagnostic_messages,
         }
     }
 
@@ -99,20 +104,26 @@ impl ConstraintSet {
         self.required_keywords.extend(other.required_keywords);
         self.choice_at_constraints
             .extend(other.choice_at_constraints);
+    }
+}
+
+impl GuardRule {
+    pub fn extend(&mut self, other: Self) {
+        self.constraints.extend(other.constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
     }
 }
 
-/// Extract constraints from a single if-statement using the current env state.
+/// Extract rule fragments from a single if-statement using the current env state.
 ///
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet {
-    let mut result = ConstraintSet::default();
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> GuardRule {
+    let mut result = GuardRule::default();
 
     for guard in guard_clauses(if_stmt).filter_map(GuardClause::raising_guard) {
-        result.extend(guard.constraints(env));
+        result.extend(guard.rule(env));
     }
 
     // NOTE: We do NOT recurse into nested if-statements here — that's handled
@@ -140,14 +151,17 @@ struct RaisingGuard<'a> {
 }
 
 impl RaisingGuard<'_> {
-    fn constraints(self, env: &mut Env) -> ConstraintSet {
-        let mut constraints = eval_condition(self.test, env);
+    fn rule(self, env: &mut Env) -> GuardRule {
+        let constraints = eval_condition(self.test, env);
+        let diagnostic_messages = extract_exception_message(self.raised_exception, env)
+            .map_or_else(Vec::new, |message| {
+                diagnostic_messages_for(&constraints, &message)
+            });
 
-        if let Some(message) = extract_exception_message(self.raised_exception, env) {
-            add_diagnostic_message_to_constraints(&mut constraints, &message);
+        GuardRule {
+            constraints,
+            diagnostic_messages,
         }
-
-        constraints
     }
 }
 
@@ -399,49 +413,44 @@ fn eval_range_constraint(
     ])
 }
 
-fn add_diagnostic_message_to_constraints(
-    constraints: &mut ConstraintSet,
+fn diagnostic_messages_for(
+    constraints: &ConstraintSet,
     message: &ExtractedMessageTemplate,
-) {
-    constraints
-        .diagnostic_messages
-        .extend(
-            constraints
-                .arg_constraints
-                .iter()
-                .cloned()
-                .map(|constraint| ExtractedDiagnosticMessage {
-                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
-                    message: message.clone(),
-                }),
-        );
+) -> Vec<ExtractedDiagnosticMessage> {
+    let mut messages = Vec::new();
 
-    constraints
-        .diagnostic_messages
-        .extend(
-            constraints
-                .required_keywords
-                .iter()
-                .map(|keyword| ExtractedDiagnosticMessage {
-                    constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
-                        position: keyword.position,
-                        value: keyword.value.clone(),
-                    },
-                    message: message.clone(),
-                }),
-        );
-
-    constraints
-        .diagnostic_messages
-        .extend(constraints.choice_at_constraints.iter().map(|choice| {
-            ExtractedDiagnosticMessage {
-                constraint: ExtractedDiagnosticConstraint::ChoiceAt {
-                    position: choice.position,
-                    values: choice.values.clone(),
-                },
+    messages.extend(
+        constraints
+            .arg_constraints
+            .iter()
+            .cloned()
+            .map(|constraint| ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
                 message: message.clone(),
-            }
-        }));
+            }),
+    );
+
+    messages.extend(constraints.required_keywords.iter().map(|keyword| {
+        ExtractedDiagnosticMessage {
+            constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+                position: keyword.position,
+                value: keyword.value.clone(),
+            },
+            message: message.clone(),
+        }
+    }));
+
+    messages.extend(constraints.choice_at_constraints.iter().map(|choice| {
+        ExtractedDiagnosticMessage {
+            constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+                position: choice.position,
+                values: choice.values.clone(),
+            },
+            message: message.clone(),
+        }
+    }));
+
+    messages
 }
 
 #[cfg(test)]
@@ -452,12 +461,17 @@ mod tests {
     use super::*;
     use crate::python::analysis::state::Env;
     use crate::python::analysis::statements::process_statements;
+    use crate::python::analysis::AnalysisResult;
     use crate::python::analysis::CallContext;
     use crate::python::testing::django_function;
     use crate::python::types::ExtractedMessageArg;
     use crate::python::types::SplitPosition;
 
     fn extract_from_source(source: &str) -> ConstraintSet {
+        extract_result_from_source(source).constraints
+    }
+
+    fn extract_result_from_source(source: &str) -> AnalysisResult {
         let parsed = parse_module(source).expect("valid Python");
         let module = parsed.into_syntax();
         let func = module
@@ -472,10 +486,14 @@ mod tests {
             })
             .expect("no function found");
 
-        extract_from_func(&func)
+        extract_result_from_func(&func)
     }
 
     fn extract_from_func(func: &StmtFunctionDef) -> ConstraintSet {
+        extract_result_from_func(func).constraints
+    }
+
+    fn extract_result_from_func(func: &StmtFunctionDef) -> AnalysisResult {
         let parser_param = func
             .parameters
             .args
@@ -492,8 +510,7 @@ mod tests {
             db: None,
             file: None,
         };
-        let result = process_statements(&func.body, &mut env, &mut ctx);
-        result.constraints
+        process_statements(&func.body, &mut env, &mut ctx)
     }
 
     // Fabricated: tests isolated `<` comparator on len(bits). Real Django functions
@@ -514,7 +531,7 @@ def do_tag(parser, token):
 
     #[test]
     fn extracts_static_exception_message_for_constraint() {
-        let c = extract_from_source(
+        let result = extract_result_from_source(
             r#"
 def do_tag(parser, token):
     bits = token.split_contents()
@@ -523,9 +540,12 @@ def do_tag(parser, token):
 "#,
         );
 
-        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
         assert_eq!(
-            c.diagnostic_messages,
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Min(2)]
+        );
+        assert_eq!(
+            result.diagnostic_messages,
             vec![ExtractedDiagnosticMessage {
                 constraint: ExtractedDiagnosticConstraint::ArgumentCount(
                     ArgumentCountConstraint::Min(2)
@@ -539,7 +559,7 @@ def do_tag(parser, token):
 
     #[test]
     fn extracts_percent_formatted_exception_message_for_constraint() {
-        let c = extract_from_source(
+        let result = extract_result_from_source(
             r#"
 def do_tag(parser, token):
     bits = token.split_contents()
@@ -548,9 +568,12 @@ def do_tag(parser, token):
 "#,
         );
 
-        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
         assert_eq!(
-            c.diagnostic_messages,
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Min(2)]
+        );
+        assert_eq!(
+            result.diagnostic_messages,
             vec![ExtractedDiagnosticMessage {
                 constraint: ExtractedDiagnosticConstraint::ArgumentCount(
                     ArgumentCountConstraint::Min(2)

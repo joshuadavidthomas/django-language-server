@@ -58,11 +58,9 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
         }
 
         Stmt::If(stmt_if) => {
-            result
-                .constraints
-                .extend(crate::python::analysis::rules::extract_from_if_inline(
-                    stmt_if, env,
-                ));
+            result.extend(
+                crate::python::analysis::rules::extract_from_if_inline(stmt_if, env).into(),
+            );
 
             // Collect body results separately so we can discard conditional
             // keywords without reaching into ctx.constraints.
@@ -78,10 +76,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
             if condition_involves_element_check(&stmt_if.test, env) {
                 body_result.constraints.required_keywords.clear();
             }
-            result.constraints.extend(body_result.constraints);
-            if body_result.known_options.is_some() {
-                result.known_options = body_result.known_options;
-            }
+            result.extend(body_result);
 
             for clause in &stmt_if.elif_else_clauses {
                 let mut clause_result = process_statements(&clause.body, env, ctx);
@@ -92,10 +87,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
                 {
                     clause_result.constraints.required_keywords.clear();
                 }
-                result.constraints.extend(clause_result.constraints);
-                if clause_result.known_options.is_some() {
-                    result.known_options = clause_result.known_options;
-                }
+                result.extend(clause_result);
             }
         }
 
