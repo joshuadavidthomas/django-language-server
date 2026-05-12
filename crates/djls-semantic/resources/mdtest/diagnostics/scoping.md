@@ -14,7 +14,7 @@ error[S108]: Unknown tag 'completelymadetuptag'
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
-## tag requires load
+## tag requires load when not configured as a builtin
 
 ```htmldjango
 {% static "before.css" %}
@@ -56,7 +56,7 @@ error[S111]: Unknown filter 'completelymadetupfilter'
   |          ^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
-## filter requires load
+## filter requires load when not configured as a builtin
 
 ```htmldjango
 {{ value|intcomma }}

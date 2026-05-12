@@ -1,6 +1,8 @@
-# If expression diagnostics
+# Expression diagnostics
 
-## if starts with infix operator
+## if tag
+
+### starts with infix operator
 
 ```htmldjango
 {% if and x %}{% endif %}
@@ -16,7 +18,7 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-## if ends after infix operator
+### ends after infix operator
 
 ```htmldjango
 {% if x or %}{% endif %}
@@ -32,7 +34,7 @@ error[S114]: Unexpected end of expression in if tag.
   = note: in tag: if
 ```
 
-## if contains unused token
+### contains unused token
 
 ```htmldjango
 {% if x y %}{% endif %}
@@ -48,7 +50,7 @@ error[S114]: Unused 'y' at end of if expression.
   = note: in tag: if
 ```
 
-## if has no condition
+### has no condition
 
 ```htmldjango
 {% if %}{% endif %}

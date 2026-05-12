@@ -40,7 +40,7 @@
 
 ## Invalid
 
-### requires load before use
+### requires load when static is not configured as a builtin
 
 ```htmldjango
 {% static "before.css" %}

@@ -32,7 +32,7 @@
 
 ## Invalid
 
-### requires load before use
+### requires load when cache is not configured as a builtin
 
 ```htmldjango
 {% cache 500 before_load %}

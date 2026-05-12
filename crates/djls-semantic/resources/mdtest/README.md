@@ -70,4 +70,4 @@ For non-default paths, put a backtick label immediately before the template bloc
 
 The mdtest runner uses `pulldown-cmark` for Markdown parsing, but the mdtest format is intentionally small: heading groups, fenced template code blocks, optional file labels, and generated snapshot fences.
 
-Snapshots run against the curated validation fixture in `src/testing.rs`, not a live inspected Django project. That keeps tests deterministic. Long term, we may add fixtures that exercise more real project discovery behavior.
+Snapshots run against the curated validation fixture in `src/testing.rs`, not a live inspected Django project. That keeps tests deterministic. Scenarios that assert "requires load" mean "requires load in this fixture, where the library is not configured as a template builtin." Long term, we may add fixtures that exercise more real project discovery and settings behavior.
