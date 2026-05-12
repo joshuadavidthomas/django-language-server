@@ -8,14 +8,16 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
 use djls_semantic::ProjectDb;
+use djls_source::Db as SourceDb;
 use djls_source::File;
-use djls_source::FileKind;
+use djls_source::Offset;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
 use crate::ext::InitializeParamsExt;
+use crate::ext::PositionExt;
 use crate::ext::TextDocumentContentChangeEventExt;
 use crate::ext::TextDocumentItemExt;
 use crate::ext::UriExt;
@@ -116,7 +118,6 @@ impl Session {
     ///
     /// Updates both the workspace buffers and database. Creates the file in
     /// the database or invalidates it if it already exists.
-    /// For template files, immediately triggers parsing and validation.
     pub fn open_document(
         &mut self,
         text_document: &ls_types::TextDocumentItem,
@@ -128,16 +129,13 @@ impl Session {
 
         let kind = text_document.language_id_to_file_kind(self.client_info.client());
 
-        let document = self.workspace.open_document(
+        self.workspace.open_document(
             &mut self.db,
             &path,
             &text_document.text,
             text_document.version,
             kind,
-        )?;
-
-        self.handle_file(document.file());
-        Some(document)
+        )
     }
 
     pub fn save_document(
@@ -149,9 +147,7 @@ impl Session {
             return None;
         };
 
-        let document = self.workspace.save_document(&mut self.db, &path)?;
-        self.handle_file(document.file());
-        Some(document)
+        self.workspace.save_document(&mut self.db, &path)
     }
 
     pub fn update_document(
@@ -164,16 +160,13 @@ impl Session {
             return None;
         };
 
-        let document = self.workspace.update_document(
+        self.workspace.update_document(
             &mut self.db,
             &path,
             changes.to_document_changes(),
             text_document.version,
             self.client_info.position_encoding(),
-        )?;
-
-        self.handle_file(document.file());
-        Some(document)
+        )
     }
 
     /// Close a document.
@@ -199,6 +192,47 @@ impl Session {
         self.workspace.get_document(path)
     }
 
+    /// Resolve an LSP document request to the tracked file for that URI.
+    ///
+    /// Open editor buffers are exposed to Salsa through the workspace overlay,
+    /// so feature code should read current text through [`File::source`]
+    /// instead of reaching back into [`TextDocument`] state.
+    pub(crate) fn file_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        request: &str,
+    ) -> Option<File> {
+        let Some(path) = text_document.uri.to_utf8_path_buf() else {
+            tracing::debug!(
+                "Skipping non-file URI in {} request: {}",
+                request,
+                text_document.uri.as_str()
+            );
+            return None;
+        };
+
+        Some(self.db.get_or_create_file(&path))
+    }
+
+    /// Resolve an LSP positioned document request to a tracked file and byte offset.
+    pub(crate) fn position_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        position: ls_types::Position,
+        request: &str,
+    ) -> Option<(File, Offset)> {
+        let file = self.file_for_document_request(text_document, request)?;
+        let source = file.source(&self.db);
+        let line_index = file.line_index(&self.db);
+        let offset = position.to_offset(
+            source.as_str(),
+            line_index,
+            self.client_info.position_encoding(),
+        );
+
+        Some((file, offset))
+    }
+
     /// Get all currently open documents.
     pub fn open_documents(&self) -> Vec<TextDocument> {
         self.workspace
@@ -206,13 +240,6 @@ impl Session {
             .iter()
             .map(|(_path, document)| document)
             .collect()
-    }
-
-    /// Warm template caches and semantic diagnostics for the updated file.
-    fn handle_file(&self, file: File) {
-        if FileKind::from(file.path(&self.db)) == FileKind::Template {
-            djls_semantic::validate_template_file(&self.db, file);
-        }
     }
 }
 
