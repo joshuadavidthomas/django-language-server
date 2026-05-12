@@ -47,7 +47,7 @@ pub fn collect_folding_ranges(
             });
         }
     }
-    collect_load_folds(nodes, file.source(db).as_str(), &mut folds);
+    collect_import_folds(nodes, file.source(db).as_str(), &mut folds);
 
     folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
     folds.dedup();
@@ -105,37 +105,52 @@ fn fold_kind(node: &SemanticNode) -> FoldKind {
     }
 }
 
-fn collect_load_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
-    let mut group_start = None;
-    let mut group_end = None;
+fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
+    let mut group = ImportGroup::default();
 
     for node in nodes {
         match node {
+            Node::Tag { name, .. } if name == "extends" => {
+                group.push(folds);
+                group.start = Some(node.full_span().start());
+                group.end = Some(node.full_span().end());
+            }
             Node::Tag { name, .. } if name == "load" => {
-                group_start.get_or_insert_with(|| node.full_span().start());
-                group_end = Some(node.full_span().end());
+                group.start.get_or_insert_with(|| node.full_span().start());
+                group.end = Some(node.full_span().end());
+                group.has_load = true;
             }
             Node::Text { span } if is_whitespace(source, *span) => {}
-            _ => push_load_fold(group_start.take(), group_end.take(), folds),
+            _ => group.push(folds),
         }
     }
 
-    push_load_fold(group_start, group_end, folds);
+    group.push(folds);
 }
 
-fn push_load_fold(start: Option<u32>, end: Option<u32>, folds: &mut Vec<FoldSpan>) {
-    let (Some(start), Some(end)) = (start, end) else {
-        return;
-    };
+#[derive(Default)]
+struct ImportGroup {
+    start: Option<u32>,
+    end: Option<u32>,
+    has_load: bool,
+}
 
-    if start >= end {
-        return;
+impl ImportGroup {
+    fn push(&mut self, folds: &mut Vec<FoldSpan>) {
+        let (Some(start), Some(end)) = (self.start.take(), self.end.take()) else {
+            return;
+        };
+        let has_load = std::mem::take(&mut self.has_load);
+
+        if !has_load || start >= end {
+            return;
+        }
+
+        folds.push(FoldSpan {
+            span: Span::saturating_from_bounds_usize(start as usize, end as usize),
+            kind: FoldKind::Imports,
+        });
     }
-
-    folds.push(FoldSpan {
-        span: Span::saturating_from_bounds_usize(start as usize, end as usize),
-        kind: FoldKind::Imports,
-    });
 }
 
 fn is_whitespace(source: &str, span: Span) -> bool {
