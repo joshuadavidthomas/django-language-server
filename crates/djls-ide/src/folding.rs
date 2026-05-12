@@ -38,16 +38,7 @@ pub fn collect_folding_ranges(
         collect_node_folds(root, &mut folds);
     }
 
-    let nodes = nodelist.nodelist(db);
-    for node in nodes {
-        if let Node::Comment { .. } = node {
-            folds.push(FoldSpan {
-                span: node.full_span(),
-                kind: FoldKind::Comment,
-            });
-        }
-    }
-    collect_import_folds(nodes, file.source(db).as_str(), &mut folds);
+    collect_template_node_folds(nodelist.nodelist(db), file.source(db).as_str(), &mut folds);
 
     folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
     folds.dedup();
@@ -105,14 +96,21 @@ fn fold_kind(node: &SemanticNode) -> FoldKind {
     }
 }
 
-fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
-    let mut import = PendingImport::Empty;
+fn collect_template_node_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
+    let mut import = ImportHeader::Empty;
 
     for node in nodes {
         match node {
+            Node::Comment { .. } => {
+                import.push(folds);
+                folds.push(FoldSpan {
+                    span: node.full_span(),
+                    kind: FoldKind::Comment,
+                });
+            }
             Node::Tag { name, .. } if name == "extends" => {
                 import.push(folds);
-                import = PendingImport::Extends {
+                import = ImportHeader::Extends {
                     start: node.full_span().start(),
                 };
             }
@@ -128,13 +126,13 @@ fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PendingImport {
+enum ImportHeader {
     Empty,
     Extends { start: u32 },
     Imports { start: u32, end: u32 },
 }
 
-impl PendingImport {
+impl ImportHeader {
     fn include_load(&mut self, span: Span) {
         let end = span.end();
         *self = match *self {
