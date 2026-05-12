@@ -58,7 +58,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
-- Fixed template parser diagnostics to preserve structured parser errors and source spans while retaining the existing `T100` diagnostic code.
+- Fixed template parser diagnostics to preserve structured parser errors and source spans while retaining the existing `T100` diagnostic code. Malformed filter expressions now produce parser errors instead of being silently ignored.
 - Suppressed `failed to send notification` ERROR log spam during server shutdown by disabling the LSP log forwarding layer on shutdown.
 - Fixed `djls check` silently ignoring file arguments when `-` (stdin) was also passed. This command now returns an error for mixed stdin/path input.
 - Fixed `djls serve --connection-type tcp` silently using stdio. The command now errors with an unsupported-mode message.

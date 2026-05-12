@@ -84,7 +84,7 @@ impl Parser {
             ..
         } = token
         else {
-            return Err(ParseError::InvalidSyntax {
+            return Err(ParseError::UnexpectedTokenKind {
                 position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Block token".to_string(),
             });
@@ -132,7 +132,7 @@ impl Parser {
                     content: error_text,
                 })
             }
-            _ => Err(ParseError::InvalidSyntax {
+            _ => Err(ParseError::UnexpectedTokenKind {
                 position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Error token".to_string(),
             }),
@@ -174,7 +174,7 @@ impl Parser {
             ..
         } = token
         else {
-            return Err(ParseError::InvalidSyntax {
+            return Err(ParseError::UnexpectedTokenKind {
                 position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Variable token".to_string(),
             });
@@ -190,11 +190,18 @@ impl Parser {
         })?;
         let var = var_raw.trim().to_string();
 
-        let filters: Vec<Filter> = parts
-            .filter_map(|(raw, offset_in_content)| {
-                parse_filter(raw, base_offset + offset_in_content)
-            })
-            .collect();
+        let mut filters: Vec<Filter> = Vec::new();
+        for (raw, offset_in_content) in parts {
+            match parse_filter(raw, base_offset + offset_in_content) {
+                Ok(filter) => filters.push(filter),
+                Err(error) => {
+                    return Err(ParseError::MalformedFilterExpression {
+                        position: error.position as usize,
+                        content: error.content,
+                    });
+                }
+            }
+        }
 
         Ok(Node::Variable { var, filters, span })
     }
@@ -263,8 +270,8 @@ pub enum StreamError {
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum ParseError {
-    #[error("Invalid syntax at position {position}: {context}")]
-    InvalidSyntax { position: usize, context: String },
+    #[error("Unexpected token kind at position {position}: {context}")]
+    UnexpectedTokenKind { position: usize, context: String },
 
     #[error("Empty tag at position {position}")]
     EmptyTag { position: usize },
@@ -276,6 +283,9 @@ pub enum ParseError {
         closer: String,
         content: String,
     },
+
+    #[error("Malformed filter expression at position {position}: {content}")]
+    MalformedFilterExpression { position: usize, content: String },
 
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
@@ -460,6 +470,14 @@ mod tests {
         #[test]
         fn test_parse_filter_chains() {
             let source = "{{ value|default:'nothing'|title|upper }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_malformed_filter_expression_becomes_error_node() {
+            let source = "{{ value| }}";
             let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);

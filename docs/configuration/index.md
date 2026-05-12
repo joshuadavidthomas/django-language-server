@@ -141,7 +141,7 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 #### Available diagnostic codes
 
 **Template Errors (T-series):**
-- `T100` - Parser errors (syntax issues in templates)
+- `T100` - Parser errors for malformed template constructs, empty tags, and malformed variable/filter expressions
 - `T900` - IO errors (file read/write issues)
 - `T901` - Configuration errors
 

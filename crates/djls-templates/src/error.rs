@@ -36,12 +36,13 @@ impl TemplateError {
 
 fn parse_error_span(error: &ParseError) -> Option<(u32, u32)> {
     let (position, length) = match error {
-        ParseError::InvalidSyntax { position, .. } | ParseError::EmptyTag { position } => {
+        ParseError::UnexpectedTokenKind { position, .. } | ParseError::EmptyTag { position } => {
             (*position, 1)
         }
         ParseError::MalformedConstruct {
             position, opener, ..
         } => (*position, opener.len().max(1)),
+        ParseError::MalformedFilterExpression { position, .. } => (*position, 1),
         ParseError::StreamError { .. } => {
             return None;
         }
