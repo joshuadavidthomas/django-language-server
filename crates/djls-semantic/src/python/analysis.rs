@@ -14,8 +14,8 @@ use djls_source::File;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::python::analysis::constraints::ConstraintSet;
-use crate::python::analysis::guards::GuardRule;
+use crate::python::analysis::constraints::ExtractedTagConstraints;
+use crate::python::analysis::guards::ExtractedRuleFragment;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::AsVar;
 use crate::python::types::ExtractedArg;
@@ -53,7 +53,7 @@ pub struct CallContext<'a> {
 /// messages come from the exception raised by a guard body.
 #[derive(Default)]
 pub struct AnalysisResult {
-    pub constraints: ConstraintSet,
+    pub constraints: ExtractedTagConstraints,
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
     pub known_options: Option<KnownOptions>,
 }
@@ -73,8 +73,8 @@ impl AnalysisResult {
     }
 }
 
-impl From<GuardRule> for AnalysisResult {
-    fn from(rule: GuardRule) -> Self {
+impl From<ExtractedRuleFragment> for AnalysisResult {
+    fn from(rule: ExtractedRuleFragment) -> Self {
         Self {
             constraints: rule.constraints,
             diagnostic_messages: rule.diagnostic_messages,

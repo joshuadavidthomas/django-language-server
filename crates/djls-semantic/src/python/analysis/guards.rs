@@ -15,7 +15,7 @@ use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::UnaryOp;
 
-use super::constraints::ConstraintSet;
+use super::constraints::ExtractedTagConstraints;
 use super::exceptions::direct_raise_exception;
 use super::exceptions::extract_exception_message;
 use super::expressions::eval_expr;
@@ -30,12 +30,12 @@ use crate::python::types::RequiredKeyword;
 
 /// Rule fragments contributed by one or more raising guards.
 #[derive(Debug, Clone, Default)]
-pub struct GuardRule {
-    pub constraints: ConstraintSet,
+pub struct ExtractedRuleFragment {
+    pub constraints: ExtractedTagConstraints,
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
 }
 
-impl GuardRule {
+impl ExtractedRuleFragment {
     pub fn extend(&mut self, other: Self) {
         self.constraints.extend(other.constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
@@ -47,8 +47,8 @@ impl GuardRule {
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> GuardRule {
-    let mut result = GuardRule::default();
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ExtractedRuleFragment {
+    let mut result = ExtractedRuleFragment::default();
 
     if let Some(raised_exception) = direct_raise_exception(&if_stmt.body) {
         result.extend(
@@ -88,7 +88,7 @@ struct RaisingGuard<'a> {
 }
 
 impl RaisingGuard<'_> {
-    fn rule(self, env: &mut Env) -> GuardRule {
+    fn rule(self, env: &mut Env) -> ExtractedRuleFragment {
         let constraints = eval_condition(self.test, env);
         let mut diagnostic_messages = Vec::new();
 
@@ -121,7 +121,7 @@ impl RaisingGuard<'_> {
             }));
         }
 
-        GuardRule {
+        ExtractedRuleFragment {
             constraints,
             diagnostic_messages,
         }
@@ -132,16 +132,18 @@ impl RaisingGuard<'_> {
 ///
 /// The condition guards a `raise` statement, so it describes when the code
 /// errors. Constraints capture what's valid (the negation).
-fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
+fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
     match expr {
         // `or`: error when either side is true → each is an independent constraint
         Expr::BoolOp(ExprBoolOp {
             op: BoolOp::Or,
             values,
             ..
-        }) => values.iter().fold(ConstraintSet::default(), |acc, value| {
-            acc.or(eval_condition(value, env))
-        }),
+        }) => values
+            .iter()
+            .fold(ExtractedTagConstraints::default(), |acc, value| {
+                acc.or(eval_condition(value, env))
+            }),
 
         // `and`: error when both true → length constraints are protective guards,
         // discard them but keep keyword constraints
@@ -149,9 +151,11 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
             op: BoolOp::And,
             values,
             ..
-        }) => values.iter().fold(ConstraintSet::default(), |acc, value| {
-            acc.and(eval_condition(value, env))
-        }),
+        }) => values
+            .iter()
+            .fold(ExtractedTagConstraints::default(), |acc, value| {
+                acc.and(eval_condition(value, env))
+            }),
 
         // Comparison: `len(bits) < 4` or `bits[2] != "as"`
         Expr::Compare(compare) => eval_compare(compare, env),
@@ -165,17 +169,17 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
             if let Expr::Compare(compare) = operand.as_ref() {
                 eval_negated_compare(compare, env)
             } else {
-                ConstraintSet::default()
+                ExtractedTagConstraints::default()
             }
         }
 
-        _ => ConstraintSet::default(),
+        _ => ExtractedTagConstraints::default(),
     }
 }
 
-fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
+fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
     if compare.ops.is_empty() || compare.comparators.is_empty() {
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // Skip chained comparisons (e.g., `2 <= len(bits) <= 4`). The only
@@ -183,7 +187,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
     // (`not (2 <= len(bits) <= 4)`), handled by eval_negated_compare.
     // Processing only the first pair of a chain produces wrong constraints.
     if compare.ops.len() > 1 {
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     let op = &compare.ops[0];
@@ -206,13 +210,16 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                 }
                 _ => None,
             };
-            return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
+            return constraint.map_or_else(
+                ExtractedTagConstraints::default,
+                ExtractedTagConstraints::single_length,
+            );
         }
 
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::non_negative_integer) {
-                return ConstraintSet::single_length(ArgumentCountConstraint::OneOf(
+                return ExtractedTagConstraints::single_length(ArgumentCountConstraint::OneOf(
                     values
                         .into_iter()
                         .map(|v| split.resolve_length(v))
@@ -220,7 +227,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                 ));
             }
         }
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
@@ -235,9 +242,12 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                 CmpOp::GtE => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
                 _ => None,
             };
-            return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
+            return constraint.map_or_else(
+                ExtractedTagConstraints::default,
+                ExtractedTagConstraints::single_length,
+            );
         }
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // SplitElement vs string: `bits[N] != "keyword"`
@@ -245,12 +255,12 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
         if let Some(keyword) = comparator.string_literal() {
             if matches!(op, CmpOp::NotEq) {
                 let position = index;
-                return ConstraintSet::single_keyword(RequiredKeyword {
+                return ExtractedTagConstraints::single_keyword(RequiredKeyword {
                     position,
                     value: keyword,
                 });
             }
-            return ConstraintSet::default();
+            return ExtractedTagConstraints::default();
         }
 
         // SplitElement not in ("a", "b") → ChoiceAt constraint
@@ -258,11 +268,11 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
             if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
                 if !values.is_empty() {
                     let position = index;
-                    return ConstraintSet::single_choice(ChoiceAt { position, values });
+                    return ExtractedTagConstraints::single_choice(ChoiceAt { position, values });
                 }
             }
         }
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
@@ -270,23 +280,23 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
         if let Some(keyword) = left.string_literal() {
             if matches!(op, CmpOp::NotEq) {
                 let position = index;
-                return ConstraintSet::single_keyword(RequiredKeyword {
+                return ExtractedTagConstraints::single_keyword(RequiredKeyword {
                     position,
                     value: keyword,
                 });
             }
-            return ConstraintSet::default();
+            return ExtractedTagConstraints::default();
         }
     }
 
-    ConstraintSet::default()
+    ExtractedTagConstraints::default()
 }
 
-fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
+fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
         if let Some(range_constraints) = eval_range_constraint(compare, env) {
-            return ConstraintSet {
+            return ExtractedTagConstraints {
                 arg_constraints: range_constraints,
                 ..Default::default()
             };
@@ -307,13 +317,13 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                     _ => None,
                 };
                 if let Some(c) = constraint {
-                    return ConstraintSet::single_length(c);
+                    return ExtractedTagConstraints::single_length(c);
                 }
             }
         }
     }
 
-    ConstraintSet::default()
+    ExtractedTagConstraints::default()
 }
 
 /// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.
@@ -379,7 +389,7 @@ mod tests {
     use crate::python::types::ExtractedMessageTemplate;
     use crate::python::types::SplitPosition;
 
-    fn extract_from_source(source: &str) -> ConstraintSet {
+    fn extract_from_source(source: &str) -> ExtractedTagConstraints {
         extract_result_from_source(source).constraints
     }
 
@@ -401,7 +411,7 @@ mod tests {
         extract_result_from_func(&func)
     }
 
-    fn extract_from_func(func: &StmtFunctionDef) -> ConstraintSet {
+    fn extract_from_func(func: &StmtFunctionDef) -> ExtractedTagConstraints {
         extract_result_from_func(func).constraints
     }
 

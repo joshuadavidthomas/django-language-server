@@ -2,24 +2,22 @@ use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::ChoiceAt;
 use crate::python::types::RequiredKeyword;
 
-/// Constraints inferred from a guard condition.
+/// Constraints on a template tag call inferred from Python parser code.
 ///
-/// This type models condition semantics only. Exception messages are attached
-/// by guard extraction, after the raising guard has been evaluated.
-///
-/// Provides algebraic `or()` and `and()` methods that encode boolean
-/// composition semantics from if/raise guard analysis:
+/// This is the shared constraint IR accumulated during analysis before final
+/// `TagRule` assembly. Guard extraction uses the `or()` and `and()` methods to
+/// encode boolean condition semantics:
 /// - `or`: error when either side is true → each constraint is independent
 /// - `and`: both must be true for error → length constraints dropped, keywords/choices kept
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::struct_field_names)]
-pub struct ConstraintSet {
+pub struct ExtractedTagConstraints {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
 }
 
-impl ConstraintSet {
+impl ExtractedTagConstraints {
     pub fn single_length(c: ArgumentCountConstraint) -> Self {
         Self {
             arg_constraints: vec![c],
