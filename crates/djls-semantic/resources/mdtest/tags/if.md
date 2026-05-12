@@ -274,7 +274,7 @@ error[S114]: Unexpected end of expression in if tag.
 ```
 
 ```snapshot
-error[S102]: Orphaned tag 'else' - 'if' or 'ifchanged' block
+error[S102]: '{% else %}' must be inside an open '{% if %}' or '{% ifchanged %}' block
  --> test.html:1:1
   |
 1 | {% else %}
@@ -288,7 +288,7 @@ error[S102]: Orphaned tag 'else' - 'if' or 'ifchanged' block
 ```
 
 ```snapshot
-error[S102]: Orphaned tag 'elif' - 'if' block
+error[S102]: '{% elif %}' must be inside an open '{% if %}' block
  --> test.html:1:1
   |
 1 | {% elif orphaned %}

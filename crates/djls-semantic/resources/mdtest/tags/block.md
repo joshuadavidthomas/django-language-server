@@ -37,7 +37,7 @@
 ```
 
 ```snapshot
-error[S103]: 'footer' does not match 'header'
+error[S103]: Closing block name 'footer' does not match opening block name 'header'
  --> test.html:3:1
   |
 3 | {% endblock footer %}

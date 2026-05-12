@@ -61,7 +61,7 @@
 ```
 
 ```snapshot
-error[S102]: Orphaned tag 'empty' - 'for' block
+error[S102]: '{% empty %}' must be inside an open '{% for %}' block
  --> test.html:1:1
   |
 1 | {% empty %}

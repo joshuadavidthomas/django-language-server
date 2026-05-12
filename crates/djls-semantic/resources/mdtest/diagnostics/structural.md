@@ -22,7 +22,7 @@ error[S100]: Unclosed tag: if
 ```
 
 ```snapshot
-error[S102]: Orphaned tag 'else' - 'if' or 'ifchanged' block
+error[S102]: '{% else %}' must be inside an open '{% if %}' or '{% ifchanged %}' block
  --> test.html:1:1
   |
 1 | {% else %}
@@ -36,7 +36,7 @@ error[S102]: Orphaned tag 'else' - 'if' or 'ifchanged' block
 ```
 
 ```snapshot
-error[S101]: Unbalanced structure: 'if' missing closing ''
+error[S101]: Closing tag '{% endif %}' has no matching '{% if %}' opener
  --> test.html:1:1
   |
 1 | {% endif %}
@@ -51,7 +51,7 @@ error[S101]: Unbalanced structure: 'if' missing closing ''
 ```
 
 ```snapshot
-error[S103]: 'sidebar' does not match 'content'
+error[S103]: Closing block name 'sidebar' does not match opening block name 'content'
  --> test.html:2:1
   |
 2 | {% endblock sidebar %}
