@@ -26,7 +26,6 @@ use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::ChoiceAt;
 use crate::python::types::ExtractedDiagnosticConstraint;
 use crate::python::types::ExtractedDiagnosticMessage;
-use crate::python::types::ExtractedMessageTemplate;
 use crate::python::types::RequiredKeyword;
 
 /// Constraints inferred from a guard condition.
@@ -161,10 +160,36 @@ struct RaisingGuard<'a> {
 impl RaisingGuard<'_> {
     fn rule(self, env: &mut Env) -> GuardRule {
         let constraints = eval_condition(self.test, env);
-        let diagnostic_messages = extract_exception_message(self.raised_exception, env)
-            .map_or_else(Vec::new, |message| {
-                diagnostic_messages_for(&constraints, &message)
-            });
+        let mut diagnostic_messages = Vec::new();
+
+        if let Some(message) = extract_exception_message(self.raised_exception, env) {
+            diagnostic_messages.extend(constraints.arg_constraints.iter().cloned().map(
+                |constraint| ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+                    message: message.clone(),
+                },
+            ));
+
+            diagnostic_messages.extend(constraints.required_keywords.iter().map(|keyword| {
+                ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+                        position: keyword.position,
+                        value: keyword.value.clone(),
+                    },
+                    message: message.clone(),
+                }
+            }));
+
+            diagnostic_messages.extend(constraints.choice_at_constraints.iter().map(|choice| {
+                ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+                        position: choice.position,
+                        values: choice.values.clone(),
+                    },
+                    message: message.clone(),
+                }
+            }));
+        }
 
         GuardRule {
             constraints,
@@ -408,46 +433,6 @@ fn eval_range_constraint(
     ])
 }
 
-fn diagnostic_messages_for(
-    constraints: &ConstraintSet,
-    message: &ExtractedMessageTemplate,
-) -> Vec<ExtractedDiagnosticMessage> {
-    let mut messages = Vec::new();
-
-    messages.extend(
-        constraints
-            .arg_constraints
-            .iter()
-            .cloned()
-            .map(|constraint| ExtractedDiagnosticMessage {
-                constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
-                message: message.clone(),
-            }),
-    );
-
-    messages.extend(constraints.required_keywords.iter().map(|keyword| {
-        ExtractedDiagnosticMessage {
-            constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
-                position: keyword.position,
-                value: keyword.value.clone(),
-            },
-            message: message.clone(),
-        }
-    }));
-
-    messages.extend(constraints.choice_at_constraints.iter().map(|choice| {
-        ExtractedDiagnosticMessage {
-            constraint: ExtractedDiagnosticConstraint::ChoiceAt {
-                position: choice.position,
-                values: choice.values.clone(),
-            },
-            message: message.clone(),
-        }
-    }));
-
-    messages
-}
-
 #[cfg(test)]
 mod tests {
     use ruff_python_ast::Stmt;
@@ -461,6 +446,7 @@ mod tests {
     use crate::python::analysis::CallContext;
     use crate::python::testing::django_function;
     use crate::python::types::ExtractedMessageArg;
+    use crate::python::types::ExtractedMessageTemplate;
     use crate::python::types::SplitPosition;
 
     fn extract_from_source(source: &str) -> ConstraintSet {
