@@ -21,7 +21,7 @@ error[S108]: Unknown tag 'completelymadetuptag'
 ```
 
 ```snapshot
-error[S109]: Add {% load static %} to use tag 'static'
+error[S109]: Tag 'static' requires the 'static' tag library
  --> test.html:1:1
   |
 1 | {% static "before.css" %}
@@ -63,7 +63,7 @@ error[S111]: Unknown filter 'completelymadetupfilter'
 ```
 
 ```snapshot
-error[S112]: Add {% load humanize %} to use filter 'intcomma'
+error[S112]: Filter 'intcomma' requires the 'humanize' tag library
  --> test.html:1:10
   |
 1 | {{ value|intcomma }}

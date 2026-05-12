@@ -17,7 +17,7 @@ error[S115]: Filter 'truncatewords' requires an argument
   |
 3 | {{ text|truncatewords }}
   |         ^^^^^^^^^^^^^
-error[S109]: Add {% load i18n %} to use tag 'trans'
+error[S109]: Tag 'trans' requires the 'i18n' tag library
  --> test.html:4:1
   |
 4 | {% trans "hello" %}

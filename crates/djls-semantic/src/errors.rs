@@ -39,7 +39,7 @@ pub enum ValidationError {
     #[error("Unknown tag '{tag}'")]
     UnknownTag { tag: String, span: Span },
 
-    #[error("Add {{% load {library} %}} to use tag '{tag}'")]
+    #[error("Tag '{tag}' requires the '{library}' tag library")]
     UnloadedTag {
         tag: String,
         library: String,
@@ -59,7 +59,7 @@ pub enum ValidationError {
     #[error("Unknown filter '{filter}'")]
     UnknownFilter { filter: String, span: Span },
 
-    #[error("Add {{% load {library} %}} to use filter '{filter}'")]
+    #[error("Filter '{filter}' requires the '{library}' tag library")]
     UnloadedFilter {
         filter: String,
         library: String,

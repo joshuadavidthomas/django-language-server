@@ -41,7 +41,7 @@
 ```
 
 ```snapshot
-error[S109]: Add {% load cache %} to use tag 'cache'
+error[S109]: Tag 'cache' requires the 'cache' tag library
  --> test.html:1:1
   |
 1 | {% cache 500 before_load %}
