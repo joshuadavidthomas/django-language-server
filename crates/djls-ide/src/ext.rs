@@ -6,6 +6,8 @@ use djls_source::Offset;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
+use crate::folding::FoldKind;
+
 pub(crate) trait OffsetExt {
     fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position;
 }
@@ -42,6 +44,19 @@ impl Utf8PathExt for Utf8Path {
 impl Utf8PathExt for Utf8PathBuf {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
         ls_types::Uri::from_file_path(self.as_std_path())
+    }
+}
+
+pub(crate) trait FoldingRangeKindExt {
+    fn to_lsp_kind(self) -> ls_types::FoldingRangeKind;
+}
+
+impl FoldingRangeKindExt for FoldKind {
+    fn to_lsp_kind(self) -> ls_types::FoldingRangeKind {
+        match self {
+            FoldKind::Region => ls_types::FoldingRangeKind::Region,
+            FoldKind::Comment => ls_types::FoldingRangeKind::Comment,
+        }
     }
 }
 
