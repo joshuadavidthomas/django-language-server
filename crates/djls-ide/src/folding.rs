@@ -65,7 +65,27 @@ pub fn collect_folding_ranges(
 
     folds.sort_by_key(|fold| fold.sort_key());
     folds.dedup();
-    into_lsp_folding_ranges(db, file, folds)
+
+    let line_index = file.line_index(db);
+    folds
+        .into_iter()
+        .filter_map(|fold| {
+            let range = fold.span.to_lsp_range(line_index);
+
+            if range.start.line >= range.end.line {
+                return None;
+            }
+
+            Some(ls_types::FoldingRange {
+                start_line: range.start.line,
+                start_character: Some(range.start.character),
+                end_line: range.end.line,
+                end_character: Some(range.end.character),
+                kind: Some(fold.kind.to_lsp_kind()),
+                collapsed_text: None,
+            })
+        })
+        .collect()
 }
 
 fn append_semantic_folds(
@@ -154,33 +174,6 @@ fn append_header_folds(
     if let Some(fold) = import.take_fold() {
         folds.push(fold);
     }
-}
-
-fn into_lsp_folding_ranges(
-    db: &dyn djls_semantic::Db,
-    file: File,
-    folds: Vec<FoldSpan>,
-) -> Vec<ls_types::FoldingRange> {
-    let line_index = file.line_index(db);
-    folds
-        .into_iter()
-        .filter_map(|fold| {
-            let range = fold.span.to_lsp_range(line_index);
-
-            if range.start.line >= range.end.line {
-                return None;
-            }
-
-            Some(ls_types::FoldingRange {
-                start_line: range.start.line,
-                start_character: Some(range.start.character),
-                end_line: range.end.line,
-                end_character: Some(range.end.character),
-                kind: Some(fold.kind.to_lsp_kind()),
-                collapsed_text: None,
-            })
-        })
-        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
