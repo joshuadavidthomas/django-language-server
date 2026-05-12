@@ -186,7 +186,7 @@ impl<'db> BlockTreeBuilder<'db> {
                 });
             }
             TagClass::Closer { opener_name } => {
-                self.close_block(opener_name, bits, span);
+                self.close_block(name, opener_name, bits, span);
             }
             TagClass::Intermediate { possible_openers } => {
                 self.add_intermediate(name, possible_openers, span);
@@ -203,16 +203,21 @@ impl<'db> BlockTreeBuilder<'db> {
         }
     }
 
-    fn close_block(&mut self, opener_name: &str, closer_bits: &[String], span: Span) {
+    fn close_block(
+        &mut self,
+        closer_name: &str,
+        opener_name: &str,
+        closer_bits: &[String],
+        span: Span,
+    ) {
         let marker_span = expand_marker(span);
 
         let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) else {
             self.ops.push(TreeOp::AccumulateDiagnostic(
-                ValidationError::UnbalancedStructure {
-                    opening_tag: opener_name.to_string(),
-                    expected_closing: String::new(),
-                    opening_span: marker_span,
-                    closing_span: None,
+                ValidationError::OrphanedClosingTag {
+                    tag: closer_name.to_string(),
+                    expected_opener: opener_name.to_string(),
+                    span: marker_span,
                 },
             ));
             return;
@@ -354,16 +359,16 @@ fn expand_marker(span: Span) -> Span {
 
 fn format_intermediate_context(possible_openers: &[String]) -> String {
     match possible_openers.len() {
-        0 => "a valid parent block".to_string(),
-        1 => format!("'{}' block", possible_openers[0]),
+        0 => "an open parent block".to_string(),
+        1 => format!("an open '{{% {} %}}' block", possible_openers[0]),
         2 => format!(
-            "'{}' or '{}' block",
+            "an open '{{% {} %}}' or '{{% {} %}}' block",
             possible_openers[0], possible_openers[1]
         ),
         _ => {
             let mut parts = possible_openers
                 .iter()
-                .map(|name| format!("'{name}'"))
+                .map(|name| format!("'{{% {name} %}}'"))
                 .collect::<Vec<_>>();
             let last = parts.pop().unwrap_or_default();
             let prefix = parts.join(", ");

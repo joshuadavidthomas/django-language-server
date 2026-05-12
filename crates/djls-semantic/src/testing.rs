@@ -380,6 +380,7 @@ pub(crate) fn render_diagnostic_snapshot(
             }
             ValidationError::UnclosedTag { .. }
             | ValidationError::OrphanedTag { .. }
+            | ValidationError::OrphanedClosingTag { .. }
             | ValidationError::UnbalancedStructure { .. }
             | ValidationError::UnmatchedBlockName { .. }
             | ValidationError::UnknownTag { .. }

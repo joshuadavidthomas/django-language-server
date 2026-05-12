@@ -7,10 +7,17 @@ pub enum ValidationError {
     #[error("Unclosed tag: {tag}")]
     UnclosedTag { tag: String, span: Span },
 
-    #[error("Orphaned tag '{tag}' - {context}")]
+    #[error("'{{% {tag} %}}' must be inside {context}")]
     OrphanedTag {
         tag: String,
         context: String,
+        span: Span,
+    },
+
+    #[error("Closing tag '{{% {tag} %}}' has no matching '{{% {expected_opener} %}}' opener")]
+    OrphanedClosingTag {
+        tag: String,
+        expected_opener: String,
         span: Span,
     },
 
@@ -22,7 +29,7 @@ pub enum ValidationError {
         closing_span: Option<Span>,
     },
 
-    #[error("'{got}' does not match '{expected}'")]
+    #[error("Closing block name '{got}' does not match opening block name '{expected}'")]
     UnmatchedBlockName {
         expected: String,
         got: String,
@@ -122,7 +129,7 @@ impl ValidationError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::UnclosedTag { .. } => "S100",
-            Self::UnbalancedStructure { .. } => "S101",
+            Self::UnbalancedStructure { .. } | Self::OrphanedClosingTag { .. } => "S101",
             Self::OrphanedTag { .. } => "S102",
             Self::UnmatchedBlockName { .. } => "S103",
             Self::UnknownTag { .. } => "S108",
@@ -150,6 +157,7 @@ impl ValidationError {
             Self::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
             Self::UnclosedTag { span, .. }
             | Self::OrphanedTag { span, .. }
+            | Self::OrphanedClosingTag { span, .. }
             | Self::UnmatchedBlockName { span, .. }
             | Self::UnknownTag { span, .. }
             | Self::UnloadedTag { span, .. }
