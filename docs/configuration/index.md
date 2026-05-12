@@ -127,7 +127,7 @@ Configure diagnostic severity levels. All diagnostics are enabled by default at 
 #### `diagnostics.severity`
 
 Map diagnostic codes or prefixes to severity levels. Supports:
-- **Exact codes:** `"S100"`, `"T100"`
+- **Exact codes:** `"S100"`, `"T109"`
 - **Prefixes:** `"S"` (all S-series), `"T"` (all T-series), `"S1"` (S100-S199), `"T9"` (T900-T999)
 - **Resolution:** More specific patterns override less specific (exact > longer prefix > shorter prefix)
 
@@ -141,8 +141,25 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 #### Available diagnostic codes
 
 **Template Errors (T-series):**
-- `T100` - Parser errors (syntax issues in templates)
+- `T101` - Unexpected token
+- `T102` - Missing condition in a tag
+- `T103` - Missing iterator in a `{% for %}` tag
+- `T104` - Malformed variable
+- `T105` - Invalid filter syntax
+- `T106` - Unclosed tag
+- `T107` - Invalid syntax
+- `T108` - Empty tag
+- `T109` - Malformed template construct
+- `T110` - Parser stream error
 - `T900` - IO errors (file read/write issues)
+- `T901` - Configuration errors
+
+!!! info "Migration from `T100`"
+
+    Template parser diagnostics previously used a single `T100` code. They now use specific codes `T101`–`T110` so each parser error can be configured separately.
+
+    If you configured `T100`, replace it with the relevant `T10x` code or use the `T` prefix to configure all template diagnostics.
+
 **Semantic Validation Errors (S-series):**
 
 *Block Structure (S100–S103):*
@@ -217,7 +234,7 @@ See [Template Validation](../template-validation.md) for details on how these di
 ```toml
 [diagnostics.severity]
 S100 = "off"  # Don't show unclosed tag errors
-T100 = "off"  # Don't show parser errors
+T109 = "off"  # Don't show malformed template construct errors
 ```
 
 **Disable all template errors:**
@@ -230,7 +247,7 @@ T100 = "off"  # Don't show parser errors
 ```toml
 [diagnostics.severity]
 "T" = "off"     # Disable all template errors
-T100 = "hint"   # But show parser errors as hints (specific overrides prefix)
+T109 = "hint"   # But show malformed template construct errors as hints
 ```
 
 **Make all semantic errors warnings:**
@@ -245,8 +262,8 @@ T100 = "hint"   # But show parser errors as hints (specific overrides prefix)
 # Disable all template errors
 "T" = "off"
 
-# But show parser errors as hints
-T100 = "hint"
+# But show malformed template construct errors as hints
+T109 = "hint"
 
 # Make all semantic errors warnings
 "S" = "warning"
@@ -302,7 +319,7 @@ Pass configuration through your editor's LSP client using `initializationOptions
       "S100": "off",
       "S101": "warning",
       "T": "off",
-      "T100": "hint"
+      "T109": "hint"
     }
   }
 }
@@ -327,7 +344,7 @@ env_file = ".env"  # Optional: path to env file (auto-detects .env by default)
 S100 = "off"
 S101 = "warning"
 "T" = "off"
-T100 = "hint"
+T109 = "hint"
 ```
 
 If you prefer a dedicated config file or don't use `pyproject.toml`, you can use `djls.toml` (same settings, no `[tool.djls]` table).

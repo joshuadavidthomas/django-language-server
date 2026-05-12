@@ -85,20 +85,22 @@ impl Parser {
         } = token
         else {
             return Err(ParseError::InvalidSyntax {
+                position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Block token".to_string(),
             });
         };
 
-        let (name, bits) = Self::parse_tag_args(content_ref)?;
+        let (name, bits) =
+            Self::parse_tag_args(content_ref, token.content_span_or_fallback().start_usize())?;
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
     }
 
-    fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
+    fn parse_tag_args(content: &str, position: usize) -> Result<(String, Vec<String>), ParseError> {
         let pieces = split_on_whitespace(content);
         let mut iter = pieces.into_iter();
-        let name = iter.next().ok_or(ParseError::EmptyTag)?;
+        let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         Ok((name, iter.collect()))
     }
 
@@ -131,6 +133,7 @@ impl Parser {
                 })
             }
             _ => Err(ParseError::InvalidSyntax {
+                position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Error token".to_string(),
             }),
         }
@@ -172,6 +175,7 @@ impl Parser {
         } = token
         else {
             return Err(ParseError::InvalidSyntax {
+                position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Variable token".to_string(),
             });
         };
@@ -181,7 +185,9 @@ impl Parser {
 
         let mut parts = split_variable_expression(content_ref);
 
-        let (var_raw, _) = parts.next().ok_or(ParseError::EmptyTag)?;
+        let (var_raw, _) = parts.next().ok_or(ParseError::EmptyTag {
+            position: span.start_usize(),
+        })?;
         let var = var_raw.trim().to_string();
 
         let filters: Vec<Filter> = parts
@@ -282,11 +288,11 @@ pub enum ParseError {
         expected_closer: String,
     },
 
-    #[error("Invalid syntax: {context}")]
-    InvalidSyntax { context: String },
+    #[error("Invalid syntax at position {position}: {context}")]
+    InvalidSyntax { position: usize, context: String },
 
-    #[error("Empty tag")]
-    EmptyTag,
+    #[error("Empty tag at position {position}")]
+    EmptyTag { position: usize },
 
     #[error("Unclosed '{opener}' (no matching '{closer}' found): {content}")]
     MalformedConstruct {

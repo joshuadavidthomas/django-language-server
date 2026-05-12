@@ -41,7 +41,7 @@ trait DiagnosticError: std::fmt::Display {
 
 impl DiagnosticError for TemplateError {
     fn span(&self) -> Option<(u32, u32)> {
-        None
+        self.primary_span()
     }
 
     fn diagnostic_code(&self) -> &'static str {
@@ -116,8 +116,30 @@ pub fn collect_diagnostics(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_typ
 #[cfg(test)]
 mod tests {
     use djls_conf::DiagnosticSeverity;
+    use djls_templates::ParseError;
 
     use super::*;
+
+    #[test]
+    fn template_parse_diagnostics_use_structured_code_and_range() {
+        let source = "Hello {{ value";
+        let line_index = LineIndex::from(source);
+        let error = TemplateError::from(ParseError::MalformedConstruct {
+            position: 6,
+            opener: "{{".to_string(),
+            closer: "}}".to_string(),
+            content: "value".to_string(),
+        });
+
+        let diagnostic = error.as_diagnostic(&line_index);
+
+        assert_eq!(
+            diagnostic.code,
+            Some(ls_types::NumberOrString::String("T109".to_string()))
+        );
+        assert_eq!(diagnostic.range.start, ls_types::Position::new(0, 6));
+        assert_eq!(diagnostic.range.end, ls_types::Position::new(0, 8));
+    }
 
     #[test]
     fn test_to_lsp_severity() {
