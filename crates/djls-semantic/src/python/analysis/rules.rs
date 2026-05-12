@@ -105,41 +105,6 @@ impl ConstraintSet {
             .extend(other.choice_at_constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
     }
-
-    fn with_message(mut self, message: &ExtractedMessageTemplate) -> Self {
-        self.diagnostic_messages
-            .extend(self.arg_constraints.iter().cloned().map(|constraint| {
-                ExtractedDiagnosticMessage {
-                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
-                    message: message.clone(),
-                }
-            }));
-        self.diagnostic_messages
-            .extend(
-                self.required_keywords
-                    .iter()
-                    .map(|keyword| ExtractedDiagnosticMessage {
-                        constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
-                            position: keyword.position,
-                            value: keyword.value.clone(),
-                        },
-                        message: message.clone(),
-                    }),
-            );
-        self.diagnostic_messages
-            .extend(
-                self.choice_at_constraints
-                    .iter()
-                    .map(|choice| ExtractedDiagnosticMessage {
-                        constraint: ExtractedDiagnosticConstraint::ChoiceAt {
-                            position: choice.position,
-                            values: choice.values.clone(),
-                        },
-                        message: message.clone(),
-                    }),
-            );
-        self
-    }
 }
 
 /// Extract constraints from a single if-statement using the current env state.
@@ -406,12 +371,52 @@ fn eval_range_constraint(
     ])
 }
 
-fn attach_raise_message(constraints: ConstraintSet, body: &[Stmt], env: &Env) -> ConstraintSet {
-    if let Some(message) = extract_raise_message(body, env) {
-        constraints.with_message(&message)
-    } else {
-        constraints
-    }
+fn attach_raise_message(mut constraints: ConstraintSet, body: &[Stmt], env: &Env) -> ConstraintSet {
+    let Some(message) = extract_raise_message(body, env) else {
+        return constraints;
+    };
+
+    constraints
+        .diagnostic_messages
+        .extend(
+            constraints
+                .arg_constraints
+                .iter()
+                .cloned()
+                .map(|constraint| ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+                    message: message.clone(),
+                }),
+        );
+
+    constraints
+        .diagnostic_messages
+        .extend(
+            constraints
+                .required_keywords
+                .iter()
+                .map(|keyword| ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+                        position: keyword.position,
+                        value: keyword.value.clone(),
+                    },
+                    message: message.clone(),
+                }),
+        );
+
+    constraints
+        .diagnostic_messages
+        .extend(constraints.choice_at_constraints.iter().map(|choice| {
+            ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+                    position: choice.position,
+                    values: choice.values.clone(),
+                },
+                message: message.clone(),
+            }
+        }));
+
+    constraints
 }
 
 /// Check whether a statement body contains a direct `raise` with an exception.
