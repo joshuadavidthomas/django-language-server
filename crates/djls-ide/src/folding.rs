@@ -12,7 +12,7 @@ use crate::ext::SpanExt;
 pub(crate) enum FoldKind {
     Region,
     Comment,
-    Imports { starts_with_extends: bool },
+    Imports,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -130,14 +130,8 @@ fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PendingImport {
     Empty,
-    Extends {
-        start: u32,
-    },
-    Imports {
-        start: u32,
-        end: u32,
-        starts_with_extends: bool,
-    },
+    Extends { start: u32 },
+    Imports { start: u32, end: u32 },
 }
 
 impl PendingImport {
@@ -147,32 +141,13 @@ impl PendingImport {
             Self::Empty => Self::Imports {
                 start: span.start(),
                 end,
-                starts_with_extends: false,
             },
-            Self::Extends { start } => Self::Imports {
-                start,
-                end,
-                starts_with_extends: true,
-            },
-            Self::Imports {
-                start,
-                starts_with_extends,
-                ..
-            } => Self::Imports {
-                start,
-                end,
-                starts_with_extends,
-            },
+            Self::Extends { start } | Self::Imports { start, .. } => Self::Imports { start, end },
         };
     }
 
     fn push(&mut self, folds: &mut Vec<FoldSpan>) {
-        let Self::Imports {
-            start,
-            end,
-            starts_with_extends,
-        } = *self
-        else {
+        let Self::Imports { start, end } = *self else {
             *self = Self::Empty;
             return;
         };
@@ -185,9 +160,7 @@ impl PendingImport {
 
         folds.push(FoldSpan {
             span: Span::saturating_from_bounds_usize(start as usize, end as usize),
-            kind: FoldKind::Imports {
-                starts_with_extends,
-            },
+            kind: FoldKind::Imports,
         });
     }
 }
@@ -219,7 +192,7 @@ impl FoldSpan {
         match self.kind {
             FoldKind::Region => 0,
             FoldKind::Comment => 1,
-            FoldKind::Imports { .. } => 2,
+            FoldKind::Imports => 2,
         }
     }
 }
