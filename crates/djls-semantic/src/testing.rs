@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,14 +18,33 @@ use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
 use crate::specs::tags::builtin_tag_specs;
+use crate::ArgumentCountConstraint;
+use crate::ChoiceAt;
+use crate::FilterArity;
 use crate::FilterAritySpecs;
+use crate::Knowledge;
+use crate::LibraryName;
+use crate::LibraryOrigin;
+use crate::PyModuleName;
+use crate::RequiredKeyword;
+use crate::SplitPosition;
+use crate::SymbolDefinition;
+use crate::SymbolKey;
 use crate::TagIndex;
+use crate::TagRule;
+use crate::TagSpec;
 use crate::TagSpecs;
 use crate::TemplateLibraries;
+use crate::TemplateLibrary;
 use crate::TemplateLibrarySnapshot;
+use crate::TemplateSymbol;
+use crate::TemplateSymbolKind;
+use crate::TemplateSymbolName;
 use crate::TemplateSymbolSnapshot;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
+
+mod mdtest;
 
 pub(crate) fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
@@ -394,6 +414,314 @@ pub(crate) fn render_diagnostic_snapshot(
     }
 
     parts.join("\n")
+}
+
+pub(crate) fn snapshot_validate(source: &str) -> String {
+    snapshot_validate_file("test.html", source)
+}
+
+pub(crate) fn snapshot_validate_file(path: &str, source: &str) -> String {
+    render_validate_snapshot(&standard_validation_db(), path, 0, source)
+}
+
+/// Curated validation environment for mdtest snapshots.
+///
+/// This keeps diagnostic snapshots deterministic and easy to author. It is not
+/// a live Django project inspection fixture; add libraries, tags, and filters
+/// here when a scenario needs them.
+pub(crate) fn standard_validation_db() -> TestDatabase {
+    TestDatabase::new()
+        .with_specs(standard_tag_specs())
+        .with_template_libraries(standard_template_libraries())
+        .with_arity_specs(standard_filter_arities())
+}
+
+fn standard_tag_specs() -> TagSpecs {
+    let mut specs = builtin_tag_specs();
+
+    set_tag_rule(
+        &mut specs,
+        "autoescape",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+            choice_at_constraints: vec![ChoiceAt {
+                position: SplitPosition::Forward(1),
+                values: vec!["on".to_string(), "off".to_string()],
+            }],
+            ..TagRule::default()
+        },
+    );
+    set_tag_rule(
+        &mut specs,
+        "cycle",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+            ..TagRule::default()
+        },
+    );
+    set_tag_rule(
+        &mut specs,
+        "lorem",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
+            ..TagRule::default()
+        },
+    );
+    set_tag_rule(
+        &mut specs,
+        "now",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+            ..TagRule::default()
+        },
+    );
+    set_tag_rule(
+        &mut specs,
+        "regroup",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(6)],
+            required_keywords: vec![
+                RequiredKeyword {
+                    position: SplitPosition::Forward(2),
+                    value: "by".to_string(),
+                },
+                RequiredKeyword {
+                    position: SplitPosition::Forward(4),
+                    value: "as".to_string(),
+                },
+            ],
+            ..TagRule::default()
+        },
+    );
+    set_tag_rule(
+        &mut specs,
+        "url",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+            ..TagRule::default()
+        },
+    );
+    set_tag_rule(
+        &mut specs,
+        "widthratio",
+        TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![4, 6])],
+            required_keywords: vec![RequiredKeyword {
+                position: SplitPosition::Forward(4),
+                value: "as".to_string(),
+            }],
+            ..TagRule::default()
+        },
+    );
+
+    specs.insert(
+        "one_arg_tag".to_string(),
+        TagSpec {
+            module: "example.templatetags.custom".into(),
+            end_tag: None,
+            intermediate_tags: Cow::Borrowed(&[]),
+            opaque: false,
+            extracted_rules: Some(TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                ..TagRule::default()
+            }),
+        },
+    );
+    specs
+}
+
+fn set_tag_rule(specs: &mut TagSpecs, name: &str, rule: TagRule) {
+    if let Some(spec) = specs.get_mut(name) {
+        spec.extracted_rules = Some(rule);
+    }
+}
+
+fn standard_template_libraries() -> TemplateLibraries {
+    let tags = vec![
+        builtin_tag_json("autoescape", default_builtins_module()),
+        builtin_tag_json("block", default_loader_tags_module()),
+        builtin_tag_json("comment", default_builtins_module()),
+        builtin_tag_json("csrf_token", default_builtins_module()),
+        builtin_tag_json("cycle", default_builtins_module()),
+        builtin_tag_json("debug", default_builtins_module()),
+        builtin_tag_json("extends", default_loader_tags_module()),
+        builtin_tag_json("filter", default_builtins_module()),
+        builtin_tag_json("firstof", default_builtins_module()),
+        builtin_tag_json("for", default_builtins_module()),
+        builtin_tag_json("if", default_builtins_module()),
+        builtin_tag_json("ifchanged", default_builtins_module()),
+        builtin_tag_json("include", default_loader_tags_module()),
+        builtin_tag_json("load", default_builtins_module()),
+        builtin_tag_json("lorem", default_builtins_module()),
+        builtin_tag_json("now", default_builtins_module()),
+        builtin_tag_json("one_arg_tag", "example.templatetags.custom"),
+        builtin_tag_json("regroup", default_builtins_module()),
+        builtin_tag_json("spaceless", default_builtins_module()),
+        builtin_tag_json("templatetag", default_builtins_module()),
+        builtin_tag_json("url", default_builtins_module()),
+        builtin_tag_json("verbatim", default_builtins_module()),
+        builtin_tag_json("widthratio", default_builtins_module()),
+        builtin_tag_json("with", default_builtins_module()),
+        library_tag_json("ambiguous_tag", "alpha", "example.alpha.templatetags.alpha"),
+        library_tag_json("ambiguous_tag", "beta", "example.beta.templatetags.beta"),
+        library_tag_json("blocktrans", "i18n", "django.templatetags.i18n"),
+        library_tag_json("blocktranslate", "i18n", "django.templatetags.i18n"),
+        library_tag_json("cache", "cache", "django.templatetags.cache"),
+        library_tag_json("localize", "l10n", "django.templatetags.l10n"),
+        library_tag_json("localtime", "tz", "django.templatetags.tz"),
+        library_tag_json("static", "static", "django.templatetags.static"),
+        library_tag_json("timezone", "tz", "django.templatetags.tz"),
+        library_tag_json("trans", "i18n", "django.templatetags.i18n"),
+        library_tag_json("translate", "i18n", "django.templatetags.i18n"),
+    ];
+    let filters = vec![
+        builtin_filter_json("title", default_filters_module()),
+        builtin_filter_json("lower", default_filters_module()),
+        builtin_filter_json("length", default_filters_module()),
+        builtin_filter_json("default", default_filters_module()),
+        builtin_filter_json("truncatewords", default_filters_module()),
+        builtin_filter_json("date", default_filters_module()),
+        builtin_filter_json("upper", default_filters_module()),
+        library_filter_json(
+            "intcomma",
+            "humanize",
+            "django.contrib.humanize.templatetags.humanize",
+        ),
+        library_filter_json(
+            "ambiguous_filter",
+            "alpha",
+            "example.alpha.templatetags.alpha",
+        ),
+        library_filter_json("ambiguous_filter", "beta", "example.beta.templatetags.beta"),
+    ];
+    let mut libraries = HashMap::new();
+    libraries.insert("cache".to_string(), "django.templatetags.cache".to_string());
+    libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+    libraries.insert("l10n".to_string(), "django.templatetags.l10n".to_string());
+    libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
+    libraries.insert(
+        "humanize".to_string(),
+        "django.contrib.humanize.templatetags.humanize".to_string(),
+    );
+    libraries.insert(
+        "static".to_string(),
+        "django.templatetags.static".to_string(),
+    );
+    libraries.insert(
+        "alpha".to_string(),
+        "example.alpha.templatetags.alpha".to_string(),
+    );
+    libraries.insert(
+        "beta".to_string(),
+        "example.beta.templatetags.beta".to_string(),
+    );
+    let builtins = vec![
+        default_builtins_module().to_string(),
+        default_filters_module().to_string(),
+        default_loader_tags_module().to_string(),
+        "example.templatetags.custom".to_string(),
+    ];
+
+    let mut template_libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
+    add_discovered_widgets_library(&mut template_libraries);
+    template_libraries
+}
+
+fn add_discovered_widgets_library(template_libraries: &mut TemplateLibraries) {
+    template_libraries.discovery_knowledge = Knowledge::Known;
+
+    let name = LibraryName::parse("widgets").unwrap();
+    let app = PyModuleName::parse("example.widgets").unwrap();
+    let module = PyModuleName::parse("example.widgets.templatetags.widgets").unwrap();
+    let origin = LibraryOrigin {
+        app,
+        module: module.clone(),
+        path: Utf8PathBuf::from("/example/widgets/templatetags/widgets.py"),
+    };
+    let mut library = TemplateLibrary::new_discovered(name.clone(), origin);
+    library.merge_symbol(template_symbol(
+        TemplateSymbolKind::Tag,
+        "widget_tag",
+        "example.widgets.templatetags.widgets",
+    ));
+    library.merge_symbol(template_symbol(
+        TemplateSymbolKind::Filter,
+        "widget_filter",
+        "example.widgets.templatetags.widgets",
+    ));
+    template_libraries
+        .loadable
+        .entry(name)
+        .or_default()
+        .push(library);
+}
+
+fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> TemplateSymbol {
+    TemplateSymbol {
+        kind,
+        name: TemplateSymbolName::parse(name).unwrap(),
+        definition: SymbolDefinition::Module(PyModuleName::parse(module).unwrap()),
+        doc: None,
+    }
+}
+
+fn standard_filter_arities() -> FilterAritySpecs {
+    let mut specs = FilterAritySpecs::new();
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "title"),
+        FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "lower"),
+        FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "upper"),
+        FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "default"),
+        FilterArity {
+            expects_arg: true,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "truncatewords"),
+        FilterArity {
+            expects_arg: true,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "date"),
+        FilterArity {
+            expects_arg: true,
+            arg_optional: true,
+        },
+    );
+    specs
+}
+
+fn default_builtins_module() -> &'static str {
+    "django.template.defaulttags"
+}
+
+fn default_filters_module() -> &'static str {
+    "django.template.defaultfilters"
+}
+
+fn default_loader_tags_module() -> &'static str {
+    "django.template.loader_tags"
 }
 
 pub(crate) fn render_validate_snapshot(

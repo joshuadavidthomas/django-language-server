@@ -36,6 +36,7 @@ insta = { version = "1.47", features = ["glob", "yaml"] }
 memchr = "2.8"
 notify = "8.2"
 percent-encoding = "2.3"
+pulldown-cmark = "0.13.3"
 rayon = "1.12"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
 rustc-hash = "2.1"
