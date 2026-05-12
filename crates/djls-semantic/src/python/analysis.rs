@@ -1,4 +1,5 @@
 pub(crate) mod calls;
+pub(crate) mod exceptions;
 pub(crate) mod expressions;
 pub(crate) mod match_arms;
 pub(crate) mod mutations;

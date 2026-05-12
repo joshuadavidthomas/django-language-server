@@ -224,7 +224,7 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
 
 /// Check if any code path in a body contains a `raise` with an exception.
 ///
-/// Unlike `rules::body_raises_exception` (which only checks direct raises),
+/// Unlike `exceptions::direct_raise_exception` (which only checks direct raises),
 /// this recurses into control flow branches. Used for match case classification
 /// where any raise in any branch means the case can error. Any exception type
 /// counts — `TemplateSyntaxError`, `ValueError`, etc.

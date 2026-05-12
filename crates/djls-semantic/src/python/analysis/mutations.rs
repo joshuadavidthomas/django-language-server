@@ -9,6 +9,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtWhile;
 
+use crate::python::analysis::exceptions::direct_raise_exception;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::ext::ExprExt;
@@ -219,7 +220,7 @@ impl StatementVisitor<'_> for OptionCheckVisitor<'_> {
                     }
                 } else {
                     // else branch — if it raises, unknown options are rejected
-                    if crate::python::analysis::rules::body_raises_exception(&clause.body) {
+                    if direct_raise_exception(&clause.body).is_some() {
                         *self.rejects_unknown = true;
                     }
                 }
