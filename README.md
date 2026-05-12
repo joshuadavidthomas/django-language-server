@@ -32,13 +32,13 @@ A language server for the Django web framework.
 - [x] **Diagnostics** - Real-time error checking and validation
   ![Diagnostics](docs/assets/diagnostics.png)
 
-- [x] **Folding ranges** - Fold Django template regions
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
   - [x] Template navigation for `{% extends %}` and `{% include %}`
   - [ ] Block and variable definitions
 - [ ] **Find references** - See where templates, blocks, and variables are used
   - [x] Template references for `{% extends %}` and `{% include %}`
   - [ ] Block and variable references
+- [x] **Folding ranges** - Fold Django template regions
 - [ ] **Hover** - View documentation and type info on hover
 - [ ] **Rename** - Refactor names across files
 - [ ] **Code actions** - Quick fixes and refactorings
