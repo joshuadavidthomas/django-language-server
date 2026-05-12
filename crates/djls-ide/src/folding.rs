@@ -33,12 +33,15 @@ pub fn collect_folding_ranges(
     let block_tree = djls_semantic::build_block_tree(db, nodelist);
     let forest = djls_semantic::build_semantic_forest(db, block_tree, nodelist);
 
-    let mut folds = Vec::new();
-    for root in forest.roots(db) {
-        collect_node_folds(root, &mut folds);
-    }
-
-    collect_template_node_folds(nodelist.nodelist(db), file.source(db).as_str(), &mut folds);
+    let mut folds: Vec<_> = forest
+        .roots(db)
+        .iter()
+        .flat_map(collect_node_folds)
+        .collect();
+    folds.extend(collect_template_node_folds(
+        nodelist.nodelist(db),
+        file.source(db).as_str(),
+    ));
 
     folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
     folds.dedup();
@@ -65,16 +68,17 @@ pub fn collect_folding_ranges(
         .collect()
 }
 
-fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
+fn collect_node_folds(node: &SemanticNode) -> Vec<FoldSpan> {
     let SemanticNode::Tag {
         marker_span,
         segments,
         ..
     } = node
     else {
-        return;
+        return Vec::new();
     };
 
+    let mut folds = Vec::new();
     if let Some(span) = fold_span(*marker_span, segments) {
         folds.push(FoldSpan {
             span,
@@ -84,9 +88,11 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
 
     for segment in segments {
         for child in &segment.children {
-            collect_node_folds(child, folds);
+            folds.extend(collect_node_folds(child));
         }
     }
+
+    folds
 }
 
 fn fold_kind(node: &SemanticNode) -> FoldKind {
@@ -96,20 +102,21 @@ fn fold_kind(node: &SemanticNode) -> FoldKind {
     }
 }
 
-fn collect_template_node_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
+fn collect_template_node_folds(nodes: &[Node], source: &str) -> Vec<FoldSpan> {
+    let mut folds = Vec::new();
     let mut import = ImportHeader::Empty;
 
     for node in nodes {
         match node {
             Node::Comment { .. } => {
-                import.push(folds);
+                folds.extend(import.take_fold());
                 folds.push(FoldSpan {
                     span: node.full_span(),
                     kind: FoldKind::Comment,
                 });
             }
             Node::Tag { name, .. } if name == "extends" => {
-                import.push(folds);
+                folds.extend(import.take_fold());
                 import = ImportHeader::Extends {
                     start: node.full_span().start(),
                 };
@@ -118,11 +125,12 @@ fn collect_template_node_folds(nodes: &[Node], source: &str, folds: &mut Vec<Fol
                 import.include_load(node.full_span());
             }
             Node::Text { span } if is_whitespace(source, *span) => {}
-            _ => import.push(folds),
+            _ => folds.extend(import.take_fold()),
         }
     }
 
-    import.push(folds);
+    folds.extend(import.take_fold());
+    folds
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,22 +152,19 @@ impl ImportHeader {
         };
     }
 
-    fn push(&mut self, folds: &mut Vec<FoldSpan>) {
-        let Self::Imports { start, end } = *self else {
-            *self = Self::Empty;
-            return;
+    fn take_fold(&mut self) -> Option<FoldSpan> {
+        let Self::Imports { start, end } = std::mem::replace(self, Self::Empty) else {
+            return None;
         };
 
-        *self = Self::Empty;
-
         if start >= end {
-            return;
+            return None;
         }
 
-        folds.push(FoldSpan {
+        Some(FoldSpan {
             span: Span::saturating_from_bounds_usize(start as usize, end as usize),
             kind: FoldKind::Imports,
-        });
+        })
     }
 }
 
