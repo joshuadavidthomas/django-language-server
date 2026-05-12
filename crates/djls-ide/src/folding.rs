@@ -1,4 +1,6 @@
-use djls_semantic::structure::forest::SemanticNode;
+use djls_semantic::structure::tree::BlockNode;
+use djls_semantic::structure::tree::Blocks;
+use djls_semantic::structure::tree::BranchKind;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
@@ -94,37 +96,29 @@ fn append_semantic_folds(
     folds: &mut Vec<FoldSpan>,
 ) {
     let block_tree = djls_semantic::build_block_tree(db, nodelist);
-    let forest = djls_semantic::build_semantic_forest(db, block_tree, nodelist);
-    let mut stack: Vec<_> = forest.roots(db).iter().collect();
+    append_block_tree_folds(block_tree.blocks(db), folds);
+}
 
-    while let Some(node) = stack.pop() {
-        let SemanticNode::Tag {
-            name,
-            marker_span,
-            segments,
-            ..
-        } = node
-        else {
+fn append_block_tree_folds(blocks: &Blocks, folds: &mut Vec<FoldSpan>) {
+    for region in blocks {
+        let Some((tag, marker_span)) = region.nodes().iter().find_map(|node| match node {
+            BlockNode::Branch {
+                tag,
+                marker_span,
+                kind: BranchKind::Segment,
+                ..
+            } => Some((tag.as_str(), *marker_span)),
+            BlockNode::Branch { .. } | BlockNode::Leaf { .. } => None,
+        }) else {
             continue;
         };
 
-        if let Some(fold) = segments
-            .iter()
-            .map(|segment| segment.content_span.end())
-            .max()
-            .and_then(|end| {
-                FoldSpan::from_bounds(
-                    marker_span.start(),
-                    end,
-                    FoldKind::from_semantic_tag_name(name),
-                )
-            })
-        {
+        if let Some(fold) = FoldSpan::from_bounds(
+            marker_span.start(),
+            region.span().end(),
+            FoldKind::from_semantic_tag_name(tag),
+        ) {
             folds.push(fold);
-        }
-
-        for segment in segments {
-            stack.extend(&segment.children);
         }
     }
 }
@@ -239,5 +233,56 @@ impl ImportHeaderCandidate {
         if let Some(fold) = self.finish() {
             folds.push(fold);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_tree_folds_include_all_segment_containers() {
+        let mut blocks = Blocks::default();
+
+        let outer_container = blocks.alloc(Span::new(10, 0), None);
+        let outer_body = blocks.alloc(Span::new(20, 0), Some(outer_container));
+        blocks.push_node(
+            outer_container,
+            BlockNode::Branch {
+                tag: "block".to_string(),
+                marker_span: Span::new(10, 5),
+                body: outer_body,
+                kind: BranchKind::Segment,
+            },
+        );
+        blocks.set_block_span(outer_container, Span::saturating_from_bounds_usize(10, 100));
+
+        let inner_container = blocks.alloc(Span::new(40, 0), Some(outer_body));
+        let inner_body = blocks.alloc(Span::new(50, 0), Some(inner_container));
+        blocks.push_node(
+            outer_body,
+            BlockNode::Branch {
+                tag: "if".to_string(),
+                marker_span: Span::new(40, 5),
+                body: inner_container,
+                kind: BranchKind::Opener,
+            },
+        );
+        blocks.push_node(
+            inner_container,
+            BlockNode::Branch {
+                tag: "if".to_string(),
+                marker_span: Span::new(40, 5),
+                body: inner_body,
+                kind: BranchKind::Segment,
+            },
+        );
+        blocks.set_block_span(inner_container, Span::saturating_from_bounds_usize(40, 90));
+
+        let mut folds = Vec::new();
+        append_block_tree_folds(&blocks, &mut folds);
+
+        let keys: Vec<_> = folds.into_iter().map(FoldSpan::sort_key).collect();
+        assert_eq!(keys, vec![(10, 100, 0), (40, 90, 0)]);
     }
 }
