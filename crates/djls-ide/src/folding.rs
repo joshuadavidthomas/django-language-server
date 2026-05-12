@@ -13,6 +13,28 @@ pub(crate) struct FoldSpan {
 }
 
 impl FoldSpan {
+    fn from_bounds(start: u32, end: u32, kind: FoldKind) -> Option<Self> {
+        if start >= end {
+            return None;
+        }
+
+        Some(Self {
+            span: Span::saturating_from_bounds_usize(start as usize, end as usize),
+            kind,
+        })
+    }
+
+    fn comment(span: Span) -> Self {
+        Self {
+            span,
+            kind: FoldKind::Comment,
+        }
+    }
+
+    fn imports(start: u32, end: u32) -> Option<Self> {
+        Self::from_bounds(start, end, FoldKind::Imports)
+    }
+
     fn sort_key(self) -> (u32, u32, u8) {
         (self.span.start(), self.span.end(), self.kind.sort_key())
     }
@@ -26,20 +48,18 @@ pub(crate) enum FoldKind {
 }
 
 impl FoldKind {
+    fn from_semantic_tag_name(name: &str) -> Self {
+        match name {
+            "comment" => Self::Comment,
+            _ => Self::Region,
+        }
+    }
+
     fn sort_key(self) -> u8 {
         match self {
             Self::Region => 0,
             Self::Comment => 1,
             Self::Imports => 2,
-        }
-    }
-}
-
-impl From<&SemanticNode> for FoldKind {
-    fn from(node: &SemanticNode) -> Self {
-        match node {
-            SemanticNode::Tag { name, .. } if name == "comment" => Self::Comment,
-            SemanticNode::Tag { .. } | SemanticNode::Leaf { .. } => Self::Region,
         }
     }
 }
@@ -79,6 +99,7 @@ fn append_semantic_folds(
 
     while let Some(node) = stack.pop() {
         let SemanticNode::Tag {
+            name,
             marker_span,
             segments,
             ..
@@ -87,20 +108,19 @@ fn append_semantic_folds(
             continue;
         };
 
-        if let Some(end) = segments
+        if let Some(fold) = segments
             .iter()
             .map(|segment| segment.content_span.end())
             .max()
+            .and_then(|end| {
+                FoldSpan::from_bounds(
+                    marker_span.start(),
+                    end,
+                    FoldKind::from_semantic_tag_name(name),
+                )
+            })
         {
-            if marker_span.start() < end {
-                folds.push(FoldSpan {
-                    span: Span::saturating_from_bounds_usize(
-                        marker_span.start() as usize,
-                        end as usize,
-                    ),
-                    kind: FoldKind::from(node),
-                });
-            }
+            folds.push(fold);
         }
 
         for segment in segments {
@@ -116,31 +136,22 @@ fn append_header_folds(
     folds: &mut Vec<FoldSpan>,
 ) {
     let source = file.source(db);
-    let mut import: Option<ImportHeader> = None;
+    let mut import: Option<PendingImportHeader> = None;
 
     for node in nodelist.nodelist(db) {
         match node {
             Node::Comment { .. } => {
-                if let Some(fold) = import.take().and_then(ImportHeader::into_fold) {
-                    folds.push(fold);
-                }
-                folds.push(FoldSpan {
-                    span: node.full_span(),
-                    kind: FoldKind::Comment,
-                });
+                flush_import_header(&mut import, folds);
+                folds.push(FoldSpan::comment(node.full_span()));
             }
             Node::Tag { name, .. } if name == "extends" => {
-                if let Some(fold) = import.take().and_then(ImportHeader::into_fold) {
-                    folds.push(fold);
-                }
-                import = Some(ImportHeader::Extends {
-                    start: node.full_span().start(),
-                });
+                flush_import_header(&mut import, folds);
+                import = Some(PendingImportHeader::from_extends(node.full_span()));
             }
             Node::Tag { name, .. } if name == "load" => {
                 import = Some(match import.take() {
                     Some(header) => header.with_load(node.full_span()),
-                    None => ImportHeader::from_load(node.full_span()),
+                    None => PendingImportHeader::from_load(node.full_span()),
                 });
             }
             Node::Text { span }
@@ -148,26 +159,32 @@ fn append_header_folds(
                     .as_str()
                     .get(span.start_usize()..span.end() as usize)
                     .is_some_and(|text| text.trim().is_empty()) => {}
-            _ => {
-                if let Some(fold) = import.take().and_then(ImportHeader::into_fold) {
-                    folds.push(fold);
-                }
-            }
+            _ => flush_import_header(&mut import, folds),
         }
     }
 
-    if let Some(fold) = import.and_then(ImportHeader::into_fold) {
+    flush_import_header(&mut import, folds);
+}
+
+fn flush_import_header(import: &mut Option<PendingImportHeader>, folds: &mut Vec<FoldSpan>) {
+    if let Some(fold) = import.take().and_then(PendingImportHeader::into_fold) {
         folds.push(fold);
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ImportHeader {
-    Extends { start: u32 },
+enum PendingImportHeader {
+    ExtendsOnly { start: u32 },
     Imports { start: u32, end: u32 },
 }
 
-impl ImportHeader {
+impl PendingImportHeader {
+    fn from_extends(span: Span) -> Self {
+        Self::ExtendsOnly {
+            start: span.start(),
+        }
+    }
+
     fn from_load(span: Span) -> Self {
         Self::Imports {
             start: span.start(),
@@ -177,7 +194,7 @@ impl ImportHeader {
 
     fn with_load(self, span: Span) -> Self {
         match self {
-            Self::Extends { start } | Self::Imports { start, .. } => Self::Imports {
+            Self::ExtendsOnly { start } | Self::Imports { start, .. } => Self::Imports {
                 start,
                 end: span.end(),
             },
@@ -189,13 +206,6 @@ impl ImportHeader {
             return None;
         };
 
-        if start >= end {
-            return None;
-        }
-
-        Some(FoldSpan {
-            span: Span::saturating_from_bounds_usize(start as usize, end as usize),
-            kind: FoldKind::Imports,
-        })
+        FoldSpan::imports(start, end)
     }
 }
