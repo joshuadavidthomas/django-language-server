@@ -1,5 +1,4 @@
 use djls_semantic::structure::forest::SemanticNode;
-use djls_semantic::structure::forest::SemanticSegment;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
@@ -9,16 +8,22 @@ use crate::ext::FoldingRangeKindExt;
 use crate::ext::SpanExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FoldSpan {
+    span: Span,
+    kind: FoldKind,
+}
+
+impl FoldSpan {
+    fn sort_key(self) -> (u32, u32, u8) {
+        (self.span.start(), self.span.end(), self.kind.sort_key())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum FoldKind {
     Region,
     Comment,
     Imports,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct FoldSpan {
-    span: Span,
-    kind: FoldKind,
 }
 
 impl FoldKind {
@@ -40,12 +45,6 @@ impl From<&SemanticNode> for FoldKind {
     }
 }
 
-impl FoldSpan {
-    fn sort_key(self) -> (u32, u32, u8) {
-        (self.span.start(), self.span.end(), self.kind.sort_key())
-    }
-}
-
 #[must_use]
 pub fn collect_folding_ranges(
     db: &dyn djls_semantic::Db,
@@ -58,10 +57,79 @@ pub fn collect_folding_ranges(
     let block_tree = djls_semantic::build_block_tree(db, nodelist);
     let forest = djls_semantic::build_semantic_forest(db, block_tree, nodelist);
 
-    let mut folds = collect_structure_folds(forest.roots(db));
-    let template_folds =
-        collect_template_node_folds(nodelist.nodelist(db), file.source(db).as_str());
-    folds.extend(template_folds);
+    let mut folds = Vec::new();
+
+    let mut stack: Vec<_> = forest.roots(db).iter().collect();
+    while let Some(node) = stack.pop() {
+        let SemanticNode::Tag {
+            marker_span,
+            segments,
+            ..
+        } = node
+        else {
+            continue;
+        };
+
+        if let Some(end) = segments
+            .iter()
+            .map(|segment| segment.content_span.end())
+            .max()
+        {
+            if marker_span.start() < end {
+                folds.push(FoldSpan {
+                    span: Span::saturating_from_bounds_usize(
+                        marker_span.start() as usize,
+                        end as usize,
+                    ),
+                    kind: FoldKind::from(node),
+                });
+            }
+        }
+
+        for segment in segments {
+            stack.extend(&segment.children);
+        }
+    }
+
+    let source = file.source(db);
+    let mut import = ImportHeader::Empty;
+    for node in nodelist.nodelist(db) {
+        match node {
+            Node::Comment { .. } => {
+                if let Some(fold) = import.take_fold() {
+                    folds.push(fold);
+                }
+                folds.push(FoldSpan {
+                    span: node.full_span(),
+                    kind: FoldKind::Comment,
+                });
+            }
+            Node::Tag { name, .. } if name == "extends" => {
+                if let Some(fold) = import.take_fold() {
+                    folds.push(fold);
+                }
+                import = ImportHeader::Extends {
+                    start: node.full_span().start(),
+                };
+            }
+            Node::Tag { name, .. } if name == "load" => {
+                import.include_load(node.full_span());
+            }
+            Node::Text { span }
+                if source
+                    .as_str()
+                    .get(span.start_usize()..span.end() as usize)
+                    .is_some_and(|text| text.trim().is_empty()) => {}
+            _ => {
+                if let Some(fold) = import.take_fold() {
+                    folds.push(fold);
+                }
+            }
+        }
+    }
+    if let Some(fold) = import.take_fold() {
+        folds.push(fold);
+    }
 
     folds.sort_by_key(|fold| fold.sort_key());
     folds.dedup();
@@ -86,72 +154,6 @@ pub fn collect_folding_ranges(
             })
         })
         .collect()
-}
-
-fn collect_structure_folds(roots: &[SemanticNode]) -> Vec<FoldSpan> {
-    let mut folds = Vec::new();
-    for root in roots {
-        collect_node_folds(root, &mut folds);
-    }
-    folds
-}
-
-fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
-    let SemanticNode::Tag {
-        marker_span,
-        segments,
-        ..
-    } = node
-    else {
-        return;
-    };
-
-    if let Some(span) = fold_span(*marker_span, segments) {
-        folds.push(FoldSpan {
-            span,
-            kind: FoldKind::from(node),
-        });
-    }
-
-    for segment in segments {
-        for child in &segment.children {
-            collect_node_folds(child, folds);
-        }
-    }
-}
-
-fn collect_template_node_folds(nodes: &[Node], source: &str) -> Vec<FoldSpan> {
-    let mut folds = Vec::new();
-    let mut import = ImportHeader::Empty;
-
-    for node in nodes {
-        match node {
-            Node::Comment { .. } => {
-                folds.extend(import.take_fold());
-                folds.push(FoldSpan {
-                    span: node.full_span(),
-                    kind: FoldKind::Comment,
-                });
-            }
-            Node::Tag { name, .. } if name == "extends" => {
-                folds.extend(import.take_fold());
-                import = ImportHeader::Extends {
-                    start: node.full_span().start(),
-                };
-            }
-            Node::Tag { name, .. } if name == "load" => {
-                import.include_load(node.full_span());
-            }
-            Node::Text { span }
-                if source
-                    .get(span.start_usize()..span.end() as usize)
-                    .is_some_and(|text| text.trim().is_empty()) => {}
-            _ => folds.extend(import.take_fold()),
-        }
-    }
-
-    folds.extend(import.take_fold());
-    folds
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,20 +189,4 @@ impl ImportHeader {
             kind: FoldKind::Imports,
         })
     }
-}
-
-fn fold_span(marker_span: Span, segments: &[SemanticSegment]) -> Option<Span> {
-    let end = segments
-        .iter()
-        .map(|segment| segment.content_span.end())
-        .max()?;
-
-    if marker_span.start() >= end {
-        return None;
-    }
-
-    Some(Span::saturating_from_bounds_usize(
-        marker_span.start() as usize,
-        end as usize,
-    ))
 }
