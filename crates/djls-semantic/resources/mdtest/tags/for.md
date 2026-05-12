@@ -61,7 +61,7 @@
 ```
 
 ```snapshot
-error[S102]: '{% empty %}' must be inside an open '{% for %}' block
+error[S102]: 'empty' must be inside an open 'for' block
  --> test.html:1:1
   |
 1 | {% empty %}
@@ -76,7 +76,7 @@ error[S102]: '{% empty %}' must be inside an open '{% for %}' block
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: for
+error[S100]: Unclosed 'for' tag
  --> test.html:1:1
   |
 1 | {% for item in items %}

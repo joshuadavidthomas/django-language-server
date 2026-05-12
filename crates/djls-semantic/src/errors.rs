@@ -4,24 +4,24 @@ use thiserror::Error;
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum ValidationError {
-    #[error("Unclosed tag: {tag}")]
+    #[error("Unclosed '{tag}' tag")]
     UnclosedTag { tag: String, span: Span },
 
-    #[error("'{{% {tag} %}}' must be inside {context}")]
+    #[error("'{tag}' must be inside {context}")]
     OrphanedTag {
         tag: String,
         context: String,
         span: Span,
     },
 
-    #[error("Closing tag '{{% {tag} %}}' has no matching '{{% {expected_opener} %}}' opener")]
+    #[error("'{tag}' has no matching '{expected_opener}' block")]
     OrphanedClosingTag {
         tag: String,
         expected_opener: String,
         span: Span,
     },
 
-    #[error("Unbalanced structure: '{opening_tag}' missing closing '{expected_closing}'")]
+    #[error("'{opening_tag}' block is not closed before '{expected_closing}'")]
     UnbalancedStructure {
         opening_tag: String,
         expected_closing: String,
@@ -29,7 +29,7 @@ pub enum ValidationError {
         closing_span: Option<Span>,
     },
 
-    #[error("Closing block name '{got}' does not match opening block name '{expected}'")]
+    #[error("Closing block '{got}' does not match opening block '{expected}'")]
     UnmatchedBlockName {
         expected: String,
         got: String,
@@ -39,14 +39,17 @@ pub enum ValidationError {
     #[error("Unknown tag '{tag}'")]
     UnknownTag { tag: String, span: Span },
 
-    #[error("Tag '{tag}' requires {{% load {library} %}}")]
+    #[error("Add {{% load {library} %}} to use tag '{tag}'")]
     UnloadedTag {
         tag: String,
         library: String,
         span: Span,
     },
 
-    #[error("Tag '{tag}' is defined in multiple libraries: {libraries:?}")]
+    #[error(
+        "Tag '{tag}' is available from multiple libraries: {}",
+        format_library_list(libraries)
+    )]
     AmbiguousUnloadedTag {
         tag: String,
         libraries: Vec<String>,
@@ -56,14 +59,17 @@ pub enum ValidationError {
     #[error("Unknown filter '{filter}'")]
     UnknownFilter { filter: String, span: Span },
 
-    #[error("Filter '{filter}' requires {{% load {library} %}}")]
+    #[error("Add {{% load {library} %}} to use filter '{filter}'")]
     UnloadedFilter {
         filter: String,
         library: String,
         span: Span,
     },
 
-    #[error("Filter '{filter}' is defined in multiple libraries: {libraries:?}")]
+    #[error(
+        "Filter '{filter}' is available from multiple libraries: {}",
+        format_library_list(libraries)
+    )]
     AmbiguousUnloadedFilter {
         filter: String,
         libraries: Vec<String>,
@@ -90,7 +96,7 @@ pub enum ValidationError {
         span: Span,
     },
 
-    #[error("Tag '{tag}' requires '{app}' in INSTALLED_APPS")]
+    #[error("Add '{app}' to INSTALLED_APPS to use tag '{tag}'")]
     TagNotInInstalledApps {
         tag: String,
         app: String,
@@ -98,7 +104,7 @@ pub enum ValidationError {
         span: Span,
     },
 
-    #[error("Filter '{filter}' requires '{app}' in INSTALLED_APPS")]
+    #[error("Add '{app}' to INSTALLED_APPS to use filter '{filter}'")]
     FilterNotInInstalledApps {
         filter: String,
         app: String,
@@ -109,7 +115,7 @@ pub enum ValidationError {
     #[error("Unknown template tag library '{name}'")]
     UnknownLibrary { name: String, span: Span },
 
-    #[error("Template tag library '{name}' requires '{app}' in INSTALLED_APPS")]
+    #[error("Add '{app}' to INSTALLED_APPS to use template tag library '{name}'")]
     LibraryNotInInstalledApps {
         name: String,
         app: String,
@@ -117,11 +123,19 @@ pub enum ValidationError {
         span: Span,
     },
 
-    #[error("'{{% extends %}}' must be the first tag in the template")]
+    #[error("The 'extends' tag must be the first tag in the template")]
     ExtendsMustBeFirst { span: Span },
 
-    #[error("'{{% extends %}}' cannot appear more than once in the same template")]
+    #[error("The 'extends' tag can only appear once in a template")]
     MultipleExtends { span: Span },
+}
+
+fn format_library_list(libraries: &[String]) -> String {
+    libraries
+        .iter()
+        .map(|library| format!("'{library}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl ValidationError {

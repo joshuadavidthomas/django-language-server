@@ -365,10 +365,6 @@ pub(crate) fn render_diagnostic_snapshot(
         // whether they have fields that would be useful as notes here.
         let mut notes: Vec<String> = Vec::new();
         match err {
-            ValidationError::ExpressionSyntaxError { tag, .. }
-            | ValidationError::ExtractedRuleViolation { tag, .. } => {
-                notes.push(format!("in tag: {tag}"));
-            }
             ValidationError::TagNotInInstalledApps { load_name, .. }
             | ValidationError::FilterNotInInstalledApps { load_name, .. } => {
                 notes.push(format!("load_name: {load_name}"));
@@ -389,8 +385,10 @@ pub(crate) fn render_diagnostic_snapshot(
             | ValidationError::UnknownFilter { .. }
             | ValidationError::UnloadedFilter { .. }
             | ValidationError::AmbiguousUnloadedFilter { .. }
+            | ValidationError::ExpressionSyntaxError { .. }
             | ValidationError::FilterMissingArgument { .. }
             | ValidationError::FilterUnexpectedArgument { .. }
+            | ValidationError::ExtractedRuleViolation { .. }
             | ValidationError::UnknownLibrary { .. }
             | ValidationError::LibraryNotInInstalledApps { .. }
             | ValidationError::ExtendsMustBeFirst { .. }

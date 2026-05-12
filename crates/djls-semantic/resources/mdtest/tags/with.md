@@ -48,7 +48,7 @@
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: with
+error[S100]: Unclosed 'with' tag
  --> test.html:1:1
   |
 1 | {% with x=1 %}

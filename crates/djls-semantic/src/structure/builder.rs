@@ -360,19 +360,19 @@ fn expand_marker(span: Span) -> Span {
 fn format_intermediate_context(possible_openers: &[String]) -> String {
     match possible_openers.len() {
         0 => "an open parent block".to_string(),
-        1 => format!("an open '{{% {} %}}' block", possible_openers[0]),
+        1 => format!("an open '{}' block", possible_openers[0]),
         2 => format!(
-            "an open '{{% {} %}}' or '{{% {} %}}' block",
+            "an open '{}' or '{}' block",
             possible_openers[0], possible_openers[1]
         ),
         _ => {
             let mut parts = possible_openers
                 .iter()
-                .map(|name| format!("'{{% {name} %}}'"))
+                .map(|name| format!("'{name}'"))
                 .collect::<Vec<_>>();
             let last = parts.pop().unwrap_or_default();
             let prefix = parts.join(", ");
-            format!("one of {prefix}, or {last} blocks")
+            format!("one of these open blocks: {prefix}, or {last}")
         }
     }
 }

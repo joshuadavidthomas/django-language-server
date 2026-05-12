@@ -2,13 +2,11 @@
 source: crates/djls-semantic/src/lib.rs
 expression: rendered
 ---
-error[S114]: Not expecting 'and' in this position in if tag.
+error[S114]: Unexpected 'and' in if expression
  --> test.html:1:1
   |
 1 | {% if and x %}oops{% endif %}
   | ^^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 error[S116]: Filter 'title' does not accept an argument
  --> test.html:2:9
   |
@@ -19,7 +17,7 @@ error[S115]: Filter 'truncatewords' requires an argument
   |
 3 | {{ text|truncatewords }}
   |         ^^^^^^^^^^^^^
-error[S109]: Tag 'trans' requires {% load i18n %}
+error[S109]: Add {% load i18n %} to use tag 'trans'
  --> test.html:4:1
   |
 4 | {% trans "hello" %}

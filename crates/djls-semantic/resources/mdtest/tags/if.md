@@ -162,13 +162,11 @@
 ```
 
 ```snapshot
-error[S114]: Not expecting 'and' in this position in if tag.
+error[S114]: Unexpected 'and' in if expression
  --> test.html:1:1
   |
 1 | {% if and %}{% endif %}
   | ^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### rejects expression starting with or
@@ -178,13 +176,11 @@ error[S114]: Not expecting 'and' in this position in if tag.
 ```
 
 ```snapshot
-error[S114]: Not expecting 'or' in this position in if tag.
+error[S114]: Unexpected 'or' in if expression
  --> test.html:1:1
   |
 1 | {% if or x %}{% endif %}
   | ^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### rejects expression ending with or
@@ -194,13 +190,11 @@ error[S114]: Not expecting 'or' in this position in if tag.
 ```
 
 ```snapshot
-error[S114]: Unexpected end of expression in if tag.
+error[S114]: If expression is incomplete
  --> test.html:1:1
   |
 1 | {% if x or %}{% endif %}
   | ^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### rejects expression ending with and
@@ -210,13 +204,11 @@ error[S114]: Unexpected end of expression in if tag.
 ```
 
 ```snapshot
-error[S114]: Unexpected end of expression in if tag.
+error[S114]: If expression is incomplete
  --> test.html:1:1
   |
 1 | {% if x and %}{% endif %}
   | ^^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### rejects bare not expression
@@ -226,13 +218,11 @@ error[S114]: Unexpected end of expression in if tag.
 ```
 
 ```snapshot
-error[S114]: Unexpected end of expression in if tag.
+error[S114]: If expression is incomplete
  --> test.html:1:1
   |
 1 | {% if not %}{% endif %}
   | ^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### rejects adjacent operands
@@ -242,13 +232,11 @@ error[S114]: Unexpected end of expression in if tag.
 ```
 
 ```snapshot
-error[S114]: Unused 'y' at end of if expression.
+error[S114]: Unexpected 'y' at end of if expression
  --> test.html:1:1
   |
 1 | {% if x y %}{% endif %}
   | ^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### rejects empty expression
@@ -258,13 +246,11 @@ error[S114]: Unused 'y' at end of if expression.
 ```
 
 ```snapshot
-error[S114]: Unexpected end of expression in if tag.
+error[S114]: If expression is empty
  --> test.html:1:1
   |
 1 | {% if %}{% endif %}
   | ^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### reports else outside if
@@ -274,7 +260,7 @@ error[S114]: Unexpected end of expression in if tag.
 ```
 
 ```snapshot
-error[S102]: '{% else %}' must be inside an open '{% if %}' or '{% ifchanged %}' block
+error[S102]: 'else' must be inside an open 'if' or 'ifchanged' block
  --> test.html:1:1
   |
 1 | {% else %}
@@ -288,7 +274,7 @@ error[S102]: '{% else %}' must be inside an open '{% if %}' or '{% ifchanged %}'
 ```
 
 ```snapshot
-error[S102]: '{% elif %}' must be inside an open '{% if %}' block
+error[S102]: 'elif' must be inside an open 'if' block
  --> test.html:1:1
   |
 1 | {% elif orphaned %}
@@ -303,7 +289,7 @@ error[S102]: '{% elif %}' must be inside an open '{% if %}' block
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: if
+error[S100]: Unclosed 'if' tag
  --> test.html:1:1
   |
 1 | {% if unclosed %}

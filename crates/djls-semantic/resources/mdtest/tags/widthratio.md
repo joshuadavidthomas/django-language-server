@@ -31,11 +31,9 @@
 ```
 
 ```snapshot
-error[S117]: 'widthratio' expected 'as' at position 4
+error[S117]: Tag 'widthratio' expects 'as' at position 4
  --> test.html:1:1
   |
 1 | {% widthratio this_value max_value max_width WRONG ratio %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: widthratio
 ```

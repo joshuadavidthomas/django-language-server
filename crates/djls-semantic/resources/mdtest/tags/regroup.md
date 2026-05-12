@@ -21,13 +21,11 @@
 ```
 
 ```snapshot
-error[S117]: 'regroup' takes exactly 5 arguments, 0 given
+error[S117]: Tag 'regroup' takes exactly 5 arguments, but 0 were given
  --> test.html:1:1
   |
 1 | {% regroup %}
   | ^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### rejects missing by keyword and target
@@ -37,13 +35,11 @@ error[S117]: 'regroup' takes exactly 5 arguments, 0 given
 ```
 
 ```snapshot
-error[S117]: 'regroup' takes exactly 5 arguments, 1 given
+error[S117]: Tag 'regroup' takes exactly 5 arguments, but 1 was given
  --> test.html:1:1
   |
 1 | {% regroup items %}
   | ^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### rejects missing regroup attribute and target
@@ -53,13 +49,11 @@ error[S117]: 'regroup' takes exactly 5 arguments, 1 given
 ```
 
 ```snapshot
-error[S117]: 'regroup' takes exactly 5 arguments, 2 given
+error[S117]: Tag 'regroup' takes exactly 5 arguments, but 2 were given
  --> test.html:1:1
   |
 1 | {% regroup items by %}
   | ^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### rejects missing as keyword and target variable
@@ -69,13 +63,11 @@ error[S117]: 'regroup' takes exactly 5 arguments, 2 given
 ```
 
 ```snapshot
-error[S117]: 'regroup' takes exactly 5 arguments, 3 given
+error[S117]: Tag 'regroup' takes exactly 5 arguments, but 3 were given
  --> test.html:1:1
   |
 1 | {% regroup items by category %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### rejects missing target variable
@@ -85,13 +77,11 @@ error[S117]: 'regroup' takes exactly 5 arguments, 3 given
 ```
 
 ```snapshot
-error[S117]: 'regroup' takes exactly 5 arguments, 4 given
+error[S117]: Tag 'regroup' takes exactly 5 arguments, but 4 were given
  --> test.html:1:1
   |
 1 | {% regroup items by category as %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### rejects too many arguments
@@ -101,13 +91,11 @@ error[S117]: 'regroup' takes exactly 5 arguments, 4 given
 ```
 
 ```snapshot
-error[S117]: 'regroup' takes exactly 5 arguments, 6 given
+error[S117]: Tag 'regroup' takes exactly 5 arguments, but 6 were given
  --> test.html:1:1
   |
 1 | {% regroup items by category as grouped extra %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### requires by keyword
@@ -117,13 +105,11 @@ error[S117]: 'regroup' takes exactly 5 arguments, 6 given
 ```
 
 ```snapshot
-error[S117]: 'regroup' expected 'by' at position 2
+error[S117]: Tag 'regroup' expects 'by' at position 2
  --> test.html:1:1
   |
 1 | {% regroup items WRONG category as grouped %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```
 
 ### requires as keyword
@@ -133,11 +119,9 @@ error[S117]: 'regroup' expected 'by' at position 2
 ```
 
 ```snapshot
-error[S117]: 'regroup' expected 'as' at position 4
+error[S117]: Tag 'regroup' expects 'as' at position 4
  --> test.html:1:1
   |
 1 | {% regroup items by category WRONG grouped %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: regroup
 ```

@@ -36,7 +36,7 @@
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: filter
+error[S100]: Unclosed 'filter' tag
  --> test.html:1:1
   |
 1 | {% filter upper %}

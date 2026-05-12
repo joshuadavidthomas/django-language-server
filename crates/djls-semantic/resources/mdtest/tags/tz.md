@@ -69,7 +69,7 @@
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: timezone
+error[S100]: Unclosed 'timezone' tag
  --> test.html:2:1
   |
 2 | {% timezone "UTC" %}

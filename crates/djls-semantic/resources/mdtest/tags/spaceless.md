@@ -26,7 +26,7 @@
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: spaceless
+error[S100]: Unclosed 'spaceless' tag
  --> test.html:1:1
   |
 1 | {% spaceless %}

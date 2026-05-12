@@ -49,21 +49,22 @@ impl Constraint for ArgumentCountConstraint {
                     let expected_args = n.saturating_sub(1);
                     let actual_args = split_len.saturating_sub(1);
                     format!(
-                        "'{tag_name}' takes exactly {expected_args} argument{}, {actual_args} given",
-                        if expected_args == 1 { "" } else { "s" }
+                        "Tag '{tag_name}' takes exactly {expected_args} argument{}, but {actual_args} {} given",
+                        if expected_args == 1 { "" } else { "s" },
+                        if actual_args == 1 { "was" } else { "were" }
                     )
                 }
                 ArgumentCountConstraint::Min(n) => {
                     let min_args = n.saturating_sub(1);
                     format!(
-                        "'{tag_name}' requires at least {min_args} argument{}",
+                        "Tag '{tag_name}' requires at least {min_args} argument{}",
                         if min_args == 1 { "" } else { "s" }
                     )
                 }
                 ArgumentCountConstraint::Max(n) => {
                     let max_args = n.saturating_sub(1);
                     format!(
-                        "'{tag_name}' accepts at most {max_args} argument{}",
+                        "Tag '{tag_name}' accepts at most {max_args} argument{}",
                         if max_args == 1 { "" } else { "s" }
                     )
                 }
@@ -72,7 +73,10 @@ impl Constraint for ArgumentCountConstraint {
                         .iter()
                         .map(|v| v.saturating_sub(1).to_string())
                         .collect();
-                    format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
+                    format!(
+                        "Tag '{tag_name}' takes {} arguments",
+                        arg_counts.join(" or ")
+                    )
                 }
             };
 
@@ -97,7 +101,7 @@ impl Constraint for RequiredKeyword {
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
                 message: format!(
-                    "'{tag_name}' expected '{}' at position {}",
+                    "Tag '{tag_name}' expects '{}' at position {}",
                     self.value, self.position
                 ),
                 span,
@@ -116,7 +120,7 @@ impl Constraint for ChoiceAt {
             let choices = self.values.join("', '");
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: format!("'{tag_name}' argument must be one of '{choices}'"),
+                message: format!("Tag '{tag_name}' argument must be one of: '{choices}'"),
                 span,
             })
         }
@@ -184,7 +188,7 @@ pub fn evaluate_tag_rules(
                         errors.push(ValidationError::ExtractedRuleViolation {
                             tag: tag_name.to_string(),
                             message: format!(
-                                "'{tag_name}' expected '{}' at position {}",
+                                "Tag '{tag_name}' expects '{}' at position {}",
                                 choices, keywords[0].position
                             ),
                             span,
@@ -232,7 +236,7 @@ fn evaluate_known_options(
             if !options.allow_duplicates && seen.contains(bit) {
                 errors.push(ValidationError::ExtractedRuleViolation {
                     tag: tag_name.to_string(),
-                    message: format!("'{tag_name}' received duplicate option '{bit}'"),
+                    message: format!("Tag '{tag_name}' received duplicate option '{bit}'"),
                     span,
                 });
             }

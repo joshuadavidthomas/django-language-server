@@ -61,11 +61,9 @@
 ```
 
 ```snapshot
-error[S117]: 'url' requires at least 1 argument
+error[S117]: Tag 'url' requires at least 1 argument
  --> test.html:1:1
   |
 1 | {% url %}
   | ^^^^^^^^^
-  |
-  = note: in tag: url
 ```

@@ -22,7 +22,7 @@
 ```
 
 ```snapshot
-error[S122]: '{% extends %}' must be the first tag in the template
+error[S122]: The 'extends' tag must be the first tag in the template
  --> test.html:2:1
   |
 2 | {% extends "base.html" %}
@@ -37,7 +37,7 @@ error[S122]: '{% extends %}' must be the first tag in the template
 ```
 
 ```snapshot
-error[S123]: '{% extends %}' cannot appear more than once in the same template
+error[S123]: The 'extends' tag can only appear once in a template
  --> test.html:2:1
   |
 2 | {% extends "other.html" %}

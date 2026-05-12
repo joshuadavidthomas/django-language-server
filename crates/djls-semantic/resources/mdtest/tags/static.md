@@ -47,7 +47,7 @@
 ```
 
 ```snapshot
-error[S109]: Tag 'static' requires {% load static %}
+error[S109]: Add {% load static %} to use tag 'static'
  --> test.html:1:1
   |
 1 | {% static "before.css" %}

@@ -37,7 +37,7 @@
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: comment
+error[S100]: Unclosed 'comment' tag
  --> test.html:1:1
   |
 1 | {% comment %}

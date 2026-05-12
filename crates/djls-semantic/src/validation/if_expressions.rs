@@ -21,10 +21,10 @@ pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[String],
 
 /// Validate expression tokens for `{% if %}` / `{% elif %}`.
 ///
-/// Returns an error message matching Django's style, or `None` if valid.
+/// Returns an error message for invalid expressions, or `None` if valid.
 fn validate_expression(tokens: &[String]) -> Option<String> {
     if tokens.is_empty() {
-        return Some("Unexpected end of expression in if tag.".to_string());
+        return Some("If expression is empty".to_string());
     }
 
     let mapped = tokenize(tokens);
@@ -189,7 +189,7 @@ impl IfExpressionParser {
         self.expression(0)?;
         if !matches!(self.current, Token::End) {
             return Err(format!(
-                "Unused '{}' at end of if expression.",
+                "Unexpected '{}' at end of if expression",
                 self.current.display_name()
             ));
         }
@@ -213,11 +213,8 @@ impl IfExpressionParser {
         match token {
             Token::Literal(_) => Ok(()),
             Token::Operator(op) if op.is_prefix() => self.expression(op.lbp()),
-            Token::Operator(op) => Err(format!(
-                "Not expecting '{}' in this position in if tag.",
-                op.name()
-            )),
-            Token::End => Err("Unexpected end of expression in if tag.".to_string()),
+            Token::Operator(op) => Err(format!("Unexpected '{}' in if expression", op.name())),
+            Token::End => Err("If expression is incomplete".to_string()),
         }
     }
 
@@ -225,12 +222,9 @@ impl IfExpressionParser {
     fn led(&mut self, token: &Token) -> Result<(), String> {
         match token {
             Token::Operator(op) if op.is_infix() => self.expression(op.lbp()),
-            Token::Operator(op) => Err(format!(
-                "Not expecting '{}' as infix operator in if tag.",
-                op.name()
-            )),
-            Token::Literal(s) => Err(format!("Unused '{s}' at end of if expression.")),
-            Token::End => Err("Unexpected end of expression in if tag.".to_string()),
+            Token::Operator(op) => Err(format!("Unexpected '{}' in if expression", op.name())),
+            Token::Literal(s) => Err(format!("Unexpected '{s}' at end of if expression")),
+            Token::End => Err("If expression is incomplete".to_string()),
         }
     }
 }
