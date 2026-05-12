@@ -63,7 +63,8 @@ pub fn collect_folding_ranges(
     append_semantic_folds(db, forest, &mut folds);
     append_header_folds(db, file, nodelist, &mut folds);
 
-    normalize_folds(&mut folds);
+    folds.sort_by_key(|fold| fold.sort_key());
+    folds.dedup();
     into_lsp_folding_ranges(db, file, folds)
 }
 
@@ -157,11 +158,6 @@ fn append_header_folds(
     if let Some(fold) = import.take_fold() {
         folds.push(fold);
     }
-}
-
-fn normalize_folds(folds: &mut Vec<FoldSpan>) {
-    folds.sort_by_key(|fold| fold.sort_key());
-    folds.dedup();
 }
 
 fn into_lsp_folding_ranges(
