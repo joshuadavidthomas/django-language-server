@@ -1,6 +1,4 @@
-use djls_semantic::structure::tree::BlockNode;
-use djls_semantic::structure::tree::Blocks;
-use djls_semantic::structure::tree::BranchKind;
+use djls_semantic::TagSpecs;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
@@ -75,13 +73,8 @@ pub fn collect_folding_ranges(
         return Vec::new();
     };
 
-    let mut folds = Vec::new();
-
-    append_semantic_folds(db, nodelist, &mut folds);
-    append_header_folds(db, file, nodelist, &mut folds);
-
-    folds.sort_by_key(|fold| fold.sort_key());
-    folds.dedup();
+    let source = file.source(db);
+    let folds = collect_fold_spans_impl(nodelist.nodelist(db), source.as_str(), db.tag_specs());
 
     let line_index = file.line_index(db);
     folds
@@ -90,50 +83,55 @@ pub fn collect_folding_ranges(
         .collect()
 }
 
-fn append_semantic_folds(
-    db: &dyn djls_semantic::Db,
-    nodelist: djls_templates::NodeList<'_>,
-    folds: &mut Vec<FoldSpan>,
-) {
-    let block_tree = djls_semantic::build_block_tree(db, nodelist);
-    append_block_tree_folds(block_tree.blocks(db), folds);
+fn collect_fold_spans_impl(nodes: &[Node], source: &str, tag_specs: &TagSpecs) -> Vec<FoldSpan> {
+    let mut folds = Vec::new();
+
+    append_semantic_folds(nodes, tag_specs, &mut folds);
+    append_header_folds(nodes, source, &mut folds);
+
+    folds.sort_by_key(|fold| fold.sort_key());
+    folds.dedup();
+    folds
 }
 
-fn append_block_tree_folds(blocks: &Blocks, folds: &mut Vec<FoldSpan>) {
-    for region in blocks {
-        let Some((tag, marker_span)) = region.nodes().iter().find_map(|node| match node {
-            BlockNode::Branch {
-                tag,
-                marker_span,
-                kind: BranchKind::Segment,
-                ..
-            } => Some((tag.as_str(), *marker_span)),
-            BlockNode::Branch { .. } | BlockNode::Leaf { .. } => None,
+fn append_semantic_folds(nodes: &[Node], tag_specs: &TagSpecs, folds: &mut Vec<FoldSpan>) {
+    let mut stack = Vec::new();
+
+    for node in nodes {
+        let Node::Tag { name, .. } = node else {
+            continue;
+        };
+
+        if tag_specs.is_opener(name) {
+            stack.push((name.as_str(), node.full_span()));
+            continue;
+        }
+
+        let Some(open_idx) = stack.iter().rposition(|(opener_name, _)| {
+            tag_specs
+                .get(*opener_name)
+                .and_then(|spec| spec.end_tag.as_ref())
+                .is_some_and(|end_tag| end_tag.name.as_ref() == name)
         }) else {
             continue;
         };
 
+        let (opener_name, opener_span) = stack.remove(open_idx);
         if let Some(fold) = FoldSpan::from_bounds(
-            marker_span.start(),
-            region.span().end(),
-            FoldKind::from_semantic_tag_name(tag),
+            opener_span.start(),
+            node.full_span().end(),
+            FoldKind::from_semantic_tag_name(opener_name),
         ) {
             folds.push(fold);
         }
     }
 }
 
-fn append_header_folds(
-    db: &dyn djls_semantic::Db,
-    file: File,
-    nodelist: djls_templates::NodeList<'_>,
-    folds: &mut Vec<FoldSpan>,
-) {
-    let source = file.source(db);
+fn append_header_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
     let mut imports = ImportHeaderCandidate::None;
 
-    for node in nodelist.nodelist(db) {
-        match HeaderItem::from_node(node, source.as_str()) {
+    for node in nodes {
+        match HeaderItem::from_node(node, source) {
             HeaderItem::Comment(span) => {
                 imports.finish_into(folds);
                 folds.push(FoldSpan::comment(span));
@@ -238,51 +236,64 @@ impl ImportHeaderCandidate {
 
 #[cfg(test)]
 mod tests {
+    use djls_source::LineIndex;
+    use djls_templates::parse_template_impl;
+
     use super::*;
 
     #[test]
-    fn block_tree_folds_include_all_segment_containers() {
-        let mut blocks = Blocks::default();
+    fn folding_ranges_include_top_level_and_nested_template_blocks() {
+        let source = r"{% load static %}
 
-        let outer_container = blocks.alloc(Span::new(10, 0), None);
-        let outer_body = blocks.alloc(Span::new(20, 0), Some(outer_container));
-        blocks.push_node(
-            outer_container,
-            BlockNode::Branch {
-                tag: "block".to_string(),
-                marker_span: Span::new(10, 5),
-                body: outer_body,
-                kind: BranchKind::Segment,
-            },
-        );
-        blocks.set_block_span(outer_container, Span::saturating_from_bounds_usize(10, 100));
+<!DOCTYPE html>
+<title>
+  {% block title %}
+    Django Test App
+  {% endblock %}
+</title>
+<main>
+  {% block content %}
+    {% if items %}
+      <ul>
+        {% for item in items %}
+          <li>{{ item.name }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No items found.</p>
+    {% endif %}
+  {% endblock %}
+</main>
+";
+        let (nodes, errors) = parse_template_impl(source);
+        assert!(errors.is_empty());
 
-        let inner_container = blocks.alloc(Span::new(40, 0), Some(outer_body));
-        let inner_body = blocks.alloc(Span::new(50, 0), Some(inner_container));
-        blocks.push_node(
-            outer_body,
-            BlockNode::Branch {
-                tag: "if".to_string(),
-                marker_span: Span::new(40, 5),
-                body: inner_container,
-                kind: BranchKind::Opener,
-            },
-        );
-        blocks.push_node(
-            inner_container,
-            BlockNode::Branch {
-                tag: "if".to_string(),
-                marker_span: Span::new(40, 5),
-                body: inner_body,
-                kind: BranchKind::Segment,
-            },
-        );
-        blocks.set_block_span(inner_container, Span::saturating_from_bounds_usize(40, 90));
+        let line_index = LineIndex::from(source);
+        let ranges: Vec<_> =
+            collect_fold_spans_impl(&nodes, source, &djls_semantic::builtin_tag_specs())
+                .into_iter()
+                .filter_map(|fold| fold.to_lsp_folding_range(&line_index))
+                .collect();
 
-        let mut folds = Vec::new();
-        append_block_tree_folds(&blocks, &mut folds);
-
-        let keys: Vec<_> = folds.into_iter().map(FoldSpan::sort_key).collect();
-        assert_eq!(keys, vec![(10, 100, 0), (40, 90, 0)]);
+        assert!(ranges.iter().any(|range| {
+            range.start_line == 4
+                && range.end_line == 6
+                && range.kind == Some(ls_types::FoldingRangeKind::Region)
+        }));
+        assert!(ranges.iter().any(|range| {
+            range.start_line == 9
+                && range.end_line == 19
+                && range.kind == Some(ls_types::FoldingRangeKind::Region)
+        }));
+        assert!(ranges.iter().any(|range| {
+            range.start_line == 10
+                && range.end_line == 18
+                && range.kind == Some(ls_types::FoldingRangeKind::Region)
+        }));
+        assert!(ranges.iter().any(|range| {
+            range.start_line == 12
+                && range.end_line == 14
+                && range.kind == Some(ls_types::FoldingRangeKind::Region)
+        }));
     }
 }
