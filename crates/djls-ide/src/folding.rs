@@ -1,4 +1,3 @@
-use djls_semantic::structure::forest::SemanticForest;
 use djls_semantic::structure::forest::SemanticNode;
 use djls_source::File;
 use djls_source::LineIndex;
@@ -73,12 +72,9 @@ pub fn collect_folding_ranges(
         return Vec::new();
     };
 
-    let block_tree = djls_semantic::build_block_tree(db, nodelist);
-    let forest = djls_semantic::build_semantic_forest(db, block_tree, nodelist);
-
     let mut folds = Vec::new();
 
-    append_semantic_folds(db, forest, &mut folds);
+    append_semantic_folds(db, nodelist, &mut folds);
     append_header_folds(db, file, nodelist, &mut folds);
 
     folds.sort_by_key(|fold| fold.sort_key());
@@ -93,9 +89,11 @@ pub fn collect_folding_ranges(
 
 fn append_semantic_folds(
     db: &dyn djls_semantic::Db,
-    forest: SemanticForest<'_>,
+    nodelist: djls_templates::NodeList<'_>,
     folds: &mut Vec<FoldSpan>,
 ) {
+    let block_tree = djls_semantic::build_block_tree(db, nodelist);
+    let forest = djls_semantic::build_semantic_forest(db, block_tree, nodelist);
     let mut stack: Vec<_> = forest.roots(db).iter().collect();
 
     while let Some(node) = stack.pop() {
