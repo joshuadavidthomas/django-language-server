@@ -49,9 +49,9 @@ pub(crate) enum FoldKind {
 
 impl FoldKind {
     fn from_semantic_tag_name(name: &str) -> Self {
-        match name {
-            "comment" => Self::Comment,
-            _ => Self::Region,
+        match FoldableTag::from_name(name) {
+            Some(FoldableTag::Comment) => Self::Comment,
+            Some(FoldableTag::Extends | FoldableTag::Load) | None => Self::Region,
         }
     }
 
@@ -60,6 +60,24 @@ impl FoldKind {
             Self::Region => 0,
             Self::Comment => 1,
             Self::Imports => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FoldableTag {
+    Comment,
+    Extends,
+    Load,
+}
+
+impl FoldableTag {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "comment" => Some(Self::Comment),
+            "extends" => Some(Self::Extends),
+            "load" => Some(Self::Load),
+            _ => None,
         }
     }
 }
@@ -144,16 +162,19 @@ fn append_header_folds(
                 flush_import_header(&mut import, folds);
                 folds.push(FoldSpan::comment(node.full_span()));
             }
-            Node::Tag { name, .. } if name == "extends" => {
-                flush_import_header(&mut import, folds);
-                import = Some(PendingImportHeader::from_extends(node.full_span()));
-            }
-            Node::Tag { name, .. } if name == "load" => {
-                import = Some(match import.take() {
-                    Some(header) => header.with_load(node.full_span()),
-                    None => PendingImportHeader::from_load(node.full_span()),
-                });
-            }
+            Node::Tag { name, .. } => match FoldableTag::from_name(name) {
+                Some(FoldableTag::Extends) => {
+                    flush_import_header(&mut import, folds);
+                    import = Some(PendingImportHeader::from_extends(node.full_span()));
+                }
+                Some(FoldableTag::Load) => {
+                    import = Some(match import.take() {
+                        Some(header) => header.with_load(node.full_span()),
+                        None => PendingImportHeader::from_load(node.full_span()),
+                    });
+                }
+                Some(FoldableTag::Comment) | None => flush_import_header(&mut import, folds),
+            },
             Node::Text { span }
                 if source
                     .as_str()
