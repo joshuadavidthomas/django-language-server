@@ -97,8 +97,8 @@ fn check_broken_template_exits_one() {
         "Expected S100 error code in output:\n{stdout}"
     );
     assert!(
-        stdout.contains("Unclosed tag"),
-        "Expected 'Unclosed tag' in output:\n{stdout}"
+        stdout.contains("Unclosed 'block' tag"),
+        "Expected unclosed block tag message in output:\n{stdout}"
     );
 }
 

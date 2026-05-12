@@ -14,8 +14,6 @@ error[S114]: Not expecting 'and' in this position in if tag.
   |
 1 | {% if and x %}{% endif %}
   | ^^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### ends after infix operator
@@ -30,8 +28,6 @@ error[S114]: Unexpected end of expression in if tag.
   |
 1 | {% if x or %}{% endif %}
   | ^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### contains unused token
@@ -46,8 +42,6 @@ error[S114]: Unused 'y' at end of if expression.
   |
 1 | {% if x y %}{% endif %}
   | ^^^^^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ### has no condition
@@ -62,8 +56,6 @@ error[S114]: Unexpected end of expression in if tag.
   |
 1 | {% if %}{% endif %}
   | ^^^^^^^^
-  |
-  = note: in tag: if
 ```
 
 ## Known gaps

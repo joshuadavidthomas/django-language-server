@@ -9,6 +9,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "Accepted format {% actor_url [actor_instance] %}"
     extracted_args:
       - name: arg1
         required: true
@@ -21,6 +27,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 3
+        message:
+          Static: "Accepted format {% follow_all_url [instance] %} or {% follow_url [instance] [flag] %}"
     extracted_args:
       - name: arg1
         required: true
@@ -37,6 +49,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 3
+        message:
+          Static: "Accepted format {% follow_url [instance] %} or {% follow_url [instance] [flag] %}"
     extracted_args:
       - name: arg1
         required: true

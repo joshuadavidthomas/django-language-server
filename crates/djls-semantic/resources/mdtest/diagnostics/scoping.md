@@ -21,7 +21,7 @@ error[S108]: Unknown tag 'completelymadetuptag'
 ```
 
 ```snapshot
-error[S109]: Tag 'static' requires {% load static %}
+error[S109]: Tag 'static' requires the 'static' tag library
  --> test.html:1:1
   |
 1 | {% static "before.css" %}
@@ -35,7 +35,7 @@ error[S109]: Tag 'static' requires {% load static %}
 ```
 
 ```snapshot
-error[S110]: Tag 'ambiguous_tag' is defined in multiple libraries: ["alpha", "beta"]
+error[S110]: Tag 'ambiguous_tag' is available from multiple libraries: 'alpha', 'beta'
  --> test.html:1:1
   |
 1 | {% ambiguous_tag %}
@@ -63,7 +63,7 @@ error[S111]: Unknown filter 'completelymadetupfilter'
 ```
 
 ```snapshot
-error[S112]: Filter 'intcomma' requires {% load humanize %}
+error[S112]: Filter 'intcomma' requires the 'humanize' tag library
  --> test.html:1:10
   |
 1 | {{ value|intcomma }}
@@ -77,7 +77,7 @@ error[S112]: Filter 'intcomma' requires {% load humanize %}
 ```
 
 ```snapshot
-error[S113]: Filter 'ambiguous_filter' is defined in multiple libraries: ["alpha", "beta"]
+error[S113]: Filter 'ambiguous_filter' is available from multiple libraries: 'alpha', 'beta'
  --> test.html:1:10
   |
 1 | {{ value|ambiguous_filter }}
@@ -105,7 +105,7 @@ error[S120]: Unknown template tag library 'nonexistent_library'
 ```
 
 ```snapshot
-error[S118]: Tag 'widget_tag' requires 'example.widgets' in INSTALLED_APPS
+error[S118]: Add 'example.widgets' to INSTALLED_APPS to use tag 'widget_tag'
  --> test.html:1:1
   |
 1 | {% widget_tag %}
@@ -121,7 +121,7 @@ error[S118]: Tag 'widget_tag' requires 'example.widgets' in INSTALLED_APPS
 ```
 
 ```snapshot
-error[S119]: Filter 'widget_filter' requires 'example.widgets' in INSTALLED_APPS
+error[S119]: Add 'example.widgets' to INSTALLED_APPS to use filter 'widget_filter'
  --> test.html:1:10
   |
 1 | {{ value|widget_filter }}

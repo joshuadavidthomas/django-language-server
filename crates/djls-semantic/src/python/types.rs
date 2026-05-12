@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -45,7 +47,7 @@ pub enum SymbolKind {
 /// Maps each discovered symbol to its extracted validation rules.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionResult {
-    pub tag_rules: FxHashMap<SymbolKey, TagRule>,
+    pub tag_rules: FxHashMap<SymbolKey, Arc<TagRule>>,
     pub filter_arities: FxHashMap<SymbolKey, FilterArity>,
     pub block_specs: FxHashMap<SymbolKey, BlockSpec>,
 }
@@ -119,6 +121,8 @@ pub struct TagRule {
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
     pub known_options: Option<KnownOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
     pub extracted_args: Vec<ExtractedArg>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
@@ -137,8 +141,48 @@ impl TagRule {
             || !self.required_keywords.is_empty()
             || !self.choice_at_constraints.is_empty()
             || self.known_options.is_some()
+            || self
+                .diagnostic_messages
+                .as_ref()
+                .is_some_and(|messages| !messages.is_empty())
             || !self.extracted_args.is_empty()
     }
+}
+
+/// A diagnostic message extracted from a raised exception in a tag parser.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtractedDiagnosticMessage {
+    pub constraint: ExtractedDiagnosticConstraint,
+    pub message: ExtractedMessageTemplate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExtractedDiagnosticConstraint {
+    ArgumentCount(ArgumentCountConstraint),
+    RequiredKeyword {
+        position: SplitPosition,
+        value: String,
+    },
+    ChoiceAt {
+        position: SplitPosition,
+        values: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExtractedMessageTemplate {
+    Static(String),
+    PercentFormat {
+        template: String,
+        args: Vec<ExtractedMessageArg>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExtractedMessageArg {
+    SplitElement(SplitPosition),
+    String(String),
+    Int(i64),
 }
 
 /// Constraint on the number of tokens in a tag's argument list.
@@ -365,7 +409,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         let mut result2 = ExtractionResult::default();
@@ -392,7 +437,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         let mut result2 = ExtractionResult::default();
@@ -401,7 +447,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(2)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         result1.merge(result2);
@@ -470,7 +517,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
         result.filter_arities.insert(
             SymbolKey::filter("old.module", "filter1"),
@@ -515,7 +563,8 @@ mod tests {
                     ArgumentCountConstraint::Max(3),
                 ],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         result.rekey_module("new.module");
@@ -540,14 +589,16 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(1)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
         result.tag_rules.insert(
             SymbolKey::tag("module.b", "same_tag"),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         // Both keys have name="same_tag" and kind=Tag, so rekeying to the same

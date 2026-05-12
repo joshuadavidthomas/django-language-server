@@ -31,13 +31,11 @@
 ```
 
 ```snapshot
-error[S117]: 'now' takes exactly 1 argument, 0 given
+error[S117]: 'now' statement takes one argument
  --> test.html:1:1
   |
 1 | {% now %}
   | ^^^^^^^^^
-  |
-  = note: in tag: now
 ```
 
 ### rejects too many arguments
@@ -47,11 +45,9 @@ error[S117]: 'now' takes exactly 1 argument, 0 given
 ```
 
 ```snapshot
-error[S117]: 'now' takes exactly 1 argument, 2 given
+error[S117]: 'now' statement takes one argument
  --> test.html:1:1
   |
 1 | {% now "Y" "m" %}
   | ^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: now
 ```

@@ -53,6 +53,26 @@ tag_rules:
         value: silent
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 4
+        message:
+          Static: "Too many arguments for 'capture' tag."
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 1
+            value: as
+        message:
+          Static: "'as' is required for 'capture' tag."
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 3
+            value: silent
+        message:
+          Static: "'silent' is required for 'capture' tag."
     extracted_args:
       - name: as
         required: true

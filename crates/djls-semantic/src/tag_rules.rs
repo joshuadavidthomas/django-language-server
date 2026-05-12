@@ -4,6 +4,10 @@ use djls_source::Span;
 
 use crate::ArgumentCountConstraint;
 use crate::ChoiceAt;
+use crate::ExtractedDiagnosticConstraint;
+use crate::ExtractedDiagnosticMessage;
+use crate::ExtractedMessageArg;
+use crate::ExtractedMessageTemplate;
 use crate::KnownOptions;
 use crate::RequiredKeyword;
 use crate::SplitPosition;
@@ -11,7 +15,13 @@ use crate::TagRule;
 use crate::ValidationError;
 
 trait Constraint {
-    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError>;
+    fn validate(
+        &self,
+        tag_name: &str,
+        bits: &[String],
+        span: Span,
+        message: Option<String>,
+    ) -> Option<ValidationError>;
 }
 
 /// Resolve a `SplitPosition` to a `bits` index.
@@ -33,7 +43,13 @@ fn resolve_position_index(position: &crate::SplitPosition, bits_len: usize) -> O
 /// - `Max(N)`: valid when `split_len <= N`
 /// - `OneOf(set)`: valid when `split_len in set`
 impl Constraint for ArgumentCountConstraint {
-    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
+    fn validate(
+        &self,
+        tag_name: &str,
+        bits: &[String],
+        span: Span,
+        message: Option<String>,
+    ) -> Option<ValidationError> {
         let split_len = bits.len() + 1;
 
         let violated = match self {
@@ -44,26 +60,27 @@ impl Constraint for ArgumentCountConstraint {
         };
 
         if violated {
-            let message = match self {
+            let message = message.unwrap_or_else(|| match self {
                 ArgumentCountConstraint::Exact(n) => {
                     let expected_args = n.saturating_sub(1);
                     let actual_args = split_len.saturating_sub(1);
                     format!(
-                        "'{tag_name}' takes exactly {expected_args} argument{}, {actual_args} given",
-                        if expected_args == 1 { "" } else { "s" }
+                        "Tag '{tag_name}' takes exactly {expected_args} argument{}, but {actual_args} {} given",
+                        if expected_args == 1 { "" } else { "s" },
+                        if actual_args == 1 { "was" } else { "were" }
                     )
                 }
                 ArgumentCountConstraint::Min(n) => {
                     let min_args = n.saturating_sub(1);
                     format!(
-                        "'{tag_name}' requires at least {min_args} argument{}",
+                        "Tag '{tag_name}' requires at least {min_args} argument{}",
                         if min_args == 1 { "" } else { "s" }
                     )
                 }
                 ArgumentCountConstraint::Max(n) => {
                     let max_args = n.saturating_sub(1);
                     format!(
-                        "'{tag_name}' accepts at most {max_args} argument{}",
+                        "Tag '{tag_name}' accepts at most {max_args} argument{}",
                         if max_args == 1 { "" } else { "s" }
                     )
                 }
@@ -72,9 +89,12 @@ impl Constraint for ArgumentCountConstraint {
                         .iter()
                         .map(|v| v.saturating_sub(1).to_string())
                         .collect();
-                    format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
+                    format!(
+                        "Tag '{tag_name}' takes {} arguments",
+                        arg_counts.join(" or ")
+                    )
                 }
-            };
+            });
 
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
@@ -88,7 +108,13 @@ impl Constraint for ArgumentCountConstraint {
 }
 
 impl Constraint for RequiredKeyword {
-    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
+    fn validate(
+        &self,
+        tag_name: &str,
+        bits: &[String],
+        span: Span,
+        message: Option<String>,
+    ) -> Option<ValidationError> {
         let bits_index = resolve_position_index(&self.position, bits.len())?;
 
         if bits[bits_index] == self.value {
@@ -96,10 +122,12 @@ impl Constraint for RequiredKeyword {
         } else {
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: format!(
-                    "'{tag_name}' expected '{}' at position {}",
-                    self.value, self.position
-                ),
+                message: message.unwrap_or_else(|| {
+                    format!(
+                        "Tag '{tag_name}' expects '{}' at position {}",
+                        self.value, self.position
+                    )
+                }),
                 span,
             })
         }
@@ -107,7 +135,13 @@ impl Constraint for RequiredKeyword {
 }
 
 impl Constraint for ChoiceAt {
-    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
+    fn validate(
+        &self,
+        tag_name: &str,
+        bits: &[String],
+        span: Span,
+        message: Option<String>,
+    ) -> Option<ValidationError> {
         let bits_index = resolve_position_index(&self.position, bits.len())?;
 
         if self.values.iter().any(|v| v == &bits[bits_index]) {
@@ -116,7 +150,9 @@ impl Constraint for ChoiceAt {
             let choices = self.values.join("', '");
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: format!("'{tag_name}' argument must be one of '{choices}'"),
+                message: message.unwrap_or_else(|| {
+                    format!("Tag '{tag_name}' argument must be one of: '{choices}'")
+                }),
                 span,
             })
         }
@@ -149,8 +185,16 @@ pub fn evaluate_tag_rules(
             bits
         };
 
+    let diagnostic_messages = rules.diagnostic_messages.as_deref().unwrap_or(&[]);
+
     for constraint in &rules.arg_constraints {
-        errors.extend(constraint.validate(tag_name, effective_bits, span));
+        let message = message_for_constraint(
+            diagnostic_messages,
+            &ExtractedDiagnosticConstraint::ArgumentCount(constraint.clone()),
+            tag_name,
+            effective_bits,
+        );
+        errors.extend(constraint.validate(tag_name, effective_bits, span, message));
     }
 
     // When multiple required_keywords target the same position with different
@@ -166,13 +210,23 @@ pub fn evaluate_tag_rules(
         }
         for keywords in by_position.values() {
             if keywords.len() == 1 {
-                errors.extend(keywords[0].validate(tag_name, effective_bits, span));
+                let keyword = keywords[0];
+                let message = message_for_constraint(
+                    diagnostic_messages,
+                    &ExtractedDiagnosticConstraint::RequiredKeyword {
+                        position: keyword.position,
+                        value: keyword.value.clone(),
+                    },
+                    tag_name,
+                    effective_bits,
+                );
+                errors.extend(keyword.validate(tag_name, effective_bits, span, message));
             } else {
                 // Multiple keywords at the same position → OR semantics.
                 // If any one matches, no error. If all fail, report the first.
                 let all_fail = keywords
                     .iter()
-                    .all(|kw| kw.validate(tag_name, effective_bits, span).is_some());
+                    .all(|kw| kw.validate(tag_name, effective_bits, span, None).is_some());
                 if all_fail {
                     // Pick the first as representative error, but phrase it
                     // as a choice to be clearer.
@@ -184,7 +238,7 @@ pub fn evaluate_tag_rules(
                         errors.push(ValidationError::ExtractedRuleViolation {
                             tag: tag_name.to_string(),
                             message: format!(
-                                "'{tag_name}' expected '{}' at position {}",
+                                "Tag '{tag_name}' expects '{}' at position {}",
                                 choices, keywords[0].position
                             ),
                             span,
@@ -196,7 +250,16 @@ pub fn evaluate_tag_rules(
     }
 
     for choice in &rules.choice_at_constraints {
-        errors.extend(choice.validate(tag_name, effective_bits, span));
+        let message = message_for_constraint(
+            diagnostic_messages,
+            &ExtractedDiagnosticConstraint::ChoiceAt {
+                position: choice.position,
+                values: choice.values.clone(),
+            },
+            tag_name,
+            effective_bits,
+        );
+        errors.extend(choice.validate(tag_name, effective_bits, span, message));
     }
 
     if let Some(options) = &rules.known_options {
@@ -209,6 +272,134 @@ pub fn evaluate_tag_rules(
     }
 
     errors
+}
+
+fn message_for_constraint(
+    messages: &[ExtractedDiagnosticMessage],
+    constraint: &ExtractedDiagnosticConstraint,
+    tag_name: &str,
+    bits: &[String],
+) -> Option<String> {
+    messages.iter().find_map(|message| {
+        if &message.constraint == constraint {
+            render_message_template(&message.message, tag_name, bits)
+        } else {
+            None
+        }
+    })
+}
+
+fn render_message_template(
+    message: &ExtractedMessageTemplate,
+    tag_name: &str,
+    bits: &[String],
+) -> Option<String> {
+    match message {
+        ExtractedMessageTemplate::Static(message) => Some(message.clone()),
+        ExtractedMessageTemplate::PercentFormat { template, args } => {
+            render_percent_format(template, args, tag_name, bits)
+        }
+    }
+}
+
+fn render_percent_format(
+    template: &str,
+    args: &[ExtractedMessageArg],
+    tag_name: &str,
+    bits: &[String],
+) -> Option<String> {
+    let mut rendered = String::new();
+    let mut chars = template.chars().peekable();
+    let mut args = args.iter();
+
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            rendered.push(ch);
+            continue;
+        }
+
+        let spec = chars.next()?;
+        match spec {
+            '%' => rendered.push('%'),
+            's' => rendered.push_str(&format_arg(
+                args.next()?,
+                tag_name,
+                bits,
+                FormatKind::String,
+            )?),
+            'r' => rendered.push_str(&format_arg(args.next()?, tag_name, bits, FormatKind::Repr)?),
+            'd' | 'i' => {
+                rendered.push_str(&format_arg(
+                    args.next()?,
+                    tag_name,
+                    bits,
+                    FormatKind::Integer,
+                )?);
+            }
+            _ => return None,
+        }
+    }
+
+    if args.next().is_some() {
+        return None;
+    }
+
+    Some(rendered)
+}
+
+#[derive(Clone, Copy)]
+enum FormatKind {
+    String,
+    Repr,
+    Integer,
+}
+
+fn format_arg(
+    arg: &ExtractedMessageArg,
+    tag_name: &str,
+    bits: &[String],
+    kind: FormatKind,
+) -> Option<String> {
+    match (arg, kind) {
+        (ExtractedMessageArg::Int(value), FormatKind::Integer) => Some(value.to_string()),
+        (ExtractedMessageArg::Int(value), FormatKind::String | FormatKind::Repr) => {
+            Some(value.to_string())
+        }
+        (ExtractedMessageArg::String(value), FormatKind::String) => Some(value.clone()),
+        (ExtractedMessageArg::String(value), FormatKind::Repr) => Some(python_repr(value)),
+        (
+            ExtractedMessageArg::String(_) | ExtractedMessageArg::SplitElement(_),
+            FormatKind::Integer,
+        ) => None,
+        (ExtractedMessageArg::SplitElement(position), FormatKind::String) => {
+            split_position_value(*position, tag_name, bits)
+        }
+        (ExtractedMessageArg::SplitElement(position), FormatKind::Repr) => {
+            split_position_value(*position, tag_name, bits).map(|value| python_repr(&value))
+        }
+    }
+}
+
+fn split_position_value(
+    position: SplitPosition,
+    tag_name: &str,
+    bits: &[String],
+) -> Option<String> {
+    match position {
+        SplitPosition::Forward(0) => Some(tag_name.to_string()),
+        SplitPosition::Forward(index) => bits.get(index - 1).cloned(),
+        SplitPosition::Backward(index) => {
+            if index == 0 || index > bits.len() {
+                None
+            } else {
+                bits.get(bits.len() - index).cloned()
+            }
+        }
+    }
+}
+
+fn python_repr(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
 /// Evaluate known options constraints.
@@ -232,7 +423,7 @@ fn evaluate_known_options(
             if !options.allow_duplicates && seen.contains(bit) {
                 errors.push(ValidationError::ExtractedRuleViolation {
                     tag: tag_name.to_string(),
-                    message: format!("'{tag_name}' received duplicate option '{bit}'"),
+                    message: format!("Tag '{tag_name}' received duplicate option '{bit}'"),
                     span,
                 });
             }
@@ -292,6 +483,51 @@ mod tests {
             &errors[0],
             ValidationError::ExtractedRuleViolation { tag, message, .. }
             if tag == "for" && message.contains("exactly 3 argument")
+        ));
+    }
+
+    #[test]
+    fn extracted_static_message_overrides_generic_constraint_message() {
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+            diagnostic_messages: Some(vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Exact(2),
+                ),
+                message: ExtractedMessageTemplate::Static(
+                    "'custom' tag takes one argument".to_string(),
+                ),
+            }]),
+            ..empty_rule()
+        };
+        let errors = evaluate_tag_rules("custom", &[], &rule, make_span());
+        assert!(matches!(
+            &errors[0],
+            ValidationError::ExtractedRuleViolation { message, .. }
+            if message == "'custom' tag takes one argument"
+        ));
+    }
+
+    #[test]
+    fn extracted_percent_message_renders_runtime_tag_name() {
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+            diagnostic_messages: Some(vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Min(2),
+                ),
+                message: ExtractedMessageTemplate::PercentFormat {
+                    template: "'%s' takes at least one argument".to_string(),
+                    args: vec![ExtractedMessageArg::SplitElement(SplitPosition::Forward(0))],
+                },
+            }]),
+            ..empty_rule()
+        };
+        let errors = evaluate_tag_rules("custom", &[], &rule, make_span());
+        assert!(matches!(
+            &errors[0],
+            ValidationError::ExtractedRuleViolation { message, .. }
+            if message == "'custom' takes at least one argument"
         ));
     }
 

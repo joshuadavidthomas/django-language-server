@@ -15,6 +15,26 @@ tag_rules:
         value: for_user
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 4
+        message:
+          Static: "'get_admin_log' statements require two arguments"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 2
+            value: as
+        message:
+          Static: "Second argument to 'get_admin_log' must be 'as'"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 4
+            value: for_user
+        message:
+          Static: "Fourth argument to 'get_admin_log' must be 'for_user'"
     extracted_args:
       - name: arg1
         required: true

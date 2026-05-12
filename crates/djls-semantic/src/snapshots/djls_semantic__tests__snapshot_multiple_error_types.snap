@@ -12,14 +12,12 @@ error[S114]: Not expecting '==' in this position in if tag.
   |
 2 | {% if == broken %}bad{% endif %}
   | ^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: if
 error[S116]: Filter 'lower' does not accept an argument
  --> test.html:3:9
   |
 3 | {{ text|lower:"arg" }}
   |         ^^^^^^^^^^^
-error[S100]: Unclosed tag: if
+error[S100]: Unclosed 'if' tag
  --> test.html:4:14
   |
 4 | {% comment %}{% if and %}{% endcomment %}

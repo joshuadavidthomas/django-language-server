@@ -9,6 +9,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 3
+        message:
+          PercentFormat:
+            template: "'%r' tag requires at least 2 arguments."
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true

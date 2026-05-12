@@ -9,6 +9,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "'%s' tag takes only one argument"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: block_name
         required: true
@@ -21,6 +31,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes one argument"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -38,6 +58,16 @@ tag_rules:
         - only
       allow_duplicates: false
       rejects_unknown: true
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "%r tag takes at least one argument: the name of the template to be included."
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true

@@ -37,7 +37,7 @@
 ```
 
 ```snapshot
-error[S103]: 'footer' does not match 'header'
+error[S103]: Closing block 'footer' does not match opening block 'header'
  --> test.html:3:1
   |
 3 | {% endblock footer %}
@@ -52,7 +52,7 @@ error[S103]: 'footer' does not match 'header'
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: block
+error[S100]: Unclosed 'block' tag
  --> test.html:1:1
   |
 1 | {% block dangling %}

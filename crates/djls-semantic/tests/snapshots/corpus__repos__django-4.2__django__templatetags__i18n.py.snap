@@ -163,6 +163,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes one argument (language)"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -181,6 +191,16 @@ tag_rules:
         - as
       allow_duplicates: false
       rejects_unknown: true
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -199,6 +219,16 @@ tag_rules:
         - as
       allow_duplicates: false
       rejects_unknown: true
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true

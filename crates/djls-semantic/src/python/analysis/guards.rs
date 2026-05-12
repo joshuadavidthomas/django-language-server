@@ -1,116 +1,80 @@
-//! Constraint extraction from if/raise conditions.
+//! If/raise guard extraction.
 //!
 //! Finds `if condition: raise SomeException(...)` patterns and interprets
-//! the condition against the abstract environment to produce
-//! `ArgumentCountConstraint` and `RequiredKeyword` values.
+//! the condition against the abstract environment to produce rule fragments.
 //!
 //! Any uncaught raise in an if-body is treated as a validation constraint,
 //! regardless of exception type (e.g., `TemplateSyntaxError`, `ValueError`).
 
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprUnaryOp;
-use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::UnaryOp;
 
+use super::constraints::ExtractedTagConstraints;
+use super::exceptions::direct_raise_exception;
+use super::exceptions::extract_exception_message;
 use super::expressions::eval_expr;
 use super::state::AbstractValue;
 use super::state::Env;
 use crate::python::ext::ExprExt;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::ChoiceAt;
+use crate::python::types::ExtractedDiagnosticConstraint;
+use crate::python::types::ExtractedDiagnosticMessage;
 use crate::python::types::RequiredKeyword;
 
-/// Collected constraints from analyzing a function body.
-///
-/// Provides algebraic `or()` and `and()` methods that encode boolean
-/// composition semantics from if/raise guard analysis:
-/// - `or`: error when either side is true → each constraint is independent
-/// - `and`: both must be true for error → length constraints dropped, keywords/choices kept
+/// Rule fragments contributed by one or more raising guards.
 #[derive(Debug, Clone, Default)]
-#[allow(clippy::struct_field_names)]
-pub struct ConstraintSet {
-    pub arg_constraints: Vec<ArgumentCountConstraint>,
-    pub required_keywords: Vec<RequiredKeyword>,
-    pub choice_at_constraints: Vec<ChoiceAt>,
+pub struct ExtractedRuleFragment {
+    pub constraints: ExtractedTagConstraints,
+    pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
 }
 
-impl ConstraintSet {
-    pub fn single_length(c: ArgumentCountConstraint) -> Self {
-        Self {
-            arg_constraints: vec![c],
-            ..Default::default()
-        }
-    }
-
-    pub fn single_keyword(k: RequiredKeyword) -> Self {
-        Self {
-            required_keywords: vec![k],
-            ..Default::default()
-        }
-    }
-
-    pub fn single_choice(c: ChoiceAt) -> Self {
-        Self {
-            choice_at_constraints: vec![c],
-            ..Default::default()
-        }
-    }
-
-    /// Disjunction: error when either side is true → each is independent.
-    pub fn or(mut self, other: Self) -> Self {
-        self.arg_constraints.extend(other.arg_constraints);
-        self.required_keywords.extend(other.required_keywords);
-        self.choice_at_constraints
-            .extend(other.choice_at_constraints);
-        self
-    }
-
-    /// Conjunction: both must be true for error → drop length constraints,
-    /// keep keyword/choice constraints.
-    pub fn and(self, other: Self) -> Self {
-        let mut required_keywords = self.required_keywords;
-        required_keywords.extend(other.required_keywords);
-        let mut choice_at_constraints = self.choice_at_constraints;
-        choice_at_constraints.extend(other.choice_at_constraints);
-        Self {
-            arg_constraints: Vec::new(),
-            required_keywords,
-            choice_at_constraints,
-        }
-    }
-
+impl ExtractedRuleFragment {
     pub fn extend(&mut self, other: Self) {
-        self.arg_constraints.extend(other.arg_constraints);
-        self.required_keywords.extend(other.required_keywords);
-        self.choice_at_constraints
-            .extend(other.choice_at_constraints);
+        self.constraints.extend(other.constraints);
+        self.diagnostic_messages.extend(other.diagnostic_messages);
     }
 }
 
-/// Extract constraints from a single if-statement using the current env state.
+/// Extract rule fragments from a single if-statement using the current env state.
 ///
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet {
-    let mut result = ConstraintSet::default();
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ExtractedRuleFragment {
+    let mut result = ExtractedRuleFragment::default();
 
-    if body_raises_exception(&if_stmt.body) {
-        result.extend(eval_condition(&if_stmt.test, env));
+    if let Some(raised_exception) = direct_raise_exception(&if_stmt.body) {
+        result.extend(
+            RaisingGuard {
+                test: if_stmt.test.as_ref(),
+                raised_exception,
+            }
+            .rule(env),
+        );
     }
 
     for clause in &if_stmt.elif_else_clauses {
-        if body_raises_exception(&clause.body) {
-            if let Some(test) = &clause.test {
-                result.extend(eval_condition(test, env));
+        let Some(test) = &clause.test else {
+            continue;
+        };
+        let Some(raised_exception) = direct_raise_exception(&clause.body) else {
+            continue;
+        };
+
+        result.extend(
+            RaisingGuard {
+                test,
+                raised_exception,
             }
-        }
+            .rule(env),
+        );
     }
 
     // NOTE: We do NOT recurse into nested if-statements here — that's handled
@@ -118,20 +82,68 @@ pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet 
     result
 }
 
+struct RaisingGuard<'a> {
+    test: &'a Expr,
+    raised_exception: &'a Expr,
+}
+
+impl RaisingGuard<'_> {
+    fn rule(self, env: &mut Env) -> ExtractedRuleFragment {
+        let constraints = eval_condition(self.test, env);
+        let mut diagnostic_messages = Vec::new();
+
+        if let Some(message) = extract_exception_message(self.raised_exception, env) {
+            diagnostic_messages.extend(constraints.arg_constraints.iter().cloned().map(
+                |constraint| ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+                    message: message.clone(),
+                },
+            ));
+
+            diagnostic_messages.extend(constraints.required_keywords.iter().map(|keyword| {
+                ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+                        position: keyword.position,
+                        value: keyword.value.clone(),
+                    },
+                    message: message.clone(),
+                }
+            }));
+
+            diagnostic_messages.extend(constraints.choice_at_constraints.iter().map(|choice| {
+                ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+                        position: choice.position,
+                        values: choice.values.clone(),
+                    },
+                    message: message.clone(),
+                }
+            }));
+        }
+
+        ExtractedRuleFragment {
+            constraints,
+            diagnostic_messages,
+        }
+    }
+}
+
 /// Evaluate a condition expression as a constraint.
 ///
 /// The condition guards a `raise` statement, so it describes when the code
 /// errors. Constraints capture what's valid (the negation).
-fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
+fn eval_condition(expr: &Expr, env: &mut Env) -> ExtractedTagConstraints {
     match expr {
         // `or`: error when either side is true → each is an independent constraint
         Expr::BoolOp(ExprBoolOp {
             op: BoolOp::Or,
             values,
             ..
-        }) => values.iter().fold(ConstraintSet::default(), |acc, value| {
-            acc.or(eval_condition(value, env))
-        }),
+        }) => values
+            .iter()
+            .fold(ExtractedTagConstraints::default(), |acc, value| {
+                acc.or(eval_condition(value, env))
+            }),
 
         // `and`: error when both true → length constraints are protective guards,
         // discard them but keep keyword constraints
@@ -139,9 +151,11 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
             op: BoolOp::And,
             values,
             ..
-        }) => values.iter().fold(ConstraintSet::default(), |acc, value| {
-            acc.and(eval_condition(value, env))
-        }),
+        }) => values
+            .iter()
+            .fold(ExtractedTagConstraints::default(), |acc, value| {
+                acc.and(eval_condition(value, env))
+            }),
 
         // Comparison: `len(bits) < 4` or `bits[2] != "as"`
         Expr::Compare(compare) => eval_compare(compare, env),
@@ -155,17 +169,17 @@ fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
             if let Expr::Compare(compare) = operand.as_ref() {
                 eval_negated_compare(compare, env)
             } else {
-                ConstraintSet::default()
+                ExtractedTagConstraints::default()
             }
         }
 
-        _ => ConstraintSet::default(),
+        _ => ExtractedTagConstraints::default(),
     }
 }
 
-fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
+fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
     if compare.ops.is_empty() || compare.comparators.is_empty() {
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // Skip chained comparisons (e.g., `2 <= len(bits) <= 4`). The only
@@ -173,7 +187,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
     // (`not (2 <= len(bits) <= 4)`), handled by eval_negated_compare.
     // Processing only the first pair of a chain produces wrong constraints.
     if compare.ops.len() > 1 {
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     let op = &compare.ops[0];
@@ -196,13 +210,16 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                 }
                 _ => None,
             };
-            return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
+            return constraint.map_or_else(
+                ExtractedTagConstraints::default,
+                ExtractedTagConstraints::single_length,
+            );
         }
 
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::non_negative_integer) {
-                return ConstraintSet::single_length(ArgumentCountConstraint::OneOf(
+                return ExtractedTagConstraints::single_length(ArgumentCountConstraint::OneOf(
                     values
                         .into_iter()
                         .map(|v| split.resolve_length(v))
@@ -210,7 +227,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                 ));
             }
         }
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
@@ -225,9 +242,12 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                 CmpOp::GtE => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
                 _ => None,
             };
-            return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
+            return constraint.map_or_else(
+                ExtractedTagConstraints::default,
+                ExtractedTagConstraints::single_length,
+            );
         }
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // SplitElement vs string: `bits[N] != "keyword"`
@@ -235,12 +255,12 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
         if let Some(keyword) = comparator.string_literal() {
             if matches!(op, CmpOp::NotEq) {
                 let position = index;
-                return ConstraintSet::single_keyword(RequiredKeyword {
+                return ExtractedTagConstraints::single_keyword(RequiredKeyword {
                     position,
                     value: keyword,
                 });
             }
-            return ConstraintSet::default();
+            return ExtractedTagConstraints::default();
         }
 
         // SplitElement not in ("a", "b") → ChoiceAt constraint
@@ -248,11 +268,11 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
             if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
                 if !values.is_empty() {
                     let position = index;
-                    return ConstraintSet::single_choice(ChoiceAt { position, values });
+                    return ExtractedTagConstraints::single_choice(ChoiceAt { position, values });
                 }
             }
         }
-        return ConstraintSet::default();
+        return ExtractedTagConstraints::default();
     }
 
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
@@ -260,23 +280,23 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
         if let Some(keyword) = left.string_literal() {
             if matches!(op, CmpOp::NotEq) {
                 let position = index;
-                return ConstraintSet::single_keyword(RequiredKeyword {
+                return ExtractedTagConstraints::single_keyword(RequiredKeyword {
                     position,
                     value: keyword,
                 });
             }
-            return ConstraintSet::default();
+            return ExtractedTagConstraints::default();
         }
     }
 
-    ConstraintSet::default()
+    ExtractedTagConstraints::default()
 }
 
-fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
+fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
         if let Some(range_constraints) = eval_range_constraint(compare, env) {
-            return ConstraintSet {
+            return ExtractedTagConstraints {
                 arg_constraints: range_constraints,
                 ..Default::default()
             };
@@ -297,13 +317,13 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
                     _ => None,
                 };
                 if let Some(c) = constraint {
-                    return ConstraintSet::single_length(c);
+                    return ExtractedTagConstraints::single_length(c);
                 }
             }
         }
     }
 
-    ConstraintSet::default()
+    ExtractedTagConstraints::default()
 }
 
 /// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.
@@ -353,49 +373,27 @@ fn eval_range_constraint(
     ])
 }
 
-/// Check whether a statement body contains a direct `raise` with an exception.
-///
-/// Only checks direct children (does not recurse into nested control flow).
-/// Any exception type counts — `TemplateSyntaxError`, `ValueError`, etc.
-pub(super) fn body_raises_exception(body: &[Stmt]) -> bool {
-    let mut visitor = RaiseFinder::default();
-    visitor.visit_body(body);
-    visitor.found
-}
-
-#[derive(Default)]
-struct RaiseFinder {
-    found: bool,
-}
-
-impl StatementVisitor<'_> for RaiseFinder {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        if matches!(
-            stmt,
-            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. })
-        ) {
-            self.found = true;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use ruff_python_ast::Stmt;
     use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
 
     use super::*;
     use crate::python::analysis::state::Env;
     use crate::python::analysis::statements::process_statements;
+    use crate::python::analysis::AnalysisResult;
     use crate::python::analysis::CallContext;
     use crate::python::testing::django_function;
+    use crate::python::types::ExtractedMessageArg;
+    use crate::python::types::ExtractedMessageTemplate;
     use crate::python::types::SplitPosition;
 
-    fn extract_from_source(source: &str) -> ConstraintSet {
+    fn extract_from_source(source: &str) -> ExtractedTagConstraints {
+        extract_result_from_source(source).constraints
+    }
+
+    fn extract_result_from_source(source: &str) -> AnalysisResult {
         let parsed = parse_module(source).expect("valid Python");
         let module = parsed.into_syntax();
         let func = module
@@ -410,10 +408,14 @@ mod tests {
             })
             .expect("no function found");
 
-        extract_from_func(&func)
+        extract_result_from_func(&func)
     }
 
-    fn extract_from_func(func: &StmtFunctionDef) -> ConstraintSet {
+    fn extract_from_func(func: &StmtFunctionDef) -> ExtractedTagConstraints {
+        extract_result_from_func(func).constraints
+    }
+
+    fn extract_result_from_func(func: &StmtFunctionDef) -> AnalysisResult {
         let parser_param = func
             .parameters
             .args
@@ -430,8 +432,7 @@ mod tests {
             db: None,
             file: None,
         };
-        let result = process_statements(&func.body, &mut env, &mut ctx);
-        result.constraints
+        process_statements(&func.body, &mut env, &mut ctx)
     }
 
     // Fabricated: tests isolated `<` comparator on len(bits). Real Django functions
@@ -448,6 +449,63 @@ def do_tag(parser, token):
 "#,
         );
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+    }
+
+    #[test]
+    fn extracts_static_exception_message_for_constraint() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("custom tag needs one argument")
+"#,
+        );
+
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Min(2)]
+        );
+        assert_eq!(
+            result.diagnostic_messages,
+            vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Min(2)
+                ),
+                message: ExtractedMessageTemplate::Static(
+                    "custom tag needs one argument".to_string()
+                ),
+            }]
+        );
+    }
+
+    #[test]
+    fn extracts_percent_formatted_exception_message_for_constraint() {
+        let result = extract_result_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("'%s' takes at least one argument" % bits[0])
+"#,
+        );
+
+        assert_eq!(
+            result.constraints.arg_constraints,
+            vec![ArgumentCountConstraint::Min(2)]
+        );
+        assert_eq!(
+            result.diagnostic_messages,
+            vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Min(2)
+                ),
+                message: ExtractedMessageTemplate::PercentFormat {
+                    template: "'%s' takes at least one argument".to_string(),
+                    args: vec![ExtractedMessageArg::SplitElement(SplitPosition::Forward(0))],
+                },
+            }]
+        );
     }
 
     // Fabricated: tests isolated `!=` comparator. Real functions with len != N

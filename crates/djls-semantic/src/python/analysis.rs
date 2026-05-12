@@ -1,8 +1,10 @@
 pub(crate) mod calls;
+pub(crate) mod constraints;
+pub(crate) mod exceptions;
 pub(crate) mod expressions;
+pub(crate) mod guards;
 pub(crate) mod match_arms;
 pub(crate) mod mutations;
-pub(crate) mod rules;
 pub(crate) mod state;
 pub(crate) mod statements;
 
@@ -12,11 +14,13 @@ use djls_source::File;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::python::analysis::rules::ConstraintSet;
+use crate::python::analysis::constraints::ExtractedTagConstraints;
+use crate::python::analysis::guards::ExtractedRuleFragment;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::AsVar;
 use crate::python::types::ExtractedArg;
 use crate::python::types::ExtractedArgKind;
+use crate::python::types::ExtractedDiagnosticMessage;
 use crate::python::types::KnownOptions;
 use crate::python::types::RequiredKeyword;
 use crate::python::types::SplitPosition;
@@ -44,10 +48,13 @@ pub struct CallContext<'a> {
 ///
 /// Returned from `statements::process_statements` instead of being stored in a context.
 /// This separates the accumulation of analysis results from the call-resolution
-/// context that is threaded through the analysis.
+/// context that is threaded through the analysis. Constraints stay separate from
+/// diagnostic messages because constraints come from guard conditions, while
+/// messages come from the exception raised by a guard body.
 #[derive(Default)]
 pub struct AnalysisResult {
-    pub constraints: ConstraintSet,
+    pub constraints: ExtractedTagConstraints,
+    pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
     pub known_options: Option<KnownOptions>,
 }
 
@@ -59,8 +66,19 @@ impl AnalysisResult {
     /// processing order of statements).
     pub fn extend(&mut self, other: AnalysisResult) {
         self.constraints.extend(other.constraints);
+        self.diagnostic_messages.extend(other.diagnostic_messages);
         if other.known_options.is_some() {
             self.known_options = other.known_options;
+        }
+    }
+}
+
+impl From<ExtractedRuleFragment> for AnalysisResult {
+    fn from(rule: ExtractedRuleFragment) -> Self {
+        Self {
+            constraints: rule.constraints,
+            diagnostic_messages: rule.diagnostic_messages,
+            known_options: None,
         }
     }
 }
@@ -131,6 +149,11 @@ pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
         required_keywords: result.constraints.required_keywords,
         choice_at_constraints: result.constraints.choice_at_constraints,
         known_options: result.known_options,
+        diagnostic_messages: if result.diagnostic_messages.is_empty() {
+            None
+        } else {
+            Some(result.diagnostic_messages)
+        },
         extracted_args,
         as_var: AsVar::Keep,
     }

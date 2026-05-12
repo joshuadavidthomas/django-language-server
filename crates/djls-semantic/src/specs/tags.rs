@@ -343,7 +343,7 @@ impl TagSpecs {
 
                     rule.extracted_args = extracted_args;
 
-                    Some(rule)
+                    Some(rule.into())
                 };
 
                 specs.insert(
@@ -410,7 +410,7 @@ pub struct TagSpec {
     ///
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `extracted_args`.
-    pub extracted_rules: Option<crate::TagRule>,
+    pub extracted_rules: Option<std::sync::Arc<crate::TagRule>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -482,12 +482,12 @@ impl TagSpec {
 
     #[must_use]
     pub fn with_completion_args(mut self, args: Vec<CompletionArg>) -> Self {
-        let mut rules = self.extracted_rules.unwrap_or_default();
+        let mut rules = self.extracted_rules.as_deref().cloned().unwrap_or_default();
         rules.extracted_args = args
             .into_iter()
             .map(CompletionArg::into_extracted)
             .collect();
-        self.extracted_rules = Some(rules);
+        self.extracted_rules = Some(rules.into());
         self
     }
 }
@@ -993,7 +993,8 @@ mod tests {
                     },
                 ],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         specs.merge_extraction_results(&extraction);

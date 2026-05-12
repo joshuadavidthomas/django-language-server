@@ -34,6 +34,29 @@ tag_rules:
           - "on"
           - "off"
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 2
+        message:
+          PercentFormat:
+            template: "%r argument should be 'on' or 'off'"
+            args:
+              - SplitElement:
+                  Forward: 0
+      - constraint:
+          ChoiceAt:
+            position:
+              Forward: 1
+            values:
+              - "on"
+              - "off"
+        message:
+          PercentFormat:
+            template: "%r argument should be 'on' or 'off'"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -46,6 +69,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes one argument (timezone)"
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true

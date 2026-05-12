@@ -9,6 +9,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 3
+        message:
+          Static: "'custom_tag' requires exactly two arguments"
     extracted_args:
       - name: arg1
         required: true

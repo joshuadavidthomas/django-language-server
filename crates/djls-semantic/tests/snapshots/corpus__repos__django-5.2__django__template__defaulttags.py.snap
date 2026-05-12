@@ -14,6 +14,21 @@ tag_rules:
           - "on"
           - "off"
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "'autoescape' tag requires exactly one argument."
+      - constraint:
+          ChoiceAt:
+            position:
+              Forward: 1
+            values:
+              - "on"
+              - "off"
+        message:
+          Static: "'autoescape' argument should be 'on' or 'off'"
     extracted_args:
       - name: arg
         required: true
@@ -26,6 +41,23 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: "'cycle' tag requires at least two arguments"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Backward: 1
+            value: silent
+        message:
+          PercentFormat:
+            template: "Only 'silent' flag is allowed after cycle's name, not '%s'."
+            args:
+              - SplitElement:
+                  Backward: 1
     extracted_args:
       - name: arg1
         required: true
@@ -58,6 +90,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 4
+        message:
+          PercentFormat:
+            template: Incorrect format for %r tag
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -78,6 +120,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "'now' statement takes one argument"
     extracted_args:
       - name: arg1
         required: true
@@ -107,6 +155,26 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 6
+        message:
+          Static: "'regroup' tag takes five arguments"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 2
+            value: by
+        message:
+          Static: "second argument to 'regroup' tag must be 'by'"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 4
+            value: as
+        message:
+          Static: "next-to-last argument to 'regroup' tag must be 'as'"
     extracted_args:
       - name: arg1
         required: true
@@ -137,6 +205,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 2
+        message:
+          PercentFormat:
+            template: "%r tag accepts at most one argument."
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: name
         required: true
@@ -149,6 +227,12 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "'templatetag' statement takes one argument"
     extracted_args:
       - name: tag
         required: true
@@ -161,6 +245,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument, a URL pattern name."
+            args:
+              - SplitElement:
+                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -175,6 +269,14 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 4
+            value: as
+        message:
+          Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
     extracted_args:
       - name: this_value_expr
         required: true

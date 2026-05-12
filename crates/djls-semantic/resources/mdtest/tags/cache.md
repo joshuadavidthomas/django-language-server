@@ -41,7 +41,7 @@
 ```
 
 ```snapshot
-error[S109]: Tag 'cache' requires {% load cache %}
+error[S109]: Tag 'cache' requires the 'cache' tag library
  --> test.html:1:1
   |
 1 | {% cache 500 before_load %}
@@ -57,7 +57,7 @@ error[S109]: Tag 'cache' requires {% load cache %}
 ```
 
 ```snapshot
-error[S100]: Unclosed tag: cache
+error[S100]: Unclosed 'cache' tag
  --> test.html:2:1
   |
 2 | {% cache 500 broken %}

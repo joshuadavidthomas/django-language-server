@@ -11,7 +11,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
 
 use super::expressions::eval_expr;
-use crate::python::analysis::rules::ConstraintSet;
+use crate::python::analysis::constraints::ExtractedTagConstraints;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::types::ArgumentCountConstraint;
@@ -26,7 +26,7 @@ use crate::python::types::SplitPosition;
 pub(super) fn extract_match_constraints(
     match_stmt: &StmtMatch,
     env: &mut Env,
-) -> Option<ConstraintSet> {
+) -> Option<ExtractedTagConstraints> {
     let subject = eval_expr(&match_stmt.subject, env);
     if !matches!(subject, AbstractValue::SplitResult(_)) {
         return None;
@@ -105,7 +105,7 @@ pub(super) fn extract_match_constraints(
     // Extract required keywords from valid cases
     let required_keywords = extract_keywords_from_valid_cases(&match_stmt.cases);
 
-    Some(ConstraintSet {
+    Some(ExtractedTagConstraints {
         arg_constraints,
         required_keywords,
         choice_at_constraints: Vec::new(),
@@ -223,7 +223,7 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
 
 /// Check if any code path in a body contains a `raise` with an exception.
 ///
-/// Unlike `rules::body_raises_exception` (which only checks direct raises),
+/// Unlike `exceptions::direct_raise_exception` (which only checks direct raises),
 /// this recurses into control flow branches. Used for match case classification
 /// where any raise in any branch means the case can error. Any exception type
 /// counts — `TemplateSyntaxError`, `ValueError`, etc.

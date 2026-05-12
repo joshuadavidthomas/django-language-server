@@ -21,13 +21,11 @@
 ```
 
 ```snapshot
-error[S117]: 'lorem' takes exactly 3 arguments, 0 given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem %}
   | ^^^^^^^^^^^
-  |
-  = note: in tag: lorem
 ```
 
 ### rejects missing output method and randomness
@@ -37,13 +35,11 @@ error[S117]: 'lorem' takes exactly 3 arguments, 0 given
 ```
 
 ```snapshot
-error[S117]: 'lorem' takes exactly 3 arguments, 1 given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem 3 %}
   | ^^^^^^^^^^^^^
-  |
-  = note: in tag: lorem
 ```
 
 ### rejects missing randomness
@@ -53,13 +49,11 @@ error[S117]: 'lorem' takes exactly 3 arguments, 1 given
 ```
 
 ```snapshot
-error[S117]: 'lorem' takes exactly 3 arguments, 2 given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem 3 p %}
   | ^^^^^^^^^^^^^^^
-  |
-  = note: in tag: lorem
 ```
 
 ### rejects too many arguments
@@ -69,11 +63,9 @@ error[S117]: 'lorem' takes exactly 3 arguments, 2 given
 ```
 
 ```snapshot
-error[S117]: 'lorem' takes exactly 3 arguments, 4 given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem 3 p random extra %}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: in tag: lorem
 ```
