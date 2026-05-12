@@ -1,3 +1,4 @@
+use djls_semantic::structure::forest::SemanticForest;
 use djls_semantic::structure::forest::SemanticNode;
 use djls_source::File;
 use djls_source::Span;
@@ -59,40 +60,65 @@ pub fn collect_folding_ranges(
 
     let mut folds = Vec::new();
 
-    let mut stack: Vec<_> = forest.roots(db).iter().collect();
-    while let Some(node) = stack.pop() {
-        let SemanticNode::Tag {
-            marker_span,
-            segments,
-            ..
-        } = node
-        else {
-            continue;
-        };
+    append_semantic_folds(db, forest, &mut folds);
+    append_header_folds(db, file, nodelist, &mut folds);
 
-        if let Some(end) = segments
-            .iter()
-            .map(|segment| segment.content_span.end())
-            .max()
-        {
-            if marker_span.start() < end {
-                folds.push(FoldSpan {
-                    span: Span::saturating_from_bounds_usize(
-                        marker_span.start() as usize,
-                        end as usize,
-                    ),
-                    kind: FoldKind::from(node),
-                });
-            }
-        }
+    normalize_folds(&mut folds);
+    into_lsp_folding_ranges(db, file, folds)
+}
 
-        for segment in segments {
-            stack.extend(&segment.children);
+fn append_semantic_folds(
+    db: &dyn djls_semantic::Db,
+    forest: SemanticForest<'_>,
+    folds: &mut Vec<FoldSpan>,
+) {
+    for root in forest.roots(db) {
+        append_semantic_node_fold(root, folds);
+    }
+}
+
+fn append_semantic_node_fold(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
+    let SemanticNode::Tag {
+        marker_span,
+        segments,
+        ..
+    } = node
+    else {
+        return;
+    };
+
+    if let Some(end) = segments
+        .iter()
+        .map(|segment| segment.content_span.end())
+        .max()
+    {
+        if marker_span.start() < end {
+            folds.push(FoldSpan {
+                span: Span::saturating_from_bounds_usize(
+                    marker_span.start() as usize,
+                    end as usize,
+                ),
+                kind: FoldKind::from(node),
+            });
         }
     }
 
+    for segment in segments {
+        for child in &segment.children {
+            append_semantic_node_fold(child, folds);
+        }
+    }
+}
+
+fn append_header_folds(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    nodelist: djls_templates::NodeList<'_>,
+    folds: &mut Vec<FoldSpan>,
+) {
     let source = file.source(db);
     let mut import = ImportHeader::Empty;
+
     for node in nodelist.nodelist(db) {
         match node {
             Node::Comment { .. } => {
@@ -127,13 +153,22 @@ pub fn collect_folding_ranges(
             }
         }
     }
+
     if let Some(fold) = import.take_fold() {
         folds.push(fold);
     }
+}
 
+fn normalize_folds(folds: &mut Vec<FoldSpan>) {
     folds.sort_by_key(|fold| fold.sort_key());
     folds.dedup();
+}
 
+fn into_lsp_folding_ranges(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    folds: Vec<FoldSpan>,
+) -> Vec<ls_types::FoldingRange> {
     let line_index = file.line_index(db);
     folds
         .into_iter()
