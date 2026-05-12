@@ -21,6 +21,31 @@ struct FoldSpan {
     kind: FoldKind,
 }
 
+impl FoldKind {
+    fn sort_key(self) -> u8 {
+        match self {
+            Self::Region => 0,
+            Self::Comment => 1,
+            Self::Imports => 2,
+        }
+    }
+}
+
+impl From<&SemanticNode> for FoldKind {
+    fn from(node: &SemanticNode) -> Self {
+        match node {
+            SemanticNode::Tag { name, .. } if name == "comment" => Self::Comment,
+            SemanticNode::Tag { .. } | SemanticNode::Leaf { .. } => Self::Region,
+        }
+    }
+}
+
+impl FoldSpan {
+    fn sort_key(self) -> (u32, u32, u8) {
+        (self.span.start(), self.span.end(), self.kind.sort_key())
+    }
+}
+
 #[must_use]
 pub fn collect_folding_ranges(
     db: &dyn djls_semantic::Db,
@@ -38,7 +63,7 @@ pub fn collect_folding_ranges(
         collect_template_node_folds(nodelist.nodelist(db), file.source(db).as_str());
     folds.extend(template_folds);
 
-    folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
+    folds.sort_by_key(|fold| fold.sort_key());
     folds.dedup();
 
     let line_index = file.line_index(db);
@@ -84,7 +109,7 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
     if let Some(span) = fold_span(*marker_span, segments) {
         folds.push(FoldSpan {
             span,
-            kind: fold_kind(node),
+            kind: FoldKind::from(node),
         });
     }
 
@@ -92,13 +117,6 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
         for child in &segment.children {
             collect_node_folds(child, folds);
         }
-    }
-}
-
-fn fold_kind(node: &SemanticNode) -> FoldKind {
-    match node {
-        SemanticNode::Tag { name, .. } if name == "comment" => FoldKind::Comment,
-        SemanticNode::Tag { .. } | SemanticNode::Leaf { .. } => FoldKind::Region,
     }
 }
 
@@ -124,7 +142,10 @@ fn collect_template_node_folds(nodes: &[Node], source: &str) -> Vec<FoldSpan> {
             Node::Tag { name, .. } if name == "load" => {
                 import.include_load(node.full_span());
             }
-            Node::Text { span } if is_whitespace(source, *span) => {}
+            Node::Text { span }
+                if source
+                    .get(span.start_usize()..span.end() as usize)
+                    .is_some_and(|text| text.trim().is_empty()) => {}
             _ => folds.extend(import.take_fold()),
         }
     }
@@ -168,12 +189,6 @@ impl ImportHeader {
     }
 }
 
-fn is_whitespace(source: &str, span: Span) -> bool {
-    source
-        .get(span.start_usize()..span.end() as usize)
-        .is_some_and(|text| text.trim().is_empty())
-}
-
 fn fold_span(marker_span: Span, segments: &[SemanticSegment]) -> Option<Span> {
     let end = segments
         .iter()
@@ -188,14 +203,4 @@ fn fold_span(marker_span: Span, segments: &[SemanticSegment]) -> Option<Span> {
         marker_span.start() as usize,
         end as usize,
     ))
-}
-
-impl FoldSpan {
-    fn kind_key(self) -> u8 {
-        match self.kind {
-            FoldKind::Region => 0,
-            FoldKind::Comment => 1,
-            FoldKind::Imports => 2,
-        }
-    }
 }
