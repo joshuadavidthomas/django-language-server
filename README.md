@@ -32,11 +32,13 @@ A language server for the Django web framework.
 - [x] **Diagnostics** - Real-time error checking and validation
   ![Diagnostics](docs/assets/diagnostics.png)
 
-- [x] **Folding ranges** - Fold Django template block, comment, and import regions
-- [x] **Template navigation** - Jump to and find references for `{% extends %}` and `{% include %}` templates
-
-- [ ] **Full go to definition** - Jump to block or variable definitions
-- [ ] **Full find references** - See where blocks and variables are used
+- [x] **Folding ranges** - Fold Django template regions
+- [ ] **Go to definition** - Jump to template, block, or variable definitions
+  - [x] Template navigation for `{% extends %}` and `{% include %}`
+  - [ ] Block and variable definitions
+- [ ] **Find references** - See where templates, blocks, and variables are used
+  - [x] Template references for `{% extends %}` and `{% include %}`
+  - [ ] Block and variable references
 - [ ] **Hover** - View documentation and type info on hover
 - [ ] **Rename** - Refactor names across files
 - [ ] **Code actions** - Quick fixes and refactorings
@@ -68,7 +70,7 @@ Once configured, open any Django template file in your project to get:
 
 - Template tag and filter completions with snippets
 - Real-time syntax validation and diagnostics
-- Folding for template block, comment, and import regions
+- Folding for Django template regions
 - Navigation to template definitions and references
 
 ## Documentation
