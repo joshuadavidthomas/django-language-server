@@ -7,7 +7,6 @@
 //! Any uncaught raise in an if-body is treated as a validation constraint,
 //! regardless of exception type (e.g., `TemplateSyntaxError`, `ValueError`).
 
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
@@ -115,25 +114,57 @@ impl ConstraintSet {
 pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet {
     let mut result = ConstraintSet::default();
 
-    if body_raises_exception(&if_stmt.body) {
-        let constraints =
-            attach_raise_message(eval_condition(&if_stmt.test, env), &if_stmt.body, env);
-        result.extend(constraints);
-    }
-
-    for clause in &if_stmt.elif_else_clauses {
-        if body_raises_exception(&clause.body) {
-            if let Some(test) = &clause.test {
-                let constraints =
-                    attach_raise_message(eval_condition(test, env), &clause.body, env);
-                result.extend(constraints);
-            }
-        }
+    for guard in guard_clauses(if_stmt).filter_map(GuardClause::raising_guard) {
+        result.extend(guard.constraints(env));
     }
 
     // NOTE: We do NOT recurse into nested if-statements here — that's handled
     // by the caller (process_statements) as it walks into the body/clauses.
     result
+}
+
+struct GuardClause<'a> {
+    test: &'a Expr,
+    body: &'a [Stmt],
+}
+
+impl<'a> GuardClause<'a> {
+    fn raising_guard(self) -> Option<RaisingGuard<'a>> {
+        Some(RaisingGuard {
+            test: self.test,
+            raised_exception: direct_raise_exception(self.body)?,
+        })
+    }
+}
+
+struct RaisingGuard<'a> {
+    test: &'a Expr,
+    raised_exception: &'a Expr,
+}
+
+impl RaisingGuard<'_> {
+    fn constraints(self, env: &mut Env) -> ConstraintSet {
+        let mut constraints = eval_condition(self.test, env);
+
+        if let Some(message) = extract_exception_message(self.raised_exception, env) {
+            add_diagnostic_message_to_constraints(&mut constraints, &message);
+        }
+
+        constraints
+    }
+}
+
+fn guard_clauses(if_stmt: &StmtIf) -> impl Iterator<Item = GuardClause<'_>> {
+    std::iter::once(GuardClause {
+        test: if_stmt.test.as_ref(),
+        body: &if_stmt.body,
+    })
+    .chain(if_stmt.elif_else_clauses.iter().filter_map(|clause| {
+        clause.test.as_ref().map(|test| GuardClause {
+            test,
+            body: &clause.body,
+        })
+    }))
 }
 
 /// Evaluate a condition expression as a constraint.
@@ -371,11 +402,10 @@ fn eval_range_constraint(
     ])
 }
 
-fn attach_raise_message(mut constraints: ConstraintSet, body: &[Stmt], env: &Env) -> ConstraintSet {
-    let Some(message) = extract_raise_message(body, env) else {
-        return constraints;
-    };
-
+fn add_diagnostic_message_to_constraints(
+    constraints: &mut ConstraintSet,
+    message: &ExtractedMessageTemplate,
+) {
     constraints
         .diagnostic_messages
         .extend(
@@ -415,8 +445,6 @@ fn attach_raise_message(mut constraints: ConstraintSet, body: &[Stmt], env: &Env
                 message: message.clone(),
             }
         }));
-
-    constraints
 }
 
 /// Check whether a statement body contains a direct `raise` with an exception.
@@ -424,17 +452,15 @@ fn attach_raise_message(mut constraints: ConstraintSet, body: &[Stmt], env: &Env
 /// Only checks direct children (does not recurse into nested control flow).
 /// Any exception type counts — `TemplateSyntaxError`, `ValueError`, etc.
 pub(super) fn body_raises_exception(body: &[Stmt]) -> bool {
-    let mut visitor = RaiseFinder::default();
-    visitor.visit_body(body);
-    visitor.found
+    direct_raise_exception(body).is_some()
 }
 
-fn extract_raise_message(body: &[Stmt], env: &Env) -> Option<ExtractedMessageTemplate> {
+fn direct_raise_exception(body: &[Stmt]) -> Option<&Expr> {
     body.iter().find_map(|stmt| {
         let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt else {
             return None;
         };
-        extract_exception_message(exc, env)
+        Some(exc.as_ref())
     })
 }
 
@@ -488,26 +514,6 @@ fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {
         | AbstractValue::SplitResult(_)
         | AbstractValue::SplitLength(_)
         | AbstractValue::Tuple(_) => None,
-    }
-}
-
-#[derive(Default)]
-struct RaiseFinder {
-    found: bool,
-}
-
-impl StatementVisitor<'_> for RaiseFinder {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        if matches!(
-            stmt,
-            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. })
-        ) {
-            self.found = true;
-        }
     }
 }
 
