@@ -75,7 +75,8 @@ pub fn collect_folding_ranges(
     let mut folds = Vec::new();
 
     append_semantic_folds(db, nodelist, &mut folds);
-    append_header_folds(db, file, nodelist, &mut folds);
+    let source = file.source(db);
+    append_header_folds(db, nodelist, source.as_str(), &mut folds);
 
     folds.sort_by_key(|fold| fold.sort_key());
     folds.dedup();
@@ -130,11 +131,10 @@ fn append_semantic_folds(
 
 fn append_header_folds(
     db: &dyn djls_semantic::Db,
-    file: File,
     nodelist: djls_templates::NodeList<'_>,
+    source: &str,
     folds: &mut Vec<FoldSpan>,
 ) {
-    let source = file.source(db);
     let mut import = ImportHeader::Empty;
 
     for node in nodelist.nodelist(db) {
@@ -161,7 +161,6 @@ fn append_header_folds(
             }
             Node::Text { span }
                 if source
-                    .as_str()
                     .get(span.start_usize()..span.end() as usize)
                     .is_some_and(|text| text.trim().is_empty()) => {}
             _ => {
