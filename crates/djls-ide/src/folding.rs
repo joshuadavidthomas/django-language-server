@@ -165,12 +165,24 @@ fn append_header_folds(
             Node::Tag { name, .. } => match FoldableTag::from_name(name) {
                 Some(FoldableTag::Extends) => {
                     flush_import_header(&mut import, folds);
-                    import = Some(PendingImportHeader::from_extends(node.full_span()));
+                    import = Some(PendingImportHeader::ExtendsOnly {
+                        start: node.full_span().start(),
+                    });
                 }
                 Some(FoldableTag::Load) => {
+                    let span = node.full_span();
                     import = Some(match import.take() {
-                        Some(header) => header.with_load(node.full_span()),
-                        None => PendingImportHeader::from_load(node.full_span()),
+                        Some(
+                            PendingImportHeader::ExtendsOnly { start }
+                            | PendingImportHeader::Imports { start, .. },
+                        ) => PendingImportHeader::Imports {
+                            start,
+                            end: span.end(),
+                        },
+                        None => PendingImportHeader::Imports {
+                            start: span.start(),
+                            end: span.end(),
+                        },
                     });
                 }
                 Some(FoldableTag::Comment) | None => flush_import_header(&mut import, folds),
@@ -188,7 +200,11 @@ fn append_header_folds(
 }
 
 fn flush_import_header(import: &mut Option<PendingImportHeader>, folds: &mut Vec<FoldSpan>) {
-    if let Some(fold) = import.take().and_then(PendingImportHeader::into_fold) {
+    let Some(PendingImportHeader::Imports { start, end }) = import.take() else {
+        return;
+    };
+
+    if let Some(fold) = FoldSpan::imports(start, end) {
         folds.push(fold);
     }
 }
@@ -197,36 +213,4 @@ fn flush_import_header(import: &mut Option<PendingImportHeader>, folds: &mut Vec
 enum PendingImportHeader {
     ExtendsOnly { start: u32 },
     Imports { start: u32, end: u32 },
-}
-
-impl PendingImportHeader {
-    fn from_extends(span: Span) -> Self {
-        Self::ExtendsOnly {
-            start: span.start(),
-        }
-    }
-
-    fn from_load(span: Span) -> Self {
-        Self::Imports {
-            start: span.start(),
-            end: span.end(),
-        }
-    }
-
-    fn with_load(self, span: Span) -> Self {
-        match self {
-            Self::ExtendsOnly { start } | Self::Imports { start, .. } => Self::Imports {
-                start,
-                end: span.end(),
-            },
-        }
-    }
-
-    fn into_fold(self) -> Option<FoldSpan> {
-        let Self::Imports { start, end } = self else {
-            return None;
-        };
-
-        FoldSpan::imports(start, end)
-    }
 }
