@@ -11,7 +11,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
 
 use super::expressions::eval_expr;
-use crate::python::analysis::rules::ConstraintSet;
+use crate::python::analysis::constraints::ConstraintSet;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::types::ArgumentCountConstraint;

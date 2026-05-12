@@ -59,7 +59,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
 
         Stmt::If(stmt_if) => {
             result.extend(
-                crate::python::analysis::rules::extract_from_if_inline(stmt_if, env).into(),
+                crate::python::analysis::guards::extract_from_if_inline(stmt_if, env).into(),
             );
 
             // Collect body results separately so we can discard conditional

@@ -1,9 +1,10 @@
 pub(crate) mod calls;
+pub(crate) mod constraints;
 pub(crate) mod exceptions;
 pub(crate) mod expressions;
+pub(crate) mod guards;
 pub(crate) mod match_arms;
 pub(crate) mod mutations;
-pub(crate) mod rules;
 pub(crate) mod state;
 pub(crate) mod statements;
 
@@ -13,8 +14,8 @@ use djls_source::File;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::python::analysis::rules::ConstraintSet;
-use crate::python::analysis::rules::GuardRule;
+use crate::python::analysis::constraints::ConstraintSet;
+use crate::python::analysis::guards::GuardRule;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::AsVar;
 use crate::python::types::ExtractedArg;
