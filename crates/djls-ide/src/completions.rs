@@ -14,7 +14,6 @@ use djls_semantic::TemplateSymbol;
 use djls_semantic::TemplateSymbolKind;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
-use djls_workspace::TextDocument;
 use tower_lsp_server::ls_types;
 
 use crate::snippets::generate_partial_snippet;
@@ -103,7 +102,7 @@ pub struct LineInfo {
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn handle_completion(
-    document: &TextDocument,
+    source: &str,
     position: ls_types::Position,
     encoding: PositionEncoding,
     file_kind: FileKind,
@@ -117,8 +116,8 @@ pub fn handle_completion(
         return Vec::new();
     }
 
-    // Get line information from document
-    let Some(line_info) = get_line_info(document, position, encoding) else {
+    // Get line information from source
+    let Some(line_info) = get_line_info(source, position, encoding) else {
         return Vec::new();
     };
 
@@ -140,14 +139,13 @@ pub fn handle_completion(
     )
 }
 
-/// Extract line information from document at given position
+/// Extract line information from source at given position
 fn get_line_info(
-    document: &TextDocument,
+    source: &str,
     position: ls_types::Position,
     encoding: PositionEncoding,
 ) -> Option<LineInfo> {
-    let content = document.content();
-    let lines: Vec<&str> = content.lines().collect();
+    let lines: Vec<&str> = source.lines().collect();
 
     let line_index = position.line as usize;
     if line_index >= lines.len() {

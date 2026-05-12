@@ -1,13 +1,11 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::File;
 use djls_source::FileKind;
 use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Range;
-use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::DocumentChange;
 use tower_lsp_server::ls_types;
 
@@ -82,17 +80,6 @@ impl TextDocumentContentChangeEventExt for Vec<ls_types::TextDocumentContentChan
                 DocumentChange::new(change.range.map(|r| r.to_source_range()), change.text)
             })
             .collect()
-    }
-}
-
-pub(crate) trait TextDocumentIdentifierExt {
-    fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File>;
-}
-
-impl TextDocumentIdentifierExt for ls_types::TextDocumentIdentifier {
-    fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File> {
-        let path = self.uri.to_utf8_path_buf()?;
-        Some(db.get_or_create_file(&path))
     }
 }
 

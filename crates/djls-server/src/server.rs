@@ -14,8 +14,6 @@ use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 
 use crate::ext::PositionEncodingExt;
-use crate::ext::PositionExt;
-use crate::ext::TextDocumentIdentifierExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::queue::Queue;
@@ -117,7 +115,7 @@ impl DjangoLanguageServer {
         }
 
         let diagnostics: Vec<ls_types::Diagnostic> = self
-            .with_session_mut(|session| {
+            .with_session(|session| {
                 let db = session.db();
                 let file = db.get_or_create_file(&path);
                 djls_ide::collect_diagnostics(db, file)
@@ -315,32 +313,19 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::CompletionParams,
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
         let response = self
-            .with_session_mut(|session| {
-                let Some(path) = params
-                    .text_document_position
-                    .text_document
-                    .uri
-                    .to_utf8_path_buf()
-                else {
-                    tracing::debug!(
-                        "Skipping non-file URI in completion: {}",
-                        params.text_document_position.text_document.uri.as_str()
-                    );
-                    // TODO(virtual-paths): Support virtual documents with DocumentPath enum
-                    return None;
-                };
-
-                tracing::debug!(
-                    "Completion requested for {} at {:?}",
-                    path,
-                    params.text_document_position.position
-                );
-
-                let document = session.get_document(&path)?;
+            .with_session(|session| {
                 let position = params.text_document_position.position;
                 let encoding = session.client_info().position_encoding();
-                let file_kind = FileKind::from(&path);
+                let file = session.file_for_document_request(
+                    &params.text_document_position.text_document,
+                    "completion",
+                )?;
                 let db = session.db();
+                let path = file.path(db);
+                let source = file.source(db);
+                let file_kind = *source.kind();
+
+                tracing::debug!("Completion requested for {} at {:?}", path, position);
                 let template_libraries = db.project().map(|project| project.template_libraries(db));
 
                 let tag_specs = db.tag_specs();
@@ -350,7 +335,6 @@ impl LanguageServer for DjangoLanguageServer {
                 let available_symbols = if file_kind == FileKind::Template {
                     if let Some(template_libraries) = template_libraries {
                         if template_libraries.active_knowledge == djls_semantic::Knowledge::Known {
-                            let file = db.get_or_create_file(&path);
                             let nodelist = djls_templates::parse_template(db, file);
 
                             nodelist.map(|nl| {
@@ -375,7 +359,7 @@ impl LanguageServer for DjangoLanguageServer {
                 };
 
                 let completions = djls_ide::handle_completion(
-                    &document,
+                    source.as_str(),
                     position,
                     encoding,
                     file_kind,
@@ -405,25 +389,22 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let diagnostics = if let Some(path) = params.text_document.uri.to_utf8_path_buf() {
-            if FileKind::from(&path) == FileKind::Template {
-                self.with_session_mut(move |session| {
-                    let db = session.db_mut();
-                    let file = db.get_or_create_file(&path);
-                    djls_ide::collect_diagnostics(db, file)
-                })
-                .await
-            } else {
-                vec![]
-            }
-        } else {
-            tracing::debug!(
-                "Skipping non-file URI in diagnostic: {}",
-                params.text_document.uri.as_str()
-            );
-            // TODO(virtual-paths): Support virtual documents with DocumentPath enum
-            vec![]
-        };
+        let diagnostics = self
+            .with_session(|session| {
+                let Some(file) =
+                    session.file_for_document_request(&params.text_document, "diagnostic")
+                else {
+                    return Vec::new();
+                };
+                let db = session.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return Vec::new();
+                }
+
+                djls_ide::collect_diagnostics(db, file)
+            })
+            .await;
 
         Ok(ls_types::DocumentDiagnosticReportResult::Report(
             ls_types::DocumentDiagnosticReport::Full(
@@ -443,15 +424,17 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::FoldingRangeParams,
     ) -> LspResult<Option<Vec<ls_types::FoldingRange>>> {
         let ranges = self
-            .with_session_mut(|session| {
-                let db = session.db_mut();
-                let Some(file) = params.text_document.to_file(db) else {
-                    tracing::debug!(
-                        "Skipping non-file URI in folding ranges: {}",
-                        params.text_document.uri.as_str()
-                    );
+            .with_session(|session| {
+                let Some(file) =
+                    session.file_for_document_request(&params.text_document, "folding")
+                else {
                     return Vec::new();
                 };
+                let db = session.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return Vec::new();
+                }
 
                 djls_ide::collect_folding_ranges(db, file)
             })
@@ -465,20 +448,18 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::GotoDefinitionParams,
     ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
         let response = self
-            .with_session_mut(|session| {
-                let encoding = session.client_info().position_encoding();
-                let db = session.db_mut();
-                let file = params
-                    .text_document_position_params
-                    .text_document
-                    .to_file(db)?;
-                let source = file.source(db);
-                let line_index = file.line_index(db);
-                let offset = params.text_document_position_params.position.to_offset(
-                    source.as_str(),
-                    line_index,
-                    encoding,
-                );
+            .with_session(|session| {
+                let (file, offset) = session.position_for_document_request(
+                    &params.text_document_position_params.text_document,
+                    params.text_document_position_params.position,
+                    "goto definition",
+                )?;
+                let db = session.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return None;
+                }
+
                 djls_ide::goto_definition(db, file, offset)
             })
             .await;
@@ -491,17 +472,18 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::ReferenceParams,
     ) -> LspResult<Option<Vec<ls_types::Location>>> {
         let response = self
-            .with_session_mut(|session| {
-                let encoding = session.client_info().position_encoding();
-                let db = session.db_mut();
-                let file = params.text_document_position.text_document.to_file(db)?;
-                let source = file.source(db);
-                let line_index = file.line_index(db);
-                let offset = params.text_document_position.position.to_offset(
-                    source.as_str(),
-                    line_index,
-                    encoding,
-                );
+            .with_session(|session| {
+                let (file, offset) = session.position_for_document_request(
+                    &params.text_document_position.text_document,
+                    params.text_document_position.position,
+                    "references",
+                )?;
+                let db = session.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return None;
+                }
+
                 djls_ide::find_references(db, file, offset)
             })
             .await;
