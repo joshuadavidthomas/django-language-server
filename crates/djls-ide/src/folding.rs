@@ -73,40 +73,36 @@ fn append_semantic_folds(
     forest: SemanticForest<'_>,
     folds: &mut Vec<FoldSpan>,
 ) {
-    for root in forest.roots(db) {
-        append_semantic_node_fold(root, folds);
-    }
-}
+    let mut stack: Vec<_> = forest.roots(db).iter().collect();
 
-fn append_semantic_node_fold(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
-    let SemanticNode::Tag {
-        marker_span,
-        segments,
-        ..
-    } = node
-    else {
-        return;
-    };
+    while let Some(node) = stack.pop() {
+        let SemanticNode::Tag {
+            marker_span,
+            segments,
+            ..
+        } = node
+        else {
+            continue;
+        };
 
-    if let Some(end) = segments
-        .iter()
-        .map(|segment| segment.content_span.end())
-        .max()
-    {
-        if marker_span.start() < end {
-            folds.push(FoldSpan {
-                span: Span::saturating_from_bounds_usize(
-                    marker_span.start() as usize,
-                    end as usize,
-                ),
-                kind: FoldKind::from(node),
-            });
+        if let Some(end) = segments
+            .iter()
+            .map(|segment| segment.content_span.end())
+            .max()
+        {
+            if marker_span.start() < end {
+                folds.push(FoldSpan {
+                    span: Span::saturating_from_bounds_usize(
+                        marker_span.start() as usize,
+                        end as usize,
+                    ),
+                    kind: FoldKind::from(node),
+                });
+            }
         }
-    }
 
-    for segment in segments {
-        for child in &segment.children {
-            append_semantic_node_fold(child, folds);
+        for segment in segments {
+            stack.extend(&segment.children);
         }
     }
 }
