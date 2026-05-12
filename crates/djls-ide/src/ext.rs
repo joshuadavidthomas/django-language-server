@@ -56,6 +56,7 @@ impl FoldingRangeKindExt for FoldKind {
         match self {
             FoldKind::Region => ls_types::FoldingRangeKind::Region,
             FoldKind::Comment => ls_types::FoldingRangeKind::Comment,
+            FoldKind::Imports => ls_types::FoldingRangeKind::Imports,
         }
     }
 }

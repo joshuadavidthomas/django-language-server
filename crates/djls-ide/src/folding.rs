@@ -12,6 +12,7 @@ use crate::ext::SpanExt;
 pub(crate) enum FoldKind {
     Region,
     Comment,
+    Imports,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,7 +38,8 @@ pub fn collect_folding_ranges(
         collect_node_folds(root, &mut folds);
     }
 
-    for node in nodelist.nodelist(db) {
+    let nodes = nodelist.nodelist(db);
+    for node in nodes {
         if let Node::Comment { .. } = node {
             folds.push(FoldSpan {
                 span: node.full_span(),
@@ -45,6 +47,7 @@ pub fn collect_folding_ranges(
             });
         }
     }
+    collect_load_folds(nodes, file.source(db).as_str(), &mut folds);
 
     folds.sort_by_key(|fold| (fold.span.start(), fold.span.end(), fold.kind_key()));
     folds.dedup();
@@ -84,7 +87,7 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
     if let Some(span) = fold_span(*marker_span, segments) {
         folds.push(FoldSpan {
             span,
-            kind: FoldKind::Region,
+            kind: fold_kind(node),
         });
     }
 
@@ -93,6 +96,52 @@ fn collect_node_folds(node: &SemanticNode, folds: &mut Vec<FoldSpan>) {
             collect_node_folds(child, folds);
         }
     }
+}
+
+fn fold_kind(node: &SemanticNode) -> FoldKind {
+    match node {
+        SemanticNode::Tag { name, .. } if name == "comment" => FoldKind::Comment,
+        SemanticNode::Tag { .. } | SemanticNode::Leaf { .. } => FoldKind::Region,
+    }
+}
+
+fn collect_load_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
+    let mut group_start = None;
+    let mut group_end = None;
+
+    for node in nodes {
+        match node {
+            Node::Tag { name, .. } if name == "load" => {
+                group_start.get_or_insert_with(|| node.full_span().start());
+                group_end = Some(node.full_span().end());
+            }
+            Node::Text { span } if is_whitespace(source, *span) => {}
+            _ => push_load_fold(group_start.take(), group_end.take(), folds),
+        }
+    }
+
+    push_load_fold(group_start, group_end, folds);
+}
+
+fn push_load_fold(start: Option<u32>, end: Option<u32>, folds: &mut Vec<FoldSpan>) {
+    let (Some(start), Some(end)) = (start, end) else {
+        return;
+    };
+
+    if start >= end {
+        return;
+    }
+
+    folds.push(FoldSpan {
+        span: Span::saturating_from_bounds_usize(start as usize, end as usize),
+        kind: FoldKind::Imports,
+    });
+}
+
+fn is_whitespace(source: &str, span: Span) -> bool {
+    source
+        .get(span.start_usize()..span.end() as usize)
+        .is_some_and(|text| text.trim().is_empty())
 }
 
 fn fold_span(marker_span: Span, segments: &[SemanticSegment]) -> Option<Span> {
@@ -116,6 +165,7 @@ impl FoldSpan {
         match self.kind {
             FoldKind::Region => 0,
             FoldKind::Comment => 1,
+            FoldKind::Imports => 2,
         }
     }
 }

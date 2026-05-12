@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added folding ranges for Django template block and comment regions.
+- Added folding ranges for Django template block, comment, and `{% load %}` regions.
 - Added pre-commit hook for running `djls check` on Django template files.
 - Added rg-style file filtering flags to `djls check`: `-g/--glob` for glob patterns, `--no-ignore` to skip ignore files, `-L/--follow` for symlinks, `-d/--max-depth` for recursion depth, `--color always|auto|never`, and `-q/--quiet`.
 - Added `env_file` configuration option for loading environment variables from a `.env` file into the inspector process.
