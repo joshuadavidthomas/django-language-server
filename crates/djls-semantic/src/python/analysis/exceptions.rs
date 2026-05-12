@@ -33,11 +33,8 @@ pub(super) fn extract_exception_message(
         return None;
     };
     let first_arg = arguments.args.first()?;
-    extract_message_template(first_arg, env)
-}
 
-fn extract_message_template(expr: &Expr, env: &Env) -> Option<ExtractedMessageTemplate> {
-    if let Some(message) = expr.string_literal() {
+    if let Some(message) = first_arg.string_literal() {
         return Some(ExtractedMessageTemplate::Static(message));
     }
 
@@ -46,25 +43,22 @@ fn extract_message_template(expr: &Expr, env: &Env) -> Option<ExtractedMessageTe
         op: Operator::Mod,
         right,
         ..
-    }) = expr
+    }) = first_arg
     else {
         return None;
     };
 
     let template = left.string_literal()?;
-    let args = extract_message_args(right, env)?;
-    Some(ExtractedMessageTemplate::PercentFormat { template, args })
-}
-
-fn extract_message_args(expr: &Expr, env: &Env) -> Option<Vec<ExtractedMessageArg>> {
-    let args = match expr {
-        Expr::Tuple(tuple) => tuple.elts.iter().collect(),
-        _ => vec![expr],
+    let args = match right.as_ref() {
+        Expr::Tuple(tuple) => tuple
+            .elts
+            .iter()
+            .map(|arg| extract_message_arg(arg, env))
+            .collect::<Option<Vec<_>>>()?,
+        arg => vec![extract_message_arg(arg, env)?],
     };
 
-    args.into_iter()
-        .map(|arg| extract_message_arg(arg, env))
-        .collect()
+    Some(ExtractedMessageTemplate::PercentFormat { template, args })
 }
 
 fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {

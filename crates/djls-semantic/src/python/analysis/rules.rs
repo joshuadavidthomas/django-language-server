@@ -13,7 +13,6 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprUnaryOp;
-use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::UnaryOp;
 
@@ -122,27 +121,36 @@ impl GuardRule {
 pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> GuardRule {
     let mut result = GuardRule::default();
 
-    for guard in guard_clauses(if_stmt).filter_map(GuardClause::raising_guard) {
-        result.extend(guard.rule(env));
+    if let Some(raised_exception) = direct_raise_exception(&if_stmt.body) {
+        result.extend(
+            RaisingGuard {
+                test: if_stmt.test.as_ref(),
+                raised_exception,
+            }
+            .rule(env),
+        );
+    }
+
+    for clause in &if_stmt.elif_else_clauses {
+        let Some(test) = &clause.test else {
+            continue;
+        };
+        let Some(raised_exception) = direct_raise_exception(&clause.body) else {
+            continue;
+        };
+
+        result.extend(
+            RaisingGuard {
+                test,
+                raised_exception,
+            }
+            .rule(env),
+        );
     }
 
     // NOTE: We do NOT recurse into nested if-statements here — that's handled
     // by the caller (process_statements) as it walks into the body/clauses.
     result
-}
-
-struct GuardClause<'a> {
-    test: &'a Expr,
-    body: &'a [Stmt],
-}
-
-impl<'a> GuardClause<'a> {
-    fn raising_guard(self) -> Option<RaisingGuard<'a>> {
-        Some(RaisingGuard {
-            test: self.test,
-            raised_exception: direct_raise_exception(self.body)?,
-        })
-    }
 }
 
 struct RaisingGuard<'a> {
@@ -163,19 +171,6 @@ impl RaisingGuard<'_> {
             diagnostic_messages,
         }
     }
-}
-
-fn guard_clauses(if_stmt: &StmtIf) -> impl Iterator<Item = GuardClause<'_>> {
-    std::iter::once(GuardClause {
-        test: if_stmt.test.as_ref(),
-        body: &if_stmt.body,
-    })
-    .chain(if_stmt.elif_else_clauses.iter().filter_map(|clause| {
-        clause.test.as_ref().map(|test| GuardClause {
-            test,
-            body: &clause.body,
-        })
-    }))
 }
 
 /// Evaluate a condition expression as a constraint.
@@ -455,6 +450,7 @@ fn diagnostic_messages_for(
 
 #[cfg(test)]
 mod tests {
+    use ruff_python_ast::Stmt;
     use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
 
