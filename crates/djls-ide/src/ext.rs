@@ -7,6 +7,7 @@ use djls_source::Span;
 use tower_lsp_server::ls_types;
 
 use crate::folding::FoldKind;
+use crate::folding::FoldSpan;
 
 pub(crate) trait OffsetExt {
     fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position;
@@ -58,6 +59,29 @@ impl FoldingRangeKindExt for FoldKind {
             FoldKind::Comment => ls_types::FoldingRangeKind::Comment,
             FoldKind::Imports => ls_types::FoldingRangeKind::Imports,
         }
+    }
+}
+
+pub(crate) trait FoldSpanExt {
+    fn to_lsp_folding_range(self, line_index: &LineIndex) -> Option<ls_types::FoldingRange>;
+}
+
+impl FoldSpanExt for FoldSpan {
+    fn to_lsp_folding_range(self, line_index: &LineIndex) -> Option<ls_types::FoldingRange> {
+        let range = self.span.to_lsp_range(line_index);
+
+        if range.start.line >= range.end.line {
+            return None;
+        }
+
+        Some(ls_types::FoldingRange {
+            start_line: range.start.line,
+            start_character: Some(range.start.character),
+            end_line: range.end.line,
+            end_character: Some(range.end.character),
+            kind: Some(self.kind.to_lsp_kind()),
+            collapsed_text: None,
+        })
     }
 }
 
