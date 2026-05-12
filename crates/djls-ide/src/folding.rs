@@ -1,6 +1,7 @@
 use djls_semantic::structure::forest::SemanticForest;
 use djls_semantic::structure::forest::SemanticNode;
 use djls_source::File;
+use djls_source::LineIndex;
 use djls_source::Span;
 use djls_templates::Node;
 use tower_lsp_server::ls_types;
@@ -17,6 +18,23 @@ struct FoldSpan {
 impl FoldSpan {
     fn sort_key(self) -> (u32, u32, u8) {
         (self.span.start(), self.span.end(), self.kind.sort_key())
+    }
+
+    fn into_lsp(self, line_index: &LineIndex) -> Option<ls_types::FoldingRange> {
+        let range = self.span.to_lsp_range(line_index);
+
+        if range.start.line >= range.end.line {
+            return None;
+        }
+
+        Some(ls_types::FoldingRange {
+            start_line: range.start.line,
+            start_character: Some(range.start.character),
+            end_line: range.end.line,
+            end_character: Some(range.end.character),
+            kind: Some(self.kind.to_lsp_kind()),
+            collapsed_text: None,
+        })
     }
 }
 
@@ -69,22 +87,7 @@ pub fn collect_folding_ranges(
     let line_index = file.line_index(db);
     folds
         .into_iter()
-        .filter_map(|fold| {
-            let range = fold.span.to_lsp_range(line_index);
-
-            if range.start.line >= range.end.line {
-                return None;
-            }
-
-            Some(ls_types::FoldingRange {
-                start_line: range.start.line,
-                start_character: Some(range.start.character),
-                end_line: range.end.line,
-                end_character: Some(range.end.character),
-                kind: Some(fold.kind.to_lsp_kind()),
-                collapsed_text: None,
-            })
-        })
+        .filter_map(|fold| fold.into_lsp(line_index))
         .collect()
 }
 
