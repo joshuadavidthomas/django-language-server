@@ -36,14 +36,6 @@ impl TemplateError {
 
 fn parse_error_span(error: &ParseError) -> Option<(u32, u32)> {
     let (position, length) = match error {
-        ParseError::UnexpectedToken {
-            found, position, ..
-        } => (*position, found.len().max(1)),
-        ParseError::MissingCondition { tag, position } => (*position, tag.len().max(1)),
-        ParseError::MissingIterator { position } => (*position, 1),
-        ParseError::MalformedVariable { position, content } => (*position, content.len().max(1)),
-        ParseError::InvalidFilterSyntax { position, reason } => (*position, reason.len().max(1)),
-        ParseError::UnclosedTag { opener, .. } => (*opener, 1),
         ParseError::InvalidSyntax { position, .. } | ParseError::EmptyTag { position } => {
             (*position, 1)
         }
@@ -97,14 +89,6 @@ mod tests {
             })
             .primary_span(),
             Some((15, 2))
-        );
-        assert_eq!(
-            TemplateError::from(ParseError::UnclosedTag {
-                opener: 12,
-                expected_closer: "endif".to_string(),
-            })
-            .primary_span(),
-            Some((12, 1))
         );
         assert_eq!(
             TemplateError::from(ParseError::EmptyTag { position: 4 }).primary_span(),

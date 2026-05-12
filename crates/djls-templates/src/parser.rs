@@ -263,31 +263,6 @@ pub enum StreamError {
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum ParseError {
-    #[error("Unexpected token: expected {expected:?}, found {found} at position {position}")]
-    UnexpectedToken {
-        expected: Vec<String>,
-        found: String,
-        position: usize,
-    },
-
-    #[error("Missing condition in '{tag}' tag at position {position}")]
-    MissingCondition { tag: String, position: usize },
-
-    #[error("Missing iterator in 'for' tag at position {position}")]
-    MissingIterator { position: usize },
-
-    #[error("Malformed variable at position {position}: {content}")]
-    MalformedVariable { position: usize, content: String },
-
-    #[error("Invalid filter syntax at position {position}: {reason}")]
-    InvalidFilterSyntax { position: usize, reason: String },
-
-    #[error("Unclosed tag at position {opener}: expected '{expected_closer}'")]
-    UnclosedTag {
-        opener: usize,
-        expected_closer: String,
-    },
-
     #[error("Invalid syntax at position {position}: {context}")]
     InvalidSyntax { position: usize, context: String },
 
