@@ -49,9 +49,9 @@ pub(crate) enum FoldKind {
 
 impl FoldKind {
     fn from_semantic_tag_name(name: &str) -> Self {
-        match FoldableTag::from_name(name) {
-            Some(FoldableTag::Comment) => Self::Comment,
-            Some(FoldableTag::Extends | FoldableTag::Load) | None => Self::Region,
+        match name {
+            "comment" => Self::Comment,
+            _ => Self::Region,
         }
     }
 
@@ -60,24 +60,6 @@ impl FoldKind {
             Self::Region => 0,
             Self::Comment => 1,
             Self::Imports => 2,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FoldableTag {
-    Comment,
-    Extends,
-    Load,
-}
-
-impl FoldableTag {
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "comment" => Some(Self::Comment),
-            "extends" => Some(Self::Extends),
-            "load" => Some(Self::Load),
-            _ => None,
         }
     }
 }
@@ -154,63 +136,108 @@ fn append_header_folds(
     folds: &mut Vec<FoldSpan>,
 ) {
     let source = file.source(db);
-    let mut import: Option<PendingImportHeader> = None;
+    let mut imports = ImportHeaderCandidate::None;
 
     for node in nodelist.nodelist(db) {
-        match node {
-            Node::Comment { .. } => {
-                flush_import_header(&mut import, folds);
-                folds.push(FoldSpan::comment(node.full_span()));
+        match HeaderItem::from_node(node, source.as_str()) {
+            HeaderItem::Comment(span) => {
+                imports.finish_into(folds);
+                folds.push(FoldSpan::comment(span));
             }
-            Node::Tag { name, .. } => match FoldableTag::from_name(name) {
-                Some(FoldableTag::Extends) => {
-                    flush_import_header(&mut import, folds);
-                    import = Some(PendingImportHeader::ExtendsOnly {
-                        start: node.full_span().start(),
-                    });
-                }
-                Some(FoldableTag::Load) => {
-                    let span = node.full_span();
-                    import = Some(match import.take() {
-                        Some(
-                            PendingImportHeader::ExtendsOnly { start }
-                            | PendingImportHeader::Imports { start, .. },
-                        ) => PendingImportHeader::Imports {
-                            start,
-                            end: span.end(),
-                        },
-                        None => PendingImportHeader::Imports {
-                            start: span.start(),
-                            end: span.end(),
-                        },
-                    });
-                }
-                Some(FoldableTag::Comment) | None => flush_import_header(&mut import, folds),
-            },
-            Node::Text { span }
-                if source
-                    .as_str()
-                    .get(span.start_usize()..span.end() as usize)
-                    .is_some_and(|text| text.trim().is_empty()) => {}
-            _ => flush_import_header(&mut import, folds),
+            HeaderItem::Extends(span) => {
+                imports.finish_into(folds);
+                imports.begin_with_extends(span);
+            }
+            HeaderItem::Load(span) => {
+                imports.include_load(span);
+            }
+            HeaderItem::Whitespace => {}
+            HeaderItem::Boundary => imports.finish_into(folds),
         }
     }
 
-    flush_import_header(&mut import, folds);
+    imports.finish_into(folds);
 }
 
-fn flush_import_header(import: &mut Option<PendingImportHeader>, folds: &mut Vec<FoldSpan>) {
-    let Some(PendingImportHeader::Imports { start, end }) = import.take() else {
-        return;
-    };
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeaderItem {
+    Comment(Span),
+    Extends(Span),
+    Load(Span),
+    Whitespace,
+    Boundary,
+}
 
-    if let Some(fold) = FoldSpan::imports(start, end) {
-        folds.push(fold);
+impl HeaderItem {
+    fn from_node(node: &Node, source: &str) -> Self {
+        match node {
+            Node::Comment { .. } => Self::Comment(node.full_span()),
+            Node::Tag { name, .. } if name == "extends" => Self::Extends(node.full_span()),
+            Node::Tag { name, .. } if name == "load" => Self::Load(node.full_span()),
+            Node::Text { span }
+                if source
+                    .get(span.start_usize()..span.end() as usize)
+                    .is_some_and(|text| text.trim().is_empty()) =>
+            {
+                Self::Whitespace
+            }
+            Node::Tag { .. } | Node::Text { .. } | Node::Variable { .. } | Node::Error { .. } => {
+                Self::Boundary
+            }
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PendingImportHeader {
-    ExtendsOnly { start: u32 },
-    Imports { start: u32, end: u32 },
+enum ImportHeaderCandidate {
+    None,
+    Started {
+        start: u32,
+        last_load_end: Option<u32>,
+    },
+}
+
+impl ImportHeaderCandidate {
+    fn begin_with_extends(&mut self, span: Span) {
+        *self = Self::Started {
+            start: span.start(),
+            last_load_end: None,
+        };
+    }
+
+    fn include_load(&mut self, span: Span) {
+        match self {
+            Self::None => {
+                *self = Self::Started {
+                    start: span.start(),
+                    last_load_end: Some(span.end()),
+                };
+            }
+            Self::Started { last_load_end, .. } => {
+                *last_load_end = Some(span.end());
+            }
+        }
+    }
+
+    fn finish(&mut self) -> Option<FoldSpan> {
+        let finished = std::mem::replace(self, Self::None);
+
+        match finished {
+            Self::Started {
+                start,
+                last_load_end: Some(end),
+            } => FoldSpan::imports(start, end),
+            Self::None
+            | Self::Started {
+                last_load_end: None,
+                ..
+            } => None,
+        }
+    }
+
+    fn finish_into(&mut self, folds: &mut Vec<FoldSpan>) {
+        if let Some(fold) = self.finish() {
+            folds.push(fold);
+        }
+    }
 }
