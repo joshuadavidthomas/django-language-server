@@ -61,7 +61,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'cycle' requires at least 1 argument
+error[S117]: 'cycle' tag requires at least two arguments
  --> test.html:1:1
   |
 1 | {% cycle %}

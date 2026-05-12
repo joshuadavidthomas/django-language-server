@@ -45,7 +45,7 @@ pub enum RegistrationKind {
 pub(crate) enum ExtractionOutput {
     Filter(FilterArity),
     Tag {
-        rule: Option<TagRule>,
+        rule: Option<Box<TagRule>>,
         block_spec: Option<BlockSpec>,
     },
 }
@@ -80,14 +80,14 @@ impl RegistrationKind {
             Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
             Self::SimpleTag | Self::InclusionTag => {
                 let rule = signature::extract_parse_bits_rule(func, self.as_var());
-                let rule = rule.has_content().then_some(rule);
+                let rule = rule.has_content().then(|| Box::new(rule));
                 let block_spec = blocks::extract_block_spec(func);
                 ExtractionOutput::Tag { rule, block_spec }
             }
             Self::Tag | Self::SimpleBlockTag => {
                 let mut rule = analysis::analyze_compile_function(func);
                 rule.as_var = self.as_var();
-                let rule = rule.has_content().then_some(rule);
+                let rule = rule.has_content().then(|| Box::new(rule));
                 let block_spec = blocks::extract_block_spec(func);
                 ExtractionOutput::Tag { rule, block_spec }
             }

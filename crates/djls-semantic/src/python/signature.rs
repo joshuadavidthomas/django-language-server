@@ -93,6 +93,7 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
         required_keywords: Vec::new(),
         choice_at_constraints: Vec::new(),
         known_options: None,
+        diagnostic_messages: Vec::new(),
         extracted_args,
         as_var,
     }

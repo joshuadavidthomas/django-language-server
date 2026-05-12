@@ -61,7 +61,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'url' requires at least 1 argument
+error[S117]: 'url' takes at least one argument, a URL pattern name.
  --> test.html:1:1
   |
 1 | {% url %}

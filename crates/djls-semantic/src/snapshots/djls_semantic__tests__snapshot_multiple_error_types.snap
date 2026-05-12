@@ -7,7 +7,7 @@ error[S116]: Filter 'title' does not accept an argument
   |
 1 | {{ value|title:"unwanted" }}
   |          ^^^^^^^^^^^^^^^^
-error[S114]: Unexpected '==' in if expression
+error[S114]: Not expecting '==' in this position in if tag.
  --> test.html:2:1
   |
 2 | {% if == broken %}bad{% endif %}

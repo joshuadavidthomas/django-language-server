@@ -119,6 +119,8 @@ pub struct TagRule {
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
     pub known_options: Option<KnownOptions>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
     pub extracted_args: Vec<ExtractedArg>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
@@ -137,8 +139,45 @@ impl TagRule {
             || !self.required_keywords.is_empty()
             || !self.choice_at_constraints.is_empty()
             || self.known_options.is_some()
+            || !self.diagnostic_messages.is_empty()
             || !self.extracted_args.is_empty()
     }
+}
+
+/// A diagnostic message extracted from a raised exception in a tag parser.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtractedDiagnosticMessage {
+    pub constraint: ExtractedDiagnosticConstraint,
+    pub message: ExtractedMessageTemplate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExtractedDiagnosticConstraint {
+    ArgumentCount(ArgumentCountConstraint),
+    RequiredKeyword {
+        position: SplitPosition,
+        value: String,
+    },
+    ChoiceAt {
+        position: SplitPosition,
+        values: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExtractedMessageTemplate {
+    Static(String),
+    PercentFormat {
+        template: String,
+        args: Vec<ExtractedMessageArg>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExtractedMessageArg {
+    SplitElement(SplitPosition),
+    String(String),
+    Int(i64),
 }
 
 /// Constraint on the number of tokens in a tag's argument list.

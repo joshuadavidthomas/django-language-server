@@ -21,7 +21,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'lorem' takes exactly 3 arguments, but 0 were given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem %}
@@ -35,7 +35,7 @@ error[S117]: Tag 'lorem' takes exactly 3 arguments, but 0 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'lorem' takes exactly 3 arguments, but 1 was given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem 3 %}
@@ -49,7 +49,7 @@ error[S117]: Tag 'lorem' takes exactly 3 arguments, but 1 was given
 ```
 
 ```snapshot
-error[S117]: Tag 'lorem' takes exactly 3 arguments, but 2 were given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem 3 p %}
@@ -63,7 +63,7 @@ error[S117]: Tag 'lorem' takes exactly 3 arguments, but 2 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'lorem' takes exactly 3 arguments, but 4 were given
+error[S117]: Incorrect format for 'lorem' tag
  --> test.html:1:1
   |
 1 | {% lorem 3 p random extra %}

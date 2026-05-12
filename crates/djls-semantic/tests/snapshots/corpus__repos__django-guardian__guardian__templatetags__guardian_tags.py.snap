@@ -16,6 +16,43 @@ tag_rules:
         value: as
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 6
+        message:
+          PercentFormat:
+            template: "get_obj_perms tag should be in format: %s"
+            args:
+              - String: "{% get_obj_perms user/group for obj as \"context_var\" perm_checker %}"
+      - constraint:
+          ArgumentCount:
+            Max: 7
+        message:
+          PercentFormat:
+            template: "get_obj_perms tag should be in format: %s"
+            args:
+              - String: "{% get_obj_perms user/group for obj as \"context_var\" perm_checker %}"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 2
+            value: for
+        message:
+          PercentFormat:
+            template: "get_obj_perms tag should be in format: %s"
+            args:
+              - String: "{% get_obj_perms user/group for obj as \"context_var\" perm_checker %}"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 4
+            value: as
+        message:
+          PercentFormat:
+            template: "get_obj_perms tag should be in format: %s"
+            args:
+              - String: "{% get_obj_perms user/group for obj as \"context_var\" perm_checker %}"
     extracted_args:
       - name: for_whom
         required: true

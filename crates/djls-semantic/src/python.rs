@@ -34,6 +34,10 @@ pub use types::BlockSpec;
 pub use types::ChoiceAt;
 pub use types::ExtractedArg;
 pub use types::ExtractedArgKind;
+pub use types::ExtractedDiagnosticConstraint;
+pub use types::ExtractedDiagnosticMessage;
+pub use types::ExtractedMessageArg;
+pub use types::ExtractedMessageTemplate;
 pub use types::ExtractionResult;
 pub use types::FilterArity;
 pub use types::KnownOptions;
@@ -251,7 +255,7 @@ pub(crate) fn extract_rules_from_body(
             }
             ExtractionOutput::Tag { rule, block_spec } => {
                 if let Some(rule) = rule {
-                    result.tag_rules.insert(key.clone(), rule);
+                    result.tag_rules.insert(key.clone(), *rule);
                 }
                 if let Some(mut block_spec) = block_spec {
                     if block_spec.end_tag.is_none() {

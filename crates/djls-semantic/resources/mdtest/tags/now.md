@@ -31,7 +31,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'now' takes exactly 1 argument, but 0 were given
+error[S117]: 'now' statement takes one argument
  --> test.html:1:1
   |
 1 | {% now %}
@@ -45,7 +45,7 @@ error[S117]: Tag 'now' takes exactly 1 argument, but 0 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'now' takes exactly 1 argument, but 2 were given
+error[S117]: 'now' statement takes one argument
  --> test.html:1:1
   |
 1 | {% now "Y" "m" %}

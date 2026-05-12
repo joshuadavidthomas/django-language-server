@@ -11,11 +11,15 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
+use ruff_python_ast::ExprBinOp;
 use ruff_python_ast::ExprBoolOp;
+use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprUnaryOp;
+use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
+use ruff_python_ast::StmtRaise;
 use ruff_python_ast::UnaryOp;
 
 use super::expressions::eval_expr;
@@ -24,6 +28,10 @@ use super::state::Env;
 use crate::python::ext::ExprExt;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::ChoiceAt;
+use crate::python::types::ExtractedDiagnosticConstraint;
+use crate::python::types::ExtractedDiagnosticMessage;
+use crate::python::types::ExtractedMessageArg;
+use crate::python::types::ExtractedMessageTemplate;
 use crate::python::types::RequiredKeyword;
 
 /// Collected constraints from analyzing a function body.
@@ -38,6 +46,7 @@ pub struct ConstraintSet {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
+    pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
 }
 
 impl ConstraintSet {
@@ -68,6 +77,7 @@ impl ConstraintSet {
         self.required_keywords.extend(other.required_keywords);
         self.choice_at_constraints
             .extend(other.choice_at_constraints);
+        self.diagnostic_messages.extend(other.diagnostic_messages);
         self
     }
 
@@ -78,10 +88,13 @@ impl ConstraintSet {
         required_keywords.extend(other.required_keywords);
         let mut choice_at_constraints = self.choice_at_constraints;
         choice_at_constraints.extend(other.choice_at_constraints);
+        let mut diagnostic_messages = self.diagnostic_messages;
+        diagnostic_messages.extend(other.diagnostic_messages);
         Self {
             arg_constraints: Vec::new(),
             required_keywords,
             choice_at_constraints,
+            diagnostic_messages,
         }
     }
 
@@ -90,6 +103,42 @@ impl ConstraintSet {
         self.required_keywords.extend(other.required_keywords);
         self.choice_at_constraints
             .extend(other.choice_at_constraints);
+        self.diagnostic_messages.extend(other.diagnostic_messages);
+    }
+
+    fn with_message(mut self, message: &ExtractedMessageTemplate) -> Self {
+        self.diagnostic_messages
+            .extend(self.arg_constraints.iter().cloned().map(|constraint| {
+                ExtractedDiagnosticMessage {
+                    constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+                    message: message.clone(),
+                }
+            }));
+        self.diagnostic_messages
+            .extend(
+                self.required_keywords
+                    .iter()
+                    .map(|keyword| ExtractedDiagnosticMessage {
+                        constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+                            position: keyword.position,
+                            value: keyword.value.clone(),
+                        },
+                        message: message.clone(),
+                    }),
+            );
+        self.diagnostic_messages
+            .extend(
+                self.choice_at_constraints
+                    .iter()
+                    .map(|choice| ExtractedDiagnosticMessage {
+                        constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+                            position: choice.position,
+                            values: choice.values.clone(),
+                        },
+                        message: message.clone(),
+                    }),
+            );
+        self
     }
 }
 
@@ -102,13 +151,17 @@ pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet 
     let mut result = ConstraintSet::default();
 
     if body_raises_exception(&if_stmt.body) {
-        result.extend(eval_condition(&if_stmt.test, env));
+        let constraints =
+            attach_raise_message(eval_condition(&if_stmt.test, env), &if_stmt.body, env);
+        result.extend(constraints);
     }
 
     for clause in &if_stmt.elif_else_clauses {
         if body_raises_exception(&clause.body) {
             if let Some(test) = &clause.test {
-                result.extend(eval_condition(test, env));
+                let constraints =
+                    attach_raise_message(eval_condition(test, env), &clause.body, env);
+                result.extend(constraints);
             }
         }
     }
@@ -353,6 +406,14 @@ fn eval_range_constraint(
     ])
 }
 
+fn attach_raise_message(constraints: ConstraintSet, body: &[Stmt], env: &Env) -> ConstraintSet {
+    if let Some(message) = extract_raise_message(body, env) {
+        constraints.with_message(&message)
+    } else {
+        constraints
+    }
+}
+
 /// Check whether a statement body contains a direct `raise` with an exception.
 ///
 /// Only checks direct children (does not recurse into nested control flow).
@@ -361,6 +422,68 @@ pub(super) fn body_raises_exception(body: &[Stmt]) -> bool {
     let mut visitor = RaiseFinder::default();
     visitor.visit_body(body);
     visitor.found
+}
+
+fn extract_raise_message(body: &[Stmt], env: &Env) -> Option<ExtractedMessageTemplate> {
+    body.iter().find_map(|stmt| {
+        let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt else {
+            return None;
+        };
+        extract_exception_message(exc, env)
+    })
+}
+
+fn extract_exception_message(expr: &Expr, env: &Env) -> Option<ExtractedMessageTemplate> {
+    let Expr::Call(ExprCall { arguments, .. }) = expr else {
+        return None;
+    };
+    let first_arg = arguments.args.first()?;
+    extract_message_template(first_arg, env)
+}
+
+fn extract_message_template(expr: &Expr, env: &Env) -> Option<ExtractedMessageTemplate> {
+    if let Some(message) = expr.string_literal() {
+        return Some(ExtractedMessageTemplate::Static(message));
+    }
+
+    let Expr::BinOp(ExprBinOp {
+        left,
+        op: Operator::Mod,
+        right,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+
+    let template = left.string_literal()?;
+    let args = extract_message_args(right, env)?;
+    Some(ExtractedMessageTemplate::PercentFormat { template, args })
+}
+
+fn extract_message_args(expr: &Expr, env: &Env) -> Option<Vec<ExtractedMessageArg>> {
+    let args = match expr {
+        Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+        _ => vec![expr],
+    };
+
+    args.into_iter()
+        .map(|arg| extract_message_arg(arg, env))
+        .collect()
+}
+
+fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {
+    match eval_expr(expr, &mut env.clone()) {
+        AbstractValue::SplitElement { index } => Some(ExtractedMessageArg::SplitElement(index)),
+        AbstractValue::Str(value) => Some(ExtractedMessageArg::String(value)),
+        AbstractValue::Int(value) => Some(ExtractedMessageArg::Int(value)),
+        AbstractValue::Unknown
+        | AbstractValue::Token
+        | AbstractValue::Parser
+        | AbstractValue::SplitResult(_)
+        | AbstractValue::SplitLength(_)
+        | AbstractValue::Tuple(_) => None,
+    }
 }
 
 #[derive(Default)]
@@ -448,6 +571,57 @@ def do_tag(parser, token):
 "#,
         );
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+    }
+
+    #[test]
+    fn extracts_static_exception_message_for_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("custom tag needs one argument")
+"#,
+        );
+
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+        assert_eq!(
+            c.diagnostic_messages,
+            vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Min(2)
+                ),
+                message: ExtractedMessageTemplate::Static(
+                    "custom tag needs one argument".to_string()
+                ),
+            }]
+        );
+    }
+
+    #[test]
+    fn extracts_percent_formatted_exception_message_for_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("'%s' takes at least one argument" % bits[0])
+"#,
+        );
+
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+        assert_eq!(
+            c.diagnostic_messages,
+            vec![ExtractedDiagnosticMessage {
+                constraint: ExtractedDiagnosticConstraint::ArgumentCount(
+                    ArgumentCountConstraint::Min(2)
+                ),
+                message: ExtractedMessageTemplate::PercentFormat {
+                    template: "'%s' takes at least one argument".to_string(),
+                    args: vec![ExtractedMessageArg::SplitElement(SplitPosition::Forward(0))],
+                },
+            }]
+        );
     }
 
     // Fabricated: tests isolated `!=` comparator. Real functions with len != N

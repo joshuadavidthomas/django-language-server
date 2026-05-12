@@ -9,7 +9,7 @@
 ```
 
 ```snapshot
-error[S114]: Unexpected 'and' in if expression
+error[S114]: Not expecting 'and' in this position in if tag.
  --> test.html:1:1
   |
 1 | {% if and x %}{% endif %}
@@ -23,7 +23,7 @@ error[S114]: Unexpected 'and' in if expression
 ```
 
 ```snapshot
-error[S114]: If expression is incomplete
+error[S114]: Unexpected end of expression in if tag.
  --> test.html:1:1
   |
 1 | {% if x or %}{% endif %}
@@ -37,7 +37,7 @@ error[S114]: If expression is incomplete
 ```
 
 ```snapshot
-error[S114]: Unexpected 'y' at end of if expression
+error[S114]: Unused 'y' at end of if expression.
  --> test.html:1:1
   |
 1 | {% if x y %}{% endif %}
@@ -51,7 +51,7 @@ error[S114]: Unexpected 'y' at end of if expression
 ```
 
 ```snapshot
-error[S114]: If expression is empty
+error[S114]: Unexpected end of expression in if tag.
  --> test.html:1:1
   |
 1 | {% if %}{% endif %}

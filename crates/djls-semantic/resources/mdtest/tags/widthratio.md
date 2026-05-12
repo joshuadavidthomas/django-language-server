@@ -31,7 +31,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'widthratio' expects 'as' at position 4
+error[S117]: Invalid syntax in widthratio tag. Expecting 'as' keyword
  --> test.html:1:1
   |
 1 | {% widthratio this_value max_value max_width WRONG ratio %}

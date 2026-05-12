@@ -2,7 +2,7 @@
 source: crates/djls-semantic/src/lib.rs
 expression: rendered
 ---
-error[S114]: Unexpected 'and' in if expression
+error[S114]: Not expecting 'and' in this position in if tag.
  --> test.html:1:1
   |
 1 | {% if and x %}oops{% endif %}

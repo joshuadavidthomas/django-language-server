@@ -35,7 +35,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'autoescape' takes exactly 1 argument, but 0 were given
+error[S117]: 'autoescape' tag requires exactly one argument.
  --> test.html:1:1
   |
 1 | {% autoescape %}{% endautoescape %}
@@ -49,7 +49,7 @@ error[S117]: Tag 'autoescape' takes exactly 1 argument, but 0 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'autoescape' takes exactly 1 argument, but 3 were given
+error[S117]: 'autoescape' tag requires exactly one argument.
  --> test.html:1:1
   |
 1 | {% autoescape on off extra %}{% endautoescape %}
@@ -63,7 +63,7 @@ error[S117]: Tag 'autoescape' takes exactly 1 argument, but 3 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'autoescape' argument must be one of: 'on', 'off'
+error[S117]: 'autoescape' argument should be 'on' or 'off'
  --> test.html:1:1
   |
 1 | {% autoescape unknown %}{% endautoescape %}

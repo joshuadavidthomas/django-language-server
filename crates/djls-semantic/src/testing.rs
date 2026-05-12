@@ -20,6 +20,9 @@ use djls_workspace::InMemoryFileSystem;
 use crate::specs::tags::builtin_tag_specs;
 use crate::ArgumentCountConstraint;
 use crate::ChoiceAt;
+use crate::ExtractedDiagnosticConstraint;
+use crate::ExtractedDiagnosticMessage;
+use crate::ExtractedMessageTemplate;
 use crate::FilterArity;
 use crate::FilterAritySpecs;
 use crate::Knowledge;
@@ -438,80 +441,13 @@ pub(crate) fn standard_validation_db() -> TestDatabase {
 fn standard_tag_specs() -> TagSpecs {
     let mut specs = builtin_tag_specs();
 
-    set_tag_rule(
-        &mut specs,
-        "autoescape",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-            choice_at_constraints: vec![ChoiceAt {
-                position: SplitPosition::Forward(1),
-                values: vec!["on".to_string(), "off".to_string()],
-            }],
-            ..TagRule::default()
-        },
-    );
-    set_tag_rule(
-        &mut specs,
-        "cycle",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-            ..TagRule::default()
-        },
-    );
-    set_tag_rule(
-        &mut specs,
-        "lorem",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
-            ..TagRule::default()
-        },
-    );
-    set_tag_rule(
-        &mut specs,
-        "now",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-            ..TagRule::default()
-        },
-    );
-    set_tag_rule(
-        &mut specs,
-        "regroup",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::Exact(6)],
-            required_keywords: vec![
-                RequiredKeyword {
-                    position: SplitPosition::Forward(2),
-                    value: "by".to_string(),
-                },
-                RequiredKeyword {
-                    position: SplitPosition::Forward(4),
-                    value: "as".to_string(),
-                },
-            ],
-            ..TagRule::default()
-        },
-    );
-    set_tag_rule(
-        &mut specs,
-        "url",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-            ..TagRule::default()
-        },
-    );
-    set_tag_rule(
-        &mut specs,
-        "widthratio",
-        TagRule {
-            arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![4, 6])],
-            required_keywords: vec![RequiredKeyword {
-                position: SplitPosition::Forward(4),
-                value: "as".to_string(),
-            }],
-            ..TagRule::default()
-        },
-    );
+    set_tag_rule(&mut specs, "autoescape", autoescape_rule());
+    set_tag_rule(&mut specs, "cycle", cycle_rule());
+    set_tag_rule(&mut specs, "lorem", lorem_rule());
+    set_tag_rule(&mut specs, "now", now_rule());
+    set_tag_rule(&mut specs, "regroup", regroup_rule());
+    set_tag_rule(&mut specs, "url", url_rule());
+    set_tag_rule(&mut specs, "widthratio", widthratio_rule());
 
     specs.insert(
         "one_arg_tag".to_string(),
@@ -529,9 +465,165 @@ fn standard_tag_specs() -> TagSpecs {
     specs
 }
 
+fn autoescape_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+        choice_at_constraints: vec![ChoiceAt {
+            position: SplitPosition::Forward(1),
+            values: vec!["on".to_string(), "off".to_string()],
+        }],
+        diagnostic_messages: vec![
+            count_message(
+                ArgumentCountConstraint::Exact(2),
+                "'autoescape' tag requires exactly one argument.",
+            ),
+            choice_message(
+                SplitPosition::Forward(1),
+                &["on", "off"],
+                "'autoescape' argument should be 'on' or 'off'",
+            ),
+        ],
+        ..TagRule::default()
+    }
+}
+
+fn cycle_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+        diagnostic_messages: vec![count_message(
+            ArgumentCountConstraint::Min(2),
+            "'cycle' tag requires at least two arguments",
+        )],
+        ..TagRule::default()
+    }
+}
+
+fn lorem_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
+        diagnostic_messages: vec![count_message(
+            ArgumentCountConstraint::Exact(4),
+            "Incorrect format for 'lorem' tag",
+        )],
+        ..TagRule::default()
+    }
+}
+
+fn now_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+        diagnostic_messages: vec![count_message(
+            ArgumentCountConstraint::Exact(2),
+            "'now' statement takes one argument",
+        )],
+        ..TagRule::default()
+    }
+}
+
+fn regroup_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(6)],
+        required_keywords: vec![
+            RequiredKeyword {
+                position: SplitPosition::Forward(2),
+                value: "by".to_string(),
+            },
+            RequiredKeyword {
+                position: SplitPosition::Forward(4),
+                value: "as".to_string(),
+            },
+        ],
+        diagnostic_messages: vec![
+            count_message(
+                ArgumentCountConstraint::Exact(6),
+                "'regroup' tag takes five arguments",
+            ),
+            keyword_message(
+                SplitPosition::Forward(2),
+                "by",
+                "second argument to 'regroup' tag must be 'by'",
+            ),
+            keyword_message(
+                SplitPosition::Forward(4),
+                "as",
+                "next-to-last argument to 'regroup' tag must be 'as'",
+            ),
+        ],
+        ..TagRule::default()
+    }
+}
+
+fn url_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+        diagnostic_messages: vec![count_message(
+            ArgumentCountConstraint::Min(2),
+            "'url' takes at least one argument, a URL pattern name.",
+        )],
+        ..TagRule::default()
+    }
+}
+
+fn widthratio_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![4, 6])],
+        required_keywords: vec![RequiredKeyword {
+            position: SplitPosition::Forward(4),
+            value: "as".to_string(),
+        }],
+        diagnostic_messages: vec![
+            count_message(
+                ArgumentCountConstraint::OneOf(vec![4, 6]),
+                "widthratio takes at least three arguments",
+            ),
+            keyword_message(
+                SplitPosition::Forward(4),
+                "as",
+                "Invalid syntax in widthratio tag. Expecting 'as' keyword",
+            ),
+        ],
+        ..TagRule::default()
+    }
+}
+
 fn set_tag_rule(specs: &mut TagSpecs, name: &str, rule: TagRule) {
     if let Some(spec) = specs.get_mut(name) {
         spec.extracted_rules = Some(rule);
+    }
+}
+
+fn count_message(constraint: ArgumentCountConstraint, message: &str) -> ExtractedDiagnosticMessage {
+    ExtractedDiagnosticMessage {
+        constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+        message: ExtractedMessageTemplate::Static(message.to_string()),
+    }
+}
+
+fn keyword_message(
+    position: SplitPosition,
+    value: &str,
+    message: &str,
+) -> ExtractedDiagnosticMessage {
+    ExtractedDiagnosticMessage {
+        constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+            position,
+            value: value.to_string(),
+        },
+        message: ExtractedMessageTemplate::Static(message.to_string()),
+    }
+}
+
+fn choice_message(
+    position: SplitPosition,
+    values: &[&str],
+    message: &str,
+) -> ExtractedDiagnosticMessage {
+    ExtractedDiagnosticMessage {
+        constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+            position,
+            values: values.iter().map(|value| (*value).to_string()).collect(),
+        },
+        message: ExtractedMessageTemplate::Static(message.to_string()),
     }
 }
 

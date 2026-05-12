@@ -21,7 +21,7 @@
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' takes exactly 5 arguments, but 0 were given
+error[S117]: 'regroup' tag takes five arguments
  --> test.html:1:1
   |
 1 | {% regroup %}
@@ -35,7 +35,7 @@ error[S117]: Tag 'regroup' takes exactly 5 arguments, but 0 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' takes exactly 5 arguments, but 1 was given
+error[S117]: 'regroup' tag takes five arguments
  --> test.html:1:1
   |
 1 | {% regroup items %}
@@ -49,7 +49,7 @@ error[S117]: Tag 'regroup' takes exactly 5 arguments, but 1 was given
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' takes exactly 5 arguments, but 2 were given
+error[S117]: 'regroup' tag takes five arguments
  --> test.html:1:1
   |
 1 | {% regroup items by %}
@@ -63,7 +63,7 @@ error[S117]: Tag 'regroup' takes exactly 5 arguments, but 2 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' takes exactly 5 arguments, but 3 were given
+error[S117]: 'regroup' tag takes five arguments
  --> test.html:1:1
   |
 1 | {% regroup items by category %}
@@ -77,7 +77,7 @@ error[S117]: Tag 'regroup' takes exactly 5 arguments, but 3 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' takes exactly 5 arguments, but 4 were given
+error[S117]: 'regroup' tag takes five arguments
  --> test.html:1:1
   |
 1 | {% regroup items by category as %}
@@ -91,7 +91,7 @@ error[S117]: Tag 'regroup' takes exactly 5 arguments, but 4 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' takes exactly 5 arguments, but 6 were given
+error[S117]: 'regroup' tag takes five arguments
  --> test.html:1:1
   |
 1 | {% regroup items by category as grouped extra %}
@@ -105,7 +105,7 @@ error[S117]: Tag 'regroup' takes exactly 5 arguments, but 6 were given
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' expects 'by' at position 2
+error[S117]: second argument to 'regroup' tag must be 'by'
  --> test.html:1:1
   |
 1 | {% regroup items WRONG category as grouped %}
@@ -119,7 +119,7 @@ error[S117]: Tag 'regroup' expects 'by' at position 2
 ```
 
 ```snapshot
-error[S117]: Tag 'regroup' expects 'as' at position 4
+error[S117]: next-to-last argument to 'regroup' tag must be 'as'
  --> test.html:1:1
   |
 1 | {% regroup items by category WRONG grouped %}
