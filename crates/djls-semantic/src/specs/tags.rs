@@ -108,9 +108,6 @@ impl TagSpecs {
     /// This enriches the handcoded `builtins.rs` defaults with information
     /// extracted from actual Python source code.
     pub fn merge_extraction_results(&mut self, extraction: &crate::ExtractionResult) -> &mut Self {
-        self.0
-            .reserve(extraction.block_specs.len() + extraction.tag_rules.len());
-
         // Merge block specs (end tags, intermediates, opaque)
         for (key, block_spec) in &extraction.block_specs {
             if key.kind != crate::SymbolKind::Tag {
