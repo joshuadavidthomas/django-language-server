@@ -193,6 +193,9 @@ impl LanguageServer for DjangoLanguageServer {
                         work_done_progress_options: ls_types::WorkDoneProgressOptions::default(),
                     },
                 )),
+                folding_range_provider: Some(ls_types::FoldingRangeProviderCapability::Simple(
+                    true,
+                )),
                 definition_provider: Some(ls_types::OneOf::Left(true)),
                 references_provider: Some(ls_types::OneOf::Left(true)),
                 ..Default::default()
@@ -433,6 +436,28 @@ impl LanguageServer for DjangoLanguageServer {
                 },
             ),
         ))
+    }
+
+    async fn folding_range(
+        &self,
+        params: ls_types::FoldingRangeParams,
+    ) -> LspResult<Option<Vec<ls_types::FoldingRange>>> {
+        let ranges = self
+            .with_session_mut(|session| {
+                let db = session.db_mut();
+                let Some(file) = params.text_document.to_file(db) else {
+                    tracing::debug!(
+                        "Skipping non-file URI in folding ranges: {}",
+                        params.text_document.uri.as_str()
+                    );
+                    return Vec::new();
+                };
+
+                djls_ide::collect_folding_ranges(db, file)
+            })
+            .await;
+
+        Ok(Some(ranges))
     }
 
     async fn goto_definition(

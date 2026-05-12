@@ -26,14 +26,19 @@ A language server for the Django web framework.
 
 ## Features
 
-- [x] **Completions** - Template tag autocompletion with snippets
+- [x] **Completions** - Template tag and filter autocompletion with snippets
   ![Completions](docs/assets/autocomplete.png)
 
 - [x] **Diagnostics** - Real-time error checking and validation
   ![Diagnostics](docs/assets/diagnostics.png)
 
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
-- [ ] **Find references** - See where templates and blocks are used
+  - [x] Template navigation for `{% extends %}` and `{% include %}`
+  - [ ] Block and variable definitions
+- [ ] **Find references** - See where templates, blocks, and variables are used
+  - [x] Template references for `{% extends %}` and `{% include %}`
+  - [ ] Block and variable references
+- [x] **Folding ranges** - Fold Django template regions
 - [ ] **Hover** - View documentation and type info on hover
 - [ ] **Rename** - Refactor names across files
 - [ ] **Code actions** - Quick fixes and refactorings
@@ -63,9 +68,10 @@ See the [Installation](docs/installation.md) guide for more options including pi
 
 Once configured, open any Django template file in your project to get:
 
-- Template tag completions with snippets
+- Template tag and filter completions with snippets
 - Real-time syntax validation and diagnostics
 - Navigation to template definitions and references
+- Folding for Django template regions
 
 ## Documentation
 

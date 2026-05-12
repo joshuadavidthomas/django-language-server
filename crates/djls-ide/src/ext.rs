@@ -6,6 +6,9 @@ use djls_source::Offset;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
+use crate::folding::FoldKind;
+use crate::folding::FoldSpan;
+
 pub(crate) trait OffsetExt {
     fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position;
 }
@@ -45,6 +48,43 @@ impl Utf8PathExt for Utf8PathBuf {
     }
 }
 
+pub(crate) trait FoldingRangeKindExt {
+    fn to_lsp_kind(self) -> ls_types::FoldingRangeKind;
+}
+
+impl FoldingRangeKindExt for FoldKind {
+    fn to_lsp_kind(self) -> ls_types::FoldingRangeKind {
+        match self {
+            FoldKind::Region => ls_types::FoldingRangeKind::Region,
+            FoldKind::Comment => ls_types::FoldingRangeKind::Comment,
+            FoldKind::Imports => ls_types::FoldingRangeKind::Imports,
+        }
+    }
+}
+
+pub(crate) trait FoldSpanExt {
+    fn to_lsp_folding_range(self, line_index: &LineIndex) -> Option<ls_types::FoldingRange>;
+}
+
+impl FoldSpanExt for FoldSpan {
+    fn to_lsp_folding_range(self, line_index: &LineIndex) -> Option<ls_types::FoldingRange> {
+        let range = self.span.to_lsp_range(line_index);
+
+        if range.start.line >= range.end.line {
+            return None;
+        }
+
+        Some(ls_types::FoldingRange {
+            start_line: range.start.line,
+            start_character: None,
+            end_line: range.end.line,
+            end_character: None,
+            kind: Some(self.kind.to_lsp_kind()),
+            collapsed_text: None,
+        })
+    }
+}
+
 pub(crate) trait DiagnosticSeverityExt {
     fn to_lsp_severity(self) -> Option<ls_types::DiagnosticSeverity>;
 }
@@ -58,5 +98,40 @@ impl DiagnosticSeverityExt for DiagnosticSeverity {
             DiagnosticSeverity::Info => Some(ls_types::DiagnosticSeverity::INFORMATION),
             DiagnosticSeverity::Hint => Some(ls_types::DiagnosticSeverity::HINT),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fold_span_converts_to_line_folding_range() {
+        let source = "  {% if items %}\n    body\n  {% endif %}\n";
+        let line_index = LineIndex::from(source);
+        let fold = FoldSpan {
+            span: Span::saturating_from_bounds_usize(2, 39),
+            kind: FoldKind::Region,
+        };
+
+        let range = fold.to_lsp_folding_range(&line_index).unwrap();
+
+        assert_eq!(range.start_line, 0);
+        assert_eq!(range.start_character, None);
+        assert_eq!(range.end_line, 2);
+        assert_eq!(range.end_character, None);
+        assert_eq!(range.kind, Some(ls_types::FoldingRangeKind::Region));
+    }
+
+    #[test]
+    fn fold_span_ignores_single_line_ranges() {
+        let source = "{% for item in items %}<li>{{ item }}</li>{% endfor %}";
+        let line_index = LineIndex::from(source);
+        let fold = FoldSpan {
+            span: Span::saturating_from_bounds_usize(0, source.len()),
+            kind: FoldKind::Region,
+        };
+
+        assert_eq!(fold.to_lsp_folding_range(&line_index), None);
     }
 }

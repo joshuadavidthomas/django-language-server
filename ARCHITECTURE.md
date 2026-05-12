@@ -8,7 +8,7 @@ For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Overview
 
-Django Language Server is an LSP server written in Rust that provides IDE features for Django templates. The editor sends template source code; the server combines it with knowledge about the Django project — installed apps, template libraries, tag and filter definitions — and returns diagnostics, completions, and navigation results.
+Django Language Server is an LSP server written in Rust that provides IDE features for Django templates. The editor sends template source code; the server combines it with knowledge about the Django project — installed apps, template libraries, tag and filter definitions — and returns diagnostics, completions, folding ranges, and navigation results.
 
 [Salsa](https://github.com/salsa-rs/salsa) drives incremental computation: when a file changes, only the affected queries recompute. The architecture borrows from [Ruff/ty](https://github.com/astral-sh/ruff/tree/main/crates/ty): layered database traits, a single concrete database type that owns all state, and a session model for LSP operations.
 
@@ -23,7 +23,7 @@ Separate subsystems produce each kind of knowledge. Both feed into the same Sals
 
 `crates/djls/src/main.rs` parses CLI arguments and either starts the LSP server or runs the `djls check` command. There's not much to see here — the interesting stuff is deeper in.
 
-If you're already familiar with LSP, `crates/djls-server/src/server.rs` is a good starting point. It implements all the LSP request handlers (`did_open`, `completion`, `goto_definition`, etc.) and shows how requests flow through the system.
+If you're already familiar with LSP, `crates/djls-server/src/server.rs` is a good starting point. It implements all the LSP request handlers (`did_open`, `completion`, `folding_range`, `goto_definition`, etc.) and shows how requests flow through the system.
 
 If you want to understand how templates get parsed, start in `crates/djls-templates/src/` — the lexer and a hand-written recursive descent parser live there.
 
@@ -47,7 +47,7 @@ The LSP server. This is the crate that wires everything together at runtime.
 
 `Session` owns the `DjangoDatabase` and all document state. It's behind a `tokio::Mutex`, and request handlers access it through helper methods:
 
-- `with_session` / `with_session_mut` — lock the session and run a synchronous closure. All current LSP request handlers (completions, goto definition, references, diagnostics) use this path.
+- `with_session` / `with_session_mut` — lock the session and run a synchronous closure. All current LSP request handlers (completions, folding ranges, goto definition, references, diagnostics) use this path.
 - `with_session_mut_task` — submit an async task to a `Queue` backed by an mpsc channel. Used for expensive background work like inspector refresh, so it doesn't block the request path.
 
 A `SessionSnapshot` type (idea borrowed from Ruff/ty, natch) exists for cloning the database for concurrent read-only access, but current request handlers don't use it yet — everything goes through the session lock. This could evolve toward a snapshot-per-request model, but it hasn't been necessary so far.
@@ -98,7 +98,7 @@ This crate also owns:
 
 ### `crates/djls-ide`
 
-IDE features: completions, diagnostics, snippets, goto definition, find references. This is the boundary between internal domain knowledge and the outside world — it takes everything the semantic model knows and translates it into LSP-shaped output that editors can consume.
+IDE features: completions, diagnostics, folding ranges, snippets, goto definition, find references. This is the boundary between internal domain knowledge and the outside world — it takes everything the semantic model knows and translates it into LSP-shaped output that editors can consume.
 
 **Architecture Invariant:** `djls-ide` is the translation layer. Everything below it — `djls-semantic`, `djls-templates`, `djls-source` — is LSP-unaware. `djls-server` does reach into domain crates directly in places (calling `parse_template`, `validate_nodelist`, `compute_loaded_libraries`), so the boundary isn't perfectly clean in that direction yet.
 
