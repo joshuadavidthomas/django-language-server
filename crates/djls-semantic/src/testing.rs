@@ -456,10 +456,13 @@ fn standard_tag_specs() -> TagSpecs {
             end_tag: None,
             intermediate_tags: Cow::Borrowed(&[]),
             opaque: false,
-            extracted_rules: Some(TagRule {
-                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-                ..TagRule::default()
-            }),
+            extracted_rules: Some(
+                TagRule {
+                    arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                    ..TagRule::default()
+                }
+                .into(),
+            ),
         },
     );
     specs
@@ -588,7 +591,7 @@ fn widthratio_rule() -> TagRule {
 
 fn set_tag_rule(specs: &mut TagSpecs, name: &str, rule: TagRule) {
     if let Some(spec) = specs.get_mut(name) {
-        spec.extracted_rules = Some(rule);
+        spec.extracted_rules = Some(rule.into());
     }
 }
 

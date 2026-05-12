@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -45,7 +47,7 @@ pub enum SymbolKind {
 /// Maps each discovered symbol to its extracted validation rules.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionResult {
-    pub tag_rules: FxHashMap<SymbolKey, TagRule>,
+    pub tag_rules: FxHashMap<SymbolKey, Arc<TagRule>>,
     pub filter_arities: FxHashMap<SymbolKey, FilterArity>,
     pub block_specs: FxHashMap<SymbolKey, BlockSpec>,
 }
@@ -407,7 +409,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         let mut result2 = ExtractionResult::default();
@@ -434,7 +437,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         let mut result2 = ExtractionResult::default();
@@ -443,7 +447,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(2)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         result1.merge(result2);
@@ -512,7 +517,8 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
         result.filter_arities.insert(
             SymbolKey::filter("old.module", "filter1"),
@@ -557,7 +563,8 @@ mod tests {
                     ArgumentCountConstraint::Max(3),
                 ],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         result.rekey_module("new.module");
@@ -582,14 +589,16 @@ mod tests {
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(1)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
         result.tag_rules.insert(
             SymbolKey::tag("module.b", "same_tag"),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
                 ..Default::default()
-            },
+            }
+            .into(),
         );
 
         // Both keys have name="same_tag" and kind=Tag, so rekeying to the same

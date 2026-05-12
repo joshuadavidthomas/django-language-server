@@ -255,7 +255,7 @@ pub(crate) fn extract_rules_from_body(
             }
             ExtractionOutput::Tag { rule, block_spec } => {
                 if let Some(rule) = rule {
-                    result.tag_rules.insert(key.clone(), *rule);
+                    result.tag_rules.insert(key.clone(), rule.into());
                 }
                 if let Some(mut block_spec) = block_spec {
                     if block_spec.end_tag.is_none() {
@@ -330,7 +330,7 @@ mod tests {
                 tag_rules: result
                     .tag_rules
                     .iter()
-                    .map(|(k, v)| (key_str(k), v.clone()))
+                    .map(|(k, v)| (key_str(k), v.as_ref().clone()))
                     .collect(),
                 filter_arities: result
                     .filter_arities

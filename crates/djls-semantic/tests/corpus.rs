@@ -51,7 +51,7 @@ impl From<ExtractionResult> for SortedExtractionResult {
             tag_rules: result
                 .tag_rules
                 .iter()
-                .map(|(k, v)| (key_str(k), v.clone()))
+                .map(|(k, v)| (key_str(k), v.as_ref().clone()))
                 .collect(),
             filter_arities: result
                 .filter_arities
