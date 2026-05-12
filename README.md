@@ -70,8 +70,8 @@ Once configured, open any Django template file in your project to get:
 
 - Template tag and filter completions with snippets
 - Real-time syntax validation and diagnostics
-- Folding for Django template regions
 - Navigation to template definitions and references
+- Folding for Django template regions
 
 ## Documentation
 
