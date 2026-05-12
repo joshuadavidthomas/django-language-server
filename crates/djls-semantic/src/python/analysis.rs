@@ -149,7 +149,11 @@ pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
         required_keywords: result.constraints.required_keywords,
         choice_at_constraints: result.constraints.choice_at_constraints,
         known_options: result.known_options,
-        diagnostic_messages: result.diagnostic_messages,
+        diagnostic_messages: if result.diagnostic_messages.is_empty() {
+            None
+        } else {
+            Some(result.diagnostic_messages)
+        },
         extracted_args,
         as_var: AsVar::Keep,
     }

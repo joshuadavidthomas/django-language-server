@@ -185,9 +185,11 @@ pub fn evaluate_tag_rules(
             bits
         };
 
+    let diagnostic_messages = rules.diagnostic_messages.as_deref().unwrap_or(&[]);
+
     for constraint in &rules.arg_constraints {
         let message = message_for_constraint(
-            &rules.diagnostic_messages,
+            diagnostic_messages,
             &ExtractedDiagnosticConstraint::ArgumentCount(constraint.clone()),
             tag_name,
             effective_bits,
@@ -210,7 +212,7 @@ pub fn evaluate_tag_rules(
             if keywords.len() == 1 {
                 let keyword = keywords[0];
                 let message = message_for_constraint(
-                    &rules.diagnostic_messages,
+                    diagnostic_messages,
                     &ExtractedDiagnosticConstraint::RequiredKeyword {
                         position: keyword.position,
                         value: keyword.value.clone(),
@@ -249,7 +251,7 @@ pub fn evaluate_tag_rules(
 
     for choice in &rules.choice_at_constraints {
         let message = message_for_constraint(
-            &rules.diagnostic_messages,
+            diagnostic_messages,
             &ExtractedDiagnosticConstraint::ChoiceAt {
                 position: choice.position,
                 values: choice.values.clone(),
@@ -488,14 +490,14 @@ mod tests {
     fn extracted_static_message_overrides_generic_constraint_message() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-            diagnostic_messages: vec![ExtractedDiagnosticMessage {
+            diagnostic_messages: Some(vec![ExtractedDiagnosticMessage {
                 constraint: ExtractedDiagnosticConstraint::ArgumentCount(
                     ArgumentCountConstraint::Exact(2),
                 ),
                 message: ExtractedMessageTemplate::Static(
                     "'custom' tag takes one argument".to_string(),
                 ),
-            }],
+            }]),
             ..empty_rule()
         };
         let errors = evaluate_tag_rules("custom", &[], &rule, make_span());
@@ -510,7 +512,7 @@ mod tests {
     fn extracted_percent_message_renders_runtime_tag_name() {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-            diagnostic_messages: vec![ExtractedDiagnosticMessage {
+            diagnostic_messages: Some(vec![ExtractedDiagnosticMessage {
                 constraint: ExtractedDiagnosticConstraint::ArgumentCount(
                     ArgumentCountConstraint::Min(2),
                 ),
@@ -518,7 +520,7 @@ mod tests {
                     template: "'%s' takes at least one argument".to_string(),
                     args: vec![ExtractedMessageArg::SplitElement(SplitPosition::Forward(0))],
                 },
-            }],
+            }]),
             ..empty_rule()
         };
         let errors = evaluate_tag_rules("custom", &[], &rule, make_span());

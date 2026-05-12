@@ -472,7 +472,7 @@ fn autoescape_rule() -> TagRule {
             position: SplitPosition::Forward(1),
             values: vec!["on".to_string(), "off".to_string()],
         }],
-        diagnostic_messages: vec![
+        diagnostic_messages: Some(vec![
             count_message(
                 ArgumentCountConstraint::Exact(2),
                 "'autoescape' tag requires exactly one argument.",
@@ -482,7 +482,7 @@ fn autoescape_rule() -> TagRule {
                 &["on", "off"],
                 "'autoescape' argument should be 'on' or 'off'",
             ),
-        ],
+        ]),
         ..TagRule::default()
     }
 }
@@ -490,10 +490,10 @@ fn autoescape_rule() -> TagRule {
 fn cycle_rule() -> TagRule {
     TagRule {
         arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-        diagnostic_messages: vec![count_message(
+        diagnostic_messages: Some(vec![count_message(
             ArgumentCountConstraint::Min(2),
             "'cycle' tag requires at least two arguments",
-        )],
+        )]),
         ..TagRule::default()
     }
 }
@@ -501,10 +501,10 @@ fn cycle_rule() -> TagRule {
 fn lorem_rule() -> TagRule {
     TagRule {
         arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
-        diagnostic_messages: vec![count_message(
+        diagnostic_messages: Some(vec![count_message(
             ArgumentCountConstraint::Exact(4),
             "Incorrect format for 'lorem' tag",
-        )],
+        )]),
         ..TagRule::default()
     }
 }
@@ -512,10 +512,10 @@ fn lorem_rule() -> TagRule {
 fn now_rule() -> TagRule {
     TagRule {
         arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-        diagnostic_messages: vec![count_message(
+        diagnostic_messages: Some(vec![count_message(
             ArgumentCountConstraint::Exact(2),
             "'now' statement takes one argument",
-        )],
+        )]),
         ..TagRule::default()
     }
 }
@@ -533,7 +533,7 @@ fn regroup_rule() -> TagRule {
                 value: "as".to_string(),
             },
         ],
-        diagnostic_messages: vec![
+        diagnostic_messages: Some(vec![
             count_message(
                 ArgumentCountConstraint::Exact(6),
                 "'regroup' tag takes five arguments",
@@ -548,7 +548,7 @@ fn regroup_rule() -> TagRule {
                 "as",
                 "next-to-last argument to 'regroup' tag must be 'as'",
             ),
-        ],
+        ]),
         ..TagRule::default()
     }
 }
@@ -556,10 +556,10 @@ fn regroup_rule() -> TagRule {
 fn url_rule() -> TagRule {
     TagRule {
         arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-        diagnostic_messages: vec![count_message(
+        diagnostic_messages: Some(vec![count_message(
             ArgumentCountConstraint::Min(2),
             "'url' takes at least one argument, a URL pattern name.",
-        )],
+        )]),
         ..TagRule::default()
     }
 }
@@ -571,7 +571,7 @@ fn widthratio_rule() -> TagRule {
             position: SplitPosition::Forward(4),
             value: "as".to_string(),
         }],
-        diagnostic_messages: vec![
+        diagnostic_messages: Some(vec![
             count_message(
                 ArgumentCountConstraint::OneOf(vec![4, 6]),
                 "widthratio takes at least three arguments",
@@ -581,7 +581,7 @@ fn widthratio_rule() -> TagRule {
                 "as",
                 "Invalid syntax in widthratio tag. Expecting 'as' keyword",
             ),
-        ],
+        ]),
         ..TagRule::default()
     }
 }

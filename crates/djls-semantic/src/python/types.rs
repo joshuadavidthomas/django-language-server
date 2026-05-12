@@ -119,8 +119,8 @@ pub struct TagRule {
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
     pub known_options: Option<KnownOptions>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
     pub extracted_args: Vec<ExtractedArg>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
@@ -139,7 +139,10 @@ impl TagRule {
             || !self.required_keywords.is_empty()
             || !self.choice_at_constraints.is_empty()
             || self.known_options.is_some()
-            || !self.diagnostic_messages.is_empty()
+            || self
+                .diagnostic_messages
+                .as_ref()
+                .is_some_and(|messages| !messages.is_empty())
             || !self.extracted_args.is_empty()
     }
 }
