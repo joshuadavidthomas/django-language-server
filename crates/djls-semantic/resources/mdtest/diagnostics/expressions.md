@@ -65,3 +65,15 @@ error[S114]: Unexpected end of expression in if tag.
   |
   = note: in tag: if
 ```
+
+## Known gaps
+
+### expression validation is only applied to if and elif
+
+```htmldjango
+{% firstof and x %}
+```
+
+```snapshot
+✓ no diagnostics
+```
