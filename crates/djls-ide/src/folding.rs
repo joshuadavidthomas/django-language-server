@@ -106,40 +106,63 @@ fn fold_kind(node: &SemanticNode) -> FoldKind {
 }
 
 fn collect_import_folds(nodes: &[Node], source: &str, folds: &mut Vec<FoldSpan>) {
-    let mut start = None;
-    let mut end = None;
+    let mut import = ImportFold::Empty;
 
     for node in nodes {
         match node {
             Node::Tag { name, .. } if name == "extends" => {
-                push_import_fold(start.take(), end.take(), folds);
-                start = Some(node.full_span().start());
+                import.push(folds);
+                import = ImportFold::Extends {
+                    start: node.full_span().start(),
+                };
             }
             Node::Tag { name, .. } if name == "load" => {
-                start.get_or_insert_with(|| node.full_span().start());
-                end = Some(node.full_span().end());
+                import.include_load(node.full_span());
             }
             Node::Text { span } if is_whitespace(source, *span) => {}
-            _ => push_import_fold(start.take(), end.take(), folds),
+            _ => import.push(folds),
         }
     }
 
-    push_import_fold(start, end, folds);
+    import.push(folds);
 }
 
-fn push_import_fold(start: Option<u32>, end: Option<u32>, folds: &mut Vec<FoldSpan>) {
-    let (Some(start), Some(end)) = (start, end) else {
-        return;
-    };
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImportFold {
+    Empty,
+    Extends { start: u32 },
+    Imports { start: u32, end: u32 },
+}
 
-    if start >= end {
-        return;
+impl ImportFold {
+    fn include_load(&mut self, span: Span) {
+        let end = span.end();
+        *self = match *self {
+            Self::Empty => Self::Imports {
+                start: span.start(),
+                end,
+            },
+            Self::Extends { start } | Self::Imports { start, .. } => Self::Imports { start, end },
+        };
     }
 
-    folds.push(FoldSpan {
-        span: Span::saturating_from_bounds_usize(start as usize, end as usize),
-        kind: FoldKind::Imports,
-    });
+    fn push(&mut self, folds: &mut Vec<FoldSpan>) {
+        let Self::Imports { start, end } = *self else {
+            *self = Self::Empty;
+            return;
+        };
+
+        *self = Self::Empty;
+
+        if start >= end {
+            return;
+        }
+
+        folds.push(FoldSpan {
+            span: Span::saturating_from_bounds_usize(start as usize, end as usize),
+            kind: FoldKind::Imports,
+        });
+    }
 }
 
 fn is_whitespace(source: &str, span: Span) -> bool {
