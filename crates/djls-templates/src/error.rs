@@ -28,27 +28,24 @@ impl TemplateError {
     #[must_use]
     pub fn primary_span(&self) -> Option<(u32, u32)> {
         match self {
-            TemplateError::Parser(error) => parse_error_span(error),
+            TemplateError::Parser(error) => {
+                let (position, length) = match error {
+                    ParseError::MalformedConstruct {
+                        position, opener, ..
+                    } => (*position, opener.len().max(1)),
+                    ParseError::UnexpectedTokenKind { position, .. }
+                    | ParseError::EmptyTag { position }
+                    | ParseError::MalformedFilterExpression { position, .. } => (*position, 1),
+                    ParseError::StreamError { .. } => {
+                        return None;
+                    }
+                };
+
+                Some((position.try_into().ok()?, length.try_into().ok()?))
+            }
             TemplateError::Io(_) | TemplateError::Config(_) => None,
         }
     }
-}
-
-fn parse_error_span(error: &ParseError) -> Option<(u32, u32)> {
-    let (position, length) = match error {
-        ParseError::UnexpectedTokenKind { position, .. } | ParseError::EmptyTag { position } => {
-            (*position, 1)
-        }
-        ParseError::MalformedConstruct {
-            position, opener, ..
-        } => (*position, opener.len().max(1)),
-        ParseError::MalformedFilterExpression { position, .. } => (*position, 1),
-        ParseError::StreamError { .. } => {
-            return None;
-        }
-    };
-
-    Some((position.try_into().ok()?, length.try_into().ok()?))
 }
 
 impl From<ParseError> for TemplateError {
