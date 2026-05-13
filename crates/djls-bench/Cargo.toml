@@ -17,10 +17,6 @@ divan = { workspace = true }
 salsa = { workspace = true }
 
 [[bench]]
-name = "codspeed"
-harness = false
-
-[[bench]]
 name = "parser"
 harness = false
 

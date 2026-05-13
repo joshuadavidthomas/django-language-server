@@ -17,7 +17,6 @@ use divan::Bencher;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::Db;
-use djls_bench::TemplateFixture;
 use djls_db::FileCheckResult;
 use djls_source::DiagnosticRenderer;
 
@@ -36,21 +35,6 @@ fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
         path,
         check,
     }
-}
-
-// Single file: the unit of work inside `djls check`.
-// Each iteration gets a fresh database — no Salsa cache carryover.
-
-#[divan::bench(args = template_fixtures())]
-fn check_single_file(fixture: &TemplateFixture) {
-    let mut db = realistic_db();
-    let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-    let config = djls_conf::DiagnosticsConfig::default();
-    let fmt = DiagnosticRenderer::plain();
-
-    let result = run_check(&db, file);
-    let rendered = result.render(&config, &fmt);
-    divan::black_box(rendered.len());
 }
 
 // Batch: all fixture templates through one fresh database.
@@ -131,11 +115,11 @@ fn load_full_corpus_templates() -> Option<&'static CorpusTemplates> {
         .as_ref()
 }
 
-// Django's own templates (~123 files). Fresh db each iteration.
-
-#[divan::bench]
-fn check_corpus_django(bencher: Bencher) {
-    let Some(corpus) = load_corpus_templates() else {
+fn bench_corpus_check(bencher: Bencher, corpus: Option<&'static CorpusTemplates>) {
+    let Some(corpus) = corpus else {
+        if std::env::var_os("CI").is_some() {
+            panic!("corpus not synced; run `just corpus sync` before benchmarks");
+        }
         eprintln!("corpus not synced, skipping");
         return;
     };
@@ -166,37 +150,16 @@ fn check_corpus_django(bencher: Bencher) {
         });
 }
 
+// Django's own templates (~123 files). Fresh db each iteration.
+
+#[divan::bench]
+fn check_corpus_django(bencher: Bencher) {
+    bench_corpus_check(bencher, load_corpus_templates());
+}
+
 // Full corpus (~6 000 templates from 36 packages). Fresh db each iteration.
 
 #[divan::bench]
 fn check_corpus_all(bencher: Bencher) {
-    let Some(corpus) = load_full_corpus_templates() else {
-        eprintln!("corpus not synced, skipping");
-        return;
-    };
-
-    let file_count = corpus.files.len();
-
-    bencher
-        .counter(divan::counter::ItemsCount::new(file_count))
-        .bench_local(move || {
-            let mut db = realistic_db();
-            let config = djls_conf::DiagnosticsConfig::default();
-            let fmt = DiagnosticRenderer::plain();
-
-            let files: Vec<_> = corpus
-                .files
-                .iter()
-                .map(|(path, source)| db.file_with_contents(path.clone(), source))
-                .collect();
-
-            let mut total_errors = 0;
-            for &file in &files {
-                let result = run_check(&db, file);
-                if result.has_diagnostics() {
-                    total_errors += result.render(&config, &fmt).len();
-                }
-            }
-            divan::black_box(total_errors);
-        });
+    bench_corpus_check(bencher, load_full_corpus_templates());
 }

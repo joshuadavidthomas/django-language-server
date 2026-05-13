@@ -41,17 +41,13 @@ jobs:
       - name: Sync corpus
         run: cargo run -q -p djls-corpus -- sync
 
-      - name: Exercise detailed benchmarks
-        run: cargo bench -p djls-bench -- --test
-
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)
-        # The trailing `codspeed` selects the stable PR-gate bench target.
-        run: cargo codspeed build -p djls-bench codspeed
+        run: cargo codspeed build -p djls-bench
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@db35df748deb45fdef0960669f57d627c1956c30
         with:
           mode: instrumentation
-          run: cargo codspeed run -p djls-bench codspeed
+          run: cargo codspeed run -p djls-bench

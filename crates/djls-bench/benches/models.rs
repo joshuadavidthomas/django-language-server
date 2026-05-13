@@ -3,21 +3,11 @@ use std::sync::OnceLock;
 use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::model_fixtures;
-use djls_bench::ModelFixture;
+use djls_bench::REPEATED_INNER_ITERS;
 use djls_semantic::ModelGraph;
 
 fn main() {
     divan::main();
-}
-
-// Per-fixture extraction: parse one models.py → ModelGraph
-
-#[divan::bench(args = model_fixtures())]
-fn extract_model_graph(fixture: &ModelFixture) {
-    divan::black_box(djls_semantic::extract_model_graph(
-        &fixture.source,
-        "bench.models",
-    ));
 }
 
 // Batch extraction: all fixtures in one iteration
@@ -38,7 +28,7 @@ fn extract_all_models(bencher: Bencher) {
 // Merge: extract graphs then merge them (the hot path in compute_model_graph)
 
 #[divan::bench]
-fn merge_graphs(bencher: Bencher) {
+fn merge_graphs_repeated(bencher: Bencher) {
     let fixtures = model_fixtures();
     let graphs: Vec<ModelGraph> = fixtures
         .iter()
@@ -46,11 +36,15 @@ fn merge_graphs(bencher: Bencher) {
         .collect();
 
     bencher.bench_local(move || {
-        let mut merged = ModelGraph::new();
-        for graph in &graphs {
-            merged.merge(graph.clone());
+        let mut merged_models = 0;
+        for _ in 0..REPEATED_INNER_ITERS {
+            let mut merged = ModelGraph::new();
+            for graph in &graphs {
+                merged.merge(graph.clone());
+            }
+            merged_models += merged.len();
         }
-        divan::black_box(merged);
+        divan::black_box(merged_models);
     });
 }
 
@@ -66,34 +60,6 @@ fn auth_graph() -> &'static ModelGraph {
             .expect("medium_auth fixture missing");
         djls_semantic::extract_model_graph(&auth.source, "django.contrib.auth.models")
     })
-}
-
-#[divan::bench]
-fn resolve_forward(bencher: Bencher) {
-    let graph = auth_graph();
-    bencher.bench_local(|| {
-        divan::black_box(graph.resolve_forward("Permission", "content_type"));
-    });
-}
-
-#[divan::bench]
-fn resolve_reverse(bencher: Bencher) {
-    let graph = auth_graph();
-    bencher.bench_local(|| {
-        let reverses: Vec<_> = graph.resolve_reverse("Group").collect();
-        divan::black_box(reverses);
-    });
-}
-
-#[divan::bench]
-fn resolve_relation(bencher: Bencher) {
-    let graph = auth_graph();
-    // Use a reverse-only lookup (Group has no forward "user_set" field, but
-    // User's inherited M2M to Group has related_name="user_set") so this
-    // exercises the forward-miss → reverse-scan fallthrough in resolve_relation.
-    bencher.bench_local(|| {
-        divan::black_box(graph.resolve_relation("Group", "user_set"));
-    });
 }
 
 #[divan::bench]
@@ -113,7 +79,7 @@ fn resolve_relations_repeated(bencher: Bencher) {
 
     bencher.bench_local(|| {
         let mut resolved = 0;
-        for _ in 0..100 {
+        for _ in 0..REPEATED_INNER_ITERS {
             for (model, field) in forward_queries {
                 resolved += usize::from(graph.resolve_forward(model, field).is_some());
             }
@@ -184,6 +150,9 @@ fn load_all_corpus_models() -> Option<&'static CorpusModels> {
 
 fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
     let Some(corpus) = corpus else {
+        if std::env::var_os("CI").is_some() {
+            panic!("corpus not synced; run `just corpus sync` before benchmarks");
+        }
         eprintln!("corpus not synced, skipping");
         return;
     };
