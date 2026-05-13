@@ -1,21 +1,13 @@
 use divan::Bencher;
 use djls_bench::python_fixtures;
-use djls_bench::PythonFixture;
+use djls_bench::REPEATED_INNER_ITERS;
 
 fn main() {
     divan::main();
 }
 
-#[divan::bench(args = python_fixtures())]
-fn extract_rules(fixture: &PythonFixture) {
-    divan::black_box(djls_semantic::extract_rules(
-        &fixture.source,
-        "bench.module",
-    ));
-}
-
 #[divan::bench]
-fn extract_all_modules(bencher: Bencher) {
+fn tags(bencher: Bencher) {
     let fixtures = python_fixtures();
     bencher.bench_local(move || {
         for fixture in fixtures {
@@ -27,14 +19,27 @@ fn extract_all_modules(bencher: Bencher) {
     });
 }
 
-#[divan::bench(args = python_fixtures())]
-fn merge_extraction_into_specs(bencher: Bencher, fixture: &PythonFixture) {
-    let mut result = djls_semantic::extract_rules(&fixture.source, "bench.module");
-    result.rekey_module("bench.module");
+#[divan::bench]
+fn merge_tags(bencher: Bencher) {
+    let fixtures = python_fixtures();
+    let results: Vec<_> = fixtures
+        .iter()
+        .map(|fixture| {
+            let mut result = djls_semantic::extract_rules(&fixture.source, "bench.module");
+            result.rekey_module("bench.module");
+            result
+        })
+        .collect();
 
     bencher.bench_local(move || {
-        let mut specs = djls_semantic::TagSpecs::default();
-        specs.merge_extraction_results(&result);
-        divan::black_box(specs);
+        let mut merged_rules = 0;
+        for _ in 0..REPEATED_INNER_ITERS {
+            let mut specs = djls_semantic::TagSpecs::default();
+            for result in &results {
+                specs.merge_extraction_results(result);
+            }
+            merged_rules += specs.len();
+        }
+        divan::black_box(merged_rules);
     });
 }
