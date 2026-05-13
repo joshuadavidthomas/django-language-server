@@ -187,7 +187,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
     }
     parts.extend(load_hints);
     if let Some(provenance) = provenance {
-        parts.push(format!("> `{provenance}`"));
+        parts.push(format!("`{provenance}`"));
     }
 
     Some(parts.join("\n\n"))
@@ -213,7 +213,7 @@ fn symbol_signature(candidate: &InstalledSymbolCandidate) -> String {
 
 fn symbol_provenance(candidate: &InstalledSymbolCandidate) -> Option<String> {
     match &candidate.origin {
-        InstalledSymbolOrigin::Builtin { module } => Some(module.as_str().to_string()),
+        InstalledSymbolOrigin::Builtin { .. } => None,
         InstalledSymbolOrigin::Loadable { .. } => match &candidate.symbol.definition {
             djls_semantic::SymbolDefinition::Module(module) => Some(module.as_str().to_string()),
             djls_semantic::SymbolDefinition::Exact { file }
@@ -407,7 +407,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n{% if %}\n```\n\nEvaluate a condition.\n\n> `django.template.defaulttags`"),
+            Some("```htmldjango\n{% if %}\n```\n\nEvaluate a condition."),
         );
     }
 
@@ -426,7 +426,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`.\n\n> `django.contrib.humanize.templatetags.humanize`"),
+            Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`.\n\n`django.contrib.humanize.templatetags.humanize`"),
         );
     }
 
