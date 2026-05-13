@@ -199,9 +199,19 @@ fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
 
 fn symbol_header(candidate: &InstalledSymbolCandidate) -> String {
     let name = candidate.symbol.name();
-    match candidate.symbol.kind {
-        TemplateSymbolKind::Tag => format!("```htmldjango\n{{% {name} %}}\n```"),
-        TemplateSymbolKind::Filter => format!("```htmldjango\n{{{{ value|{name} }}}}\n```"),
+    let module = symbol_module(candidate);
+    let signature = match candidate.symbol.kind {
+        TemplateSymbolKind::Tag => format!("{{% {name} %}}"),
+        TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
+    };
+
+    format!("```python\n{module}\n```\n\n```htmldjango\n{signature}\n```")
+}
+
+fn symbol_module(candidate: &InstalledSymbolCandidate) -> String {
+    match &candidate.origin {
+        InstalledSymbolOrigin::Builtin { module } => module.as_str().to_string(),
+        InstalledSymbolOrigin::Loadable { load_name } => load_name.as_str().to_string(),
     }
 }
 
@@ -376,7 +386,9 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n{% if %}\n```\n\nEvaluate a condition."),
+            Some(
+                "```python\ndjango.template.defaulttags\n```\n\n```htmldjango\n{% if %}\n```\n\nEvaluate a condition."
+            ),
         );
     }
 
@@ -395,7 +407,9 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
+            Some(
+                "```python\nhumanize\n```\n\n```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."
+            ),
         );
     }
 
