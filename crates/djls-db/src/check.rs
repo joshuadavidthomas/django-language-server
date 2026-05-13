@@ -143,15 +143,17 @@ pub fn render_template_error(
     }
 
     let message = error.to_string();
-    // TemplateError loses position info during the ParseError → String
-    // conversion, so we use a zero-span (file-level) diagnostic for now.
+    let span = error.primary_span().map_or_else(
+        || Span::new(0, 0),
+        |(start, length)| Span::new(start, length),
+    );
     let diag = Diagnostic::new(
         source,
         path,
         code,
         &message,
         to_render_severity(severity),
-        Span::new(0, 0),
+        span,
         "",
     );
     Some(fmt.render(&diag))
@@ -190,4 +192,35 @@ pub fn render_validation_error(
     }
 
     Some(fmt.render(&diag))
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_templates::ParseError;
+
+    use super::*;
+
+    #[test]
+    fn render_template_error_uses_parse_error_span() {
+        let source = "Hello {{ value";
+        let error = TemplateError::from(ParseError::MalformedConstruct {
+            position: 6,
+            opener: "{{".to_string(),
+            closer: "}}".to_string(),
+            content: "value".to_string(),
+        });
+
+        let rendered = render_template_error(
+            source,
+            "template.html",
+            &error,
+            &DiagnosticsConfig::default(),
+            &DiagnosticRenderer::plain(),
+        )
+        .expect("diagnostic should render");
+
+        assert!(rendered.contains("T100"));
+        assert!(rendered.contains("Hello {{ value"));
+        assert!(rendered.contains("      ^^"));
+    }
 }

@@ -86,8 +86,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
 
     // Accumulate any errors via Salsa
     for error in errors {
-        let template_error = TemplateError::Parser(error.to_string());
-        TemplateErrorAccumulator(template_error).accumulate(db);
+        TemplateErrorAccumulator(error.into()).accumulate(db);
     }
 
     // Always return a NodeList (may contain Error nodes if there were parse errors)

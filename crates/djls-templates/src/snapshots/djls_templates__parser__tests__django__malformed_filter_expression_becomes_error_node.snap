@@ -1,0 +1,17 @@
+---
+source: crates/djls-templates/src/parser.rs
+assertion_line: 483
+expression: test_nodelist
+---
+nodelist:
+  - type: Error
+    span:
+      - 2
+      - 8
+    full_span:
+      - 0
+      - 12
+    error:
+      MalformedFilterExpression:
+        position: 10
+        content: ""

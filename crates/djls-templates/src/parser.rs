@@ -84,21 +84,23 @@ impl Parser {
             ..
         } = token
         else {
-            return Err(ParseError::InvalidSyntax {
+            return Err(ParseError::UnexpectedTokenKind {
+                position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Block token".to_string(),
             });
         };
 
-        let (name, bits) = Self::parse_tag_args(content_ref)?;
+        let (name, bits) =
+            Self::parse_tag_args(content_ref, token.content_span_or_fallback().start_usize())?;
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
     }
 
-    fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
+    fn parse_tag_args(content: &str, position: usize) -> Result<(String, Vec<String>), ParseError> {
         let pieces = split_on_whitespace(content);
         let mut iter = pieces.into_iter();
-        let name = iter.next().ok_or(ParseError::EmptyTag)?;
+        let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         Ok((name, iter.collect()))
     }
 
@@ -130,7 +132,8 @@ impl Parser {
                     content: error_text,
                 })
             }
-            _ => Err(ParseError::InvalidSyntax {
+            _ => Err(ParseError::UnexpectedTokenKind {
+                position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Error token".to_string(),
             }),
         }
@@ -171,7 +174,8 @@ impl Parser {
             ..
         } = token
         else {
-            return Err(ParseError::InvalidSyntax {
+            return Err(ParseError::UnexpectedTokenKind {
+                position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Variable token".to_string(),
             });
         };
@@ -181,14 +185,23 @@ impl Parser {
 
         let mut parts = split_variable_expression(content_ref);
 
-        let (var_raw, _) = parts.next().ok_or(ParseError::EmptyTag)?;
+        let (var_raw, _) = parts.next().ok_or(ParseError::EmptyTag {
+            position: span.start_usize(),
+        })?;
         let var = var_raw.trim().to_string();
 
-        let filters: Vec<Filter> = parts
-            .filter_map(|(raw, offset_in_content)| {
-                parse_filter(raw, base_offset + offset_in_content)
-            })
-            .collect();
+        let mut filters: Vec<Filter> = Vec::new();
+        for (raw, offset_in_content) in parts {
+            match parse_filter(raw, base_offset + offset_in_content) {
+                Ok(filter) => filters.push(filter),
+                Err(error) => {
+                    return Err(ParseError::MalformedFilterExpression {
+                        position: error.position as usize,
+                        content: error.content,
+                    });
+                }
+            }
+        }
 
         Ok(Node::Variable { var, filters, span })
     }
@@ -257,36 +270,11 @@ pub enum StreamError {
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum ParseError {
-    #[error("Unexpected token: expected {expected:?}, found {found} at position {position}")]
-    UnexpectedToken {
-        expected: Vec<String>,
-        found: String,
-        position: usize,
-    },
+    #[error("Unexpected token kind at position {position}: {context}")]
+    UnexpectedTokenKind { position: usize, context: String },
 
-    #[error("Missing condition in '{tag}' tag at position {position}")]
-    MissingCondition { tag: String, position: usize },
-
-    #[error("Missing iterator in 'for' tag at position {position}")]
-    MissingIterator { position: usize },
-
-    #[error("Malformed variable at position {position}: {content}")]
-    MalformedVariable { position: usize, content: String },
-
-    #[error("Invalid filter syntax at position {position}: {reason}")]
-    InvalidFilterSyntax { position: usize, reason: String },
-
-    #[error("Unclosed tag at position {opener}: expected '{expected_closer}'")]
-    UnclosedTag {
-        opener: usize,
-        expected_closer: String,
-    },
-
-    #[error("Invalid syntax: {context}")]
-    InvalidSyntax { context: String },
-
-    #[error("Empty tag")]
-    EmptyTag,
+    #[error("Empty tag at position {position}")]
+    EmptyTag { position: usize },
 
     #[error("Unclosed '{opener}' (no matching '{closer}' found): {content}")]
     MalformedConstruct {
@@ -295,6 +283,9 @@ pub enum ParseError {
         closer: String,
         content: String,
     },
+
+    #[error("Malformed filter expression at position {position}: {content}")]
+    MalformedFilterExpression { position: usize, content: String },
 
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
@@ -479,6 +470,14 @@ mod tests {
         #[test]
         fn test_parse_filter_chains() {
             let source = "{{ value|default:'nothing'|title|upper }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_malformed_filter_expression_becomes_error_node() {
+            let source = "{{ value| }}";
             let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);

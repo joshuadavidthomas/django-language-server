@@ -51,9 +51,10 @@ pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (
 }
 
 /// Parse a single raw filter string (e.g. `default:'nothing'` or `title`) into a
-/// structured `Filter`. The `base_offset` is the byte offset of the start of this
-/// filter segment in the source file.
-pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Option<Filter> {
+/// structured `Filter`. This only checks expression structure; filter existence,
+/// loading, and arity are semantic validation concerns. The `base_offset` is the
+/// byte offset of the start of this filter segment in the source file.
+pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, FilterParseError> {
     let trimmed_start = raw.len() - raw.trim_start().len();
     let trimmed = raw.trim();
 
@@ -86,9 +87,18 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Option<Filter> {
     };
 
     if name.is_empty() {
-        return None;
+        return Err(FilterParseError {
+            position: filter_offset,
+            content: trimmed.to_string(),
+        });
     }
 
     let span = Span::new(filter_offset, usize_to_u32(trimmed.len()));
-    Some(Filter::new(name, arg, span))
+    Ok(Filter::new(name, arg, span))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct FilterParseError {
+    pub position: u32,
+    pub content: String,
 }

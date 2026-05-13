@@ -28,7 +28,7 @@ pub enum DiagnosticSeverity {
 ///
 /// # Prefixes for bulk configuration
 /// "T" = "off"     # Disable all template errors
-/// T100 = "hint"   # But show parser errors as hints (specific overrides prefix)
+/// T100 = "hint"   # But show parser errors as hints
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 pub struct DiagnosticsConfig {
