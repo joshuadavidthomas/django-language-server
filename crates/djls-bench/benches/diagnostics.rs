@@ -1,8 +1,8 @@
 use divan::Bencher;
+use djls_bench::prime;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
-use djls_bench::Db;
 use djls_bench::TemplateFixture;
 use djls_bench::ValidationErrorFixture;
 use djls_source::Diagnostic;
@@ -13,6 +13,9 @@ use djls_source::Span;
 fn main() {
     divan::main();
 }
+
+const DIAGNOSTICS_INNER_ITERS: usize = 8;
+const DIAGNOSTICS_WARMUP_ITERS: usize = 3;
 
 // Rendering engine benchmarks
 
@@ -114,36 +117,26 @@ fn render_synthetic_diagnostics_repeated(bencher: Bencher) {
     });
 }
 
-// Collect diagnostics (minimal db — no specs)
-
-#[divan::bench(args = template_fixtures())]
-fn collect_diagnostics_minimal(bencher: Bencher, fixture: &TemplateFixture) {
-    let mut db = Db::new();
-    let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-
-    // Warm up: trigger parse + validate
-    let _ = djls_ide::collect_diagnostics(&db, file);
-
-    bencher.bench_local(move || {
-        divan::black_box(djls_ide::collect_diagnostics(&db, file));
-    });
-}
-
 // Collect diagnostics (realistic db — real Django specs)
+// CodSpeed should treat aggregate realistic diagnostics as the primary
+// regression signal. Per-fixture benches are amortized to reduce noise and are
+// mainly useful for local diagnosis.
 
 #[divan::bench(args = template_fixtures())]
 fn collect_diagnostics_realistic(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-    // Warm up: parse, validate, AND collect diagnostics so all Salsa memos
-    // and allocator patterns are primed before measurement. Without this,
-    // the accumulator-read path and diagnostic conversion allocations can
-    // produce bimodal instruction counts under valgrind (CodSpeed).
-    let _ = djls_ide::collect_diagnostics(&db, file);
+    prime(DIAGNOSTICS_WARMUP_ITERS, || {
+        let _ = djls_ide::collect_diagnostics(&db, file);
+    });
 
     bencher.bench_local(move || {
-        divan::black_box(djls_ide::collect_diagnostics(&db, file));
+        let mut total = 0;
+        for _ in 0..DIAGNOSTICS_INNER_ITERS {
+            total += djls_ide::collect_diagnostics(&db, file).len();
+        }
+        divan::black_box(total);
     });
 }
 
@@ -156,8 +149,9 @@ fn collect_diagnostics_all_realistic(bencher: Bencher) {
         .iter()
         .map(|fixture| {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            // Warm up
-            let _ = djls_ide::collect_diagnostics(&db, file);
+            prime(DIAGNOSTICS_WARMUP_ITERS, || {
+                let _ = djls_ide::collect_diagnostics(&db, file);
+            });
             file
         })
         .collect();
@@ -176,8 +170,9 @@ fn collect_diagnostics_incremental(bencher: Bencher, fixture: &TemplateFixture) 
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
-    // Warm up
-    let _ = djls_ide::collect_diagnostics(&db, file);
+    prime(DIAGNOSTICS_WARMUP_ITERS, || {
+        let _ = djls_ide::collect_diagnostics(&db, file);
+    });
 
     let original = fixture.source.clone();
     let modified = {
@@ -190,13 +185,17 @@ fn collect_diagnostics_incremental(bencher: Bencher, fixture: &TemplateFixture) 
     let mut use_modified = true;
 
     bencher.bench_local(move || {
-        let contents = if use_modified { &modified } else { &original };
-        use_modified = !use_modified;
+        let mut total = 0;
+        for _ in 0..DIAGNOSTICS_INNER_ITERS {
+            let contents = if use_modified { &modified } else { &original };
+            use_modified = !use_modified;
 
-        db.set_file_contents(file, contents, revision);
-        revision = revision.wrapping_add(1);
+            db.set_file_contents(file, contents, revision);
+            revision = revision.wrapping_add(1);
 
-        divan::black_box(djls_ide::collect_diagnostics(&db, file));
+            total += djls_ide::collect_diagnostics(&db, file).len();
+        }
+        divan::black_box(total);
     });
 }
 
@@ -232,15 +231,23 @@ fn render_validation_errors(bencher: Bencher, fixture: &ValidationErrorFixture) 
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        for error in &fixture.check.validation_errors {
-            divan::black_box(djls_db::render_validation_error(
-                fixture.source,
-                fixture.path,
-                error,
-                &config,
-                &renderer,
-            ));
+        let mut rendered_count = 0;
+        for _ in 0..DIAGNOSTICS_INNER_ITERS {
+            for error in &fixture.check.validation_errors {
+                if djls_db::render_validation_error(
+                    fixture.source,
+                    fixture.path,
+                    error,
+                    &config,
+                    &renderer,
+                )
+                .is_some()
+                {
+                    rendered_count += 1;
+                }
+            }
         }
+        divan::black_box(rendered_count);
     });
 }
 
