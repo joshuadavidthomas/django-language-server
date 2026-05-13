@@ -16,7 +16,7 @@ fn template_files(db: &mut Db) -> Vec<djls_source::File> {
 }
 
 #[divan::bench]
-fn build_semantic_forests_cold(bencher: Bencher) {
+fn forest_cold(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut db = Db::new();
         let files = template_files(&mut db);
@@ -34,7 +34,7 @@ fn build_semantic_forests_cold(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn validate_templates_realistic_cold(bencher: Bencher) {
+fn validate_cold(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut db = realistic_db();
         let files = template_files(&mut db);
@@ -58,7 +58,7 @@ struct IncrementalTemplate {
 }
 
 #[divan::bench]
-fn validate_templates_realistic_incremental(bencher: Bencher) {
+fn validate_incremental(bencher: Bencher) {
     let fixtures = template_fixtures();
     let mut db = realistic_db();
 
@@ -114,7 +114,7 @@ fn validate_templates_realistic_incremental(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn parse_and_compute_opaque_regions_cold(bencher: Bencher) {
+fn opaque_regions_cold(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut db = realistic_db();
         let files = template_files(&mut db);

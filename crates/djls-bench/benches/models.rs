@@ -13,7 +13,7 @@ fn main() {
 // Batch extraction: all fixtures in one iteration
 
 #[divan::bench]
-fn extract_all_models(bencher: Bencher) {
+fn extract(bencher: Bencher) {
     let fixtures = model_fixtures();
     bencher.bench_local(move || {
         for fixture in fixtures {
@@ -28,7 +28,7 @@ fn extract_all_models(bencher: Bencher) {
 // Merge: extract graphs then merge them (the hot path in compute_model_graph)
 
 #[divan::bench]
-fn merge_graphs_repeated(bencher: Bencher) {
+fn merge(bencher: Bencher) {
     let fixtures = model_fixtures();
     let graphs: Vec<ModelGraph> = fixtures
         .iter()
@@ -63,7 +63,7 @@ fn auth_graph() -> &'static ModelGraph {
 }
 
 #[divan::bench]
-fn resolve_relations_repeated(bencher: Bencher) {
+fn resolve_relations(bencher: Bencher) {
     let graph = auth_graph();
     let forward_queries = [
         ("Permission", "content_type"),
@@ -173,11 +173,11 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
 }
 
 #[divan::bench]
-fn extract_corpus_django(bencher: Bencher) {
+fn corpus_django(bencher: Bencher) {
     bench_corpus(bencher, load_django_models());
 }
 
 #[divan::bench]
-fn extract_corpus_all(bencher: Bencher) {
+fn corpus_all(bencher: Bencher) {
     bench_corpus(bencher, load_all_corpus_models());
 }

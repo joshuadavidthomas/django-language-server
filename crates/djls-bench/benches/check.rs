@@ -42,7 +42,7 @@ fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
 // reuse it — matching real `djls check` behaviour within a single run.
 
 #[divan::bench]
-fn check_batch_fixtures(bencher: Bencher) {
+fn fixtures(bencher: Bencher) {
     let fixtures = template_fixtures();
 
     bencher.bench_local(move || {
@@ -154,13 +154,13 @@ fn bench_corpus_check(bencher: Bencher, corpus: Option<&'static CorpusTemplates>
 // Django's own templates (~123 files). Fresh db each iteration.
 
 #[divan::bench]
-fn check_corpus_django(bencher: Bencher) {
+fn corpus_django(bencher: Bencher) {
     bench_corpus_check(bencher, load_corpus_templates());
 }
 
 // Full corpus (~6 000 templates from 36 packages). Fresh db each iteration.
 
 #[divan::bench]
-fn check_corpus_all(bencher: Bencher) {
+fn corpus_all(bencher: Bencher) {
     bench_corpus_check(bencher, load_full_corpus_templates());
 }

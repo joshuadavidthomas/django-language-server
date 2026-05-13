@@ -7,7 +7,7 @@ fn main() {
 }
 
 #[divan::bench]
-fn extract_all_modules(bencher: Bencher) {
+fn tags(bencher: Bencher) {
     let fixtures = python_fixtures();
     bencher.bench_local(move || {
         for fixture in fixtures {
@@ -20,7 +20,7 @@ fn extract_all_modules(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn merge_extractions_repeated(bencher: Bencher) {
+fn merge_tags(bencher: Bencher) {
     let fixtures = python_fixtures();
     let results: Vec<_> = fixtures
         .iter()

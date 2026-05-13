@@ -8,7 +8,7 @@ fn main() {
 }
 
 #[divan::bench]
-fn parse_all_templates(bencher: Bencher) {
+fn all(bencher: Bencher) {
     let fixtures = template_fixtures();
     bencher.bench_local(move || {
         let mut total_nodes = 0;
@@ -28,7 +28,7 @@ struct IncrementalTemplate {
 }
 
 #[divan::bench]
-fn parse_templates_incremental(bencher: Bencher) {
+fn incremental(bencher: Bencher) {
     let fixtures = template_fixtures();
     let mut db = Db::new();
 

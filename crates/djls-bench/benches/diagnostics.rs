@@ -68,7 +68,7 @@ fn multi_span_diagnostic() -> Diagnostic<'static> {
 }
 
 #[divan::bench]
-fn render_synthetic_diagnostics(bencher: Bencher) {
+fn render_synthetic(bencher: Bencher) {
     let plain = DiagnosticRenderer::plain();
     let styled = DiagnosticRenderer::styled();
     let diagnostics = [single_span_diagnostic(), multi_span_diagnostic()];
@@ -85,7 +85,7 @@ fn render_synthetic_diagnostics(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn collect_diagnostics_cached_batch(bencher: Bencher) {
+fn collect_cached(bencher: Bencher) {
     let fixtures = template_fixtures();
     let mut db = realistic_db();
 
@@ -119,7 +119,7 @@ struct IncrementalTemplate {
 }
 
 #[divan::bench]
-fn collect_diagnostics_incremental_batch(bencher: Bencher) {
+fn collect_incremental(bencher: Bencher) {
     let fixtures = template_fixtures();
     let mut db = realistic_db();
 
@@ -194,7 +194,7 @@ fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRend
 }
 
 #[divan::bench]
-fn render_validation_errors_batch(bencher: Bencher) {
+fn render_validation(bencher: Bencher) {
     let fixtures: Vec<_> = validation_error_fixtures()
         .iter()
         .map(validation_render_fixture)
@@ -224,7 +224,7 @@ fn render_validation_errors_batch(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn render_synthetic_error_batch(bencher: Bencher) {
+fn render_validation_synthetic(bencher: Bencher) {
     let mut db = realistic_db();
     let file = db.file_with_contents("bench.html".into(), MANY_ERRORS_SOURCE);
 
