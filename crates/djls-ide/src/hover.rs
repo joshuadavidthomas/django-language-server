@@ -171,23 +171,22 @@ fn library_hover(
 }
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
+    let candidate = candidates.first()?;
+    let header = symbol_header(candidate);
     let doc = candidates
         .iter()
         .find_map(|candidate| candidate.symbol.doc())
-        .map(str::trim)
+        .map(format_docstring)
         .filter(|doc| !doc.is_empty());
-
-    if let Some(doc) = doc {
-        return Some(doc.to_string());
-    }
-
     let load_hints = candidates.iter().filter_map(load_hint).collect::<Vec<_>>();
 
-    if load_hints.is_empty() {
-        None
-    } else {
-        Some(load_hints.join("\n"))
+    let mut parts = vec![header];
+    if let Some(doc) = doc {
+        parts.push(doc);
     }
+    parts.extend(load_hints);
+
+    Some(parts.join("\n\n"))
 }
 
 fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
@@ -198,6 +197,14 @@ fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
     }
 }
 
+fn symbol_header(candidate: &InstalledSymbolCandidate) -> String {
+    let name = candidate.symbol.name();
+    match candidate.symbol.kind {
+        TemplateSymbolKind::Tag => format!("```django\n{{% {name} %}}\n```"),
+        TemplateSymbolKind::Filter => format!("```django\n{{{{ value|{name} }}}}\n```"),
+    }
+}
+
 fn load_hint(candidate: &InstalledSymbolCandidate) -> Option<String> {
     match &candidate.origin {
         InstalledSymbolOrigin::Builtin { .. } => None,
@@ -205,6 +212,58 @@ fn load_hint(candidate: &InstalledSymbolCandidate) -> Option<String> {
             Some(format!("Load with `{{% load {} %}}`.", load_name.as_str()))
         }
     }
+}
+
+fn format_docstring(doc: &str) -> String {
+    let doc = doc.trim().replace("``", "`");
+    let mut lines = Vec::new();
+    let mut in_code_block = false;
+    let mut pending_code_block = false;
+
+    for line in doc.lines() {
+        let trimmed_end = line.trim_end();
+        let trimmed = trimmed_end.trim_start();
+
+        if let Some(prefix) = trimmed_end.strip_suffix("::") {
+            let prefix = prefix.trim_end();
+            if prefix.is_empty() {
+                pending_code_block = true;
+            } else {
+                lines.push(format!("{prefix}:"));
+                pending_code_block = true;
+            }
+            continue;
+        }
+
+        let is_indented = trimmed_end.starts_with("    ") || trimmed_end.starts_with('\t');
+        if pending_code_block && trimmed_end.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        if pending_code_block && is_indented {
+            lines.push("```django".to_string());
+            in_code_block = true;
+            pending_code_block = false;
+        }
+
+        if in_code_block {
+            if is_indented || trimmed_end.is_empty() {
+                lines.push(trimmed.to_string());
+                continue;
+            }
+            lines.push("```".to_string());
+            in_code_block = false;
+        }
+
+        pending_code_block = false;
+        lines.push(trimmed_end.to_string());
+    }
+
+    if in_code_block {
+        lines.push("```".to_string());
+    }
+
+    lines.join("\n").trim().to_string()
 }
 
 fn load_library_at_offset(
@@ -303,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn tag_hover_prefers_docstring() {
+    fn tag_hover_includes_signature_and_docstring() {
         let candidates = vec![candidate(
             TemplateSymbolKind::Tag,
             "if",
@@ -315,7 +374,10 @@ mod tests {
 
         let markdown = render_installed_symbol_hover(&candidates);
 
-        assert_eq!(markdown.as_deref(), Some("Evaluate a condition."));
+        assert_eq!(
+            markdown.as_deref(),
+            Some("```django\n{% if %}\n```\n\nEvaluate a condition."),
+        );
     }
 
     #[test]
@@ -333,8 +395,29 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("Load with `{% load humanize %}`.")
+            Some("```django\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
         );
+    }
+
+    #[test]
+    fn format_docstring_converts_restructured_text_examples() {
+        let doc = r#"Load a template and render it with the current context.
+
+Example::
+
+    {% include "foo/some_include" %}
+    {% include "foo/some_include" with bar="BAZZ!" %}
+
+Use the ``only`` argument::
+
+    {% include "foo/some_include" only %}"#;
+
+        let formatted = format_docstring(doc);
+
+        assert!(formatted.contains("Example:"));
+        assert!(formatted.contains("```django\n{% include \"foo/some_include\" %}"));
+        assert!(formatted.contains("Use the `only` argument:"));
+        assert!(formatted.ends_with("```"));
     }
 
     #[test]
