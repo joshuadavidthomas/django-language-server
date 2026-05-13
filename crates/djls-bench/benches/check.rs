@@ -117,9 +117,10 @@ fn load_full_corpus_templates() -> Option<&'static CorpusTemplates> {
 
 fn bench_corpus_check(bencher: Bencher, corpus: Option<&'static CorpusTemplates>) {
     let Some(corpus) = corpus else {
-        if std::env::var_os("CI").is_some() {
-            panic!("corpus not synced; run `just corpus sync` before benchmarks");
-        }
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "corpus not synced; run `just corpus sync` before benchmarks",
+        );
         eprintln!("corpus not synced, skipping");
         return;
     };

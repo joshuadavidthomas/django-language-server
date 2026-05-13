@@ -150,9 +150,10 @@ fn load_all_corpus_models() -> Option<&'static CorpusModels> {
 
 fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
     let Some(corpus) = corpus else {
-        if std::env::var_os("CI").is_some() {
-            panic!("corpus not synced; run `just corpus sync` before benchmarks");
-        }
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "corpus not synced; run `just corpus sync` before benchmarks",
+        );
         eprintln!("corpus not synced, skipping");
         return;
     };
