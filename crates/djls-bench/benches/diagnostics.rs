@@ -5,6 +5,8 @@ use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
 use djls_bench::TemplateFixture;
 use djls_bench::ValidationErrorFixture;
+use djls_bench::DIAGNOSTICS_INNER_ITERS;
+use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::Severity;
@@ -13,9 +15,6 @@ use djls_source::Span;
 fn main() {
     divan::main();
 }
-
-const DIAGNOSTICS_INNER_ITERS: usize = 8;
-const DIAGNOSTICS_WARMUP_ITERS: usize = 3;
 
 // Rendering engine benchmarks
 

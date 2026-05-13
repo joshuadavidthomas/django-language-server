@@ -8,11 +8,14 @@ use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use divan::Bencher;
+use djls_bench::prime;
 use djls_bench::python_fixtures;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
 use djls_bench::Db;
+use djls_bench::DIAGNOSTICS_INNER_ITERS;
+use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
 use djls_db::FileCheckResult;
 use djls_source::DiagnosticRenderer;
 
@@ -73,14 +76,16 @@ fn gate_collect_diagnostics_realistic(bencher: Bencher) {
         .iter()
         .map(|fixture| {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            let _ = djls_ide::collect_diagnostics(&db, file);
+            prime(DIAGNOSTICS_WARMUP_ITERS, || {
+                let _ = djls_ide::collect_diagnostics(&db, file);
+            });
             file
         })
         .collect();
 
     bencher.bench_local(move || {
         let mut total = 0;
-        for _ in 0..8 {
+        for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for file in &files {
                 total += djls_ide::collect_diagnostics(&db, *file).len();
             }
@@ -145,7 +150,7 @@ fn gate_render_validation_errors(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn gate_check_fixtures(bencher: Bencher) {
+fn gate_check_fixtures_cold(bencher: Bencher) {
     let fixtures = template_fixtures();
 
     bencher.bench_local(move || {
@@ -222,28 +227,10 @@ fn load_django_corpus_templates() -> Option<&'static CorpusTemplates> {
         .as_ref()
 }
 
-fn load_full_corpus_templates() -> Option<&'static CorpusTemplates> {
-    static CORPUS: OnceLock<Option<CorpusTemplates>> = OnceLock::new();
-    CORPUS
-        .get_or_init(|| load_corpus_inner(|corpus| Some(corpus.templates_in(corpus.root()))))
-        .as_ref()
-}
-
 #[divan::bench]
 fn gate_check_corpus_django(bencher: Bencher) {
     let Some(corpus) = load_django_corpus_templates() else {
-        eprintln!("corpus not synced, skipping");
-        return;
-    };
-
-    bench_corpus_check(bencher, corpus);
-}
-
-#[divan::bench]
-fn gate_check_corpus_all(bencher: Bencher) {
-    let Some(corpus) = load_full_corpus_templates() else {
-        eprintln!("corpus not synced, skipping");
-        return;
+        panic!("corpus not synced; run `just corpus sync` before CodSpeed benchmarks");
     };
 
     bench_corpus_check(bencher, corpus);
