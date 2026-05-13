@@ -172,7 +172,8 @@ fn library_hover(
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
     let candidate = candidates.first()?;
-    let header = symbol_header(candidate);
+    let signature = symbol_signature(candidate);
+    let provenance = symbol_provenance(candidate);
     let doc = candidates
         .iter()
         .find_map(|candidate| candidate.symbol.doc())
@@ -180,11 +181,14 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         .filter(|doc| !doc.is_empty());
     let load_hints = candidates.iter().filter_map(load_hint).collect::<Vec<_>>();
 
-    let mut parts = vec![header];
+    let mut parts = vec![signature];
     if let Some(doc) = doc {
         parts.push(doc);
     }
     parts.extend(load_hints);
+    if let Some(provenance) = provenance {
+        parts.push(format!("> `{provenance}`"));
+    }
 
     Some(parts.join("\n\n"))
 }
@@ -197,29 +201,24 @@ fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
     }
 }
 
-fn symbol_header(candidate: &InstalledSymbolCandidate) -> String {
+fn symbol_signature(candidate: &InstalledSymbolCandidate) -> String {
     let name = candidate.symbol.name();
-    let module = symbol_module(candidate);
     let signature = match candidate.symbol.kind {
         TemplateSymbolKind::Tag => format!("{{% {name} %}}"),
         TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
     };
 
-    if module.is_empty() {
-        format!("```htmldjango\n{signature}\n```")
-    } else {
-        format!("`{module}`\n\n```htmldjango\n{signature}\n```")
-    }
+    format!("```htmldjango\n{signature}\n```")
 }
 
-fn symbol_module(candidate: &InstalledSymbolCandidate) -> String {
+fn symbol_provenance(candidate: &InstalledSymbolCandidate) -> Option<String> {
     match &candidate.origin {
-        InstalledSymbolOrigin::Builtin { module } => module.as_str().to_string(),
+        InstalledSymbolOrigin::Builtin { module } => Some(module.as_str().to_string()),
         InstalledSymbolOrigin::Loadable { .. } => match &candidate.symbol.definition {
-            djls_semantic::SymbolDefinition::Module(module) => module.as_str().to_string(),
+            djls_semantic::SymbolDefinition::Module(module) => Some(module.as_str().to_string()),
             djls_semantic::SymbolDefinition::Exact { file }
-            | djls_semantic::SymbolDefinition::LibraryFile(file) => file.to_string(),
-            djls_semantic::SymbolDefinition::Unknown => String::new(),
+            | djls_semantic::SymbolDefinition::LibraryFile(file) => Some(file.to_string()),
+            djls_semantic::SymbolDefinition::Unknown => None,
         },
     }
 }
@@ -408,7 +407,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("`django.template.defaulttags`\n\n```htmldjango\n{% if %}\n```\n\nEvaluate a condition."),
+            Some("```htmldjango\n{% if %}\n```\n\nEvaluate a condition.\n\n> `django.template.defaulttags`"),
         );
     }
 
@@ -427,7 +426,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("`django.contrib.humanize.templatetags.humanize`\n\n```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
+            Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`.\n\n> `django.contrib.humanize.templatetags.humanize`"),
         );
     }
 
