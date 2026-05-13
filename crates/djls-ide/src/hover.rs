@@ -1,6 +1,7 @@
 use djls_semantic::resolve_template;
 use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
+use djls_semantic::LoadKind;
 use djls_semantic::ResolveResult;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
@@ -31,6 +32,14 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                 if bit_span.contains(offset) {
                     let template_name = unquote(bit);
                     return template_reference_hover(db, &template_name, bit_span, line_index);
+                }
+            }
+
+            if name == "load" {
+                if let Some((library, library_span)) =
+                    load_library_at_offset(source.as_str(), *span, bits, offset)
+                {
+                    return library_hover(db, &library, library_span, line_index);
                 }
             }
 
@@ -100,13 +109,21 @@ fn symbol_hover(
         render_installed_symbol_hover(&candidates)?
     };
 
-    Some(ls_types::Hover {
+    Some(markdown_hover(markdown, span, line_index))
+}
+
+fn markdown_hover(
+    markdown: String,
+    span: Span,
+    line_index: &djls_source::LineIndex,
+) -> ls_types::Hover {
+    ls_types::Hover {
         contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
             kind: ls_types::MarkupKind::Markdown,
             value: markdown,
         }),
         range: Some(span.to_lsp_range(line_index)),
-    })
+    }
 }
 
 fn template_reference_hover(
@@ -118,7 +135,7 @@ fn template_reference_hover(
     let markdown = match resolve_template(db, template_name) {
         ResolveResult::Found(template) => {
             let path = template.path_buf(db);
-            format!("### Template `{template_name}`\n\nResolved to `{path}`")
+            format!("Resolved to `{path}`")
         }
         ResolveResult::NotFound { tried, .. } => {
             if tried.is_empty() {
@@ -130,17 +147,27 @@ fn template_reference_hover(
                 .map(|path| format!("- `{path}`"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            format!("### Template `{template_name}`\n\nNot found. Tried:\n\n{tried}")
+            format!("Template not found.\n\nTried:\n\n{tried}")
         }
     };
 
-    Some(ls_types::Hover {
-        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
-            kind: ls_types::MarkupKind::Markdown,
-            value: markdown,
-        }),
-        range: Some(span.to_lsp_range(line_index)),
-    })
+    Some(markdown_hover(markdown, span, line_index))
+}
+
+fn library_hover(
+    db: &dyn djls_semantic::Db,
+    library_name: &str,
+    span: Span,
+    line_index: &djls_source::LineIndex,
+) -> Option<ls_types::Hover> {
+    let library = db
+        .template_libraries()
+        .best_loadable_library_str(library_name)?;
+    Some(markdown_hover(
+        library.module().as_str().to_string(),
+        span,
+        line_index,
+    ))
 }
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
@@ -180,15 +207,64 @@ fn load_hint(candidate: &InstalledSymbolCandidate) -> Option<String> {
     }
 }
 
+fn load_library_at_offset(
+    source: &str,
+    content_span: Span,
+    bits: &[String],
+    offset: Offset,
+) -> Option<(String, Span)> {
+    match djls_semantic::parse_load_bits(bits)? {
+        LoadKind::FullLoad { libraries } => {
+            library_bit_at_offset(source, content_span, bits, offset, &libraries)
+        }
+        LoadKind::SelectiveImport { library, .. } => {
+            library_bit_at_offset(source, content_span, bits, offset, &[library])
+        }
+    }
+}
+
+fn library_bit_at_offset(
+    source: &str,
+    content_span: Span,
+    bits: &[String],
+    offset: Offset,
+    libraries: &[String],
+) -> Option<(String, Span)> {
+    bit_spans(source, content_span, bits)
+        .into_iter()
+        .find(|(bit, span)| libraries.contains(bit) && span.contains(offset))
+}
+
 fn find_bit_span(source: &str, content_span: Span, bit: &str) -> Option<Span> {
+    bit_spans(source, content_span, &[bit.to_string()])
+        .into_iter()
+        .next()
+        .map(|(_, span)| span)
+}
+
+fn bit_spans(source: &str, content_span: Span, bits: &[String]) -> Vec<(String, Span)> {
     let content_start = content_span.start_usize();
     let content_end = content_span.end() as usize;
-    let content = source.get(content_start..content_end)?;
-    let relative_start = content.find(bit)?;
-    Some(Span::saturating_from_parts_usize(
-        content_start + relative_start,
-        bit.len(),
-    ))
+    let Some(content) = source.get(content_start..content_end) else {
+        return Vec::new();
+    };
+
+    let mut spans = Vec::new();
+    let mut search_start = 0;
+
+    for bit in bits {
+        let Some(relative_start) = content[search_start..].find(bit) else {
+            continue;
+        };
+        let relative_start = search_start + relative_start;
+        spans.push((
+            bit.clone(),
+            Span::saturating_from_parts_usize(content_start + relative_start, bit.len()),
+        ));
+        search_start = relative_start + bit.len();
+    }
+
+    spans
 }
 
 fn unquote(raw: &str) -> String {
@@ -259,6 +335,26 @@ mod tests {
             markdown.as_deref(),
             Some("Load with `{% load humanize %}`.")
         );
+    }
+
+    #[test]
+    fn load_library_at_offset_handles_full_load() {
+        let source = "{% load static i18n %}";
+        let bits = vec!["static".to_string(), "i18n".to_string()];
+        let result = load_library_at_offset(source, Span::new(3, 16), &bits, Offset::new(9));
+
+        assert!(matches!(result, Some((library, _)) if library == "static"));
+    }
+
+    #[test]
+    fn load_library_at_offset_handles_selective_load() {
+        let source = "{% load trans from i18n %}";
+        let bits = vec!["trans".to_string(), "from".to_string(), "i18n".to_string()];
+        let symbol = load_library_at_offset(source, Span::new(3, 20), &bits, Offset::new(9));
+        let library = load_library_at_offset(source, Span::new(3, 20), &bits, Offset::new(21));
+
+        assert!(symbol.is_none());
+        assert!(matches!(library, Some((library, _)) if library == "i18n"));
     }
 
     #[test]
