@@ -200,8 +200,8 @@ fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
 fn symbol_header(candidate: &InstalledSymbolCandidate) -> String {
     let name = candidate.symbol.name();
     match candidate.symbol.kind {
-        TemplateSymbolKind::Tag => format!("```django\n{{% {name} %}}\n```"),
-        TemplateSymbolKind::Filter => format!("```django\n{{{{ value|{name} }}}}\n```"),
+        TemplateSymbolKind::Tag => format!("```htmldjango\n{{% {name} %}}\n```"),
+        TemplateSymbolKind::Filter => format!("```htmldjango\n{{{{ value|{name} }}}}\n```"),
     }
 }
 
@@ -241,7 +241,7 @@ fn format_docstring(doc: &str) -> String {
             continue;
         }
         if pending_code_block && is_indented {
-            lines.push("```django".to_string());
+            lines.push("```htmldjango".to_string());
             in_code_block = true;
             pending_code_block = false;
         }
@@ -376,7 +376,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```django\n{% if %}\n```\n\nEvaluate a condition."),
+            Some("```htmldjango\n{% if %}\n```\n\nEvaluate a condition."),
         );
     }
 
@@ -395,7 +395,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```django\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
+            Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
         );
     }
 
@@ -415,7 +415,7 @@ Use the ``only`` argument::
         let formatted = format_docstring(doc);
 
         assert!(formatted.contains("Example:"));
-        assert!(formatted.contains("```django\n{% include \"foo/some_include\" %}"));
+        assert!(formatted.contains("```htmldjango\n{% include \"foo/some_include\" %}"));
         assert!(formatted.contains("Use the `only` argument:"));
         assert!(formatted.ends_with("```"));
     }
