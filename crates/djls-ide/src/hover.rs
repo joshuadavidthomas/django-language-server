@@ -205,13 +205,22 @@ fn symbol_header(candidate: &InstalledSymbolCandidate) -> String {
         TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
     };
 
-    format!("`{module}`\n\n```htmldjango\n{signature}\n```")
+    if module.is_empty() {
+        format!("```htmldjango\n{signature}\n```")
+    } else {
+        format!("`{module}`\n\n```htmldjango\n{signature}\n```")
+    }
 }
 
 fn symbol_module(candidate: &InstalledSymbolCandidate) -> String {
     match &candidate.origin {
         InstalledSymbolOrigin::Builtin { module } => module.as_str().to_string(),
-        InstalledSymbolOrigin::Loadable { load_name } => load_name.as_str().to_string(),
+        InstalledSymbolOrigin::Loadable { .. } => match &candidate.symbol.definition {
+            djls_semantic::SymbolDefinition::Module(module) => module.as_str().to_string(),
+            djls_semantic::SymbolDefinition::Exact { file }
+            | djls_semantic::SymbolDefinition::LibraryFile(file) => file.to_string(),
+            djls_semantic::SymbolDefinition::Unknown => String::new(),
+        },
     }
 }
 
@@ -360,11 +369,24 @@ mod tests {
         doc: Option<&str>,
         origin: InstalledSymbolOrigin,
     ) -> InstalledSymbolCandidate {
+        let definition = match &origin {
+            InstalledSymbolOrigin::Builtin { .. } => djls_semantic::SymbolDefinition::Unknown,
+            InstalledSymbolOrigin::Loadable { load_name } => {
+                djls_semantic::SymbolDefinition::Module(
+                    djls_semantic::PyModuleName::parse(&format!(
+                        "django.contrib.{0}.templatetags.{0}",
+                        load_name.as_str()
+                    ))
+                    .unwrap(),
+                )
+            }
+        };
+
         InstalledSymbolCandidate {
             symbol: djls_semantic::TemplateSymbol {
                 kind,
                 name: TemplateSymbolName::parse(name).unwrap(),
-                definition: djls_semantic::SymbolDefinition::Unknown,
+                definition,
                 doc: doc.map(str::to_string),
             },
             origin,
@@ -405,7 +427,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("`humanize`\n\n```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
+            Some("`django.contrib.humanize.templatetags.humanize`\n\n```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
         );
     }
 
