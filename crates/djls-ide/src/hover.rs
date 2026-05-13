@@ -152,10 +152,7 @@ fn render_installed_symbol_hover(
     kind: TemplateSymbolKind,
     candidates: &[InstalledSymbolCandidate],
 ) -> String {
-    let title = match kind {
-        TemplateSymbolKind::Tag => format!("### Tag `{name}`"),
-        TemplateSymbolKind::Filter => format!("### Filter `{name}`"),
-    };
+    let title = symbol_title(name, kind);
 
     let doc = candidates
         .iter()
@@ -167,7 +164,7 @@ fn render_installed_symbol_hover(
         .iter()
         .map(render_origin)
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n\n");
 
     match doc {
         Some(doc) => format!("{title}\n\n{doc}\n\n{origins}"),
@@ -180,22 +177,28 @@ fn render_discovered_symbol_hover(
     kind: TemplateSymbolKind,
     discovered: &[String],
 ) -> String {
-    let title = match kind {
-        TemplateSymbolKind::Tag => format!("### Tag `{name}`"),
-        TemplateSymbolKind::Filter => format!("### Filter `{name}`"),
-    };
+    let title = symbol_title(name, kind);
 
     format!(
-        "{title}\n\nDiscovered in installed template libraries:\n\n{}",
+        "{title}\n\nFound in installed template libraries:\n\n{}",
         discovered.join("\n"),
     )
 }
 
+fn symbol_title(name: &str, kind: TemplateSymbolKind) -> String {
+    match kind {
+        TemplateSymbolKind::Tag => format!("```django\n{{% {name} %}}\n```"),
+        TemplateSymbolKind::Filter => format!("```django\n{{{{ value|{name} }}}}\n```"),
+    }
+}
+
 fn render_origin(candidate: &InstalledSymbolCandidate) -> String {
     match &candidate.origin {
-        InstalledSymbolOrigin::Builtin { module } => format!("Built-in: `{}`", module.as_str()),
+        InstalledSymbolOrigin::Builtin { module } => {
+            format!("Available by default from `{}`.", module.as_str())
+        }
         InstalledSymbolOrigin::Loadable { load_name } => {
-            format!("Load with: `{{% load {} %}}`", load_name.as_str())
+            format!("Load with `{{% load {} %}}`.", load_name.as_str())
         }
     }
 }
@@ -259,9 +262,9 @@ mod tests {
 
         let markdown = render_installed_symbol_hover("if", TemplateSymbolKind::Tag, &candidates);
 
-        assert!(markdown.contains("### Tag `if`"));
+        assert!(markdown.contains("{% if %}"));
         assert!(markdown.contains("Evaluate a condition."));
-        assert!(markdown.contains("Built-in: `django.template.defaulttags`"));
+        assert!(markdown.contains("Available by default from `django.template.defaulttags`."));
     }
 
     #[test]
@@ -278,8 +281,8 @@ mod tests {
         let markdown =
             render_installed_symbol_hover("intcomma", TemplateSymbolKind::Filter, &candidates);
 
-        assert!(markdown.contains("### Filter `intcomma`"));
-        assert!(markdown.contains("Load with: `{% load humanize %}`"));
+        assert!(markdown.contains("{{ value|intcomma }}"));
+        assert!(markdown.contains("Load with `{% load humanize %}`."));
     }
 
     #[test]
