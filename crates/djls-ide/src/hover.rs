@@ -25,11 +25,6 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
 
     match node {
         Node::Tag { name, bits, span } => {
-            let name_span = span.with_length_usize_saturating(name.len());
-            if name_span.contains(offset) {
-                return symbol_hover(db, name, TemplateSymbolKind::Tag, name_span, line_index);
-            }
-
             if matches!(name.as_str(), "extends" | "include") {
                 let bit = bits.first()?;
                 let bit_span = find_bit_span(source.as_str(), *span, bit)?;
@@ -39,7 +34,13 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                 }
             }
 
-            None
+            symbol_hover(
+                db,
+                name,
+                TemplateSymbolKind::Tag,
+                node.full_span(),
+                line_index,
+            )
         }
         Node::Variable { filters, .. } => filters.iter().find_map(|filter| {
             let name_span = filter.span.with_length_usize_saturating(filter.name.len());
