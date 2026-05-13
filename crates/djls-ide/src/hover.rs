@@ -86,22 +86,17 @@ fn symbol_hover(
                     .into_iter()
                     .map(|candidate| {
                         format!(
-                            "- `{}` from `{}`",
-                            candidate.library_name.as_str(),
-                            candidate.app_module.as_str(),
+                            "Load with `{{% load {} %}}`.",
+                            candidate.library_name.as_str()
                         )
                     })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
-        if discovered.is_empty() {
-            return None;
-        }
-
-        render_discovered_symbol_hover(name, kind, &discovered)
+        render_discovered_symbol_hover(&discovered)?
     } else {
-        render_installed_symbol_hover(name, kind, &candidates)
+        render_installed_symbol_hover(&candidates)?
     };
 
     Some(ls_types::Hover {
@@ -147,58 +142,39 @@ fn template_reference_hover(
     })
 }
 
-fn render_installed_symbol_hover(
-    name: &str,
-    kind: TemplateSymbolKind,
-    candidates: &[InstalledSymbolCandidate],
-) -> String {
-    let title = symbol_title(name, kind);
-
+fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
     let doc = candidates
         .iter()
         .find_map(|candidate| candidate.symbol.doc())
         .map(str::trim)
         .filter(|doc| !doc.is_empty());
 
-    let origins = candidates
-        .iter()
-        .map(render_origin)
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    if let Some(doc) = doc {
+        return Some(doc.to_string());
+    }
 
-    match doc {
-        Some(doc) => format!("{title}\n\n{doc}\n\n{origins}"),
-        None => format!("{title}\n\n{origins}"),
+    let load_hints = candidates.iter().filter_map(load_hint).collect::<Vec<_>>();
+
+    if load_hints.is_empty() {
+        None
+    } else {
+        Some(load_hints.join("\n"))
     }
 }
 
-fn render_discovered_symbol_hover(
-    name: &str,
-    kind: TemplateSymbolKind,
-    discovered: &[String],
-) -> String {
-    let title = symbol_title(name, kind);
-
-    format!(
-        "{title}\n\nFound in installed template libraries:\n\n{}",
-        discovered.join("\n"),
-    )
-}
-
-fn symbol_title(name: &str, kind: TemplateSymbolKind) -> String {
-    match kind {
-        TemplateSymbolKind::Tag => format!("```django\n{{% {name} %}}\n```"),
-        TemplateSymbolKind::Filter => format!("```django\n{{{{ value|{name} }}}}\n```"),
+fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
+    if discovered.is_empty() {
+        None
+    } else {
+        Some(discovered.join("\n"))
     }
 }
 
-fn render_origin(candidate: &InstalledSymbolCandidate) -> String {
+fn load_hint(candidate: &InstalledSymbolCandidate) -> Option<String> {
     match &candidate.origin {
-        InstalledSymbolOrigin::Builtin { module } => {
-            format!("Available by default from `{}`.", module.as_str())
-        }
+        InstalledSymbolOrigin::Builtin { .. } => None,
         InstalledSymbolOrigin::Loadable { load_name } => {
-            format!("Load with `{{% load {} %}}`.", load_name.as_str())
+            Some(format!("Load with `{{% load {} %}}`.", load_name.as_str()))
         }
     }
 }
@@ -250,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn tag_hover_uses_docs_and_builtin_origin() {
+    fn tag_hover_prefers_docstring() {
         let candidates = vec![candidate(
             TemplateSymbolKind::Tag,
             "if",
@@ -260,15 +236,13 @@ mod tests {
             },
         )];
 
-        let markdown = render_installed_symbol_hover("if", TemplateSymbolKind::Tag, &candidates);
+        let markdown = render_installed_symbol_hover(&candidates);
 
-        assert!(markdown.contains("{% if %}"));
-        assert!(markdown.contains("Evaluate a condition."));
-        assert!(markdown.contains("Available by default from `django.template.defaulttags`."));
+        assert_eq!(markdown.as_deref(), Some("Evaluate a condition."));
     }
 
     #[test]
-    fn filter_hover_uses_load_origin() {
+    fn filter_hover_falls_back_to_load_hint() {
         let candidates = vec![candidate(
             TemplateSymbolKind::Filter,
             "intcomma",
@@ -278,11 +252,12 @@ mod tests {
             },
         )];
 
-        let markdown =
-            render_installed_symbol_hover("intcomma", TemplateSymbolKind::Filter, &candidates);
+        let markdown = render_installed_symbol_hover(&candidates);
 
-        assert!(markdown.contains("{{ value|intcomma }}"));
-        assert!(markdown.contains("Load with `{% load humanize %}`."));
+        assert_eq!(
+            markdown.as_deref(),
+            Some("Load with `{% load humanize %}`.")
+        );
     }
 
     #[test]
