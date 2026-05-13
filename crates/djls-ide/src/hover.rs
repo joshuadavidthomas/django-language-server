@@ -205,7 +205,7 @@ fn symbol_header(candidate: &InstalledSymbolCandidate) -> String {
         TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
     };
 
-    format!("```python\n{module}\n```\n\n```htmldjango\n{signature}\n```")
+    format!("`{module}`\n\n```htmldjango\n{signature}\n```")
 }
 
 fn symbol_module(candidate: &InstalledSymbolCandidate) -> String {
@@ -386,9 +386,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some(
-                "```python\ndjango.template.defaulttags\n```\n\n```htmldjango\n{% if %}\n```\n\nEvaluate a condition."
-            ),
+            Some("`django.template.defaulttags`\n\n```htmldjango\n{% if %}\n```\n\nEvaluate a condition."),
         );
     }
 
@@ -407,9 +405,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some(
-                "```python\nhumanize\n```\n\n```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."
-            ),
+            Some("`humanize`\n\n```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`."),
         );
     }
 
