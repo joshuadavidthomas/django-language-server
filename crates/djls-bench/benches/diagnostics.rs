@@ -123,7 +123,7 @@ fn render_synthetic_diagnostics_repeated(bencher: Bencher) {
 // mainly useful for local diagnosis.
 
 #[divan::bench(args = template_fixtures())]
-fn collect_diagnostics_realistic(bencher: Bencher, fixture: &TemplateFixture) {
+fn collect_diagnostics_realistic_amortized(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
@@ -166,7 +166,7 @@ fn collect_diagnostics_all_realistic(bencher: Bencher) {
 // Incremental diagnostics (realistic db — simulates editor edits)
 
 #[divan::bench(args = template_fixtures())]
-fn collect_diagnostics_incremental(bencher: Bencher, fixture: &TemplateFixture) {
+fn collect_diagnostics_incremental_amortized(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
@@ -225,7 +225,7 @@ fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRend
 }
 
 #[divan::bench(args = validation_error_fixtures())]
-fn render_validation_errors(bencher: Bencher, fixture: &ValidationErrorFixture) {
+fn render_validation_errors_amortized(bencher: Bencher, fixture: &ValidationErrorFixture) {
     let fixture = validation_render_fixture(fixture);
     let config = djls_conf::DiagnosticsConfig::default();
     let renderer = DiagnosticRenderer::plain();
