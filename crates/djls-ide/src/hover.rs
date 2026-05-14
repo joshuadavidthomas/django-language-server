@@ -25,7 +25,13 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
         .find(|node| node.full_span().contains(offset))?;
 
     let (markdown, span) = HoverTarget::from_node(node, source.as_str(), offset)?.render(db)?;
-    Some(markdown_hover(markdown, span, line_index))
+    Some(ls_types::Hover {
+        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
+            kind: ls_types::MarkupKind::Markdown,
+            value: markdown,
+        }),
+        range: Some(span.to_lsp_range(line_index)),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,20 +116,6 @@ impl<'a> HoverTarget<'a> {
             Self::LoadLibrary { name, span } => Some((library_markdown(db, &name)?, span)),
             Self::Symbol { name, kind, span } => Some((symbol_markdown(db, name, kind)?, span)),
         }
-    }
-}
-
-fn markdown_hover(
-    markdown: String,
-    span: Span,
-    line_index: &djls_source::LineIndex,
-) -> ls_types::Hover {
-    ls_types::Hover {
-        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
-            kind: ls_types::MarkupKind::Markdown,
-            value: markdown,
-        }),
-        range: Some(span.to_lsp_range(line_index)),
     }
 }
 
