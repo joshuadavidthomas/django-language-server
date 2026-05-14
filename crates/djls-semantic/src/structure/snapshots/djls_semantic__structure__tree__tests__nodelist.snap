@@ -8,109 +8,132 @@ nodes:
       start: 0
       length: 1
   - kind: Tag
+    name: extends
+    bits:
+      - "\"base.html\""
+    span:
+      start: 3
+      length: 21
+  - kind: Text
+    span:
+      start: 26
+      length: 1
+  - kind: Tag
+    name: load
+    bits:
+      - static
+      - i18n
+    span:
+      start: 29
+      length: 18
+  - kind: Text
+    span:
+      start: 49
+      length: 1
+  - kind: Tag
     name: block
     bits:
       - header
     span:
-      start: 3
+      start: 52
       length: 14
   - kind: Text
     span:
-      start: 19
+      start: 68
       length: 20
   - kind: Tag
     name: endblock
     bits:
       - header
     span:
-      start: 41
+      start: 90
       length: 17
   - kind: Text
     span:
-      start: 60
+      start: 109
       length: 2
   - kind: Tag
     name: if
     bits:
       - user.is_authenticated
     span:
-      start: 64
+      start: 113
       length: 26
   - kind: Text
     span:
-      start: 92
+      start: 141
       length: 16
   - kind: Variable
     var: user.name
     filters: []
     span:
-      start: 110
+      start: 159
       length: 11
   - kind: Text
     span:
-      start: 123
+      start: 172
       length: 9
   - kind: Tag
     name: if
     bits:
       - user.is_superuser
     span:
-      start: 134
+      start: 183
       length: 22
   - kind: Text
     span:
-      start: 158
+      start: 207
       length: 32
   - kind: Tag
     name: elif
     bits:
       - user.is_staff
     span:
-      start: 192
+      start: 241
       length: 20
   - kind: Text
     span:
-      start: 214
+      start: 263
       length: 34
   - kind: Tag
     name: else
     bits: []
     span:
-      start: 250
+      start: 299
       length: 6
   - kind: Text
     span:
-      start: 258
+      start: 307
       length: 39
   - kind: Tag
     name: endif
     bits: []
     span:
-      start: 299
+      start: 348
       length: 7
   - kind: Text
     span:
-      start: 308
+      start: 357
       length: 1
   - kind: Tag
     name: else
     bits: []
     span:
-      start: 311
+      start: 360
       length: 6
   - kind: Text
     span:
-      start: 319
+      start: 368
       length: 26
   - kind: Tag
     name: endif
     bits: []
     span:
-      start: 347
+      start: 396
       length: 7
   - kind: Text
     span:
-      start: 356
+      start: 405
       length: 2
   - kind: Tag
     name: for
@@ -119,29 +142,29 @@ nodes:
       - in
       - items
     span:
-      start: 360
+      start: 409
       length: 19
   - kind: Text
     span:
-      start: 381
+      start: 430
       length: 9
   - kind: Variable
     var: item
     filters: []
     span:
-      start: 392
+      start: 441
       length: 6
   - kind: Text
     span:
-      start: 400
+      start: 449
       length: 6
   - kind: Tag
     name: endfor
     bits: []
     span:
-      start: 408
+      start: 457
       length: 8
   - kind: Text
     span:
-      start: 418
+      start: 467
       length: 1

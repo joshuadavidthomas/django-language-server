@@ -51,6 +51,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
 - **Internal**: `LoadState` now borrows `&str` from `LoadedLibraries` instead of cloning strings, and `compute_loaded_libraries` returns a reference via `returns(ref)`. Eliminated all string allocations in `available_at`.
 - **Internal**: Consolidated `TagIndex` from three separate tracked fields into a single `roles` map, reducing `classify` from 3 Salsa field accesses to 1. `TagClass` now borrows from Salsa storage instead of cloning.
+- **Internal**: Replaced template `BlockTree`/`SemanticForest` structure analysis with `TemplateTree`, a structural semantic projection used by opaque-region computation and future outline features.
 
 ### Removed
 

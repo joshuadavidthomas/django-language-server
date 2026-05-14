@@ -1,14 +1,9 @@
 use djls_source::Span;
+use djls_templates::tokens::TagDelimiter;
+use djls_templates::Node;
 use djls_templates::NodeList;
 
-use crate::structure::build_block_tree;
-use crate::structure::BlockId;
-use crate::structure::BlockNode;
-use crate::structure::Blocks;
-use crate::structure::BranchKind;
-use crate::structure::Region;
 use crate::Db;
-use crate::TagSpecs;
 
 /// Sorted, non-overlapping byte-offset spans where validation should be skipped.
 ///
@@ -50,91 +45,72 @@ impl OpaqueRegions {
 
 /// Compute opaque regions for a template by scanning for opaque block tags.
 ///
-/// Walks the block tree looking for tags whose `TagSpec` has `opaque: true`
-/// (e.g., `{% verbatim %}`, `{% comment %}`). The content between the opener
-/// and closer of such blocks is recorded as an opaque region.
+/// This uses a lightweight source-order scan instead of building a full
+/// `TemplateTree`.
 pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegions {
     let tag_specs = db.tag_specs();
-    let block_tree = build_block_tree(db, nodelist);
-    let blocks = block_tree.blocks(db);
     let mut spans = Vec::new();
+    let mut stack = Vec::new();
 
-    collect_opaque_spans_from_roots(block_tree.roots(db), blocks, tag_specs, &mut spans);
+    for node in nodelist.nodelist(db) {
+        let Node::Tag { name, span, .. } = node else {
+            continue;
+        };
+
+        if tag_specs.is_opener(name) {
+            let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+            stack.push(OpaqueFrame {
+                opener_name: name,
+                segment_start: body_start,
+                is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
+            });
+        } else if let Some(opener_name) = tag_specs.find_opener_for_closer(name) {
+            let Some(frame_idx) = stack
+                .iter()
+                .rposition(|frame| frame.opener_name == opener_name)
+            else {
+                continue;
+            };
+
+            while stack.len() > frame_idx + 1 {
+                stack.pop();
+            }
+
+            let Some(frame) = stack.pop() else {
+                continue;
+            };
+            push_opaque_segment(&frame, *span, &mut spans);
+        } else if tag_specs.is_intermediate(name) {
+            if let Some(frame) = stack.last_mut() {
+                let possible_openers = tag_specs.get_parent_tags_for_intermediate(name);
+                if possible_openers
+                    .iter()
+                    .any(|opener| opener == frame.opener_name)
+                {
+                    push_opaque_segment(frame, *span, &mut spans);
+                    frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+                }
+            }
+        }
+    }
 
     OpaqueRegions::new(spans)
 }
 
-fn collect_opaque_spans_from_roots(
-    roots: &[BlockId],
-    blocks: &Blocks,
-    tag_specs: &TagSpecs,
-    spans: &mut Vec<Span>,
-) {
-    for &root_id in roots {
-        let region = blocks.get(root_id.index());
-        collect_opaque_spans_from_region(region, blocks, tag_specs, spans);
+fn push_opaque_segment(frame: &OpaqueFrame<'_>, marker_span: Span, spans: &mut Vec<Span>) {
+    if frame.is_opaque {
+        let content_end = marker_span.start().saturating_sub(TagDelimiter::LENGTH_U32);
+        spans.push(Span::saturating_from_bounds_usize(
+            frame.segment_start as usize,
+            content_end as usize,
+        ));
     }
 }
 
-fn collect_opaque_spans_from_region(
-    region: &Region,
-    blocks: &Blocks,
-    tag_specs: &TagSpecs,
-    spans: &mut Vec<Span>,
-) {
-    for node in region.nodes() {
-        match node {
-            BlockNode::Branch {
-                tag,
-                body,
-                kind: BranchKind::Opener,
-                ..
-            } => {
-                // Nested block opener — check if it's opaque and recurse
-                if let Some(spec) = tag_specs.get(tag) {
-                    if spec.opaque {
-                        let body_region = blocks.get(body.index());
-                        collect_all_segment_spans(body_region, blocks, spans);
-                    }
-                }
-                let body_region = blocks.get(body.index());
-                collect_opaque_spans_from_region(body_region, blocks, tag_specs, spans);
-            }
-            BlockNode::Branch {
-                tag,
-                body,
-                kind: BranchKind::Segment,
-                ..
-            } => {
-                // Segment — if the tag is opaque, record the segment body as opaque
-                if let Some(spec) = tag_specs.get(tag) {
-                    if spec.opaque {
-                        let body_region = blocks.get(body.index());
-                        spans.push(*body_region.span());
-                    }
-                }
-                // Recurse into segment body for nested blocks
-                let body_region = blocks.get(body.index());
-                collect_opaque_spans_from_region(body_region, blocks, tag_specs, spans);
-            }
-            BlockNode::Leaf { .. } => {}
-        }
-    }
-}
-
-/// Collect spans from all segments in a container (for nested opaque blocks).
-fn collect_all_segment_spans(region: &Region, blocks: &Blocks, spans: &mut Vec<Span>) {
-    for node in region.nodes() {
-        if let BlockNode::Branch {
-            body,
-            kind: BranchKind::Segment,
-            ..
-        } = node
-        {
-            let body_region = blocks.get(body.index());
-            spans.push(*body_region.span());
-        }
-    }
+struct OpaqueFrame<'a> {
+    opener_name: &'a str,
+    segment_start: u32,
+    is_opaque: bool,
 }
 
 #[cfg(test)]
@@ -143,8 +119,12 @@ mod tests {
     use djls_source::Span;
     use djls_templates::parse_template;
 
-    use crate::structure::*;
+    use super::compute_opaque_regions;
+    use super::OpaqueRegions;
+    use crate::specs::tags::IntermediateTag;
     use crate::testing::TestDatabase;
+    use crate::EndTag;
+    use crate::TagSpec;
 
     fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
         let path = "test.html";
@@ -152,6 +132,38 @@ mod tests {
         let file = db.create_file(Utf8Path::new(path));
         let nodelist = parse_template(db, file).expect("should parse");
         compute_opaque_regions(db, nodelist)
+    }
+
+    #[test]
+    fn opaque_intermediate_segments_are_opaque() {
+        let mut specs = crate::builtin_tag_specs();
+        specs.insert(
+            "opaque_if".to_string(),
+            TagSpec {
+                module: "test".into(),
+                end_tag: Some(EndTag {
+                    name: "endopaque_if".into(),
+                    required: true,
+                }),
+                intermediate_tags: vec![IntermediateTag {
+                    name: "opaque_else".into(),
+                }]
+                .into(),
+                opaque: true,
+                extracted_rules: None,
+            },
+        );
+        let db = TestDatabase::new().with_specs(specs);
+        let path = "test.html";
+        let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
+        db.add_file(path, source);
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(&db, file).expect("should parse");
+        let regions = compute_opaque_regions(&db, nodelist);
+        let first = u32::try_from(source.find("first").unwrap()).unwrap();
+        let second = u32::try_from(source.find("second").unwrap()).unwrap();
+        assert!(regions.is_opaque(first));
+        assert!(regions.is_opaque(second));
     }
 
     #[test]
@@ -188,7 +200,6 @@ mod tests {
 
     #[test]
     fn test_opaque_regions_sorted() {
-        // Spans given out of order should still work
         let regions = OpaqueRegions::new(vec![
             Span::saturating_from_bounds_usize(30, 40),
             Span::saturating_from_bounds_usize(10, 20),
@@ -207,7 +218,6 @@ mod tests {
             !regions.is_empty(),
             "verbatim block should produce an opaque region"
         );
-        // trans is at byte offset 14 (after "{% verbatim %}")
         assert!(
             regions.is_opaque(14),
             "Position inside verbatim block should be opaque"
@@ -220,7 +230,6 @@ mod tests {
         let source = "{% comment %}inner content{% endcomment %}";
         let regions = compute_regions(&db, source);
         assert!(!regions.is_empty());
-        // Content is at byte offset 13 (after "{% comment %}")
         assert!(regions.is_opaque(13));
     }
 
@@ -240,26 +249,21 @@ mod tests {
         let db = TestDatabase::new();
         let source = "{% verbatim %}opaque{% endverbatim %}after";
         let regions = compute_regions(&db, source);
-        // "after" starts at position 37 (past the closing "}" of endverbatim at 36)
         assert!(!regions.is_opaque(37));
     }
 
     #[test]
     fn test_verbatim_opaque_boundaries() {
         let db = TestDatabase::new();
-        // "{% verbatim %}" = 0..14, "opaque" = 14..20, "{% endverbatim %}" = 20..37
         let source = "{% verbatim %}opaque{% endverbatim %}";
         let regions = compute_regions(&db, source);
 
-        // The opener tag itself is NOT opaque
         assert!(!regions.is_opaque(0), "start of opener tag");
         assert!(!regions.is_opaque(13), "end of opener tag");
 
-        // Content between the tags IS opaque
         assert!(regions.is_opaque(14), "first byte of opaque content");
         assert!(regions.is_opaque(19), "last byte of opaque content");
 
-        // The closer tag is NOT opaque
         assert!(!regions.is_opaque(20), "start of closer tag");
         assert!(!regions.is_opaque(35), "end of closer tag");
     }

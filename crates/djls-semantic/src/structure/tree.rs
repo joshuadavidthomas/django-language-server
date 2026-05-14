@@ -2,17 +2,16 @@ use djls_source::Span;
 use serde::Serialize;
 
 #[salsa::tracked]
-pub struct BlockTree<'db> {
+pub struct TemplateTree<'db> {
+    pub root: RegionId,
     #[returns(ref)]
-    pub roots: Vec<BlockId>,
-    #[returns(ref)]
-    pub blocks: Blocks,
+    pub regions: Regions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
-pub struct BlockId(u32);
+pub struct RegionId(u32);
 
-impl BlockId {
+impl RegionId {
     #[must_use]
     pub fn new(id: u32) -> Self {
         Self(id)
@@ -30,108 +29,81 @@ impl BlockId {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize)]
-pub struct Blocks(Vec<Region>);
+pub struct Regions(Vec<TemplateRegion>);
 
-impl Blocks {
+impl Regions {
     #[must_use]
-    pub fn get(&self, id: usize) -> &Region {
-        &self.0[id]
+    pub fn get(&self, id: RegionId) -> &TemplateRegion {
+        &self[id]
     }
-}
 
-impl IntoIterator for Blocks {
-    type Item = Region;
-    type IntoIter = std::vec::IntoIter<Region>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a Blocks {
-    type Item = &'a Region;
-    type IntoIter = std::slice::Iter<'a, Region>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a mut Blocks {
-    type Item = &'a mut Region;
-    type IntoIter = std::slice::IterMut<'a, Region>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter_mut()
-    }
-}
-
-impl Blocks {
-    pub fn iter(&self) -> std::slice::Iter<'_, Region> {
+    pub fn iter(&self) -> std::slice::Iter<'_, TemplateRegion> {
         self.0.iter()
     }
 
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Region> {
-        self.0.iter_mut()
-    }
-
-    /// Allocate a new region in the block tree.
+    /// Allocate a new region in the template tree.
     ///
     /// # Panics
     ///
-    /// Panics if the number of blocks exceeds `u32::MAX`.
-    pub fn alloc(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
+    /// Panics if the number of regions exceeds `u32::MAX`.
+    pub(crate) fn alloc(&mut self, span: Span, parent: Option<RegionId>) -> RegionId {
         let next = self.0.len();
-        let id = u32::try_from(next).expect("too many blocks (overflow u32::MAX)");
-        self.0.push(Region::new(span, parent));
-        BlockId(id)
+        let id = u32::try_from(next).expect("too many regions (overflow u32::MAX)");
+        self.0.push(TemplateRegion::new(span, parent));
+        RegionId(id)
     }
 
-    pub fn extend_block(&mut self, id: BlockId, span: Span) {
-        self.block_mut(id).extend_span(span);
+    pub(crate) fn extend_region(&mut self, id: RegionId, span: Span) {
+        self.region_mut(id).extend_span(span);
     }
 
-    pub fn set_block_span(&mut self, id: BlockId, span: Span) {
-        self.block_mut(id).set_span(span);
-    }
-
-    pub fn finalize_block_span(&mut self, id: BlockId, end: u32) {
-        let block = self.block_mut(id);
-        let start = block.span().start();
-        block.set_span(Span::saturating_from_bounds_usize(
+    pub(crate) fn finalize_region_span(&mut self, id: RegionId, end: u32) {
+        let region = self.region_mut(id);
+        let start = region.span().start();
+        region.set_span(Span::saturating_from_bounds_usize(
             start as usize,
             end as usize,
         ));
     }
 
-    pub fn push_node(&mut self, target: BlockId, node: BlockNode) {
+    pub(crate) fn push_node(&mut self, target: RegionId, node: TemplateNode) {
         let span = node.span();
-        self.extend_block(target, span);
-        self.block_mut(target).nodes.push(node);
+        self.extend_region(target, span);
+        self.region_mut(target).nodes.push(node);
     }
 
-    fn block_mut(&mut self, id: BlockId) -> &mut Region {
+    fn region_mut(&mut self, id: RegionId) -> &mut TemplateRegion {
         let idx = id.index();
         &mut self.0[idx]
     }
 }
 
-impl std::ops::Index<BlockId> for Blocks {
-    type Output = Region;
-    fn index(&self, id: BlockId) -> &Self::Output {
+impl std::ops::Index<RegionId> for Regions {
+    type Output = TemplateRegion;
+
+    fn index(&self, id: RegionId) -> &Self::Output {
         &self.0[id.index()]
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-pub struct Region {
-    span: Span,
-    nodes: Vec<BlockNode>,
-    parent: Option<BlockId>,
+impl<'a> IntoIterator for &'a Regions {
+    type Item = &'a TemplateRegion;
+    type IntoIter = std::slice::Iter<'a, TemplateRegion>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
 }
 
-impl Region {
-    fn new(span: Span, parent: Option<BlockId>) -> Self {
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct TemplateRegion {
+    span: Span,
+    nodes: Vec<TemplateNode>,
+    parent: Option<RegionId>,
+}
+
+impl TemplateRegion {
+    fn new(span: Span, parent: Option<RegionId>) -> Self {
         Self {
             span,
             nodes: Vec::new(),
@@ -144,13 +116,18 @@ impl Region {
         &self.span
     }
 
-    pub fn set_span(&mut self, span: Span) {
-        self.span = span;
+    #[must_use]
+    pub fn nodes(&self) -> &[TemplateNode] {
+        &self.nodes
     }
 
     #[must_use]
-    pub fn nodes(&self) -> &Vec<BlockNode> {
-        &self.nodes
+    pub fn parent(&self) -> Option<RegionId> {
+        self.parent
+    }
+
+    pub(crate) fn set_span(&mut self, span: Span) {
+        self.span = span;
     }
 
     fn extend_span(&mut self, span: Span) {
@@ -161,50 +138,97 @@ impl Region {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-pub enum BranchKind {
+pub enum BlockRole {
+    /// A block tag attached to its parent region. Its body points to the
+    /// container region that owns the block's segments.
     Opener,
+    /// A block segment attached to a block container region. Its body points to
+    /// the content region for that segment.
     Segment,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-pub enum BlockNode {
-    Leaf {
-        label: String,
+pub enum TemplateNode {
+    /// A structural block node.
+    ///
+    /// Blocks are represented in two arena hops: an `Opener` node appears in
+    /// the parent content region and points to a container region; that
+    /// container owns one or more `Segment` nodes, each pointing to its content
+    /// region. This keeps intermediate tags like `elif`/`else` in source order
+    /// without nested ownership inside the Salsa-tracked tree.
+    Block {
+        tag: String,
+        bits: Vec<String>,
+        marker_span: Span,
+        full_span: Span,
+        body: RegionId,
+        role: BlockRole,
+    },
+    StandaloneTag {
+        tag: String,
+        bits: Vec<String>,
+        marker_span: Span,
+        full_span: Span,
+    },
+    Variable {
         span: Span,
     },
-    Branch {
-        tag: String,
-        marker_span: Span,
-        body: BlockId,
-        kind: BranchKind,
+    Comment {
+        span: Span,
+    },
+    Text {
+        span: Span,
+    },
+    Error {
+        span: Span,
+        full_span: Span,
     },
 }
 
-impl BlockNode {
+impl TemplateNode {
     fn span(&self) -> Span {
         match self {
-            BlockNode::Leaf { span, .. } => *span,
-            BlockNode::Branch { marker_span, .. } => *marker_span,
+            TemplateNode::Block { full_span, .. }
+            | TemplateNode::StandaloneTag { full_span, .. }
+            | TemplateNode::Error { full_span, .. } => *full_span,
+            TemplateNode::Variable { span }
+            | TemplateNode::Comment { span }
+            | TemplateNode::Text { span } => *span,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use djls_source::File;
     use djls_source::Span;
     use djls_templates::parse_template;
     use djls_templates::Node;
+    use rustc_hash::FxHashMap;
 
-    use crate::build_block_tree;
-    use crate::structure::snapshot::BlockTreeSnapshot;
+    use super::BlockRole;
+    use super::RegionId;
+    use super::TemplateNode;
+    use super::TemplateRegion;
+    use super::TemplateTree;
+    use crate::build_template_tree;
+    use crate::builtin_tag_specs;
+    use crate::structure::snapshot::TemplateTreeSnapshot;
     use crate::testing::TestDatabase;
+    use crate::EndTag;
+    use crate::TagSpec;
+    use crate::TagSpecs;
+    use crate::ValidationError;
 
     #[test]
-    fn test_block_tree_building() {
+    fn test_template_tree_building() {
         let db = TestDatabase::new();
 
-        let source = r"
+        let source = r#"
+{% extends "base.html" %}
+{% load static i18n %}
 {% block header %}
     <h1>Title</h1>
 {% endblock header %}
@@ -225,7 +249,7 @@ mod tests {
 {% for item in items %}
     <li>{{ item }}</li>
 {% endfor %}
-";
+"#;
 
         db.add_file("test.html", source);
         let file = File::new(&db, "test.html".into(), 0);
@@ -297,8 +321,217 @@ mod tests {
             NodeListView { nodes }
         };
         insta::assert_yaml_snapshot!("nodelist", nodelist_view);
-        let block_tree = build_block_tree(&db, nodelist);
-        insta::assert_yaml_snapshot!("blocktree", BlockTreeSnapshot::from_tree(block_tree, &db));
+        let template_tree = build_template_tree(&db, nodelist);
+        insta::assert_yaml_snapshot!(
+            "template_tree",
+            TemplateTreeSnapshot::from_tree(template_tree, &db)
+        );
+    }
+
+    fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db> {
+        db.add_file("test.html", source);
+        let file = File::new(db, "test.html".into(), 0);
+        let nodelist = parse_template(db, file).expect("should parse");
+        build_template_tree(db, nodelist)
+    }
+
+    fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn crate::Db) -> &'db TemplateRegion {
+        let root = tree.root(db);
+        tree.regions(db).get(root)
+    }
+
+    fn first_block_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
+        region
+            .nodes()
+            .iter()
+            .find_map(|node| match node {
+                TemplateNode::Block { tag, body, .. } if tag == tag_name => Some(*body),
+                _ => None,
+            })
+            .expect("expected block node")
+    }
+
+    fn segment_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
+        region
+            .nodes()
+            .iter()
+            .find_map(|node| match node {
+                TemplateNode::Block {
+                    tag,
+                    body,
+                    role: BlockRole::Segment,
+                    ..
+                } if tag == tag_name => Some(*body),
+                _ => None,
+            })
+            .expect("expected segment node")
+    }
+
+    #[test]
+    fn top_level_standalone_tags_are_visible() {
+        let db = TestDatabase::new();
+        let tree = tree_for_source(
+            &db,
+            r#"{% extends "base.html" %}
+{% load static i18n %}
+{% include "partials/nav.html" %}"#,
+        );
+
+        let tags = root_region(tree, &db)
+            .nodes()
+            .iter()
+            .filter_map(|node| match node {
+                TemplateNode::StandaloneTag { tag, bits, .. } => {
+                    Some((tag.as_str(), bits.as_slice()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(tags.len(), 3);
+        assert_eq!(tags[0], ("extends", &["\"base.html\"".to_string()][..]));
+        assert_eq!(
+            tags[1],
+            ("load", &["static".to_string(), "i18n".to_string()][..])
+        );
+        assert_eq!(
+            tags[2],
+            ("include", &["\"partials/nav.html\"".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn nested_blocks_preserve_hierarchy() {
+        let db = TestDatabase::new();
+        let tree = tree_for_source(
+            &db,
+            r"{% block content %}
+  {% block title %}Title{% endblock %}
+{% endblock %}",
+        );
+
+        let root = root_region(tree, &db);
+        let content_container = first_block_body(root, "block");
+        let content_body = segment_body(tree.regions(&db).get(content_container), "block");
+        let title_container = first_block_body(tree.regions(&db).get(content_body), "block");
+        let title_body = segment_body(tree.regions(&db).get(title_container), "block");
+
+        assert!(tree
+            .regions(&db)
+            .get(title_body)
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::Text { .. })));
+    }
+
+    #[test]
+    fn intermediate_tags_preserve_segments() {
+        let db = TestDatabase::new();
+        let tree = tree_for_source(
+            &db,
+            r"{% if user %}
+  Hello
+{% elif staff %}
+  Staff
+{% else %}
+  Anonymous
+{% endif %}",
+        );
+
+        let if_container = first_block_body(root_region(tree, &db), "if");
+        let segment_tags = tree
+            .regions(&db)
+            .get(if_container)
+            .nodes()
+            .iter()
+            .filter_map(|node| match node {
+                TemplateNode::Block {
+                    tag,
+                    bits,
+                    role: BlockRole::Segment,
+                    ..
+                } => Some((tag.as_str(), bits.as_slice())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(segment_tags.len(), 3);
+        assert_eq!(segment_tags[0], ("if", &["user".to_string()][..]));
+        assert_eq!(segment_tags[1], ("elif", &["staff".to_string()][..]));
+        assert_eq!(segment_tags[2], ("else", &[][..]));
+    }
+
+    #[test]
+    fn standalone_tags_inside_blocks_attach_to_block_region() {
+        let db = TestDatabase::new();
+        let tree = tree_for_source(
+            &db,
+            r#"{% block content %}
+  {% include "card.html" %}
+{% endblock %}"#,
+        );
+
+        let content_container = first_block_body(root_region(tree, &db), "block");
+        let content_body = segment_body(tree.regions(&db).get(content_container), "block");
+        assert!(tree
+            .regions(&db)
+            .get(content_body)
+            .nodes()
+            .iter()
+            .any(|node| matches!(
+                node,
+                TemplateNode::StandaloneTag { tag, bits, .. }
+                    if tag == "include" && bits == &["\"card.html\"".to_string()]
+            )));
+    }
+
+    #[test]
+    fn malformed_recovery_is_best_effort() {
+        let db = TestDatabase::new();
+        let source = r"{% block content %}
+  {% if user %}
+{% endblock %}";
+
+        db.add_file("test.html", source);
+        let file = File::new(&db, "test.html".into(), 0);
+        let nodelist = parse_template(&db, file).expect("should parse");
+        let tree = build_template_tree(&db, nodelist);
+        let errors =
+            build_template_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);
+
+        assert!(root_region(tree, &db)
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::Block { tag, .. } if tag == "block")));
+        assert!(errors.iter().any(
+            |error| matches!(error.0, ValidationError::UnclosedTag { ref tag, .. } if tag == "if")
+        ));
+    }
+
+    #[test]
+    fn custom_block_tags_from_specs_are_blocks() {
+        let mut specs = builtin_tag_specs();
+        specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+            "partialdef".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("django_template_partials.templatetags.partials"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endpartialdef"),
+                    required: true,
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: None,
+            },
+        )])));
+        let db = TestDatabase::new().with_specs(specs);
+        let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
+
+        assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(
+            node,
+            TemplateNode::Block { tag, bits, .. }
+                if tag == "partialdef" && bits == &["card".to_string()]
+        )));
     }
 
     #[test]
@@ -315,7 +548,7 @@ mod tests {
         let file = File::new(&db, "test.html".into(), 0);
         let nodelist = parse_template(&db, file).expect("should parse");
         let errors =
-            build_block_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);
+            build_template_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);
         assert_eq!(errors.len(), 1);
         assert!(
             matches!(

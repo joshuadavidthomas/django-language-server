@@ -3,6 +3,9 @@ use djls_templates::NodeList;
 
 use crate::Db;
 
+// TODO: Consider removing this Visitor-based abstraction once TemplateTree
+// needs source-node links. Directly iterating `NodeList` with indices would let
+// structural nodes reference parser nodes without making TemplateTree lossless.
 /// Semantic model builder that operates on Django template nodelists.
 ///
 /// This trait defines the interface for building semantic models from Django templates.
