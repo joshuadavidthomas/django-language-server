@@ -41,7 +41,7 @@ struct RegionSnapshot {
 #[derive(Serialize)]
 #[serde(tag = "node")]
 enum NodeSnapshot {
-    Block {
+    BlockTag {
         tag: String,
         bits: Vec<String>,
         marker_span: djls_source::Span,
@@ -80,7 +80,7 @@ impl From<&TemplateNode> for NodeSnapshot {
                 full_span,
                 body,
                 role,
-            } => Self::Block {
+            } => Self::BlockTag {
                 tag: tag.clone(),
                 bits: bits.clone(),
                 marker_span: *marker_span,

@@ -1,12 +1,10 @@
 use djls_source::Span;
-use djls_templates::NodeList;
 
-use crate::structure::build_template_tree;
 use crate::structure::BlockRole;
-use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateRegion;
+use crate::structure::TemplateTree;
 use crate::Db;
 use crate::TagSpecs;
 
@@ -53,25 +51,15 @@ impl OpaqueRegions {
 /// Walks the template tree looking for tags whose `TagSpec` has `opaque: true`
 /// (e.g., `{% verbatim %}`, `{% comment %}`). The content between the opener
 /// and closer of such blocks is recorded as an opaque region.
-pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegions {
+pub fn compute_opaque_regions(db: &dyn Db, template_tree: TemplateTree<'_>) -> OpaqueRegions {
     let tag_specs = db.tag_specs();
-    let template_tree = build_template_tree(db, nodelist);
     let regions = template_tree.regions(db);
     let mut spans = Vec::new();
+    let root = &regions[template_tree.root(db)];
 
-    collect_opaque_spans_from_root(template_tree.root(db), regions, tag_specs, &mut spans);
+    collect_opaque_spans_from_region(root, regions, tag_specs, &mut spans);
 
     OpaqueRegions::new(spans)
-}
-
-fn collect_opaque_spans_from_root(
-    root_id: RegionId,
-    regions: &Regions,
-    tag_specs: &TagSpecs,
-    spans: &mut Vec<Span>,
-) {
-    let region = regions.get(root_id.index());
-    collect_opaque_spans_from_region(region, regions, tag_specs, spans);
 }
 
 fn collect_opaque_spans_from_region(
@@ -85,7 +73,7 @@ fn collect_opaque_spans_from_region(
             tag, body, role, ..
         } = node
         {
-            let body_region = regions.get(body.index());
+            let body_region = &regions[*body];
             if matches!(role, BlockRole::Segment) {
                 if let Some(spec) = tag_specs.get(tag) {
                     if spec.opaque {
@@ -112,7 +100,8 @@ mod tests {
         db.add_file(path, source);
         let file = db.create_file(Utf8Path::new(path));
         let nodelist = parse_template(db, file).expect("should parse");
-        compute_opaque_regions(db, nodelist)
+        let tree = crate::build_template_tree(db, nodelist);
+        compute_opaque_regions(db, tree)
     }
 
     #[test]

@@ -102,11 +102,13 @@ impl<'db> TemplateTreeBuilder<'db> {
     }
 
     fn active_region(&self) -> RegionId {
-        get_active_segment(&self.stack).unwrap_or(self.root)
+        self.stack
+            .last()
+            .map_or(self.root, |frame| frame.segment_body)
     }
 
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
-        let full_span = expand_marker(span);
+        let full_span = span.expand_template_tag_marker();
         match self.index.classify(self.db, name) {
             TagClass::Opener => {
                 let parent = self.active_region();
@@ -176,9 +178,13 @@ impl<'db> TemplateTreeBuilder<'db> {
         closer_bits: &[String],
         span: Span,
     ) {
-        let marker_span = expand_marker(span);
+        let marker_span = span.expand_template_tag_marker();
 
-        let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) else {
+        let Some(frame_idx) = self
+            .stack
+            .iter()
+            .rposition(|frame| frame.opener_name == opener_name)
+        else {
             self.ops.push(TreeOp::AccumulateDiagnostic(
                 ValidationError::OrphanedClosingTag {
                     tag: closer_name.to_string(),
@@ -262,7 +268,7 @@ impl<'db> TemplateTreeBuilder<'db> {
         bits: &[String],
         span: Span,
     ) {
-        let full_span = expand_marker(span);
+        let full_span = span.expand_template_tag_marker();
 
         if let Some(frame) = self.stack.last() {
             if possible_openers.contains(&frame.opener_name) {
@@ -293,23 +299,25 @@ impl<'db> TemplateTreeBuilder<'db> {
 
                 self.stack.last_mut().unwrap().segment_body = new_segment_id;
             } else {
-                let context = format_intermediate_context(possible_openers);
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::OrphanedTag {
-                        tag: tag_name.to_string(),
-                        context,
-                        span: full_span,
-                    }));
+                self.accumulate_orphaned_intermediate(tag_name, possible_openers, full_span);
             }
         } else {
-            let context = format_intermediate_context(possible_openers);
-            self.ops
-                .push(TreeOp::AccumulateDiagnostic(ValidationError::OrphanedTag {
-                    tag: tag_name.to_string(),
-                    context,
-                    span: full_span,
-                }));
+            self.accumulate_orphaned_intermediate(tag_name, possible_openers, full_span);
         }
+    }
+
+    fn accumulate_orphaned_intermediate(
+        &mut self,
+        tag_name: &str,
+        possible_openers: &[String],
+        span: Span,
+    ) {
+        self.ops
+            .push(TreeOp::AccumulateDiagnostic(ValidationError::OrphanedTag {
+                tag: tag_name.to_string(),
+                context: describe_intermediate_parent(possible_openers),
+                span,
+            }));
     }
 
     fn finish(&mut self) {
@@ -330,11 +338,17 @@ impl<'db> TemplateTreeBuilder<'db> {
     }
 }
 
-fn expand_marker(span: Span) -> Span {
-    span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
+trait TemplateTagSpanExt {
+    fn expand_template_tag_marker(self) -> Span;
 }
 
-fn format_intermediate_context(possible_openers: &[String]) -> String {
+impl TemplateTagSpanExt for Span {
+    fn expand_template_tag_marker(self) -> Span {
+        self.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
+    }
+}
+
+fn describe_intermediate_parent(possible_openers: &[String]) -> String {
     match possible_openers.len() {
         0 => "an open parent block".to_string(),
         1 => format!("an open '{}' block", possible_openers[0]),
@@ -352,16 +366,6 @@ fn format_intermediate_context(possible_openers: &[String]) -> String {
             format!("one of these open blocks: {prefix}, or {last}")
         }
     }
-}
-
-type TreeStack = Vec<TreeFrame>;
-
-fn get_active_segment(stack: &TreeStack) -> Option<RegionId> {
-    stack.last().map(|frame| frame.segment_body)
-}
-
-fn find_frame_from_opener(stack: &TreeStack, opener_name: &str) -> Option<usize> {
-    stack.iter().rposition(|f| f.opener_name == opener_name)
 }
 
 struct TreeFrame {

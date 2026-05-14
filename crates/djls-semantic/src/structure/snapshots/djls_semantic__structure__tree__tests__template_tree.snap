@@ -42,7 +42,7 @@ regions:
         span:
           start: 49
           length: 1
-      - node: Block
+      - node: BlockTag
         tag: block
         bits:
           - header
@@ -58,7 +58,7 @@ regions:
         span:
           start: 109
           length: 2
-      - node: Block
+      - node: BlockTag
         tag: if
         bits:
           - user.is_authenticated
@@ -74,7 +74,7 @@ regions:
         span:
           start: 405
           length: 2
-      - node: Block
+      - node: BlockTag
         tag: for
         bits:
           - item
@@ -97,7 +97,7 @@ regions:
       length: 59
     parent: 0
     nodes:
-      - node: Block
+      - node: BlockTag
         tag: block
         bits:
           - header
@@ -123,7 +123,7 @@ regions:
       length: 294
     parent: 0
     nodes:
-      - node: Block
+      - node: BlockTag
         tag: if
         bits:
           - user.is_authenticated
@@ -135,7 +135,7 @@ regions:
           length: 30
         body: 4
         role: Segment
-      - node: Block
+      - node: BlockTag
         tag: else
         bits: []
         marker_span:
@@ -163,7 +163,7 @@ regions:
         span:
           start: 172
           length: 9
-      - node: Block
+      - node: BlockTag
         tag: if
         bits:
           - user.is_superuser
@@ -184,7 +184,7 @@ regions:
       length: 176
     parent: 4
     nodes:
-      - node: Block
+      - node: BlockTag
         tag: if
         bits:
           - user.is_superuser
@@ -196,7 +196,7 @@ regions:
           length: 26
         body: 6
         role: Segment
-      - node: Block
+      - node: BlockTag
         tag: elif
         bits:
           - user.is_staff
@@ -208,7 +208,7 @@ regions:
           length: 24
         body: 7
         role: Segment
-      - node: Block
+      - node: BlockTag
         tag: else
         bits: []
         marker_span:
@@ -260,7 +260,7 @@ regions:
       length: 60
     parent: 0
     nodes:
-      - node: Block
+      - node: BlockTag
         tag: for
         bits:
           - item

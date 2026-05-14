@@ -149,10 +149,10 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     }
 
     // 1. Structural analysis accumulates block-structure diagnostics.
-    build_template_tree(db, nodelist);
+    let template_tree = build_template_tree(db, nodelist);
 
-    // 2. Perform all other validations in a single walk
-    let opaque_regions = compute_opaque_regions(db, nodelist);
+    // 2. Perform all other validations in a single walk.
+    let opaque_regions = compute_opaque_regions(db, template_tree);
     let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
     validator.validate(nodes);
 }

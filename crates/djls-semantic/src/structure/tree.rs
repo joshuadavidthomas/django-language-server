@@ -33,8 +33,8 @@ pub struct Regions(Vec<TemplateRegion>);
 
 impl Regions {
     #[must_use]
-    pub fn get(&self, id: usize) -> &TemplateRegion {
-        &self.0[id]
+    pub fn get(&self, id: RegionId) -> &TemplateRegion {
+        &self[id]
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, TemplateRegion> {
@@ -337,7 +337,7 @@ mod tests {
 
     fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn crate::Db) -> &'db TemplateRegion {
         let root = tree.root(db);
-        tree.regions(db).get(root.index())
+        tree.regions(db).get(root)
     }
 
     fn first_block_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
@@ -412,14 +412,13 @@ mod tests {
 
         let root = root_region(tree, &db);
         let content_container = first_block_body(root, "block");
-        let content_body = segment_body(tree.regions(&db).get(content_container.index()), "block");
-        let title_container =
-            first_block_body(tree.regions(&db).get(content_body.index()), "block");
-        let title_body = segment_body(tree.regions(&db).get(title_container.index()), "block");
+        let content_body = segment_body(tree.regions(&db).get(content_container), "block");
+        let title_container = first_block_body(tree.regions(&db).get(content_body), "block");
+        let title_body = segment_body(tree.regions(&db).get(title_container), "block");
 
         assert!(tree
             .regions(&db)
-            .get(title_body.index())
+            .get(title_body)
             .nodes()
             .iter()
             .any(|node| matches!(node, TemplateNode::Text { .. })));
@@ -442,7 +441,7 @@ mod tests {
         let if_container = first_block_body(root_region(tree, &db), "if");
         let segment_tags = tree
             .regions(&db)
-            .get(if_container.index())
+            .get(if_container)
             .nodes()
             .iter()
             .filter_map(|node| match node {
@@ -473,10 +472,10 @@ mod tests {
         );
 
         let content_container = first_block_body(root_region(tree, &db), "block");
-        let content_body = segment_body(tree.regions(&db).get(content_container.index()), "block");
+        let content_body = segment_body(tree.regions(&db).get(content_container), "block");
         assert!(tree
             .regions(&db)
-            .get(content_body.index())
+            .get(content_body)
             .nodes()
             .iter()
             .any(|node| matches!(
