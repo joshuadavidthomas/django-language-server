@@ -35,6 +35,7 @@ pub enum OutlineKind {
     FileReference,
     RouteReference,
     Variable,
+    Filter,
 }
 
 #[must_use]
@@ -192,29 +193,32 @@ struct VariableNode<'a> {
 impl VariableNode<'_> {
     fn outline_item(&self, span: Span) -> OutlineItem {
         OutlineItem {
-            label: variable_label(self.var, self.filters),
+            label: self.var.to_string(),
             detail: Some("variable".to_string()),
             kind: OutlineKind::Variable,
             span,
             selection_span: span,
-            children: Vec::new(),
+            children: self.filters.iter().map(filter_outline_item).collect(),
         }
     }
 }
 
-fn variable_label(var: &str, filters: &[Filter]) -> String {
-    let mut label = var.to_string();
-
-    for filter in filters {
-        label.push('|');
-        label.push_str(&filter.name);
-        if let Some(arg) = &filter.arg {
-            label.push(':');
-            label.push_str(arg);
-        }
+fn filter_outline_item(filter: &Filter) -> OutlineItem {
+    OutlineItem {
+        label: filter_label(filter),
+        detail: Some("filter".to_string()),
+        kind: OutlineKind::Filter,
+        span: filter.span,
+        selection_span: filter.span,
+        children: Vec::new(),
     }
+}
 
-    label
+fn filter_label(filter: &Filter) -> String {
+    filter.arg.as_ref().map_or_else(
+        || filter.name.clone(),
+        |arg| format!("{}:{}", filter.name, arg),
+    )
 }
 
 fn outline_items_for_standalone(
@@ -450,9 +454,11 @@ mod tests {
         let block_children = &outline.items[1].children;
         assert_eq!(
             labels(block_children),
-            vec!["user.username|lower", "if items", "images/logo.png"]
+            vec!["user.username", "if items", "images/logo.png"]
         );
         assert_eq!(block_children[0].kind, OutlineKind::Variable);
+        assert_eq!(labels(&block_children[0].children), vec!["lower"]);
+        assert_eq!(block_children[0].children[0].kind, OutlineKind::Filter);
         assert_eq!(block_children[1].kind, OutlineKind::ControlFlow);
         assert_eq!(
             labels(&block_children[1].children),

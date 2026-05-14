@@ -56,7 +56,9 @@ fn symbol_kind(kind: OutlineKind) -> ls_types::SymbolKind {
         OutlineKind::ControlFlow => ls_types::SymbolKind::OPERATOR,
         OutlineKind::TemplateReference | OutlineKind::FileReference => ls_types::SymbolKind::FILE,
         OutlineKind::LibraryImport => ls_types::SymbolKind::MODULE,
-        OutlineKind::Callable | OutlineKind::RouteReference => ls_types::SymbolKind::FUNCTION,
+        OutlineKind::Callable | OutlineKind::RouteReference | OutlineKind::Filter => {
+            ls_types::SymbolKind::FUNCTION
+        }
         OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
     }
 }
@@ -88,12 +90,19 @@ mod tests {
                         children: Vec::new(),
                     },
                     OutlineItem {
-                        label: "user.username|lower".to_string(),
+                        label: "user.username".to_string(),
                         detail: Some("variable".to_string()),
                         kind: OutlineKind::Variable,
                         span: Span::saturating_from_bounds_usize(48, 71),
                         selection_span: Span::saturating_from_bounds_usize(48, 71),
-                        children: Vec::new(),
+                        children: vec![OutlineItem {
+                            label: "lower".to_string(),
+                            detail: Some("filter".to_string()),
+                            kind: OutlineKind::Filter,
+                            span: Span::saturating_from_bounds_usize(62, 67),
+                            selection_span: Span::saturating_from_bounds_usize(62, 67),
+                            children: Vec::new(),
+                        }],
                     },
                 ],
             }],
@@ -115,7 +124,10 @@ mod tests {
         assert_eq!(children[0].detail.as_deref(), Some("include"));
         assert_eq!(children[0].kind, ls_types::SymbolKind::FILE);
         assert_eq!(children[0].children, None);
-        assert_eq!(children[1].name, "user.username|lower");
+        assert_eq!(children[1].name, "user.username");
         assert_eq!(children[1].kind, ls_types::SymbolKind::VARIABLE);
+        let filters = children[1].children.as_ref().expect("filters should exist");
+        assert_eq!(filters[0].name, "lower");
+        assert_eq!(filters[0].kind, ls_types::SymbolKind::FUNCTION);
     }
 }
