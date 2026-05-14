@@ -61,9 +61,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        OffsetContext::BlockDefinition { .. }
-        | OffsetContext::BlockReference { .. }
-        | OffsetContext::Variable { .. }
+        OffsetContext::Variable { .. }
         | OffsetContext::Comment { .. }
         | OffsetContext::Text { .. }
         | OffsetContext::None => None,

@@ -20,14 +20,6 @@ pub(crate) enum OffsetContext {
         name: String,
         span: Span,
     },
-    BlockDefinition {
-        name: String,
-        span: Span,
-    },
-    BlockReference {
-        name: String,
-        span: Span,
-    },
     Tag {
         name: String,
         span: Span,
@@ -186,16 +178,6 @@ impl OffsetContext {
 
                 Self::None
             }
-
-            "block" => first_bit.map_or(Self::None, |(bit, span)| Self::BlockDefinition {
-                name: bit.clone(),
-                span,
-            }),
-
-            "endblock" => first_bit.map_or(Self::None, |(bit, span)| Self::BlockReference {
-                name: bit.clone(),
-                span,
-            }),
 
             _ => Self::None,
         }
@@ -363,42 +345,6 @@ mod tests {
         assert!(matches!(
             library,
             OffsetContext::LoadLibrary { name, .. } if name == "i18n"
-        ));
-    }
-
-    #[test]
-    fn block_contexts_apply_to_block_name() {
-        let source = "{% block content %}";
-        let result = OffsetContext::from_tag(
-            "block",
-            &["content".to_string()],
-            tag_span(source),
-            Span::new(3, 5),
-            source,
-            offset_of(source, "content"),
-        );
-
-        assert!(matches!(
-            result,
-            OffsetContext::BlockDefinition { name, .. } if name == "content"
-        ));
-    }
-
-    #[test]
-    fn endblock_contexts_apply_to_block_name() {
-        let source = "{% endblock content %}";
-        let result = OffsetContext::from_tag(
-            "endblock",
-            &["content".to_string()],
-            tag_span(source),
-            Span::new(3, 8),
-            source,
-            offset_of(source, "content"),
-        );
-
-        assert!(matches!(
-            result,
-            OffsetContext::BlockReference { name, .. } if name == "content"
         ));
     }
 
