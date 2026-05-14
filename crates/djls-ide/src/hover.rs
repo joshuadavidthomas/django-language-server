@@ -51,6 +51,23 @@ enum HoverTarget<'a> {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TagHoverKind {
+    TemplateReference,
+    Load,
+    Symbol,
+}
+
+impl TagHoverKind {
+    fn from_name(name: &str) -> Self {
+        match name {
+            "extends" | "include" => Self::TemplateReference,
+            "load" => Self::Load,
+            _ => Self::Symbol,
+        }
+    }
+}
+
 impl<'a> HoverTarget<'a> {
     fn from_node(node: &'a Node, source: &str, offset: Offset) -> Option<Self> {
         match node {
@@ -82,39 +99,43 @@ impl<'a> HoverTarget<'a> {
         source: &str,
         offset: Offset,
     ) -> Self {
-        if matches!(name, "extends" | "include") {
-            if let Some(bit) = bits.first() {
-                let content_start = content_span.start_usize();
-                let content_end = content_span.end() as usize;
-                if let Some(relative_start) = source
-                    .get(content_start..content_end)
-                    .and_then(|content| content.find(bit))
-                {
-                    let span = Span::saturating_from_parts_usize(
-                        content_start + relative_start,
-                        bit.len(),
-                    );
-                    if span.contains(offset) {
-                        let name = bit
-                            .trim()
-                            .strip_prefix('"')
-                            .and_then(|s| s.strip_suffix('"'))
-                            .or_else(|| {
-                                bit.trim()
-                                    .strip_prefix('\'')
-                                    .and_then(|s| s.strip_suffix('\''))
-                            })
-                            .unwrap_or_else(|| bit.trim());
-                        return Self::TemplateReference { name, span };
+        match TagHoverKind::from_name(name) {
+            TagHoverKind::TemplateReference => {
+                if let Some(bit) = bits.first() {
+                    let content_start = content_span.start_usize();
+                    let content_end = content_span.end() as usize;
+                    if let Some(relative_start) = source
+                        .get(content_start..content_end)
+                        .and_then(|content| content.find(bit))
+                    {
+                        let span = Span::saturating_from_parts_usize(
+                            content_start + relative_start,
+                            bit.len(),
+                        );
+                        if span.contains(offset) {
+                            let name = bit
+                                .trim()
+                                .strip_prefix('"')
+                                .and_then(|s| s.strip_suffix('"'))
+                                .or_else(|| {
+                                    bit.trim()
+                                        .strip_prefix('\'')
+                                        .and_then(|s| s.strip_suffix('\''))
+                                })
+                                .unwrap_or_else(|| bit.trim());
+                            return Self::TemplateReference { name, span };
+                        }
                     }
                 }
             }
-        }
-
-        if name == "load" {
-            if let Some((name, span)) = load_library_at_offset(source, content_span, bits, offset) {
-                return Self::LoadLibrary { name, span };
+            TagHoverKind::Load => {
+                if let Some((name, span)) =
+                    load_library_at_offset(source, content_span, bits, offset)
+                {
+                    return Self::LoadLibrary { name, span };
+                }
             }
+            TagHoverKind::Symbol => {}
         }
 
         Self::Symbol {
