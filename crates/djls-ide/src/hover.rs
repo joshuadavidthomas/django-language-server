@@ -160,29 +160,23 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         sections.push(doc);
     }
 
-    sections.extend(
-        candidates
-            .iter()
-            .filter_map(|candidate| match &candidate.origin {
-                InstalledSymbolOrigin::Builtin { .. } => None,
-                InstalledSymbolOrigin::Loadable { load_name } => {
-                    Some(format!("Requires `{{% load {} %}}`.", load_name.as_str()))
-                }
-            }),
-    );
+    sections.extend(candidates.iter().filter_map(|candidate| {
+        let InstalledSymbolOrigin::Loadable { load_name } = &candidate.origin else {
+            return None;
+        };
 
-    if let InstalledSymbolOrigin::Loadable { .. } = candidate.origin {
+        let required = format!("Requires `{{% load {} %}}`", load_name.as_str());
         match &candidate.symbol.definition {
             djls_semantic::SymbolDefinition::Module(module) => {
-                sections.push(format!("Defined in `{}`.", module.as_str()));
+                Some(format!("{required} (defined in `{}`).", module.as_str()))
             }
             djls_semantic::SymbolDefinition::Exact { file }
             | djls_semantic::SymbolDefinition::LibraryFile(file) => {
-                sections.push(format!("`{file}`"));
+                Some(format!("{required} ([{file}](file://{file}))."))
             }
-            djls_semantic::SymbolDefinition::Unknown => {}
+            djls_semantic::SymbolDefinition::Unknown => Some(format!("{required}.")),
         }
-    }
+    }));
 
     Some(sections.join("\n---\n"))
 }
@@ -370,7 +364,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.\n---\nDefined in `django.contrib.humanize.templatetags.humanize`."),
+            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}` (defined in `django.contrib.humanize.templatetags.humanize`)."),
         );
     }
 
