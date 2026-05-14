@@ -3,13 +3,7 @@ use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use djls_templates::NodeList;
 
-use crate::structure::BlockRole;
-use crate::structure::Regions;
-use crate::structure::TemplateNode;
-use crate::structure::TemplateRegion;
-use crate::structure::TemplateTree;
 use crate::Db;
-use crate::TagSpecs;
 
 /// Sorted, non-overlapping byte-offset spans where validation should be skipped.
 ///
@@ -52,8 +46,7 @@ impl OpaqueRegions {
 /// Compute opaque regions for a template by scanning for opaque block tags.
 ///
 /// This uses a lightweight source-order scan instead of building a full
-/// [`TemplateTree`]. Validation already builds a tree and can use
-/// [`compute_opaque_regions_from_tree`] to avoid duplicate structure work.
+/// `TemplateTree`.
 pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegions {
     let tag_specs = db.tag_specs();
     let mut spans = Vec::new();
@@ -86,24 +79,6 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
             }
         }
     }
-
-    OpaqueRegions::new(spans)
-}
-
-/// Compute opaque regions from an already-built template tree.
-///
-/// Use this when the caller already needs the `TemplateTree` for structural
-/// diagnostics or another semantic feature.
-pub(crate) fn compute_opaque_regions_from_tree(
-    db: &dyn Db,
-    template_tree: TemplateTree<'_>,
-) -> OpaqueRegions {
-    let tag_specs = db.tag_specs();
-    let regions = template_tree.regions(db);
-    let mut spans = Vec::new();
-    let root = &regions[template_tree.root(db)];
-
-    collect_opaque_spans_from_region(root, regions, tag_specs, &mut spans);
 
     OpaqueRegions::new(spans)
 }
@@ -148,51 +123,15 @@ struct OpaqueFrame<'a> {
     is_opaque: bool,
 }
 
-fn collect_opaque_spans_from_region(
-    region: &TemplateRegion,
-    regions: &Regions,
-    tag_specs: &TagSpecs,
-    spans: &mut Vec<Span>,
-) {
-    for node in region.nodes() {
-        if let TemplateNode::Block {
-            tag, body, role, ..
-        } = node
-        {
-            let body_region = &regions[*body];
-            if matches!(role, BlockRole::Opener) {
-                if let Some(spec) = tag_specs.get(tag) {
-                    if spec.opaque {
-                        collect_all_segment_spans(body_region, regions, spans);
-                    }
-                }
-            }
-            collect_opaque_spans_from_region(body_region, regions, tag_specs, spans);
-        }
-    }
-}
-
-fn collect_all_segment_spans(region: &TemplateRegion, regions: &Regions, spans: &mut Vec<Span>) {
-    for node in region.nodes() {
-        if let TemplateNode::Block {
-            body,
-            role: BlockRole::Segment,
-            ..
-        } = node
-        {
-            spans.push(*regions[*body].span());
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
     use djls_source::Span;
     use djls_templates::parse_template;
 
+    use super::compute_opaque_regions;
+    use super::OpaqueRegions;
     use crate::specs::tags::IntermediateTag;
-    use crate::structure::*;
     use crate::testing::TestDatabase;
     use crate::EndTag;
     use crate::TagSpec;
@@ -206,25 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn nodelist_and_tree_paths_match() {
-        let db = TestDatabase::new();
-        let path = "test.html";
-        db.add_file(
-            path,
-            "{% verbatim %}{% if user %}raw{% endif %}{% endverbatim %}",
-        );
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(&db, file).expect("should parse");
-        let tree = crate::build_template_tree(&db, nodelist);
-
-        assert_eq!(
-            compute_opaque_regions(&db, nodelist),
-            super::compute_opaque_regions_from_tree(&db, tree)
-        );
-    }
-
-    #[test]
-    fn nodelist_and_tree_paths_match_for_opaque_intermediate_segments() {
+    fn opaque_intermediate_segments_are_opaque() {
         let mut specs = crate::builtin_tag_specs();
         specs.insert(
             "opaque_if".to_string(),
@@ -248,10 +169,7 @@ mod tests {
         db.add_file(path, source);
         let file = db.create_file(Utf8Path::new(path));
         let nodelist = parse_template(&db, file).expect("should parse");
-        let tree = crate::build_template_tree(&db, nodelist);
         let regions = compute_opaque_regions(&db, nodelist);
-
-        assert_eq!(regions, super::compute_opaque_regions_from_tree(&db, tree));
         let first = u32::try_from(source.find("first").unwrap()).unwrap();
         let second = u32::try_from(source.find("second").unwrap()).unwrap();
         assert!(regions.is_opaque(first));
