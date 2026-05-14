@@ -237,54 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn context_variants_exist() {
-        let contexts = [
-            OffsetContext::TemplateReference {
-                name: "test.html".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::LoadLibrary {
-                name: "static".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::LoadSymbol {
-                name: "trans".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::BlockDefinition {
-                name: "content".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::BlockReference {
-                name: "content".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::Tag {
-                name: "if".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::Filter {
-                name: "title".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::Variable {
-                name: "user".to_string(),
-                filters: vec![Filter::new("title".to_string(), None, Span::new(0, 5))],
-                span: Span::new(0, 10),
-            },
-            OffsetContext::Comment {
-                content: "TODO".to_string(),
-                span: Span::new(0, 10),
-            },
-            OffsetContext::Text {
-                span: Span::new(0, 10),
-            },
-            OffsetContext::None,
-        ];
-        assert_eq!(contexts.len(), 11);
-    }
-
-    #[test]
     fn strip_template_reference_quotes_strips_double_quotes() {
         assert_eq!(
             strip_template_reference_quotes("\"base.html\""),
