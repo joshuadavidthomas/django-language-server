@@ -14,6 +14,7 @@ pub struct TemplateOutline {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
     pub label: String,
+    pub detail: Option<String>,
     pub kind: OutlineKind,
     pub span: Span,
     pub selection_span: Span,
@@ -23,10 +24,12 @@ pub struct OutlineItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutlineKind {
     Block,
+    Control,
     Extends,
     Include,
     Load,
     Callable,
+    Tag,
 }
 
 #[must_use]
@@ -61,24 +64,36 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
             role: BlockRole::Opener,
             ..
         } => {
-            let children = outline_items_for_region(regions, *body);
-            let Some(kind) = outline_kind_for_block(tag) else {
-                return children;
-            };
+            let children = outline_items_for_block_container(regions, *body, tag);
 
             vec![OutlineItem {
                 label: outline_label(tag, bits),
-                kind,
+                detail: Some(tag.clone()),
+                kind: outline_kind_for_block(tag),
                 span: *regions.get(*body).span(),
                 selection_span: *marker_span,
                 children,
             }]
         }
         TemplateNode::Block {
+            tag,
+            bits,
+            marker_span,
+            full_span,
             body,
             role: BlockRole::Segment,
-            ..
-        } => outline_items_for_region(regions, *body),
+        } => {
+            let children = outline_items_for_region(regions, *body);
+
+            vec![OutlineItem {
+                label: outline_label(tag, bits),
+                detail: Some(tag.clone()),
+                kind: OutlineKind::Control,
+                span: *full_span,
+                selection_span: *marker_span,
+                children,
+            }]
+        }
         TemplateNode::StandaloneTag {
             tag,
             bits,
@@ -87,6 +102,7 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
         } => outline_kind_for_standalone(tag).map_or_else(Vec::new, |kind| {
             vec![OutlineItem {
                 label: outline_label(tag, bits),
+                detail: Some(tag.clone()),
                 kind,
                 span: *full_span,
                 selection_span: *marker_span,
@@ -100,11 +116,32 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
     }
 }
 
-fn outline_kind_for_block(tag: &str) -> Option<OutlineKind> {
+fn outline_items_for_block_container(
+    regions: &Regions,
+    container: crate::structure::RegionId,
+    opener_tag: &str,
+) -> Vec<OutlineItem> {
+    regions
+        .get(container)
+        .nodes()
+        .iter()
+        .flat_map(|node| match node {
+            TemplateNode::Block {
+                tag,
+                body,
+                role: BlockRole::Segment,
+                ..
+            } if tag == opener_tag => outline_items_for_region(regions, *body),
+            _ => outline_items_for_node(regions, node),
+        })
+        .collect()
+}
+
+fn outline_kind_for_block(tag: &str) -> OutlineKind {
     match tag {
-        "block" => Some(OutlineKind::Block),
-        "macro" | "partialdef" => Some(OutlineKind::Callable),
-        _ => None,
+        "block" => OutlineKind::Block,
+        "macro" | "partialdef" => OutlineKind::Callable,
+        _ => OutlineKind::Control,
     }
 }
 
@@ -113,6 +150,7 @@ fn outline_kind_for_standalone(tag: &str) -> Option<OutlineKind> {
         "extends" => Some(OutlineKind::Extends),
         "include" => Some(OutlineKind::Include),
         "load" => Some(OutlineKind::Load),
+        "static" | "url" => Some(OutlineKind::Tag),
         _ => None,
     }
 }
@@ -121,7 +159,7 @@ fn outline_label(tag: &str, bits: &[String]) -> String {
     if bits.is_empty() {
         tag.to_string()
     } else {
-        format!("{} {}", tag, bits.join(" "))
+        bits.join(" ")
     }
 }
 
@@ -165,11 +203,7 @@ mod tests {
 
         assert_eq!(
             labels(&outline.items),
-            vec![
-                "extends \"base.html\"",
-                "load static i18n",
-                "include \"partials/nav.html\"",
-            ]
+            vec!["\"base.html\"", "static i18n", "\"partials/nav.html\""]
         );
         assert_eq!(
             outline
@@ -183,6 +217,14 @@ mod tests {
                 OutlineKind::Include,
             ]
         );
+        assert_eq!(
+            outline
+                .items
+                .iter()
+                .map(|item| item.detail.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("extends"), Some("load"), Some("include")]
+        );
     }
 
     #[test]
@@ -195,8 +237,8 @@ mod tests {
 {% endblock %}",
         );
 
-        assert_eq!(labels(&outline.items), vec!["block content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["block title"]);
+        assert_eq!(labels(&outline.items), vec!["content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["title"]);
     }
 
     #[test]
@@ -209,11 +251,8 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["block content"]);
-        assert_eq!(
-            labels(&outline.items[0].children),
-            vec!["include \"card.html\""]
-        );
+        assert_eq!(labels(&outline.items), vec!["content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["\"card.html\""]);
     }
 
     #[test]
@@ -235,8 +274,35 @@ mod tests {
         let db = TestDatabase::new().with_specs(specs);
         let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
-        assert_eq!(labels(&outline.items), vec!["partialdef card"]);
+        assert_eq!(labels(&outline.items), vec!["card"]);
         assert_eq!(outline.items[0].kind, OutlineKind::Callable);
+    }
+
+    #[test]
+    fn control_structure_inside_blocks_is_visible() {
+        let db = TestDatabase::new();
+        let outline = outline_for_source(
+            &db,
+            r#"{% load static %}
+{% block content %}
+  {% if items %}
+    {% for item in items %}<li>{{ item.name }}</li>{% endfor %}
+  {% else %}
+    <p>No items found.</p>
+  {% endif %}
+  <img src="{% static 'images/logo.png' %}" alt="Logo">
+{% endblock %}"#,
+        );
+
+        assert_eq!(labels(&outline.items), vec!["static", "content"]);
+        let block_children = &outline.items[1].children;
+        assert_eq!(labels(block_children), vec!["items", "'images/logo.png'"]);
+        assert_eq!(block_children[0].kind, OutlineKind::Control);
+        assert_eq!(
+            labels(&block_children[0].children),
+            vec!["item in items", "else"]
+        );
+        assert_eq!(block_children[1].kind, OutlineKind::Tag);
     }
 
     #[test]
@@ -249,7 +315,11 @@ mod tests {
     {% block title %}Title",
         );
 
-        assert_eq!(labels(&outline.items), vec!["block content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["block title"]);
+        assert_eq!(labels(&outline.items), vec!["content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["user"]);
+        assert_eq!(
+            labels(&outline.items[0].children[0].children),
+            vec!["title"]
+        );
     }
 }

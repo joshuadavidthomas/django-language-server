@@ -40,7 +40,7 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
     #[allow(deprecated)]
     ls_types::DocumentSymbol {
         name: item.label.clone(),
-        detail: None,
+        detail: item.detail.clone(),
         kind: symbol_kind(item.kind),
         tags: None,
         deprecated: None,
@@ -53,9 +53,10 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
 fn symbol_kind(kind: OutlineKind) -> ls_types::SymbolKind {
     match kind {
         OutlineKind::Block => ls_types::SymbolKind::NAMESPACE,
+        OutlineKind::Control => ls_types::SymbolKind::OBJECT,
         OutlineKind::Extends | OutlineKind::Include => ls_types::SymbolKind::MODULE,
         OutlineKind::Load => ls_types::SymbolKind::PACKAGE,
-        OutlineKind::Callable => ls_types::SymbolKind::FUNCTION,
+        OutlineKind::Callable | OutlineKind::Tag => ls_types::SymbolKind::FUNCTION,
     }
 }
 
@@ -71,12 +72,14 @@ mod tests {
         let line_index = LineIndex::from(source);
         let outline = TemplateOutline {
             items: vec![OutlineItem {
-                label: "block content".to_string(),
+                label: "content".to_string(),
+                detail: Some("block".to_string()),
                 kind: OutlineKind::Block,
                 span: Span::saturating_from_bounds_usize(0, source.len() - 1),
                 selection_span: Span::saturating_from_bounds_usize(3, 18),
                 children: vec![OutlineItem {
-                    label: "include \"card.html\"".to_string(),
+                    label: "\"card.html\"".to_string(),
+                    detail: Some("include".to_string()),
                     kind: OutlineKind::Include,
                     span: Span::saturating_from_bounds_usize(22, 47),
                     selection_span: Span::saturating_from_bounds_usize(25, 45),
@@ -88,7 +91,8 @@ mod tests {
         let symbols = outline_to_document_symbols(&outline, &line_index);
 
         assert_eq!(symbols.len(), 1);
-        assert_eq!(symbols[0].name, "block content");
+        assert_eq!(symbols[0].name, "content");
+        assert_eq!(symbols[0].detail.as_deref(), Some("block"));
         assert_eq!(symbols[0].kind, ls_types::SymbolKind::NAMESPACE);
         assert_eq!(symbols[0].range.start.line, 0);
         assert_eq!(symbols[0].range.end.line, 2);
@@ -96,7 +100,8 @@ mod tests {
 
         let children = symbols[0].children.as_ref().expect("children should exist");
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "include \"card.html\"");
+        assert_eq!(children[0].name, "\"card.html\"");
+        assert_eq!(children[0].detail.as_deref(), Some("include"));
         assert_eq!(children[0].kind, ls_types::SymbolKind::MODULE);
         assert_eq!(children[0].children, None);
     }
