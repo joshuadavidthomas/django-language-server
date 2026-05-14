@@ -77,7 +77,7 @@ Semantic analysis. This is where Django knowledge meets the parsed template, and
 It takes the flat node list from `djls-templates` and does two things:
 
 1. Builds a `TemplateTree`, a structural semantic projection over the flat parser stream. The tree records source spans, tag bits, block hierarchy, intermediate segments (`{% elif %}`, `{% else %}`), standalone tags, and non-tag regions. Structural errors (unclosed tags, orphaned intermediates, mismatched block names) are accumulated as `ValidationError`s during construction.
-2. Runs the `TemplateValidator`, a single-pass validator over the flat node list that checks load scoping, argument counts, filter arity, `{% if %}` expression syntax, and `{% extends %}` positioning. It skips nodes inside opaque regions (`{% verbatim %}`, `{% comment %}`), which are computed from the `TemplateTree`.
+2. Runs the `TemplateValidator`, a single-pass validator over the flat node list that checks load scoping, argument counts, filter arity, `{% if %}` expression syntax, and `{% extends %}` positioning. It skips nodes inside opaque regions (`{% verbatim %}`, `{% comment %}`), using the already-built `TemplateTree` to compute those regions during validation.
 
 `TemplateTree` is not intended to be a lossless syntax tree. Parser-owned details that do not affect structure, such as variable filter payloads or exact parse errors, remain available from the original `NodeList`. If a future semantic pass needs both tree hierarchy and parser payloads, the preferred direction is to link tree nodes back to source `NodeList` indices rather than copying every parser field into the tree.
 
@@ -182,7 +182,7 @@ When a template file opens or changes, it flows through a series of stages. Each
 1. **Lexing** — tokenizes template text into tag, variable, comment, and text tokens.
 2. **Parsing** — produces a flat `NodeList`. Parse errors become `Node::Error` entries and are also emitted via `TemplateErrorAccumulator`.
 3. **Structural analysis** — builds a `TemplateTree` from the flat list, matching openers (`{% if %}`) with intermediates (`{% elif %}`, `{% else %}`) and closers (`{% endif %}`). The tree preserves standalone top-level tags and non-tag spans as well as block hierarchy. Structural errors (unclosed tags, orphaned intermediates) accumulate as `ValidationError`s.
-4. **Validation** — a single-pass validator checks load scoping, argument counts, filter arity, expression syntax, `{% extends %}` rules. Opaque regions (`{% verbatim %}`, `{% comment %}`) are derived from the `TemplateTree`, and validation skips nodes inside those regions. Errors accumulate as `ValidationError`s.
+4. **Validation** — a single-pass validator checks load scoping, argument counts, filter arity, expression syntax, `{% extends %}` rules. Opaque regions (`{% verbatim %}`, `{% comment %}`) are derived from the already-built `TemplateTree`, and validation skips nodes inside those regions. Errors accumulate as `ValidationError`s.
 5. **Diagnostics** — `collect_diagnostics` in `djls-ide` retrieves accumulated errors from both the parsing and validation accumulators, converts them to LSP diagnostics, and applies severity overrides from the diagnostics configuration.
 
 The key insight is that no stage blocks on errors from a previous stage. A template full of syntax errors still gets structural analysis on its valid portions, and a template with structural problems still gets validation on the tags that parsed correctly.

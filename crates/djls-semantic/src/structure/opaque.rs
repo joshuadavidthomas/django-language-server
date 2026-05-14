@@ -1,4 +1,7 @@
 use djls_source::Span;
+use djls_templates::tokens::TagDelimiter;
+use djls_templates::Node;
+use djls_templates::NodeList;
 
 use crate::structure::BlockRole;
 use crate::structure::Regions;
@@ -48,10 +51,53 @@ impl OpaqueRegions {
 
 /// Compute opaque regions for a template by scanning for opaque block tags.
 ///
-/// Walks the template tree looking for tags whose `TagSpec` has `opaque: true`
-/// (e.g., `{% verbatim %}`, `{% comment %}`). The content between the opener
-/// and closer of such blocks is recorded as an opaque region.
-pub fn compute_opaque_regions(db: &dyn Db, template_tree: TemplateTree<'_>) -> OpaqueRegions {
+/// This uses a lightweight source-order scan instead of building a full
+/// [`TemplateTree`]. Validation already builds a tree and can use
+/// [`compute_opaque_regions_from_tree`] to avoid duplicate structure work.
+pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegions {
+    let tag_specs = db.tag_specs();
+    let mut spans = Vec::new();
+    let mut stack = Vec::new();
+
+    for node in nodelist.nodelist(db) {
+        let Node::Tag { name, span, .. } = node else {
+            continue;
+        };
+
+        if tag_specs.is_opener(name) {
+            let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+            stack.push(OpaqueFrame {
+                opener_name: name,
+                segment_start: body_start,
+                is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
+            });
+        } else if let Some(opener_name) = tag_specs.find_opener_for_closer(name) {
+            close_opaque_frame(&mut stack, &mut spans, &opener_name, *span);
+        } else if tag_specs.is_intermediate(name) {
+            if let Some(frame) = stack.last_mut() {
+                let possible_openers = tag_specs.get_parent_tags_for_intermediate(name);
+                if possible_openers
+                    .iter()
+                    .any(|opener| opener == frame.opener_name)
+                {
+                    push_opaque_segment(frame, *span, &mut spans);
+                    frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+                }
+            }
+        }
+    }
+
+    OpaqueRegions::new(spans)
+}
+
+/// Compute opaque regions from an already-built template tree.
+///
+/// Use this when the caller already needs the `TemplateTree` for structural
+/// diagnostics or another semantic feature.
+pub(crate) fn compute_opaque_regions_from_tree(
+    db: &dyn Db,
+    template_tree: TemplateTree<'_>,
+) -> OpaqueRegions {
     let tag_specs = db.tag_specs();
     let regions = template_tree.regions(db);
     let mut spans = Vec::new();
@@ -60,6 +106,46 @@ pub fn compute_opaque_regions(db: &dyn Db, template_tree: TemplateTree<'_>) -> O
     collect_opaque_spans_from_region(root, regions, tag_specs, &mut spans);
 
     OpaqueRegions::new(spans)
+}
+
+fn close_opaque_frame(
+    stack: &mut Vec<OpaqueFrame<'_>>,
+    spans: &mut Vec<Span>,
+    opener_name: &str,
+    span: Span,
+) {
+    let Some(frame_idx) = stack
+        .iter()
+        .rposition(|frame| frame.opener_name == opener_name)
+    else {
+        return;
+    };
+
+    while stack.len() > frame_idx + 1 {
+        stack.pop();
+    }
+
+    let Some(frame) = stack.pop() else {
+        return;
+    };
+
+    push_opaque_segment(&frame, span, spans);
+}
+
+fn push_opaque_segment(frame: &OpaqueFrame<'_>, marker_span: Span, spans: &mut Vec<Span>) {
+    if frame.is_opaque {
+        let content_end = marker_span.start().saturating_sub(TagDelimiter::LENGTH_U32);
+        spans.push(Span::saturating_from_bounds_usize(
+            frame.segment_start as usize,
+            content_end as usize,
+        ));
+    }
+}
+
+struct OpaqueFrame<'a> {
+    opener_name: &'a str,
+    segment_start: u32,
+    is_opaque: bool,
 }
 
 fn collect_opaque_spans_from_region(
@@ -100,8 +186,25 @@ mod tests {
         db.add_file(path, source);
         let file = db.create_file(Utf8Path::new(path));
         let nodelist = parse_template(db, file).expect("should parse");
-        let tree = crate::build_template_tree(db, nodelist);
-        compute_opaque_regions(db, tree)
+        compute_opaque_regions(db, nodelist)
+    }
+
+    #[test]
+    fn nodelist_and_tree_paths_match() {
+        let db = TestDatabase::new();
+        let path = "test.html";
+        db.add_file(
+            path,
+            "{% verbatim %}{% if user %}raw{% endif %}{% endverbatim %}",
+        );
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(&db, file).expect("should parse");
+        let tree = crate::build_template_tree(&db, nodelist);
+
+        assert_eq!(
+            compute_opaque_regions(&db, nodelist),
+            super::compute_opaque_regions_from_tree(&db, tree)
+        );
     }
 
     #[test]

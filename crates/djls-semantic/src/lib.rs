@@ -152,7 +152,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     let template_tree = build_template_tree(db, nodelist);
 
     // 2. Perform all other validations in a single walk.
-    let opaque_regions = compute_opaque_regions(db, template_tree);
+    let opaque_regions = structure::opaque::compute_opaque_regions_from_tree(db, template_tree);
     let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
     validator.validate(nodes);
 }

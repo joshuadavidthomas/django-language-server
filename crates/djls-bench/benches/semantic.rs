@@ -121,8 +121,7 @@ fn opaque_regions_cold(bencher: Bencher) {
         let mut opaque_files = 0;
         for file in &files {
             if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
-                let tree = djls_semantic::build_template_tree(&db, nodelist);
-                let regions = djls_semantic::compute_opaque_regions(&db, tree);
+                let regions = djls_semantic::compute_opaque_regions(&db, nodelist);
                 opaque_files += usize::from(!regions.is_empty());
             }
         }
