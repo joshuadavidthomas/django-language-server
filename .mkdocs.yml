@@ -32,7 +32,6 @@ nav:
   - Configuration:
       - configuration/index.md
   - Template Validation: template-validation.md
-  - Template Hover: template-hover.md
   - Clients:
       - clients/index.md
       - Neovim: clients/neovim.md
