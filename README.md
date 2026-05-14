@@ -39,7 +39,7 @@ A language server for the Django web framework.
   - [x] Template references for `{% extends %}` and `{% include %}`
   - [ ] Block and variable references
 - [x] **Folding ranges** - Fold Django template regions
-- [ ] **Hover** - View documentation and type info on hover
+- [x] **Hover** - View documentation for Django template tags, filters, libraries, and template references
 - [ ] **Rename** - Refactor names across files
 - [ ] **Code actions** - Quick fixes and refactorings
 - [ ] **Document symbols** - Outline view of template structure
@@ -70,6 +70,7 @@ Once configured, open any Django template file in your project to get:
 
 - Template tag and filter completions with snippets
 - Real-time syntax validation and diagnostics
+- Hover documentation for template tags, filters, libraries, and template references
 - Navigation to template definitions and references
 - Folding for Django template regions
 
