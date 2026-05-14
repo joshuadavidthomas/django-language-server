@@ -160,14 +160,27 @@ fn collect_opaque_spans_from_region(
         } = node
         {
             let body_region = &regions[*body];
-            if matches!(role, BlockRole::Segment) {
+            if matches!(role, BlockRole::Opener) {
                 if let Some(spec) = tag_specs.get(tag) {
                     if spec.opaque {
-                        spans.push(*body_region.span());
+                        collect_all_segment_spans(body_region, regions, spans);
                     }
                 }
             }
             collect_opaque_spans_from_region(body_region, regions, tag_specs, spans);
+        }
+    }
+}
+
+fn collect_all_segment_spans(region: &TemplateRegion, regions: &Regions, spans: &mut Vec<Span>) {
+    for node in region.nodes() {
+        if let TemplateNode::Block {
+            body,
+            role: BlockRole::Segment,
+            ..
+        } = node
+        {
+            spans.push(*regions[*body].span());
         }
     }
 }
@@ -178,8 +191,11 @@ mod tests {
     use djls_source::Span;
     use djls_templates::parse_template;
 
+    use crate::specs::tags::IntermediateTag;
     use crate::structure::*;
     use crate::testing::TestDatabase;
+    use crate::EndTag;
+    use crate::TagSpec;
 
     fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
         let path = "test.html";
@@ -205,6 +221,41 @@ mod tests {
             compute_opaque_regions(&db, nodelist),
             super::compute_opaque_regions_from_tree(&db, tree)
         );
+    }
+
+    #[test]
+    fn nodelist_and_tree_paths_match_for_opaque_intermediate_segments() {
+        let mut specs = crate::builtin_tag_specs();
+        specs.insert(
+            "opaque_if".to_string(),
+            TagSpec {
+                module: "test".into(),
+                end_tag: Some(EndTag {
+                    name: "endopaque_if".into(),
+                    required: true,
+                }),
+                intermediate_tags: vec![IntermediateTag {
+                    name: "opaque_else".into(),
+                }]
+                .into(),
+                opaque: true,
+                extracted_rules: None,
+            },
+        );
+        let db = TestDatabase::new().with_specs(specs);
+        let path = "test.html";
+        let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
+        db.add_file(path, source);
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(&db, file).expect("should parse");
+        let tree = crate::build_template_tree(&db, nodelist);
+        let regions = compute_opaque_regions(&db, nodelist);
+
+        assert_eq!(regions, super::compute_opaque_regions_from_tree(&db, tree));
+        let first = u32::try_from(source.find("first").unwrap()).unwrap();
+        let second = u32::try_from(source.find("second").unwrap()).unwrap();
+        assert!(regions.is_opaque(first));
+        assert!(regions.is_opaque(second));
     }
 
     #[test]
