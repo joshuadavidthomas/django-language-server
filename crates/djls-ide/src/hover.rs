@@ -112,7 +112,7 @@ fn render_symbol_hover(
         .flatten()
         .map(|candidate| {
             format!(
-                "Load with `{{% load {} %}}`.",
+                "Requires `{{% load {} %}}`.",
                 candidate.library_name.as_str()
             )
         })
@@ -166,7 +166,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
             .filter_map(|candidate| match &candidate.origin {
                 InstalledSymbolOrigin::Builtin { .. } => None,
                 InstalledSymbolOrigin::Loadable { load_name } => {
-                    Some(format!("Load with `{{% load {} %}}`.", load_name.as_str()))
+                    Some(format!("Requires `{{% load {} %}}`.", load_name.as_str()))
                 }
             }),
     );
@@ -174,7 +174,12 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
     if let InstalledSymbolOrigin::Loadable { .. } = candidate.origin {
         match &candidate.symbol.definition {
             djls_semantic::SymbolDefinition::Module(module) => {
-                sections.push(format!("```python\n{}\n```", module.as_str()));
+                let module = module.as_str();
+                let source = module.rsplit_once('.').map_or_else(
+                    || module.to_string(),
+                    |(parent, name)| format!("from {parent} import {name}"),
+                );
+                sections.push(format!("```python\n{source}\n```"));
             }
             djls_semantic::SymbolDefinition::Exact { file }
             | djls_semantic::SymbolDefinition::LibraryFile(file) => {
@@ -190,7 +195,19 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
 fn format_docstring(doc: &str) -> String {
     // Django's built-in tag and filter docstrings use reStructuredText examples
     // for template syntax, so hover fences those blocks as htmldjango.
-    let doc = doc.trim().replace("``", "`");
+    let doc = doc.trim_matches(['\n', '\r']);
+    let common_indent = doc
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let doc = doc
+        .lines()
+        .map(|line| line.get(common_indent..).unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("``", "`");
     let mut lines = Vec::new();
     let mut in_code_block = false;
     let mut pending_code_block = false;
@@ -198,19 +215,8 @@ fn format_docstring(doc: &str) -> String {
     for line in doc.lines() {
         let trimmed_end = line.trim_end();
         let trimmed = trimmed_end.trim_start();
-
-        if let Some(prefix) = trimmed_end.strip_suffix("::") {
-            let prefix = prefix.trim_end();
-            if prefix.is_empty() {
-                pending_code_block = true;
-            } else {
-                lines.push(format!("{prefix}:"));
-                pending_code_block = true;
-            }
-            continue;
-        }
-
         let is_indented = trimmed_end.starts_with("    ") || trimmed_end.starts_with('\t');
+
         if pending_code_block && trimmed_end.is_empty() {
             lines.push(String::new());
             continue;
@@ -231,6 +237,17 @@ fn format_docstring(doc: &str) -> String {
             }
             lines.push("```".to_string());
             in_code_block = false;
+        }
+
+        if let Some(prefix) = trimmed_end.strip_suffix("::") {
+            let prefix = prefix.trim_end();
+            if prefix.is_empty() {
+                pending_code_block = true;
+            } else {
+                lines.push(format!("{prefix}:"));
+                pending_code_block = true;
+            }
+            continue;
         }
 
         pending_code_block = false;
@@ -319,7 +336,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.")
+            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.")
         );
     }
 
@@ -357,7 +374,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.\n---\n```python\ndjango.contrib.humanize.templatetags.humanize\n```"),
+            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.\n---\n```python\nfrom django.contrib.humanize.templatetags import humanize\n```"),
         );
     }
 
@@ -371,6 +388,25 @@ mod tests {
             formatted,
             "Example:\n\n```htmldjango\n{% load static %}\n```"
         );
+    }
+
+    #[test]
+    fn format_docstring_dedents_docstring_before_fencing_examples() {
+        let doc = r#"    It is possible to store the translated string into a variable::
+
+        {% translate "this is a test" as var %}
+        {{ var }}
+
+    Contextual translations are also supported::
+
+        {% translate "this is a test" context "greeting" %}"#;
+
+        let formatted = format_docstring(doc);
+
+        assert!(formatted.contains("{{ var }}\n```"));
+        assert!(formatted.contains("Contextual translations are also supported:"));
+        assert!(formatted
+            .contains("```htmldjango\n{% translate \"this is a test\" context \"greeting\" %}"));
     }
 
     #[test]
