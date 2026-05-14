@@ -2108,6 +2108,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             }
             .with_completion_args(vec![CompletionArg {
@@ -2125,6 +2126,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             }
             .with_completion_args(vec![

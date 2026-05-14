@@ -157,6 +157,7 @@ impl TagSpecs {
                         end_tag,
                         intermediate_tags: std::borrow::Cow::Owned(intermediate_tags),
                         opaque: block_spec.opaque,
+                        outline_role: Some(TagOutlineRole::Callable),
                         extracted_rules: None,
                     },
                 );
@@ -180,6 +181,7 @@ impl TagSpecs {
                         end_tag: None,
                         intermediate_tags: std::borrow::Cow::Borrowed(&[]),
                         opaque: false,
+                        outline_role: Some(TagOutlineRole::Callable),
                         extracted_rules: Some(tag_rule.clone()),
                     },
                 );
@@ -353,6 +355,7 @@ impl TagSpecs {
                         end_tag,
                         intermediate_tags: Cow::Owned(intermediate_tags),
                         opaque: false,
+                        outline_role: None,
                         extracted_rules,
                     },
                 );
@@ -406,11 +409,23 @@ pub struct TagSpec {
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
     pub opaque: bool,
+    pub outline_role: Option<TagOutlineRole>,
     /// Extraction-derived validation rules from Python AST analysis.
     ///
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `extracted_args`.
     pub extracted_rules: Option<std::sync::Arc<crate::TagRule>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TagOutlineRole {
+    TemplateReference,
+    LibraryImport,
+    NamedRegion,
+    ControlFlow,
+    Callable,
+    AssetReference,
+    RouteReference,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -512,7 +527,7 @@ pub struct IntermediateTag {
 /// need argument validation should construct specs with `extracted_rules`
 /// explicitly or use extraction on Python source.
 #[must_use]
-#[allow(clippy::similar_names)]
+#[allow(clippy::similar_names, clippy::too_many_lines)]
 pub fn builtin_tag_specs() -> TagSpecs {
     use std::borrow::Cow::Borrowed as B;
 
@@ -531,13 +546,24 @@ pub fn builtin_tag_specs() -> TagSpecs {
         end_tag: None,
         intermediate_tags: B(&[]),
         opaque: false,
+        outline_role: None,
+        extracted_rules: None,
+    };
+
+    let simple_role = |module: &'static str, outline_role: TagOutlineRole| TagSpec {
+        module: B(module),
+        end_tag: None,
+        intermediate_tags: B(&[]),
+        opaque: false,
+        outline_role: Some(outline_role),
         extracted_rules: None,
     };
 
     let block = |module: &'static str,
                  end: &'static str,
                  intermediates: Vec<IntermediateTag>,
-                 opaque: bool| TagSpec {
+                 opaque: bool,
+                 outline_role: TagOutlineRole| TagSpec {
         module: B(module),
         end_tag: Some(EndTag {
             name: B(end),
@@ -545,6 +571,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         }),
         intermediate_tags: Cow::Owned(intermediates),
         opaque,
+        outline_role: Some(outline_role),
         extracted_rules: None,
     };
 
@@ -553,63 +580,177 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // defaulttags
     specs.insert(
         "autoescape".into(),
-        block(dt, "endautoescape", vec![], false),
+        block(
+            dt,
+            "endautoescape",
+            vec![],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
     );
-    specs.insert("comment".into(), block(dt, "endcomment", vec![], true));
+    specs.insert(
+        "comment".into(),
+        block(dt, "endcomment", vec![], true, TagOutlineRole::ControlFlow),
+    );
     specs.insert("csrf_token".into(), simple(dt));
     specs.insert("cycle".into(), simple(dt));
     specs.insert("debug".into(), simple(dt));
-    specs.insert("filter".into(), block(dt, "endfilter", vec![], false));
+    specs.insert(
+        "filter".into(),
+        block(dt, "endfilter", vec![], false, TagOutlineRole::ControlFlow),
+    );
     specs.insert("firstof".into(), simple(dt));
-    specs.insert("for".into(), block(dt, "endfor", vec![im("empty")], false));
+    specs.insert(
+        "for".into(),
+        block(
+            dt,
+            "endfor",
+            vec![im("empty")],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
+    );
     specs.insert(
         "if".into(),
-        block(dt, "endif", vec![im("elif"), im("else")], false),
+        block(
+            dt,
+            "endif",
+            vec![im("elif"), im("else")],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
     );
     specs.insert(
         "ifchanged".into(),
-        block(dt, "endifchanged", vec![im("else")], false),
+        block(
+            dt,
+            "endifchanged",
+            vec![im("else")],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
     );
-    specs.insert("load".into(), simple(dt));
+    specs.insert(
+        "load".into(),
+        simple_role(dt, TagOutlineRole::LibraryImport),
+    );
     specs.insert("lorem".into(), simple(dt));
     specs.insert("now".into(), simple(dt));
     specs.insert("regroup".into(), simple(dt));
-    specs.insert("spaceless".into(), block(dt, "endspaceless", vec![], false));
+    specs.insert(
+        "spaceless".into(),
+        block(
+            dt,
+            "endspaceless",
+            vec![],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
+    );
     specs.insert("templatetag".into(), simple(dt));
-    specs.insert("url".into(), simple(dt));
-    specs.insert("verbatim".into(), block(dt, "endverbatim", vec![], true));
+    specs.insert(
+        "url".into(),
+        simple_role(dt, TagOutlineRole::RouteReference),
+    );
+    specs.insert(
+        "verbatim".into(),
+        block(dt, "endverbatim", vec![], true, TagOutlineRole::ControlFlow),
+    );
     specs.insert("widthratio".into(), simple(dt));
-    specs.insert("with".into(), block(dt, "endwith", vec![], false));
+    specs.insert(
+        "with".into(),
+        block(dt, "endwith", vec![], false, TagOutlineRole::ControlFlow),
+    );
 
     // loader_tags
-    specs.insert("block".into(), block(lt, "endblock", vec![], false));
-    specs.insert("extends".into(), simple(lt));
-    specs.insert("include".into(), simple(lt));
+    specs.insert(
+        "block".into(),
+        block(lt, "endblock", vec![], false, TagOutlineRole::NamedRegion),
+    );
+    specs.insert(
+        "extends".into(),
+        simple_role(lt, TagOutlineRole::TemplateReference),
+    );
+    specs.insert(
+        "include".into(),
+        simple_role(lt, TagOutlineRole::TemplateReference),
+    );
 
     // i18n
     specs.insert(
         "blocktrans".into(),
-        block(i18n, "endblocktrans", vec![im("plural")], false),
+        block(
+            i18n,
+            "endblocktrans",
+            vec![im("plural")],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
     );
     specs.insert(
         "blocktranslate".into(),
-        block(i18n, "endblocktranslate", vec![im("plural")], false),
+        block(
+            i18n,
+            "endblocktranslate",
+            vec![im("plural")],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
     );
     specs.insert("trans".into(), simple(i18n));
     specs.insert("translate".into(), simple(i18n));
 
     // cache
-    specs.insert("cache".into(), block(cache, "endcache", vec![], false));
+    specs.insert(
+        "cache".into(),
+        block(
+            cache,
+            "endcache",
+            vec![],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
+    );
 
     // l10n
-    specs.insert("localize".into(), block(l10n, "endlocalize", vec![], false));
+    specs.insert(
+        "localize".into(),
+        block(
+            l10n,
+            "endlocalize",
+            vec![],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
+    );
 
     // static
-    specs.insert("static".into(), simple(st));
+    specs.insert(
+        "static".into(),
+        simple_role(st, TagOutlineRole::AssetReference),
+    );
 
     // tz
-    specs.insert("localtime".into(), block(tz, "endlocaltime", vec![], false));
-    specs.insert("timezone".into(), block(tz, "endtimezone", vec![], false));
+    specs.insert(
+        "localtime".into(),
+        block(
+            tz,
+            "endlocaltime",
+            vec![],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
+    );
+    specs.insert(
+        "timezone".into(),
+        block(
+            tz,
+            "endtimezone",
+            vec![],
+            false,
+            TagOutlineRole::ControlFlow,
+        ),
+    );
 
     TagSpecs::new(specs)
 }
@@ -630,6 +771,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             },
         );
@@ -652,6 +794,7 @@ mod tests {
                     },
                 ]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             },
         );
@@ -674,6 +817,7 @@ mod tests {
                     }, // Note: else is shared
                 ]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             },
         );
@@ -689,6 +833,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             },
         );
@@ -838,6 +983,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             },
         );
@@ -851,6 +997,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: None,
                 extracted_rules: None,
             },
         );

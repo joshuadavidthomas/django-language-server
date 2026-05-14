@@ -5,6 +5,8 @@ use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
 use crate::Db;
+use crate::TagOutlineRole;
+use crate::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TemplateOutline {
@@ -23,13 +25,13 @@ pub struct OutlineItem {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutlineKind {
-    Block,
-    Control,
-    Extends,
-    Include,
-    Load,
+    NamedRegion,
+    ControlFlow,
+    TemplateReference,
+    LibraryImport,
     Callable,
-    Tag,
+    FileReference,
+    RouteReference,
 }
 
 #[must_use]
@@ -38,23 +40,28 @@ pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> TemplateOu
     let root = tree.root(db);
 
     TemplateOutline {
-        items: outline_items_for_region(regions, root),
+        items: outline_items_for_region(regions, db.tag_specs(), root),
     }
 }
 
 fn outline_items_for_region(
     regions: &Regions,
+    tag_specs: &TagSpecs,
     region: crate::structure::RegionId,
 ) -> Vec<OutlineItem> {
     regions
         .get(region)
         .nodes()
         .iter()
-        .flat_map(|node| outline_items_for_node(regions, node))
+        .flat_map(|node| outline_items_for_node(regions, tag_specs, node))
         .collect()
 }
 
-fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<OutlineItem> {
+fn outline_items_for_node(
+    regions: &Regions,
+    tag_specs: &TagSpecs,
+    node: &TemplateNode,
+) -> Vec<OutlineItem> {
     match node {
         TemplateNode::Block {
             tag,
@@ -64,12 +71,13 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
             role: BlockRole::Opener,
             ..
         } => {
-            let children = outline_items_for_block_container(regions, *body, tag);
+            let children = outline_items_for_block_container(regions, tag_specs, *body, tag);
+            let role = outline_role_for_block(tag_specs, tag);
 
             vec![OutlineItem {
-                label: outline_label(tag, bits),
+                label: outline_label(tag, bits, role),
                 detail: Some(tag.clone()),
-                kind: outline_kind_for_block(tag),
+                kind: outline_kind(role),
                 span: *regions.get(*body).span(),
                 selection_span: *marker_span,
                 children,
@@ -83,12 +91,13 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
             body,
             role: BlockRole::Segment,
         } => {
-            let children = outline_items_for_region(regions, *body);
+            let children = outline_items_for_region(regions, tag_specs, *body);
+            let role = TagOutlineRole::ControlFlow;
 
             vec![OutlineItem {
-                label: outline_label(tag, bits),
+                label: outline_label(tag, bits, role),
                 detail: Some(tag.clone()),
-                kind: OutlineKind::Control,
+                kind: outline_kind(role),
                 span: *full_span,
                 selection_span: *marker_span,
                 children,
@@ -99,16 +108,7 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
             bits,
             full_span,
             marker_span,
-        } => outline_kind_for_standalone(tag).map_or_else(Vec::new, |kind| {
-            vec![OutlineItem {
-                label: outline_label(tag, bits),
-                detail: Some(tag.clone()),
-                kind,
-                span: *full_span,
-                selection_span: *marker_span,
-                children: Vec::new(),
-            }]
-        }),
+        } => outline_items_for_standalone(tag_specs, tag, bits, *full_span, *marker_span),
         TemplateNode::Variable { .. }
         | TemplateNode::Comment { .. }
         | TemplateNode::Text { .. }
@@ -118,6 +118,7 @@ fn outline_items_for_node(regions: &Regions, node: &TemplateNode) -> Vec<Outline
 
 fn outline_items_for_block_container(
     regions: &Regions,
+    tag_specs: &TagSpecs,
     container: crate::structure::RegionId,
     opener_tag: &str,
 ) -> Vec<OutlineItem> {
@@ -131,36 +132,105 @@ fn outline_items_for_block_container(
                 body,
                 role: BlockRole::Segment,
                 ..
-            } if tag == opener_tag => outline_items_for_region(regions, *body),
-            _ => outline_items_for_node(regions, node),
+            } if tag == opener_tag => outline_items_for_region(regions, tag_specs, *body),
+            _ => outline_items_for_node(regions, tag_specs, node),
         })
         .collect()
 }
 
-fn outline_kind_for_block(tag: &str) -> OutlineKind {
-    match tag {
-        "block" => OutlineKind::Block,
-        "macro" | "partialdef" => OutlineKind::Callable,
-        _ => OutlineKind::Control,
+fn outline_items_for_standalone(
+    tag_specs: &TagSpecs,
+    tag: &str,
+    bits: &[String],
+    full_span: Span,
+    marker_span: Span,
+) -> Vec<OutlineItem> {
+    let Some(role) = outline_role_for_standalone(tag_specs, tag) else {
+        return Vec::new();
+    };
+
+    if role == TagOutlineRole::LibraryImport {
+        return bits
+            .iter()
+            .map(|bit| OutlineItem {
+                label: outline_target_label(std::slice::from_ref(bit)),
+                detail: Some(tag.to_string()),
+                kind: outline_kind(role),
+                span: full_span,
+                selection_span: marker_span,
+                children: Vec::new(),
+            })
+            .collect();
+    }
+
+    vec![OutlineItem {
+        label: outline_label(tag, bits, role),
+        detail: Some(tag.to_string()),
+        kind: outline_kind(role),
+        span: full_span,
+        selection_span: marker_span,
+        children: Vec::new(),
+    }]
+}
+
+fn outline_role_for_block(tag_specs: &TagSpecs, tag: &str) -> TagOutlineRole {
+    tag_specs
+        .get(tag)
+        .and_then(|spec| spec.outline_role)
+        .unwrap_or(TagOutlineRole::ControlFlow)
+}
+
+fn outline_role_for_standalone(tag_specs: &TagSpecs, tag: &str) -> Option<TagOutlineRole> {
+    tag_specs.get(tag).and_then(|spec| spec.outline_role)
+}
+
+fn outline_kind(role: TagOutlineRole) -> OutlineKind {
+    match role {
+        TagOutlineRole::TemplateReference => OutlineKind::TemplateReference,
+        TagOutlineRole::LibraryImport => OutlineKind::LibraryImport,
+        TagOutlineRole::NamedRegion => OutlineKind::NamedRegion,
+        TagOutlineRole::ControlFlow => OutlineKind::ControlFlow,
+        TagOutlineRole::Callable => OutlineKind::Callable,
+        TagOutlineRole::AssetReference => OutlineKind::FileReference,
+        TagOutlineRole::RouteReference => OutlineKind::RouteReference,
     }
 }
 
-fn outline_kind_for_standalone(tag: &str) -> Option<OutlineKind> {
-    match tag {
-        "extends" => Some(OutlineKind::Extends),
-        "include" => Some(OutlineKind::Include),
-        "load" => Some(OutlineKind::Load),
-        "static" | "url" => Some(OutlineKind::Tag),
-        _ => None,
+fn outline_label(tag: &str, bits: &[String], role: TagOutlineRole) -> String {
+    match role {
+        TagOutlineRole::TemplateReference
+        | TagOutlineRole::LibraryImport
+        | TagOutlineRole::NamedRegion
+        | TagOutlineRole::AssetReference
+        | TagOutlineRole::RouteReference => outline_target_label(bits),
+        TagOutlineRole::ControlFlow | TagOutlineRole::Callable => outline_tag_label(tag, bits),
     }
 }
 
-fn outline_label(tag: &str, bits: &[String]) -> String {
+fn outline_tag_label(tag: &str, bits: &[String]) -> String {
     if bits.is_empty() {
         tag.to_string()
     } else {
         format!("{} {}", tag, bits.join(" "))
     }
+}
+
+fn outline_target_label(bits: &[String]) -> String {
+    if bits.is_empty() {
+        return String::new();
+    }
+
+    bits.iter()
+        .map(|bit| strip_quotes(bit).unwrap_or(bit).to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn strip_quotes(value: &str) -> Option<&str> {
+    value
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
 }
 
 #[cfg(test)]
@@ -203,11 +273,7 @@ mod tests {
 
         assert_eq!(
             labels(&outline.items),
-            vec![
-                "extends \"base.html\"",
-                "load static i18n",
-                "include \"partials/nav.html\"",
-            ]
+            vec!["base.html", "static", "i18n", "partials/nav.html"]
         );
         assert_eq!(
             outline
@@ -216,9 +282,10 @@ mod tests {
                 .map(|item| item.kind)
                 .collect::<Vec<_>>(),
             vec![
-                OutlineKind::Extends,
-                OutlineKind::Load,
-                OutlineKind::Include,
+                OutlineKind::TemplateReference,
+                OutlineKind::LibraryImport,
+                OutlineKind::LibraryImport,
+                OutlineKind::TemplateReference,
             ]
         );
         assert_eq!(
@@ -227,7 +294,7 @@ mod tests {
                 .iter()
                 .map(|item| item.detail.as_deref())
                 .collect::<Vec<_>>(),
-            vec![Some("extends"), Some("load"), Some("include")]
+            vec![Some("extends"), Some("load"), Some("load"), Some("include")]
         );
     }
 
@@ -241,8 +308,8 @@ mod tests {
 {% endblock %}",
         );
 
-        assert_eq!(labels(&outline.items), vec!["block content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["block title"]);
+        assert_eq!(labels(&outline.items), vec!["content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["title"]);
     }
 
     #[test]
@@ -255,11 +322,8 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["block content"]);
-        assert_eq!(
-            labels(&outline.items[0].children),
-            vec!["include \"card.html\""]
-        );
+        assert_eq!(labels(&outline.items), vec!["content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["card.html"]);
     }
 
     #[test]
@@ -275,6 +339,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
+                outline_role: Some(crate::TagOutlineRole::Callable),
                 extracted_rules: None,
             },
         )])));
@@ -301,18 +366,15 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["load static", "block content"]);
+        assert_eq!(labels(&outline.items), vec!["static", "content"]);
         let block_children = &outline.items[1].children;
-        assert_eq!(
-            labels(block_children),
-            vec!["if items", "static 'images/logo.png'"]
-        );
-        assert_eq!(block_children[0].kind, OutlineKind::Control);
+        assert_eq!(labels(block_children), vec!["if items", "images/logo.png"]);
+        assert_eq!(block_children[0].kind, OutlineKind::ControlFlow);
         assert_eq!(
             labels(&block_children[0].children),
             vec!["for item in items", "else"]
         );
-        assert_eq!(block_children[1].kind, OutlineKind::Tag);
+        assert_eq!(block_children[1].kind, OutlineKind::FileReference);
     }
 
     #[test]
@@ -325,11 +387,11 @@ mod tests {
     {% block title %}Title",
         );
 
-        assert_eq!(labels(&outline.items), vec!["block content"]);
+        assert_eq!(labels(&outline.items), vec!["content"]);
         assert_eq!(labels(&outline.items[0].children), vec!["if user"]);
         assert_eq!(
             labels(&outline.items[0].children[0].children),
-            vec!["block title"]
+            vec!["title"]
         );
     }
 }
