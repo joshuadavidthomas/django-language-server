@@ -120,8 +120,18 @@ impl<'a> HoverTarget<'a> {
     fn render(self, db: &dyn djls_semantic::Db) -> Option<(String, Span)> {
         match self {
             Self::TemplateReference { raw_name, span } => {
-                let template_name = unquote(raw_name);
-                let markdown = match resolve_template(db, &template_name) {
+                let template_name = raw_name
+                    .trim()
+                    .strip_prefix('"')
+                    .and_then(|s| s.strip_suffix('"'))
+                    .or_else(|| {
+                        raw_name
+                            .trim()
+                            .strip_prefix('\'')
+                            .and_then(|s| s.strip_suffix('\''))
+                    })
+                    .unwrap_or_else(|| raw_name.trim());
+                let markdown = match resolve_template(db, template_name) {
                     ResolveResult::Found(template) => {
                         let path = template.path_buf(db);
                         format!("Resolved to `{path}`")
@@ -324,19 +334,9 @@ fn library_bit_at_offset(
     offset: Offset,
     libraries: &[String],
 ) -> Option<(String, Span)> {
-    bit_spans(source, content_span, bits)
-        .into_iter()
-        .find(|(bit, span)| libraries.iter().any(|library| library == bit) && span.contains(offset))
-}
-
-fn bit_spans(source: &str, content_span: Span, bits: &[String]) -> Vec<(String, Span)> {
     let content_start = content_span.start_usize();
     let content_end = content_span.end() as usize;
-    let Some(content) = source.get(content_start..content_end) else {
-        return Vec::new();
-    };
-
-    let mut spans = Vec::new();
+    let content = source.get(content_start..content_end)?;
     let mut search_start = 0;
 
     for bit in bits {
@@ -344,28 +344,14 @@ fn bit_spans(source: &str, content_span: Span, bits: &[String]) -> Vec<(String, 
             continue;
         };
         let relative_start = search_start + relative_start;
-        spans.push((
-            bit.clone(),
-            Span::saturating_from_parts_usize(content_start + relative_start, bit.len()),
-        ));
+        let span = Span::saturating_from_parts_usize(content_start + relative_start, bit.len());
+        if libraries.iter().any(|library| library == bit) && span.contains(offset) {
+            return Some((bit.clone(), span));
+        }
         search_start = relative_start + bit.len();
     }
 
-    spans
-}
-
-fn unquote(raw: &str) -> String {
-    let trimmed = raw.trim();
-    trimmed
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| {
-            trimmed
-                .strip_prefix('\'')
-                .and_then(|s| s.strip_suffix('\''))
-        })
-        .unwrap_or(trimmed)
-        .to_string()
+    None
 }
 
 #[cfg(test)]
@@ -479,12 +465,5 @@ Use the ``only`` argument::
 
         assert!(symbol.is_none());
         assert!(matches!(library, Some((library, _)) if library == "i18n"));
-    }
-
-    #[test]
-    fn unquote_strips_template_reference_quotes() {
-        assert_eq!(unquote("\"base.html\""), "base.html");
-        assert_eq!(unquote("'base.html'"), "base.html");
-        assert_eq!(unquote(" base.html "), "base.html");
     }
 }
