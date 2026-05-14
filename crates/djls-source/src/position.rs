@@ -166,6 +166,11 @@ impl Span {
     }
 
     #[must_use]
+    pub fn end_usize(self) -> usize {
+        self.end() as usize
+    }
+
+    #[must_use]
     pub fn start_offset(&self) -> Offset {
         Offset(self.start)
     }

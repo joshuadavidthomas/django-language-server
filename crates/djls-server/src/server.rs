@@ -194,6 +194,7 @@ impl LanguageServer for DjangoLanguageServer {
                 folding_range_provider: Some(ls_types::FoldingRangeProviderCapability::Simple(
                     true,
                 )),
+                hover_provider: Some(ls_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(ls_types::OneOf::Left(true)),
                 references_provider: Some(ls_types::OneOf::Left(true)),
                 ..Default::default()
@@ -374,6 +375,27 @@ impl LanguageServer for DjangoLanguageServer {
                 } else {
                     Some(ls_types::CompletionResponse::Array(completions))
                 }
+            })
+            .await;
+
+        Ok(response)
+    }
+
+    async fn hover(&self, params: ls_types::HoverParams) -> LspResult<Option<ls_types::Hover>> {
+        let response = self
+            .with_session(|session| {
+                let (file, offset) = session.position_for_document_request(
+                    &params.text_document_position_params.text_document,
+                    params.text_document_position_params.position,
+                    "hover",
+                )?;
+                let db = session.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return None;
+                }
+
+                djls_ide::hover(db, file, offset)
             })
             .await;
 

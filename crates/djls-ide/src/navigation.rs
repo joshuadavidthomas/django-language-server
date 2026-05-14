@@ -14,7 +14,10 @@ pub fn goto_definition(
     offset: Offset,
 ) -> Option<ls_types::GotoDefinitionResponse> {
     match OffsetContext::from_offset(db, file, offset) {
-        OffsetContext::TemplateReference(template_name) => {
+        OffsetContext::TemplateReference {
+            name: template_name,
+            ..
+        } => {
             tracing::debug!("Found template reference: '{}'", template_name);
 
             match resolve_template(db, &template_name) {
@@ -45,7 +48,10 @@ pub fn find_references(
     offset: Offset,
 ) -> Option<Vec<ls_types::Location>> {
     match OffsetContext::from_offset(db, file, offset) {
-        OffsetContext::TemplateReference(template_name) => {
+        OffsetContext::TemplateReference {
+            name: template_name,
+            ..
+        } => {
             tracing::debug!(
                 "Cursor is inside extends/include tag referencing: '{}'",
                 template_name

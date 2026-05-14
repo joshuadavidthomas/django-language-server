@@ -3,12 +3,14 @@ mod context;
 mod diagnostics;
 mod ext;
 mod folding;
+mod hover;
 mod navigation;
 mod snippets;
 
 pub use completions::handle_completion;
 pub use diagnostics::collect_diagnostics;
 pub use folding::collect_folding_ranges;
+pub use hover::hover;
 pub use navigation::find_references;
 pub use navigation::goto_definition;
 pub use snippets::generate_partial_snippet;
