@@ -15,10 +15,11 @@ use crate::ext::SpanExt;
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
     let (markdown, span) = match OffsetContext::from_offset(db, file, offset) {
         OffsetContext::TemplateReference { name, span } => {
-            let markdown = match resolve_template(db, &name) {
+            let mut sections = vec![format!("```htmldjango\n(template) \"{name}\"\n```")];
+            match resolve_template(db, &name) {
                 ResolveResult::Found(template) => {
                     let path = template.path_buf(db);
-                    format!("Resolved to `{path}`")
+                    sections.push(format!("Resolved to `{path}`"));
                 }
                 ResolveResult::NotFound { tried, .. } => {
                     // No tried paths means the project did not provide template loader
@@ -32,14 +33,20 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                         .map(|path| format!("- `{path}`"))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    format!("Template not found.\n\nTried:\n\n{tried}")
+                    sections.push(format!("Template not found.\n\nTried:\n\n{tried}"));
                 }
-            };
-            Some((markdown, span))
+            }
+            Some((sections.join("\n---\n"), span))
         }
         OffsetContext::LoadLibrary { name, span } => {
             let library = db.template_libraries().best_loadable_library_str(&name)?;
-            Some((library.module().as_str().to_string(), span))
+            Some((
+                format!(
+                    "```htmldjango\n(library) {name}\n```\n---\n`{}`",
+                    library.module().as_str()
+                ),
+                span,
+            ))
         }
         OffsetContext::LoadSymbol { name, span } => Some((
             render_symbol_hover(db.template_libraries(), &name, None)?,
@@ -94,13 +101,13 @@ fn render_symbol_hover(
         return render_installed_symbol_hover(&candidates);
     }
 
-    let name = TemplateSymbolName::parse(name).ok()?;
+    let symbol_name = TemplateSymbolName::parse(name).ok()?;
     let discovered = kinds
         .iter()
         .filter_map(|kind| {
             libraries
                 .discovered_symbol_candidates_by_name(*kind)
-                .and_then(|mut candidates| candidates.remove(&name))
+                .and_then(|mut candidates| candidates.remove(&symbol_name))
         })
         .flatten()
         .map(|candidate| {
@@ -114,7 +121,15 @@ fn render_symbol_hover(
     if discovered.is_empty() {
         None
     } else {
-        Some(discovered.join("\n"))
+        let kind = match kind {
+            Some(TemplateSymbolKind::Tag) => "tag",
+            Some(TemplateSymbolKind::Filter) => "filter",
+            None => "symbol",
+        };
+        Some(format!(
+            "```htmldjango\n({kind}) {name}\n```\n---\n{}",
+            discovered.join("\n")
+        ))
     }
 }
 
@@ -130,11 +145,11 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         .or_else(|| candidates.first())?;
 
     let name = candidate.symbol.name();
-    let signature = match candidate.symbol.kind {
-        TemplateSymbolKind::Tag => format!("{{% {name} %}}"),
-        TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
+    let kind = match candidate.symbol.kind {
+        TemplateSymbolKind::Tag => "tag",
+        TemplateSymbolKind::Filter => "filter",
     };
-    let mut sections = vec![format!("```htmldjango\n{signature}\n```")];
+    let mut sections = vec![format!("```htmldjango\n({kind}) {name}\n```")];
 
     if let Some(doc) = candidate
         .symbol
@@ -169,7 +184,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         }
     }
 
-    Some(sections.join("\n\n"))
+    Some(sections.join("\n---\n"))
 }
 
 fn format_docstring(doc: &str) -> String {
@@ -304,7 +319,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("Load with `{% load humanize %}`.")
+            Some("```htmldjango\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.")
         );
     }
 
@@ -323,7 +338,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n{% if %}\n```\n\nEvaluate a condition."),
+            Some("```htmldjango\n(tag) if\n```\n---\nEvaluate a condition."),
         );
     }
 
@@ -342,7 +357,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`.\n\n`django.contrib.humanize.templatetags.humanize`"),
+            Some("```htmldjango\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.\n---\n`django.contrib.humanize.templatetags.humanize`"),
         );
     }
 
