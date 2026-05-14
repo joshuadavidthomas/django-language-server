@@ -12,7 +12,7 @@ use djls_templates::parse_template;
 use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
-use crate::ext::MarkdownExt;
+use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
     let source = file.source(db);
@@ -24,7 +24,8 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
         .iter()
         .find(|node| node.full_span().contains(offset))?;
 
-    HoverTarget::from_node(node, source.as_str(), offset)?.into_lsp_hover(db, line_index)
+    let (markdown, span) = HoverTarget::from_node(node, source.as_str(), offset)?.render(db)?;
+    Some(markdown_hover(markdown, span, line_index))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,20 +102,28 @@ impl<'a> HoverTarget<'a> {
         }
     }
 
-    fn into_lsp_hover(
-        self,
-        db: &dyn djls_semantic::Db,
-        line_index: &djls_source::LineIndex,
-    ) -> Option<ls_types::Hover> {
-        let (markdown, span) = match self {
+    fn render(self, db: &dyn djls_semantic::Db) -> Option<(String, Span)> {
+        match self {
             Self::TemplateReference { raw_name, span } => {
-                (template_reference_markdown(db, &unquote(raw_name))?, span)
+                Some((template_reference_markdown(db, &unquote(raw_name))?, span))
             }
-            Self::LoadLibrary { name, span } => (library_markdown(db, &name)?, span),
-            Self::Symbol { name, kind, span } => (symbol_markdown(db, name, kind)?, span),
-        };
+            Self::LoadLibrary { name, span } => Some((library_markdown(db, &name)?, span)),
+            Self::Symbol { name, kind, span } => Some((symbol_markdown(db, name, kind)?, span)),
+        }
+    }
+}
 
-        Some(markdown.to_lsp_hover(span, line_index))
+fn markdown_hover(
+    markdown: String,
+    span: Span,
+    line_index: &djls_source::LineIndex,
+) -> ls_types::Hover {
+    ls_types::Hover {
+        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
+            kind: ls_types::MarkupKind::Markdown,
+            value: markdown,
+        }),
+        range: Some(span.to_lsp_range(line_index)),
     }
 }
 
