@@ -159,7 +159,7 @@ fn outline_label(tag: &str, bits: &[String]) -> String {
     if bits.is_empty() {
         tag.to_string()
     } else {
-        bits.join(" ")
+        format!("{} {}", tag, bits.join(" "))
     }
 }
 
@@ -203,7 +203,11 @@ mod tests {
 
         assert_eq!(
             labels(&outline.items),
-            vec!["\"base.html\"", "static i18n", "\"partials/nav.html\""]
+            vec![
+                "extends \"base.html\"",
+                "load static i18n",
+                "include \"partials/nav.html\"",
+            ]
         );
         assert_eq!(
             outline
@@ -237,8 +241,8 @@ mod tests {
 {% endblock %}",
         );
 
-        assert_eq!(labels(&outline.items), vec!["content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["title"]);
+        assert_eq!(labels(&outline.items), vec!["block content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["block title"]);
     }
 
     #[test]
@@ -251,8 +255,11 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["\"card.html\""]);
+        assert_eq!(labels(&outline.items), vec!["block content"]);
+        assert_eq!(
+            labels(&outline.items[0].children),
+            vec!["include \"card.html\""]
+        );
     }
 
     #[test]
@@ -274,7 +281,7 @@ mod tests {
         let db = TestDatabase::new().with_specs(specs);
         let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
-        assert_eq!(labels(&outline.items), vec!["card"]);
+        assert_eq!(labels(&outline.items), vec!["partialdef card"]);
         assert_eq!(outline.items[0].kind, OutlineKind::Callable);
     }
 
@@ -294,13 +301,16 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["static", "content"]);
+        assert_eq!(labels(&outline.items), vec!["load static", "block content"]);
         let block_children = &outline.items[1].children;
-        assert_eq!(labels(block_children), vec!["items", "'images/logo.png'"]);
+        assert_eq!(
+            labels(block_children),
+            vec!["if items", "static 'images/logo.png'"]
+        );
         assert_eq!(block_children[0].kind, OutlineKind::Control);
         assert_eq!(
             labels(&block_children[0].children),
-            vec!["item in items", "else"]
+            vec!["for item in items", "else"]
         );
         assert_eq!(block_children[1].kind, OutlineKind::Tag);
     }
@@ -315,11 +325,11 @@ mod tests {
     {% block title %}Title",
         );
 
-        assert_eq!(labels(&outline.items), vec!["content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["user"]);
+        assert_eq!(labels(&outline.items), vec!["block content"]);
+        assert_eq!(labels(&outline.items[0].children), vec!["if user"]);
         assert_eq!(
             labels(&outline.items[0].children[0].children),
-            vec!["title"]
+            vec!["block title"]
         );
     }
 }
