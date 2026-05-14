@@ -50,10 +50,14 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
     }
 }
 
-fn symbol_kind(_kind: OutlineKind) -> ls_types::SymbolKind {
-    // LSP has no symbol kind for template tags. Use a single neutral kind so
-    // clients do not render misleading categories like Package/Object/Function.
-    ls_types::SymbolKind::KEY
+fn symbol_kind(kind: OutlineKind) -> ls_types::SymbolKind {
+    match kind {
+        OutlineKind::Block => ls_types::SymbolKind::NAMESPACE,
+        OutlineKind::Control => ls_types::SymbolKind::OPERATOR,
+        OutlineKind::Extends | OutlineKind::Include => ls_types::SymbolKind::FILE,
+        OutlineKind::Load => ls_types::SymbolKind::MODULE,
+        OutlineKind::Callable | OutlineKind::Tag => ls_types::SymbolKind::FUNCTION,
+    }
 }
 
 #[cfg(test)]
@@ -89,7 +93,7 @@ mod tests {
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "block content");
         assert_eq!(symbols[0].detail.as_deref(), Some("block"));
-        assert_eq!(symbols[0].kind, ls_types::SymbolKind::KEY);
+        assert_eq!(symbols[0].kind, ls_types::SymbolKind::NAMESPACE);
         assert_eq!(symbols[0].range.start.line, 0);
         assert_eq!(symbols[0].range.end.line, 2);
         assert_eq!(symbols[0].selection_range.start.character, 3);
@@ -98,7 +102,7 @@ mod tests {
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "include \"card.html\"");
         assert_eq!(children[0].detail.as_deref(), Some("include"));
-        assert_eq!(children[0].kind, ls_types::SymbolKind::KEY);
+        assert_eq!(children[0].kind, ls_types::SymbolKind::FILE);
         assert_eq!(children[0].children, None);
     }
 }
