@@ -94,18 +94,21 @@ impl OffsetContext {
     }
 
     fn parse_template_reference(raw: &str) -> Self {
-        let trimmed = raw.trim();
-        let unquoted = trimmed
-            .strip_prefix('"')
-            .and_then(|s| s.strip_suffix('"'))
-            .or_else(|| {
-                trimmed
-                    .strip_prefix('\'')
-                    .and_then(|s| s.strip_suffix('\''))
-            })
-            .unwrap_or(trimmed);
-        Self::TemplateReference(unquoted.to_string())
+        Self::TemplateReference(strip_template_reference_quotes(raw).to_string())
     }
+}
+
+pub(crate) fn strip_template_reference_quotes(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    trimmed
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('\'')
+                .and_then(|s| s.strip_suffix('\''))
+        })
+        .unwrap_or(trimmed)
 }
 
 #[cfg(test)]

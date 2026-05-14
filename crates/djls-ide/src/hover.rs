@@ -3,6 +3,7 @@ use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::LoadKind;
 use djls_semantic::ResolveResult;
+use djls_semantic::TemplateLibraries;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
 use djls_source::File;
@@ -12,6 +13,7 @@ use djls_templates::parse_template;
 use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
+use crate::context::strip_template_reference_quotes;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
@@ -46,7 +48,7 @@ enum HoverTarget<'a> {
     },
     Symbol {
         name: &'a str,
-        kind: TemplateSymbolKind,
+        kind: Option<TemplateSymbolKind>,
         span: Span,
     },
 }
@@ -83,7 +85,7 @@ impl<'a> HoverTarget<'a> {
                 let span = filter.span.with_length_usize_saturating(filter.name.len());
                 span.contains(offset).then_some(Self::Symbol {
                     name: &filter.name,
-                    kind: TemplateSymbolKind::Filter,
+                    kind: Some(TemplateSymbolKind::Filter),
                     span,
                 })
             }),
@@ -103,57 +105,70 @@ impl<'a> HoverTarget<'a> {
             TagHoverKind::TemplateReference => {
                 if let Some(bit) = bits.first() {
                     let content_start = content_span.start_usize();
-                    let content_end = content_span.end() as usize;
-                    if let Some(relative_start) = source
-                        .get(content_start..content_end)
-                        .and_then(|content| content.find(bit))
-                    {
-                        let span = Span::saturating_from_parts_usize(
-                            content_start + relative_start,
-                            bit.len(),
-                        );
-                        if span.contains(offset) {
-                            let name = bit
-                                .trim()
-                                .strip_prefix('"')
-                                .and_then(|s| s.strip_suffix('"'))
-                                .or_else(|| {
-                                    bit.trim()
-                                        .strip_prefix('\'')
-                                        .and_then(|s| s.strip_suffix('\''))
-                                })
-                                .unwrap_or_else(|| bit.trim());
-                            return Self::TemplateReference { name, span };
+                    let content_end = content_span.end_usize();
+                    if let Some(content) = source.get(content_start..content_end) {
+                        if let Some((_relative_start, span)) =
+                            locate_bit_span(content, content_start, bit, 0)
+                        {
+                            if span.contains(offset) {
+                                let name = strip_template_reference_quotes(bit);
+                                return Self::TemplateReference { name, span };
+                            }
                         }
                     }
                 }
             }
             TagHoverKind::Load => {
-                let libraries = match djls_semantic::parse_load_bits(bits) {
-                    Some(LoadKind::FullLoad { libraries }) => libraries,
-                    Some(LoadKind::SelectiveImport { library, .. }) => vec![library],
-                    None => Vec::new(),
+                let Some(load_kind) = djls_semantic::parse_load_bits(bits) else {
+                    return Self::Symbol {
+                        name,
+                        kind: Some(TemplateSymbolKind::Tag),
+                        span: full_span,
+                    };
                 };
 
                 let content_start = content_span.start_usize();
-                let content_end = content_span.end() as usize;
+                let content_end = content_span.end_usize();
                 if let Some(content) = source.get(content_start..content_end) {
                     let mut search_start = 0;
                     for bit in bits {
-                        let Some(relative_start) = content[search_start..].find(bit) else {
+                        let Some((relative_start, span)) =
+                            locate_bit_span(content, content_start, bit, search_start)
+                        else {
                             continue;
                         };
-                        let relative_start = search_start + relative_start;
-                        let span = Span::saturating_from_parts_usize(
-                            content_start + relative_start,
-                            bit.len(),
-                        );
-                        if libraries.iter().any(|library| library == bit) && span.contains(offset) {
-                            return Self::LoadLibrary {
-                                name: bit.as_str(),
-                                span,
-                            };
+
+                        match &load_kind {
+                            LoadKind::FullLoad { libraries }
+                                if libraries.iter().any(|library| library == bit)
+                                    && span.contains(offset) =>
+                            {
+                                return Self::LoadLibrary {
+                                    name: bit.as_str(),
+                                    span,
+                                };
+                            }
+                            LoadKind::SelectiveImport { library, .. }
+                                if library == bit && span.contains(offset) =>
+                            {
+                                return Self::LoadLibrary {
+                                    name: bit.as_str(),
+                                    span,
+                                };
+                            }
+                            LoadKind::SelectiveImport { symbols, .. }
+                                if symbols.iter().any(|symbol| symbol == bit)
+                                    && span.contains(offset) =>
+                            {
+                                return Self::Symbol {
+                                    name: bit.as_str(),
+                                    kind: None,
+                                    span,
+                                };
+                            }
+                            LoadKind::FullLoad { .. } | LoadKind::SelectiveImport { .. } => {}
                         }
+
                         search_start = relative_start + bit.len();
                     }
                 }
@@ -163,7 +178,7 @@ impl<'a> HoverTarget<'a> {
 
         Self::Symbol {
             name,
-            kind: TemplateSymbolKind::Tag,
+            kind: Some(TemplateSymbolKind::Tag),
             span: full_span,
         }
     }
@@ -177,6 +192,8 @@ impl<'a> HoverTarget<'a> {
                         format!("Resolved to `{path}`")
                     }
                     ResolveResult::NotFound { tried, .. } => {
+                        // No tried paths means the project did not provide template loader
+                        // locations, so there is nothing useful to show.
                         if tried.is_empty() {
                             return None;
                         }
@@ -195,46 +212,67 @@ impl<'a> HoverTarget<'a> {
                 let library = db.template_libraries().best_loadable_library_str(name)?;
                 Some((library.module().as_str().to_string(), span))
             }
-            Self::Symbol { name, kind, span } => {
-                let libraries = db.template_libraries();
-                let candidates: Vec<_> = libraries
-                    .installed_symbol_candidates(kind)
-                    .into_iter()
-                    .filter(|candidate| candidate.symbol.name() == name)
-                    .collect();
-
-                let markdown = if candidates.is_empty() {
-                    let discovered = TemplateSymbolName::parse(name)
-                        .ok()
-                        .and_then(|name| {
-                            libraries
-                                .discovered_symbol_candidates_by_name(kind)
-                                .and_then(|mut candidates| candidates.remove(&name))
-                        })
-                        .map(|candidates| {
-                            candidates
-                                .into_iter()
-                                .map(|candidate| {
-                                    format!(
-                                        "Load with `{{% load {} %}}`.",
-                                        candidate.library_name.as_str()
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-
-                    if discovered.is_empty() {
-                        return None;
-                    }
-                    discovered.join("\n")
-                } else {
-                    render_installed_symbol_hover(&candidates)?
-                };
-
-                Some((markdown, span))
-            }
+            Self::Symbol { name, kind, span } => Some((
+                render_symbol_hover(db.template_libraries(), name, kind)?,
+                span,
+            )),
         }
+    }
+}
+
+fn locate_bit_span(
+    content: &str,
+    content_start: usize,
+    bit: &str,
+    search_start: usize,
+) -> Option<(usize, Span)> {
+    let relative_start = search_start + content[search_start..].find(bit)?;
+    let span = Span::saturating_from_parts_usize(content_start + relative_start, bit.len());
+    Some((relative_start, span))
+}
+
+fn render_symbol_hover(
+    libraries: &TemplateLibraries,
+    name: &str,
+    kind: Option<TemplateSymbolKind>,
+) -> Option<String> {
+    let kinds: &[TemplateSymbolKind] = match kind {
+        Some(TemplateSymbolKind::Tag) => &[TemplateSymbolKind::Tag],
+        Some(TemplateSymbolKind::Filter) => &[TemplateSymbolKind::Filter],
+        None => &[TemplateSymbolKind::Tag, TemplateSymbolKind::Filter],
+    };
+
+    let candidates: Vec<_> = kinds
+        .iter()
+        .flat_map(|kind| libraries.installed_symbol_candidates(*kind))
+        .filter(|candidate| candidate.symbol.name() == name)
+        .collect();
+
+    if !candidates.is_empty() {
+        return render_installed_symbol_hover(&candidates);
+    }
+
+    let name = TemplateSymbolName::parse(name).ok()?;
+    let discovered = kinds
+        .iter()
+        .filter_map(|kind| {
+            libraries
+                .discovered_symbol_candidates_by_name(*kind)
+                .and_then(|mut candidates| candidates.remove(&name))
+        })
+        .flatten()
+        .map(|candidate| {
+            format!(
+                "Load with `{{% load {} %}}`.",
+                candidate.library_name.as_str()
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if discovered.is_empty() {
+        None
+    } else {
+        Some(discovered.join("\n"))
     }
 }
 
@@ -293,6 +331,8 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
 }
 
 fn format_docstring(doc: &str) -> String {
+    // Django's built-in tag and filter docstrings use reStructuredText examples
+    // for template syntax, so hover fences those blocks as htmldjango.
     let doc = doc.trim().replace("``", "`");
     let mut lines = Vec::new();
     let mut in_code_block = false;
@@ -352,6 +392,16 @@ fn format_docstring(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use djls_semantic::Knowledge;
+    use djls_semantic::LibraryName;
+    use djls_semantic::LibraryOrigin;
+    use djls_semantic::PyModuleName;
+    use djls_semantic::TemplateLibraries;
+    use djls_semantic::TemplateLibrary;
+    use djls_templates::Filter;
+
     use super::*;
 
     fn candidate(
@@ -382,6 +432,168 @@ mod tests {
             },
             origin,
         }
+    }
+
+    fn tag_span(source: &str) -> Span {
+        Span::saturating_from_parts_usize(3, source.len() - 6)
+    }
+
+    fn offset_of(source: &str, needle: &str) -> Offset {
+        Offset::new(u32::try_from(source.find(needle).unwrap()).unwrap())
+    }
+
+    #[test]
+    fn target_extends_template_reference_on_template_name() {
+        let source = "{% extends \"base.html\" %}";
+        let node = Node::Tag {
+            name: "extends".to_string(),
+            bits: vec!["\"base.html\"".to_string()],
+            span: tag_span(source),
+        };
+
+        let target = HoverTarget::from_node(&node, source, offset_of(source, "base.html"));
+
+        assert!(matches!(
+            target,
+            Some(HoverTarget::TemplateReference {
+                name: "base.html",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn target_special_tag_name_falls_back_to_tag_symbol() {
+        let source = "{% load static %}";
+        let node = Node::Tag {
+            name: "load".to_string(),
+            bits: vec!["static".to_string()],
+            span: tag_span(source),
+        };
+
+        let target = HoverTarget::from_node(&node, source, offset_of(source, "load"));
+
+        assert!(matches!(
+            target,
+            Some(HoverTarget::Symbol {
+                name: "load",
+                kind: Some(TemplateSymbolKind::Tag),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn target_load_library_name() {
+        let source = "{% load static i18n %}";
+        let node = Node::Tag {
+            name: "load".to_string(),
+            bits: vec!["static".to_string(), "i18n".to_string()],
+            span: tag_span(source),
+        };
+
+        let target = HoverTarget::from_node(&node, source, offset_of(source, "static"));
+
+        assert!(matches!(
+            target,
+            Some(HoverTarget::LoadLibrary { name: "static", .. })
+        ));
+    }
+
+    #[test]
+    fn target_selective_load_symbol_and_library() {
+        let source = "{% load trans from i18n %}";
+        let node = Node::Tag {
+            name: "load".to_string(),
+            bits: vec!["trans".to_string(), "from".to_string(), "i18n".to_string()],
+            span: tag_span(source),
+        };
+
+        let symbol = HoverTarget::from_node(&node, source, offset_of(source, "trans"));
+        let library = HoverTarget::from_node(&node, source, offset_of(source, "i18n"));
+
+        assert!(matches!(
+            symbol,
+            Some(HoverTarget::Symbol {
+                name: "trans",
+                kind: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            library,
+            Some(HoverTarget::LoadLibrary { name: "i18n", .. })
+        ));
+    }
+
+    #[test]
+    fn target_variable_filter() {
+        let node = Node::Variable {
+            var: "value".to_string(),
+            filters: vec![Filter::new("title".to_string(), None, Span::new(9, 5))],
+            span: Span::new(3, 11),
+        };
+
+        let target = HoverTarget::from_node(&node, "{{ value|title }}", Offset::new(10));
+
+        assert!(matches!(
+            target,
+            Some(HoverTarget::Symbol {
+                name: "title",
+                kind: Some(TemplateSymbolKind::Filter),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn target_ignores_text_and_comments() {
+        let text = Node::Text {
+            span: Span::new(0, 4),
+        };
+        let comment = Node::Comment {
+            content: "hello".to_string(),
+            span: Span::new(3, 5),
+        };
+
+        assert_eq!(HoverTarget::from_node(&text, "text", Offset::new(0)), None);
+        assert_eq!(
+            HoverTarget::from_node(&comment, "{# hello #}", Offset::new(4)),
+            None
+        );
+    }
+
+    #[test]
+    fn discovered_symbol_hover_shows_load_hint() {
+        let mut library = TemplateLibrary::new_discovered(
+            LibraryName::parse("humanize").unwrap(),
+            LibraryOrigin {
+                app: PyModuleName::parse("django.contrib.humanize").unwrap(),
+                module: PyModuleName::parse("django.contrib.humanize.templatetags.humanize")
+                    .unwrap(),
+                path: "django/contrib/humanize/templatetags/humanize.py".into(),
+            },
+        );
+        library.symbols.push(djls_semantic::TemplateSymbol {
+            kind: TemplateSymbolKind::Filter,
+            name: TemplateSymbolName::parse("intcomma").unwrap(),
+            definition: djls_semantic::SymbolDefinition::Unknown,
+            doc: None,
+        });
+        let libraries = TemplateLibraries {
+            active_knowledge: Knowledge::Unknown,
+            discovery_knowledge: Knowledge::Known,
+            loadable: BTreeMap::from([(LibraryName::parse("humanize").unwrap(), vec![library])]),
+            builtins: BTreeMap::new(),
+        };
+
+        let markdown =
+            render_symbol_hover(&libraries, "intcomma", Some(TemplateSymbolKind::Filter));
+
+        assert_eq!(
+            markdown.as_deref(),
+            Some("Load with `{% load humanize %}`.")
+        );
     }
 
     #[test]
@@ -419,6 +631,18 @@ mod tests {
         assert_eq!(
             markdown.as_deref(),
             Some("```htmldjango\n{{ value|intcomma }}\n```\n\nLoad with `{% load humanize %}`.\n\n`django.contrib.humanize.templatetags.humanize`"),
+        );
+    }
+
+    #[test]
+    fn format_docstring_closes_example_at_end_of_docstring() {
+        let doc = "Example::\n\n    {% load static %}";
+
+        let formatted = format_docstring(doc);
+
+        assert_eq!(
+            formatted,
+            "Example:\n\n```htmldjango\n{% load static %}\n```"
         );
     }
 
