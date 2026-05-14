@@ -106,11 +106,16 @@ pub use specs::tags::CompletionArgKind;
 pub use specs::tags::EndTag;
 pub use specs::tags::TagSpec;
 pub use specs::tags::TagSpecs;
-pub use structure::build_block_tree;
-pub use structure::build_semantic_forest;
+pub use structure::build_template_tree;
 pub use structure::compute_opaque_regions;
+pub use structure::BlockRole;
 pub use structure::OpaqueRegions;
+pub use structure::RegionId;
+pub use structure::Regions;
 pub use structure::TagIndex;
+pub use structure::TemplateNode;
+pub use structure::TemplateRegion;
+pub use structure::TemplateTree;
 pub use validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -129,7 +134,7 @@ pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
 
 /// Validate a Django template node list and return validation errors.
 ///
-/// This function builds a `BlockTree` from the parsed node list and, during
+/// This function builds a `TemplateTree` from the parsed node list and, during
 /// construction, accumulates semantic validation errors for issues such as:
 /// - Unclosed block tags
 /// - Mismatched tag pairs
@@ -143,9 +148,8 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
-    // 1. Structural Analysis (Builds BlockTree and SemanticForest)
-    let block_tree = build_block_tree(db, nodelist);
-    let _forest = build_semantic_forest(db, block_tree, nodelist);
+    // 1. Structural analysis accumulates block-structure diagnostics.
+    build_template_tree(db, nodelist);
 
     // 2. Perform all other validations in a single walk
     let opaque_regions = compute_opaque_regions(db, nodelist);

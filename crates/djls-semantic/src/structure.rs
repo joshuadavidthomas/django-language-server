@@ -1,30 +1,28 @@
 pub mod builder;
-pub mod forest;
 pub mod grammar;
 pub mod opaque;
 pub mod snapshot;
 pub mod tree;
 
-pub use builder::BlockTreeBuilder;
-pub use forest::build_semantic_forest;
+pub use builder::TemplateTreeBuilder;
 pub use grammar::TagIndex;
 pub use opaque::compute_opaque_regions;
 pub use opaque::OpaqueRegions;
-pub(crate) use tree::BlockId;
-pub(crate) use tree::BlockNode;
-pub(crate) use tree::BlockTree;
-pub(crate) use tree::Blocks;
-pub(crate) use tree::BranchKind;
-pub(crate) use tree::Region;
+pub use tree::BlockRole;
+pub use tree::RegionId;
+pub use tree::Regions;
+pub use tree::TemplateNode;
+pub use tree::TemplateRegion;
+pub use tree::TemplateTree;
 
 use crate::db::Db;
 use crate::traits::SemanticModel;
 
 #[salsa::tracked]
-pub fn build_block_tree<'db>(
+pub fn build_template_tree<'db>(
     db: &'db dyn Db,
     nodelist: djls_templates::NodeList<'db>,
-) -> BlockTree<'db> {
-    let builder = BlockTreeBuilder::new(db, db.tag_index());
+) -> TemplateTree<'db> {
+    let builder = TemplateTreeBuilder::new(db, db.tag_index());
     builder.model(db, nodelist)
 }

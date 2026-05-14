@@ -1,168 +1,111 @@
-use std::collections::HashSet;
-
-use djls_source::Span;
 use serde::Serialize;
 
-use crate::structure::tree::BlockId;
-use crate::structure::tree::BlockNode;
-use crate::structure::tree::BlockTree;
-use crate::structure::tree::BranchKind;
-
-// TODO: centralize salsa struct snapshots so this mess can be shared
+use crate::structure::tree::RegionId;
+use crate::structure::tree::TemplateNode;
+use crate::structure::tree::TemplateTree;
 
 #[derive(Serialize)]
-#[allow(dead_code)]
-pub struct BlockTreeSnapshot {
-    roots: Vec<u32>,
-    root_ids: Vec<u32>,
-    blocks: Vec<BlockSnapshot>,
+pub struct TemplateTreeSnapshot {
+    root: u32,
+    regions: Vec<RegionSnapshot>,
 }
 
-impl BlockTreeSnapshot {
-    #[allow(clippy::too_many_lines)]
-    #[allow(dead_code)]
-    pub fn from_tree(tree: BlockTree<'_>, db: &dyn crate::Db) -> Self {
-        let roots = tree.roots(db);
-        let blocks_ref = tree.blocks(db);
+impl TemplateTreeSnapshot {
+    pub fn from_tree(tree: TemplateTree<'_>, db: &dyn crate::Db) -> Self {
+        let root = tree.root(db);
+        let regions_ref = tree.regions(db);
 
-        let mut container_ids: HashSet<u32> = HashSet::new();
-        let mut body_ids: HashSet<u32> = HashSet::new();
-
-        for r in roots {
-            container_ids.insert(r.id());
-        }
-
-        for (i, region) in blocks_ref.into_iter().enumerate() {
-            let i_u = u32::try_from(i).unwrap_or(u32::MAX);
-            for node in region.nodes() {
-                match node {
-                    BlockNode::Leaf { .. } => {}
-                    BlockNode::Branch {
-                        body,
-                        kind: BranchKind::Opener,
-                        ..
-                    } => {
-                        container_ids.insert(body.id());
-                    }
-                    BlockNode::Branch {
-                        body,
-                        kind: BranchKind::Segment,
-                        ..
-                    } => {
-                        body_ids.insert(body.id());
-                    }
-                }
-            }
-            if container_ids.contains(&i_u) {
-                body_ids.remove(&i_u);
-            }
-        }
-
-        let blocks: Vec<BlockSnapshot> = blocks_ref
-            .into_iter()
-            .enumerate()
-            .map(|(i, region)| {
-                let id_u = u32::try_from(i).unwrap_or(u32::MAX);
-                let nodes: Vec<BlockNodeSnapshot> = region
-                    .nodes()
-                    .iter()
-                    .map(|node| match node {
-                        BlockNode::Leaf { label, span } => BlockNodeSnapshot::Leaf {
-                            label: label.clone(),
-                            span: *span,
-                        },
-                        BlockNode::Branch {
-                            tag,
-                            marker_span,
-                            body,
-                            ..
-                        } => BlockNodeSnapshot::Branch {
-                            block_id: body.id(),
-                            tag: tag.clone(),
-                            marker_span: *marker_span,
-                            content_span: *blocks_ref.get(body.index()).span(),
-                        },
-                    })
-                    .collect();
-
-                if container_ids.contains(&id_u) {
-                    BlockSnapshot::Container {
-                        container_span: *region.span(),
-                        nodes,
-                    }
-                } else {
-                    BlockSnapshot::Body {
-                        content_span: *region.span(),
-                        nodes,
-                    }
-                }
-            })
-            .collect();
-
-        let root_ids: Vec<u32> = blocks_ref
-            .into_iter()
-            .enumerate()
-            .map(|(i, _)| {
-                let mut cur = BlockId::new(u32::try_from(i).unwrap_or(u32::MAX));
-                loop {
-                    let mut parent: Option<BlockId> = None;
-                    for (j, region) in blocks_ref.into_iter().enumerate() {
-                        for node in region.nodes() {
-                            if let BlockNode::Branch { body, .. } = node {
-                                if body.index() == cur.index() {
-                                    parent =
-                                        Some(BlockId::new(u32::try_from(j).unwrap_or(u32::MAX)));
-                                    break;
-                                }
-                            }
-                        }
-                        if parent.is_some() {
-                            break;
-                        }
-                    }
-                    if let Some(p) = parent {
-                        cur = p;
-                    } else {
-                        break cur.id();
-                    }
-                }
+        let regions: Vec<RegionSnapshot> = regions_ref
+            .iter()
+            .map(|region| RegionSnapshot {
+                span: *region.span(),
+                parent: region.parent().map(RegionId::id),
+                nodes: region.nodes().iter().map(NodeSnapshot::from).collect(),
             })
             .collect();
 
         Self {
-            roots: roots.iter().map(|r| r.id()).collect(),
-            blocks,
-            root_ids,
+            root: root.id(),
+            regions,
         }
     }
 }
 
 #[derive(Serialize)]
-#[serde(tag = "kind")]
-#[allow(dead_code)]
-pub enum BlockSnapshot {
-    Container {
-        container_span: Span,
-        nodes: Vec<BlockNodeSnapshot>,
-    },
-    Body {
-        content_span: Span,
-        nodes: Vec<BlockNodeSnapshot>,
-    },
+struct RegionSnapshot {
+    span: djls_source::Span,
+    parent: Option<u32>,
+    nodes: Vec<NodeSnapshot>,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "node")]
-#[allow(dead_code)]
-pub enum BlockNodeSnapshot {
-    Branch {
-        block_id: u32,
+enum NodeSnapshot {
+    Block {
         tag: String,
-        marker_span: Span,
-        content_span: Span,
+        bits: Vec<String>,
+        marker_span: djls_source::Span,
+        full_span: djls_source::Span,
+        body: u32,
+        role: String,
     },
-    Leaf {
-        label: String,
-        span: Span,
+    StandaloneTag {
+        tag: String,
+        bits: Vec<String>,
+        marker_span: djls_source::Span,
+        full_span: djls_source::Span,
     },
+    Variable {
+        span: djls_source::Span,
+    },
+    Comment {
+        span: djls_source::Span,
+    },
+    Text {
+        span: djls_source::Span,
+    },
+    Error {
+        span: djls_source::Span,
+        full_span: djls_source::Span,
+    },
+}
+
+impl From<&TemplateNode> for NodeSnapshot {
+    fn from(node: &TemplateNode) -> Self {
+        match node {
+            TemplateNode::Block {
+                tag,
+                bits,
+                marker_span,
+                full_span,
+                body,
+                role,
+            } => Self::Block {
+                tag: tag.clone(),
+                bits: bits.clone(),
+                marker_span: *marker_span,
+                full_span: *full_span,
+                body: body.id(),
+                role: format!("{role:?}"),
+            },
+            TemplateNode::StandaloneTag {
+                tag,
+                bits,
+                marker_span,
+                full_span,
+            } => Self::StandaloneTag {
+                tag: tag.clone(),
+                bits: bits.clone(),
+                marker_span: *marker_span,
+                full_span: *full_span,
+            },
+            TemplateNode::Variable { span } => Self::Variable { span: *span },
+            TemplateNode::Comment { span } => Self::Comment { span: *span },
+            TemplateNode::Text { span } => Self::Text { span: *span },
+            TemplateNode::Error { span, full_span } => Self::Error {
+                span: *span,
+                full_span: *full_span,
+            },
+        }
+    }
 }

@@ -16,20 +16,19 @@ fn template_files(db: &mut Db) -> Vec<djls_source::File> {
 }
 
 #[divan::bench]
-fn forest_cold(bencher: Bencher) {
+fn template_tree_cold(bencher: Bencher) {
     bencher.bench_local(move || {
-        let mut db = Db::new();
+        let mut db = realistic_db();
         let files = template_files(&mut db);
 
-        let mut total_roots = 0;
+        let mut total_regions = 0;
         for file in &files {
             if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
-                let tree = djls_semantic::build_block_tree(&db, nodelist);
-                let forest = djls_semantic::build_semantic_forest(&db, tree, nodelist);
-                total_roots += forest.roots(&db).len();
+                let tree = djls_semantic::build_template_tree(&db, nodelist);
+                total_regions += tree.regions(&db).iter().count();
             }
         }
-        divan::black_box(total_roots);
+        divan::black_box(total_regions);
     });
 }
 
