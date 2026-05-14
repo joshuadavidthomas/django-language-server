@@ -126,35 +126,27 @@ impl OffsetContext {
             };
         }
 
+        let first_bit = first_bit_at_offset(bits, source, span, offset);
+
         match name {
-            "extends" | "include" => bits
-                .first()
-                .and_then(|bit| bit_span(source, span, bit, 0).map(|(_, span)| (bit, span)))
-                .filter(|(_, span)| span.contains(offset))
-                .map_or(Self::None, |(bit, span)| Self::TemplateReference {
+            "extends" | "include" => {
+                first_bit.map_or(Self::None, |(bit, span)| Self::TemplateReference {
                     name: strip_template_reference_quotes(bit).to_string(),
                     span,
-                }),
+                })
+            }
 
             "load" => Self::from_load_tag(bits, span, source, offset),
 
-            "block" => bits
-                .first()
-                .and_then(|bit| bit_span(source, span, bit, 0).map(|(_, span)| (bit, span)))
-                .filter(|(_, span)| span.contains(offset))
-                .map_or(Self::None, |(bit, span)| Self::BlockDefinition {
-                    name: bit.clone(),
-                    span,
-                }),
+            "block" => first_bit.map_or(Self::None, |(bit, span)| Self::BlockDefinition {
+                name: bit.clone(),
+                span,
+            }),
 
-            "endblock" => bits
-                .first()
-                .and_then(|bit| bit_span(source, span, bit, 0).map(|(_, span)| (bit, span)))
-                .filter(|(_, span)| span.contains(offset))
-                .map_or(Self::None, |(bit, span)| Self::BlockReference {
-                    name: bit.clone(),
-                    span,
-                }),
+            "endblock" => first_bit.map_or(Self::None, |(bit, span)| Self::BlockReference {
+                name: bit.clone(),
+                span,
+            }),
 
             _ => Self::None,
         }
@@ -204,6 +196,17 @@ impl OffsetContext {
 
         Self::None
     }
+}
+
+fn first_bit_at_offset<'a>(
+    bits: &'a [String],
+    source: &str,
+    tag_span: Span,
+    offset: Offset,
+) -> Option<(&'a String, Span)> {
+    bits.first()
+        .and_then(|bit| bit_span(source, tag_span, bit, 0).map(|(_, span)| (bit, span)))
+        .filter(|(_, span)| span.contains(offset))
 }
 
 fn bit_span(source: &str, tag_span: Span, bit: &str, search_start: usize) -> Option<(usize, Span)> {
