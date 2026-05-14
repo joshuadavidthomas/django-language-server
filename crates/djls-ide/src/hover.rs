@@ -160,23 +160,16 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         sections.push(doc);
     }
 
-    sections.extend(candidates.iter().filter_map(|candidate| {
-        let InstalledSymbolOrigin::Loadable { load_name } = &candidate.origin else {
-            return None;
-        };
-
-        let required = format!("Requires `{{% load {} %}}`", load_name.as_str());
-        match &candidate.symbol.definition {
-            djls_semantic::SymbolDefinition::Module(module) => {
-                Some(format!("{required} (defined in `{}`).", module.as_str()))
-            }
-            djls_semantic::SymbolDefinition::Exact { file }
-            | djls_semantic::SymbolDefinition::LibraryFile(file) => {
-                Some(format!("{required} ([{file}](file://{file}))."))
-            }
-            djls_semantic::SymbolDefinition::Unknown => Some(format!("{required}.")),
-        }
-    }));
+    sections.extend(
+        candidates
+            .iter()
+            .filter_map(|candidate| match &candidate.origin {
+                InstalledSymbolOrigin::Builtin { .. } => None,
+                InstalledSymbolOrigin::Loadable { load_name } => {
+                    Some(format!("Requires `{{% load {} %}}`.", load_name.as_str()))
+                }
+            }),
+    );
 
     Some(sections.join("\n---\n"))
 }
@@ -364,7 +357,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}` (defined in `django.contrib.humanize.templatetags.humanize`)."),
+            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`."),
         );
     }
 
