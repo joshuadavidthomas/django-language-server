@@ -21,10 +21,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
     let line_index = file.line_index(db);
     let nodelist = parse_template(db, file)?;
 
-    let node = nodelist
-        .nodelist(db)
-        .iter()
-        .find(|node| node.full_span().contains(offset))?;
+    let node = nodelist.node_at_offset(db, offset)?;
 
     let (markdown, span) = HoverTarget::from_node(node, source.as_str(), offset)?.render(db)?;
     Some(ls_types::Hover {

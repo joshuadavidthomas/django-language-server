@@ -42,10 +42,7 @@ impl OffsetContext {
             return Self::None;
         };
 
-        let node = nodelist
-            .nodelist(db)
-            .iter()
-            .find(|node| node.full_span().contains(offset));
+        let node = nodelist.node_at_offset(db, offset);
 
         match node {
             Some(Node::Tag { name, bits, span }) => Self::from_tag(name, bits, *span),

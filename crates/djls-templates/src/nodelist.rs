@@ -1,3 +1,4 @@
+use djls_source::Offset;
 use djls_source::Span;
 
 use crate::filters::Filter;
@@ -9,6 +10,15 @@ pub struct NodeList<'db> {
     #[tracked]
     #[returns(ref)]
     pub nodelist: Vec<Node>,
+}
+
+impl<'db> NodeList<'db> {
+    #[must_use]
+    pub fn node_at_offset(self, db: &'db dyn crate::Db, offset: Offset) -> Option<&'db Node> {
+        self.nodelist(db)
+            .iter()
+            .find(|node| node.full_span().contains(offset))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
