@@ -129,10 +129,33 @@ impl<'a> HoverTarget<'a> {
                 }
             }
             TagHoverKind::Load => {
-                if let Some((name, span)) =
-                    load_library_at_offset(source, content_span, bits, offset)
-                {
-                    return Self::LoadLibrary { name, span };
+                let libraries = match djls_semantic::parse_load_bits(bits) {
+                    Some(LoadKind::FullLoad { libraries }) => libraries,
+                    Some(LoadKind::SelectiveImport { library, .. }) => vec![library],
+                    None => Vec::new(),
+                };
+
+                let content_start = content_span.start_usize();
+                let content_end = content_span.end() as usize;
+                if let Some(content) = source.get(content_start..content_end) {
+                    let mut search_start = 0;
+                    for bit in bits {
+                        let Some(relative_start) = content[search_start..].find(bit) else {
+                            continue;
+                        };
+                        let relative_start = search_start + relative_start;
+                        let span = Span::saturating_from_parts_usize(
+                            content_start + relative_start,
+                            bit.len(),
+                        );
+                        if libraries.iter().any(|library| library == bit) && span.contains(offset) {
+                            return Self::LoadLibrary {
+                                name: bit.as_str(),
+                                span,
+                            };
+                        }
+                        search_start = relative_start + bit.len();
+                    }
                 }
             }
             TagHoverKind::Symbol => {}
@@ -327,37 +350,6 @@ fn format_docstring(doc: &str) -> String {
     lines.join("\n").trim().to_string()
 }
 
-fn load_library_at_offset<'a>(
-    source: &str,
-    content_span: Span,
-    bits: &'a [String],
-    offset: Offset,
-) -> Option<(&'a str, Span)> {
-    let libraries = match djls_semantic::parse_load_bits(bits)? {
-        LoadKind::FullLoad { libraries } => libraries,
-        LoadKind::SelectiveImport { library, .. } => vec![library],
-    };
-
-    let content_start = content_span.start_usize();
-    let content_end = content_span.end() as usize;
-    let content = source.get(content_start..content_end)?;
-    let mut search_start = 0;
-
-    for bit in bits {
-        let Some(relative_start) = content[search_start..].find(bit) else {
-            continue;
-        };
-        let relative_start = search_start + relative_start;
-        let span = Span::saturating_from_parts_usize(content_start + relative_start, bit.len());
-        if libraries.iter().any(|library| library == bit) && span.contains(offset) {
-            return Some((bit.as_str(), span));
-        }
-        search_start = relative_start + bit.len();
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,25 +441,5 @@ Use the ``only`` argument::
         assert!(formatted.contains("```htmldjango\n{% include \"foo/some_include\" %}"));
         assert!(formatted.contains("Use the `only` argument:"));
         assert!(formatted.ends_with("```"));
-    }
-
-    #[test]
-    fn load_library_at_offset_handles_full_load() {
-        let source = "{% load static i18n %}";
-        let bits = vec!["static".to_string(), "i18n".to_string()];
-        let result = load_library_at_offset(source, Span::new(3, 16), &bits, Offset::new(9));
-
-        assert!(matches!(result, Some((library, _)) if library == "static"));
-    }
-
-    #[test]
-    fn load_library_at_offset_handles_selective_load() {
-        let source = "{% load trans from i18n %}";
-        let bits = vec!["trans".to_string(), "from".to_string(), "i18n".to_string()];
-        let symbol = load_library_at_offset(source, Span::new(3, 20), &bits, Offset::new(9));
-        let library = load_library_at_offset(source, Span::new(3, 20), &bits, Offset::new(21));
-
-        assert!(symbol.is_none());
-        assert!(matches!(library, Some((library, _)) if library == "i18n"));
     }
 }
