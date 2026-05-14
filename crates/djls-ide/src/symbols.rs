@@ -14,7 +14,7 @@ pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types:
     };
 
     let tree = djls_semantic::build_template_tree(db, nodelist);
-    let outline = djls_semantic::build_template_outline(db, tree);
+    let outline = djls_semantic::build_template_outline(db, nodelist, tree);
     outline_to_document_symbols(&outline, file.line_index(db))
 }
 
@@ -57,6 +57,7 @@ fn symbol_kind(kind: OutlineKind) -> ls_types::SymbolKind {
         OutlineKind::TemplateReference | OutlineKind::FileReference => ls_types::SymbolKind::FILE,
         OutlineKind::LibraryImport => ls_types::SymbolKind::MODULE,
         OutlineKind::Callable | OutlineKind::RouteReference => ls_types::SymbolKind::FUNCTION,
+        OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
     }
 }
 
@@ -77,14 +78,24 @@ mod tests {
                 kind: OutlineKind::NamedRegion,
                 span: Span::saturating_from_bounds_usize(0, source.len() - 1),
                 selection_span: Span::saturating_from_bounds_usize(3, 18),
-                children: vec![OutlineItem {
-                    label: "card.html".to_string(),
-                    detail: Some("include".to_string()),
-                    kind: OutlineKind::TemplateReference,
-                    span: Span::saturating_from_bounds_usize(22, 47),
-                    selection_span: Span::saturating_from_bounds_usize(25, 45),
-                    children: Vec::new(),
-                }],
+                children: vec![
+                    OutlineItem {
+                        label: "card.html".to_string(),
+                        detail: Some("include".to_string()),
+                        kind: OutlineKind::TemplateReference,
+                        span: Span::saturating_from_bounds_usize(22, 47),
+                        selection_span: Span::saturating_from_bounds_usize(25, 45),
+                        children: Vec::new(),
+                    },
+                    OutlineItem {
+                        label: "user.username|lower".to_string(),
+                        detail: Some("variable".to_string()),
+                        kind: OutlineKind::Variable,
+                        span: Span::saturating_from_bounds_usize(48, 71),
+                        selection_span: Span::saturating_from_bounds_usize(48, 71),
+                        children: Vec::new(),
+                    },
+                ],
             }],
         };
 
@@ -99,10 +110,12 @@ mod tests {
         assert_eq!(symbols[0].selection_range.start.character, 3);
 
         let children = symbols[0].children.as_ref().expect("children should exist");
-        assert_eq!(children.len(), 1);
+        assert_eq!(children.len(), 2);
         assert_eq!(children[0].name, "card.html");
         assert_eq!(children[0].detail.as_deref(), Some("include"));
         assert_eq!(children[0].kind, ls_types::SymbolKind::FILE);
         assert_eq!(children[0].children, None);
+        assert_eq!(children[1].name, "user.username|lower");
+        assert_eq!(children[1].kind, ls_types::SymbolKind::VARIABLE);
     }
 }

@@ -1,4 +1,6 @@
 use djls_source::Span;
+use djls_templates::Filter;
+use djls_templates::Node;
 
 use crate::structure::BlockRole;
 use crate::structure::Regions;
@@ -32,34 +34,42 @@ pub enum OutlineKind {
     Callable,
     FileReference,
     RouteReference,
+    Variable,
 }
 
 #[must_use]
-pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> TemplateOutline {
+pub fn build_template_outline(
+    db: &dyn Db,
+    nodelist: djls_templates::NodeList<'_>,
+    tree: TemplateTree<'_>,
+) -> TemplateOutline {
     let regions = tree.regions(db);
     let root = tree.root(db);
+    let source_nodes = SourceNodes::new(nodelist.nodelist(db));
 
     TemplateOutline {
-        items: outline_items_for_region(regions, db.tag_specs(), root),
+        items: outline_items_for_region(regions, db.tag_specs(), &source_nodes, root),
     }
 }
 
 fn outline_items_for_region(
     regions: &Regions,
     tag_specs: &TagSpecs,
+    source_nodes: &SourceNodes<'_>,
     region: crate::structure::RegionId,
 ) -> Vec<OutlineItem> {
     regions
         .get(region)
         .nodes()
         .iter()
-        .flat_map(|node| outline_items_for_node(regions, tag_specs, node))
+        .flat_map(|node| outline_items_for_node(regions, tag_specs, source_nodes, node))
         .collect()
 }
 
 fn outline_items_for_node(
     regions: &Regions,
     tag_specs: &TagSpecs,
+    source_nodes: &SourceNodes<'_>,
     node: &TemplateNode,
 ) -> Vec<OutlineItem> {
     match node {
@@ -71,7 +81,8 @@ fn outline_items_for_node(
             role: BlockRole::Opener,
             ..
         } => {
-            let children = outline_items_for_block_container(regions, tag_specs, *body, tag);
+            let children =
+                outline_items_for_block_container(regions, tag_specs, source_nodes, *body, tag);
             let role = outline_role_for_block(tag_specs, tag);
 
             vec![OutlineItem {
@@ -91,7 +102,7 @@ fn outline_items_for_node(
             body,
             role: BlockRole::Segment,
         } => {
-            let children = outline_items_for_region(regions, tag_specs, *body);
+            let children = outline_items_for_region(regions, tag_specs, source_nodes, *body);
             let role = TagOutlineRole::ControlFlow;
 
             vec![OutlineItem {
@@ -109,16 +120,19 @@ fn outline_items_for_node(
             full_span,
             marker_span,
         } => outline_items_for_standalone(tag_specs, tag, bits, *full_span, *marker_span),
-        TemplateNode::Variable { .. }
-        | TemplateNode::Comment { .. }
-        | TemplateNode::Text { .. }
-        | TemplateNode::Error { .. } => Vec::new(),
+        TemplateNode::Variable { span } => source_nodes
+            .variable(*span)
+            .map_or_else(Vec::new, |variable| vec![variable.outline_item(*span)]),
+        TemplateNode::Comment { .. } | TemplateNode::Text { .. } | TemplateNode::Error { .. } => {
+            Vec::new()
+        }
     }
 }
 
 fn outline_items_for_block_container(
     regions: &Regions,
     tag_specs: &TagSpecs,
+    source_nodes: &SourceNodes<'_>,
     container: crate::structure::RegionId,
     opener_tag: &str,
 ) -> Vec<OutlineItem> {
@@ -132,10 +146,75 @@ fn outline_items_for_block_container(
                 body,
                 role: BlockRole::Segment,
                 ..
-            } if tag == opener_tag => outline_items_for_region(regions, tag_specs, *body),
-            _ => outline_items_for_node(regions, tag_specs, node),
+            } if tag == opener_tag => {
+                outline_items_for_region(regions, tag_specs, source_nodes, *body)
+            }
+            _ => outline_items_for_node(regions, tag_specs, source_nodes, node),
         })
         .collect()
+}
+
+struct SourceNodes<'a> {
+    variables: Vec<VariableNode<'a>>,
+}
+
+impl<'a> SourceNodes<'a> {
+    fn new(nodes: &'a [Node]) -> Self {
+        let variables = nodes
+            .iter()
+            .filter_map(|node| match node {
+                Node::Variable { var, filters, span } => Some(VariableNode {
+                    var,
+                    filters,
+                    span: *span,
+                }),
+                Node::Tag { .. }
+                | Node::Comment { .. }
+                | Node::Text { .. }
+                | Node::Error { .. } => None,
+            })
+            .collect();
+
+        Self { variables }
+    }
+
+    fn variable(&self, span: Span) -> Option<&VariableNode<'a>> {
+        self.variables.iter().find(|variable| variable.span == span)
+    }
+}
+
+struct VariableNode<'a> {
+    var: &'a str,
+    filters: &'a [Filter],
+    span: Span,
+}
+
+impl VariableNode<'_> {
+    fn outline_item(&self, span: Span) -> OutlineItem {
+        OutlineItem {
+            label: variable_label(self.var, self.filters),
+            detail: Some("variable".to_string()),
+            kind: OutlineKind::Variable,
+            span,
+            selection_span: span,
+            children: Vec::new(),
+        }
+    }
+}
+
+fn variable_label(var: &str, filters: &[Filter]) -> String {
+    let mut label = var.to_string();
+
+    for filter in filters {
+        label.push('|');
+        label.push_str(&filter.name);
+        if let Some(arg) = &filter.arg {
+            label.push(':');
+            label.push_str(arg);
+        }
+    }
+
+    label
 }
 
 fn outline_items_for_standalone(
@@ -254,7 +333,7 @@ mod tests {
         let file = File::new(db, "test.html".into(), 0);
         let nodelist = parse_template(db, file).expect("should parse");
         let tree = build_template_tree(db, nodelist);
-        build_template_outline(db, tree)
+        build_template_outline(db, nodelist, tree)
     }
 
     fn labels(items: &[OutlineItem]) -> Vec<&str> {
@@ -357,6 +436,7 @@ mod tests {
             &db,
             r#"{% load static %}
 {% block content %}
+  <h1>Hello, {{ user.username|lower }}!</h1>
   {% if items %}
     {% for item in items %}<li>{{ item.name }}</li>{% endfor %}
   {% else %}
@@ -368,13 +448,21 @@ mod tests {
 
         assert_eq!(labels(&outline.items), vec!["static", "content"]);
         let block_children = &outline.items[1].children;
-        assert_eq!(labels(block_children), vec!["if items", "images/logo.png"]);
-        assert_eq!(block_children[0].kind, OutlineKind::ControlFlow);
         assert_eq!(
-            labels(&block_children[0].children),
+            labels(block_children),
+            vec!["user.username|lower", "if items", "images/logo.png"]
+        );
+        assert_eq!(block_children[0].kind, OutlineKind::Variable);
+        assert_eq!(block_children[1].kind, OutlineKind::ControlFlow);
+        assert_eq!(
+            labels(&block_children[1].children),
             vec!["for item in items", "else"]
         );
-        assert_eq!(block_children[1].kind, OutlineKind::FileReference);
+        assert_eq!(
+            labels(&block_children[1].children[0].children),
+            vec!["item.name"]
+        );
+        assert_eq!(block_children[2].kind, OutlineKind::FileReference);
     }
 
     #[test]
