@@ -7,29 +7,13 @@ use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
 use djls_source::File;
 use djls_source::Offset;
-use djls_source::Span;
 use tower_lsp_server::ls_types;
 
 use crate::context::OffsetContext;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
-    let (markdown, span) = render_hover_context(db, OffsetContext::from_offset(db, file, offset))?;
-
-    Some(ls_types::Hover {
-        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
-            kind: ls_types::MarkupKind::Markdown,
-            value: markdown,
-        }),
-        range: Some(span.to_lsp_range(file.line_index(db))),
-    })
-}
-
-fn render_hover_context(
-    db: &dyn djls_semantic::Db,
-    context: OffsetContext,
-) -> Option<(String, Span)> {
-    match context {
+    let (markdown, span) = match OffsetContext::from_offset(db, file, offset) {
         OffsetContext::TemplateReference { name, span } => {
             let markdown = match resolve_template(db, &name) {
                 ResolveResult::Found(template) => {
@@ -83,7 +67,15 @@ fn render_hover_context(
         | OffsetContext::Comment { .. }
         | OffsetContext::Text { .. }
         | OffsetContext::None => None,
-    }
+    }?;
+
+    Some(ls_types::Hover {
+        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
+            kind: ls_types::MarkupKind::Markdown,
+            value: markdown,
+        }),
+        range: Some(span.to_lsp_range(file.line_index(db))),
+    })
 }
 
 fn render_symbol_hover(
