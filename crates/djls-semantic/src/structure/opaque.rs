@@ -65,7 +65,21 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
                 is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
             });
         } else if let Some(opener_name) = tag_specs.find_opener_for_closer(name) {
-            close_opaque_frame(&mut stack, &mut spans, &opener_name, *span);
+            let Some(frame_idx) = stack
+                .iter()
+                .rposition(|frame| frame.opener_name == opener_name)
+            else {
+                continue;
+            };
+
+            while stack.len() > frame_idx + 1 {
+                stack.pop();
+            }
+
+            let Some(frame) = stack.pop() else {
+                continue;
+            };
+            push_opaque_segment(&frame, *span, &mut spans);
         } else if tag_specs.is_intermediate(name) {
             if let Some(frame) = stack.last_mut() {
                 let possible_openers = tag_specs.get_parent_tags_for_intermediate(name);
@@ -81,30 +95,6 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
     }
 
     OpaqueRegions::new(spans)
-}
-
-fn close_opaque_frame(
-    stack: &mut Vec<OpaqueFrame<'_>>,
-    spans: &mut Vec<Span>,
-    opener_name: &str,
-    span: Span,
-) {
-    let Some(frame_idx) = stack
-        .iter()
-        .rposition(|frame| frame.opener_name == opener_name)
-    else {
-        return;
-    };
-
-    while stack.len() > frame_idx + 1 {
-        stack.pop();
-    }
-
-    let Some(frame) = stack.pop() else {
-        return;
-    };
-
-    push_opaque_segment(&frame, span, spans);
 }
 
 fn push_opaque_segment(frame: &OpaqueFrame<'_>, marker_span: Span, spans: &mut Vec<Span>) {
