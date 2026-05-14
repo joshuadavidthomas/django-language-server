@@ -84,7 +84,16 @@ impl<'a> HoverTarget<'a> {
     ) -> Self {
         if matches!(name, "extends" | "include") {
             if let Some(bit) = bits.first() {
-                if let Some(span) = find_bit_span(source, content_span, bit) {
+                let content_start = content_span.start_usize();
+                let content_end = content_span.end() as usize;
+                if let Some(relative_start) = source
+                    .get(content_start..content_end)
+                    .and_then(|content| content.find(bit))
+                {
+                    let span = Span::saturating_from_parts_usize(
+                        content_start + relative_start,
+                        bit.len(),
+                    );
                     if span.contains(offset) {
                         return Self::TemplateReference {
                             raw_name: bit,
@@ -111,86 +120,72 @@ impl<'a> HoverTarget<'a> {
     fn render(self, db: &dyn djls_semantic::Db) -> Option<(String, Span)> {
         match self {
             Self::TemplateReference { raw_name, span } => {
-                Some((template_reference_markdown(db, &unquote(raw_name))?, span))
+                let template_name = unquote(raw_name);
+                let markdown = match resolve_template(db, &template_name) {
+                    ResolveResult::Found(template) => {
+                        let path = template.path_buf(db);
+                        format!("Resolved to `{path}`")
+                    }
+                    ResolveResult::NotFound { tried, .. } => {
+                        if tried.is_empty() {
+                            return None;
+                        }
+
+                        let tried = tried
+                            .iter()
+                            .map(|path| format!("- `{path}`"))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        format!("Template not found.\n\nTried:\n\n{tried}")
+                    }
+                };
+                Some((markdown, span))
             }
-            Self::LoadLibrary { name, span } => Some((library_markdown(db, &name)?, span)),
-            Self::Symbol { name, kind, span } => Some((symbol_markdown(db, name, kind)?, span)),
+            Self::LoadLibrary { name, span } => {
+                let library = db.template_libraries().best_loadable_library_str(&name)?;
+                Some((library.module().as_str().to_string(), span))
+            }
+            Self::Symbol { name, kind, span } => {
+                let libraries = db.template_libraries();
+                let candidates: Vec<_> = libraries
+                    .installed_symbol_candidates(kind)
+                    .into_iter()
+                    .filter(|candidate| candidate.symbol.name() == name)
+                    .collect();
+
+                let markdown = if candidates.is_empty() {
+                    let discovered = TemplateSymbolName::parse(name)
+                        .ok()
+                        .and_then(|name| {
+                            libraries
+                                .discovered_symbol_candidates_by_name(kind)
+                                .and_then(|mut candidates| candidates.remove(&name))
+                        })
+                        .map(|candidates| {
+                            candidates
+                                .into_iter()
+                                .map(|candidate| {
+                                    format!(
+                                        "Load with `{{% load {} %}}`.",
+                                        candidate.library_name.as_str()
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+
+                    if discovered.is_empty() {
+                        return None;
+                    }
+                    discovered.join("\n")
+                } else {
+                    render_installed_symbol_hover(&candidates)?
+                };
+
+                Some((markdown, span))
+            }
         }
     }
-}
-
-fn symbol_markdown(
-    db: &dyn djls_semantic::Db,
-    name: &str,
-    kind: TemplateSymbolKind,
-) -> Option<String> {
-    let libraries = db.template_libraries();
-    let candidates: Vec<_> = libraries
-        .installed_symbol_candidates(kind)
-        .into_iter()
-        .filter(|candidate| candidate.symbol.name() == name)
-        .collect();
-
-    let markdown = if candidates.is_empty() {
-        let discovered = TemplateSymbolName::parse(name)
-            .ok()
-            .and_then(|name| {
-                libraries
-                    .discovered_symbol_candidates_by_name(kind)
-                    .and_then(|mut candidates| candidates.remove(&name))
-            })
-            .map(|candidates| {
-                candidates
-                    .into_iter()
-                    .map(|candidate| {
-                        format!(
-                            "Load with `{{% load {} %}}`.",
-                            candidate.library_name.as_str()
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        if discovered.is_empty() {
-            return None;
-        }
-        discovered.join("\n")
-    } else {
-        render_installed_symbol_hover(&candidates)?
-    };
-
-    Some(markdown)
-}
-
-fn template_reference_markdown(db: &dyn djls_semantic::Db, template_name: &str) -> Option<String> {
-    let markdown = match resolve_template(db, template_name) {
-        ResolveResult::Found(template) => {
-            let path = template.path_buf(db);
-            format!("Resolved to `{path}`")
-        }
-        ResolveResult::NotFound { tried, .. } => {
-            if tried.is_empty() {
-                return None;
-            }
-
-            let tried = tried
-                .iter()
-                .map(|path| format!("- `{path}`"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!("Template not found.\n\nTried:\n\n{tried}")
-        }
-    };
-
-    Some(markdown)
-}
-
-fn library_markdown(db: &dyn djls_semantic::Db, library_name: &str) -> Option<String> {
-    let library = db
-        .template_libraries()
-        .best_loadable_library_str(library_name)?;
-    Some(library.module().as_str().to_string())
 }
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
@@ -332,18 +327,6 @@ fn library_bit_at_offset(
     bit_spans(source, content_span, bits)
         .into_iter()
         .find(|(bit, span)| libraries.iter().any(|library| library == bit) && span.contains(offset))
-}
-
-fn find_bit_span(source: &str, content_span: Span, bit: &str) -> Option<Span> {
-    let content_start = content_span.start_usize();
-    let content_end = content_span.end() as usize;
-    let content = source.get(content_start..content_end)?;
-    let relative_start = content.find(bit)?;
-
-    Some(Span::saturating_from_parts_usize(
-        content_start + relative_start,
-        bit.len(),
-    ))
 }
 
 fn bit_spans(source: &str, content_span: Span, bits: &[String]) -> Vec<(String, Span)> {
