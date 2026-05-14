@@ -174,12 +174,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
     if let InstalledSymbolOrigin::Loadable { .. } = candidate.origin {
         match &candidate.symbol.definition {
             djls_semantic::SymbolDefinition::Module(module) => {
-                let module = module.as_str();
-                let source = module.rsplit_once('.').map_or_else(
-                    || module.to_string(),
-                    |(parent, name)| format!("from {parent} import {name}"),
-                );
-                sections.push(format!("```python\n{source}\n```"));
+                sections.push(format!("Defined in `{}`.", module.as_str()));
             }
             djls_semantic::SymbolDefinition::Exact { file }
             | djls_semantic::SymbolDefinition::LibraryFile(file) => {
@@ -236,6 +231,7 @@ fn format_docstring(doc: &str) -> String {
                 lines.pop();
             }
             lines.push("```".to_string());
+            lines.push(String::new());
             in_code_block = false;
         }
 
@@ -374,7 +370,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.\n---\n```python\nfrom django.contrib.humanize.templatetags import humanize\n```"),
+            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.\n---\nDefined in `django.contrib.humanize.templatetags.humanize`."),
         );
     }
 
