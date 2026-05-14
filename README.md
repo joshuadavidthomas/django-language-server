@@ -28,17 +28,16 @@ A language server for the Django web framework.
 
 - [x] **Completions** - Template tag and filter autocompletion with snippets
   ![Completions](docs/assets/autocomplete.png)
-
 - [x] **Diagnostics** - Real-time error checking and validation
   ![Diagnostics](docs/assets/diagnostics.png)
-
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
-  - [x] Template navigation for `{% extends %}` and `{% include %}`
-  - [ ] Block and variable definitions
+    - [x] Template navigation for `{% extends %}` and `{% include %}`
+    - [ ] Block and variable definitions
 - [ ] **Find references** - See where templates, blocks, and variables are used
-  - [x] Template references for `{% extends %}` and `{% include %}`
-  - [ ] Block and variable references
+    - [x] Template references for `{% extends %}` and `{% include %}`
+    - [ ] Block and variable references
 - [x] **Folding ranges** - Fold Django template regions
+  ![Folding ranges](docs/assets/folding.png)
 - [x] **Hover** - View documentation for Django template tags, filters, libraries, and template references
 - [ ] **Rename** - Refactor names across files
 - [ ] **Code actions** - Quick fixes and refactorings
