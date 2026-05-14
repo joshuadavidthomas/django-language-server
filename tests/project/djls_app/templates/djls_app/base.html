@@ -15,7 +15,7 @@
     <main>
 
       {% block content %}
-        <h1>Hello, {{ user.username }}!</h1>
+        <h1>Hello, {{ user.username|lower }}!</h1>
         <p>This is a test template.</p>
         {% if items %}
           <ul>
