@@ -15,6 +15,7 @@
 pub mod builder;
 pub mod grammar;
 pub mod opaque;
+pub mod outline;
 pub mod snapshot;
 pub mod tree;
 
@@ -22,6 +23,10 @@ pub use builder::TemplateTreeBuilder;
 pub use grammar::TagIndex;
 pub use opaque::compute_opaque_regions;
 pub use opaque::OpaqueRegions;
+pub use outline::build_template_outline;
+pub use outline::OutlineItem;
+pub use outline::OutlineKind;
+pub use outline::TemplateOutline;
 pub use tree::BlockRole;
 pub use tree::RegionId;
 pub use tree::Regions;

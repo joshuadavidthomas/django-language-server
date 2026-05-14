@@ -20,6 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added document symbols for Django template structure outlines.
 - Added hover documentation for Django template tags, filters, libraries, and template references.
 - Added folding ranges for Django template block, comment, and import regions.
 - Added pre-commit hook for running `djls check` on Django template files.
