@@ -61,10 +61,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        OffsetContext::Variable { .. }
-        | OffsetContext::Comment { .. }
-        | OffsetContext::Text { .. }
-        | OffsetContext::None => None,
+        OffsetContext::Variable { .. } | OffsetContext::None => None,
     }?;
 
     Some(ls_types::Hover {

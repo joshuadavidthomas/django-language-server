@@ -3,43 +3,16 @@ use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::parse_template;
-use djls_templates::Filter;
 use djls_templates::Node;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum OffsetContext {
-    TemplateReference {
-        name: String,
-        span: Span,
-    },
-    LoadLibrary {
-        name: String,
-        span: Span,
-    },
-    LoadSymbol {
-        name: String,
-        span: Span,
-    },
-    Tag {
-        name: String,
-        span: Span,
-    },
-    Filter {
-        name: String,
-        span: Span,
-    },
-    Variable {
-        name: String,
-        filters: Vec<Filter>,
-        span: Span,
-    },
-    Comment {
-        content: String,
-        span: Span,
-    },
-    Text {
-        span: Span,
-    },
+    TemplateReference { name: String, span: Span },
+    LoadLibrary { name: String, span: Span },
+    LoadSymbol { name: String, span: Span },
+    Tag { name: String, span: Span },
+    Filter { name: String, span: Span },
+    Variable { name: String, span: Span },
     None,
 }
 
@@ -85,21 +58,17 @@ impl OffsetContext {
                     .identifier_span()
                     .is_some_and(|span| span.contains(offset))
                 {
+                    // TODO: Use Python/ORM inference here for variable hover once template
+                    // context types are available.
                     Self::Variable {
                         name: var.clone(),
-                        filters: filters.clone(),
                         span: *span,
                     }
                 } else {
                     Self::None
                 }
             }
-            Node::Comment { content, span } => Self::Comment {
-                content: content.clone(),
-                span: *span,
-            },
-            Node::Text { span } => Self::Text { span: *span },
-            Node::Error { .. } => Self::None,
+            Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => Self::None,
         }
     }
 
@@ -208,6 +177,8 @@ pub(crate) fn strip_template_reference_quotes(raw: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use djls_templates::Filter;
+
     use super::*;
 
     fn tag_span(source: &str) -> Span {
