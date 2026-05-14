@@ -3,6 +3,7 @@ use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::LoadKind;
 use djls_semantic::ResolveResult;
+use djls_semantic::TemplateSymbol;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
 use djls_source::File;
@@ -24,48 +25,85 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
         .iter()
         .find(|node| node.full_span().contains(offset))?;
 
-    match node {
-        Node::Tag { name, bits, span } => {
-            if matches!(name.as_str(), "extends" | "include") {
-                let bit = bits.first()?;
-                let bit_span = find_bit_span(source.as_str(), *span, bit)?;
-                if bit_span.contains(offset) {
-                    let template_name = unquote(bit);
-                    return template_reference_hover(db, &template_name, bit_span, line_index);
-                }
-            }
-
-            if name == "load" {
-                if let Some((library, library_span)) =
-                    load_library_at_offset(source.as_str(), *span, bits, offset)
-                {
-                    return library_hover(db, &library, library_span, line_index);
-                }
-            }
-
-            symbol_hover(
-                db,
-                name,
-                TemplateSymbolKind::Tag,
-                node.full_span(),
-                line_index,
-            )
+    match hover_target(node, source.as_str(), offset)? {
+        HoverTarget::TemplateReference { name, span } => {
+            template_reference_hover(db, &name, span, line_index)
         }
+        HoverTarget::LoadLibrary { name, span } => library_hover(db, &name, span, line_index),
+        HoverTarget::Symbol { name, kind, span } => symbol_hover(db, name, kind, span, line_index),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HoverTarget<'a> {
+    TemplateReference {
+        name: String,
+        span: Span,
+    },
+    LoadLibrary {
+        name: String,
+        span: Span,
+    },
+    Symbol {
+        name: &'a str,
+        kind: TemplateSymbolKind,
+        span: Span,
+    },
+}
+
+fn hover_target<'a>(node: &'a Node, source: &str, offset: Offset) -> Option<HoverTarget<'a>> {
+    match node {
+        Node::Tag { name, bits, span } => Some(tag_hover_target(
+            name,
+            bits,
+            *span,
+            node.full_span(),
+            source,
+            offset,
+        )),
         Node::Variable { filters, .. } => filters.iter().find_map(|filter| {
-            let name_span = filter.span.with_length_usize_saturating(filter.name.len());
-            if name_span.contains(offset) {
-                symbol_hover(
-                    db,
-                    &filter.name,
-                    TemplateSymbolKind::Filter,
-                    name_span,
-                    line_index,
-                )
-            } else {
-                None
-            }
+            let span = filter.span.with_length_usize_saturating(filter.name.len());
+            span.contains(offset).then_some(HoverTarget::Symbol {
+                name: &filter.name,
+                kind: TemplateSymbolKind::Filter,
+                span,
+            })
         }),
         Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
+    }
+}
+
+fn tag_hover_target<'a>(
+    name: &'a str,
+    bits: &[String],
+    content_span: Span,
+    full_span: Span,
+    source: &str,
+    offset: Offset,
+) -> HoverTarget<'a> {
+    if matches!(name, "extends" | "include") {
+        if let Some(bit) = bits.first() {
+            if let Some(span) = find_bit_span(source, content_span, bit) {
+                if span.contains(offset) {
+                    return HoverTarget::TemplateReference {
+                        name: unquote(bit),
+                        span,
+                    };
+                }
+            }
+        }
+    }
+
+    if name == "load" {
+        if let Some((name, span)) = load_library_at_offset(source, content_span, bits, offset) {
+            return HoverTarget::LoadLibrary { name, span };
+        }
+    }
+
+    HoverTarget::Symbol {
+        name,
+        kind: TemplateSymbolKind::Tag,
+        span: full_span,
     }
 }
 
@@ -171,26 +209,37 @@ fn library_hover(
 }
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
-    let candidate = candidates.first()?;
-    let signature = symbol_signature(candidate);
-    let provenance = symbol_provenance(candidate);
-    let doc = candidates
-        .iter()
-        .find_map(|candidate| candidate.symbol.doc())
+    let candidate = hover_candidate(candidates)?;
+    let mut sections = vec![symbol_signature(&candidate.symbol)];
+
+    if let Some(doc) = candidate
+        .symbol
+        .doc()
         .map(format_docstring)
-        .filter(|doc| !doc.is_empty());
-    let load_hints = candidates.iter().filter_map(load_hint).collect::<Vec<_>>();
-
-    let mut parts = vec![signature];
-    if let Some(doc) = doc {
-        parts.push(doc);
-    }
-    parts.extend(load_hints);
-    if let Some(provenance) = provenance {
-        parts.push(format!("`{provenance}`"));
+        .filter(|doc| !doc.is_empty())
+    {
+        sections.push(doc);
     }
 
-    Some(parts.join("\n\n"))
+    sections.extend(candidates.iter().filter_map(load_hint));
+
+    if let Some(provenance) = symbol_provenance(candidate) {
+        sections.push(format!("`{provenance}`"));
+    }
+
+    Some(sections.join("\n\n"))
+}
+
+fn hover_candidate(candidates: &[InstalledSymbolCandidate]) -> Option<&InstalledSymbolCandidate> {
+    candidates
+        .iter()
+        .find(|candidate| {
+            candidate
+                .symbol
+                .doc()
+                .is_some_and(|doc| !doc.trim().is_empty())
+        })
+        .or_else(|| candidates.first())
 }
 
 fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
@@ -201,9 +250,9 @@ fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
     }
 }
 
-fn symbol_signature(candidate: &InstalledSymbolCandidate) -> String {
-    let name = candidate.symbol.name();
-    let signature = match candidate.symbol.kind {
+fn symbol_signature(symbol: &TemplateSymbol) -> String {
+    let name = symbol.name();
+    let signature = match symbol.kind {
         TemplateSymbolKind::Tag => format!("{{% {name} %}}"),
         TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
     };
@@ -269,7 +318,7 @@ fn format_docstring(doc: &str) -> String {
                 lines.push(trimmed.to_string());
                 continue;
             }
-            lines.push("```".to_string());
+            close_code_block(&mut lines);
             in_code_block = false;
         }
 
@@ -278,10 +327,17 @@ fn format_docstring(doc: &str) -> String {
     }
 
     if in_code_block {
-        lines.push("```".to_string());
+        close_code_block(&mut lines);
     }
 
     lines.join("\n").trim().to_string()
+}
+
+fn close_code_block(lines: &mut Vec<String>) {
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines.push("```".to_string());
 }
 
 fn load_library_at_offset(
@@ -309,14 +365,19 @@ fn library_bit_at_offset(
 ) -> Option<(String, Span)> {
     bit_spans(source, content_span, bits)
         .into_iter()
-        .find(|(bit, span)| libraries.contains(bit) && span.contains(offset))
+        .find(|(bit, span)| libraries.iter().any(|library| library == bit) && span.contains(offset))
 }
 
 fn find_bit_span(source: &str, content_span: Span, bit: &str) -> Option<Span> {
-    bit_spans(source, content_span, &[bit.to_string()])
-        .into_iter()
-        .next()
-        .map(|(_, span)| span)
+    let content_start = content_span.start_usize();
+    let content_end = content_span.end() as usize;
+    let content = source.get(content_start..content_end)?;
+    let relative_start = content.find(bit)?;
+
+    Some(Span::saturating_from_parts_usize(
+        content_start + relative_start,
+        bit.len(),
+    ))
 }
 
 fn bit_spans(source: &str, content_span: Span, bits: &[String]) -> Vec<(String, Span)> {
