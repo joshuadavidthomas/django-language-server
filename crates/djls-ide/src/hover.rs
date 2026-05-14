@@ -37,11 +37,11 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HoverTarget<'a> {
     TemplateReference {
-        raw_name: &'a str,
+        name: &'a str,
         span: Span,
     },
     LoadLibrary {
-        name: String,
+        name: &'a str,
         span: Span,
     },
     Symbol {
@@ -95,10 +95,17 @@ impl<'a> HoverTarget<'a> {
                         bit.len(),
                     );
                     if span.contains(offset) {
-                        return Self::TemplateReference {
-                            raw_name: bit,
-                            span,
-                        };
+                        let name = bit
+                            .trim()
+                            .strip_prefix('"')
+                            .and_then(|s| s.strip_suffix('"'))
+                            .or_else(|| {
+                                bit.trim()
+                                    .strip_prefix('\'')
+                                    .and_then(|s| s.strip_suffix('\''))
+                            })
+                            .unwrap_or_else(|| bit.trim());
+                        return Self::TemplateReference { name, span };
                     }
                 }
             }
@@ -119,19 +126,8 @@ impl<'a> HoverTarget<'a> {
 
     fn render(self, db: &dyn djls_semantic::Db) -> Option<(String, Span)> {
         match self {
-            Self::TemplateReference { raw_name, span } => {
-                let template_name = raw_name
-                    .trim()
-                    .strip_prefix('"')
-                    .and_then(|s| s.strip_suffix('"'))
-                    .or_else(|| {
-                        raw_name
-                            .trim()
-                            .strip_prefix('\'')
-                            .and_then(|s| s.strip_suffix('\''))
-                    })
-                    .unwrap_or_else(|| raw_name.trim());
-                let markdown = match resolve_template(db, template_name) {
+            Self::TemplateReference { name, span } => {
+                let markdown = match resolve_template(db, name) {
                     ResolveResult::Found(template) => {
                         let path = template.path_buf(db);
                         format!("Resolved to `{path}`")
@@ -152,7 +148,7 @@ impl<'a> HoverTarget<'a> {
                 Some((markdown, span))
             }
             Self::LoadLibrary { name, span } => {
-                let library = db.template_libraries().best_loadable_library_str(&name)?;
+                let library = db.template_libraries().best_loadable_library_str(name)?;
                 Some((library.module().as_str().to_string(), span))
             }
             Self::Symbol { name, kind, span } => {
@@ -289,7 +285,10 @@ fn format_docstring(doc: &str) -> String {
                 lines.push(trimmed.to_string());
                 continue;
             }
-            close_code_block(&mut lines);
+            while lines.last().is_some_and(String::is_empty) {
+                lines.pop();
+            }
+            lines.push("```".to_string());
             in_code_block = false;
         }
 
@@ -298,42 +297,26 @@ fn format_docstring(doc: &str) -> String {
     }
 
     if in_code_block {
-        close_code_block(&mut lines);
+        while lines.last().is_some_and(String::is_empty) {
+            lines.pop();
+        }
+        lines.push("```".to_string());
     }
 
     lines.join("\n").trim().to_string()
 }
 
-fn close_code_block(lines: &mut Vec<String>) {
-    while lines.last().is_some_and(String::is_empty) {
-        lines.pop();
-    }
-    lines.push("```".to_string());
-}
-
-fn load_library_at_offset(
+fn load_library_at_offset<'a>(
     source: &str,
     content_span: Span,
-    bits: &[String],
+    bits: &'a [String],
     offset: Offset,
-) -> Option<(String, Span)> {
-    match djls_semantic::parse_load_bits(bits)? {
-        LoadKind::FullLoad { libraries } => {
-            library_bit_at_offset(source, content_span, bits, offset, &libraries)
-        }
-        LoadKind::SelectiveImport { library, .. } => {
-            library_bit_at_offset(source, content_span, bits, offset, &[library])
-        }
-    }
-}
+) -> Option<(&'a str, Span)> {
+    let libraries = match djls_semantic::parse_load_bits(bits)? {
+        LoadKind::FullLoad { libraries } => libraries,
+        LoadKind::SelectiveImport { library, .. } => vec![library],
+    };
 
-fn library_bit_at_offset(
-    source: &str,
-    content_span: Span,
-    bits: &[String],
-    offset: Offset,
-    libraries: &[String],
-) -> Option<(String, Span)> {
     let content_start = content_span.start_usize();
     let content_end = content_span.end() as usize;
     let content = source.get(content_start..content_end)?;
@@ -346,7 +329,7 @@ fn library_bit_at_offset(
         let relative_start = search_start + relative_start;
         let span = Span::saturating_from_parts_usize(content_start + relative_start, bit.len());
         if libraries.iter().any(|library| library == bit) && span.contains(offset) {
-            return Some((bit.clone(), span));
+            return Some((bit.as_str(), span));
         }
         search_start = relative_start + bit.len();
     }
