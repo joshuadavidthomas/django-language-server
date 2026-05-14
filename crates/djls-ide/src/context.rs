@@ -139,7 +139,53 @@ impl OffsetContext {
                 })
             }
 
-            "load" => Self::from_load_tag(bits, span, source, offset),
+            "load" => {
+                let Some(load_kind) = djls_semantic::parse_load_bits(bits) else {
+                    return Self::None;
+                };
+
+                let mut search_start = 0;
+                for bit in bits {
+                    let Some((relative_start, span)) = bit_span(source, span, bit, search_start)
+                    else {
+                        continue;
+                    };
+
+                    match &load_kind {
+                        LoadKind::FullLoad { libraries }
+                            if libraries.iter().any(|library| library == bit)
+                                && span.contains(offset) =>
+                        {
+                            return Self::LoadLibrary {
+                                name: bit.clone(),
+                                span,
+                            };
+                        }
+                        LoadKind::SelectiveImport { library, .. }
+                            if library == bit && span.contains(offset) =>
+                        {
+                            return Self::LoadLibrary {
+                                name: bit.clone(),
+                                span,
+                            };
+                        }
+                        LoadKind::SelectiveImport { symbols, .. }
+                            if symbols.iter().any(|symbol| symbol == bit)
+                                && span.contains(offset) =>
+                        {
+                            return Self::LoadSymbol {
+                                name: bit.clone(),
+                                span,
+                            };
+                        }
+                        LoadKind::FullLoad { .. } | LoadKind::SelectiveImport { .. } => {}
+                    }
+
+                    search_start = relative_start + bit.len();
+                }
+
+                Self::None
+            }
 
             "block" => first_bit.map_or(Self::None, |(bit, span)| Self::BlockDefinition {
                 name: bit.clone(),
@@ -153,51 +199,6 @@ impl OffsetContext {
 
             _ => Self::None,
         }
-    }
-
-    fn from_load_tag(bits: &[String], span: Span, source: &str, offset: Offset) -> Self {
-        let Some(load_kind) = djls_semantic::parse_load_bits(bits) else {
-            return Self::None;
-        };
-
-        let mut search_start = 0;
-        for bit in bits {
-            let Some((relative_start, span)) = bit_span(source, span, bit, search_start) else {
-                continue;
-            };
-
-            match &load_kind {
-                LoadKind::FullLoad { libraries }
-                    if libraries.iter().any(|library| library == bit) && span.contains(offset) =>
-                {
-                    return Self::LoadLibrary {
-                        name: bit.clone(),
-                        span,
-                    };
-                }
-                LoadKind::SelectiveImport { library, .. }
-                    if library == bit && span.contains(offset) =>
-                {
-                    return Self::LoadLibrary {
-                        name: bit.clone(),
-                        span,
-                    };
-                }
-                LoadKind::SelectiveImport { symbols, .. }
-                    if symbols.iter().any(|symbol| symbol == bit) && span.contains(offset) =>
-                {
-                    return Self::LoadSymbol {
-                        name: bit.clone(),
-                        span,
-                    };
-                }
-                LoadKind::FullLoad { .. } | LoadKind::SelectiveImport { .. } => {}
-            }
-
-            search_start = relative_start + bit.len();
-        }
-
-        Self::None
     }
 }
 
