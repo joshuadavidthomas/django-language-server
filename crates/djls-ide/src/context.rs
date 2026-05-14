@@ -126,7 +126,10 @@ impl OffsetContext {
             };
         }
 
-        let first_bit = first_bit_at_offset(bits, source, span, offset);
+        let first_bit = bits
+            .first()
+            .and_then(|bit| bit_span(source, span, bit, 0).map(|(_, span)| (bit, span)))
+            .filter(|(_, span)| span.contains(offset));
 
         match name {
             "extends" | "include" => {
@@ -196,17 +199,6 @@ impl OffsetContext {
 
         Self::None
     }
-}
-
-fn first_bit_at_offset<'a>(
-    bits: &'a [String],
-    source: &str,
-    tag_span: Span,
-    offset: Offset,
-) -> Option<(&'a String, Span)> {
-    bits.first()
-        .and_then(|bit| bit_span(source, tag_span, bit, 0).map(|(_, span)| (bit, span)))
-        .filter(|(_, span)| span.contains(offset))
 }
 
 fn bit_span(source: &str, tag_span: Span, bit: &str, search_start: usize) -> Option<(usize, Span)> {
