@@ -17,19 +17,18 @@ use crate::context::strip_template_reference_quotes;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
-    let source = file.source(db);
-    let line_index = file.line_index(db);
     let nodelist = parse_template(db, file)?;
-
     let node = nodelist.node_at(db, offset)?;
 
-    let (markdown, span) = HoverTarget::from_node(node, source.as_str(), offset)?.render(db)?;
+    let (markdown, span) =
+        HoverTarget::from_node(node, file.source(db).as_str(), offset)?.render(db)?;
+
     Some(ls_types::Hover {
         contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
             kind: ls_types::MarkupKind::Markdown,
             value: markdown,
         }),
-        range: Some(span.to_lsp_range(line_index)),
+        range: Some(span.to_lsp_range(file.line_index(db))),
     })
 }
 
