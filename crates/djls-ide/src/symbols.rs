@@ -13,8 +13,9 @@ pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types:
         return Vec::new();
     };
 
+    let source = file.source(db);
     let tree = djls_semantic::build_template_tree(db, nodelist);
-    let outline = djls_semantic::build_template_outline(db, nodelist, tree);
+    let outline = djls_semantic::build_template_outline(db, nodelist, tree, source.as_str());
     outline_to_document_symbols(&outline, file.line_index(db))
 }
 
@@ -94,7 +95,7 @@ mod tests {
                         detail: Some("variable".to_string()),
                         kind: OutlineKind::Variable,
                         span: Span::saturating_from_bounds_usize(48, 71),
-                        selection_span: Span::saturating_from_bounds_usize(48, 71),
+                        selection_span: Span::saturating_from_bounds_usize(48, 61),
                         children: vec![OutlineItem {
                             label: "lower".to_string(),
                             detail: Some("filter".to_string()),
@@ -126,6 +127,10 @@ mod tests {
         assert_eq!(children[0].children, None);
         assert_eq!(children[1].name, "user.username");
         assert_eq!(children[1].kind, ls_types::SymbolKind::VARIABLE);
+        assert_eq!(children[1].selection_range.start.line, 2);
+        assert_eq!(children[1].selection_range.start.character, 0);
+        assert_eq!(children[1].selection_range.end.line, 2);
+        assert_eq!(children[1].selection_range.end.character, 13);
         let filters = children[1].children.as_ref().expect("filters should exist");
         assert_eq!(filters[0].name, "lower");
         assert_eq!(filters[0].kind, ls_types::SymbolKind::FUNCTION);

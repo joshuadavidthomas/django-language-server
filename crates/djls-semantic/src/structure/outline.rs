@@ -43,10 +43,11 @@ pub fn build_template_outline(
     db: &dyn Db,
     nodelist: djls_templates::NodeList<'_>,
     tree: TemplateTree<'_>,
+    source: &str,
 ) -> TemplateOutline {
     let regions = tree.regions(db);
     let root = tree.root(db);
-    let source_nodes = SourceNodes::new(nodelist.nodelist(db));
+    let source_nodes = SourceNodes::new(nodelist.nodelist(db), source);
 
     TemplateOutline {
         items: outline_items_for_region(regions, db.tag_specs(), &source_nodes, root),
@@ -91,7 +92,13 @@ fn outline_items_for_node(
                 detail: Some(tag.clone()),
                 kind: outline_kind(role),
                 span: *regions.get(*body).span(),
-                selection_span: *marker_span,
+                selection_span: tag_selection_span(
+                    source_nodes.source,
+                    *marker_span,
+                    tag,
+                    bits,
+                    role,
+                ),
                 children,
             }]
         }
@@ -111,7 +118,13 @@ fn outline_items_for_node(
                 detail: Some(tag.clone()),
                 kind: outline_kind(role),
                 span: *full_span,
-                selection_span: *marker_span,
+                selection_span: tag_selection_span(
+                    source_nodes.source,
+                    *marker_span,
+                    tag,
+                    bits,
+                    role,
+                ),
                 children,
             }]
         }
@@ -120,7 +133,14 @@ fn outline_items_for_node(
             bits,
             full_span,
             marker_span,
-        } => outline_items_for_standalone(tag_specs, tag, bits, *full_span, *marker_span),
+        } => outline_items_for_standalone(
+            tag_specs,
+            source_nodes.source,
+            tag,
+            bits,
+            *full_span,
+            *marker_span,
+        ),
         TemplateNode::Variable { span } => source_nodes
             .variable(*span)
             .map_or_else(Vec::new, |variable| vec![variable.outline_item(*span)]),
@@ -156,11 +176,12 @@ fn outline_items_for_block_container(
 }
 
 struct SourceNodes<'a> {
+    source: &'a str,
     variables: Vec<VariableNode<'a>>,
 }
 
 impl<'a> SourceNodes<'a> {
-    fn new(nodes: &'a [Node]) -> Self {
+    fn new(nodes: &'a [Node], source: &'a str) -> Self {
         let variables = nodes
             .iter()
             .filter_map(|node| match node {
@@ -168,6 +189,8 @@ impl<'a> SourceNodes<'a> {
                     var,
                     filters,
                     span: *span,
+                    selection_span: span_for_text(source, *span, var, 0)
+                        .unwrap_or_else(|| span.with_length_usize_saturating(var.len())),
                 }),
                 Node::Tag { .. }
                 | Node::Comment { .. }
@@ -176,7 +199,7 @@ impl<'a> SourceNodes<'a> {
             })
             .collect();
 
-        Self { variables }
+        Self { source, variables }
     }
 
     fn variable(&self, span: Span) -> Option<&VariableNode<'a>> {
@@ -188,6 +211,7 @@ struct VariableNode<'a> {
     var: &'a str,
     filters: &'a [Filter],
     span: Span,
+    selection_span: Span,
 }
 
 impl VariableNode<'_> {
@@ -197,7 +221,7 @@ impl VariableNode<'_> {
             detail: Some("variable".to_string()),
             kind: OutlineKind::Variable,
             span,
-            selection_span: span,
+            selection_span: self.selection_span,
             children: self.filters.iter().map(filter_outline_item).collect(),
         }
     }
@@ -223,6 +247,7 @@ fn filter_label(filter: &Filter) -> String {
 
 fn outline_items_for_standalone(
     tag_specs: &TagSpecs,
+    source: &str,
     tag: &str,
     bits: &[String],
     full_span: Span,
@@ -233,15 +258,24 @@ fn outline_items_for_standalone(
     };
 
     if role == TagOutlineRole::LibraryImport {
+        let mut search_start = 0;
         return bits
             .iter()
-            .map(|bit| OutlineItem {
-                label: outline_target_label(std::slice::from_ref(bit)),
-                detail: Some(tag.to_string()),
-                kind: outline_kind(role),
-                span: full_span,
-                selection_span: marker_span,
-                children: Vec::new(),
+            .map(|bit| {
+                let selection_span =
+                    span_for_text(source, marker_span, bit, search_start).unwrap_or(marker_span);
+                search_start = selection_span
+                    .end_usize()
+                    .saturating_sub(marker_span.start_usize());
+
+                OutlineItem {
+                    label: outline_target_label(std::slice::from_ref(bit)),
+                    detail: Some(tag.to_string()),
+                    kind: outline_kind(role),
+                    span: full_span,
+                    selection_span,
+                    children: Vec::new(),
+                }
             })
             .collect();
     }
@@ -251,9 +285,40 @@ fn outline_items_for_standalone(
         detail: Some(tag.to_string()),
         kind: outline_kind(role),
         span: full_span,
-        selection_span: marker_span,
+        selection_span: tag_selection_span(source, marker_span, tag, bits, role),
         children: Vec::new(),
     }]
+}
+
+fn tag_selection_span(
+    source: &str,
+    marker_span: Span,
+    tag: &str,
+    bits: &[String],
+    role: TagOutlineRole,
+) -> Span {
+    match role {
+        TagOutlineRole::TemplateReference
+        | TagOutlineRole::LibraryImport
+        | TagOutlineRole::NamedRegion
+        | TagOutlineRole::AssetReference
+        | TagOutlineRole::RouteReference => bits
+            .first()
+            .and_then(|bit| span_for_text(source, marker_span, bit, 0))
+            .unwrap_or_else(|| span_for_text(source, marker_span, tag, 0).unwrap_or(marker_span)),
+        TagOutlineRole::ControlFlow | TagOutlineRole::Callable => {
+            span_for_text(source, marker_span, tag, 0).unwrap_or(marker_span)
+        }
+    }
+}
+
+fn span_for_text(source: &str, span: Span, text: &str, search_start: usize) -> Option<Span> {
+    let content = source.get(span.start_usize()..span.end_usize())?;
+    let relative_start = search_start + content.get(search_start..)?.find(text)?;
+    Some(Span::saturating_from_parts_usize(
+        span.start_usize() + relative_start,
+        text.len(),
+    ))
 }
 
 fn outline_role_for_block(tag_specs: &TagSpecs, tag: &str) -> TagOutlineRole {
@@ -337,7 +402,7 @@ mod tests {
         let file = File::new(db, "test.html".into(), 0);
         let nodelist = parse_template(db, file).expect("should parse");
         let tree = build_template_tree(db, nodelist);
-        build_template_outline(db, nodelist, tree)
+        build_template_outline(db, nodelist, tree, source)
     }
 
     fn labels(items: &[OutlineItem]) -> Vec<&str> {
@@ -457,9 +522,24 @@ mod tests {
             vec!["user.username", "if items", "images/logo.png"]
         );
         assert_eq!(block_children[0].kind, OutlineKind::Variable);
+        assert_eq!(
+            block_children[0].selection_span.start_usize(),
+            r"{% load static %}
+{% block content %}
+  <h1>Hello, {{ "
+                .len()
+        );
         assert_eq!(labels(&block_children[0].children), vec!["lower"]);
         assert_eq!(block_children[0].children[0].kind, OutlineKind::Filter);
         assert_eq!(block_children[1].kind, OutlineKind::ControlFlow);
+        assert_eq!(
+            block_children[1].selection_span.start_usize(),
+            r"{% load static %}
+{% block content %}
+  <h1>Hello, {{ user.username|lower }}!</h1>
+  {% "
+            .len()
+        );
         assert_eq!(
             labels(&block_children[1].children),
             vec!["for item in items", "else"]
