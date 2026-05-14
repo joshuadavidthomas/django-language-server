@@ -32,6 +32,22 @@ impl SpanExt for Span {
     }
 }
 
+pub(crate) trait MarkdownExt {
+    fn to_lsp_hover(self, span: Span, line_index: &LineIndex) -> ls_types::Hover;
+}
+
+impl MarkdownExt for String {
+    fn to_lsp_hover(self, span: Span, line_index: &LineIndex) -> ls_types::Hover {
+        ls_types::Hover {
+            contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
+                kind: ls_types::MarkupKind::Markdown,
+                value: self,
+            }),
+            range: Some(span.to_lsp_range(line_index)),
+        }
+    }
+}
+
 pub(crate) trait Utf8PathExt {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri>;
 }

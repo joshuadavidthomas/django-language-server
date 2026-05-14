@@ -3,7 +3,6 @@ use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::LoadKind;
 use djls_semantic::ResolveResult;
-use djls_semantic::TemplateSymbol;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
 use djls_source::File;
@@ -13,7 +12,7 @@ use djls_templates::parse_template;
 use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
-use crate::ext::SpanExt;
+use crate::ext::MarkdownExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
     let source = file.source(db);
@@ -25,19 +24,13 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
         .iter()
         .find(|node| node.full_span().contains(offset))?;
 
-    match hover_target(node, source.as_str(), offset)? {
-        HoverTarget::TemplateReference { name, span } => {
-            template_reference_hover(db, &name, span, line_index)
-        }
-        HoverTarget::LoadLibrary { name, span } => library_hover(db, &name, span, line_index),
-        HoverTarget::Symbol { name, kind, span } => symbol_hover(db, name, kind, span, line_index),
-    }
+    HoverTarget::from_node(node, source.as_str(), offset)?.into_lsp_hover(db, line_index)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HoverTarget<'a> {
     TemplateReference {
-        name: String,
+        raw_name: &'a str,
         span: Span,
     },
     LoadLibrary {
@@ -51,69 +44,85 @@ enum HoverTarget<'a> {
     },
 }
 
-fn hover_target<'a>(node: &'a Node, source: &str, offset: Offset) -> Option<HoverTarget<'a>> {
-    match node {
-        Node::Tag { name, bits, span } => Some(tag_hover_target(
-            name,
-            bits,
-            *span,
-            node.full_span(),
-            source,
-            offset,
-        )),
-        Node::Variable { filters, .. } => filters.iter().find_map(|filter| {
-            let span = filter.span.with_length_usize_saturating(filter.name.len());
-            span.contains(offset).then_some(HoverTarget::Symbol {
-                name: &filter.name,
-                kind: TemplateSymbolKind::Filter,
-                span,
-            })
-        }),
-        Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
+impl<'a> HoverTarget<'a> {
+    fn from_node(node: &'a Node, source: &str, offset: Offset) -> Option<Self> {
+        match node {
+            Node::Tag { name, bits, span } => Some(Self::from_tag(
+                name,
+                bits,
+                *span,
+                node.full_span(),
+                source,
+                offset,
+            )),
+            Node::Variable { filters, .. } => filters.iter().find_map(|filter| {
+                let span = filter.span.with_length_usize_saturating(filter.name.len());
+                span.contains(offset).then_some(Self::Symbol {
+                    name: &filter.name,
+                    kind: TemplateSymbolKind::Filter,
+                    span,
+                })
+            }),
+            Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
+        }
     }
-}
 
-fn tag_hover_target<'a>(
-    name: &'a str,
-    bits: &[String],
-    content_span: Span,
-    full_span: Span,
-    source: &str,
-    offset: Offset,
-) -> HoverTarget<'a> {
-    if matches!(name, "extends" | "include") {
-        if let Some(bit) = bits.first() {
-            if let Some(span) = find_bit_span(source, content_span, bit) {
-                if span.contains(offset) {
-                    return HoverTarget::TemplateReference {
-                        name: unquote(bit),
-                        span,
-                    };
+    fn from_tag(
+        name: &'a str,
+        bits: &'a [String],
+        content_span: Span,
+        full_span: Span,
+        source: &str,
+        offset: Offset,
+    ) -> Self {
+        if matches!(name, "extends" | "include") {
+            if let Some(bit) = bits.first() {
+                if let Some(span) = find_bit_span(source, content_span, bit) {
+                    if span.contains(offset) {
+                        return Self::TemplateReference {
+                            raw_name: bit,
+                            span,
+                        };
+                    }
                 }
             }
         }
-    }
 
-    if name == "load" {
-        if let Some((name, span)) = load_library_at_offset(source, content_span, bits, offset) {
-            return HoverTarget::LoadLibrary { name, span };
+        if name == "load" {
+            if let Some((name, span)) = load_library_at_offset(source, content_span, bits, offset) {
+                return Self::LoadLibrary { name, span };
+            }
+        }
+
+        Self::Symbol {
+            name,
+            kind: TemplateSymbolKind::Tag,
+            span: full_span,
         }
     }
 
-    HoverTarget::Symbol {
-        name,
-        kind: TemplateSymbolKind::Tag,
-        span: full_span,
+    fn into_lsp_hover(
+        self,
+        db: &dyn djls_semantic::Db,
+        line_index: &djls_source::LineIndex,
+    ) -> Option<ls_types::Hover> {
+        let (markdown, span) = match self {
+            Self::TemplateReference { raw_name, span } => {
+                (template_reference_markdown(db, &unquote(raw_name))?, span)
+            }
+            Self::LoadLibrary { name, span } => (library_markdown(db, &name)?, span),
+            Self::Symbol { name, kind, span } => (symbol_markdown(db, name, kind)?, span),
+        };
+
+        Some(markdown.to_lsp_hover(span, line_index))
     }
 }
 
-fn symbol_hover(
+fn symbol_markdown(
     db: &dyn djls_semantic::Db,
     name: &str,
     kind: TemplateSymbolKind,
-    span: Span,
-    line_index: &djls_source::LineIndex,
-) -> Option<ls_types::Hover> {
+) -> Option<String> {
     let libraries = db.template_libraries();
     let candidates: Vec<_> = libraries
         .installed_symbol_candidates(kind)
@@ -142,34 +151,18 @@ fn symbol_hover(
             })
             .unwrap_or_default();
 
-        render_discovered_symbol_hover(&discovered)?
+        if discovered.is_empty() {
+            return None;
+        }
+        discovered.join("\n")
     } else {
         render_installed_symbol_hover(&candidates)?
     };
 
-    Some(markdown_hover(markdown, span, line_index))
+    Some(markdown)
 }
 
-fn markdown_hover(
-    markdown: String,
-    span: Span,
-    line_index: &djls_source::LineIndex,
-) -> ls_types::Hover {
-    ls_types::Hover {
-        contents: ls_types::HoverContents::Markup(ls_types::MarkupContent {
-            kind: ls_types::MarkupKind::Markdown,
-            value: markdown,
-        }),
-        range: Some(span.to_lsp_range(line_index)),
-    }
-}
-
-fn template_reference_hover(
-    db: &dyn djls_semantic::Db,
-    template_name: &str,
-    span: Span,
-    line_index: &djls_source::LineIndex,
-) -> Option<ls_types::Hover> {
+fn template_reference_markdown(db: &dyn djls_semantic::Db, template_name: &str) -> Option<String> {
     let markdown = match resolve_template(db, template_name) {
         ResolveResult::Found(template) => {
             let path = template.path_buf(db);
@@ -189,28 +182,33 @@ fn template_reference_hover(
         }
     };
 
-    Some(markdown_hover(markdown, span, line_index))
+    Some(markdown)
 }
 
-fn library_hover(
-    db: &dyn djls_semantic::Db,
-    library_name: &str,
-    span: Span,
-    line_index: &djls_source::LineIndex,
-) -> Option<ls_types::Hover> {
+fn library_markdown(db: &dyn djls_semantic::Db, library_name: &str) -> Option<String> {
     let library = db
         .template_libraries()
         .best_loadable_library_str(library_name)?;
-    Some(markdown_hover(
-        library.module().as_str().to_string(),
-        span,
-        line_index,
-    ))
+    Some(library.module().as_str().to_string())
 }
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
-    let candidate = hover_candidate(candidates)?;
-    let mut sections = vec![symbol_signature(&candidate.symbol)];
+    let candidate = candidates
+        .iter()
+        .find(|candidate| {
+            candidate
+                .symbol
+                .doc()
+                .is_some_and(|doc| !doc.trim().is_empty())
+        })
+        .or_else(|| candidates.first())?;
+
+    let name = candidate.symbol.name();
+    let signature = match candidate.symbol.kind {
+        TemplateSymbolKind::Tag => format!("{{% {name} %}}"),
+        TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
+    };
+    let mut sections = vec![format!("```htmldjango\n{signature}\n```")];
 
     if let Some(doc) = candidate
         .symbol
@@ -221,64 +219,31 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         sections.push(doc);
     }
 
-    sections.extend(candidates.iter().filter_map(load_hint));
+    sections.extend(
+        candidates
+            .iter()
+            .filter_map(|candidate| match &candidate.origin {
+                InstalledSymbolOrigin::Builtin { .. } => None,
+                InstalledSymbolOrigin::Loadable { load_name } => {
+                    Some(format!("Load with `{{% load {} %}}`.", load_name.as_str()))
+                }
+            }),
+    );
 
-    if let Some(provenance) = symbol_provenance(candidate) {
-        sections.push(format!("`{provenance}`"));
+    if let InstalledSymbolOrigin::Loadable { .. } = candidate.origin {
+        match &candidate.symbol.definition {
+            djls_semantic::SymbolDefinition::Module(module) => {
+                sections.push(format!("`{}`", module.as_str()));
+            }
+            djls_semantic::SymbolDefinition::Exact { file }
+            | djls_semantic::SymbolDefinition::LibraryFile(file) => {
+                sections.push(format!("`{file}`"));
+            }
+            djls_semantic::SymbolDefinition::Unknown => {}
+        }
     }
 
     Some(sections.join("\n\n"))
-}
-
-fn hover_candidate(candidates: &[InstalledSymbolCandidate]) -> Option<&InstalledSymbolCandidate> {
-    candidates
-        .iter()
-        .find(|candidate| {
-            candidate
-                .symbol
-                .doc()
-                .is_some_and(|doc| !doc.trim().is_empty())
-        })
-        .or_else(|| candidates.first())
-}
-
-fn render_discovered_symbol_hover(discovered: &[String]) -> Option<String> {
-    if discovered.is_empty() {
-        None
-    } else {
-        Some(discovered.join("\n"))
-    }
-}
-
-fn symbol_signature(symbol: &TemplateSymbol) -> String {
-    let name = symbol.name();
-    let signature = match symbol.kind {
-        TemplateSymbolKind::Tag => format!("{{% {name} %}}"),
-        TemplateSymbolKind::Filter => format!("{{{{ value|{name} }}}}"),
-    };
-
-    format!("```htmldjango\n{signature}\n```")
-}
-
-fn symbol_provenance(candidate: &InstalledSymbolCandidate) -> Option<String> {
-    match &candidate.origin {
-        InstalledSymbolOrigin::Builtin { .. } => None,
-        InstalledSymbolOrigin::Loadable { .. } => match &candidate.symbol.definition {
-            djls_semantic::SymbolDefinition::Module(module) => Some(module.as_str().to_string()),
-            djls_semantic::SymbolDefinition::Exact { file }
-            | djls_semantic::SymbolDefinition::LibraryFile(file) => Some(file.to_string()),
-            djls_semantic::SymbolDefinition::Unknown => None,
-        },
-    }
-}
-
-fn load_hint(candidate: &InstalledSymbolCandidate) -> Option<String> {
-    match &candidate.origin {
-        InstalledSymbolOrigin::Builtin { .. } => None,
-        InstalledSymbolOrigin::Loadable { load_name } => {
-            Some(format!("Load with `{{% load {} %}}`.", load_name.as_str()))
-        }
-    }
 }
 
 fn format_docstring(doc: &str) -> String {
