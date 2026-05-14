@@ -15,7 +15,7 @@ use crate::ext::SpanExt;
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
     let (markdown, span) = match OffsetContext::from_offset(db, file, offset) {
         OffsetContext::TemplateReference { name, span } => {
-            let mut sections = vec![format!("```htmldjango\n(template) \"{name}\"\n```")];
+            let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
             match resolve_template(db, &name) {
                 ResolveResult::Found(template) => {
                     let path = template.path_buf(db);
@@ -42,7 +42,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             let library = db.template_libraries().best_loadable_library_str(&name)?;
             Some((
                 format!(
-                    "```htmldjango\n(library) {name}\n```\n---\n`{}`",
+                    "```text\n(library) {name}\n```\n---\n```python\n{}\n```",
                     library.module().as_str()
                 ),
                 span,
@@ -127,7 +127,7 @@ fn render_symbol_hover(
             None => "symbol",
         };
         Some(format!(
-            "```htmldjango\n({kind}) {name}\n```\n---\n{}",
+            "```text\n({kind}) {name}\n```\n---\n{}",
             discovered.join("\n")
         ))
     }
@@ -149,7 +149,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
         TemplateSymbolKind::Tag => "tag",
         TemplateSymbolKind::Filter => "filter",
     };
-    let mut sections = vec![format!("```htmldjango\n({kind}) {name}\n```")];
+    let mut sections = vec![format!("```text\n({kind}) {name}\n```")];
 
     if let Some(doc) = candidate
         .symbol
@@ -174,7 +174,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
     if let InstalledSymbolOrigin::Loadable { .. } = candidate.origin {
         match &candidate.symbol.definition {
             djls_semantic::SymbolDefinition::Module(module) => {
-                sections.push(format!("`{}`", module.as_str()));
+                sections.push(format!("```python\n{}\n```", module.as_str()));
             }
             djls_semantic::SymbolDefinition::Exact { file }
             | djls_semantic::SymbolDefinition::LibraryFile(file) => {
@@ -319,7 +319,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.")
+            Some("```text\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.")
         );
     }
 
@@ -338,7 +338,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n(tag) if\n```\n---\nEvaluate a condition."),
+            Some("```text\n(tag) if\n```\n---\nEvaluate a condition."),
         );
     }
 
@@ -357,7 +357,7 @@ mod tests {
 
         assert_eq!(
             markdown.as_deref(),
-            Some("```htmldjango\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.\n---\n`django.contrib.humanize.templatetags.humanize`"),
+            Some("```text\n(filter) intcomma\n```\n---\nLoad with `{% load humanize %}`.\n---\n```python\ndjango.contrib.humanize.templatetags.humanize\n```"),
         );
     }
 
