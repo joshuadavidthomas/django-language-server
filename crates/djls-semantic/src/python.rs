@@ -183,11 +183,13 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
 /// This is the Salsa-tracked entry point for the extraction pipeline.
 /// It parses the file (via `parse_python_module`), collects registrations,
 /// and runs the full extraction. The result is cached and invalidated
-/// when `file.source(db)` changes.
+/// when `file.source(db)` changes. The cached result is returned by reference
+/// so callers that only inspect or merge extraction data do not clone it on
+/// cache hits.
 ///
 /// The `registration_module` in returned `SymbolKey`s is populated from the
 /// module path argument, making module identity part of the Salsa query key.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 pub fn extract_module(
     db: &dyn djls_source::Db,
     file: File,

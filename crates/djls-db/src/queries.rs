@@ -25,7 +25,7 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
 
     // Merge workspace extraction results (tracked, auto-invalidating on file change)
     let workspace_results = collect_workspace_extraction_results(db, project);
-    for (_module_path, extraction) in &workspace_results {
+    for (_module_path, extraction) in workspace_results {
         specs.merge_extraction_results(extraction);
     }
 
@@ -68,7 +68,7 @@ pub fn compute_filter_arity_specs(
 
     // Merge workspace extraction results (tracked)
     let workspace_results = collect_workspace_extraction_results(db, project);
-    for (_module_path, extraction) in &workspace_results {
+    for (_module_path, extraction) in workspace_results {
         specs.merge_extraction_result(extraction);
     }
 
@@ -100,7 +100,7 @@ pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph 
 
     // Merge workspace models (tracked, auto-invalidating on file change)
     for (_module_path, model_graph) in collect_workspace_models(db, project) {
-        graph.merge(model_graph);
+        graph.merge(model_graph.clone());
     }
 
     graph
@@ -117,7 +117,7 @@ pub fn compute_model_graph(db: &dyn SemanticDb, project: Project) -> ModelGraph 
 /// via the `Project.extracted_external_models` field. This function only
 /// processes workspace files, giving them automatic Salsa invalidation
 /// when the user edits a `models.py`.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 fn collect_workspace_models(
     db: &dyn SemanticDb,
     project: Project,
@@ -154,7 +154,7 @@ fn collect_workspace_models(
 /// External modules are handled separately (cached on `Project` field,
 /// updated by `refresh_external_data`). This function only processes workspace
 /// modules, giving them automatic Salsa invalidation when files change.
-#[salsa::tracked]
+#[salsa::tracked(returns(ref))]
 fn collect_workspace_extraction_results(
     db: &dyn SemanticDb,
     project: Project,
@@ -190,7 +190,7 @@ fn collect_workspace_extraction_results(
             djls_semantic::extract_module(db, file, ModulePath::new(resolved.module_path.clone()));
 
         if !extraction.is_empty() {
-            results.push((resolved.module_path, extraction));
+            results.push((resolved.module_path, extraction.clone()));
         }
     }
 
