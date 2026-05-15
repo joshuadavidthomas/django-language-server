@@ -3,10 +3,11 @@ use djls_source::safe_join;
 use djls_source::File;
 use djls_source::Span;
 use djls_source::Utf8PathClean;
+use djls_templates::parse_template;
+use djls_templates::Node;
 use ignore::WalkBuilder;
 
 pub use crate::db::Db as SemanticDb;
-use crate::primitives::Tag;
 pub use crate::primitives::Template;
 pub use crate::primitives::TemplateName;
 
@@ -117,19 +118,17 @@ pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResu
 
 #[salsa::tracked]
 pub struct TemplateReference<'db> {
+    /// Source span of the extends/include tag. Store the parser payload directly
+    /// so reference indexing does not need a separate Salsa identity for tags.
     pub source: Template<'db>,
     pub target: TemplateName<'db>,
-    pub tag: Tag<'db>,
+    pub span: Span,
 }
 
 impl TemplateReference<'_> {
     pub fn source_file(&self, db: &dyn SemanticDb) -> File {
         let template = self.source(db);
         template.file(db)
-    }
-
-    pub fn span(&self, db: &dyn SemanticDb) -> Span {
-        self.tag(db).span(db)
     }
 }
 
@@ -159,22 +158,36 @@ fn template_reference_index(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
     let templates = discover_templates(db);
 
     for template in templates {
-        for tag in template.tags(db) {
-            let tag_name = tag.name(db);
-            if tag_name == "extends" || tag_name == "include" {
-                if let Some(template_name) = tag
-                    .bits(db)
-                    .first()
-                    .and_then(|argument| argument.template_string().quoted_value())
-                {
-                    references.push(TemplateReference::new(
-                        db,
-                        template,
-                        TemplateName::new(db, template_name.to_string()),
-                        tag,
-                    ));
-                }
+        let file = template.file(db);
+        let Some(nodelist) = parse_template(db, file) else {
+            continue;
+        };
+
+        for node in nodelist.nodelist(db) {
+            let Node::Tag {
+                name, bits, span, ..
+            } = node
+            else {
+                continue;
+            };
+
+            if name != "extends" && name != "include" {
+                continue;
             }
+
+            let Some(template_name) = bits
+                .first()
+                .and_then(|argument| argument.template_string().quoted_value())
+            else {
+                continue;
+            };
+
+            references.push(TemplateReference::new(
+                db,
+                template,
+                TemplateName::new(db, template_name.to_string()),
+                *span,
+            ));
         }
     }
 

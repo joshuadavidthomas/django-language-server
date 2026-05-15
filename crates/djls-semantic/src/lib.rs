@@ -17,7 +17,6 @@ pub mod testing;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-pub use primitives::Tag;
 pub use primitives::Template;
 pub use primitives::TemplateName;
 pub use project::build_search_paths;
