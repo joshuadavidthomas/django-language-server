@@ -7,19 +7,20 @@ pub enum Quote {
 }
 
 impl Quote {
-    fn from_delimiter(ch: char) -> Option<Self> {
+    fn from_char(ch: char) -> Option<Self> {
         match ch {
             '\'' => Some(Self::Single),
             '"' => Some(Self::Double),
             _ => None,
         }
     }
+}
 
-    #[must_use]
-    pub fn delimiter(self) -> char {
-        match self {
-            Self::Single => '\'',
-            Self::Double => '"',
+impl From<Quote> for char {
+    fn from(quote: Quote) -> Self {
+        match quote {
+            Quote::Single => '\'',
+            Quote::Double => '"',
         }
     }
 }
@@ -37,11 +38,11 @@ impl<'a> TemplateString<'a> {
         let Some(first) = raw.chars().next() else {
             return Self::Unquoted(raw);
         };
-        let Some(quote) = Quote::from_delimiter(first) else {
+        let Some(quote) = Quote::from_char(first) else {
             return Self::Unquoted(raw);
         };
 
-        if raw.len() < 2 || !raw.ends_with(quote.delimiter()) {
+        if raw.len() < 2 || !raw.ends_with(char::from(quote)) {
             return Self::Unquoted(raw);
         }
 
