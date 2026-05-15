@@ -331,6 +331,8 @@ mod invalidation_tests {
             TemplateLibraries::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
+            rustc_hash::FxHashMap::default(),
+            rustc_hash::FxHashMap::default(),
         );
         *db.project.lock().unwrap() = Some(project);
 
@@ -474,11 +476,11 @@ mod invalidation_tests {
                 opaque: false,
             },
         );
-        let mut external_rules = rustc_hash::FxHashMap::default();
-        external_rules.insert("test.module".to_string(), extraction);
+        let mut external_block_specs = rustc_hash::FxHashMap::default();
+        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
         project
-            .set_extracted_external_rules(&mut db)
-            .to(external_rules);
+            .set_extracted_external_block_specs(&mut db)
+            .to(external_block_specs);
 
         // Access tag_index — both compute_tag_specs and compute_tag_index should re-execute
         let _index = db.tag_index();
@@ -649,8 +651,10 @@ def my_filter(value, arg):
 
         // Initially empty
         assert!(
-            project.extracted_external_rules(&db).is_empty(),
-            "extracted_external_rules should be empty initially"
+            project.extracted_external_tag_rules(&db).is_empty()
+                && project.extracted_external_filter_arities(&db).is_empty()
+                && project.extracted_external_block_specs(&db).is_empty(),
+            "external extraction fields should be empty initially"
         );
 
         // Set some extraction results
@@ -663,15 +667,15 @@ def my_filter(value, arg):
                 opaque: false,
             },
         );
-        let mut external_rules = rustc_hash::FxHashMap::default();
-        external_rules.insert("test.module".to_string(), extraction);
+        let mut external_block_specs = rustc_hash::FxHashMap::default();
+        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
         project
-            .set_extracted_external_rules(&mut db)
-            .to(external_rules);
+            .set_extracted_external_block_specs(&mut db)
+            .to(external_block_specs);
 
-        let stored = project.extracted_external_rules(&db);
+        let stored = project.extracted_external_block_specs(&db);
         assert_eq!(stored.len(), 1);
-        assert_eq!(stored["test.module"].block_specs.len(), 1);
+        assert_eq!(stored["test.module"].len(), 1);
     }
 
     #[test]
@@ -734,18 +738,18 @@ def my_filter(value, arg):
                 opaque: false,
             },
         );
-        let mut external_rules = rustc_hash::FxHashMap::default();
-        external_rules.insert("test.module".to_string(), extraction);
+        let mut external_block_specs = rustc_hash::FxHashMap::default();
+        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
         project
-            .set_extracted_external_rules(&mut db)
-            .to(external_rules);
+            .set_extracted_external_block_specs(&mut db)
+            .to(external_block_specs);
 
-        // Access tag_specs — should re-execute because extracted_external_rules changed
+        // Access tag_specs — should re-execute because extracted_external_block_specs changed
         let specs = db.tag_specs();
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after extracted_external_rules change"
+            "compute_tag_specs should re-execute after extracted_external_block_specs change"
         );
 
         // The merged specs should include the extracted block tag
@@ -764,6 +768,46 @@ def my_filter(value, arg):
                 .as_ref(),
             "endcustomblock"
         );
+    }
+
+    #[test]
+    fn external_filter_arities_do_not_invalidate_tag_specs() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime both caches.
+        let _tag_specs = db.tag_specs();
+        let _filter_specs = db.filter_arity_specs();
+        event_log.take();
+
+        let project = db.project.lock().unwrap().unwrap();
+        let mut filter_arities = rustc_hash::FxHashMap::default();
+        filter_arities.insert(
+            djls_semantic::SymbolKey::filter("test.module", "customfilter"),
+            djls_semantic::FilterArity {
+                expects_arg: true,
+                arg_optional: false,
+            },
+        );
+        let mut external_filter_arities = rustc_hash::FxHashMap::default();
+        external_filter_arities.insert("test.module".to_string(), filter_arities);
+        project
+            .set_extracted_external_filter_arities(&mut db)
+            .to(external_filter_arities);
+
+        let _tag_specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should not re-execute after filter-only extraction changes"
+        );
+
+        let filter_specs = db.filter_arity_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_filter_arity_specs"),
+            "compute_filter_arity_specs should re-execute after filter arities change"
+        );
+        assert!(filter_specs.get("customfilter").is_some());
     }
 
     #[test]

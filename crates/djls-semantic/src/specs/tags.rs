@@ -102,14 +102,13 @@ impl TagSpecs {
         self
     }
 
-    /// Merge extraction results into tag specs.
+    /// Merge block specs into tag specs.
     ///
     /// Block specs from extraction override existing end-tag/intermediate info.
     /// This enriches the handcoded `builtins.rs` defaults with information
     /// extracted from actual Python source code.
-    pub fn merge_extraction_results(&mut self, extraction: &crate::ExtractionResult) -> &mut Self {
-        // Merge block specs (end tags, intermediates, opaque)
-        for (key, block_spec) in &extraction.block_specs {
+    pub fn merge_block_specs(&mut self, block_specs: &crate::BlockSpecMap) -> &mut Self {
+        for (key, block_spec) in block_specs {
             if key.kind != crate::SymbolKind::Tag {
                 continue;
             }
@@ -163,9 +162,12 @@ impl TagSpecs {
                 );
             }
         }
+        self
+    }
 
-        // Merge tag rules (argument validation constraints from extraction)
-        for (key, tag_rule) in &extraction.tag_rules {
+    /// Merge tag rules into tag specs.
+    pub fn merge_tag_rules(&mut self, tag_rules: &crate::TagRuleMap) -> &mut Self {
+        for (key, tag_rule) in tag_rules {
             if key.kind != crate::SymbolKind::Tag {
                 continue;
             }
@@ -188,6 +190,15 @@ impl TagSpecs {
             }
         }
         self
+    }
+
+    /// Merge all tag-related extraction results into tag specs.
+    ///
+    /// Prefer [`Self::merge_block_specs`] and [`Self::merge_tag_rules`] in Salsa
+    /// query code so callers depend only on the extraction domains they read.
+    pub fn merge_extraction_results(&mut self, extraction: &crate::ExtractionResult) -> &mut Self {
+        self.merge_block_specs(&extraction.block_specs)
+            .merge_tag_rules(&extraction.tag_rules)
     }
 
     /// Merge fallback specs into this one without overriding extraction-derived data.

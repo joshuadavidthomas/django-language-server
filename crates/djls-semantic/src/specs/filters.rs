@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::FilterArity;
+use crate::FilterArityMap;
 use crate::SymbolKey;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
@@ -52,11 +53,19 @@ impl FilterAritySpecs {
         self.specs.len()
     }
 
-    /// Merge extraction results' filter arities into this map.
+    /// Merge extracted filter arities into this map.
     /// Later entries overwrite earlier ones (last-wins).
-    pub fn merge_extraction_result(&mut self, result: &crate::ExtractionResult) {
-        for (key, arity) in &result.filter_arities {
+    pub fn merge_filter_arities(&mut self, filter_arities: &FilterArityMap) {
+        for (key, arity) in filter_arities {
             self.insert(key.clone(), arity.clone());
         }
+    }
+
+    /// Merge extraction results' filter arities into this map.
+    ///
+    /// Prefer [`Self::merge_filter_arities`] in Salsa query code so callers
+    /// depend only on the extraction domain they read.
+    pub fn merge_extraction_result(&mut self, result: &crate::ExtractionResult) {
+        self.merge_filter_arities(&result.filter_arities);
     }
 }

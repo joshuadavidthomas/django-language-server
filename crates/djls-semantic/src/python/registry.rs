@@ -78,18 +78,45 @@ impl RegistrationKind {
     pub(crate) fn extract(self, func: &StmtFunctionDef) -> ExtractionOutput {
         match self {
             Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
+            Self::SimpleTag | Self::InclusionTag | Self::Tag | Self::SimpleBlockTag => {
+                ExtractionOutput::Tag {
+                    rule: self.extract_tag_rule(func),
+                    block_spec: self.extract_block_spec(func),
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn extract_filter_arity(self, func: &StmtFunctionDef) -> Option<FilterArity> {
+        match self {
+            Self::Filter => Some(filters::extract_filter_arity(func)),
+            Self::Tag | Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn extract_tag_rule(self, func: &StmtFunctionDef) -> Option<Box<TagRule>> {
+        match self {
+            Self::Filter => None,
             Self::SimpleTag | Self::InclusionTag => {
                 let rule = signature::extract_parse_bits_rule(func, self.as_var());
-                let rule = rule.has_content().then(|| Box::new(rule));
-                let block_spec = blocks::extract_block_spec(func);
-                ExtractionOutput::Tag { rule, block_spec }
+                rule.has_content().then(|| Box::new(rule))
             }
             Self::Tag | Self::SimpleBlockTag => {
                 let mut rule = analysis::analyze_compile_function(func);
                 rule.as_var = self.as_var();
-                let rule = rule.has_content().then(|| Box::new(rule));
-                let block_spec = blocks::extract_block_spec(func);
-                ExtractionOutput::Tag { rule, block_spec }
+                rule.has_content().then(|| Box::new(rule))
+            }
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn extract_block_spec(self, func: &StmtFunctionDef) -> Option<BlockSpec> {
+        match self {
+            Self::Filter => None,
+            Self::Tag | Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {
+                blocks::extract_block_spec(func)
             }
         }
     }

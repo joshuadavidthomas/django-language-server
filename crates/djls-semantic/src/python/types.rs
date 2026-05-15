@@ -42,14 +42,21 @@ pub enum SymbolKind {
     Filter,
 }
 
+pub type TagRuleMap = FxHashMap<SymbolKey, Arc<TagRule>>;
+pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
+pub type BlockSpecMap = FxHashMap<SymbolKey, BlockSpec>;
+
 /// Result of extracting rules from a Python registration module.
 ///
-/// Maps each discovered symbol to its extracted validation rules.
+/// Maps each discovered symbol to its extracted validation rules. This remains
+/// as a convenience aggregate for non-Salsa callers and snapshots; the Salsa
+/// pipeline uses domain-specific query results so downstream consumers only
+/// depend on the extracted data they read.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionResult {
-    pub tag_rules: FxHashMap<SymbolKey, Arc<TagRule>>,
-    pub filter_arities: FxHashMap<SymbolKey, FilterArity>,
-    pub block_specs: FxHashMap<SymbolKey, BlockSpec>,
+    pub tag_rules: TagRuleMap,
+    pub filter_arities: FilterArityMap,
+    pub block_specs: BlockSpecMap,
 }
 
 impl ExtractionResult {

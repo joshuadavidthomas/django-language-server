@@ -9,9 +9,11 @@ use crate::project::django::django_available;
 use crate::project::django::template_dirs;
 use crate::project::python::Interpreter;
 use crate::project::symbols::TemplateLibraries;
-use crate::ExtractionResult;
+use crate::BlockSpecMap;
+use crate::FilterArityMap;
 use crate::ModelGraph;
 use crate::ModulePath;
+use crate::TagRuleMap;
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -52,12 +54,19 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// Extraction results from external modules (site-packages), keyed by
+    /// Extracted tag rules from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
-    /// Populated by `refresh_external_data`. Workspace files use tracked queries
-    /// via `collect_workspace_extraction_results` instead.
+    /// Populated by `refresh_external_data`. Workspace files use tracked queries.
     #[returns(ref)]
-    pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
+    pub extracted_external_tag_rules: FxHashMap<String, TagRuleMap>,
+    /// Extracted filter arities from external modules (site-packages), keyed by
+    /// registration module path. Populated by `refresh_external_data`.
+    #[returns(ref)]
+    pub extracted_external_filter_arities: FxHashMap<String, FilterArityMap>,
+    /// Extracted block specs from external modules (site-packages), keyed by
+    /// registration module path. Populated by `refresh_external_data`.
+    #[returns(ref)]
+    pub extracted_external_block_specs: FxHashMap<String, BlockSpecMap>,
     /// Model graphs from external packages (site-packages), keyed by module
     /// path (e.g., `"django.contrib.auth.models"`). Populated by scanning
     /// the venv's site-packages directory. Workspace `models.py` files use
@@ -81,6 +90,8 @@ impl Project {
             env_vars,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
         )
