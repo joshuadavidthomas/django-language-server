@@ -37,7 +37,7 @@ use crate::python::types::TagRule;
 /// recovery and automatic memoization. When `None` (standalone extraction),
 /// helper calls return `Unknown`.
 pub struct CallContext<'a> {
-    /// Salsa database, populated when running under `extract_module`.
+    /// Salsa database, populated when running under tracked extraction.
     /// Used by `resolve_call` to call `analyze_helper` via Salsa.
     pub db: Option<&'a dyn djls_source::Db>,
     /// Source file being analyzed, used to construct `HelperCall` interned keys.

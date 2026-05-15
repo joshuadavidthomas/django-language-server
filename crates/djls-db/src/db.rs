@@ -521,34 +521,34 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn extraction_result_cached_on_repeated_access() {
+    fn filter_arities_cached_on_repeated_access() {
         let (db, event_log) = test_db_with_project();
 
         // Create a Python file and track it
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
 
         // First extraction
-        let _result1 = djls_semantic::extract_module(
+        let _result1 = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "extract_module"),
-            "extract_module should execute on first call"
+            was_executed(&db, &events, "extract_filter_arities"),
+            "extract_filter_arities should execute on first call"
         );
 
         // Second call — cached
-        let _result2 = djls_semantic::extract_module(
+        let _result2 = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_module"),
-            "extract_module should NOT re-execute on second call (cached)"
+            !was_executed(&db, &events, "extract_filter_arities"),
+            "extract_filter_arities should NOT re-execute on second call (cached)"
         );
     }
 
@@ -558,7 +558,7 @@ mod invalidation_tests {
 
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let _result = djls_semantic::extract_module(
+        let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
@@ -569,16 +569,16 @@ mod invalidation_tests {
         file.set_revision(&mut db).to(1);
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
-        // so extract_module does NOT re-execute (correct behavior)
-        let _result = djls_semantic::extract_module(
+        // so extract_filter_arities does NOT re-execute (correct behavior)
+        let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_module"),
-            "extract_module should NOT re-execute when source content is unchanged (backdate)"
+            !was_executed(&db, &events, "extract_filter_arities"),
+            "extract_filter_arities should NOT re-execute when source content is unchanged (backdate)"
         );
     }
 
@@ -620,7 +620,7 @@ def my_filter(value, arg):
         };
 
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let result = djls_semantic::extract_module(
+        let result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
@@ -629,19 +629,19 @@ def my_filter(value, arg):
         // Should extract the filter
         let key = djls_semantic::SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
-            result.filter_arities.contains_key(&key),
+            result.contains_key(&key),
             "should extract filter from file content"
         );
-        assert!(result.filter_arities[&key].expects_arg);
+        assert!(result[&key].expects_arg);
 
-        let other_module_result = djls_semantic::extract_module(
+        let other_module_result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("other.project.tags"),
         );
         let other_key = djls_semantic::SymbolKey::filter("other.project.tags", "my_filter");
-        assert!(other_module_result.filter_arities.contains_key(&other_key));
-        assert!(!other_module_result.filter_arities.contains_key(&key));
+        assert!(other_module_result.contains_key(&other_key));
+        assert!(!other_module_result.contains_key(&key));
     }
 
     #[test]

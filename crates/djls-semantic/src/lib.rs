@@ -54,7 +54,6 @@ pub use python::analyze_helper;
 pub use python::extract_block_specs;
 pub use python::extract_filter_arities;
 pub use python::extract_model_graph;
-pub use python::extract_module;
 pub use python::extract_rules;
 pub use python::extract_tag_rules;
 pub use python::parse_python_module;

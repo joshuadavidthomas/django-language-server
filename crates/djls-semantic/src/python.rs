@@ -181,31 +181,6 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
     None
 }
 
-/// Extract validation rules from a Python file, cached by Salsa.
-///
-/// This is the Salsa-tracked entry point for the extraction pipeline.
-/// It parses the file (via `parse_python_module`), collects registrations,
-/// and runs the full extraction. The result is cached and invalidated
-/// when `file.source(db)` changes. The cached result is returned by reference
-/// so callers that only inspect or merge extraction data do not clone it on
-/// cache hits.
-///
-/// The `registration_module` in returned `SymbolKey`s is populated from the
-/// module path argument, making module identity part of the Salsa query key.
-#[salsa::tracked(returns(ref))]
-pub fn extract_module(
-    db: &dyn djls_source::Db,
-    file: File,
-    registration_module: ModulePath,
-) -> ExtractionResult {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return ExtractionResult::default();
-    };
-
-    let registration_module = registration_module.into_string();
-    extract_rules_from_body(parsed.body(db), &registration_module)
-}
-
 /// Extract tag validation rules from a Python file, cached by Salsa.
 ///
 /// This domain-specific query lets tag argument validation depend only on tag
@@ -222,7 +197,18 @@ pub fn extract_tag_rules(
     };
 
     let registration_module = registration_module.into_string();
-    extract_tag_rules_from_body(parsed.body(db), &registration_module)
+    let body = parsed.body(db);
+    let registrations = registry::collect_registrations_from_body(body);
+    let func_defs = collect_func_defs(body);
+    let mut tag_rules = TagRuleMap::default();
+
+    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
+        if let Some(rule) = reg.kind.extract_tag_rule(func) {
+            tag_rules.insert(key, rule.into());
+        }
+    }
+
+    tag_rules
 }
 
 /// Extract filter arities from a Python file, cached by Salsa.
@@ -240,7 +226,18 @@ pub fn extract_filter_arities(
     };
 
     let registration_module = registration_module.into_string();
-    extract_filter_arities_from_body(parsed.body(db), &registration_module)
+    let body = parsed.body(db);
+    let registrations = registry::collect_registrations_from_body(body);
+    let func_defs = collect_func_defs(body);
+    let mut filter_arities = FilterArityMap::default();
+
+    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
+        if let Some(arity) = reg.kind.extract_filter_arity(func) {
+            filter_arities.insert(key, arity);
+        }
+    }
+
+    filter_arities
 }
 
 /// Extract block specs from a Python file, cached by Salsa.
@@ -258,7 +255,19 @@ pub fn extract_block_specs(
     };
 
     let registration_module = registration_module.into_string();
-    extract_block_specs_from_body(parsed.body(db), &registration_module)
+    let body = parsed.body(db);
+    let registrations = registry::collect_registrations_from_body(body);
+    let func_defs = collect_func_defs(body);
+    let mut block_specs = BlockSpecMap::default();
+
+    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
+        if let Some(block_spec) = normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
+        {
+            block_specs.insert(key, block_spec);
+        }
+    }
+
+    block_specs
 }
 
 /// Extract validation rules from a Python registration module source.
@@ -285,14 +294,8 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
 }
 
 /// Extract validation rules from a pre-parsed module body.
-///
-/// Shared implementation used by both `extract_rules` (string input) and
-/// `extract_module` (Salsa tracked, pre-parsed AST).
 #[must_use]
-pub(crate) fn extract_rules_from_body(
-    body: &[ruff_python_ast::Stmt],
-    module_path: &str,
-) -> ExtractionResult {
+fn extract_rules_from_body(body: &[ruff_python_ast::Stmt], module_path: &str) -> ExtractionResult {
     let registrations = registry::collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
 
@@ -315,61 +318,6 @@ pub(crate) fn extract_rules_from_body(
     }
 
     result
-}
-
-#[must_use]
-pub(crate) fn extract_tag_rules_from_body(
-    body: &[ruff_python_ast::Stmt],
-    module_path: &str,
-) -> TagRuleMap {
-    let registrations = registry::collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-    let mut tag_rules = TagRuleMap::default();
-
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
-        if let Some(rule) = reg.kind.extract_tag_rule(func) {
-            tag_rules.insert(key, rule.into());
-        }
-    }
-
-    tag_rules
-}
-
-#[must_use]
-pub(crate) fn extract_filter_arities_from_body(
-    body: &[ruff_python_ast::Stmt],
-    module_path: &str,
-) -> FilterArityMap {
-    let registrations = registry::collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-    let mut filter_arities = FilterArityMap::default();
-
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
-        if let Some(arity) = reg.kind.extract_filter_arity(func) {
-            filter_arities.insert(key, arity);
-        }
-    }
-
-    filter_arities
-}
-
-#[must_use]
-pub(crate) fn extract_block_specs_from_body(
-    body: &[ruff_python_ast::Stmt],
-    module_path: &str,
-) -> BlockSpecMap {
-    let registrations = registry::collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-    let mut block_specs = BlockSpecMap::default();
-
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
-        if let Some(block_spec) = normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
-        {
-            block_specs.insert(key, block_spec);
-        }
-    }
-
-    block_specs
 }
 
 fn registered_functions<'a>(
