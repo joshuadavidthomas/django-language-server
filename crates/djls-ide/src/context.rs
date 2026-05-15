@@ -131,7 +131,7 @@ mod tests {
 
     use super::*;
 
-    fn tag_span(source: &str) -> Span {
+    fn content_span(source: &str) -> Span {
         Span::saturating_from_parts_usize(3, source.len() - 6)
     }
 
@@ -241,7 +241,7 @@ mod tests {
             var: "user.name".to_string(),
             var_span: Span::new(3, 9),
             filters: vec![Filter::new("title".to_string(), None, Span::new(13, 5))],
-            span: tag_span("{{ user.name|title }}"),
+            span: content_span("{{ user.name|title }}"),
         };
 
         let context = OffsetContext::from_node(&node, Offset::new(14));
@@ -261,7 +261,7 @@ mod tests {
             var: "user.name".to_string(),
             var_span: Span::new(3, 9),
             filters: vec![Filter::new("title".to_string(), None, Span::new(13, 5))],
-            span: tag_span("{{ user.name|title }}"),
+            span: content_span("{{ user.name|title }}"),
         };
 
         let context = OffsetContext::from_node(&node, Offset::new(5));

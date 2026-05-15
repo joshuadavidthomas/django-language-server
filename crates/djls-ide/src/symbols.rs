@@ -1,6 +1,4 @@
 use djls_semantic::OutlineItem;
-use djls_semantic::OutlineKind;
-use djls_semantic::TemplateOutline;
 use djls_source::File;
 use djls_source::LineIndex;
 use tower_lsp_server::ls_types;
@@ -15,13 +13,7 @@ pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types:
 
     let tree = djls_semantic::build_template_tree(db, nodelist);
     let outline = djls_semantic::build_template_outline(db, tree);
-    outline_to_document_symbols(&outline, file.line_index(db))
-}
-
-pub(crate) fn outline_to_document_symbols(
-    outline: &TemplateOutline,
-    line_index: &LineIndex,
-) -> Vec<ls_types::DocumentSymbol> {
+    let line_index = file.line_index(db);
     outline
         .items
         .iter()
@@ -41,25 +33,22 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
     ls_types::DocumentSymbol {
         name: item.label.clone(),
         detail: item.detail.clone(),
-        kind: symbol_kind(item.kind),
+        kind: match item.kind {
+            djls_semantic::OutlineKind::NamedRegion => ls_types::SymbolKind::NAMESPACE,
+            djls_semantic::OutlineKind::ControlFlow => ls_types::SymbolKind::OPERATOR,
+            djls_semantic::OutlineKind::TemplateReference
+            | djls_semantic::OutlineKind::FileReference => ls_types::SymbolKind::FILE,
+            djls_semantic::OutlineKind::LibraryImport => ls_types::SymbolKind::MODULE,
+            djls_semantic::OutlineKind::Callable
+            | djls_semantic::OutlineKind::RouteReference
+            | djls_semantic::OutlineKind::Filter => ls_types::SymbolKind::FUNCTION,
+            djls_semantic::OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
+        },
         tags: None,
         deprecated: None,
         range: item.span.to_lsp_range(line_index),
         selection_range: item.selection_span.to_lsp_range(line_index),
         children,
-    }
-}
-
-fn symbol_kind(kind: OutlineKind) -> ls_types::SymbolKind {
-    match kind {
-        OutlineKind::NamedRegion => ls_types::SymbolKind::NAMESPACE,
-        OutlineKind::ControlFlow => ls_types::SymbolKind::OPERATOR,
-        OutlineKind::TemplateReference | OutlineKind::FileReference => ls_types::SymbolKind::FILE,
-        OutlineKind::LibraryImport => ls_types::SymbolKind::MODULE,
-        OutlineKind::Callable | OutlineKind::RouteReference | OutlineKind::Filter => {
-            ls_types::SymbolKind::FUNCTION
-        }
-        OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
     }
 }
 
@@ -73,18 +62,18 @@ mod tests {
     fn outline_conversion_maps_kinds_ranges_and_children() {
         let source = "{% block content %}\n  {% include \"card.html\" %}\n{% endblock %}\n";
         let line_index = LineIndex::from(source);
-        let outline = TemplateOutline {
+        let outline = djls_semantic::TemplateOutline {
             items: vec![OutlineItem {
                 label: "content".to_string(),
                 detail: Some("block".to_string()),
-                kind: OutlineKind::NamedRegion,
+                kind: djls_semantic::OutlineKind::NamedRegion,
                 span: Span::saturating_from_bounds_usize(0, source.len() - 1),
                 selection_span: Span::saturating_from_bounds_usize(3, 18),
                 children: vec![
                     OutlineItem {
                         label: "card.html".to_string(),
                         detail: Some("include".to_string()),
-                        kind: OutlineKind::TemplateReference,
+                        kind: djls_semantic::OutlineKind::TemplateReference,
                         span: Span::saturating_from_bounds_usize(22, 47),
                         selection_span: Span::saturating_from_bounds_usize(25, 45),
                         children: Vec::new(),
@@ -92,13 +81,13 @@ mod tests {
                     OutlineItem {
                         label: "user.username".to_string(),
                         detail: Some("variable".to_string()),
-                        kind: OutlineKind::Variable,
+                        kind: djls_semantic::OutlineKind::Variable,
                         span: Span::saturating_from_bounds_usize(48, 71),
                         selection_span: Span::saturating_from_bounds_usize(48, 61),
                         children: vec![OutlineItem {
                             label: "lower".to_string(),
                             detail: Some("filter".to_string()),
-                            kind: OutlineKind::Filter,
+                            kind: djls_semantic::OutlineKind::Filter,
                             span: Span::saturating_from_bounds_usize(62, 67),
                             selection_span: Span::saturating_from_bounds_usize(62, 67),
                             children: Vec::new(),
@@ -108,7 +97,11 @@ mod tests {
             }],
         };
 
-        let symbols = outline_to_document_symbols(&outline, &line_index);
+        let symbols = outline
+            .items
+            .iter()
+            .map(|item| item_to_document_symbol(item, &line_index))
+            .collect::<Vec<_>>();
 
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "content");

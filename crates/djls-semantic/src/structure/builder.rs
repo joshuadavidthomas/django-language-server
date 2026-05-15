@@ -124,9 +124,8 @@ impl<'db> TemplateTreeBuilder<'db> {
                     target: parent,
                     node: TemplateNode::Block {
                         tag: name.to_string(),
-                        tag_span: name_span,
+                        name_span,
                         bits: bits.to_vec(),
-                        marker_span: span,
                         full_span,
                         body: container,
                         role: BlockRole::Opener,
@@ -136,9 +135,8 @@ impl<'db> TemplateTreeBuilder<'db> {
                     target: container,
                     node: TemplateNode::Block {
                         tag: name.to_string(),
-                        tag_span: name_span,
+                        name_span,
                         bits: bits.to_vec(),
-                        marker_span: span,
                         full_span,
                         body: segment,
                         role: BlockRole::Segment,
@@ -165,9 +163,8 @@ impl<'db> TemplateTreeBuilder<'db> {
                     target: self.active_region(),
                     node: TemplateNode::StandaloneTag {
                         tag: name.to_string(),
-                        tag_span: name_span,
+                        name_span,
                         bits: bits.to_vec(),
-                        marker_span: span,
                         full_span,
                     },
                 });
@@ -182,7 +179,7 @@ impl<'db> TemplateTreeBuilder<'db> {
         closer_bits: &[TagBit],
         span: Span,
     ) {
-        let marker_span = span.expand_template_tag_marker();
+        let full_span = span.expand_template_tag_marker();
 
         let Some(frame_idx) = self
             .stack
@@ -193,7 +190,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                 ValidationError::OrphanedClosingTag {
                     tag: closer_name.to_string(),
                     expected_opener: opener_name.to_string(),
-                    span: marker_span,
+                    span: full_span,
                 },
             ));
             return;
@@ -222,11 +219,11 @@ impl<'db> TemplateTreeBuilder<'db> {
                 });
                 self.ops.push(TreeOp::ExtendRegionSpan {
                     id: frame.container_body,
-                    span: marker_span,
+                    span: full_span,
                 });
                 self.ops.push(TreeOp::ExtendRegionSpan {
                     id: frame.parent_region,
-                    span: marker_span,
+                    span: full_span,
                 });
             }
             CloseValidation::ArgumentMismatch { expected, got } => {
@@ -234,7 +231,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                     ValidationError::UnmatchedBlockName {
                         expected,
                         got,
-                        span: marker_span,
+                        span: full_span,
                     },
                 ));
                 let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
@@ -244,11 +241,11 @@ impl<'db> TemplateTreeBuilder<'db> {
                 });
                 self.ops.push(TreeOp::ExtendRegionSpan {
                     id: frame.container_body,
-                    span: marker_span,
+                    span: full_span,
                 });
                 self.ops.push(TreeOp::ExtendRegionSpan {
                     id: frame.parent_region,
-                    span: marker_span,
+                    span: full_span,
                 });
             }
             CloseValidation::NotABlock => {
@@ -257,7 +254,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                         opening_tag: opener_name.to_string(),
                         expected_closing: opener_name.to_string(),
                         opening_span: frame.opener_span,
-                        closing_span: Some(marker_span),
+                        closing_span: Some(full_span),
                     },
                 ));
                 self.stack.push(frame);
@@ -294,9 +291,8 @@ impl<'db> TemplateTreeBuilder<'db> {
                     target: container,
                     node: TemplateNode::Block {
                         tag: tag_name.to_string(),
-                        tag_span: name_span,
+                        name_span,
                         bits: bits.to_vec(),
-                        marker_span: span,
                         full_span,
                         body: new_segment_id,
                         role: BlockRole::Segment,

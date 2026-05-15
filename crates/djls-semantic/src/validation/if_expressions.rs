@@ -10,11 +10,11 @@ use crate::ValidationErrorAccumulator;
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[TagBit], span: Span) {
     if let Some(message) = validate_expression(bits) {
-        let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+        let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
         ValidationErrorAccumulator(ValidationError::ExpressionSyntaxError {
             tag: name.to_string(),
             message,
-            span: marker_span,
+            span: full_span,
         })
         .accumulate(db);
     }

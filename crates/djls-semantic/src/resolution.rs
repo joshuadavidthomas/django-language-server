@@ -128,7 +128,7 @@ impl TemplateReference<'_> {
         template.file(db)
     }
 
-    pub fn tag_span(&self, db: &dyn SemanticDb) -> Span {
+    pub fn span(&self, db: &dyn SemanticDb) -> Span {
         self.tag(db).span(db)
     }
 }

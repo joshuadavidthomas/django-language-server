@@ -160,18 +160,16 @@ pub enum TemplateNode {
     /// without nested ownership inside the Salsa-tracked tree.
     Block {
         tag: String,
-        tag_span: Span,
+        name_span: Span,
         bits: Vec<TagBit>,
-        marker_span: Span,
         full_span: Span,
         body: RegionId,
         role: BlockRole,
     },
     StandaloneTag {
         tag: String,
-        tag_span: Span,
+        name_span: Span,
         bits: Vec<TagBit>,
-        marker_span: Span,
         full_span: Span,
     },
     Variable {

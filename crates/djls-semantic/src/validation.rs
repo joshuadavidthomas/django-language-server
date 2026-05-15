@@ -112,19 +112,19 @@ impl Visitor for TemplateValidator<'_> {
             use crate::ValidationError;
             use crate::ValidationErrorAccumulator;
 
-            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+            let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
             match self.extends_position {
                 ExtendsPosition::Start => {}
                 ExtendsPosition::AfterContent => {
                     ValidationErrorAccumulator(ValidationError::ExtendsMustBeFirst {
-                        span: marker_span,
+                        span: full_span,
                     })
                     .accumulate(self.db);
                 }
                 ExtendsPosition::AfterExtends => {
                     ValidationErrorAccumulator(ValidationError::MultipleExtends {
-                        span: marker_span,
+                        span: full_span,
                     })
                     .accumulate(self.db);
                 }

@@ -106,8 +106,6 @@ pub use specs::tags::CompletionArg;
 pub use specs::tags::CompletionArgKind;
 pub use specs::tags::EndTag;
 pub use specs::tags::TagOutlineRole;
-pub use specs::tags::TagOutlineSpec;
-pub use specs::tags::TagOutlineTarget;
 pub use specs::tags::TagSpec;
 pub use specs::tags::TagSpecs;
 pub use structure::build_template_outline;

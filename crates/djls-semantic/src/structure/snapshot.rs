@@ -43,18 +43,16 @@ struct RegionSnapshot {
 enum NodeSnapshot {
     BlockTag {
         tag: String,
-        tag_span: djls_source::Span,
+        name_span: djls_source::Span,
         bits: Vec<djls_templates::TagBit>,
-        marker_span: djls_source::Span,
         full_span: djls_source::Span,
         body: u32,
         role: String,
     },
     StandaloneTag {
         tag: String,
-        tag_span: djls_source::Span,
+        name_span: djls_source::Span,
         bits: Vec<djls_templates::TagBit>,
-        marker_span: djls_source::Span,
         full_span: djls_source::Span,
     },
     Variable {
@@ -80,32 +78,28 @@ impl From<&TemplateNode> for NodeSnapshot {
         match node {
             TemplateNode::Block {
                 tag,
-                tag_span,
+                name_span,
                 bits,
-                marker_span,
                 full_span,
                 body,
                 role,
             } => Self::BlockTag {
                 tag: tag.clone(),
-                tag_span: *tag_span,
+                name_span: *name_span,
                 bits: bits.clone(),
-                marker_span: *marker_span,
                 full_span: *full_span,
                 body: body.id(),
                 role: format!("{role:?}"),
             },
             TemplateNode::StandaloneTag {
                 tag,
-                tag_span,
+                name_span,
                 bits,
-                marker_span,
                 full_span,
             } => Self::StandaloneTag {
                 tag: tag.clone(),
-                tag_span: *tag_span,
+                name_span: *name_span,
                 bits: bits.clone(),
-                marker_span: *marker_span,
                 full_span: *full_span,
             },
             TemplateNode::Variable {

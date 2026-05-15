@@ -15,7 +15,7 @@ regions:
           length: 1
       - node: StandaloneTag
         tag: extends
-        tag_span:
+        name_span:
           start: 4
           length: 7
         bits:
@@ -23,9 +23,6 @@ regions:
             span:
               start: 12
               length: 11
-        marker_span:
-          start: 3
-          length: 21
         full_span:
           start: 1
           length: 25
@@ -35,7 +32,7 @@ regions:
           length: 1
       - node: StandaloneTag
         tag: load
-        tag_span:
+        name_span:
           start: 30
           length: 4
         bits:
@@ -47,9 +44,6 @@ regions:
             span:
               start: 42
               length: 4
-        marker_span:
-          start: 29
-          length: 18
         full_span:
           start: 27
           length: 22
@@ -59,7 +53,7 @@ regions:
           length: 1
       - node: BlockTag
         tag: block
-        tag_span:
+        name_span:
           start: 53
           length: 5
         bits:
@@ -67,9 +61,6 @@ regions:
             span:
               start: 59
               length: 6
-        marker_span:
-          start: 52
-          length: 14
         full_span:
           start: 50
           length: 18
@@ -81,7 +72,7 @@ regions:
           length: 2
       - node: BlockTag
         tag: if
-        tag_span:
+        name_span:
           start: 114
           length: 2
         bits:
@@ -89,9 +80,6 @@ regions:
             span:
               start: 117
               length: 21
-        marker_span:
-          start: 113
-          length: 26
         full_span:
           start: 111
           length: 30
@@ -103,7 +91,7 @@ regions:
           length: 2
       - node: BlockTag
         tag: for
-        tag_span:
+        name_span:
           start: 410
           length: 3
         bits:
@@ -119,9 +107,6 @@ regions:
             span:
               start: 422
               length: 5
-        marker_span:
-          start: 409
-          length: 19
         full_span:
           start: 407
           length: 23
@@ -138,7 +123,7 @@ regions:
     nodes:
       - node: BlockTag
         tag: block
-        tag_span:
+        name_span:
           start: 53
           length: 5
         bits:
@@ -146,9 +131,6 @@ regions:
             span:
               start: 59
               length: 6
-        marker_span:
-          start: 52
-          length: 14
         full_span:
           start: 50
           length: 18
@@ -170,7 +152,7 @@ regions:
     nodes:
       - node: BlockTag
         tag: if
-        tag_span:
+        name_span:
           start: 114
           length: 2
         bits:
@@ -178,9 +160,6 @@ regions:
             span:
               start: 117
               length: 21
-        marker_span:
-          start: 113
-          length: 26
         full_span:
           start: 111
           length: 30
@@ -188,13 +167,10 @@ regions:
         role: Segment
       - node: BlockTag
         tag: else
-        tag_span:
+        name_span:
           start: 361
           length: 4
         bits: []
-        marker_span:
-          start: 360
-          length: 6
         full_span:
           start: 358
           length: 10
@@ -224,7 +200,7 @@ regions:
           length: 9
       - node: BlockTag
         tag: if
-        tag_span:
+        name_span:
           start: 184
           length: 2
         bits:
@@ -232,9 +208,6 @@ regions:
             span:
               start: 187
               length: 17
-        marker_span:
-          start: 183
-          length: 22
         full_span:
           start: 181
           length: 26
@@ -251,7 +224,7 @@ regions:
     nodes:
       - node: BlockTag
         tag: if
-        tag_span:
+        name_span:
           start: 184
           length: 2
         bits:
@@ -259,9 +232,6 @@ regions:
             span:
               start: 187
               length: 17
-        marker_span:
-          start: 183
-          length: 22
         full_span:
           start: 181
           length: 26
@@ -269,7 +239,7 @@ regions:
         role: Segment
       - node: BlockTag
         tag: elif
-        tag_span:
+        name_span:
           start: 242
           length: 4
         bits:
@@ -277,9 +247,6 @@ regions:
             span:
               start: 247
               length: 13
-        marker_span:
-          start: 241
-          length: 20
         full_span:
           start: 239
           length: 24
@@ -287,13 +254,10 @@ regions:
         role: Segment
       - node: BlockTag
         tag: else
-        tag_span:
+        name_span:
           start: 300
           length: 4
         bits: []
-        marker_span:
-          start: 299
-          length: 6
         full_span:
           start: 297
           length: 10
@@ -342,7 +306,7 @@ regions:
     nodes:
       - node: BlockTag
         tag: for
-        tag_span:
+        name_span:
           start: 410
           length: 3
         bits:
@@ -358,9 +322,6 @@ regions:
             span:
               start: 422
               length: 5
-        marker_span:
-          start: 409
-          length: 19
         full_span:
           start: 407
           length: 23

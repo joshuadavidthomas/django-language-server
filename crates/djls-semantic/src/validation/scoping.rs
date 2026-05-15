@@ -29,7 +29,7 @@ pub(crate) fn check_tag_scoping_rule(
         return;
     }
 
-    let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+    let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
     match symbols.check(name) {
         TagAvailability::Available => {}
@@ -42,7 +42,7 @@ pub(crate) fn check_tag_scoping_rule(
                                 tag: name.to_string(),
                                 app: sym.app_module.as_str().to_string(),
                                 load_name: sym.library_name.as_str().to_string(),
-                                span: marker_span,
+                                span: full_span,
                             })
                             .accumulate(db);
                             return;
@@ -52,7 +52,7 @@ pub(crate) fn check_tag_scoping_rule(
             }
             ValidationErrorAccumulator(ValidationError::UnknownTag {
                 tag: name.to_string(),
-                span: marker_span,
+                span: full_span,
             })
             .accumulate(db);
         }
@@ -60,7 +60,7 @@ pub(crate) fn check_tag_scoping_rule(
             ValidationErrorAccumulator(ValidationError::UnloadedTag {
                 tag: name.to_string(),
                 library,
-                span: marker_span,
+                span: full_span,
             })
             .accumulate(db);
         }
@@ -68,7 +68,7 @@ pub(crate) fn check_tag_scoping_rule(
             ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedTag {
                 tag: name.to_string(),
                 libraries,
-                span: marker_span,
+                span: full_span,
             })
             .accumulate(db);
         }

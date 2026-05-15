@@ -80,18 +80,6 @@ impl TagSpecs {
         })
     }
 
-    #[must_use]
-    pub fn block_outline(&self, tag: &str) -> TagOutlineSpec {
-        self.get(tag)
-            .and_then(TagSpec::outline)
-            .unwrap_or_else(|| TagOutlineRole::ControlFlow.into())
-    }
-
-    #[must_use]
-    pub fn standalone_outline(&self, tag: &str) -> Option<TagOutlineSpec> {
-        self.get(tag).and_then(TagSpec::outline)
-    }
-
     /// Get the parent tags that can contain this intermediate tag
     #[must_use]
     pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
@@ -430,21 +418,6 @@ pub struct TagSpec {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TagOutlineSpec {
-    pub role: TagOutlineRole,
-    pub target: TagOutlineTarget,
-}
-
-impl From<TagOutlineRole> for TagOutlineSpec {
-    fn from(role: TagOutlineRole) -> Self {
-        Self {
-            role,
-            target: role.default_outline_target(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TagOutlineRole {
     TemplateReference,
     LibraryImport,
@@ -453,26 +426,6 @@ pub enum TagOutlineRole {
     Callable,
     AssetReference,
     RouteReference,
-}
-
-impl TagOutlineRole {
-    fn default_outline_target(self) -> TagOutlineTarget {
-        match self {
-            Self::TemplateReference
-            | Self::NamedRegion
-            | Self::AssetReference
-            | Self::RouteReference => TagOutlineTarget::FirstBit,
-            Self::LibraryImport => TagOutlineTarget::EachBit,
-            Self::ControlFlow | Self::Callable => TagOutlineTarget::TagName,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TagOutlineTarget {
-    TagName,
-    FirstBit,
-    EachBit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -529,11 +482,6 @@ impl CompletionArg {
 }
 
 impl TagSpec {
-    #[must_use]
-    pub fn outline(&self) -> Option<TagOutlineSpec> {
-        self.outline_role.map(Into::into)
-    }
-
     #[must_use]
     pub fn completion_args(&self) -> Vec<CompletionArg> {
         self.extracted_rules

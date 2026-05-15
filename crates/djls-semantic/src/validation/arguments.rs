@@ -15,12 +15,12 @@ pub(crate) fn check_tag_arguments_rule(
     span: Span,
     rules: &crate::TagRule,
 ) {
-    let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+    let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
     let bits = bits
         .iter()
         .map(|bit| bit.as_str().to_string())
         .collect::<Vec<_>>();
-    for error in evaluate_tag_rules(name, &bits, rules, marker_span) {
+    for error in evaluate_tag_rules(name, &bits, rules, full_span) {
         ValidationErrorAccumulator(error).accumulate(db);
     }
 }
