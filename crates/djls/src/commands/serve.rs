@@ -8,7 +8,7 @@ use crate::commands::Command;
 use crate::exit::Exit;
 
 #[derive(Debug, Parser)]
-pub struct Serve {
+pub(crate) struct Serve {
     #[arg(short, long, default_value_t = ConnectionType::Stdio, value_enum)]
     connection_type: ConnectionType,
 }

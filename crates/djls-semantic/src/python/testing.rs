@@ -21,7 +21,7 @@ use ruff_python_parser::parse_module;
 /// assert_eq!(func.name.as_str(), "bar");
 /// ```
 #[must_use]
-pub fn find_function_in_source(source: &str, func_name: &str) -> Option<StmtFunctionDef> {
+pub(crate) fn find_function_in_source(source: &str, func_name: &str) -> Option<StmtFunctionDef> {
     let parsed = parse_module(source).ok()?;
     let module = parsed.into_syntax();
     for stmt in module.body {
@@ -48,7 +48,7 @@ pub fn find_function_in_source(source: &str, func_name: &str) -> Option<StmtFunc
 /// let source = corpus_source("packages/Django/6.0.2/django/template/defaulttags.py");
 /// ```
 #[must_use]
-pub fn corpus_source(relative_path: &str) -> Option<String> {
+pub(crate) fn corpus_source(relative_path: &str) -> Option<String> {
     let corpus = Corpus::require();
     let path = corpus.root().join(relative_path);
     std::fs::read_to_string(path.as_std_path()).ok()
@@ -70,7 +70,7 @@ pub fn corpus_source(relative_path: &str) -> Option<String> {
 /// let source = package_source("django-allauth", "allauth/templatetags/allauth.py");
 /// ```
 #[must_use]
-pub fn package_source(package: &str, relative_to_package: &str) -> Option<String> {
+pub(crate) fn package_source(package: &str, relative_to_package: &str) -> Option<String> {
     let corpus = Corpus::require();
     let pkg_dir = corpus.latest_package(package)?;
     let full_path = pkg_dir.join(relative_to_package);
@@ -92,7 +92,7 @@ pub fn package_source(package: &str, relative_to_package: &str) -> Option<String
 ///
 /// Panics if the corpus has not been synced.
 #[must_use]
-pub fn package_function(
+pub(crate) fn package_function(
     package: &str,
     relative_to_package: &str,
     func_name: &str,
@@ -103,12 +103,15 @@ pub fn package_function(
 
 /// Convenience wrapper: load a function from the latest Django version.
 #[must_use]
-pub fn django_function(relative_to_django: &str, func_name: &str) -> Option<StmtFunctionDef> {
+pub(crate) fn django_function(
+    relative_to_django: &str,
+    func_name: &str,
+) -> Option<StmtFunctionDef> {
     package_function("django", relative_to_django, func_name)
 }
 
 /// Convenience wrapper: load source from the latest Django version.
 #[must_use]
-pub fn django_source(relative_to_django: &str) -> Option<String> {
+pub(crate) fn django_source(relative_to_django: &str) -> Option<String> {
     package_source("django", relative_to_django)
 }

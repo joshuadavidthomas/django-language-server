@@ -41,7 +41,10 @@ fn is_download_relevant(path: &str) -> bool {
 /// to prevent directory traversal. Only regular files are extracted;
 /// directories are created implicitly via parent directory creation,
 /// and symlinks/hard links are silently skipped.
-pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<Vec<String>> {
+pub(crate) fn extract_tarball<R: Read>(
+    reader: R,
+    out_dir: &Utf8Path,
+) -> anyhow::Result<Vec<String>> {
     let gz = flate2::read::GzDecoder::new(reader);
     let mut archive = tar::Archive::new(gz);
 

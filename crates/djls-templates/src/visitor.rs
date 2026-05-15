@@ -19,7 +19,7 @@ pub trait Visitor {
 }
 
 /// Recursively walk a single node, calling the appropriate visitor methods.
-pub fn walk_node<V: Visitor + ?Sized>(visitor: &mut V, node: &Node) {
+pub(crate) fn walk_node<V: Visitor + ?Sized>(visitor: &mut V, node: &Node) {
     match node {
         Node::Tag {
             name,

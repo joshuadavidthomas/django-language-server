@@ -4,7 +4,7 @@ use std::env::VarError;
 use camino::Utf8PathBuf;
 use which::Error as WhichError;
 
-pub fn find_executable(name: &str) -> Result<Utf8PathBuf, WhichError> {
+pub(super) fn find_executable(name: &str) -> Result<Utf8PathBuf, WhichError> {
     #[cfg(not(test))]
     {
         which::which(name).and_then(|path| {
@@ -18,7 +18,7 @@ pub fn find_executable(name: &str) -> Result<Utf8PathBuf, WhichError> {
 }
 
 #[cfg(test)]
-pub fn env_var(key: &str) -> Result<String, VarError> {
+pub(super) fn env_var(key: &str) -> Result<String, VarError> {
     #[cfg(not(test))]
     {
         std::env::var(key)
@@ -30,7 +30,7 @@ pub fn env_var(key: &str) -> Result<String, VarError> {
 }
 
 #[cfg(test)]
-pub mod mock {
+pub(in crate::project::python) mod mock {
     use std::cell::RefCell;
     use std::thread_local;
 
@@ -64,7 +64,7 @@ pub mod mock {
     }
 
     // RAII guard to clear all mocks automatically after each test.
-    pub struct MockGuard;
+    pub(crate) struct MockGuard;
     impl Drop for MockGuard {
         fn drop(&mut self) {
             MOCK_EXEC_RESULTS.with(|mocks| mocks.borrow_mut().clear());
@@ -72,26 +72,26 @@ pub mod mock {
         }
     }
 
-    pub fn set_exec_path(name: &str, path: Utf8PathBuf) {
+    pub(crate) fn set_exec_path(name: &str, path: Utf8PathBuf) {
         MOCK_EXEC_RESULTS.with(|mocks| {
             mocks.borrow_mut().insert(name.to_string(), Ok(path));
         });
     }
 
-    pub fn set_exec_error(name: &str, error: WhichError) {
+    pub(crate) fn set_exec_error(name: &str, error: WhichError) {
         MOCK_EXEC_RESULTS.with(|mocks| {
             mocks.borrow_mut().insert(name.to_string(), Err(error));
         });
     }
 
-    pub fn set_env_var(key: &str, value: String) {
+    pub(crate) fn set_env_var(key: &str, value: String) {
         MOCK_ENV_RESULTS.with(|mocks| {
             mocks.borrow_mut().insert(key.to_string(), Ok(value));
         });
     }
 
     // Simulates VarError::NotPresent
-    pub fn remove_env_var(key: &str) {
+    pub(crate) fn remove_env_var(key: &str) {
         MOCK_ENV_RESULTS.with(|mocks| {
             mocks
                 .borrow_mut()

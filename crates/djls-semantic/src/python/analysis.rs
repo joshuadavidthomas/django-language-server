@@ -9,7 +9,7 @@ pub(crate) mod state;
 pub(crate) mod statements;
 
 pub(crate) use calls::extract_return_value;
-pub use calls::AbstractValueKey;
+pub(crate) use calls::AbstractValueKey;
 use djls_source::File;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
@@ -36,7 +36,7 @@ use crate::python::types::TagRule;
 /// delegates to `analyze_helper` — a Salsa tracked function with cycle
 /// recovery and automatic memoization. When `None` (standalone extraction),
 /// helper calls return `Unknown`.
-pub struct CallContext<'a> {
+pub(crate) struct CallContext<'a> {
     /// Salsa database, populated when running under tracked extraction.
     /// Used by `resolve_call` to call `analyze_helper` via Salsa.
     pub db: Option<&'a dyn djls_source::Db>,
@@ -52,7 +52,7 @@ pub struct CallContext<'a> {
 /// diagnostic messages because constraints come from guard conditions, while
 /// messages come from the exception raised by a guard body.
 #[derive(Default)]
-pub struct AnalysisResult {
+pub(crate) struct AnalysisResult {
     pub constraints: ExtractedTagConstraints,
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
     pub known_options: Option<KnownOptions>,
@@ -64,7 +64,7 @@ impl AnalysisResult {
     /// Constraints are combined additively. For `known_options`, the other
     /// result's value wins if present (last write wins — matches the sequential
     /// processing order of statements).
-    pub fn extend(&mut self, other: AnalysisResult) {
+    pub(crate) fn extend(&mut self, other: AnalysisResult) {
         self.constraints.extend(other.constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
         if other.known_options.is_some() {

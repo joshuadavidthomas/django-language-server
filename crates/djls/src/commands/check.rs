@@ -23,7 +23,7 @@ use crate::commands::Command;
 use crate::exit::Exit;
 
 #[derive(Debug, Parser)]
-pub struct Check {
+pub(crate) struct Check {
     /// Files or directories to check. Pass `-` to read from stdin. If
     /// omitted, discovers template directories from the Django project.
     paths: Vec<Utf8PathBuf>,

@@ -11,7 +11,7 @@ use crate::Db;
 /// This trait defines the interface for building semantic models from Django templates.
 /// A semantic model is any representation that captures some aspect of the template's
 /// meaning - structure, dependencies, types, security properties, etc.
-pub trait SemanticModel<'db>: Visitor {
+pub(crate) trait SemanticModel<'db>: Visitor {
     type Model;
 
     /// Build the semantic model from a nodelist

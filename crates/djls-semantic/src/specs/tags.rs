@@ -6,8 +6,8 @@ use std::ops::DerefMut;
 
 use rustc_hash::FxHashMap;
 
-pub type S<T = str> = Cow<'static, T>;
-pub type L<T> = Cow<'static, [T]>;
+pub(crate) type S<T = str> = Cow<'static, T>;
+pub(crate) type L<T> = Cow<'static, [T]>;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TagSpecs(FxHashMap<String, TagSpec>);

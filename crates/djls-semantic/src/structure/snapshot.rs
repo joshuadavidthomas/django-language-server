@@ -5,13 +5,13 @@ use crate::structure::tree::TemplateNode;
 use crate::structure::tree::TemplateTree;
 
 #[derive(Serialize)]
-pub struct TemplateTreeSnapshot {
+pub(crate) struct TemplateTreeSnapshot {
     root: u32,
     regions: Vec<RegionSnapshot>,
 }
 
 impl TemplateTreeSnapshot {
-    pub fn from_tree(tree: TemplateTree<'_>, db: &dyn crate::Db) -> Self {
+    pub(crate) fn from_tree(tree: TemplateTree<'_>, db: &dyn crate::Db) -> Self {
         let root = tree.root(db);
         let regions_ref = tree.regions(db);
 

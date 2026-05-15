@@ -17,7 +17,7 @@ pub(crate) mod outline;
 pub(crate) mod snapshot;
 pub(crate) mod tree;
 
-pub use builder::TemplateTreeBuilder;
+pub(crate) use builder::TemplateTreeBuilder;
 pub use grammar::TagIndex;
 pub use opaque::compute_opaque_regions;
 pub use opaque::OpaqueRegions;

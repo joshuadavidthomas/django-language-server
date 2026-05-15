@@ -19,7 +19,7 @@ use crate::logging::LoggingGuard;
 use crate::queue::Queue;
 use crate::session::Session;
 
-pub struct DjangoLanguageServer {
+pub(crate) struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
     queue: Queue,
@@ -28,7 +28,7 @@ pub struct DjangoLanguageServer {
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub fn new(client: Client, logging: LoggingGuard) -> Self {
+    pub(crate) fn new(client: Client, logging: LoggingGuard) -> Self {
         Self {
             client,
             session: Arc::new(Mutex::new(Session::default())),
@@ -37,7 +37,7 @@ impl DjangoLanguageServer {
         }
     }
 
-    pub async fn with_session<F, R>(&self, f: F) -> R
+    pub(crate) async fn with_session<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Session) -> R,
     {
@@ -45,7 +45,7 @@ impl DjangoLanguageServer {
         f(&session)
     }
 
-    pub async fn with_session_mut<F, R>(&self, f: F) -> R
+    pub(crate) async fn with_session_mut<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut Session) -> R,
     {
@@ -53,7 +53,10 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
-    pub async fn with_session_mut_task<F, Fut>(&self, f: F) -> oneshot::Receiver<anyhow::Result<()>>
+    pub(crate) async fn with_session_mut_task<F, Fut>(
+        &self,
+        f: F,
+    ) -> oneshot::Receiver<anyhow::Result<()>>
     where
         F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,

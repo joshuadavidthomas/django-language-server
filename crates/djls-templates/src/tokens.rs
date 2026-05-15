@@ -86,7 +86,7 @@ pub(crate) enum Token {
 impl Token {
     /// Get the content text for content-bearing tokens
     #[must_use]
-    pub fn content(&self) -> String {
+    pub(crate) fn content(&self) -> String {
         match self {
             Token::Block { content, .. }
             | Token::Comment { content, .. }
@@ -106,7 +106,7 @@ impl Token {
     }
 
     #[must_use]
-    pub fn offset(&self) -> Option<u32> {
+    pub(crate) fn offset(&self) -> Option<u32> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -123,7 +123,7 @@ impl Token {
 
     /// Get the length of the token content
     #[must_use]
-    pub fn length(&self) -> u32 {
+    pub(crate) fn length(&self) -> u32 {
         let len = match self {
             Token::Block { content, .. }
             | Token::Comment { content, .. }
@@ -137,7 +137,7 @@ impl Token {
     }
 
     #[must_use]
-    pub fn full_span(&self) -> Option<Span> {
+    pub(crate) fn full_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -153,7 +153,7 @@ impl Token {
     }
 
     #[must_use]
-    pub fn content_span(&self) -> Option<Span> {
+    pub(crate) fn content_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -167,19 +167,19 @@ impl Token {
     }
 
     #[must_use]
-    pub fn full_span_or_fallback(&self) -> Span {
+    pub(crate) fn full_span_or_fallback(&self) -> Span {
         self.full_span()
             .unwrap_or_else(|| self.content_span_or_fallback())
     }
 
     #[must_use]
-    pub fn content_span_or_fallback(&self) -> Span {
+    pub(crate) fn content_span_or_fallback(&self) -> Span {
         self.content_span()
             .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length()))
     }
 
     #[must_use]
-    pub fn spans(&self) -> (Span, Span) {
+    pub(crate) fn spans(&self) -> (Span, Span) {
         let content = self.content_span_or_fallback();
         let full = self.full_span().unwrap_or(content);
         (content, full)
@@ -188,7 +188,7 @@ impl Token {
 
 #[cfg(test)]
 #[derive(Debug, serde::Serialize)]
-pub enum TokenSnapshot {
+pub(crate) enum TokenSnapshot {
     Block {
         content: String,
         span: (u32, u32),
@@ -230,7 +230,7 @@ impl Token {
     /// This may panic on the `full_span` calls, but it's only used in testing,
     /// so it's all good.
     #[must_use]
-    pub fn to_snapshot(&self) -> TokenSnapshot {
+    pub(crate) fn to_snapshot(&self) -> TokenSnapshot {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
                 content: self.content(),
@@ -270,7 +270,7 @@ pub(crate) struct TokenSnapshotVec(pub Vec<Token>);
 #[cfg(test)]
 impl TokenSnapshotVec {
     #[must_use]
-    pub fn to_snapshot(&self) -> Vec<TokenSnapshot> {
+    pub(crate) fn to_snapshot(&self) -> Vec<TokenSnapshot> {
         self.0.iter().map(Token::to_snapshot).collect()
     }
 }
@@ -284,14 +284,14 @@ impl TokenStream {
     const MAX_CAPACITY: usize = 1024;
 
     #[must_use]
-    pub fn with_estimated_capacity(source: &str) -> Self {
+    pub(crate) fn with_estimated_capacity(source: &str) -> Self {
         let capacity =
             (source.len() / Self::CHARS_PER_TOKEN).clamp(Self::MIN_CAPACITY, Self::MAX_CAPACITY);
         Self(Vec::with_capacity(capacity))
     }
 
     #[inline]
-    pub fn push(&mut self, token: Token) {
+    pub(crate) fn push(&mut self, token: Token) {
         self.0.push(token);
     }
 }

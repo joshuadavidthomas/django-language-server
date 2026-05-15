@@ -2,20 +2,20 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
-pub enum ExitStatus {
+pub(crate) enum ExitStatus {
     Success,
     Error,
 }
 
 impl ExitStatus {
-    pub fn as_raw(&self) -> i32 {
+    pub(crate) fn as_raw(&self) -> i32 {
         match self {
             ExitStatus::Success => 0,
             ExitStatus::Error => 1,
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         match self {
             ExitStatus::Success => "Command succeeded",
             ExitStatus::Error => "Command error",
@@ -31,7 +31,7 @@ impl fmt::Display for ExitStatus {
 }
 
 #[derive(Debug)]
-pub struct Exit {
+pub(crate) struct Exit {
     status: ExitStatus,
     message: Option<String>,
 }
@@ -44,20 +44,20 @@ impl Exit {
         }
     }
 
-    pub fn success() -> Self {
+    pub(crate) fn success() -> Self {
         Self::new(ExitStatus::Success)
     }
 
-    pub fn error() -> Self {
+    pub(crate) fn error() -> Self {
         Self::new(ExitStatus::Error)
     }
 
-    pub fn with_message<S: Into<String>>(mut self, message: S) -> Self {
+    pub(crate) fn with_message<S: Into<String>>(mut self, message: S) -> Self {
         self.message = Some(message.into());
         self
     }
 
-    pub fn process_exit(self) -> ! {
+    pub(crate) fn process_exit(self) -> ! {
         if let Some(message) = self.message {
             eprintln!("{message}");
         }

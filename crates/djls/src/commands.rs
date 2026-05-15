@@ -8,12 +8,12 @@ use clap::Subcommand;
 use crate::args::Args;
 use crate::exit::Exit;
 
-pub trait Command {
+pub(crate) trait Command {
     fn execute(&self, args: &Args) -> Result<Exit>;
 }
 
 #[derive(Debug, Subcommand)]
-pub enum DjlsCommand {
+pub(crate) enum DjlsCommand {
     /// Check Django template files for errors
     Check(self::check::Check),
     /// Start the LSP server

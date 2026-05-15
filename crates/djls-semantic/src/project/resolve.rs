@@ -71,7 +71,7 @@ pub struct ResolvedModule {
 ///
 /// Returns `Some(ResolvedModule)` if found, `None` otherwise.
 #[must_use]
-pub fn resolve_module(
+pub(crate) fn resolve_module(
     module_path: &str,
     sys_path: &[Utf8PathBuf],
     project_root: &Utf8Path,

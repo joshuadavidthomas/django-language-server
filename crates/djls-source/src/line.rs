@@ -3,7 +3,7 @@ use crate::Offset;
 use crate::PositionEncoding;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum LineEnding {
+pub(crate) enum LineEnding {
     #[default]
     Lf,
     Crlf,
@@ -13,7 +13,7 @@ pub enum LineEnding {
 impl LineEnding {
     #[inline]
     #[allow(dead_code)]
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Lf => "\n",
             Self::Crlf => "\r\n",
@@ -22,7 +22,7 @@ impl LineEnding {
     }
 
     #[inline]
-    pub const fn len(self) -> usize {
+    pub(crate) const fn len(self) -> usize {
         match self {
             Self::Cr | Self::Lf => 1,
             Self::Crlf => 2,
@@ -30,22 +30,22 @@ impl LineEnding {
     }
 
     #[allow(dead_code)]
-    pub const fn is_line_feed(self) -> bool {
+    pub(crate) const fn is_line_feed(self) -> bool {
         matches!(self, Self::Lf)
     }
 
     #[allow(dead_code)]
-    pub const fn is_carriage_return_line_feed(self) -> bool {
+    pub(crate) const fn is_carriage_return_line_feed(self) -> bool {
         matches!(self, Self::Crlf)
     }
 
     #[allow(dead_code)]
-    pub const fn is_carriage_return(self) -> bool {
+    pub(crate) const fn is_carriage_return(self) -> bool {
         matches!(self, Self::Cr)
     }
 
     #[inline]
-    pub fn match_at(bytes: &[u8], i: usize) -> Option<Self> {
+    pub(crate) fn match_at(bytes: &[u8], i: usize) -> Option<Self> {
         match bytes.get(i) {
             Some(b'\n') => Some(Self::Lf),
             Some(b'\r') if bytes.get(i + 1) == Some(&b'\n') => Some(Self::Crlf),

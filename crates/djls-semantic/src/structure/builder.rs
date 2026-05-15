@@ -36,7 +36,7 @@ enum TreeOp {
     AccumulateDiagnostic(ValidationError),
 }
 
-pub struct TemplateTreeBuilder<'db> {
+pub(crate) struct TemplateTreeBuilder<'db> {
     db: &'db dyn Db,
     index: TagIndex<'db>,
     root: RegionId,
@@ -46,7 +46,7 @@ pub struct TemplateTreeBuilder<'db> {
 }
 
 impl<'db> TemplateTreeBuilder<'db> {
-    pub fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
+    pub(crate) fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
         let mut builder = Self {
             db,
             index,

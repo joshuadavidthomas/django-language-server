@@ -167,7 +167,7 @@ impl Constraint for ChoiceAt {
 /// `ArgumentCountConstraint` values, and subtracting 1 from
 /// `RequiredKeyword.position` when indexing into `bits`.
 #[must_use]
-pub fn evaluate_tag_rules(
+pub(crate) fn evaluate_tag_rules(
     tag_name: &str,
     bits: &[String],
     rules: &TagRule,

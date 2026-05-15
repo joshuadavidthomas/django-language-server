@@ -60,22 +60,22 @@ pub(crate) struct Tag {
 
 impl Tag {
     #[must_use]
-    pub fn new(name: String, bits: Vec<TagBit>, span: Span) -> Self {
+    pub(crate) fn new(name: String, bits: Vec<TagBit>, span: Span) -> Self {
         Self { name, bits, span }
     }
 
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub fn bits(&self) -> &[TagBit] {
+    pub(crate) fn bits(&self) -> &[TagBit] {
         &self.bits
     }
 
     #[must_use]
-    pub fn span(&self) -> Span {
+    pub(crate) fn span(&self) -> Span {
         self.span
     }
 }

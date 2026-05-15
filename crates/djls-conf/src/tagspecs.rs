@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 // Legacy v0.4.0 format support (converted to v0.6.0). Removed in v6.0.3.
-pub mod legacy;
+pub(crate) mod legacy;
 
 /// Root `TagSpec` document (v0.6.0)
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]

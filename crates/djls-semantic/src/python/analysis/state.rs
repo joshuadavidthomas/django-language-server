@@ -13,7 +13,7 @@ use crate::python::types::SplitPosition;
 /// `TokenSplit` encapsulates this offset arithmetic so callers use methods
 /// instead of manually computing `index + base_offset + pops_from_end`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub struct TokenSplit {
+pub(crate) struct TokenSplit {
     front_offset: usize,
     back_offset: usize,
 }
@@ -21,7 +21,7 @@ pub struct TokenSplit {
 impl TokenSplit {
     /// A fresh split result with no mutations applied.
     #[must_use]
-    pub fn fresh() -> Self {
+    pub(crate) fn fresh() -> Self {
         Self {
             front_offset: 0,
             back_offset: 0,
@@ -30,7 +30,7 @@ impl TokenSplit {
 
     /// The split after `bits.pop(0)` — removes one element from the front.
     #[must_use]
-    pub fn after_pop_front(&self) -> Self {
+    pub(crate) fn after_pop_front(&self) -> Self {
         Self {
             front_offset: self.front_offset + 1,
             back_offset: self.back_offset,
@@ -39,7 +39,7 @@ impl TokenSplit {
 
     /// The split after `bits.pop()` — removes one element from the back.
     #[must_use]
-    pub fn after_pop_back(&self) -> Self {
+    pub(crate) fn after_pop_back(&self) -> Self {
         Self {
             front_offset: self.front_offset,
             back_offset: self.back_offset + 1,
@@ -48,7 +48,7 @@ impl TokenSplit {
 
     /// The split after `bits = bits[start:]` — shifts the front offset.
     #[must_use]
-    pub fn after_slice_from(&self, start: usize) -> Self {
+    pub(crate) fn after_slice_from(&self, start: usize) -> Self {
         Self {
             front_offset: self.front_offset + start,
             back_offset: self.back_offset,
@@ -58,7 +58,7 @@ impl TokenSplit {
     /// Convert a local index (into the current mutated list) to an original
     /// `SplitPosition` by adding the front offset.
     #[must_use]
-    pub fn resolve_index(&self, local: usize) -> SplitPosition {
+    pub(crate) fn resolve_index(&self, local: usize) -> SplitPosition {
         SplitPosition::Forward(self.front_offset + local)
     }
 
@@ -67,26 +67,27 @@ impl TokenSplit {
     /// If the mutated list has `local_length` elements, the original had
     /// `local_length + front_offset + back_offset`.
     #[must_use]
-    pub fn resolve_length(&self, local_length: usize) -> usize {
+    pub(crate) fn resolve_length(&self, local_length: usize) -> usize {
         local_length + self.front_offset + self.back_offset
     }
 
     /// The number of elements removed from the front.
     #[cfg(test)]
     #[must_use]
-    pub fn front_offset(&self) -> usize {
+    pub(crate) fn front_offset(&self) -> usize {
         self.front_offset
     }
 
     /// The number of elements removed from the back.
     #[must_use]
-    pub fn back_offset(&self) -> usize {
+    pub(crate) fn back_offset(&self) -> usize {
         self.back_offset
     }
 
     /// Total offset (front + back) for length adjustment.
+    #[cfg(test)]
     #[must_use]
-    pub fn total_offset(&self) -> usize {
+    pub(crate) fn total_offset(&self) -> usize {
         self.front_offset + self.back_offset
     }
 }
@@ -98,7 +99,7 @@ impl TokenSplit {
 /// any value we can't track becomes Unknown, and constraints involving
 /// Unknown values produce no output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum AbstractValue {
+pub(crate) enum AbstractValue {
     /// Untracked value — safe default, produces no constraints
     Unknown,
     /// The `token` parameter to the compile function
@@ -123,7 +124,7 @@ pub enum AbstractValue {
 
 /// The abstract environment: maps variable names to their abstract values.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Env {
+pub(crate) struct Env {
     bindings: HashMap<String, AbstractValue>,
 }
 
@@ -132,7 +133,7 @@ impl Env {
     ///
     /// Binds parameter names to `Parser` and `Token` respectively.
     #[must_use]
-    pub fn for_compile_function(parser_param: &str, token_param: &str) -> Self {
+    pub(crate) fn for_compile_function(parser_param: &str, token_param: &str) -> Self {
         let mut bindings = HashMap::new();
         bindings.insert(parser_param.to_string(), AbstractValue::Parser);
         bindings.insert(token_param.to_string(), AbstractValue::Token);
@@ -141,18 +142,18 @@ impl Env {
 
     /// Look up a variable's abstract value. Returns `Unknown` if not bound.
     #[must_use]
-    pub fn get(&self, name: &str) -> &AbstractValue {
+    pub(crate) fn get(&self, name: &str) -> &AbstractValue {
         self.bindings.get(name).unwrap_or(&AbstractValue::Unknown)
     }
 
     /// Bind a variable to an abstract value.
-    pub fn set(&mut self, name: String, value: AbstractValue) {
+    pub(crate) fn set(&mut self, name: String, value: AbstractValue) {
         self.bindings.insert(name, value);
     }
 
     /// Mutate a variable's value in place (e.g., for `bits.pop(0)`).
     /// Returns `true` if the variable was found and mutated.
-    pub fn mutate<F>(&mut self, name: &str, f: F) -> bool
+    pub(crate) fn mutate<F>(&mut self, name: &str, f: F) -> bool
     where
         F: FnOnce(&mut AbstractValue),
     {
@@ -165,7 +166,7 @@ impl Env {
     }
 
     /// Iterate over all bindings.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &AbstractValue)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&str, &AbstractValue)> {
         self.bindings.iter().map(|(k, v)| (k.as_str(), v))
     }
 }

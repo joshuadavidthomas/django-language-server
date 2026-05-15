@@ -38,7 +38,7 @@ fn symbol_completion_kind(symbol: &TemplateSymbol) -> ls_types::CompletionItemKi
 /// Used to determine whether the completion system needs to insert
 /// closing braces when completing a Django template tag.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ClosingBrace {
+pub(crate) enum ClosingBrace {
     /// No closing brace present - need to add full `%}` or `}}`
     None,
     /// Partial close present (just `}`) - need to add `%` or second `}`
@@ -52,7 +52,7 @@ pub enum ClosingBrace {
 /// Distinguishes between different completion contexts to provide
 /// appropriate suggestions based on cursor position.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TemplateCompletionContext {
+pub(crate) enum TemplateCompletionContext {
     /// Completing a tag name after {%
     TagName {
         /// Partial tag name typed so far
@@ -91,7 +91,7 @@ pub enum TemplateCompletionContext {
 
 /// Information about a line of text and cursor position within it
 #[derive(Debug)]
-pub struct LineInfo {
+pub(crate) struct LineInfo {
     /// The complete line text
     pub text: String,
     /// The cursor byte offset within the line (safe for `line[..offset]` slicing)

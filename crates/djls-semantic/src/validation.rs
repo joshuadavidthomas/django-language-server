@@ -1,7 +1,7 @@
-pub mod arguments;
-pub mod filters;
-pub mod if_expressions;
-pub mod scoping;
+pub(crate) mod arguments;
+pub(crate) mod filters;
+pub(crate) mod if_expressions;
+pub(crate) mod scoping;
 
 use std::collections::HashMap;
 
@@ -61,7 +61,7 @@ pub(crate) struct TemplateValidator<'a> {
 
 impl<'a> TemplateValidator<'a> {
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         db: &'a dyn Db,
         nodelist: djls_templates::NodeList<'_>,
         opaque_regions: &'a OpaqueRegions,
@@ -89,7 +89,7 @@ impl<'a> TemplateValidator<'a> {
         }
     }
 
-    pub fn validate(mut self, nodes: &[Node]) {
+    pub(crate) fn validate(mut self, nodes: &[Node]) {
         walk_nodelist(&mut self, nodes);
     }
 }
