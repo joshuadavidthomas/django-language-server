@@ -96,6 +96,19 @@ pub trait Db: salsa::Database {
         }
     }
 
+    /// Refresh all external project data.
+    ///
+    /// Updates active template library data from project introspection, then
+    /// scans installed packages for validation rules and model definitions.
+    /// Workspace files are handled separately by tracked Salsa queries.
+    fn refresh_external_data(&mut self)
+    where
+        Self: Sized,
+    {
+        self.refresh_template_libraries();
+        self.refresh_external_semantic_data();
+    }
+
     /// Refresh external semantic data for the current project.
     ///
     /// This scans installed packages for template rule extraction data and
