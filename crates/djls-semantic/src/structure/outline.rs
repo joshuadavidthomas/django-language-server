@@ -26,14 +26,19 @@ pub struct OutlineItem {
     pub children: Vec<OutlineItem>,
 }
 
+/// Kind of template-domain item represented in the outline.
+///
+/// `TemplateOutline` is a navigational projection over template semantics, not
+/// the source of truth for every semantic fact in a template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutlineKind {
-    NamedRegion,
-    ControlFlow,
+    TemplateBlock,
+    ControlTag,
     TemplateReference,
-    LibraryImport,
-    Callable,
-    FileReference,
+    TemplateLibrary,
+    TemplateLibrarySymbol,
+    TemplateTag,
+    StaticAssetReference,
     RouteReference,
     Variable,
     Filter,
@@ -43,11 +48,11 @@ impl From<TagSemanticRole> for OutlineKind {
     fn from(role: TagSemanticRole) -> Self {
         match role {
             TagSemanticRole::TemplateReference => Self::TemplateReference,
-            TagSemanticRole::LibraryImport => Self::LibraryImport,
-            TagSemanticRole::NamedRegion => Self::NamedRegion,
-            TagSemanticRole::ControlFlow => Self::ControlFlow,
-            TagSemanticRole::Callable => Self::Callable,
-            TagSemanticRole::AssetReference => Self::FileReference,
+            TagSemanticRole::TemplateLibraryLoader => Self::TemplateLibrary,
+            TagSemanticRole::TemplateBlock => Self::TemplateBlock,
+            TagSemanticRole::ControlTag => Self::ControlTag,
+            TagSemanticRole::TemplateTag => Self::TemplateTag,
+            TagSemanticRole::StaticAssetReference => Self::StaticAssetReference,
             TagSemanticRole::RouteReference => Self::RouteReference,
         }
     }
@@ -73,8 +78,8 @@ fn outline_items_for_tag(
 ) -> Vec<OutlineItem> {
     match role {
         TagSemanticRole::TemplateReference
-        | TagSemanticRole::NamedRegion
-        | TagSemanticRole::AssetReference
+        | TagSemanticRole::TemplateBlock
+        | TagSemanticRole::StaticAssetReference
         | TagSemanticRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
                 OutlineItem {
@@ -97,7 +102,7 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagSemanticRole::LibraryImport => match LoadKind::from_tag(tag, bits) {
+        TagSemanticRole::TemplateLibraryLoader => match LoadKind::from_tag(tag, bits) {
             Some(LoadKind::FullLoad { libraries }) => libraries
                 .into_iter()
                 .map(|library| OutlineItem {
@@ -120,7 +125,7 @@ fn outline_items_for_tag(
                     .map(|symbol| OutlineItem {
                         label: symbol.as_str().to_string(),
                         detail: Some(format!("from {}", library.as_str())),
-                        kind: OutlineKind::Callable,
+                        kind: OutlineKind::TemplateLibrarySymbol,
                         span,
                         selection_span: symbol.span(),
                         children: Vec::new(),
@@ -129,7 +134,7 @@ fn outline_items_for_tag(
             }],
             None => Vec::new(),
         },
-        TagSemanticRole::ControlFlow | TagSemanticRole::Callable => {
+        TagSemanticRole::ControlTag | TagSemanticRole::TemplateTag => {
             let mut label = tag.to_string();
             for bit in bits {
                 label.push(' ');
@@ -178,7 +183,7 @@ fn outline_items_for_node(
             let role = tag_specs
                 .get(tag)
                 .and_then(|spec| spec.semantic_role)
-                .unwrap_or(TagSemanticRole::ControlFlow);
+                .unwrap_or(TagSemanticRole::ControlTag);
             let children = regions
                 .get(*body)
                 .nodes()
@@ -216,7 +221,7 @@ fn outline_items_for_node(
         } => {
             let children = outline_items_for_region(regions, tag_specs, *body);
             outline_items_for_tag(
-                TagSemanticRole::ControlFlow,
+                TagSemanticRole::ControlTag,
                 tag,
                 *name_span,
                 bits,
@@ -315,8 +320,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 OutlineKind::TemplateReference,
-                OutlineKind::LibraryImport,
-                OutlineKind::LibraryImport,
+                OutlineKind::TemplateLibrary,
+                OutlineKind::TemplateLibrary,
                 OutlineKind::TemplateReference,
             ]
         );
@@ -336,7 +341,7 @@ mod tests {
         let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");
 
         assert_eq!(labels(&outline.items), vec!["i18n"]);
-        assert_eq!(outline.items[0].kind, OutlineKind::LibraryImport);
+        assert_eq!(outline.items[0].kind, OutlineKind::TemplateLibrary);
         assert_eq!(outline.items[0].detail.as_deref(), Some("load"));
         assert_eq!(
             outline.items[0].selection_span.start_usize(),
@@ -346,7 +351,10 @@ mod tests {
             labels(&outline.items[0].children),
             vec!["trans", "blocktrans"]
         );
-        assert_eq!(outline.items[0].children[0].kind, OutlineKind::Callable);
+        assert_eq!(
+            outline.items[0].children[0].kind,
+            OutlineKind::TemplateLibrarySymbol
+        );
         assert_eq!(
             outline.items[0].children[0].detail.as_deref(),
             Some("from i18n")
@@ -398,7 +406,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                semantic_role: Some(crate::TagSemanticRole::Callable),
+                semantic_role: Some(crate::TagSemanticRole::TemplateTag),
                 extracted_rules: None,
             },
         )])));
@@ -406,7 +414,7 @@ mod tests {
         let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
         assert_eq!(labels(&outline.items), vec!["partialdef card"]);
-        assert_eq!(outline.items[0].kind, OutlineKind::Callable);
+        assert_eq!(outline.items[0].kind, OutlineKind::TemplateTag);
     }
 
     #[test]
@@ -443,7 +451,7 @@ mod tests {
         let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}");
 
         assert_eq!(labels(&outline.items), vec!["myblock thing"]);
-        assert_eq!(outline.items[0].kind, OutlineKind::ControlFlow);
+        assert_eq!(outline.items[0].kind, OutlineKind::ControlTag);
     }
 
     #[test]
@@ -479,7 +487,7 @@ mod tests {
         );
         assert_eq!(labels(&block_children[0].children), vec!["lower"]);
         assert_eq!(block_children[0].children[0].kind, OutlineKind::Filter);
-        assert_eq!(block_children[1].kind, OutlineKind::ControlFlow);
+        assert_eq!(block_children[1].kind, OutlineKind::ControlTag);
         assert_eq!(
             block_children[1].selection_span.start_usize(),
             r"{% load static %}
@@ -496,7 +504,7 @@ mod tests {
             labels(&block_children[1].children[0].children),
             vec!["item.name"]
         );
-        assert_eq!(block_children[2].kind, OutlineKind::FileReference);
+        assert_eq!(block_children[2].kind, OutlineKind::StaticAssetReference);
     }
 
     #[test]

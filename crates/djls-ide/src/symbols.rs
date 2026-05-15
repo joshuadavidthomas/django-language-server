@@ -60,7 +60,7 @@ mod tests {
             items: vec![OutlineItem {
                 label: "content".to_string(),
                 detail: Some("block".to_string()),
-                kind: djls_semantic::OutlineKind::NamedRegion,
+                kind: djls_semantic::OutlineKind::TemplateBlock,
                 span: Span::saturating_from_bounds_usize(0, source.len() - 1),
                 selection_span: Span::saturating_from_bounds_usize(3, 7),
                 children: vec![

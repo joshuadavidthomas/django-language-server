@@ -418,14 +418,18 @@ pub struct TagSpec {
     pub extracted_rules: Option<std::sync::Arc<crate::TagRule>>,
 }
 
+/// Durable Django template meaning for a tag.
+///
+/// This describes what the tag does in the template domain. Feature-specific
+/// projections, such as document symbols, map these roles into their own shapes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TagSemanticRole {
     TemplateReference,
-    LibraryImport,
-    NamedRegion,
-    ControlFlow,
-    Callable,
-    AssetReference,
+    TemplateLibraryLoader,
+    TemplateBlock,
+    ControlTag,
+    TemplateTag,
+    StaticAssetReference,
     RouteReference,
 }
 
@@ -586,19 +590,19 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endautoescape",
             vec![],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert(
         "comment".into(),
-        block(dt, "endcomment", vec![], true, TagSemanticRole::ControlFlow),
+        block(dt, "endcomment", vec![], true, TagSemanticRole::ControlTag),
     );
     specs.insert("csrf_token".into(), simple(dt));
     specs.insert("cycle".into(), simple(dt));
     specs.insert("debug".into(), simple(dt));
     specs.insert(
         "filter".into(),
-        block(dt, "endfilter", vec![], false, TagSemanticRole::ControlFlow),
+        block(dt, "endfilter", vec![], false, TagSemanticRole::ControlTag),
     );
     specs.insert("firstof".into(), simple(dt));
     specs.insert(
@@ -608,7 +612,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endfor",
             vec![im("empty")],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert(
@@ -618,7 +622,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endif",
             vec![im("elif"), im("else")],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert(
@@ -628,12 +632,12 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endifchanged",
             vec![im("else")],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert(
         "load".into(),
-        simple_role(dt, TagSemanticRole::LibraryImport),
+        simple_role(dt, TagSemanticRole::TemplateLibraryLoader),
     );
     specs.insert("lorem".into(), simple(dt));
     specs.insert("now".into(), simple(dt));
@@ -645,7 +649,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endspaceless",
             vec![],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert("templatetag".into(), simple(dt));
@@ -655,24 +659,24 @@ pub fn builtin_tag_specs() -> TagSpecs {
     );
     specs.insert(
         "verbatim".into(),
-        block(
-            dt,
-            "endverbatim",
-            vec![],
-            true,
-            TagSemanticRole::ControlFlow,
-        ),
+        block(dt, "endverbatim", vec![], true, TagSemanticRole::ControlTag),
     );
     specs.insert("widthratio".into(), simple(dt));
     specs.insert(
         "with".into(),
-        block(dt, "endwith", vec![], false, TagSemanticRole::ControlFlow),
+        block(dt, "endwith", vec![], false, TagSemanticRole::ControlTag),
     );
 
     // loader_tags
     specs.insert(
         "block".into(),
-        block(lt, "endblock", vec![], false, TagSemanticRole::NamedRegion),
+        block(
+            lt,
+            "endblock",
+            vec![],
+            false,
+            TagSemanticRole::TemplateBlock,
+        ),
     );
     specs.insert(
         "extends".into(),
@@ -691,7 +695,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endblocktrans",
             vec![im("plural")],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert(
@@ -701,7 +705,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endblocktranslate",
             vec![im("plural")],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert("trans".into(), simple(i18n));
@@ -715,7 +719,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endcache",
             vec![],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
 
@@ -727,14 +731,14 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endlocalize",
             vec![],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
 
     // static
     specs.insert(
         "static".into(),
-        simple_role(st, TagSemanticRole::AssetReference),
+        simple_role(st, TagSemanticRole::StaticAssetReference),
     );
 
     // tz
@@ -745,7 +749,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endlocaltime",
             vec![],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
     specs.insert(
@@ -755,7 +759,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endtimezone",
             vec![],
             false,
-            TagSemanticRole::ControlFlow,
+            TagSemanticRole::ControlTag,
         ),
     );
 

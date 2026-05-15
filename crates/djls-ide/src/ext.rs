@@ -16,12 +16,13 @@ pub(crate) trait OutlineKindExt {
 impl OutlineKindExt for djls_semantic::OutlineKind {
     fn to_lsp_symbol_kind(self) -> ls_types::SymbolKind {
         match self {
-            djls_semantic::OutlineKind::NamedRegion => ls_types::SymbolKind::NAMESPACE,
-            djls_semantic::OutlineKind::ControlFlow => ls_types::SymbolKind::OPERATOR,
+            djls_semantic::OutlineKind::TemplateBlock => ls_types::SymbolKind::NAMESPACE,
+            djls_semantic::OutlineKind::ControlTag => ls_types::SymbolKind::OPERATOR,
             djls_semantic::OutlineKind::TemplateReference
-            | djls_semantic::OutlineKind::FileReference => ls_types::SymbolKind::FILE,
-            djls_semantic::OutlineKind::LibraryImport => ls_types::SymbolKind::MODULE,
-            djls_semantic::OutlineKind::Callable
+            | djls_semantic::OutlineKind::StaticAssetReference => ls_types::SymbolKind::FILE,
+            djls_semantic::OutlineKind::TemplateLibrary => ls_types::SymbolKind::MODULE,
+            djls_semantic::OutlineKind::TemplateLibrarySymbol
+            | djls_semantic::OutlineKind::TemplateTag
             | djls_semantic::OutlineKind::RouteReference
             | djls_semantic::OutlineKind::Filter => ls_types::SymbolKind::FUNCTION,
             djls_semantic::OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
