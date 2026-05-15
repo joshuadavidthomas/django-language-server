@@ -109,13 +109,23 @@ fn outline_items_for_tag(
                     children: Vec::new(),
                 })
                 .collect(),
-            Some(LoadKind::SelectiveImport { library, .. }) => vec![OutlineItem {
+            Some(LoadKind::SelectiveImport { symbols, library }) => vec![OutlineItem {
                 label: library.as_str().to_string(),
                 detail: Some(tag.to_string()),
                 kind: role.into(),
                 span,
                 selection_span: library.span(),
-                children: Vec::new(),
+                children: symbols
+                    .into_iter()
+                    .map(|symbol| OutlineItem {
+                        label: symbol.as_str().to_string(),
+                        detail: Some(format!("from {}", library.as_str())),
+                        kind: OutlineKind::Callable,
+                        span,
+                        selection_span: symbol.span(),
+                        children: Vec::new(),
+                    })
+                    .collect(),
             }],
             None => Vec::new(),
         },
@@ -321,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn selective_load_uses_library_as_outline_item() {
+    fn selective_load_uses_library_as_outline_item_with_imported_symbols() {
         let db = TestDatabase::new();
         let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");
 
@@ -331,6 +341,19 @@ mod tests {
         assert_eq!(
             outline.items[0].selection_span.start_usize(),
             "{% load trans blocktrans from ".len()
+        );
+        assert_eq!(
+            labels(&outline.items[0].children),
+            vec!["trans", "blocktrans"]
+        );
+        assert_eq!(outline.items[0].children[0].kind, OutlineKind::Callable);
+        assert_eq!(
+            outline.items[0].children[0].detail.as_deref(),
+            Some("from i18n")
+        );
+        assert_eq!(
+            outline.items[0].children[0].selection_span.start_usize(),
+            "{% load ".len()
         );
     }
 
