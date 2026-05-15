@@ -38,7 +38,7 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
-    /// Extra environment variables for the inspector process, loaded from an
+    /// Extra environment variables for project introspection, loaded from an
     /// env file (e.g. `.env`). Each entry is a `(key, value)` pair.
     #[returns(ref)]
     pub env_vars: Vec<(String, String)>,
@@ -49,7 +49,7 @@ pub struct Project {
     ///
     /// This value always exists to support progressive enhancement:
     /// - Discovered libraries are populated by scanning `sys.path`.
-    /// - Installed libraries/symbols are populated by querying the Django inspector.
+    /// - Installed libraries/symbols are populated by project introspection.
     ///
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]

@@ -197,27 +197,25 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Server received initialized notification.");
 
         // Phase 1: Load the cached template library snapshot for near-instant startup.
-        // This populates template_libraries from disk cache so completions
-        // and diagnostics work immediately while the real inspector runs.
+        // This populates template_libraries from disk cache so completions and
+        // diagnostics work immediately while fresh project introspection runs.
         let cache_loaded = self
             .with_session_mut(|session| {
                 let t = std::time::Instant::now();
-                let loaded = djls_db::load_inspector_cache(session.db_mut());
+                let loaded = session.db_mut().load_template_library_cache();
                 if loaded {
                     tracing::info!(
                         "Template library snapshot cache loaded in {:?}",
                         t.elapsed()
                     );
                 } else {
-                    tracing::info!(
-                        "No template library snapshot cache available, will query inspector"
-                    );
+                    tracing::info!("No template library snapshot cache available");
                 }
                 loaded
             })
             .await;
 
-        // Phase 2: Run the real inspector query in the background.
+        // Phase 2: Refresh project data in the background.
         // This validates/refreshes the cached data, extracts external
         // rules, and initializes the workspace.
         let rx = self

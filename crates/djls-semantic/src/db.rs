@@ -22,7 +22,7 @@ pub trait Db: TemplateDb {
     ///
     /// This includes:
     /// - discovered libraries from scanning `sys.path`
-    /// - installed libraries/symbols from the Django inspector (when available)
+    /// - installed libraries/symbols from project introspection (when available)
     fn template_libraries(&self) -> &TemplateLibraries;
 
     /// Get the filter arity specifications for filter argument validation.

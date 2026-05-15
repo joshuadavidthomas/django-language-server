@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::project::db::Db as ProjectDb;
-use crate::project::inspector::InspectorRequest;
+use crate::project::introspector::IntrospectionRequest;
 use crate::project::Project;
 
 #[derive(Serialize)]
@@ -12,14 +12,14 @@ struct DjangoInitRequest;
 #[derive(Deserialize)]
 struct DjangoInitResponse;
 
-impl InspectorRequest for DjangoInitRequest {
+impl IntrospectionRequest for DjangoInitRequest {
     const NAME: &'static str = "django_init";
     type Response = DjangoInitResponse;
 }
 
 /// Check if Django is available for the current project.
 ///
-/// This tracked function attempts to initialize Django via the inspector.
+/// This tracked function attempts to initialize Django via project introspection.
 /// Returns true if Django was successfully initialized, false otherwise.
 #[salsa::tracked]
 pub fn django_available(db: &dyn ProjectDb, _project: Project) -> bool {
@@ -36,20 +36,20 @@ struct TemplateDirsResponse {
     dirs: Vec<Utf8PathBuf>,
 }
 
-impl InspectorRequest for TemplateDirsRequest {
+impl IntrospectionRequest for TemplateDirsRequest {
     const NAME: &'static str = "template_dirs";
     type Response = TemplateDirsResponse;
 }
 
 #[salsa::tracked]
 pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<Vec<Utf8PathBuf>> {
-    tracing::debug!("Requesting template directories from inspector");
+    tracing::debug!("Requesting template directories from project introspection");
 
     let response = db.project_introspector().query(db, &TemplateDirsRequest)?;
 
     let dir_count = response.dirs.len();
     tracing::info!(
-        "Retrieved {} template directories from inspector",
+        "Retrieved {} template directories from project introspection",
         dir_count
     );
 

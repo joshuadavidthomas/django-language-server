@@ -6,9 +6,7 @@
 //! commands consume this crate.
 //!
 mod db;
-mod inspector;
 mod settings;
 
 pub use db::DjangoDatabase;
-pub use inspector::load_inspector_cache;
 pub use settings::SettingsUpdate;

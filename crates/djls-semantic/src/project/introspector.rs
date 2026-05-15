@@ -21,7 +21,7 @@ use tempfile::NamedTempFile;
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
 
-pub(crate) trait InspectorRequest: Serialize {
+pub(crate) trait IntrospectionRequest: Serialize {
     /// The query name sent to Python (e.g., `template_libraries`, `python_env`)
     const NAME: &'static str;
     /// The response type to deserialize into
@@ -29,7 +29,7 @@ pub(crate) trait InspectorRequest: Serialize {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct InspectorResponse<T = serde_json::Value> {
+pub(crate) struct IntrospectionResponse<T = serde_json::Value> {
     pub ok: bool,
     pub data: Option<T>,
     pub error: Option<String>,
@@ -48,7 +48,7 @@ impl ProjectIntrospector {
         }
     }
 
-    pub(crate) fn query<Q: InspectorRequest>(
+    pub(crate) fn query<Q: IntrospectionRequest>(
         &self,
         db: &dyn ProjectDb,
         request: &Q,
@@ -155,7 +155,7 @@ impl Inspector {
     }
 
     /// Execute a typed query, reusing existing process if available
-    pub(crate) fn query<Q: InspectorRequest, R: DeserializeOwned>(
+    pub(crate) fn query<Q: IntrospectionRequest, R: DeserializeOwned>(
         &self,
         interpreter: &Interpreter,
         project_path: &Utf8Path,
@@ -163,7 +163,7 @@ impl Inspector {
         pythonpath: &[String],
         env_vars: &[(String, String)],
         request: &Q,
-    ) -> Result<InspectorResponse<R>> {
+    ) -> Result<IntrospectionResponse<R>> {
         self.inner().query::<Q, R>(
             interpreter,
             project_path,
@@ -208,7 +208,7 @@ struct InspectorInner {
 
 impl InspectorInner {
     /// Execute a typed query, ensuring a valid process exists
-    fn query<Q: InspectorRequest, R: DeserializeOwned>(
+    fn query<Q: IntrospectionRequest, R: DeserializeOwned>(
         &mut self,
         interpreter: &Interpreter,
         project_path: &Utf8Path,
@@ -216,7 +216,7 @@ impl InspectorInner {
         pythonpath: &[String],
         env_vars: &[(String, String)],
         request: &Q,
-    ) -> Result<InspectorResponse<R>> {
+    ) -> Result<IntrospectionResponse<R>> {
         self.ensure_process(
             interpreter,
             project_path,
@@ -439,10 +439,10 @@ impl InspectorProcess {
     }
 
     /// Send a typed request and receive a typed response
-    fn query<Q: InspectorRequest, R: DeserializeOwned>(
+    fn query<Q: IntrospectionRequest, R: DeserializeOwned>(
         &mut self,
         request: &Q,
-    ) -> Result<InspectorResponse<R>> {
+    ) -> Result<IntrospectionResponse<R>> {
         // Build the wire format request
         let wire_request = serde_json::json!({
             "query": Q::NAME,
@@ -459,7 +459,7 @@ impl InspectorProcess {
             .read_line(&mut response_line)
             .context("Failed to read response from inspector")?;
 
-        let response: InspectorResponse<R> = match serde_json::from_str(&response_line) {
+        let response: IntrospectionResponse<R> = match serde_json::from_str(&response_line) {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!(

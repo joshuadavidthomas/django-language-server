@@ -27,8 +27,6 @@ use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
 
-use crate::inspector;
-
 /// Concrete Salsa database for the Django Language Server.
 ///
 /// This database implements all the traits from various crates:
@@ -124,11 +122,11 @@ impl DjangoDatabase {
 
     /// Refresh all external (non-workspace) project data.
     ///
-    /// Queries the Python inspector subprocess for template libraries, then
-    /// scans the filesystem for external validation rules and model definitions.
+    /// Updates active template library data from project introspection, then
+    /// scans installed packages for validation rules and model definitions.
     /// Workspace files are handled separately by tracked Salsa queries.
     pub fn refresh_external_data(&mut self) {
-        inspector::query_inspector_template_libraries(self);
+        self.refresh_template_libraries();
         self.refresh_external_semantic_data();
     }
 }
