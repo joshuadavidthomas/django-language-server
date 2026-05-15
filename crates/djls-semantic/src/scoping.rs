@@ -3,15 +3,12 @@ pub(crate) mod symbols;
 
 use djls_templates::Node;
 use djls_templates::NodeList;
-pub use loads::LoadArgument;
 pub use loads::LoadKind;
 pub(crate) use loads::LoadState;
 pub use loads::LoadStatement;
 pub use loads::LoadedLibraries;
 pub use symbols::AvailableSymbols;
-pub use symbols::FilterAvailability;
-pub use symbols::SymbolIndex;
-pub use symbols::TagAvailability;
+pub(crate) use symbols::SymbolIndex;
 
 use crate::db::Db;
 

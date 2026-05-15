@@ -847,15 +847,7 @@ def my_filter(value, arg):
         // Set external model data
         let project = db.project.lock().unwrap().unwrap();
         let mut model_graph = djls_semantic::ModelGraph::new();
-        let mut user = djls_semantic::ModelDef::new("User", "auth.models", 1);
-        user.relations.push(djls_semantic::Relation {
-            field_name: "profile".into(),
-            relation_type: djls_semantic::RelationType::OneToOne {
-                target_model: "Profile".into(),
-                related_name: None,
-            },
-        });
-        model_graph.add_model(user);
+        model_graph.add_model(djls_semantic::ModelDef::new("User", "auth.models", 1));
 
         let mut external_models = rustc_hash::FxHashMap::default();
         external_models.insert(djls_semantic::ModulePath::new("auth.models"), model_graph);

@@ -76,7 +76,7 @@ impl ExtractionResult {
 /// How to treat trailing `as <varname>` in tag arguments.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AsVar {
+pub(crate) enum AsVar {
     #[default]
     Keep,
     Strip,
@@ -84,7 +84,7 @@ pub enum AsVar {
 
 impl AsVar {
     #[must_use]
-    pub const fn strips_suffix(self) -> bool {
+    pub(crate) const fn strips_suffix(self) -> bool {
         matches!(self, Self::Strip)
     }
 }
@@ -96,20 +96,20 @@ impl AsVar {
 /// and option values.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TagRule {
-    pub arg_constraints: Vec<ArgumentCountConstraint>,
-    pub required_keywords: Vec<RequiredKeyword>,
-    pub choice_at_constraints: Vec<ChoiceAt>,
-    pub known_options: Option<KnownOptions>,
+    pub(crate) arg_constraints: Vec<ArgumentCountConstraint>,
+    pub(crate) required_keywords: Vec<RequiredKeyword>,
+    pub(crate) choice_at_constraints: Vec<ChoiceAt>,
+    pub(crate) known_options: Option<KnownOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
-    pub extracted_args: Vec<ExtractedArg>,
+    pub(crate) diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
+    pub(crate) extracted_args: Vec<ExtractedArg>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
     /// When supported, the evaluator strips trailing `as <varname>` from the
     /// argument list before checking constraints. Set for `simple_tag`
     /// registrations where Django handles the `as` syntax automatically.
     #[serde(default)]
-    pub as_var: AsVar,
+    pub(crate) as_var: AsVar,
 }
 
 impl TagRule {
@@ -130,13 +130,13 @@ impl TagRule {
 
 /// A diagnostic message extracted from a raised exception in a tag parser.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExtractedDiagnosticMessage {
+pub(crate) struct ExtractedDiagnosticMessage {
     pub constraint: ExtractedDiagnosticConstraint,
     pub message: ExtractedMessageTemplate,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ExtractedDiagnosticConstraint {
+pub(crate) enum ExtractedDiagnosticConstraint {
     ArgumentCount(ArgumentCountConstraint),
     RequiredKeyword {
         position: SplitPosition,
@@ -149,7 +149,7 @@ pub enum ExtractedDiagnosticConstraint {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ExtractedMessageTemplate {
+pub(crate) enum ExtractedMessageTemplate {
     Static(String),
     PercentFormat {
         template: String,
@@ -158,7 +158,7 @@ pub enum ExtractedMessageTemplate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ExtractedMessageArg {
+pub(crate) enum ExtractedMessageArg {
     SplitElement(SplitPosition),
     String(String),
     Int(i64),
@@ -166,7 +166,7 @@ pub enum ExtractedMessageArg {
 
 /// Constraint on the number of tokens in a tag's argument list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ArgumentCountConstraint {
+pub(crate) enum ArgumentCountConstraint {
     /// `len(bits) == N`
     Exact(usize),
     /// `len(bits) >= N`
@@ -189,7 +189,7 @@ pub enum ArgumentCountConstraint {
 /// excluded). Use `arg_index()` to convert to the 0-based argument index, or
 /// `to_bits_index(bits_len)` to resolve backward positions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SplitPosition {
+pub(crate) enum SplitPosition {
     /// Absolute position from start (0 = tag name, 1 = first arg, ...)
     Forward(usize),
     /// Position from end (1 = last element, 2 = second-to-last, ...)
@@ -197,27 +197,13 @@ pub enum SplitPosition {
 }
 
 impl SplitPosition {
-    /// Returns `true` if this position refers to the tag name (index 0).
-    #[must_use]
-    pub fn is_tag_name(&self) -> bool {
-        matches!(self, Self::Forward(0))
-    }
-
-    /// Returns the raw numeric value as stored (always non-negative).
-    #[must_use]
-    pub fn raw(&self) -> usize {
-        match self {
-            Self::Forward(n) | Self::Backward(n) => *n,
-        }
-    }
-
     /// Convert to a 0-based argument index (in `bits` coordinates where tag
     /// name is excluded).
     ///
     /// Returns `None` for the tag name position (`Forward(0)`) and for backward
     /// positions (which require knowing the total length to resolve).
     #[must_use]
-    pub fn arg_index(&self) -> Option<usize> {
+    pub(crate) fn arg_index(&self) -> Option<usize> {
         match self {
             Self::Forward(0) | Self::Backward(_) => None,
             Self::Forward(n) => Some(n - 1),
@@ -231,7 +217,7 @@ impl SplitPosition {
     /// - This is the tag name position (`Forward(0)`)
     /// - The resolved index is out of bounds
     #[must_use]
-    pub fn to_bits_index(&self, bits_len: usize) -> Option<usize> {
+    pub(crate) fn to_bits_index(self, bits_len: usize) -> Option<usize> {
         match self {
             Self::Forward(0) => None,
             Self::Forward(n) => {
@@ -243,7 +229,7 @@ impl SplitPosition {
                 }
             }
             Self::Backward(n) => {
-                if *n == 0 || *n > bits_len {
+                if n == 0 || n > bits_len {
                     None
                 } else {
                     Some(bits_len - n)
@@ -266,7 +252,7 @@ impl std::fmt::Display for SplitPosition {
 ///
 /// For example, `{% cycle ... as name %}` requires `"as"` at a specific position.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RequiredKeyword {
+pub(crate) struct RequiredKeyword {
     pub position: SplitPosition,
     pub value: String,
 }
@@ -276,7 +262,7 @@ pub struct RequiredKeyword {
 /// For example, `{% autoescape on %}` requires `args[1]` to be `"on"` or `"off"`.
 /// Extracted from patterns like `if arg not in ("on", "off"): raise SomeException(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChoiceAt {
+pub(crate) struct ChoiceAt {
     pub position: SplitPosition,
     pub values: Vec<String>,
 }
@@ -286,7 +272,7 @@ pub struct ChoiceAt {
 /// Some Django tags (e.g., `{% include %}`, `{% url %}`) accept options
 /// like `with key=value` or `only`, parsed in a `while remaining_bits:` loop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct KnownOptions {
+pub(crate) struct KnownOptions {
     pub values: Vec<String>,
     pub allow_duplicates: bool,
     pub rejects_unknown: bool,
@@ -316,7 +302,7 @@ pub struct BlockSpec {
 /// accepts, derived from the Python function signature (for simple/inclusion
 /// tags) or from AST analysis of the compile function (for manual tags).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExtractedArg {
+pub(crate) struct ExtractedArg {
     /// Argument name (from parameter name or AST analysis, or generic `arg1`/`arg2`)
     pub name: String,
     /// Whether this argument is required (no default value)
@@ -329,7 +315,7 @@ pub struct ExtractedArg {
 
 /// The kind of an extracted argument.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ExtractedArgKind {
+pub(crate) enum ExtractedArgKind {
     /// A template variable or expression
     Variable,
     /// A literal keyword that must appear exactly as specified

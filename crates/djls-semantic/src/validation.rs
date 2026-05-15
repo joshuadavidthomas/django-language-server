@@ -12,6 +12,7 @@ use djls_templates::Node;
 use djls_templates::Visitor;
 
 use crate::db::Db;
+use crate::project::DiscoveredSymbolCandidate;
 use crate::scoping::SymbolIndex;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
@@ -52,8 +53,8 @@ pub(crate) struct TemplateValidator<'a> {
     filter_arity_specs: &'a FilterAritySpecs,
 
     // Environment symbol caches
-    env_tags: Option<HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
-    env_filters: Option<HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
+    env_tags: Option<HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
+    env_filters: Option<HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,

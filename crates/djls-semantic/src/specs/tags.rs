@@ -6,6 +6,9 @@ use std::ops::DerefMut;
 
 use rustc_hash::FxHashMap;
 
+use crate::python::ExtractedArg;
+use crate::python::ExtractedArgKind;
+
 pub(crate) type S<T = str> = Cow<'static, T>;
 pub(crate) type L<T> = Cow<'static, [T]>;
 
@@ -276,12 +279,12 @@ impl TagSpecs {
                 let extracted_rules = if tag_def.args.is_empty() {
                     None
                 } else {
-                    use crate::ArgumentCountConstraint;
-                    use crate::ChoiceAt;
-                    use crate::ExtractedArg;
-                    use crate::ExtractedArgKind;
-                    use crate::RequiredKeyword;
-                    use crate::SplitPosition;
+                    use crate::python::ArgumentCountConstraint;
+                    use crate::python::ChoiceAt;
+                    use crate::python::ExtractedArg;
+                    use crate::python::ExtractedArgKind;
+                    use crate::python::RequiredKeyword;
+                    use crate::python::SplitPosition;
                     use crate::TagRule;
 
                     let mut rule = TagRule::default();
@@ -462,13 +465,13 @@ pub struct CompletionArg {
 }
 
 impl CompletionArg {
-    fn from_extracted(arg: &crate::ExtractedArg) -> Self {
+    fn from_extracted(arg: &ExtractedArg) -> Self {
         let kind = match &arg.kind {
-            crate::ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
-            crate::ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
-            crate::ExtractedArgKind::Variable => CompletionArgKind::Variable,
-            crate::ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
-            crate::ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
+            ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
+            ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
+            ExtractedArgKind::Variable => CompletionArgKind::Variable,
+            ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
+            ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
         };
 
         Self {
@@ -479,16 +482,16 @@ impl CompletionArg {
         }
     }
 
-    fn into_extracted(self) -> crate::ExtractedArg {
+    fn into_extracted(self) -> ExtractedArg {
         let kind = match self.kind {
-            CompletionArgKind::Literal(value) => crate::ExtractedArgKind::Literal(value),
-            CompletionArgKind::Choice(values) => crate::ExtractedArgKind::Choice(values),
-            CompletionArgKind::Variable => crate::ExtractedArgKind::Variable,
-            CompletionArgKind::Keyword => crate::ExtractedArgKind::Keyword,
-            CompletionArgKind::VarArgs => crate::ExtractedArgKind::VarArgs,
+            CompletionArgKind::Literal(value) => ExtractedArgKind::Literal(value),
+            CompletionArgKind::Choice(values) => ExtractedArgKind::Choice(values),
+            CompletionArgKind::Variable => ExtractedArgKind::Variable,
+            CompletionArgKind::Keyword => ExtractedArgKind::Keyword,
+            CompletionArgKind::VarArgs => ExtractedArgKind::VarArgs,
         };
 
-        crate::ExtractedArg {
+        ExtractedArg {
             name: self.name,
             required: self.required,
             kind,
@@ -780,6 +783,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::python::ArgumentCountConstraint;
 
     // Helper function to create a small test TagSpecs
     fn create_test_specs() -> TagSpecs {
@@ -1141,24 +1145,24 @@ mod tests {
         extraction.tag_rules.insert(
             crate::SymbolKey::tag("django.template.defaulttags", "for"),
             crate::TagRule {
-                arg_constraints: vec![crate::ArgumentCountConstraint::Min(4)],
+                arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
-                    crate::ExtractedArg {
+                    ExtractedArg {
                         name: "item".to_string(),
                         required: true,
-                        kind: crate::ExtractedArgKind::Variable,
+                        kind: ExtractedArgKind::Variable,
                         position: 0,
                     },
-                    crate::ExtractedArg {
+                    ExtractedArg {
                         name: "in".to_string(),
                         required: true,
-                        kind: crate::ExtractedArgKind::Literal("in".to_string()),
+                        kind: ExtractedArgKind::Literal("in".to_string()),
                         position: 1,
                     },
-                    crate::ExtractedArg {
+                    ExtractedArg {
                         name: "iterable".to_string(),
                         required: true,
-                        kind: crate::ExtractedArgKind::Variable,
+                        kind: ExtractedArgKind::Variable,
                         position: 2,
                     },
                 ],

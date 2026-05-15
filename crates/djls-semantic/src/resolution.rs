@@ -122,7 +122,7 @@ pub struct TemplateReference<'db> {
 }
 
 impl TemplateReference<'_> {
-    pub fn source_file(&self, db: &dyn SemanticDb) -> File {
+    pub fn source_file(self, db: &dyn SemanticDb) -> File {
         let template = self.source(db);
         template.file(db)
     }

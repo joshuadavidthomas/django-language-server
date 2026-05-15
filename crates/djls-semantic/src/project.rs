@@ -27,7 +27,7 @@ pub use resolve::find_site_packages;
 pub use resolve::resolve_modules;
 pub use resolve::ResolvedModule;
 pub use symbols::fetch_template_library_snapshot;
-pub use symbols::DiscoveredSymbolCandidate;
+pub(crate) use symbols::DiscoveredSymbolCandidate;
 pub use symbols::InstalledSymbolCandidate;
 pub use symbols::InstalledSymbolOrigin;
 pub use symbols::Knowledge;

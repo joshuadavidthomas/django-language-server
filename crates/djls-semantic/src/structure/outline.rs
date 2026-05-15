@@ -1,6 +1,7 @@
 use djls_source::Span;
 use djls_templates::TagBit;
 
+use crate::specs::tags::TagSemanticRole;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
@@ -8,7 +9,6 @@ use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
 use crate::Db;
 use crate::LoadKind;
-use crate::TagSemanticRole;
 use crate::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -406,7 +406,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                semantic_role: Some(crate::TagSemanticRole::TemplateTag),
+                semantic_role: Some(TagSemanticRole::TemplateTag),
                 extracted_rules: None,
             },
         )])));

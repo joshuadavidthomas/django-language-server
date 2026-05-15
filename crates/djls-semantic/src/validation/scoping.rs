@@ -7,6 +7,7 @@ use djls_templates::TagDelimiter;
 use salsa::Accumulator;
 
 use crate::db::Db;
+use crate::project::DiscoveredSymbolCandidate;
 use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;
@@ -22,7 +23,7 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    env_tags: Option<&HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
+    env_tags: Option<&HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
     if active_knowledge != Knowledge::Known {
@@ -80,7 +81,7 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    env_filters: Option<&HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
+    env_filters: Option<&HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
     if active_knowledge != Knowledge::Known {
