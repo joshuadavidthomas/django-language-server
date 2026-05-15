@@ -9,49 +9,6 @@ use tower_lsp_server::ls_types;
 use crate::folding::FoldKind;
 use crate::folding::FoldSpan;
 
-pub(crate) trait TemplateOutlineExt {
-    fn to_lsp_document_symbols(&self, line_index: &LineIndex) -> Vec<ls_types::DocumentSymbol>;
-}
-
-impl TemplateOutlineExt for djls_semantic::TemplateOutline {
-    fn to_lsp_document_symbols(&self, line_index: &LineIndex) -> Vec<ls_types::DocumentSymbol> {
-        self.items
-            .iter()
-            .map(|item| item.to_lsp_document_symbol(line_index))
-            .collect()
-    }
-}
-
-pub(crate) trait OutlineItemExt {
-    fn to_lsp_document_symbol(&self, line_index: &LineIndex) -> ls_types::DocumentSymbol;
-}
-
-impl OutlineItemExt for djls_semantic::OutlineItem {
-    fn to_lsp_document_symbol(&self, line_index: &LineIndex) -> ls_types::DocumentSymbol {
-        let children = (!self.children.is_empty()).then(|| {
-            self.children
-                .iter()
-                .map(|child| child.to_lsp_document_symbol(line_index))
-                .collect()
-        });
-
-        ls_types::DocumentSymbol {
-            name: self.label.clone(),
-            detail: self.detail.clone(),
-            kind: self.kind.to_lsp_symbol_kind(),
-            tags: None,
-            // `deprecated` is itself deprecated by LSP 3.15 in favor of `tags`, but
-            // `ls_types::DocumentSymbol` still includes the field for wire compatibility.
-            // We set both to `None` because template outline items are not deprecated.
-            #[allow(deprecated)]
-            deprecated: None,
-            range: self.span.to_lsp_range(line_index),
-            selection_range: self.selection_span.to_lsp_range(line_index),
-            children,
-        }
-    }
-}
-
 pub(crate) trait OutlineKindExt {
     fn to_lsp_symbol_kind(self) -> ls_types::SymbolKind;
 }
