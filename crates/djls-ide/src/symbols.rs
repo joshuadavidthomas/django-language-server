@@ -3,6 +3,7 @@ use djls_source::File;
 use djls_source::LineIndex;
 use tower_lsp_server::ls_types;
 
+use crate::ext::OutlineKindExt;
 use crate::ext::SpanExt;
 
 #[must_use]
@@ -32,17 +33,7 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
     ls_types::DocumentSymbol {
         name: item.label.clone(),
         detail: item.detail.clone(),
-        kind: match item.kind {
-            djls_semantic::OutlineKind::NamedRegion => ls_types::SymbolKind::NAMESPACE,
-            djls_semantic::OutlineKind::ControlFlow => ls_types::SymbolKind::OPERATOR,
-            djls_semantic::OutlineKind::TemplateReference
-            | djls_semantic::OutlineKind::FileReference => ls_types::SymbolKind::FILE,
-            djls_semantic::OutlineKind::LibraryImport => ls_types::SymbolKind::MODULE,
-            djls_semantic::OutlineKind::Callable
-            | djls_semantic::OutlineKind::RouteReference
-            | djls_semantic::OutlineKind::Filter => ls_types::SymbolKind::FUNCTION,
-            djls_semantic::OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
-        },
+        kind: item.kind.to_lsp_symbol_kind(),
         tags: None,
         // `deprecated` is itself deprecated by LSP 3.15 in favor of `tags`, but
         // `ls_types::DocumentSymbol` still includes the field for wire compatibility.
