@@ -1,9 +1,12 @@
 use camino::Utf8PathBuf;
+use djls_semantic::BlockSpecMap;
 use djls_semantic::ExtractionResult;
+use djls_semantic::FilterArityMap;
 use djls_semantic::ModelGraph;
 use djls_semantic::ModulePath;
 use djls_semantic::ProjectDb;
 use djls_semantic::ResolvedModule;
+use djls_semantic::TagRuleMap;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use salsa::Setter;
@@ -60,6 +63,46 @@ fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String,
     results
 }
 
+struct SplitExtractionResults {
+    tag_rules: FxHashMap<String, TagRuleMap>,
+    filter_arities: FxHashMap<String, FilterArityMap>,
+    block_specs: FxHashMap<String, BlockSpecMap>,
+}
+
+impl SplitExtractionResults {
+    fn empty() -> Self {
+        Self {
+            tag_rules: FxHashMap::default(),
+            filter_arities: FxHashMap::default(),
+            block_specs: FxHashMap::default(),
+        }
+    }
+}
+
+fn split_extraction_results(
+    results: FxHashMap<String, ExtractionResult>,
+) -> SplitExtractionResults {
+    let mut split = SplitExtractionResults::empty();
+
+    for (module_path, result) in results {
+        if !result.tag_rules.is_empty() {
+            split
+                .tag_rules
+                .insert(module_path.clone(), result.tag_rules);
+        }
+        if !result.filter_arities.is_empty() {
+            split
+                .filter_arities
+                .insert(module_path.clone(), result.filter_arities);
+        }
+        if !result.block_specs.is_empty() {
+            split.block_specs.insert(module_path, result.block_specs);
+        }
+    }
+
+    split
+}
+
 /// Scan the venv's site-packages for `models.py` files and extract model
 /// graphs. Updates the project's `extracted_external_models` field if the
 /// results differ from the current value.
@@ -91,8 +134,8 @@ pub(crate) fn scan_external_models(db: &mut dyn ProjectDb) {
 /// Extract validation rules from external (non-workspace) registration modules
 /// and update the project's extracted rules if they differ.
 ///
-/// Workspace modules are handled separately by `collect_workspace_extraction_results`
-/// which uses tracked Salsa queries for automatic invalidation on file change.
+/// Workspace modules are handled separately by domain-specific tracked Salsa
+/// queries for automatic invalidation on file change.
 pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
     let Some(project) = db.project() else {
         return;
@@ -110,7 +153,7 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
         .collect();
 
     let new_extraction = if modules.is_empty() {
-        FxHashMap::default()
+        SplitExtractionResults::empty()
     } else {
         let search_paths = djls_semantic::build_search_paths(&interpreter, &root, &pythonpath);
         let (_workspace, external_modules) = djls_semantic::resolve_modules(
@@ -118,11 +161,23 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
             &search_paths,
             &root,
         );
-        extract_rules_from_modules(external_modules)
+        split_extraction_results(extract_rules_from_modules(external_modules))
     };
 
-    if project.extracted_external_rules(db) != &new_extraction {
-        project.set_extracted_external_rules(db).to(new_extraction);
+    if project.extracted_external_tag_rules(db) != &new_extraction.tag_rules {
+        project
+            .set_extracted_external_tag_rules(db)
+            .to(new_extraction.tag_rules);
+    }
+    if project.extracted_external_filter_arities(db) != &new_extraction.filter_arities {
+        project
+            .set_extracted_external_filter_arities(db)
+            .to(new_extraction.filter_arities);
+    }
+    if project.extracted_external_block_specs(db) != &new_extraction.block_specs {
+        project
+            .set_extracted_external_block_specs(db)
+            .to(new_extraction.block_specs);
     }
 }
 

@@ -6,13 +6,10 @@ use djls_semantic::Project;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 
-/// Compute `TagSpecs` from extraction results.
+/// Compute `TagSpecs` from tag-rule and block-spec extraction results.
 ///
-/// This tracked function reads `project.template_libraries(db)` and
-/// `project.extracted_external_rules(db)` to establish Salsa dependencies.
-/// It starts from empty specs and populates purely from extraction results
-/// (both workspace modules via tracked queries and external modules from
-/// the Project field).
+/// This tracked function reads only the extraction domains needed to build tag
+/// specs. Filter-only extraction changes should not invalidate this query.
 ///
 /// Does NOT read from `Arc<Mutex<Settings>>`.
 #[salsa::tracked(returns(ref))]
@@ -24,14 +21,21 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let mut specs = djls_semantic::builtin_tag_specs();
 
     // Merge workspace extraction results (tracked, auto-invalidating on file change)
-    let workspace_results = collect_workspace_extraction_results(db, project);
-    for (_module_path, extraction) in workspace_results {
-        specs.merge_extraction_results(extraction);
+    let workspace_block_specs = collect_workspace_block_specs(db, project);
+    for (_module_path, block_specs) in workspace_block_specs {
+        specs.merge_block_specs(block_specs);
+    }
+    let workspace_tag_rules = collect_workspace_tag_rules(db, project);
+    for (_module_path, tag_rules) in workspace_tag_rules {
+        specs.merge_tag_rules(tag_rules);
     }
 
-    // Merge external extraction results (from Project field, updated by refresh_external_data)
-    for extraction in project.extracted_external_rules(db).values() {
-        specs.merge_extraction_results(extraction);
+    // Merge external extraction results (from Project fields, updated by refresh_external_data)
+    for block_specs in project.extracted_external_block_specs(db).values() {
+        specs.merge_block_specs(block_specs);
+    }
+    for tag_rules in project.extracted_external_tag_rules(db).values() {
+        specs.merge_tag_rules(tag_rules);
     }
 
     // Fill extraction gaps with manual TagSpecs configuration (fallback).
@@ -67,14 +71,14 @@ pub fn compute_filter_arity_specs(
     let mut specs = djls_semantic::FilterAritySpecs::new();
 
     // Merge workspace extraction results (tracked)
-    let workspace_results = collect_workspace_extraction_results(db, project);
-    for (_module_path, extraction) in workspace_results {
-        specs.merge_extraction_result(extraction);
+    let workspace_results = collect_workspace_filter_arities(db, project);
+    for (_module_path, filter_arities) in workspace_results {
+        specs.merge_filter_arities(filter_arities);
     }
 
     // Merge external extraction results (from Project field)
-    for extraction in project.extracted_external_rules(db).values() {
-        specs.merge_extraction_result(extraction);
+    for filter_arities in project.extracted_external_filter_arities(db).values() {
+        specs.merge_filter_arities(filter_arities);
     }
 
     specs
@@ -144,21 +148,10 @@ fn collect_workspace_models(
     results
 }
 
-/// Collect extracted rules from all workspace registration modules.
-///
-/// This tracked query:
-/// 1. Gets registration modules from inspector inventory
-/// 2. Resolves workspace modules to `File` inputs via `get_or_create_file`
-/// 3. Extracts rules from each (via tracked `djls_semantic::extract_module`)
-///
-/// External modules are handled separately (cached on `Project` field,
-/// updated by `refresh_external_data`). This function only processes workspace
-/// modules, giving them automatic Salsa invalidation when files change.
-#[salsa::tracked(returns(ref))]
-fn collect_workspace_extraction_results(
+fn resolve_workspace_registration_modules(
     db: &dyn SemanticDb,
     project: Project,
-) -> Vec<(String, djls_semantic::ExtractionResult)> {
+) -> Vec<djls_semantic::ResolvedModule> {
     let template_libraries = project.template_libraries(db);
     let interpreter = project.interpreter(db);
     let root = project.root(db);
@@ -182,15 +175,75 @@ fn collect_workspace_extraction_results(
         root,
     );
 
+    workspace_modules
+}
+
+/// Collect extracted tag rules from all workspace registration modules.
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_tag_rules(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(String, djls_semantic::TagRuleMap)> {
     let mut results = Vec::new();
 
-    for resolved in workspace_modules {
+    for resolved in resolve_workspace_registration_modules(db, project) {
         let file = db.get_or_create_file(&resolved.file_path);
-        let extraction =
-            djls_semantic::extract_module(db, file, ModulePath::new(resolved.module_path.clone()));
+        let tag_rules = djls_semantic::extract_tag_rules(
+            db,
+            file,
+            ModulePath::new(resolved.module_path.clone()),
+        );
 
-        if !extraction.is_empty() {
-            results.push((resolved.module_path, extraction.clone()));
+        if !tag_rules.is_empty() {
+            results.push((resolved.module_path, tag_rules.clone()));
+        }
+    }
+
+    results
+}
+
+/// Collect extracted filter arities from all workspace registration modules.
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_filter_arities(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(String, djls_semantic::FilterArityMap)> {
+    let mut results = Vec::new();
+
+    for resolved in resolve_workspace_registration_modules(db, project) {
+        let file = db.get_or_create_file(&resolved.file_path);
+        let filter_arities = djls_semantic::extract_filter_arities(
+            db,
+            file,
+            ModulePath::new(resolved.module_path.clone()),
+        );
+
+        if !filter_arities.is_empty() {
+            results.push((resolved.module_path, filter_arities.clone()));
+        }
+    }
+
+    results
+}
+
+/// Collect extracted block specs from all workspace registration modules.
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_block_specs(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(String, djls_semantic::BlockSpecMap)> {
+    let mut results = Vec::new();
+
+    for resolved in resolve_workspace_registration_modules(db, project) {
+        let file = db.get_or_create_file(&resolved.file_path);
+        let block_specs = djls_semantic::extract_block_specs(
+            db,
+            file,
+            ModulePath::new(resolved.module_path.clone()),
+        );
+
+        if !block_specs.is_empty() {
+            results.push((resolved.module_path, block_specs.clone()));
         }
     }
 

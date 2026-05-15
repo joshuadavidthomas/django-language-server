@@ -331,6 +331,8 @@ mod invalidation_tests {
             TemplateLibraries::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
+            rustc_hash::FxHashMap::default(),
+            rustc_hash::FxHashMap::default(),
         );
         *db.project.lock().unwrap() = Some(project);
 
@@ -474,11 +476,11 @@ mod invalidation_tests {
                 opaque: false,
             },
         );
-        let mut external_rules = rustc_hash::FxHashMap::default();
-        external_rules.insert("test.module".to_string(), extraction);
+        let mut external_block_specs = rustc_hash::FxHashMap::default();
+        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
         project
-            .set_extracted_external_rules(&mut db)
-            .to(external_rules);
+            .set_extracted_external_block_specs(&mut db)
+            .to(external_block_specs);
 
         // Access tag_index — both compute_tag_specs and compute_tag_index should re-execute
         let _index = db.tag_index();
@@ -519,34 +521,34 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn extraction_result_cached_on_repeated_access() {
+    fn filter_arities_cached_on_repeated_access() {
         let (db, event_log) = test_db_with_project();
 
         // Create a Python file and track it
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
 
         // First extraction
-        let _result1 = djls_semantic::extract_module(
+        let _result1 = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "extract_module"),
-            "extract_module should execute on first call"
+            was_executed(&db, &events, "extract_filter_arities"),
+            "extract_filter_arities should execute on first call"
         );
 
         // Second call — cached
-        let _result2 = djls_semantic::extract_module(
+        let _result2 = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_module"),
-            "extract_module should NOT re-execute on second call (cached)"
+            !was_executed(&db, &events, "extract_filter_arities"),
+            "extract_filter_arities should NOT re-execute on second call (cached)"
         );
     }
 
@@ -556,7 +558,7 @@ mod invalidation_tests {
 
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let _result = djls_semantic::extract_module(
+        let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
@@ -567,16 +569,16 @@ mod invalidation_tests {
         file.set_revision(&mut db).to(1);
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
-        // so extract_module does NOT re-execute (correct behavior)
-        let _result = djls_semantic::extract_module(
+        // so extract_filter_arities does NOT re-execute (correct behavior)
+        let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_module"),
-            "extract_module should NOT re-execute when source content is unchanged (backdate)"
+            !was_executed(&db, &events, "extract_filter_arities"),
+            "extract_filter_arities should NOT re-execute when source content is unchanged (backdate)"
         );
     }
 
@@ -618,7 +620,7 @@ def my_filter(value, arg):
         };
 
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let result = djls_semantic::extract_module(
+        let result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("test.project.tags"),
@@ -627,19 +629,19 @@ def my_filter(value, arg):
         // Should extract the filter
         let key = djls_semantic::SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
-            result.filter_arities.contains_key(&key),
+            result.contains_key(&key),
             "should extract filter from file content"
         );
-        assert!(result.filter_arities[&key].expects_arg);
+        assert!(result[&key].expects_arg);
 
-        let other_module_result = djls_semantic::extract_module(
+        let other_module_result = djls_semantic::extract_filter_arities(
             &db,
             file,
             djls_semantic::ModulePath::new("other.project.tags"),
         );
         let other_key = djls_semantic::SymbolKey::filter("other.project.tags", "my_filter");
-        assert!(other_module_result.filter_arities.contains_key(&other_key));
-        assert!(!other_module_result.filter_arities.contains_key(&key));
+        assert!(other_module_result.contains_key(&other_key));
+        assert!(!other_module_result.contains_key(&key));
     }
 
     #[test]
@@ -649,8 +651,10 @@ def my_filter(value, arg):
 
         // Initially empty
         assert!(
-            project.extracted_external_rules(&db).is_empty(),
-            "extracted_external_rules should be empty initially"
+            project.extracted_external_tag_rules(&db).is_empty()
+                && project.extracted_external_filter_arities(&db).is_empty()
+                && project.extracted_external_block_specs(&db).is_empty(),
+            "external extraction fields should be empty initially"
         );
 
         // Set some extraction results
@@ -663,15 +667,15 @@ def my_filter(value, arg):
                 opaque: false,
             },
         );
-        let mut external_rules = rustc_hash::FxHashMap::default();
-        external_rules.insert("test.module".to_string(), extraction);
+        let mut external_block_specs = rustc_hash::FxHashMap::default();
+        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
         project
-            .set_extracted_external_rules(&mut db)
-            .to(external_rules);
+            .set_extracted_external_block_specs(&mut db)
+            .to(external_block_specs);
 
-        let stored = project.extracted_external_rules(&db);
+        let stored = project.extracted_external_block_specs(&db);
         assert_eq!(stored.len(), 1);
-        assert_eq!(stored["test.module"].block_specs.len(), 1);
+        assert_eq!(stored["test.module"].len(), 1);
     }
 
     #[test]
@@ -734,18 +738,18 @@ def my_filter(value, arg):
                 opaque: false,
             },
         );
-        let mut external_rules = rustc_hash::FxHashMap::default();
-        external_rules.insert("test.module".to_string(), extraction);
+        let mut external_block_specs = rustc_hash::FxHashMap::default();
+        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
         project
-            .set_extracted_external_rules(&mut db)
-            .to(external_rules);
+            .set_extracted_external_block_specs(&mut db)
+            .to(external_block_specs);
 
-        // Access tag_specs — should re-execute because extracted_external_rules changed
+        // Access tag_specs — should re-execute because extracted_external_block_specs changed
         let specs = db.tag_specs();
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after extracted_external_rules change"
+            "compute_tag_specs should re-execute after extracted_external_block_specs change"
         );
 
         // The merged specs should include the extracted block tag
@@ -764,6 +768,46 @@ def my_filter(value, arg):
                 .as_ref(),
             "endcustomblock"
         );
+    }
+
+    #[test]
+    fn external_filter_arities_do_not_invalidate_tag_specs() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime both caches.
+        let _tag_specs = db.tag_specs();
+        let _filter_specs = db.filter_arity_specs();
+        event_log.take();
+
+        let project = db.project.lock().unwrap().unwrap();
+        let mut filter_arities = rustc_hash::FxHashMap::default();
+        filter_arities.insert(
+            djls_semantic::SymbolKey::filter("test.module", "customfilter"),
+            djls_semantic::FilterArity {
+                expects_arg: true,
+                arg_optional: false,
+            },
+        );
+        let mut external_filter_arities = rustc_hash::FxHashMap::default();
+        external_filter_arities.insert("test.module".to_string(), filter_arities);
+        project
+            .set_extracted_external_filter_arities(&mut db)
+            .to(external_filter_arities);
+
+        let _tag_specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should not re-execute after filter-only extraction changes"
+        );
+
+        let filter_specs = db.filter_arity_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_filter_arity_specs"),
+            "compute_filter_arity_specs should re-execute after filter arities change"
+        );
+        assert!(filter_specs.get("customfilter").is_some());
     }
 
     #[test]
