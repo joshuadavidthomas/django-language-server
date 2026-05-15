@@ -4,10 +4,10 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_semantic::AvailableSymbols;
-use djls_semantic::CompletionArgKind;
 use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::Knowledge;
+use djls_semantic::TagArgumentKind;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_semantic::TemplateSymbol;
@@ -595,7 +595,7 @@ fn generate_tag_name_completions(
             let (insert_text, insert_format) = if supports_snippets {
                 if let Some(specs) = tag_specs {
                     if let Some(spec) = specs.get(tag_name) {
-                        let has_args = !spec.completion_args().is_empty();
+                        let has_args = !spec.arguments().is_empty();
                         if has_args {
                             // Generate snippet from tag spec
                             let mut text = String::new();
@@ -695,7 +695,7 @@ fn generate_argument_completions(
         return Vec::new();
     };
 
-    let args = spec.completion_args();
+    let args = spec.arguments();
 
     if position >= args.len() {
         return Vec::new();
@@ -705,7 +705,7 @@ fn generate_argument_completions(
     let mut completions = Vec::new();
 
     match &arg.kind {
-        CompletionArgKind::Literal(value) => {
+        TagArgumentKind::Literal(value) => {
             // For literals, complete the exact text
             if value.starts_with(partial) {
                 let mut insert_text = value.clone();
@@ -727,7 +727,7 @@ fn generate_argument_completions(
                 });
             }
         }
-        CompletionArgKind::Choice(choices) => {
+        TagArgumentKind::Choice(choices) => {
             for option in choices {
                 if option.starts_with(partial) {
                     let mut insert_text = option.clone();
@@ -750,7 +750,7 @@ fn generate_argument_completions(
                 }
             }
         }
-        CompletionArgKind::Variable | CompletionArgKind::Keyword => {
+        TagArgumentKind::Variable | TagArgumentKind::Keyword => {
             if partial.is_empty() {
                 completions.push(ls_types::CompletionItem {
                     label: format!("<{}>", arg.name),
@@ -762,7 +762,7 @@ fn generate_argument_completions(
                 });
             }
         }
-        CompletionArgKind::VarArgs => {
+        TagArgumentKind::VarArgs => {
             // VarArgs not specifically completed
         }
     }
@@ -979,7 +979,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::collections::HashMap;
 
-    use djls_semantic::CompletionArg;
+    use djls_semantic::TagArgument;
 
     use super::*;
 
@@ -1448,17 +1448,10 @@ mod tests {
     // Helper to build AvailableSymbols for testing load-scoped completions
     fn build_available_symbols(
         template_libraries: &TemplateLibraries,
-        loaded_libs: &djls_semantic::LoadedLibraries,
+        loads: Vec<(u32, djls_semantic::LoadKind)>,
         position: u32,
     ) -> AvailableSymbols {
-        AvailableSymbols::at_position(loaded_libs, template_libraries, position)
-    }
-
-    fn make_load_statement(
-        span: (u32, u32),
-        kind: djls_semantic::LoadKind,
-    ) -> djls_semantic::LoadStatement {
-        djls_semantic::LoadStatement::new(djls_source::Span::new(span.0, span.1), kind)
+        AvailableSymbols::from_loads(loads, template_libraries, position)
     }
 
     fn build_test_libraries() -> TemplateLibraries {
@@ -1539,15 +1532,15 @@ mod tests {
     #[test]
     fn test_tag_completions_before_any_load_only_builtins() {
         let template_libraries = build_test_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
-            (100, 20),
+        let loads = vec![(
+            120,
             djls_semantic::LoadKind::FullLoad {
                 libraries: vec!["i18n".into()],
             },
-        )]);
+        )];
 
         // Position 10 = before any load
-        let symbols = build_available_symbols(&template_libraries, &loaded, 10);
+        let symbols = build_available_symbols(&template_libraries, loads, 10);
 
         let completions = generate_tag_name_completions(
             "",
@@ -1576,15 +1569,15 @@ mod tests {
     #[test]
     fn test_tag_completions_after_load_shows_library_tags() {
         let template_libraries = build_test_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
-            (10, 20),
+        let loads = vec![(
+            30,
             djls_semantic::LoadKind::FullLoad {
                 libraries: vec!["i18n".into()],
             },
-        )]);
+        )];
 
         // Position 100 = after load
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        let symbols = build_available_symbols(&template_libraries, loads, 100);
 
         let completions = generate_tag_name_completions(
             "",
@@ -1613,16 +1606,16 @@ mod tests {
     #[test]
     fn test_tag_completions_selective_import_only_imported_symbols() {
         let template_libraries = build_test_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
-            (10, 30),
+        let loads = vec![(
+            40,
             djls_semantic::LoadKind::SelectiveImport {
                 symbols: vec!["trans".into()],
                 library: "i18n".into(),
             },
-        )]);
+        )];
 
         // Position 100 = after selective load
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        let symbols = build_available_symbols(&template_libraries, loads, 100);
 
         let completions = generate_tag_name_completions(
             "",
@@ -1677,15 +1670,15 @@ mod tests {
     #[test]
     fn test_tag_completions_partial_filtering_with_scoping() {
         let template_libraries = build_test_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
-            (10, 20),
+        let loads = vec![(
+            30,
             djls_semantic::LoadKind::FullLoad {
                 libraries: vec!["i18n".into()],
             },
-        )]);
+        )];
 
         // Position 100 = after load, partial = "bl"
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        let symbols = build_available_symbols(&template_libraries, loads, 100);
 
         let completions = generate_tag_name_completions(
             "bl",
@@ -1889,8 +1882,7 @@ mod tests {
     #[test]
     fn test_filter_completions_all_builtins_with_empty_partial() {
         let template_libraries = build_test_filter_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![]);
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        let symbols = build_available_symbols(&template_libraries, vec![], 100);
 
         let completions =
             generate_filter_completions("", Some(&template_libraries), Some(&symbols));
@@ -1909,8 +1901,7 @@ mod tests {
     #[test]
     fn test_filter_completions_partial_prefix_filtering() {
         let template_libraries = build_test_filter_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![]);
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        let symbols = build_available_symbols(&template_libraries, vec![], 100);
 
         let completions =
             generate_filter_completions("def", Some(&template_libraries), Some(&symbols));
@@ -1922,13 +1913,13 @@ mod tests {
     #[test]
     fn test_filter_completions_library_filters_after_load() {
         let template_libraries = build_test_filter_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
-            (10, 20),
+        let loads = vec![(
+            30,
             djls_semantic::LoadKind::FullLoad {
                 libraries: vec!["humanize".into()],
             },
-        )]);
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        )];
+        let symbols = build_available_symbols(&template_libraries, loads, 100);
 
         let completions =
             generate_filter_completions("", Some(&template_libraries), Some(&symbols));
@@ -1948,8 +1939,7 @@ mod tests {
     #[test]
     fn test_filter_completions_library_filters_excluded_when_not_loaded() {
         let template_libraries = build_test_filter_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![]);
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        let symbols = build_available_symbols(&template_libraries, vec![], 100);
 
         let completions =
             generate_filter_completions("int", Some(&template_libraries), Some(&symbols));
@@ -1977,14 +1967,14 @@ mod tests {
     #[test]
     fn test_filter_completions_selective_import_only_imported_symbols() {
         let template_libraries = build_test_filter_libraries();
-        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
-            (10, 40),
+        let loads = vec![(
+            50,
             djls_semantic::LoadKind::SelectiveImport {
                 symbols: vec!["intcomma".into()],
                 library: "humanize".into(),
             },
-        )]);
-        let symbols = build_available_symbols(&template_libraries, &loaded, 100);
+        )];
+        let symbols = build_available_symbols(&template_libraries, loads, 100);
 
         let completions =
             generate_filter_completions("", Some(&template_libraries), Some(&symbols));
@@ -2111,10 +2101,10 @@ mod tests {
                 semantic_role: None,
                 extracted_rules: None,
             }
-            .with_completion_args(vec![CompletionArg {
+            .with_arguments(vec![TagArgument {
                 name: "setting".to_string(),
                 required: true,
-                kind: CompletionArgKind::Choice(vec!["on".to_string(), "off".to_string()]),
+                kind: TagArgumentKind::Choice(vec!["on".to_string(), "off".to_string()]),
                 position: 0,
             }]),
         );
@@ -2129,17 +2119,17 @@ mod tests {
                 semantic_role: None,
                 extracted_rules: None,
             }
-            .with_completion_args(vec![
-                CompletionArg {
+            .with_arguments(vec![
+                TagArgument {
                     name: "value1".to_string(),
                     required: true,
-                    kind: CompletionArgKind::Variable,
+                    kind: TagArgumentKind::Variable,
                     position: 0,
                 },
-                CompletionArg {
+                TagArgument {
                     name: "as".to_string(),
                     required: false,
-                    kind: CompletionArgKind::Literal("as".to_string()),
+                    kind: TagArgumentKind::Literal("as".to_string()),
                     position: 1,
                 },
             ]),

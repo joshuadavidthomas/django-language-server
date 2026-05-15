@@ -12,7 +12,6 @@
 mod check;
 mod db;
 mod inspector;
-mod queries;
 mod scanning;
 mod settings;
 

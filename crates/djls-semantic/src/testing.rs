@@ -33,7 +33,6 @@ use crate::LibraryOrigin;
 use crate::PyModuleName;
 use crate::SymbolDefinition;
 use crate::SymbolKey;
-use crate::TagIndex;
 use crate::TagRule;
 use crate::TagSpec;
 use crate::TagSpecs;
@@ -218,10 +217,6 @@ impl djls_templates::Db for TestDatabase {}
 impl crate::Db for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn tag_index(&self) -> TagIndex<'_> {
-        TagIndex::from_specs(self)
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {

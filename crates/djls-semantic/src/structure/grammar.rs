@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 
 /// Role a tag plays in Django's block structure.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TagRole {
+pub(crate) enum TagRole {
     Opener(EndMeta),
     Closer { opener: String },
     Intermediate { possible_openers: Vec<String> },
@@ -15,19 +15,19 @@ pub enum TagRole {
 /// lookup (`classify`, `validate_close`, `is_end_required`) is a single
 /// hash probe instead of checking up to three separate maps.
 #[salsa::tracked(debug)]
-pub struct TagIndex<'db> {
+pub(crate) struct TagIndex<'db> {
     #[tracked]
     #[returns(ref)]
     roles: FxHashMap<String, TagRole>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EndMeta {
+pub(crate) struct EndMeta {
     required: bool,
 }
 
 impl<'db> TagIndex<'db> {
-    pub fn classify(self, db: &'db dyn crate::Db, tag_name: &str) -> TagClass<'db> {
+    pub(crate) fn classify(self, db: &'db dyn crate::Db, tag_name: &str) -> TagClass<'db> {
         match self.roles(db).get(tag_name) {
             Some(TagRole::Opener(_)) => TagClass::Opener,
             Some(TagRole::Closer { opener }) => TagClass::Closer {
@@ -40,14 +40,14 @@ impl<'db> TagIndex<'db> {
         }
     }
 
-    pub fn is_end_required(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
+    pub(crate) fn is_end_required(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
         matches!(
             self.roles(db).get(opener_name),
             Some(TagRole::Opener(EndMeta { required: true }))
         )
     }
 
-    pub fn validate_close(
+    pub(crate) fn validate_close(
         self,
         db: &'db dyn crate::Db,
         opener_name: &str,
@@ -75,7 +75,7 @@ impl<'db> TagIndex<'db> {
     }
 
     #[must_use]
-    pub fn from_specs(db: &'db dyn crate::Db) -> Self {
+    pub(crate) fn from_specs(db: &'db dyn crate::Db) -> Self {
         Self::from_tag_specs(db, db.tag_specs())
     }
 
@@ -84,7 +84,7 @@ impl<'db> TagIndex<'db> {
     /// This is used by tracked queries that compute `TagSpecs` first and then
     /// need to build the index without going through `db.tag_specs()`.
     #[must_use]
-    pub fn from_tag_specs(db: &'db dyn crate::Db, specs: &crate::TagSpecs) -> Self {
+    fn from_tag_specs(db: &'db dyn crate::Db, specs: &crate::TagSpecs) -> Self {
         let mut roles: FxHashMap<String, TagRole> = FxHashMap::default();
 
         for (name, spec) in specs {
@@ -125,7 +125,7 @@ impl<'db> TagIndex<'db> {
 /// Borrows data from the [`TagIndex`]'s Salsa-tracked storage, avoiding
 /// clones of opener names and possible-opener lists.
 #[derive(Clone, Debug)]
-pub enum TagClass<'a> {
+pub(crate) enum TagClass<'a> {
     /// This tag opens a block
     Opener,
     /// This tag closes a block
@@ -137,7 +137,7 @@ pub enum TagClass<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub enum CloseValidation {
+pub(crate) enum CloseValidation {
     Valid,
     NotABlock,
     ArgumentMismatch { expected: String, got: String },

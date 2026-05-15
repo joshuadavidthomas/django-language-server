@@ -16,7 +16,6 @@ pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types:
     let outline = djls_semantic::build_template_outline(db, tree);
     let line_index = file.line_index(db);
     outline
-        .items
         .iter()
         .map(|item| item_to_document_symbol(item, line_index))
         .collect()
@@ -56,43 +55,40 @@ mod tests {
     fn outline_conversion_maps_kinds_ranges_and_children() {
         let source = "{% block content %}\n  {% include \"card.html\" %}\n  {{ user.username|lower }}\n{% endblock %}\n";
         let line_index = LineIndex::from(source);
-        let outline = djls_semantic::TemplateOutline {
-            items: vec![OutlineItem {
-                label: "content".to_string(),
-                detail: Some("block".to_string()),
-                kind: djls_semantic::OutlineKind::TemplateBlock,
-                span: Span::saturating_from_bounds_usize(0, source.len() - 1),
-                selection_span: Span::saturating_from_bounds_usize(3, 7),
-                children: vec![
-                    OutlineItem {
-                        label: "card.html".to_string(),
-                        detail: Some("include".to_string()),
-                        kind: djls_semantic::OutlineKind::TemplateReference,
-                        span: Span::saturating_from_bounds_usize(22, 47),
-                        selection_span: Span::saturating_from_bounds_usize(25, 45),
-                        children: Vec::new(),
-                    },
-                    OutlineItem {
-                        label: "user.username".to_string(),
+        let outline = [OutlineItem {
+            label: "content".to_string(),
+            detail: Some("block".to_string()),
+            kind: djls_semantic::OutlineKind::TemplateBlock,
+            span: Span::saturating_from_bounds_usize(0, source.len() - 1),
+            selection_span: Span::saturating_from_bounds_usize(3, 7),
+            children: vec![
+                OutlineItem {
+                    label: "card.html".to_string(),
+                    detail: Some("include".to_string()),
+                    kind: djls_semantic::OutlineKind::TemplateReference,
+                    span: Span::saturating_from_bounds_usize(22, 47),
+                    selection_span: Span::saturating_from_bounds_usize(25, 45),
+                    children: Vec::new(),
+                },
+                OutlineItem {
+                    label: "user.username".to_string(),
+                    detail: None,
+                    kind: djls_semantic::OutlineKind::Variable,
+                    span: Span::saturating_from_bounds_usize(50, 74),
+                    selection_span: Span::saturating_from_bounds_usize(53, 65),
+                    children: vec![OutlineItem {
+                        label: "lower".to_string(),
                         detail: None,
-                        kind: djls_semantic::OutlineKind::Variable,
-                        span: Span::saturating_from_bounds_usize(50, 74),
-                        selection_span: Span::saturating_from_bounds_usize(53, 65),
-                        children: vec![OutlineItem {
-                            label: "lower".to_string(),
-                            detail: None,
-                            kind: djls_semantic::OutlineKind::Filter,
-                            span: Span::saturating_from_bounds_usize(67, 71),
-                            selection_span: Span::saturating_from_bounds_usize(67, 71),
-                            children: Vec::new(),
-                        }],
-                    },
-                ],
-            }],
-        };
+                        kind: djls_semantic::OutlineKind::Filter,
+                        span: Span::saturating_from_bounds_usize(67, 71),
+                        selection_span: Span::saturating_from_bounds_usize(67, 71),
+                        children: Vec::new(),
+                    }],
+                },
+            ],
+        }];
 
         let symbols = outline
-            .items
             .iter()
             .map(|item| item_to_document_symbol(item, &line_index))
             .collect::<Vec<_>>();

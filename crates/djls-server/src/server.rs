@@ -325,7 +325,6 @@ impl LanguageServer for DjangoLanguageServer {
                             let nodelist = djls_templates::parse_template(db, file);
 
                             nodelist.map(|nl| {
-                                let symbol_index = djls_semantic::compute_symbol_index(db, nl);
                                 let line_index = file.line_index(db);
                                 let source_text = file.source(db);
                                 let byte_offset = line_index.offset(
@@ -333,7 +332,7 @@ impl LanguageServer for DjangoLanguageServer {
                                     djls_source::LineCol::new(position.line, position.character),
                                     encoding,
                                 );
-                                symbol_index.symbols_at(byte_offset.get()).clone()
+                                djls_semantic::available_symbols_at(db, nl, byte_offset.get())
                             })
                         } else {
                             None

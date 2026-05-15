@@ -10,12 +10,14 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_semantic::compute_filter_arity_specs;
+use djls_semantic::compute_model_graph;
+use djls_semantic::compute_tag_specs;
 use djls_semantic::template_dirs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
 use djls_semantic::ProjectIntrospector;
-use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
@@ -26,10 +28,6 @@ use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
 
 use crate::inspector;
-use crate::queries::compute_filter_arity_specs;
-use crate::queries::compute_model_graph;
-use crate::queries::compute_tag_index;
-use crate::queries::compute_tag_specs;
 use crate::scanning;
 
 /// Concrete Salsa database for the Django Language Server.
@@ -179,20 +177,9 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn tag_index(&self) -> TagIndex<'_> {
-        if let Some(project) = self.project() {
-            compute_tag_index(self, project)
-        } else {
-            TagIndex::from_specs(self)
-        }
-    }
-
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        if let Some(project) = self.project() {
-            template_dirs(self, project)
-        } else {
-            None
-        }
+        self.project()
+            .and_then(|project| template_dirs(self, project))
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -453,45 +440,6 @@ mod invalidation_tests {
         assert!(
             !was_executed(&db, &events, "compute_tag_specs"),
             "compute_tag_specs should NOT re-execute when value is unchanged"
-        );
-    }
-
-    #[test]
-    fn tag_index_depends_on_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime both caches
-        let _specs = db.tag_specs();
-        let _index = db.tag_index();
-        event_log.take();
-
-        // Change extraction results to produce different TagSpecs
-        let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_semantic::ExtractionResult::default();
-        extraction.block_specs.insert(
-            djls_semantic::SymbolKey::tag("test.module", "mytag"),
-            djls_semantic::BlockSpec {
-                end_tag: Some("endmytag".to_string()),
-                intermediates: vec![],
-                opaque: false,
-            },
-        );
-        let mut external_block_specs = rustc_hash::FxHashMap::default();
-        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
-        project
-            .set_extracted_external_block_specs(&mut db)
-            .to(external_block_specs);
-
-        // Access tag_index — both compute_tag_specs and compute_tag_index should re-execute
-        let _index = db.tag_index();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after extraction results change"
-        );
-        assert!(
-            was_executed(&db, &events, "compute_tag_index"),
-            "compute_tag_index should re-execute when tag specs produced different output"
         );
     }
 

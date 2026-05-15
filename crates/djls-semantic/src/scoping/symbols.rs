@@ -1,8 +1,11 @@
+use djls_source::Span;
 use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use super::LoadKind;
 use super::LoadState;
+use super::LoadStatement;
 use super::LoadedLibraries;
 use crate::TemplateLibraries;
 use crate::TemplateSymbolKind;
@@ -56,13 +59,29 @@ pub struct AvailableSymbols {
 impl AvailableSymbols {
     /// Build available symbols for a given position using load state and template libraries.
     #[must_use]
-    pub fn at_position(
+    pub(crate) fn at_position(
         loaded_libraries: &LoadedLibraries,
         template_libraries: &TemplateLibraries,
         position: u32,
     ) -> Self {
         let load_state = loaded_libraries.available_at(position);
         Self::from_load_state(&load_state, template_libraries)
+    }
+
+    /// Build available symbols from load tags identified by their ending byte offsets.
+    #[must_use]
+    pub fn from_loads(
+        loads: impl IntoIterator<Item = (u32, LoadKind)>,
+        template_libraries: &TemplateLibraries,
+        position: u32,
+    ) -> Self {
+        let loaded_libraries = LoadedLibraries::new(
+            loads
+                .into_iter()
+                .map(|(end, kind)| LoadStatement::new(Span::new(end, 0), kind))
+                .collect(),
+        );
+        Self::at_position(&loaded_libraries, template_libraries, position)
     }
 
     /// Build available symbols from a pre-computed load state and template libraries.
@@ -249,7 +268,7 @@ impl AvailableSymbols {
 
 /// Precomputed symbol availability at each `{% load %}` boundary in a template.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SymbolIndex {
+pub(crate) struct SymbolIndex {
     /// Symbols available before any `{% load %}` tags (builtins only).
     initial: AvailableSymbols,
     /// Sorted by position. Entry at index `i` covers positions from
@@ -260,7 +279,7 @@ pub struct SymbolIndex {
 impl SymbolIndex {
     /// Build a `SymbolIndex` from loaded libraries and template libraries.
     #[must_use]
-    pub fn build(
+    pub(crate) fn build(
         loaded_libraries: &LoadedLibraries,
         template_libraries: &TemplateLibraries,
     ) -> Self {
@@ -292,7 +311,7 @@ impl SymbolIndex {
 
     /// Look up the available symbols at a given byte position.
     #[must_use]
-    pub fn symbols_at(&self, position: u32) -> &AvailableSymbols {
+    pub(crate) fn symbols_at(&self, position: u32) -> &AvailableSymbols {
         let idx = self.boundaries.partition_point(|&(pos, _)| pos <= position);
         if idx == 0 {
             &self.initial

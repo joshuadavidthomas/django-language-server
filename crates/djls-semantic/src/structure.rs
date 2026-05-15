@@ -18,13 +18,12 @@ pub(crate) mod snapshot;
 pub(crate) mod tree;
 
 pub(crate) use builder::TemplateTreeBuilder;
-pub use grammar::TagIndex;
+pub(crate) use grammar::TagIndex;
 pub use opaque::compute_opaque_regions;
 pub(crate) use opaque::OpaqueRegions;
 pub use outline::build_template_outline;
 pub use outline::OutlineItem;
 pub use outline::OutlineKind;
-pub use outline::TemplateOutline;
 pub(crate) use tree::BlockRole;
 pub(crate) use tree::RegionId;
 pub(crate) use tree::Regions;
@@ -39,6 +38,6 @@ pub fn build_template_tree<'db>(
     db: &'db dyn Db,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(db, db.tag_index());
+    let builder = TemplateTreeBuilder::new(db, TagIndex::from_specs(db));
     builder.model(db, nodelist)
 }

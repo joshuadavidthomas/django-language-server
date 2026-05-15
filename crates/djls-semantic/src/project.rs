@@ -22,7 +22,7 @@ pub use names::TemplateSymbolName;
 pub use python::Interpreter;
 pub use resolve::build_search_paths;
 pub use resolve::discover_model_files_in_dir;
-pub use resolve::discover_workspace_model_files;
+pub(crate) use resolve::discover_workspace_model_files;
 pub use resolve::find_site_packages;
 pub use resolve::resolve_modules;
 pub use resolve::ResolvedModule;

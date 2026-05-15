@@ -5,20 +5,17 @@ use djls_templates::Db as TemplateDb;
 use crate::errors::ValidationError;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
-use crate::structure::TagIndex;
 use crate::ModelGraph;
 use crate::TemplateLibraries;
 
 #[salsa::db]
 pub trait Db: TemplateDb {
-    /// Get the Django tag specifications for semantic analysis
+    /// Get the Django tag specifications for semantic analysis.
     fn tag_specs(&self) -> &TagSpecs;
-
-    fn tag_index(&self) -> TagIndex<'_>;
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>>;
 
-    /// Get the diagnostics configuration
+    /// Get the diagnostics configuration.
     fn diagnostics_config(&self) -> DiagnosticsConfig;
 
     /// Get template libraries for the current project.

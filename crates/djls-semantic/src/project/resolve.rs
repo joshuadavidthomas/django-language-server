@@ -343,7 +343,7 @@ pub fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8
 /// pairs where `module_path` is the dotted module path relative to the
 /// project root.
 #[must_use]
-pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
+pub(crate) fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
     discover_model_files(
         root,
         |wb| {

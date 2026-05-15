@@ -12,11 +12,6 @@ use crate::LoadKind;
 use crate::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TemplateOutline {
-    pub items: Vec<OutlineItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
     pub label: String,
     pub detail: Option<String>,
@@ -28,8 +23,8 @@ pub struct OutlineItem {
 
 /// Kind of template-domain item represented in the outline.
 ///
-/// `TemplateOutline` is a navigational projection over template semantics, not
-/// the source of truth for every semantic fact in a template.
+/// The template outline is a navigational projection over template semantics,
+/// not the source of truth for every semantic fact in a template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutlineKind {
     TemplateBlock,
@@ -59,13 +54,11 @@ impl From<TagSemanticRole> for OutlineKind {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> TemplateOutline {
+pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<OutlineItem> {
     let regions = tree.regions(db);
     let root = tree.root(db);
 
-    TemplateOutline {
-        items: outline_items_for_region(regions, db.tag_specs(), root),
-    }
+    outline_items_for_region(regions, db.tag_specs(), root)
 }
 
 fn outline_items_for_tag(
@@ -286,7 +279,7 @@ mod tests {
     use crate::TagSpec;
     use crate::TagSpecs;
 
-    fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db TemplateOutline {
+    fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<OutlineItem> {
         db.add_file("test.html", source);
         let file = File::new(db, "test.html".into(), 0);
         let nodelist = parse_template(db, file).expect("should parse");
@@ -309,15 +302,11 @@ mod tests {
         );
 
         assert_eq!(
-            labels(&outline.items),
+            labels(outline),
             vec!["base.html", "static", "i18n", "partials/nav.html"]
         );
         assert_eq!(
-            outline
-                .items
-                .iter()
-                .map(|item| item.kind)
-                .collect::<Vec<_>>(),
+            outline.iter().map(|item| item.kind).collect::<Vec<_>>(),
             vec![
                 OutlineKind::TemplateReference,
                 OutlineKind::TemplateLibrary,
@@ -327,7 +316,6 @@ mod tests {
         );
         assert_eq!(
             outline
-                .items
                 .iter()
                 .map(|item| item.detail.as_deref())
                 .collect::<Vec<_>>(),
@@ -340,27 +328,21 @@ mod tests {
         let db = TestDatabase::new();
         let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");
 
-        assert_eq!(labels(&outline.items), vec!["i18n"]);
-        assert_eq!(outline.items[0].kind, OutlineKind::TemplateLibrary);
-        assert_eq!(outline.items[0].detail.as_deref(), Some("load"));
+        assert_eq!(labels(outline), vec!["i18n"]);
+        assert_eq!(outline[0].kind, OutlineKind::TemplateLibrary);
+        assert_eq!(outline[0].detail.as_deref(), Some("load"));
         assert_eq!(
-            outline.items[0].selection_span.start_usize(),
+            outline[0].selection_span.start_usize(),
             "{% load trans blocktrans from ".len()
         );
+        assert_eq!(labels(&outline[0].children), vec!["trans", "blocktrans"]);
         assert_eq!(
-            labels(&outline.items[0].children),
-            vec!["trans", "blocktrans"]
-        );
-        assert_eq!(
-            outline.items[0].children[0].kind,
+            outline[0].children[0].kind,
             OutlineKind::TemplateLibrarySymbol
         );
+        assert_eq!(outline[0].children[0].detail.as_deref(), Some("from i18n"));
         assert_eq!(
-            outline.items[0].children[0].detail.as_deref(),
-            Some("from i18n")
-        );
-        assert_eq!(
-            outline.items[0].children[0].selection_span.start_usize(),
+            outline[0].children[0].selection_span.start_usize(),
             "{% load ".len()
         );
     }
@@ -375,8 +357,8 @@ mod tests {
 {% endblock %}",
         );
 
-        assert_eq!(labels(&outline.items), vec!["content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["title"]);
+        assert_eq!(labels(outline), vec!["content"]);
+        assert_eq!(labels(&outline[0].children), vec!["title"]);
     }
 
     #[test]
@@ -389,8 +371,8 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["card.html"]);
+        assert_eq!(labels(outline), vec!["content"]);
+        assert_eq!(labels(&outline[0].children), vec!["card.html"]);
     }
 
     #[test]
@@ -413,8 +395,8 @@ mod tests {
         let db = TestDatabase::new().with_specs(specs);
         let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
 
-        assert_eq!(labels(&outline.items), vec!["partialdef card"]);
-        assert_eq!(outline.items[0].kind, OutlineKind::TemplateTag);
+        assert_eq!(labels(outline), vec!["partialdef card"]);
+        assert_eq!(outline[0].kind, OutlineKind::TemplateTag);
     }
 
     #[test]
@@ -450,8 +432,8 @@ mod tests {
         let db = TestDatabase::new().with_specs(specs);
         let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}");
 
-        assert_eq!(labels(&outline.items), vec!["myblock thing"]);
-        assert_eq!(outline.items[0].kind, OutlineKind::ControlTag);
+        assert_eq!(labels(outline), vec!["myblock thing"]);
+        assert_eq!(outline[0].kind, OutlineKind::ControlTag);
     }
 
     #[test]
@@ -471,8 +453,8 @@ mod tests {
 {% endblock %}"#,
         );
 
-        assert_eq!(labels(&outline.items), vec!["static", "content"]);
-        let block_children = &outline.items[1].children;
+        assert_eq!(labels(outline), vec!["static", "content"]);
+        let block_children = &outline[1].children;
         assert_eq!(
             labels(block_children),
             vec!["user.username", "if items", "images/logo.png"]
@@ -517,11 +499,8 @@ mod tests {
     {% block title %}Title",
         );
 
-        assert_eq!(labels(&outline.items), vec!["content"]);
-        assert_eq!(labels(&outline.items[0].children), vec!["if user"]);
-        assert_eq!(
-            labels(&outline.items[0].children[0].children),
-            vec!["title"]
-        );
+        assert_eq!(labels(outline), vec!["content"]);
+        assert_eq!(labels(&outline[0].children), vec!["if user"]);
+        assert_eq!(labels(&outline[0].children[0].children), vec!["title"]);
     }
 }

@@ -448,7 +448,7 @@ pub enum TagSemanticRole {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CompletionArgKind {
+pub enum TagArgumentKind {
     Literal(String),
     Choice(Vec<String>),
     Variable,
@@ -457,21 +457,21 @@ pub enum CompletionArgKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompletionArg {
+pub struct TagArgument {
     pub name: String,
     pub required: bool,
-    pub kind: CompletionArgKind,
+    pub kind: TagArgumentKind,
     pub position: usize,
 }
 
-impl CompletionArg {
+impl TagArgument {
     fn from_extracted(arg: &ExtractedArg) -> Self {
         let kind = match &arg.kind {
-            ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
-            ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
-            ExtractedArgKind::Variable => CompletionArgKind::Variable,
-            ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
-            ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
+            ExtractedArgKind::Literal(value) => TagArgumentKind::Literal(value.clone()),
+            ExtractedArgKind::Choice(values) => TagArgumentKind::Choice(values.clone()),
+            ExtractedArgKind::Variable => TagArgumentKind::Variable,
+            ExtractedArgKind::Keyword => TagArgumentKind::Keyword,
+            ExtractedArgKind::VarArgs => TagArgumentKind::VarArgs,
         };
 
         Self {
@@ -484,11 +484,11 @@ impl CompletionArg {
 
     fn into_extracted(self) -> ExtractedArg {
         let kind = match self.kind {
-            CompletionArgKind::Literal(value) => ExtractedArgKind::Literal(value),
-            CompletionArgKind::Choice(values) => ExtractedArgKind::Choice(values),
-            CompletionArgKind::Variable => ExtractedArgKind::Variable,
-            CompletionArgKind::Keyword => ExtractedArgKind::Keyword,
-            CompletionArgKind::VarArgs => ExtractedArgKind::VarArgs,
+            TagArgumentKind::Literal(value) => ExtractedArgKind::Literal(value),
+            TagArgumentKind::Choice(values) => ExtractedArgKind::Choice(values),
+            TagArgumentKind::Variable => ExtractedArgKind::Variable,
+            TagArgumentKind::Keyword => ExtractedArgKind::Keyword,
+            TagArgumentKind::VarArgs => ExtractedArgKind::VarArgs,
         };
 
         ExtractedArg {
@@ -502,25 +502,22 @@ impl CompletionArg {
 
 impl TagSpec {
     #[must_use]
-    pub fn completion_args(&self) -> Vec<CompletionArg> {
+    pub fn arguments(&self) -> Vec<TagArgument> {
         self.extracted_rules
             .as_ref()
             .map_or_else(Vec::new, |rules| {
                 rules
                     .extracted_args
                     .iter()
-                    .map(CompletionArg::from_extracted)
+                    .map(TagArgument::from_extracted)
                     .collect()
             })
     }
 
     #[must_use]
-    pub fn with_completion_args(mut self, args: Vec<CompletionArg>) -> Self {
+    pub fn with_arguments(mut self, args: Vec<TagArgument>) -> Self {
         let mut rules = self.extracted_rules.as_deref().cloned().unwrap_or_default();
-        rules.extracted_args = args
-            .into_iter()
-            .map(CompletionArg::into_extracted)
-            .collect();
+        rules.extracted_args = args.into_iter().map(TagArgument::into_extracted).collect();
         self.extracted_rules = Some(rules.into());
         self
     }

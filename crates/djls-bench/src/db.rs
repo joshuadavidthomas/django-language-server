@@ -5,7 +5,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
-use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
@@ -100,10 +99,6 @@ impl TemplateDb for Db {}
 impl SemanticDb for Db {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn tag_index(&self) -> TagIndex<'_> {
-        TagIndex::from_specs(self)
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
