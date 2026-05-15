@@ -22,6 +22,11 @@ macro_rules! string_newtype {
             pub fn as_str(&self) -> &str {
                 &self.0
             }
+
+            #[must_use]
+            pub fn into_string(self) -> String {
+                self.0
+            }
         }
 
         impl Borrow<str> for $Name {

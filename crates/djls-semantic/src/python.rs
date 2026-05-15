@@ -185,15 +185,20 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
 /// and runs the full extraction. The result is cached and invalidated
 /// when `file.source(db)` changes.
 ///
-/// The `registration_module` in returned `SymbolKey`s is empty — callers
-/// must re-key with the actual module path via `ExtractionResult::rekey_module`.
+/// The `registration_module` in returned `SymbolKey`s is populated from the
+/// module path argument, making module identity part of the Salsa query key.
 #[salsa::tracked]
-pub fn extract_module(db: &dyn djls_source::Db, file: File) -> ExtractionResult {
+pub fn extract_module(
+    db: &dyn djls_source::Db,
+    file: File,
+    registration_module: ModulePath,
+) -> ExtractionResult {
     let Some(parsed) = parse_python_module(db, file) else {
         return ExtractionResult::default();
     };
 
-    extract_rules_from_body(parsed.body(db), "")
+    let registration_module = registration_module.into_string();
+    extract_rules_from_body(parsed.body(db), &registration_module)
 }
 
 /// Extract validation rules from a Python registration module source.

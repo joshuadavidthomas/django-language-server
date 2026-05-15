@@ -186,10 +186,10 @@ fn collect_workspace_extraction_results(
 
     for resolved in workspace_modules {
         let file = db.get_or_create_file(&resolved.file_path);
-        let mut extraction = djls_semantic::extract_module(db, file);
+        let extraction =
+            djls_semantic::extract_module(db, file, ModulePath::new(resolved.module_path.clone()));
 
         if !extraction.is_empty() {
-            extraction.rekey_module(&resolved.module_path);
             results.push((resolved.module_path, extraction));
         }
     }
