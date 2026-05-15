@@ -526,7 +526,11 @@ mod invalidation_tests {
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
 
         // First extraction
-        let _result1 = djls_semantic::extract_module(&db, file);
+        let _result1 = djls_semantic::extract_module(
+            &db,
+            file,
+            djls_semantic::ModulePath::new("test.project.tags"),
+        );
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "extract_module"),
@@ -534,7 +538,11 @@ mod invalidation_tests {
         );
 
         // Second call — cached
-        let _result2 = djls_semantic::extract_module(&db, file);
+        let _result2 = djls_semantic::extract_module(
+            &db,
+            file,
+            djls_semantic::ModulePath::new("test.project.tags"),
+        );
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_module"),
@@ -548,7 +556,11 @@ mod invalidation_tests {
 
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let _result = djls_semantic::extract_module(&db, file);
+        let _result = djls_semantic::extract_module(
+            &db,
+            file,
+            djls_semantic::ModulePath::new("test.project.tags"),
+        );
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
@@ -556,7 +568,11 @@ mod invalidation_tests {
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
         // so extract_module does NOT re-execute (correct behavior)
-        let _result = djls_semantic::extract_module(&db, file);
+        let _result = djls_semantic::extract_module(
+            &db,
+            file,
+            djls_semantic::ModulePath::new("test.project.tags"),
+        );
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_module"),
@@ -602,15 +618,28 @@ def my_filter(value, arg):
         };
 
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let result = djls_semantic::extract_module(&db, file);
+        let result = djls_semantic::extract_module(
+            &db,
+            file,
+            djls_semantic::ModulePath::new("test.project.tags"),
+        );
 
         // Should extract the filter
-        let key = djls_semantic::SymbolKey::filter("", "my_filter");
+        let key = djls_semantic::SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
             result.filter_arities.contains_key(&key),
             "should extract filter from file content"
         );
         assert!(result.filter_arities[&key].expects_arg);
+
+        let other_module_result = djls_semantic::extract_module(
+            &db,
+            file,
+            djls_semantic::ModulePath::new("other.project.tags"),
+        );
+        let other_key = djls_semantic::SymbolKey::filter("other.project.tags", "my_filter");
+        assert!(other_module_result.filter_arities.contains_key(&other_key));
+        assert!(!other_module_result.filter_arities.contains_key(&key));
     }
 
     #[test]

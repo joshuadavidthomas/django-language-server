@@ -24,11 +24,7 @@ fn merge_tags(bencher: Bencher) {
     let fixtures = python_fixtures();
     let results: Vec<_> = fixtures
         .iter()
-        .map(|fixture| {
-            let mut result = djls_semantic::extract_rules(&fixture.source, "bench.module");
-            result.rekey_module("bench.module");
-            result
-        })
+        .map(|fixture| djls_semantic::extract_rules(&fixture.source, "bench.module"))
         .collect();
 
     bencher.bench_local(move || {
