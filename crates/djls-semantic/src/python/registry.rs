@@ -25,7 +25,7 @@ const FILTER_DECORATORS: &[&str] = &["filter"];
 
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegistrationInfo {
+pub(crate) struct RegistrationInfo {
     pub name: String,
     pub kind: RegistrationKind,
     pub func_name: Option<String>,
@@ -33,7 +33,7 @@ pub struct RegistrationInfo {
 
 /// The style of registration, distinguishing decorator helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegistrationKind {
+pub(crate) enum RegistrationKind {
     Tag,
     SimpleTag,
     InclusionTag,
@@ -52,7 +52,7 @@ pub(crate) enum ExtractionOutput {
 
 impl RegistrationKind {
     #[must_use]
-    pub fn symbol_kind(self) -> SymbolKind {
+    pub(crate) fn symbol_kind(self) -> SymbolKind {
         match self {
             Self::Tag | Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {
                 SymbolKind::Tag
@@ -62,7 +62,7 @@ impl RegistrationKind {
     }
 
     #[must_use]
-    pub const fn as_var(self) -> AsVar {
+    pub(crate) const fn as_var(self) -> AsVar {
         match self {
             Self::SimpleTag | Self::SimpleBlockTag => AsVar::Strip,
             Self::Tag | Self::InclusionTag | Self::Filter => AsVar::Keep,

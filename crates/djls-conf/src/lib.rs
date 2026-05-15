@@ -1,6 +1,6 @@
-pub mod diagnostics;
-pub mod fmt;
-pub mod tagspecs;
+mod diagnostics;
+mod fmt;
+mod tagspecs;
 
 use std::fs;
 use std::path::Path;

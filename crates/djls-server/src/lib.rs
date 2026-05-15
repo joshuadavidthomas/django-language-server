@@ -2,8 +2,8 @@ mod client;
 mod ext;
 mod logging;
 mod queue;
-pub mod server;
-pub mod session;
+mod server;
+mod session;
 
 use std::io::IsTerminal;
 
@@ -11,8 +11,7 @@ use anyhow::Result;
 use tower_lsp_server::LspService;
 use tower_lsp_server::Server;
 
-pub use crate::server::DjangoLanguageServer;
-pub use crate::session::Session;
+use crate::server::DjangoLanguageServer;
 
 /// Run the Django language server.
 pub fn run() -> Result<()> {

@@ -19,10 +19,7 @@ impl fmt::Display for Fixture {
     }
 }
 
-pub type TemplateFixture = Fixture;
 pub type ValidationErrorFixture = Fixture;
-pub type PythonFixture = Fixture;
-pub type ModelFixture = Fixture;
 
 pub fn template_fixtures() -> &'static [Fixture] {
     static FIXTURES: OnceLock<Vec<Fixture>> = OnceLock::new();

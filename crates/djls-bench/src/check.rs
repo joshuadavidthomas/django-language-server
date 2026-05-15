@@ -1,6 +1,5 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_semantic::Db as SemanticDb;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_source::Diagnostic;
@@ -12,11 +11,6 @@ use djls_source::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 
-/// Raw diagnostic data from checking a single template file.
-///
-/// Contains both parse errors and semantic validation errors.
-/// Produced by [`check_file`] and consumed by either CLI rendering
-/// or LSP diagnostic conversion.
 pub struct CheckResult {
     pub template_errors: Vec<TemplateError>,
     pub validation_errors: Vec<ValidationError>,
@@ -29,35 +23,6 @@ impl CheckResult {
     }
 }
 
-/// Check a single template file: parse, validate, and collect all errors.
-///
-/// This is the shared orchestration that both the CLI and LSP server
-/// use to drive diagnostics. Under the hood it triggers Salsa-tracked
-/// `parse_template` and `validate_template_file` queries (cached across calls).
-pub fn check_file(db: &dyn SemanticDb, file: File) -> CheckResult {
-    djls_semantic::validate_template_file(db, file);
-
-    let template_errors: Vec<TemplateError> =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
-            .iter()
-            .map(|acc| acc.0.clone())
-            .collect();
-
-    let accumulated =
-        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
-
-    let mut validation_errors: Vec<ValidationError> =
-        accumulated.iter().map(|acc| acc.0.clone()).collect();
-    validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
-
-    CheckResult {
-        template_errors,
-        validation_errors,
-    }
-}
-
-/// Per-file check result bundled with the source text and path needed
-/// for rendering. Used by both the CLI and benchmarks.
 pub struct FileCheckResult {
     pub path: Utf8PathBuf,
     pub source: SourceText,
@@ -109,13 +74,33 @@ impl FileCheckResult {
     }
 }
 
+#[must_use]
+pub fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {
+    djls_semantic::validate_template_file(db, file);
+
+    let template_errors: Vec<TemplateError> =
+        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
+            .iter()
+            .map(|acc| acc.0.clone())
+            .collect();
+
+    let accumulated =
+        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
+
+    let mut validation_errors: Vec<ValidationError> =
+        accumulated.iter().map(|acc| acc.0.clone()).collect();
+    validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
+
+    CheckResult {
+        template_errors,
+        validation_errors,
+    }
+}
+
 fn diagnostic_is_enabled(config: &DiagnosticsConfig, code: &str) -> bool {
     config.get_severity(code) != djls_conf::DiagnosticSeverity::Off
 }
 
-// `Off` is never reached in practice — both `render_template_error` and
-// `render_validation_error` early-return before calling this. Kept as a
-// defensive fallback since the function signature accepts any severity.
 fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
     match severity {
         djls_conf::DiagnosticSeverity::Error => Severity::Error,
@@ -125,44 +110,6 @@ fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
     }
 }
 
-/// Render a template parse error to a formatted string.
-///
-/// Returns `None` if the diagnostic code is suppressed by `config`.
-#[must_use]
-pub fn render_template_error(
-    source: &str,
-    path: &str,
-    error: &TemplateError,
-    config: &DiagnosticsConfig,
-    fmt: &DiagnosticRenderer,
-) -> Option<String> {
-    let code = error.diagnostic_code();
-    let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
-        return None;
-    }
-
-    let message = error.to_string();
-    let span = error.primary_span().map_or_else(
-        || Span::new(0, 0),
-        |(start, length)| Span::new(start, length),
-    );
-    let diag = Diagnostic::new(
-        source,
-        path,
-        code,
-        &message,
-        to_render_severity(severity),
-        span,
-        "",
-    );
-    Some(fmt.render(&diag))
-}
-
-/// Render a semantic validation error to a formatted string.
-///
-/// Returns `None` if the diagnostic code is suppressed by `config`
-/// or the error has no primary span.
 #[must_use]
 pub fn render_validation_error(
     source: &str,
@@ -194,33 +141,32 @@ pub fn render_validation_error(
     Some(fmt.render(&diag))
 }
 
-#[cfg(test)]
-mod tests {
-    use djls_templates::ParseError;
-
-    use super::*;
-
-    #[test]
-    fn render_template_error_uses_parse_error_span() {
-        let source = "Hello {{ value";
-        let error = TemplateError::from(ParseError::MalformedConstruct {
-            position: 6,
-            opener: "{{".to_string(),
-            closer: "}}".to_string(),
-            content: "value".to_string(),
-        });
-
-        let rendered = render_template_error(
-            source,
-            "template.html",
-            &error,
-            &DiagnosticsConfig::default(),
-            &DiagnosticRenderer::plain(),
-        )
-        .expect("diagnostic should render");
-
-        assert!(rendered.contains("T100"));
-        assert!(rendered.contains("Hello {{ value"));
-        assert!(rendered.contains("      ^^"));
+fn render_template_error(
+    source: &str,
+    path: &str,
+    error: &TemplateError,
+    config: &DiagnosticsConfig,
+    fmt: &DiagnosticRenderer,
+) -> Option<String> {
+    let code = error.diagnostic_code();
+    let severity = config.get_severity(code);
+    if severity == djls_conf::DiagnosticSeverity::Off {
+        return None;
     }
+
+    let message = error.to_string();
+    let span = error.primary_span().map_or_else(
+        || Span::new(0, 0),
+        |(start, length)| Span::new(start, length),
+    );
+    let diag = Diagnostic::new(
+        source,
+        path,
+        code,
+        &message,
+        to_render_severity(severity),
+        span,
+        "",
+    );
+    Some(fmt.render(&diag))
 }

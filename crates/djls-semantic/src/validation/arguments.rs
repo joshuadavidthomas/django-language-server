@@ -1,6 +1,6 @@
 use djls_source::Span;
-use djls_templates::tokens::TagDelimiter;
 use djls_templates::TagBit;
+use djls_templates::TagDelimiter;
 use salsa::Accumulator;
 
 use crate::db::Db;

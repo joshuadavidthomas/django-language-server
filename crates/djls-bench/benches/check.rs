@@ -17,7 +17,7 @@ use divan::Bencher;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::Db;
-use djls_db::FileCheckResult;
+use djls_bench::FileCheckResult;
 use djls_source::DiagnosticRenderer;
 
 fn main() {
@@ -28,7 +28,7 @@ fn main() {
 fn run_check(db: &Db, file: djls_source::File) -> FileCheckResult {
     let source = file.source(db);
     let path = file.path(db).clone();
-    let check = djls_db::check_file(db, file);
+    let check = djls_bench::check_file(db, file);
 
     FileCheckResult {
         source,

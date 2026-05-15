@@ -59,7 +59,10 @@ fn is_synced(repo: &LockedRepo, out_dir: &Utf8Path) -> bool {
 }
 
 /// Validate that the local corpus checkout matches the lockfile.
-pub fn validate_synced_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+pub(crate) fn validate_synced_corpus(
+    lockfile: &Lockfile,
+    corpus_root: &Utf8Path,
+) -> anyhow::Result<()> {
     let repos_dir = corpus_root.join("repos");
     let stale: Vec<&str> = lockfile
         .repos

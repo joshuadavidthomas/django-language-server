@@ -9,9 +9,17 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use djls_db::DjangoDatabase;
-use djls_db::FileCheckResult;
+use djls_semantic::ValidationError;
+use djls_semantic::ValidationErrorAccumulator;
 use djls_source::Db as _;
+use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
+use djls_source::File;
+use djls_source::Severity;
+use djls_source::SourceText;
+use djls_source::Span;
+use djls_templates::TemplateError;
+use djls_templates::TemplateErrorAccumulator;
 use djls_workspace::OsFileSystem;
 use djls_workspace::WalkOptions;
 
@@ -22,8 +30,67 @@ use crate::commands::common::ColorMode;
 use crate::commands::Command;
 use crate::exit::Exit;
 
+struct CheckResult {
+    template_errors: Vec<TemplateError>,
+    validation_errors: Vec<ValidationError>,
+}
+
+impl CheckResult {
+    fn has_diagnostics(&self) -> bool {
+        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
+    }
+}
+
+struct FileCheckResult {
+    path: Utf8PathBuf,
+    source: SourceText,
+    check: CheckResult,
+}
+
+impl FileCheckResult {
+    fn renderable_diagnostic_count(&self, config: &djls_conf::DiagnosticsConfig) -> usize {
+        self.check
+            .template_errors
+            .iter()
+            .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
+            .count()
+            + self
+                .check
+                .validation_errors
+                .iter()
+                .filter(|error| {
+                    diagnostic_is_enabled(config, error.code()) && error.primary_span().is_some()
+                })
+                .count()
+    }
+
+    fn render(
+        &self,
+        config: &djls_conf::DiagnosticsConfig,
+        fmt: &DiagnosticRenderer,
+    ) -> Vec<String> {
+        let mut results = Vec::with_capacity(self.renderable_diagnostic_count(config));
+        let path = self.path.as_str();
+        let source = self.source.as_str();
+
+        for error in &self.check.template_errors {
+            if let Some(output) = render_template_error(source, path, error, config, fmt) {
+                results.push(output);
+            }
+        }
+
+        for error in &self.check.validation_errors {
+            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
+                results.push(output);
+            }
+        }
+
+        results
+    }
+}
+
 #[derive(Debug, Parser)]
-pub struct Check {
+pub(crate) struct Check {
     /// Files or directories to check. Pass `-` to read from stdin. If
     /// omitted, discovers template directories from the Django project.
     paths: Vec<Utf8PathBuf>,
@@ -208,17 +275,112 @@ fn check_stdin(
     }
 }
 
-/// Run `check_file` and capture the source text for later rendering.
+/// Run validation and capture the source text for later rendering.
 fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
     let file = db.get_or_create_file(path);
     let source = file.source(db);
-    let check = djls_db::check_file(db, file);
+    let check = check_file(db, file);
 
     FileCheckResult {
         path: path.to_owned(),
         source,
         check,
     }
+}
+
+fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {
+    djls_semantic::validate_template_file(db, file);
+
+    let template_errors: Vec<TemplateError> =
+        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
+            .iter()
+            .map(|acc| acc.0.clone())
+            .collect();
+
+    let accumulated =
+        djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
+
+    let mut validation_errors: Vec<ValidationError> =
+        accumulated.iter().map(|acc| acc.0.clone()).collect();
+    validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
+
+    CheckResult {
+        template_errors,
+        validation_errors,
+    }
+}
+
+fn diagnostic_is_enabled(config: &djls_conf::DiagnosticsConfig, code: &str) -> bool {
+    config.get_severity(code) != djls_conf::DiagnosticSeverity::Off
+}
+
+fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
+    match severity {
+        djls_conf::DiagnosticSeverity::Error => Severity::Error,
+        djls_conf::DiagnosticSeverity::Warning => Severity::Warning,
+        djls_conf::DiagnosticSeverity::Info => Severity::Info,
+        djls_conf::DiagnosticSeverity::Hint | djls_conf::DiagnosticSeverity::Off => Severity::Hint,
+    }
+}
+
+fn render_template_error(
+    source: &str,
+    path: &str,
+    error: &TemplateError,
+    config: &djls_conf::DiagnosticsConfig,
+    fmt: &DiagnosticRenderer,
+) -> Option<String> {
+    let code = error.diagnostic_code();
+    let severity = config.get_severity(code);
+    if severity == djls_conf::DiagnosticSeverity::Off {
+        return None;
+    }
+
+    let message = error.to_string();
+    let span = error.primary_span().map_or_else(
+        || Span::new(0, 0),
+        |(start, length)| Span::new(start, length),
+    );
+    let diag = Diagnostic::new(
+        source,
+        path,
+        code,
+        &message,
+        to_render_severity(severity),
+        span,
+        "",
+    );
+    Some(fmt.render(&diag))
+}
+
+fn render_validation_error(
+    source: &str,
+    path: &str,
+    error: &ValidationError,
+    config: &djls_conf::DiagnosticsConfig,
+    fmt: &DiagnosticRenderer,
+) -> Option<String> {
+    let code = error.code();
+    let severity = config.get_severity(code);
+    if severity == djls_conf::DiagnosticSeverity::Off {
+        return None;
+    }
+
+    let span = error.primary_span()?;
+    let message = error.to_string();
+    let render_severity = to_render_severity(severity);
+
+    let mut diag = Diagnostic::new(source, path, code, &message, render_severity, span, "");
+
+    if let ValidationError::UnbalancedStructure {
+        closing_span: Some(cs),
+        ..
+    } = error
+    {
+        diag = diag.annotation(*cs, "", false);
+    }
+
+    Some(fmt.render(&diag))
 }
 
 fn build_diagnostics_config(

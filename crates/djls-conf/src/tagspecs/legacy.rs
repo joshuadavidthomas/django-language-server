@@ -21,7 +21,7 @@ use super::TagTypeDef;
 #[deprecated(since = "6.0.0", note = "Remove in v6.0.3")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct LegacyTagSpecDef {
+pub(crate) struct LegacyTagSpecDef {
     /// Tag name (e.g., "for", "if", "cache")
     pub name: String,
     /// Module where this tag is defined (e.g., "django.template.defaulttags")
@@ -41,7 +41,7 @@ pub struct LegacyTagSpecDef {
 #[deprecated(since = "6.0.0", note = "Remove in v6.0.3")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct LegacyEndTagDef {
+pub(crate) struct LegacyEndTagDef {
     /// End tag name (e.g., "endfor", "endif")
     pub name: String,
     /// Whether the end tag is optional (default: false)
@@ -56,7 +56,7 @@ pub struct LegacyEndTagDef {
 #[deprecated(since = "6.0.0", note = "Remove in v6.0.3")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct LegacyIntermediateTagDef {
+pub(crate) struct LegacyIntermediateTagDef {
     /// Intermediate tag name (e.g., "elif", "else")
     pub name: String,
     /// Optional arguments for the intermediate tag
@@ -68,7 +68,7 @@ pub struct LegacyIntermediateTagDef {
 #[deprecated(since = "6.0.0", note = "Remove in v6.0.3")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct LegacyTagArgDef {
+pub(crate) struct LegacyTagArgDef {
     /// Argument name
     pub name: String,
     /// Whether the argument is required (default: true)
@@ -84,7 +84,7 @@ pub struct LegacyTagArgDef {
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
-pub enum LegacyArgTypeDef {
+pub(crate) enum LegacyArgTypeDef {
     /// Simple type like "variable", "string", etc.
     Simple(LegacySimpleArgTypeDef),
     /// Choice from a list of values
@@ -96,7 +96,7 @@ pub enum LegacyArgTypeDef {
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum LegacySimpleArgTypeDef {
+pub(crate) enum LegacySimpleArgTypeDef {
     Literal,
     Variable,
     String,
@@ -114,7 +114,7 @@ fn default_true() -> bool {
 /// Groups tags by module and creates the appropriate library structure.
 #[deprecated(since = "6.0.0", note = "Remove in v6.0.3")]
 #[must_use]
-pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
+pub(crate) fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
     let mut modules: HashMap<String, Vec<TagDef>> = HashMap::new();
 
     for legacy_tag in legacy {

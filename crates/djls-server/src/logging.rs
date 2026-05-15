@@ -33,13 +33,13 @@ use tracing_subscriber::Registry;
 /// This layer intercepts tracing events and converts them to LSP log messages
 /// that are sent to the client. It filters events by level to avoid overwhelming
 /// the client with verbose trace logs.
-pub struct LspLayer {
+pub(crate) struct LspLayer {
     send_message: Arc<dyn Fn(ls_types::MessageType, String) + Send + Sync>,
     disabled: Arc<AtomicBool>,
 }
 
 impl LspLayer {
-    pub fn new<F>(send_message: F) -> Self
+    pub(crate) fn new<F>(send_message: F) -> Self
     where
         F: Fn(ls_types::MessageType, String) + Send + Sync + 'static,
     {
@@ -115,13 +115,13 @@ where
 /// Keeps the file logging worker alive and provides a way to disable
 /// LSP client log forwarding during shutdown, preventing "failed to
 /// send notification" errors when the transport is already closed.
-pub struct LoggingGuard {
+pub(crate) struct LoggingGuard {
     _file_guard: WorkerGuard,
     lsp_disabled: Arc<AtomicBool>,
 }
 
 impl LoggingGuard {
-    pub fn disable_lsp(&self) {
+    pub(crate) fn disable_lsp(&self) {
         self.lsp_disabled.store(true, Ordering::Relaxed);
     }
 }
@@ -136,7 +136,7 @@ impl LoggingGuard {
 /// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
 ///
 /// Returns a [`LoggingGuard`] that must be kept alive for the logging to work.
-pub fn init_tracing<F>(send_message: F) -> LoggingGuard
+pub(crate) fn init_tracing<F>(send_message: F) -> LoggingGuard
 where
     F: Fn(ls_types::MessageType, String) + Send + Sync + 'static,
 {

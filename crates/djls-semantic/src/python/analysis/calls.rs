@@ -13,7 +13,7 @@ use crate::python::HelperCall;
 
 /// A hashable representation of `AbstractValue` for Salsa interned keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AbstractValueKey {
+pub(crate) enum AbstractValueKey {
     Unknown,
     Token,
     Parser,
@@ -72,7 +72,7 @@ impl From<&AbstractValueKey> for AbstractValue {
 /// - The callee is not found in the parsed module
 /// - Multiple return statements yield different abstract values
 /// - A cycle is detected (Salsa cycle recovery returns `Unknown`)
-pub fn resolve_call(
+pub(crate) fn resolve_call(
     callee_name: &str,
     args: &[AbstractValue],
     ctx: &mut CallContext<'_>,

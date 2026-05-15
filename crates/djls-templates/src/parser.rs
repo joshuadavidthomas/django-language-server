@@ -10,18 +10,18 @@ use crate::nodelist::Node;
 use crate::quotes::split_on_whitespace_with_offsets;
 use crate::tokens::Token;
 
-pub struct Parser {
+pub(crate) struct Parser {
     tokens: Vec<Token>,
     current: usize,
 }
 
 impl Parser {
     #[must_use]
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub(crate) fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> (Vec<Node>, Vec<ParseError>) {
+    pub(crate) fn parse(&mut self) -> (Vec<Node>, Vec<ParseError>) {
         let mut nodelist = Vec::with_capacity(self.tokens.len() / 2);
         let mut errors = Vec::with_capacity(4);
 
@@ -77,7 +77,7 @@ impl Parser {
         }
     }
 
-    pub fn parse_block(&mut self) -> Result<Node, ParseError> {
+    fn parse_block(&mut self) -> Result<Node, ParseError> {
         let token = self.peek_previous()?;
 
         let Token::Block {

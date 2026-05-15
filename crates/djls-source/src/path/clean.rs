@@ -41,7 +41,7 @@ impl Utf8PathClean for Utf8PathBuf {
     }
 }
 
-pub fn clean_utf8_path(path: &Utf8Path) -> Utf8PathBuf {
+pub(super) fn clean_utf8_path(path: &Utf8Path) -> Utf8PathBuf {
     let mut out = Vec::new();
 
     for comp in path.as_std_path().components() {

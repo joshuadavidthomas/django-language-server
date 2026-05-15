@@ -73,14 +73,14 @@ impl LoadKind {
 
 /// A parsed `{% load %}` tag with its source span and load kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoadStatement {
+pub(crate) struct LoadStatement {
     span: Span,
     kind: LoadKind,
 }
 
 impl LoadStatement {
     #[must_use]
-    pub fn new(span: Span, kind: LoadKind) -> Self {
+    pub(crate) fn new(span: Span, kind: LoadKind) -> Self {
         Self { span, kind }
     }
 
@@ -88,18 +88,13 @@ impl LoadStatement {
     ///
     /// Returns `None` for non-`load` tags or malformed load bits.
     #[must_use]
-    pub fn from_tag(name: &str, bits: &[TagBit], span: Span) -> Option<Self> {
+    pub(crate) fn from_tag(name: &str, bits: &[TagBit], span: Span) -> Option<Self> {
         Some(Self::new(span, LoadKind::from_tag(name, bits)?))
     }
 
     #[must_use]
-    pub fn span(&self) -> Span {
+    pub(crate) fn span(&self) -> Span {
         self.span
-    }
-
-    #[must_use]
-    pub fn kind(&self) -> &LoadKind {
-        &self.kind
     }
 }
 
@@ -150,19 +145,20 @@ fn parse_load_bits(bits: &[TagBit]) -> Option<LoadKind> {
 /// Borrows library and symbol names from the [`LoadedLibraries`] that produced
 /// it, avoiding per-query string allocations.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoadState<'a> {
+pub(crate) struct LoadState<'a> {
     fully_loaded: HashSet<&'a str>,
     selective: HashMap<&'a str, HashSet<&'a str>>,
 }
 
-impl<'a> LoadState<'a> {
+impl LoadState<'_> {
+    #[cfg(test)]
     #[must_use]
-    pub fn is_fully_loaded(&self, library: &str) -> bool {
+    pub(crate) fn is_fully_loaded(&self, library: &str) -> bool {
         self.fully_loaded.contains(library)
     }
 
     #[must_use]
-    pub fn is_symbol_available(&self, library: &str, symbol: &str) -> bool {
+    pub(crate) fn is_symbol_available(&self, library: &str, symbol: &str) -> bool {
         self.fully_loaded.contains(library)
             || self
                 .selective
@@ -170,13 +166,15 @@ impl<'a> LoadState<'a> {
                 .is_some_and(|syms| syms.contains(symbol))
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn fully_loaded_libraries(&self) -> &HashSet<&'a str> {
+    pub(crate) fn fully_loaded_libraries(&self) -> &HashSet<&str> {
         &self.fully_loaded
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn selective_imports(&self) -> &HashMap<&'a str, HashSet<&'a str>> {
+    pub(crate) fn selective_imports(&self) -> &HashMap<&str, HashSet<&str>> {
         &self.selective
     }
 }
@@ -187,24 +185,19 @@ impl<'a> LoadState<'a> {
 /// position by filtering load statements whose span ends before the query
 /// position and applying state-machine semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LoadedLibraries {
+pub(crate) struct LoadedLibraries {
     statements: Vec<LoadStatement>,
 }
 
 impl LoadedLibraries {
     #[must_use]
-    pub fn new(statements: Vec<LoadStatement>) -> Self {
+    pub(crate) fn new(statements: Vec<LoadStatement>) -> Self {
         Self { statements }
     }
 
     #[must_use]
-    pub fn statements(&self) -> &[LoadStatement] {
+    pub(crate) fn statements(&self) -> &[LoadStatement] {
         &self.statements
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.statements.is_empty()
     }
 
     /// Compute the load state at a given byte position.
@@ -220,7 +213,7 @@ impl LoadedLibraries {
     /// The returned `LoadState` borrows library and symbol names from `self`,
     /// avoiding all string allocations.
     #[must_use]
-    pub fn available_at(&self, position: u32) -> LoadState<'_> {
+    pub(crate) fn available_at(&self, position: u32) -> LoadState<'_> {
         let mut fully_loaded = HashSet::default();
         let mut selective: HashMap<&str, HashSet<&str>> = HashMap::default();
 

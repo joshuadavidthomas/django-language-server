@@ -71,7 +71,7 @@ pub struct ResolvedModule {
 ///
 /// Returns `Some(ResolvedModule)` if found, `None` otherwise.
 #[must_use]
-pub fn resolve_module(
+pub(crate) fn resolve_module(
     module_path: &str,
     sys_path: &[Utf8PathBuf],
     project_root: &Utf8Path,
@@ -343,7 +343,7 @@ pub fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8
 /// pairs where `module_path` is the dotted module path relative to the
 /// project root.
 #[must_use]
-pub fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
+pub(crate) fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
     discover_model_files(
         root,
         |wb| {

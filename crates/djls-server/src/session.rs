@@ -3,6 +3,7 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
+#[cfg(test)]
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
@@ -32,7 +33,7 @@ use crate::ext::UriExt;
 ///
 /// Following Ruff's architecture, the concrete database lives at this level
 /// and is passed down to operations that need it.
-pub struct Session {
+pub(crate) struct Session {
     /// Workspace for buffer and file system management
     ///
     /// This manages document buffers and file system abstraction,
@@ -47,7 +48,7 @@ pub struct Session {
 
 impl Session {
     #[must_use]
-    pub fn new(params: &ls_types::InitializeParams) -> Self {
+    pub(crate) fn new(params: &ls_types::InitializeParams) -> Self {
         let project_path = params
             .workspace_folders
             .as_ref()
@@ -85,32 +86,29 @@ impl Session {
         }
     }
 
-    pub fn snapshot(&self) -> SessionSnapshot {
+    #[cfg(test)]
+    fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot::new(self.db.clone(), self.client_info.clone())
     }
 
-    pub fn client_info(&self) -> &ClientInfo {
+    pub(crate) fn client_info(&self) -> &ClientInfo {
         &self.client_info
     }
 
-    pub fn client_capabilities(&self) -> crate::client::ClientCapabilities {
-        self.client_info.capabilities()
-    }
-
-    pub fn db(&self) -> &DjangoDatabase {
+    pub(crate) fn db(&self) -> &DjangoDatabase {
         &self.db
     }
 
-    pub fn db_mut(&mut self) -> &mut DjangoDatabase {
+    pub(crate) fn db_mut(&mut self) -> &mut DjangoDatabase {
         &mut self.db
     }
 
-    pub fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
+    pub(crate) fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
         self.db.set_settings(settings)
     }
 
     /// Get the current project for this session
-    pub fn project(&self) -> Option<djls_semantic::Project> {
+    pub(crate) fn project(&self) -> Option<djls_semantic::Project> {
         self.db.project()
     }
 
@@ -118,7 +116,7 @@ impl Session {
     ///
     /// Updates both the workspace buffers and database. Creates the file in
     /// the database or invalidates it if it already exists.
-    pub fn open_document(
+    pub(crate) fn open_document(
         &mut self,
         text_document: &ls_types::TextDocumentItem,
     ) -> Option<TextDocument> {
@@ -138,7 +136,7 @@ impl Session {
         )
     }
 
-    pub fn save_document(
+    pub(crate) fn save_document(
         &mut self,
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> Option<TextDocument> {
@@ -150,7 +148,7 @@ impl Session {
         self.workspace.save_document(&mut self.db, &path)
     }
 
-    pub fn update_document(
+    pub(crate) fn update_document(
         &mut self,
         text_document: &ls_types::VersionedTextDocumentIdentifier,
         changes: Vec<ls_types::TextDocumentContentChangeEvent>,
@@ -173,7 +171,7 @@ impl Session {
     ///
     /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
     /// For template files, immediately re-parses from disk.
-    pub fn close_document(
+    pub(crate) fn close_document(
         &mut self,
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> Option<TextDocument> {
@@ -188,7 +186,8 @@ impl Session {
     }
 
     /// Get a document from the buffer if it's open.
-    pub fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+    #[cfg(test)]
+    fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
         self.workspace.get_document(path)
     }
 
@@ -234,7 +233,7 @@ impl Session {
     }
 
     /// Get all currently open documents.
-    pub fn open_documents(&self) -> Vec<TextDocument> {
+    pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
         self.workspace
             .buffers()
             .iter()
@@ -249,28 +248,26 @@ impl Default for Session {
     }
 }
 
-/// Immutable snapshot of session state for background tasks
+/// Immutable snapshot of session state for tests.
+#[cfg(test)]
 #[derive(Clone)]
-pub struct SessionSnapshot {
+struct SessionSnapshot {
     db: DjangoDatabase,
     client_info: ClientInfo,
 }
 
+#[cfg(test)]
 impl SessionSnapshot {
-    pub fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
+    fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
         Self { db, client_info }
     }
 
-    pub fn db(&self) -> &DjangoDatabase {
+    fn db(&self) -> &DjangoDatabase {
         &self.db
     }
 
-    pub fn client_info(&self) -> &ClientInfo {
+    fn client_info(&self) -> &ClientInfo {
         &self.client_info
-    }
-
-    pub fn client_capabilities(&self) -> crate::client::ClientCapabilities {
-        self.client_info.capabilities()
     }
 }
 

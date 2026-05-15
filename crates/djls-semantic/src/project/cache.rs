@@ -79,7 +79,7 @@ fn cache_dir(
 ///
 /// Returns `None` if the cache file doesn't exist, is corrupt, or was written
 /// by a different djls version.
-pub fn load_cached_template_library_snapshot(
+pub(crate) fn load_cached_template_library_snapshot(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
@@ -108,7 +108,7 @@ pub fn load_cached_template_library_snapshot(
 /// Write a template library snapshot to the filesystem cache.
 ///
 /// Best-effort: logs warnings on failure but never panics.
-pub fn save_template_library_snapshot(
+pub(crate) fn save_template_library_snapshot(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,

@@ -30,13 +30,13 @@ use crate::python::types::RequiredKeyword;
 
 /// Rule fragments contributed by one or more raising guards.
 #[derive(Debug, Clone, Default)]
-pub struct ExtractedRuleFragment {
+pub(crate) struct ExtractedRuleFragment {
     pub constraints: ExtractedTagConstraints,
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
 }
 
 impl ExtractedRuleFragment {
-    pub fn extend(&mut self, other: Self) {
+    pub(crate) fn extend(&mut self, other: Self) {
         self.constraints.extend(other.constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
     }
@@ -47,7 +47,7 @@ impl ExtractedRuleFragment {
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ExtractedRuleFragment {
+pub(crate) fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ExtractedRuleFragment {
     let mut result = ExtractedRuleFragment::default();
 
     if let Some(raised_exception) = direct_raise_exception(&if_stmt.body) {

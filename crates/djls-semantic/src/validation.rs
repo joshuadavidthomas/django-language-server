@@ -1,17 +1,18 @@
-pub mod arguments;
-pub mod filters;
-pub mod if_expressions;
-pub mod scoping;
+pub(crate) mod arguments;
+pub(crate) mod filters;
+pub(crate) mod if_expressions;
+pub(crate) mod scoping;
 
 use std::collections::HashMap;
 
 use djls_source::Span;
-use djls_templates::nodelist::Node;
-use djls_templates::visitor::walk_nodelist;
-use djls_templates::visitor::Visitor;
+use djls_templates::walk_nodelist;
 use djls_templates::Filter;
+use djls_templates::Node;
+use djls_templates::Visitor;
 
 use crate::db::Db;
+use crate::project::DiscoveredSymbolCandidate;
 use crate::scoping::SymbolIndex;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
@@ -43,7 +44,7 @@ impl ExtendsPosition {
 ///
 /// This visitor consolidates multiple validation rules (scoping, arity, bits,
 /// structure) into a single walk of the `NodeList`, reducing redundant traversals.
-pub struct TemplateValidator<'a> {
+pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
     symbol_index: &'a SymbolIndex,
@@ -52,8 +53,8 @@ pub struct TemplateValidator<'a> {
     filter_arity_specs: &'a FilterAritySpecs,
 
     // Environment symbol caches
-    env_tags: Option<HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
-    env_filters: Option<HashMap<crate::TemplateSymbolName, Vec<crate::DiscoveredSymbolCandidate>>>,
+    env_tags: Option<HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
+    env_filters: Option<HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
@@ -61,7 +62,7 @@ pub struct TemplateValidator<'a> {
 
 impl<'a> TemplateValidator<'a> {
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         db: &'a dyn Db,
         nodelist: djls_templates::NodeList<'_>,
         opaque_regions: &'a OpaqueRegions,
@@ -89,7 +90,7 @@ impl<'a> TemplateValidator<'a> {
         }
     }
 
-    pub fn validate(mut self, nodes: &[Node]) {
+    pub(crate) fn validate(mut self, nodes: &[Node]) {
         walk_nodelist(&mut self, nodes);
     }
 }
@@ -106,7 +107,7 @@ impl Visitor for TemplateValidator<'_> {
 
         // 1. Extends validation (cares about order/opacity)
         if name == "extends" {
-            use djls_templates::tokens::TagDelimiter;
+            use djls_templates::TagDelimiter;
             use salsa::Accumulator;
 
             use crate::ValidationError;

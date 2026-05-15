@@ -18,9 +18,8 @@ use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::queue::Queue;
 use crate::session::Session;
-use crate::session::SessionSnapshot;
 
-pub struct DjangoLanguageServer {
+pub(crate) struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
     queue: Queue,
@@ -29,7 +28,7 @@ pub struct DjangoLanguageServer {
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub fn new(client: Client, logging: LoggingGuard) -> Self {
+    pub(crate) fn new(client: Client, logging: LoggingGuard) -> Self {
         Self {
             client,
             session: Arc::new(Mutex::new(Session::default())),
@@ -38,7 +37,7 @@ impl DjangoLanguageServer {
         }
     }
 
-    pub async fn with_session<F, R>(&self, f: F) -> R
+    pub(crate) async fn with_session<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Session) -> R,
     {
@@ -46,7 +45,7 @@ impl DjangoLanguageServer {
         f(&session)
     }
 
-    pub async fn with_session_mut<F, R>(&self, f: F) -> R
+    pub(crate) async fn with_session_mut<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut Session) -> R,
     {
@@ -54,24 +53,10 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
-    pub async fn with_session_task<F, Fut>(&self, f: F)
-    where
-        F: FnOnce(SessionSnapshot) -> Fut + Send + 'static,
-        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
-    {
-        let snapshot = {
-            let session = self.session.lock().await;
-            session.snapshot()
-        };
-
-        if let Err(e) = self.queue.submit(async move { f(snapshot).await }).await {
-            tracing::error!("Failed to submit task: {}", e);
-        } else {
-            tracing::info!("Task submitted successfully");
-        }
-    }
-
-    pub async fn with_session_mut_task<F, Fut>(&self, f: F) -> oneshot::Receiver<anyhow::Result<()>>
+    pub(crate) async fn with_session_mut_task<F, Fut>(
+        &self,
+        f: F,
+    ) -> oneshot::Receiver<anyhow::Result<()>>
     where
         F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
@@ -212,27 +197,25 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Server received initialized notification.");
 
         // Phase 1: Load the cached template library snapshot for near-instant startup.
-        // This populates template_libraries from disk cache so completions
-        // and diagnostics work immediately while the real inspector runs.
+        // This populates template_libraries from disk cache so completions and
+        // diagnostics work immediately while fresh project introspection runs.
         let cache_loaded = self
             .with_session_mut(|session| {
                 let t = std::time::Instant::now();
-                let loaded = djls_db::load_inspector_cache(session.db_mut());
+                let loaded = session.db_mut().load_template_library_cache();
                 if loaded {
                     tracing::info!(
                         "Template library snapshot cache loaded in {:?}",
                         t.elapsed()
                     );
                 } else {
-                    tracing::info!(
-                        "No template library snapshot cache available, will query inspector"
-                    );
+                    tracing::info!("No template library snapshot cache available");
                 }
                 loaded
             })
             .await;
 
-        // Phase 2: Run the real inspector query in the background.
+        // Phase 2: Refresh project data in the background.
         // This validates/refreshes the cached data, extracts external
         // rules, and initializes the workspace.
         let rx = self
@@ -340,7 +323,6 @@ impl LanguageServer for DjangoLanguageServer {
                             let nodelist = djls_templates::parse_template(db, file);
 
                             nodelist.map(|nl| {
-                                let symbol_index = djls_semantic::compute_symbol_index(db, nl);
                                 let line_index = file.line_index(db);
                                 let source_text = file.source(db);
                                 let byte_offset = line_index.offset(
@@ -348,7 +330,7 @@ impl LanguageServer for DjangoLanguageServer {
                                     djls_source::LineCol::new(position.line, position.character),
                                     encoding,
                                 );
-                                symbol_index.symbols_at(byte_offset.get()).clone()
+                                djls_semantic::available_symbols_at(db, nl, byte_offset.get())
                             })
                         } else {
                             None

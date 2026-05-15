@@ -1,9 +1,9 @@
 use djls_source::Span;
-use djls_templates::tokens::TagDelimiter;
-use djls_templates::visitor::Visitor;
 use djls_templates::Filter;
 use djls_templates::ParseError;
 use djls_templates::TagBit;
+use djls_templates::TagDelimiter;
+use djls_templates::Visitor;
 use salsa::Accumulator;
 
 use crate::structure::grammar::CloseValidation;
@@ -36,7 +36,7 @@ enum TreeOp {
     AccumulateDiagnostic(ValidationError),
 }
 
-pub struct TemplateTreeBuilder<'db> {
+pub(crate) struct TemplateTreeBuilder<'db> {
     db: &'db dyn Db,
     index: TagIndex<'db>,
     root: RegionId,
@@ -46,7 +46,7 @@ pub struct TemplateTreeBuilder<'db> {
 }
 
 impl<'db> TemplateTreeBuilder<'db> {
-    pub fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
+    pub(crate) fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
         let mut builder = Self {
             db,
             index,

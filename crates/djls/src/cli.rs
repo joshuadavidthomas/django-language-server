@@ -12,16 +12,16 @@ use crate::exit::Exit;
 #[derive(Parser)]
 #[command(name = "djls")]
 #[command(version, about)]
-pub struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
-    pub command: DjlsCommand,
+    command: DjlsCommand,
 
     #[command(flatten)]
-    pub args: Args,
+    args: Args,
 }
 
 /// Parse CLI arguments, execute the chosen command, and handle results
-pub fn run(args: Vec<String>) -> Result<()> {
+pub(crate) fn run(args: Vec<String>) -> Result<()> {
     let cli = Cli::try_parse_from(args).unwrap_or_else(|e| {
         e.exit();
     });

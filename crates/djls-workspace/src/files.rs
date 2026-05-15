@@ -100,7 +100,7 @@ impl FileSystem for OsFileSystem {
 /// The overlay makes buffered (in-memory) documents appear as regular files to
 /// consumers like Salsa. Any read checks the buffers first and only touches the
 /// disk fallback if the file is not open in the workspace.
-pub struct OverlayFileSystem {
+pub(crate) struct OverlayFileSystem {
     /// In-memory buffers that take precedence over disk files
     buffers: Buffers,
     /// Fallback file system for disk operations
@@ -109,7 +109,7 @@ pub struct OverlayFileSystem {
 
 impl OverlayFileSystem {
     #[must_use]
-    pub fn new(buffers: Buffers, disk: Arc<dyn FileSystem>) -> Self {
+    pub(crate) fn new(buffers: Buffers, disk: Arc<dyn FileSystem>) -> Self {
         Self { buffers, disk }
     }
 }

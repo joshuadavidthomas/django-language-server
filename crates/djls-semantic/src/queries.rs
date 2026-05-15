@@ -1,0 +1,192 @@
+use crate::db::Db;
+use crate::project::build_search_paths;
+use crate::project::discover_workspace_model_files;
+use crate::project::resolve_modules;
+use crate::project::Project;
+use crate::project::ResolvedModule;
+use crate::python::extract_block_specs;
+use crate::python::extract_filter_arities;
+use crate::python::extract_model_graph;
+use crate::python::extract_tag_rules;
+use crate::python::BlockSpecs;
+use crate::python::FilterArityMap;
+use crate::python::ModelGraph;
+use crate::python::ModulePath;
+use crate::python::TagRuleMap;
+use crate::specs::filters::FilterAritySpecs;
+use crate::specs::tags::builtin_tag_specs;
+use crate::specs::tags::TagSpecs;
+
+/// Compute `TagSpecs` from tag-rule and block-spec extraction results.
+///
+/// This tracked function reads only the extraction domains needed to build tag
+/// specs. Filter-only extraction changes should not invalidate this query.
+///
+/// Does NOT read from `Arc<Mutex<Settings>>`.
+#[salsa::tracked(returns(ref))]
+pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
+    let _libraries = project.template_libraries(db);
+    let tagspecs = project.tagspecs(db);
+
+    let mut specs = builtin_tag_specs();
+
+    let workspace_block_specs = collect_workspace_block_specs(db, project);
+    for (_module_path, block_specs) in workspace_block_specs {
+        specs.merge_block_specs(block_specs);
+    }
+    let workspace_tag_rules = collect_workspace_tag_rules(db, project);
+    for (_module_path, tag_rules) in workspace_tag_rules {
+        specs.merge_tag_rules(tag_rules);
+    }
+
+    for block_specs in project.extracted_external_block_specs(db).values() {
+        specs.merge_block_specs(block_specs);
+    }
+    for tag_rules in project.extracted_external_tag_rules(db).values() {
+        specs.merge_tag_rules(tag_rules);
+    }
+
+    if !tagspecs.libraries.is_empty() {
+        let fallback = TagSpecs::from_tagspec_def(tagspecs);
+        specs.merge_fallback(fallback);
+    }
+
+    specs
+}
+
+/// Compute `FilterAritySpecs` from a project's extraction results.
+///
+/// Merges filter arity data from both workspace and external extraction results,
+/// with last-wins semantics for name collisions.
+#[salsa::tracked(returns(ref))]
+pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterAritySpecs {
+    let mut specs = FilterAritySpecs::new();
+
+    let workspace_results = collect_workspace_filter_arities(db, project);
+    for (_module_path, filter_arities) in workspace_results {
+        specs.merge_filter_arities(filter_arities);
+    }
+
+    for filter_arities in project.extracted_external_filter_arities(db).values() {
+        specs.merge_filter_arities(filter_arities);
+    }
+
+    specs
+}
+
+/// Compute a merged `ModelGraph` from workspace and external model sources.
+#[salsa::tracked(returns(ref))]
+pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
+    let mut graph = ModelGraph::new();
+
+    for model_graph in project.extracted_external_models(db).values() {
+        graph.merge(model_graph.clone());
+    }
+
+    for (_module_path, model_graph) in collect_workspace_models(db, project) {
+        graph.merge(model_graph.clone());
+    }
+
+    graph
+}
+
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
+    let root = project.root(db);
+
+    let model_files = discover_workspace_model_files(root);
+    if model_files.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+
+    for (module_path, file_path) in model_files {
+        let file = db.get_or_create_file(&file_path);
+        let source = file.source(db);
+
+        let graph = extract_model_graph(source.as_ref(), module_path.as_str());
+        if !graph.is_empty() {
+            results.push((module_path, graph));
+        }
+    }
+
+    results
+}
+
+fn resolve_workspace_registration_modules(db: &dyn Db, project: Project) -> Vec<ResolvedModule> {
+    let template_libraries = project.template_libraries(db);
+    let interpreter = project.interpreter(db);
+    let root = project.root(db);
+    let pythonpath = project.pythonpath(db);
+
+    let module_paths = template_libraries.registration_modules();
+    if module_paths.is_empty() {
+        return Vec::new();
+    }
+
+    let module_paths: Vec<String> = module_paths
+        .iter()
+        .map(|module| module.as_str().to_string())
+        .collect();
+
+    let search_paths = build_search_paths(interpreter, root, pythonpath);
+
+    let (workspace_modules, _external) =
+        resolve_modules(module_paths.iter().map(String::as_str), &search_paths, root);
+
+    workspace_modules
+}
+
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
+    let mut results = Vec::new();
+
+    for resolved in resolve_workspace_registration_modules(db, project) {
+        let file = db.get_or_create_file(&resolved.file_path);
+        let tag_rules = extract_tag_rules(db, file, ModulePath::new(resolved.module_path.clone()));
+
+        if !tag_rules.is_empty() {
+            results.push((resolved.module_path, tag_rules.clone()));
+        }
+    }
+
+    results
+}
+
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_filter_arities(
+    db: &dyn Db,
+    project: Project,
+) -> Vec<(String, FilterArityMap)> {
+    let mut results = Vec::new();
+
+    for resolved in resolve_workspace_registration_modules(db, project) {
+        let file = db.get_or_create_file(&resolved.file_path);
+        let filter_arities =
+            extract_filter_arities(db, file, ModulePath::new(resolved.module_path.clone()));
+
+        if !filter_arities.is_empty() {
+            results.push((resolved.module_path, filter_arities.clone()));
+        }
+    }
+
+    results
+}
+
+#[salsa::tracked(returns(ref))]
+fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
+    let mut results = Vec::new();
+
+    for resolved in resolve_workspace_registration_modules(db, project) {
+        let file = db.get_or_create_file(&resolved.file_path);
+        let block_specs =
+            extract_block_specs(db, file, ModulePath::new(resolved.module_path.clone()));
+
+        if !block_specs.is_empty() {
+            results.push((resolved.module_path, block_specs.clone()));
+        }
+    }
+
+    results
+}

@@ -52,7 +52,7 @@ type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 ///
 /// Shutdown is handled gracefully when the last `Queue` instance is dropped.
 #[derive(Clone)]
-pub struct Queue {
+pub(crate) struct Queue {
     inner: Arc<QueueInner>,
 }
 
@@ -72,7 +72,7 @@ impl Queue {
     /// The worker task runs indefinitely, waiting for tasks on the MPSC channel
     /// or a shutdown signal. Received tasks (closures) are executed sequentially.
     /// If a task's future resolves to an `Err`, the error is printed to stderr.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         // Create the channel for sending task closures. Bounded to 32 pending tasks.
         let (sender, mut receiver) = mpsc::channel::<TaskClosure>(32);
         // Create the channel for signaling shutdown.
@@ -150,7 +150,7 @@ impl Queue {
     /// # Type Parameters
     ///
     /// - `F`: The type of the `Future`. Must resolve to `Result<()>` and be `Send + 'static`.
-    pub async fn submit<F>(&self, future: F) -> Result<()>
+    pub(crate) async fn submit<F>(&self, future: F) -> Result<()>
     where
         F: Future<Output = Result<()>> + Send + 'static,
     {

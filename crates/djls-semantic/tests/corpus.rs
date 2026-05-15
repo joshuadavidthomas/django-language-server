@@ -24,7 +24,6 @@ use std::collections::BTreeMap;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
 use djls_semantic::extract_rules;
-use djls_semantic::BlockSpec;
 use djls_semantic::ExtractionResult;
 use djls_semantic::FilterArity;
 use djls_semantic::SymbolKey;
@@ -35,7 +34,7 @@ use serde::Serialize;
 struct SortedExtractionResult {
     tag_rules: BTreeMap<String, TagRule>,
     filter_arities: BTreeMap<String, FilterArity>,
-    block_specs: BTreeMap<String, BlockSpec>,
+    block_specs: BTreeMap<String, serde_json::Value>,
 }
 
 impl From<ExtractionResult> for SortedExtractionResult {
@@ -58,11 +57,8 @@ impl From<ExtractionResult> for SortedExtractionResult {
                 .iter()
                 .map(|(k, v)| (key_str(k), v.clone()))
                 .collect(),
-            block_specs: result
-                .block_specs
-                .iter()
-                .map(|(k, v)| (key_str(k), v.clone()))
-                .collect(),
+            block_specs: serde_json::from_value(serde_json::to_value(&result.block_specs).unwrap())
+                .unwrap(),
         }
     }
 }

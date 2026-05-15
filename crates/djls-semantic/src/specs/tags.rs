@@ -6,8 +6,14 @@ use std::ops::DerefMut;
 
 use rustc_hash::FxHashMap;
 
-pub type S<T = str> = Cow<'static, T>;
-pub type L<T> = Cow<'static, [T]>;
+use crate::python::BlockSpecs;
+use crate::python::ExtractedArg;
+use crate::python::ExtractedArgKind;
+use crate::python::SymbolKind;
+use crate::python::TagRuleMap;
+
+pub(crate) type S<T = str> = Cow<'static, T>;
+pub(crate) type L<T> = Cow<'static, [T]>;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TagSpecs(FxHashMap<String, TagSpec>);
@@ -107,9 +113,9 @@ impl TagSpecs {
     /// Block specs from extraction override existing end-tag/intermediate info.
     /// This enriches the handcoded `builtins.rs` defaults with information
     /// extracted from actual Python source code.
-    pub fn merge_block_specs(&mut self, block_specs: &crate::BlockSpecMap) -> &mut Self {
-        for (key, block_spec) in block_specs {
-            if key.kind != crate::SymbolKind::Tag {
+    pub(crate) fn merge_block_specs(&mut self, block_specs: &BlockSpecs) -> &mut Self {
+        for (key, block_spec) in block_specs.as_map() {
+            if key.kind != SymbolKind::Tag {
                 continue;
             }
             if let Some(spec) = self.0.get_mut(&key.name) {
@@ -166,9 +172,9 @@ impl TagSpecs {
     }
 
     /// Merge tag rules into tag specs.
-    pub fn merge_tag_rules(&mut self, tag_rules: &crate::TagRuleMap) -> &mut Self {
+    pub(crate) fn merge_tag_rules(&mut self, tag_rules: &TagRuleMap) -> &mut Self {
         for (key, tag_rule) in tag_rules {
-            if key.kind != crate::SymbolKind::Tag {
+            if key.kind != SymbolKind::Tag {
                 continue;
             }
 
@@ -194,8 +200,8 @@ impl TagSpecs {
 
     /// Merge all tag-related extraction results into tag specs.
     ///
-    /// Prefer [`Self::merge_block_specs`] and [`Self::merge_tag_rules`] in Salsa
-    /// query code so callers depend only on the extraction domains they read.
+    /// Salsa query code should merge only the extraction domains it reads so
+    /// unrelated extraction changes do not invalidate cached tag specs.
     pub fn merge_extraction_results(&mut self, extraction: &crate::ExtractionResult) -> &mut Self {
         self.merge_block_specs(&extraction.block_specs)
             .merge_tag_rules(&extraction.tag_rules)
@@ -276,12 +282,12 @@ impl TagSpecs {
                 let extracted_rules = if tag_def.args.is_empty() {
                     None
                 } else {
-                    use crate::ArgumentCountConstraint;
-                    use crate::ChoiceAt;
-                    use crate::ExtractedArg;
-                    use crate::ExtractedArgKind;
-                    use crate::RequiredKeyword;
-                    use crate::SplitPosition;
+                    use crate::python::ArgumentCountConstraint;
+                    use crate::python::ChoiceAt;
+                    use crate::python::ExtractedArg;
+                    use crate::python::ExtractedArgKind;
+                    use crate::python::RequiredKeyword;
+                    use crate::python::SplitPosition;
                     use crate::TagRule;
 
                     let mut rule = TagRule::default();
@@ -445,7 +451,7 @@ pub enum TagSemanticRole {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CompletionArgKind {
+pub enum TagArgumentKind {
     Literal(String),
     Choice(Vec<String>),
     Variable,
@@ -454,21 +460,21 @@ pub enum CompletionArgKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompletionArg {
+pub struct TagArgument {
     pub name: String,
     pub required: bool,
-    pub kind: CompletionArgKind,
+    pub kind: TagArgumentKind,
     pub position: usize,
 }
 
-impl CompletionArg {
-    fn from_extracted(arg: &crate::ExtractedArg) -> Self {
+impl TagArgument {
+    fn from_extracted(arg: &ExtractedArg) -> Self {
         let kind = match &arg.kind {
-            crate::ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
-            crate::ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
-            crate::ExtractedArgKind::Variable => CompletionArgKind::Variable,
-            crate::ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
-            crate::ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
+            ExtractedArgKind::Literal(value) => TagArgumentKind::Literal(value.clone()),
+            ExtractedArgKind::Choice(values) => TagArgumentKind::Choice(values.clone()),
+            ExtractedArgKind::Variable => TagArgumentKind::Variable,
+            ExtractedArgKind::Keyword => TagArgumentKind::Keyword,
+            ExtractedArgKind::VarArgs => TagArgumentKind::VarArgs,
         };
 
         Self {
@@ -479,16 +485,16 @@ impl CompletionArg {
         }
     }
 
-    fn into_extracted(self) -> crate::ExtractedArg {
+    fn into_extracted(self) -> ExtractedArg {
         let kind = match self.kind {
-            CompletionArgKind::Literal(value) => crate::ExtractedArgKind::Literal(value),
-            CompletionArgKind::Choice(values) => crate::ExtractedArgKind::Choice(values),
-            CompletionArgKind::Variable => crate::ExtractedArgKind::Variable,
-            CompletionArgKind::Keyword => crate::ExtractedArgKind::Keyword,
-            CompletionArgKind::VarArgs => crate::ExtractedArgKind::VarArgs,
+            TagArgumentKind::Literal(value) => ExtractedArgKind::Literal(value),
+            TagArgumentKind::Choice(values) => ExtractedArgKind::Choice(values),
+            TagArgumentKind::Variable => ExtractedArgKind::Variable,
+            TagArgumentKind::Keyword => ExtractedArgKind::Keyword,
+            TagArgumentKind::VarArgs => ExtractedArgKind::VarArgs,
         };
 
-        crate::ExtractedArg {
+        ExtractedArg {
             name: self.name,
             required: self.required,
             kind,
@@ -499,25 +505,22 @@ impl CompletionArg {
 
 impl TagSpec {
     #[must_use]
-    pub fn completion_args(&self) -> Vec<CompletionArg> {
+    pub fn arguments(&self) -> Vec<TagArgument> {
         self.extracted_rules
             .as_ref()
             .map_or_else(Vec::new, |rules| {
                 rules
                     .extracted_args
                     .iter()
-                    .map(CompletionArg::from_extracted)
+                    .map(TagArgument::from_extracted)
                     .collect()
             })
     }
 
     #[must_use]
-    pub fn with_completion_args(mut self, args: Vec<CompletionArg>) -> Self {
+    pub fn with_arguments(mut self, args: Vec<TagArgument>) -> Self {
         let mut rules = self.extracted_rules.as_deref().cloned().unwrap_or_default();
-        rules.extracted_args = args
-            .into_iter()
-            .map(CompletionArg::into_extracted)
-            .collect();
+        rules.extracted_args = args.into_iter().map(TagArgument::into_extracted).collect();
         self.extracted_rules = Some(rules.into());
         self
     }
@@ -780,6 +783,8 @@ pub fn builtin_tag_specs() -> TagSpecs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::python::ArgumentCountConstraint;
+    use crate::python::BlockSpec;
 
     // Helper function to create a small test TagSpecs
     fn create_test_specs() -> TagSpecs {
@@ -1056,7 +1061,7 @@ mod tests {
         let mut extraction = crate::ExtractionResult::default();
         extraction.block_specs.insert(
             crate::SymbolKey::tag("django.template.defaulttags", "if"),
-            crate::BlockSpec {
+            BlockSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 opaque: false,
@@ -1082,7 +1087,7 @@ mod tests {
         let mut extraction = crate::ExtractionResult::default();
         extraction.block_specs.insert(
             crate::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
-            crate::BlockSpec {
+            BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
                 opaque: false,
@@ -1111,7 +1116,7 @@ mod tests {
         let mut extraction = crate::ExtractionResult::default();
         extraction.block_specs.insert(
             crate::SymbolKey::filter("module", "lower"),
-            crate::BlockSpec {
+            BlockSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -1141,24 +1146,24 @@ mod tests {
         extraction.tag_rules.insert(
             crate::SymbolKey::tag("django.template.defaulttags", "for"),
             crate::TagRule {
-                arg_constraints: vec![crate::ArgumentCountConstraint::Min(4)],
+                arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
-                    crate::ExtractedArg {
+                    ExtractedArg {
                         name: "item".to_string(),
                         required: true,
-                        kind: crate::ExtractedArgKind::Variable,
+                        kind: ExtractedArgKind::Variable,
                         position: 0,
                     },
-                    crate::ExtractedArg {
+                    ExtractedArg {
                         name: "in".to_string(),
                         required: true,
-                        kind: crate::ExtractedArgKind::Literal("in".to_string()),
+                        kind: ExtractedArgKind::Literal("in".to_string()),
                         position: 1,
                     },
-                    crate::ExtractedArg {
+                    ExtractedArg {
                         name: "iterable".to_string(),
                         required: true,
-                        kind: crate::ExtractedArgKind::Variable,
+                        kind: ExtractedArgKind::Variable,
                         position: 2,
                     },
                 ],

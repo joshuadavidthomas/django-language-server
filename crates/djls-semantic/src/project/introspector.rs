@@ -21,7 +21,7 @@ use tempfile::NamedTempFile;
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
 
-pub trait InspectorRequest: Serialize {
+pub(crate) trait IntrospectionRequest: Serialize {
     /// The query name sent to Python (e.g., `template_libraries`, `python_env`)
     const NAME: &'static str;
     /// The response type to deserialize into
@@ -29,7 +29,7 @@ pub trait InspectorRequest: Serialize {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct InspectorResponse<T = serde_json::Value> {
+pub(crate) struct IntrospectionResponse<T = serde_json::Value> {
     pub ok: bool,
     pub data: Option<T>,
     pub error: Option<String>,
@@ -48,7 +48,7 @@ impl ProjectIntrospector {
         }
     }
 
-    pub(crate) fn query<Q: InspectorRequest>(
+    pub(crate) fn query<Q: IntrospectionRequest>(
         &self,
         db: &dyn ProjectDb,
         request: &Q,
@@ -111,18 +111,18 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Manages inspector process with automatic cleanup
 #[derive(Clone)]
-pub struct Inspector {
+pub(crate) struct Inspector {
     inner: Arc<Mutex<InspectorInner>>,
 }
 
 impl Inspector {
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with_timeout(DEFAULT_IDLE_TIMEOUT)
     }
 
     #[must_use]
-    pub fn with_timeout(idle_timeout: Duration) -> Self {
+    pub(crate) fn with_timeout(idle_timeout: Duration) -> Self {
         let inspector = Self {
             inner: Arc::new(Mutex::new(InspectorInner {
                 process: None,
@@ -155,7 +155,7 @@ impl Inspector {
     }
 
     /// Execute a typed query, reusing existing process if available
-    pub fn query<Q: InspectorRequest, R: DeserializeOwned>(
+    pub(crate) fn query<Q: IntrospectionRequest, R: DeserializeOwned>(
         &self,
         interpreter: &Interpreter,
         project_path: &Utf8Path,
@@ -163,7 +163,7 @@ impl Inspector {
         pythonpath: &[String],
         env_vars: &[(String, String)],
         request: &Q,
-    ) -> Result<InspectorResponse<R>> {
+    ) -> Result<IntrospectionResponse<R>> {
         self.inner().query::<Q, R>(
             interpreter,
             project_path,
@@ -208,7 +208,7 @@ struct InspectorInner {
 
 impl InspectorInner {
     /// Execute a typed query, ensuring a valid process exists
-    fn query<Q: InspectorRequest, R: DeserializeOwned>(
+    fn query<Q: IntrospectionRequest, R: DeserializeOwned>(
         &mut self,
         interpreter: &Interpreter,
         project_path: &Utf8Path,
@@ -216,7 +216,7 @@ impl InspectorInner {
         pythonpath: &[String],
         env_vars: &[(String, String)],
         request: &Q,
-    ) -> Result<InspectorResponse<R>> {
+    ) -> Result<IntrospectionResponse<R>> {
         self.ensure_process(
             interpreter,
             project_path,
@@ -318,7 +318,7 @@ const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/djls_insp
 struct InspectorFile(NamedTempFile);
 
 impl InspectorFile {
-    pub fn create() -> Result<Self> {
+    fn create() -> Result<Self> {
         let mut zipapp_file = tempfile::Builder::new()
             .prefix("djls_inspector_")
             .suffix(".pyz")
@@ -335,7 +335,7 @@ impl InspectorFile {
         Ok(Self(zipapp_file))
     }
 
-    pub fn path(&self) -> &Utf8Path {
+    fn path(&self) -> &Utf8Path {
         Utf8Path::from_path(self.0.path()).expect("Temp file path should always be valid UTF-8")
     }
 }
@@ -356,7 +356,7 @@ struct InspectorProcess {
 
 impl InspectorProcess {
     /// Spawn a new inspector process
-    pub fn spawn(
+    fn spawn(
         interpreter: Interpreter,
         project_path: &Utf8PathBuf,
         django_settings_module: Option<String>,
@@ -439,10 +439,10 @@ impl InspectorProcess {
     }
 
     /// Send a typed request and receive a typed response
-    pub fn query<Q: InspectorRequest, R: DeserializeOwned>(
+    fn query<Q: IntrospectionRequest, R: DeserializeOwned>(
         &mut self,
         request: &Q,
-    ) -> Result<InspectorResponse<R>> {
+    ) -> Result<IntrospectionResponse<R>> {
         // Build the wire format request
         let wire_request = serde_json::json!({
             "query": Q::NAME,
@@ -459,7 +459,7 @@ impl InspectorProcess {
             .read_line(&mut response_line)
             .context("Failed to read response from inspector")?;
 
-        let response: InspectorResponse<R> = match serde_json::from_str(&response_line) {
+        let response: IntrospectionResponse<R> = match serde_json::from_str(&response_line) {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!(
@@ -474,17 +474,17 @@ impl InspectorProcess {
         Ok(response)
     }
 
-    pub fn is_running(&mut self) -> bool {
+    fn is_running(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
     }
 
     /// Check if the process has been idle for longer than the timeout
-    pub fn is_idle(&self, timeout: Duration) -> bool {
+    fn is_idle(&self, timeout: Duration) -> bool {
         self.last_used.elapsed() > timeout
     }
 
     /// Attempt graceful shutdown of the process
-    pub fn shutdown_gracefully(mut self) {
+    fn shutdown_gracefully(mut self) {
         // Give the process a moment to exit cleanly (100ms total)
         for _ in 0..10 {
             std::thread::sleep(Duration::from_millis(10));

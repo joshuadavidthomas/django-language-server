@@ -1,7 +1,7 @@
 use djls_source::Span;
-use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use djls_templates::NodeList;
+use djls_templates::TagDelimiter;
 
 use crate::Db;
 

@@ -17,23 +17,22 @@ use djls_templates::parse_template;
 use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
+use crate::python::ArgumentCountConstraint;
+use crate::python::ChoiceAt;
+use crate::python::ExtractedDiagnosticConstraint;
+use crate::python::ExtractedDiagnosticMessage;
+use crate::python::ExtractedMessageTemplate;
+use crate::python::RequiredKeyword;
+use crate::python::SplitPosition;
 use crate::specs::tags::builtin_tag_specs;
-use crate::ArgumentCountConstraint;
-use crate::ChoiceAt;
-use crate::ExtractedDiagnosticConstraint;
-use crate::ExtractedDiagnosticMessage;
-use crate::ExtractedMessageTemplate;
 use crate::FilterArity;
 use crate::FilterAritySpecs;
 use crate::Knowledge;
 use crate::LibraryName;
 use crate::LibraryOrigin;
 use crate::PyModuleName;
-use crate::RequiredKeyword;
-use crate::SplitPosition;
 use crate::SymbolDefinition;
 use crate::SymbolKey;
-use crate::TagIndex;
 use crate::TagRule;
 use crate::TagSpec;
 use crate::TagSpecs;
@@ -218,10 +217,6 @@ impl djls_templates::Db for TestDatabase {}
 impl crate::Db for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn tag_index(&self) -> TagIndex<'_> {
-        TagIndex::from_specs(self)
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {

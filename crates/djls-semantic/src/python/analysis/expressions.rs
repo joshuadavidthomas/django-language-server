@@ -22,7 +22,7 @@ use crate::python::types::SplitPosition;
 ///
 /// When `ctx` is provided, function calls can be resolved to module-local
 /// helpers via bounded inlining.
-pub fn eval_expr(expr: &Expr, env: &mut Env) -> AbstractValue {
+pub(crate) fn eval_expr(expr: &Expr, env: &mut Env) -> AbstractValue {
     eval_expr_with_ctx(expr, env, None)
 }
 

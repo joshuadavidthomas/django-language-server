@@ -25,7 +25,7 @@ impl DjangoDatabase {
     /// Update the settings, updating the existing project's fields via manual
     /// comparison (Ruff/RA pattern) to avoid unnecessary Salsa invalidation.
     ///
-    /// When a project exists, delegates to [`update_project_from_settings`] to
+    /// When a project exists, delegates to `update_project_from_settings` to
     /// surgically update only the fields that changed, keeping project identity
     /// stable. When no project exists, the settings are stored for future use.
     ///
@@ -57,9 +57,9 @@ impl DjangoDatabase {
     /// Salsa setters when values actually change (Ruff/RA pattern).
     ///
     /// Returns `true` if environment-related fields changed (`interpreter`,
-    /// `django_settings_module`, `pythonpath`), indicating the inspector should
+    /// `django_settings_module`, `pythonpath`), indicating project data should
     /// be refreshed.
-    pub fn update_project_from_settings(&mut self, settings: &Settings) -> bool {
+    pub(crate) fn update_project_from_settings(&mut self, settings: &Settings) -> bool {
         let Some(project) = self.project() else {
             return false;
         };

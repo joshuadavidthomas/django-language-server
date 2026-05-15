@@ -19,7 +19,7 @@ use crate::python::types::SplitPosition;
 
 /// Process a list of statements, updating the environment and returning
 /// accumulated analysis results.
-pub fn process_statements(
+pub(crate) fn process_statements(
     stmts: &[Stmt],
     env: &mut Env,
     ctx: &mut CallContext<'_>,

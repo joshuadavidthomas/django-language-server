@@ -2,15 +2,15 @@ use std::collections::HashMap;
 
 use djls_source::Span;
 
-use crate::ArgumentCountConstraint;
-use crate::ChoiceAt;
-use crate::ExtractedDiagnosticConstraint;
-use crate::ExtractedDiagnosticMessage;
-use crate::ExtractedMessageArg;
-use crate::ExtractedMessageTemplate;
-use crate::KnownOptions;
-use crate::RequiredKeyword;
-use crate::SplitPosition;
+use crate::python::ArgumentCountConstraint;
+use crate::python::ChoiceAt;
+use crate::python::ExtractedDiagnosticConstraint;
+use crate::python::ExtractedDiagnosticMessage;
+use crate::python::ExtractedMessageArg;
+use crate::python::ExtractedMessageTemplate;
+use crate::python::KnownOptions;
+use crate::python::RequiredKeyword;
+use crate::python::SplitPosition;
 use crate::TagRule;
 use crate::ValidationError;
 
@@ -32,7 +32,7 @@ trait Constraint {
 ///
 /// Returns `None` if the position is out of bounds or refers to the tag name
 /// — the argument count constraint should catch those cases.
-fn resolve_position_index(position: &crate::SplitPosition, bits_len: usize) -> Option<usize> {
+fn resolve_position_index(position: &SplitPosition, bits_len: usize) -> Option<usize> {
     position.to_bits_index(bits_len)
 }
 
@@ -167,7 +167,7 @@ impl Constraint for ChoiceAt {
 /// `ArgumentCountConstraint` values, and subtracting 1 from
 /// `RequiredKeyword.position` when indexing into `bits`.
 #[must_use]
-pub fn evaluate_tag_rules(
+pub(crate) fn evaluate_tag_rules(
     tag_name: &str,
     bits: &[String],
     rules: &TagRule,
@@ -440,8 +440,8 @@ fn evaluate_known_options(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AsVar;
-    use crate::SplitPosition;
+    use crate::python::AsVar;
+    use crate::python::SplitPosition;
 
     fn make_span() -> Span {
         Span::new(0, 10)

@@ -92,7 +92,7 @@ struct SourceTextInner {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FileEncoding {
+pub(crate) enum FileEncoding {
     Ascii,
     Utf8,
 }

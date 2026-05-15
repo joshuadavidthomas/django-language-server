@@ -1,33 +1,31 @@
 mod cache;
 mod db;
 mod django;
+mod external;
 #[path = "project/project.rs"]
 mod input;
-mod inspector;
+mod introspector;
 mod names;
 mod python;
 mod resolve;
 mod symbols;
 
-pub use cache::load_cached_template_library_snapshot;
-pub use cache::save_template_library_snapshot;
 pub use db::Db;
 pub use django::template_dirs;
 pub use input::load_env_file;
 pub use input::Project;
-pub use inspector::ProjectIntrospector;
+pub use introspector::ProjectIntrospector;
 pub use names::LibraryName;
 pub use names::PyModuleName;
 pub use names::TemplateSymbolName;
 pub use python::Interpreter;
 pub use resolve::build_search_paths;
 pub use resolve::discover_model_files_in_dir;
-pub use resolve::discover_workspace_model_files;
+pub(crate) use resolve::discover_workspace_model_files;
 pub use resolve::find_site_packages;
 pub use resolve::resolve_modules;
 pub use resolve::ResolvedModule;
-pub use symbols::fetch_template_library_snapshot;
-pub use symbols::DiscoveredSymbolCandidate;
+pub(crate) use symbols::DiscoveredSymbolCandidate;
 pub use symbols::InstalledSymbolCandidate;
 pub use symbols::InstalledSymbolOrigin;
 pub use symbols::Knowledge;

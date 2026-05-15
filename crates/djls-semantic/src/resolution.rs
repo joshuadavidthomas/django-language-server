@@ -5,9 +5,9 @@ use djls_source::Span;
 use djls_source::Utf8PathClean;
 use ignore::WalkBuilder;
 
-pub use crate::db::Db as SemanticDb;
-pub use crate::primitives::Template;
-pub use crate::primitives::TemplateName;
+use crate::db::Db as SemanticDb;
+use crate::primitives::Template;
+use crate::primitives::TemplateName;
 
 #[salsa::tracked]
 pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
@@ -122,7 +122,7 @@ pub struct TemplateReference<'db> {
 }
 
 impl TemplateReference<'_> {
-    pub fn source_file(&self, db: &dyn SemanticDb) -> File {
+    pub fn source_file(self, db: &dyn SemanticDb) -> File {
         let template = self.source(db);
         template.file(db)
     }

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::project::db::Db as ProjectDb;
-use crate::project::inspector::InspectorRequest;
+use crate::project::introspector::IntrospectionRequest;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
 use crate::project::names::TemplateSymbolName;
@@ -184,14 +184,16 @@ pub struct TemplateLibrarySnapshot {
     pub builtins: Vec<String>,
 }
 
-impl InspectorRequest for TemplateLibrarySnapshotRequest {
+impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
     const NAME: &'static str = "template_libraries";
     type Response = TemplateLibrarySnapshot;
 }
 
 /// Fetch the active template library snapshot for the current project.
 #[must_use]
-pub fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
+pub(crate) fn fetch_template_library_snapshot(
+    db: &dyn ProjectDb,
+) -> Option<TemplateLibrarySnapshot> {
     db.project_introspector()
         .query(db, &TemplateLibrarySnapshotRequest)
 }

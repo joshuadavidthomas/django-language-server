@@ -9,27 +9,26 @@
 //! not affect structure, such as exact parse errors, remain available from the
 //! original `NodeList`.
 
-pub mod builder;
-pub mod grammar;
-pub mod opaque;
-pub mod outline;
-pub mod snapshot;
-pub mod tree;
+pub(crate) mod builder;
+pub(crate) mod grammar;
+pub(crate) mod opaque;
+pub(crate) mod outline;
+#[cfg(test)]
+pub(crate) mod snapshot;
+pub(crate) mod tree;
 
-pub use builder::TemplateTreeBuilder;
-pub use grammar::TagIndex;
+pub(crate) use builder::TemplateTreeBuilder;
+pub(crate) use grammar::TagIndex;
 pub use opaque::compute_opaque_regions;
-pub use opaque::OpaqueRegions;
+pub(crate) use opaque::OpaqueRegions;
 pub use outline::build_template_outline;
 pub use outline::OutlineItem;
 pub use outline::OutlineKind;
-pub use outline::TemplateOutline;
-pub use tree::BlockRole;
-pub use tree::RegionId;
-pub use tree::Regions;
-pub use tree::TemplateNode;
-pub use tree::TemplateRegion;
-pub use tree::TemplateTree;
+pub(crate) use tree::BlockRole;
+pub(crate) use tree::RegionId;
+pub(crate) use tree::Regions;
+pub(crate) use tree::TemplateNode;
+pub(crate) use tree::TemplateTree;
 
 use crate::db::Db;
 use crate::traits::SemanticModel;
@@ -39,6 +38,6 @@ pub fn build_template_tree<'db>(
     db: &'db dyn Db,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(db, db.tag_index());
+    let builder = TemplateTreeBuilder::new(db, TagIndex::from_specs(db));
     builder.model(db, nodelist)
 }

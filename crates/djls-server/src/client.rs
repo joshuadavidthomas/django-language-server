@@ -9,7 +9,7 @@ use crate::ext::ClientInfoExt;
 use crate::ext::PositionEncodingKindExt;
 
 #[derive(Debug, Clone)]
-pub struct ClientInfo {
+pub(crate) struct ClientInfo {
     client: Client,
     position_encoding: PositionEncoding,
     capabilities: ClientCapabilities,
@@ -18,7 +18,7 @@ pub struct ClientInfo {
 
 impl ClientInfo {
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         capabilities: &ls_types::ClientCapabilities,
         client_info: Option<&ls_types::ClientInfo>,
         options: ClientOptions,
@@ -55,37 +55,27 @@ impl ClientInfo {
     }
 
     #[must_use]
-    pub fn client(&self) -> Client {
+    pub(crate) fn client(&self) -> Client {
         self.client
     }
 
     #[must_use]
-    pub fn capabilities(&self) -> ClientCapabilities {
-        self.capabilities
-    }
-
-    #[must_use]
-    pub fn options(&self) -> &ClientOptions {
-        &self.options
-    }
-
-    #[must_use]
-    pub fn config_overrides(&self) -> &Settings {
+    pub(crate) fn config_overrides(&self) -> &Settings {
         &self.options.settings
     }
 
     #[must_use]
-    pub fn position_encoding(&self) -> PositionEncoding {
+    pub(crate) fn position_encoding(&self) -> PositionEncoding {
         self.position_encoding
     }
 
     #[must_use]
-    pub fn supports_pull_diagnostics(&self) -> bool {
+    pub(crate) fn supports_pull_diagnostics(&self) -> bool {
         self.capabilities.pull_diagnostics
     }
 
     #[must_use]
-    pub fn supports_snippets(&self) -> bool {
+    pub(crate) fn supports_snippets(&self) -> bool {
         self.capabilities.snippets
     }
 }
@@ -95,7 +85,7 @@ impl ClientInfo {
 /// Most clients work fine with standard LSP behavior, but some require
 /// specific workarounds (e.g., language ID mappings, capability quirks).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Client {
+pub(crate) enum Client {
     /// Standard LSP client behavior (no special overrides needed)
     Default,
     /// Sublime Text LSP - uses "html" language ID for Django templates
@@ -103,14 +93,14 @@ pub enum Client {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ClientCapabilities {
+pub(crate) struct ClientCapabilities {
     pull_diagnostics: bool,
     snippets: bool,
 }
 
 impl ClientCapabilities {
     #[must_use]
-    pub fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
+    pub(crate) fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
         let pull_diagnostics = capabilities
             .text_document
             .as_ref()
@@ -133,7 +123,7 @@ impl ClientCapabilities {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ClientOptions {
+pub(crate) struct ClientOptions {
     #[serde(flatten)]
     pub settings: Settings,
 

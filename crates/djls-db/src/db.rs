@@ -10,12 +10,14 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_semantic::compute_filter_arity_specs;
+use djls_semantic::compute_model_graph;
+use djls_semantic::compute_tag_specs;
 use djls_semantic::template_dirs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
 use djls_semantic::ProjectIntrospector;
-use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
@@ -24,13 +26,6 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
-
-use crate::inspector;
-use crate::queries::compute_filter_arity_specs;
-use crate::queries::compute_model_graph;
-use crate::queries::compute_tag_index;
-use crate::queries::compute_tag_specs;
-use crate::scanning;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -124,17 +119,6 @@ impl DjangoDatabase {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
     }
-
-    /// Refresh all external (non-workspace) project data.
-    ///
-    /// Queries the Python inspector subprocess for template libraries, then
-    /// scans the filesystem for external validation rules and model definitions.
-    /// Workspace files are handled separately by tracked Salsa queries.
-    pub fn refresh_external_data(&mut self) {
-        inspector::query_inspector_template_libraries(self);
-        scanning::scan_external_rules(self);
-        scanning::scan_external_models(self);
-    }
 }
 
 #[salsa::db]
@@ -179,20 +163,9 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn tag_index(&self) -> TagIndex<'_> {
-        if let Some(project) = self.project() {
-            compute_tag_index(self, project)
-        } else {
-            TagIndex::from_specs(self)
-        }
-    }
-
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        if let Some(project) = self.project() {
-            template_dirs(self, project)
-        } else {
-            None
-        }
+        self.project()
+            .and_then(|project| template_dirs(self, project))
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -457,45 +430,6 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn tag_index_depends_on_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime both caches
-        let _specs = db.tag_specs();
-        let _index = db.tag_index();
-        event_log.take();
-
-        // Change extraction results to produce different TagSpecs
-        let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_semantic::ExtractionResult::default();
-        extraction.block_specs.insert(
-            djls_semantic::SymbolKey::tag("test.module", "mytag"),
-            djls_semantic::BlockSpec {
-                end_tag: Some("endmytag".to_string()),
-                intermediates: vec![],
-                opaque: false,
-            },
-        );
-        let mut external_block_specs = rustc_hash::FxHashMap::default();
-        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
-        project
-            .set_extracted_external_block_specs(&mut db)
-            .to(external_block_specs);
-
-        // Access tag_index — both compute_tag_specs and compute_tag_index should re-execute
-        let _index = db.tag_index();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after extraction results change"
-        );
-        assert!(
-            was_executed(&db, &events, "compute_tag_index"),
-            "compute_tag_index should re-execute when tag specs produced different output"
-        );
-    }
-
-    #[test]
     fn update_project_from_settings_unchanged_no_invalidation() {
         let (mut db, event_log) = test_db_with_project();
 
@@ -645,40 +579,6 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn external_rules_stored_on_project() {
-        let (mut db, _event_log) = test_db_with_project();
-        let project = db.project.lock().unwrap().unwrap();
-
-        // Initially empty
-        assert!(
-            project.extracted_external_tag_rules(&db).is_empty()
-                && project.extracted_external_filter_arities(&db).is_empty()
-                && project.extracted_external_block_specs(&db).is_empty(),
-            "external extraction fields should be empty initially"
-        );
-
-        // Set some extraction results
-        let mut extraction = djls_semantic::ExtractionResult::default();
-        extraction.block_specs.insert(
-            djls_semantic::SymbolKey::tag("test.module", "mytag"),
-            djls_semantic::BlockSpec {
-                end_tag: Some("endmytag".to_string()),
-                intermediates: vec![],
-                opaque: false,
-            },
-        );
-        let mut external_block_specs = rustc_hash::FxHashMap::default();
-        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
-        project
-            .set_extracted_external_block_specs(&mut db)
-            .to(external_block_specs);
-
-        let stored = project.extracted_external_block_specs(&db);
-        assert_eq!(stored.len(), 1);
-        assert_eq!(stored["test.module"].len(), 1);
-    }
-
-    #[test]
     fn discovered_template_libraries_stored_on_project() {
         let (db, _event_log) = test_db_with_project();
 
@@ -720,97 +620,6 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn extracted_rules_change_invalidates_compute_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        // Set extraction results on the project
-        let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_semantic::ExtractionResult::default();
-        extraction.block_specs.insert(
-            djls_semantic::SymbolKey::tag("test.module", "customblock"),
-            djls_semantic::BlockSpec {
-                end_tag: Some("endcustomblock".to_string()),
-                intermediates: vec![],
-                opaque: false,
-            },
-        );
-        let mut external_block_specs = rustc_hash::FxHashMap::default();
-        external_block_specs.insert("test.module".to_string(), extraction.block_specs);
-        project
-            .set_extracted_external_block_specs(&mut db)
-            .to(external_block_specs);
-
-        // Access tag_specs — should re-execute because extracted_external_block_specs changed
-        let specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after extracted_external_block_specs change"
-        );
-
-        // The merged specs should include the extracted block tag
-        assert!(
-            specs.get("customblock").is_some(),
-            "tag specs should include extracted block tag"
-        );
-        assert_eq!(
-            specs
-                .get("customblock")
-                .unwrap()
-                .end_tag
-                .as_ref()
-                .unwrap()
-                .name
-                .as_ref(),
-            "endcustomblock"
-        );
-    }
-
-    #[test]
-    fn external_filter_arities_do_not_invalidate_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime both caches.
-        let _tag_specs = db.tag_specs();
-        let _filter_specs = db.filter_arity_specs();
-        event_log.take();
-
-        let project = db.project.lock().unwrap().unwrap();
-        let mut filter_arities = rustc_hash::FxHashMap::default();
-        filter_arities.insert(
-            djls_semantic::SymbolKey::filter("test.module", "customfilter"),
-            djls_semantic::FilterArity {
-                expects_arg: true,
-                arg_optional: false,
-            },
-        );
-        let mut external_filter_arities = rustc_hash::FxHashMap::default();
-        external_filter_arities.insert("test.module".to_string(), filter_arities);
-        project
-            .set_extracted_external_filter_arities(&mut db)
-            .to(external_filter_arities);
-
-        let _tag_specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should not re-execute after filter-only extraction changes"
-        );
-
-        let filter_specs = db.filter_arity_specs();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_filter_arity_specs"),
-            "compute_filter_arity_specs should re-execute after filter arities change"
-        );
-        assert!(filter_specs.get("customfilter").is_some());
-    }
-
-    #[test]
     fn model_graph_empty_when_no_models() {
         let (db, _event_log) = test_db_with_project();
         let graph = db.model_graph();
@@ -834,70 +643,5 @@ def my_filter(value, arg):
             !was_executed(&db, &events, "compute_model_graph"),
             "compute_model_graph should NOT re-execute on second call (cached)"
         );
-    }
-
-    #[test]
-    fn external_models_change_invalidates_compute_model_graph() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _graph = db.model_graph();
-        event_log.take();
-
-        // Set external model data
-        let project = db.project.lock().unwrap().unwrap();
-        let mut model_graph = djls_semantic::ModelGraph::new();
-        let mut user = djls_semantic::ModelDef::new("User", "auth.models", 1);
-        user.relations.push(djls_semantic::Relation {
-            field_name: "profile".into(),
-            relation_type: djls_semantic::RelationType::OneToOne {
-                target_model: "Profile".into(),
-                related_name: None,
-            },
-        });
-        model_graph.add_model(user);
-
-        let mut external_models = rustc_hash::FxHashMap::default();
-        external_models.insert(djls_semantic::ModulePath::new("auth.models"), model_graph);
-        project
-            .set_extracted_external_models(&mut db)
-            .to(external_models);
-
-        // Access again — should re-execute
-        let graph = db.model_graph();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_model_graph"),
-            "compute_model_graph should re-execute after extracted_external_models change"
-        );
-
-        assert!(
-            graph.get("User").is_some(),
-            "model graph should include User from external models"
-        );
-    }
-
-    #[test]
-    fn external_models_stored_on_project() {
-        let (mut db, _event_log) = test_db_with_project();
-        let project = db.project.lock().unwrap().unwrap();
-
-        assert!(
-            project.extracted_external_models(&db).is_empty(),
-            "extracted_external_models should be empty initially"
-        );
-
-        let mut model_graph = djls_semantic::ModelGraph::new();
-        model_graph.add_model(djls_semantic::ModelDef::new("Article", "blog.models", 1));
-        let key = djls_semantic::ModulePath::new("blog.models");
-        let mut external_models = rustc_hash::FxHashMap::default();
-        external_models.insert(key.clone(), model_graph);
-        project
-            .set_extracted_external_models(&mut db)
-            .to(external_models);
-
-        let stored = project.extracted_external_models(&db);
-        assert_eq!(stored.len(), 1);
-        assert!(stored.contains_key(key.as_str()));
     }
 }

@@ -4,9 +4,9 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
-use djls_corpus::lock::LockFilter;
-use djls_corpus::lock::Lockfile;
-use djls_corpus::manifest::Manifest;
+use djls_corpus::LockFilter;
+use djls_corpus::Lockfile;
+use djls_corpus::Manifest;
 
 #[derive(Parser)]
 #[command(name = "djls-corpus", about = "Manage the Django template corpus")]
@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             let corpus_root = manifest.corpus_root(manifest_dir)?;
 
             tracing::info!(%corpus_root, "syncing corpus");
-            djls_corpus::sync::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
+            djls_corpus::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
             tracing::info!(%corpus_root, "corpus synced");
         }
         Command::Clean { names } => {
@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
                 std::fs::remove_dir_all(corpus_root.as_std_path())?;
                 tracing::info!("corpus cleaned");
             } else {
-                djls_corpus::sync::clean_entries(&corpus_root, &names)?;
+                djls_corpus::clean_entries(&corpus_root, &names)?;
             }
         }
     }
@@ -125,8 +125,7 @@ fn update_lockfile(
         .join("licenses");
 
     tracing::info!("resolving latest versions");
-    let (lockfile, errors) =
-        djls_corpus::lock::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
+    let (lockfile, errors) = djls_corpus::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
     lockfile.save(lockfile_path)?;
     tracing::info!(%lockfile_path, "lockfile updated");
 

@@ -1,21 +1,28 @@
 use camino::Utf8PathBuf;
-use djls_semantic::BlockSpecMap;
-use djls_semantic::ExtractionResult;
-use djls_semantic::FilterArityMap;
-use djls_semantic::ModelGraph;
-use djls_semantic::ModulePath;
-use djls_semantic::ProjectDb;
-use djls_semantic::ResolvedModule;
-use djls_semantic::TagRuleMap;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use salsa::Setter;
 
+use super::db::Db;
+use super::resolve::build_search_paths;
+use super::resolve::discover_model_files_in_dir;
+use super::resolve::find_site_packages;
+use super::resolve::resolve_modules;
+use super::resolve::ResolvedModule;
+use crate::python::extract_model_graph;
+use crate::python::extract_rules;
+use crate::python::BlockSpecs;
+use crate::python::ExtractionResult;
+use crate::python::FilterArityMap;
+use crate::python::ModelGraph;
+use crate::python::ModulePath;
+use crate::python::TagRuleMap;
+
 /// Read discovered model files and extract model graphs.
 ///
-/// Takes a list of `(module_path, file_path)` pairs (produced by semantic
-/// module discovery) and returns a map of module path to extracted
-/// model graph, skipping files that fail to read or produce empty graphs.
+/// Takes a list of `(module_path, file_path)` pairs and returns a map of
+/// module path to extracted model graph, skipping files that fail to read or
+/// produce empty graphs.
 fn extract_models_from_files(
     files: &[(ModulePath, Utf8PathBuf)],
 ) -> FxHashMap<ModulePath, ModelGraph> {
@@ -30,7 +37,7 @@ fn extract_models_from_files(
             }
         };
 
-        let graph = djls_semantic::extract_model_graph(&source, module_path.as_str());
+        let graph = extract_model_graph(&source, module_path.as_str());
         if !graph.is_empty() {
             results.insert(module_path.clone(), graph);
         }
@@ -41,15 +48,15 @@ fn extract_models_from_files(
 
 /// Read resolved external module files and extract validation rules.
 ///
-/// Takes resolved module metadata, reads each file from disk, and runs
-/// rule extraction. Skips files that fail to read or produce empty results.
+/// Takes resolved module metadata, reads each file from disk, and runs rule
+/// extraction. Skips files that fail to read or produce empty results.
 fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String, ExtractionResult> {
     let mut results = FxHashMap::default();
 
     for resolved in modules {
         match std::fs::read_to_string(resolved.file_path.as_std_path()) {
             Ok(source) => {
-                let module_result = djls_semantic::extract_rules(&source, &resolved.module_path);
+                let module_result = extract_rules(&source, &resolved.module_path);
                 if !module_result.is_empty() {
                     results.insert(resolved.module_path, module_result);
                 }
@@ -66,7 +73,7 @@ fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String,
 struct SplitExtractionResults {
     tag_rules: FxHashMap<String, TagRuleMap>,
     filter_arities: FxHashMap<String, FilterArityMap>,
-    block_specs: FxHashMap<String, BlockSpecMap>,
+    block_specs: FxHashMap<String, BlockSpecs>,
 }
 
 impl SplitExtractionResults {
@@ -103,14 +110,21 @@ fn split_extraction_results(
     split
 }
 
+/// Refresh external (non-workspace) semantic project data.
+///
+/// Scans the configured Python environment for installed-package template rule
+/// extraction data and model definitions, then updates the current project only
+/// when values changed. Workspace files are handled by tracked Salsa queries so
+/// they can invalidate automatically on file changes.
+pub(super) fn refresh_external_semantic_data(db: &mut dyn Db) {
+    scan_external_rules(db);
+    scan_external_models(db);
+}
+
 /// Scan the venv's site-packages for `models.py` files and extract model
 /// graphs. Updates the project's `extracted_external_models` field if the
 /// results differ from the current value.
-///
-/// Workspace `models.py` files are handled separately by
-/// `collect_workspace_models` which uses tracked Salsa queries for
-/// automatic invalidation on file change.
-pub(crate) fn scan_external_models(db: &mut dyn ProjectDb) {
+fn scan_external_models(db: &mut dyn Db) {
     let Some(project) = db.project() else {
         return;
     };
@@ -118,9 +132,9 @@ pub(crate) fn scan_external_models(db: &mut dyn ProjectDb) {
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
 
-    let new_models = match djls_semantic::find_site_packages(&interpreter, &root) {
+    let new_models = match find_site_packages(&interpreter, &root) {
         Some(site_packages) => {
-            let files = djls_semantic::discover_model_files_in_dir(&site_packages);
+            let files = discover_model_files_in_dir(&site_packages);
             extract_models_from_files(&files)
         }
         None => FxHashMap::default(),
@@ -133,10 +147,7 @@ pub(crate) fn scan_external_models(db: &mut dyn ProjectDb) {
 
 /// Extract validation rules from external (non-workspace) registration modules
 /// and update the project's extracted rules if they differ.
-///
-/// Workspace modules are handled separately by domain-specific tracked Salsa
-/// queries for automatic invalidation on file change.
-pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
+fn scan_external_rules(db: &mut dyn Db) {
     let Some(project) = db.project() else {
         return;
     };
@@ -155,12 +166,9 @@ pub(crate) fn scan_external_rules(db: &mut dyn ProjectDb) {
     let new_extraction = if modules.is_empty() {
         SplitExtractionResults::empty()
     } else {
-        let search_paths = djls_semantic::build_search_paths(&interpreter, &root, &pythonpath);
-        let (_workspace, external_modules) = djls_semantic::resolve_modules(
-            modules.iter().map(String::as_str),
-            &search_paths,
-            &root,
-        );
+        let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
+        let (_workspace, external_modules) =
+            resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
         split_extraction_results(extract_rules_from_modules(external_modules))
     };
 
@@ -206,7 +214,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = djls_semantic::discover_model_files_in_dir(&root);
+        let files = discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
@@ -222,7 +230,7 @@ class Article(models.Model):
         std::fs::create_dir_all(&app_dir).unwrap();
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let files = djls_semantic::discover_model_files_in_dir(&root);
+        let files = discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert!(results.is_empty());
     }
@@ -245,7 +253,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let files = djls_semantic::discover_model_files_in_dir(&root);
+        let files = discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
@@ -275,7 +283,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = djls_semantic::discover_model_files_in_dir(&root);
+        let files = discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
@@ -300,7 +308,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = djls_semantic::discover_model_files_in_dir(&root);
+        let files = discover_model_files_in_dir(&root);
         let results = extract_models_from_files(&files);
         assert!(
             results.contains_key("myapp.models.base.abstract"),

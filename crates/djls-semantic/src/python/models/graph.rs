@@ -6,27 +6,23 @@ use serde::Deserialize;
 use serde::Serialize;
 
 macro_rules! string_newtype {
-    ($(#[doc = $doc:expr])* pub struct $Name:ident) => {
+    ($(#[doc = $doc:expr])* $vis:vis struct $Name:ident) => {
         $(#[doc = $doc])*
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         #[serde(transparent)]
-        pub struct $Name(String);
+        $vis struct $Name(String);
 
         impl $Name {
             #[must_use]
-            pub fn new(value: impl Into<String>) -> Self {
+            $vis fn new(value: impl Into<String>) -> Self {
                 Self(value.into())
             }
 
             #[must_use]
-            pub fn as_str(&self) -> &str {
+            $vis fn as_str(&self) -> &str {
                 &self.0
             }
 
-            #[must_use]
-            pub fn into_string(self) -> String {
-                self.0
-            }
         }
 
         impl Borrow<str> for $Name {
@@ -57,7 +53,7 @@ macro_rules! string_newtype {
 
 string_newtype! {
     /// A Django model class name (e.g., `"User"`, `"Article"`).
-    pub struct ModelName
+    pub(crate) struct ModelName
 }
 
 string_newtype! {
@@ -66,10 +62,17 @@ string_newtype! {
     pub struct ModulePath
 }
 
+impl ModulePath {
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
 string_newtype! {
     /// A Python field/attribute name on a Django model (e.g., `"user"`,
     /// `"content_type"`).
-    pub struct FieldName
+    pub(crate) struct FieldName
 }
 
 /// The kind of relation a Django model field represents.
@@ -79,7 +82,7 @@ string_newtype! {
 /// absent rather than wrapped in `Option`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "relation_type")]
-pub enum RelationType {
+pub(crate) enum RelationType {
     ForeignKey {
         target_model: ModelName,
         related_name: Option<String>,
@@ -108,7 +111,7 @@ impl RelationType {
     ///
     /// Returns `None` for unrecognized names.
     #[must_use]
-    pub fn from_field_class(
+    pub(crate) fn from_field_class(
         name: &str,
         target_model: ModelName,
         related_name: Option<String>,
@@ -138,7 +141,7 @@ impl RelationType {
 /// exhaustive match enforcement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ModelKind {
+pub(crate) enum ModelKind {
     Concrete,
     Abstract,
 }
@@ -149,10 +152,10 @@ pub enum ModelKind {
 /// concrete relations (FK, O2O, M2M) carry a `target_model` and optional
 /// `related_name`, while `GenericForeignKey` carries `ct_field`/`fk_field`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Relation {
-    pub field_name: FieldName,
+pub(crate) struct Relation {
+    pub(crate) field_name: FieldName,
     #[serde(flatten)]
-    pub relation_type: RelationType,
+    pub(crate) relation_type: RelationType,
 }
 
 impl Relation {
@@ -161,7 +164,7 @@ impl Relation {
     /// Returns `None` for `GenericForeignKey` since its target is determined
     /// at runtime via the content type.
     #[must_use]
-    pub fn target_model(&self) -> Option<&ModelName> {
+    pub(crate) fn target_model(&self) -> Option<&ModelName> {
         match &self.relation_type {
             RelationType::ForeignKey { target_model, .. }
             | RelationType::OneToOne { target_model, .. }
@@ -182,7 +185,11 @@ impl Relation {
     /// `module_path` is the dotted Python module path (e.g., `"myapp.models"`);
     /// the app label is derived as the component before `models`.
     #[must_use]
-    pub fn effective_related_name(&self, source_model: &str, module_path: &str) -> Option<String> {
+    pub(crate) fn effective_related_name(
+        &self,
+        source_model: &str,
+        module_path: &str,
+    ) -> Option<String> {
         let lower = source_model.to_lowercase();
         match &self.relation_type {
             RelationType::ForeignKey { related_name, .. }
@@ -230,11 +237,11 @@ fn app_label_from_module_path(module_path: &str) -> Option<String> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
-    pub name: ModelName,
-    pub module_path: ModulePath,
-    pub line: usize,
-    pub relations: Vec<Relation>,
-    pub kind: ModelKind,
+    pub(crate) name: ModelName,
+    pub(crate) module_path: ModulePath,
+    pub(crate) line: usize,
+    pub(crate) relations: Vec<Relation>,
+    pub(crate) kind: ModelKind,
 }
 
 impl ModelDef {
@@ -312,19 +319,19 @@ impl ModelGraph {
 
     /// Look up models that point at `model_name` via a reverse relation.
     ///
-    /// Returns `(source_model_name, effective_related_name, relation)` triples.
-    /// Skips `GenericForeignKey` relations.
+    /// Returns `(source_model_name, effective_related_name)` pairs. Skips
+    /// `GenericForeignKey` relations.
     pub fn resolve_reverse<'a>(
         &'a self,
         model_name: &'a str,
-    ) -> impl Iterator<Item = (&'a str, String, &'a Relation)> {
+    ) -> impl Iterator<Item = (&'a str, String)> {
         self.models.values().flat_map(move |m| {
             m.relations
                 .iter()
                 .filter(move |r| r.target_model().is_some_and(|t| t.as_str() == model_name))
                 .filter_map(move |r| {
                     r.effective_related_name(m.name.as_str(), m.module_path.as_str())
-                        .map(|name| (m.name.as_str(), name, r))
+                        .map(|name| (m.name.as_str(), name))
                 })
         })
     }
@@ -343,7 +350,7 @@ impl ModelGraph {
         }
 
         // Reverse
-        for (source_name, related_name, _) in self.resolve_reverse(model_name) {
+        for (source_name, related_name) in self.resolve_reverse(model_name) {
             if related_name == field_name {
                 return Some(source_name);
             }
@@ -406,7 +413,7 @@ mod tests {
         let graph = user_order_graph();
         let reverses: Vec<_> = graph
             .resolve_reverse("User")
-            .map(|(src, name, _)| (src.to_string(), name))
+            .map(|(src, name)| (src.to_string(), name))
             .collect();
         assert!(reverses.contains(&("Order".into(), "orders".into())));
         assert!(reverses.contains(&("Profile".into(), "profile".into())));
