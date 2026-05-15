@@ -5,8 +5,6 @@ use djls_conf::TagSpecDef;
 use rustc_hash::FxHashMap;
 
 use crate::project::db::Db as ProjectDb;
-use crate::project::django::django_available;
-use crate::project::django::template_dirs;
 use crate::project::python::Interpreter;
 use crate::project::symbols::TemplateLibraries;
 use crate::python::BlockSpecs;
@@ -14,6 +12,32 @@ use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkspaceSemanticSources {
+    model_files: Vec<(ModulePath, Utf8PathBuf)>,
+    registration_modules: Vec<(String, Utf8PathBuf)>,
+}
+
+impl WorkspaceSemanticSources {
+    pub(crate) fn new(
+        model_files: Vec<(ModulePath, Utf8PathBuf)>,
+        registration_modules: Vec<(String, Utf8PathBuf)>,
+    ) -> Self {
+        Self {
+            model_files,
+            registration_modules,
+        }
+    }
+
+    pub(crate) fn model_files(&self) -> &[(ModulePath, Utf8PathBuf)] {
+        &self.model_files
+    }
+
+    pub(crate) fn registration_modules(&self) -> &[(String, Utf8PathBuf)] {
+        &self.registration_modules
+    }
+}
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -42,6 +66,9 @@ pub struct Project {
     /// env file (e.g. `.env`). Each entry is a `(key, value)` pair.
     #[returns(ref)]
     pub env_vars: Vec<(String, String)>,
+    /// Template directories reported by project introspection.
+    #[returns(ref)]
+    pub template_dirs: Option<Vec<Utf8PathBuf>>,
     /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
@@ -54,6 +81,9 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
+    /// Workspace Python files discovered by project refresh.
+    #[returns(ref)]
+    pub(crate) workspace_semantic_sources: WorkspaceSemanticSources,
     /// Extracted tag rules from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_external_data`. Workspace files use tracked queries.
@@ -88,18 +118,15 @@ impl Project {
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
             env_vars,
+            None,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
+            WorkspaceSemanticSources::default(),
             FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
         )
-    }
-
-    pub fn initialize(self, db: &dyn ProjectDb) {
-        let _ = django_available(db, self);
-        let _ = template_dirs(db, self);
     }
 }
 

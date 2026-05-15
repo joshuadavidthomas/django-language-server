@@ -211,7 +211,15 @@ impl djls_source::Db for TestDatabase {
 }
 
 #[salsa::db]
-impl djls_templates::Db for TestDatabase {}
+impl crate::ProjectDb for TestDatabase {
+    fn project(&self) -> Option<crate::Project> {
+        None
+    }
+
+    fn project_introspector(&self) -> Arc<crate::ProjectIntrospector> {
+        Arc::new(crate::ProjectIntrospector::new())
+    }
+}
 
 #[salsa::db]
 impl crate::Db for TestDatabase {

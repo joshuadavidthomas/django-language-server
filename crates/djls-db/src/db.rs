@@ -1,7 +1,7 @@
 //! Concrete Salsa database implementation for the Django Language Server.
 //!
 //! This module provides the concrete [`DjangoDatabase`] that implements all
-//! the database traits from workspace, template, and project crates. This follows
+//! the database traits from source, semantic, and project crates. This follows
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::sync::Arc;
@@ -13,7 +13,6 @@ use djls_conf::Settings;
 use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
-use djls_semantic::template_dirs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
@@ -23,15 +22,13 @@ use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FxDashMap;
-use djls_templates::Db as TemplateDb;
-use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
 /// This database implements all the traits from various crates:
-/// - [`WorkspaceDb`] for file system access and core operations
-/// - [`TemplateDb`] for template parsing and diagnostics
+/// - [`SourceDb`] for file tracking and file reads
+/// - [`SemanticDb`] for template semantics and diagnostics
 /// - [`ProjectDb`] for project metadata and Python environment
 #[salsa::db]
 #[derive(Clone)]
@@ -142,16 +139,6 @@ impl SourceDb for DjangoDatabase {
 }
 
 #[salsa::db]
-impl WorkspaceDb for DjangoDatabase {
-    fn fs(&self) -> Arc<dyn FileSystem> {
-        self.fs.clone()
-    }
-}
-
-#[salsa::db]
-impl TemplateDb for DjangoDatabase {}
-
-#[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         if let Some(project) = self.project() {
@@ -165,7 +152,7 @@ impl SemanticDb for DjangoDatabase {
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
         self.project()
-            .and_then(|project| template_dirs(self, project))
+            .and_then(|project| project.template_dirs(self).clone())
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -229,6 +216,7 @@ mod invalidation_tests {
     use djls_semantic::Knowledge;
     use djls_semantic::Project;
     use djls_semantic::TemplateLibraries;
+    use djls_semantic::WorkspaceSemanticSources;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
@@ -300,8 +288,10 @@ mod invalidation_tests {
             dsm,
             settings.pythonpath().to_vec(),
             Vec::new(),
+            None,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
+            WorkspaceSemanticSources::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),

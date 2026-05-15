@@ -1,10 +1,10 @@
-//! Django template parsing, validation, and diagnostics.
+//! Django template syntax parsing.
 //!
-//! This crate provides comprehensive support for Django template files including:
+//! This crate provides Django template lexing and parsing:
 //! - Lexical analysis and tokenization
 //! - Parsing into a flat node list
-//! - Validation using configurable tag specifications
-//! - LSP diagnostic generation with Salsa integration
+//! - Error recovery for incomplete editor input
+//! - Parse diagnostics through a Salsa accumulator
 //!
 //! ## Architecture
 //!
@@ -12,21 +12,13 @@
 //!
 //! 1. **Lexing**: Template text is tokenized into Django constructs (tags, variables, text)
 //! 2. **Parsing**: Tokens are parsed into a flat node list
-//! 3. **Validation**: The node list is validated using the visitor pattern
-//! 4. **Diagnostics**: Errors are converted to LSP diagnostics via Salsa accumulators
+//! 3. **Diagnostics**: Parse errors are emitted through a Salsa accumulator
 //!
 //! ## Key Components
 //!
-//! - [`nodelist`]: Node list definitions and structure
-//! - [`db`]: Salsa database integration for incremental computation
-//! - [`validation`]: Validation rules using the visitor pattern
-//! - [`tagspecs`]: Django tag specifications for validation
-//!
-//! ## Adding New Validation Rules
-//!
-//! 1. Add the error variant to [`TemplateError`]
-//! 2. Implement the check in the validation module
-//! 3. Add corresponding tests
+//! - [`NodeList`]: Parsed template nodes
+//! - [`Node`]: Individual parsed template node
+//! - [`TemplateErrorAccumulator`]: Salsa accumulator for parse errors
 //!
 //! ## Example
 //!
@@ -56,8 +48,8 @@ mod visitor;
 
 pub use bits::FilterArgument;
 pub use bits::TagBit;
-pub use db::Db;
 pub use db::TemplateErrorAccumulator;
+use djls_source::Db;
 use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;

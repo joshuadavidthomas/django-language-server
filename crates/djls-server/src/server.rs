@@ -1,6 +1,9 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use djls_semantic::load_template_library_cache;
+use djls_semantic::project_root_or_cwd;
+use djls_semantic::refresh_external_data;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ProjectDb;
 use djls_source::Db as SourceDb;
@@ -202,7 +205,7 @@ impl LanguageServer for DjangoLanguageServer {
         let cache_loaded = self
             .with_session_mut(|session| {
                 let t = std::time::Instant::now();
-                let loaded = session.db_mut().load_template_library_cache();
+                let loaded = load_template_library_cache(session.db_mut());
                 if loaded {
                     tracing::info!(
                         "Template library snapshot cache loaded in {:?}",
@@ -226,15 +229,10 @@ impl LanguageServer for DjangoLanguageServer {
                 let db = session_lock.db_mut();
 
                 let t = std::time::Instant::now();
-                db.refresh_external_data();
+                refresh_external_data(db);
                 tracing::info!("External data refresh completed in {:?}", t.elapsed());
 
-                if let Some(project) = db.project() {
-                    let path = project.root(db).clone();
-                    tracing::info!("Task: Starting initialization for project at: {}", path);
-                    project.initialize(db);
-                    tracing::info!("Task: Successfully initialized project: {}", path);
-                } else {
+                if db.project().is_none() {
                     tracing::info!("Task: No project configured, skipping initialization.");
                 }
 
@@ -529,7 +527,7 @@ impl LanguageServer for DjangoLanguageServer {
                     return djls_db::SettingsUpdate::default();
                 }
 
-                let project_root = session.db().project_root_or_cwd();
+                let project_root = project_root_or_cwd(session.db());
 
                 match djls_conf::Settings::new(
                     &project_root,
@@ -561,12 +559,8 @@ impl LanguageServer for DjangoLanguageServer {
                     }
 
                     let t = std::time::Instant::now();
-                    db.refresh_external_data();
+                    refresh_external_data(db);
                     tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                    if let Some(project) = db.project() {
-                        project.initialize(db);
-                    }
 
                     tracing::info!("Environment refresh completed in {:?}", start.elapsed());
                     Ok(())

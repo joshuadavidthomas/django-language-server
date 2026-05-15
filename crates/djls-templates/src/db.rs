@@ -1,8 +1,8 @@
-//! Template-specific database trait and Salsa integration.
+//! Template parser Salsa diagnostics.
 //!
-//! This module implements the incremental computation infrastructure for Django templates
-//! using Salsa. It extends the workspace database with template-specific functionality
-//! including parsing, validation, and error accumulation.
+//! This module provides the accumulator used by template parsing. The parser
+//! itself depends directly on `djls_source::Db` because it only needs file
+//! source text.
 //!
 //! ## Architecture
 //!
@@ -13,7 +13,6 @@
 //!
 //! ## Key Components
 //!
-//! - [`Db`]: Database trait extending the workspace database
 //! - [`parse_template`]: Main entry point for template parsing
 //! - [`TemplateErrorAccumulator`]: Accumulator for collecting template errors
 //!
@@ -42,14 +41,8 @@
 //! }
 //! ```
 
-use djls_source::Db as SourceDb;
-
 use crate::error::TemplateError;
 
 /// Accumulator for template errors
 #[salsa::accumulator]
 pub struct TemplateErrorAccumulator(pub TemplateError);
-
-/// Template-specific database trait extending the workspace database
-#[salsa::db]
-pub trait Db: SourceDb {}

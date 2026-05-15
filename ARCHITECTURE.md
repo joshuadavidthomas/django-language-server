@@ -48,7 +48,7 @@ The LSP server. This is the crate that wires everything together at runtime.
 `Session` owns the `DjangoDatabase` and all document state. It's behind a `tokio::Mutex`, and request handlers access it through helper methods:
 
 - `with_session` / `with_session_mut` — lock the session and run a synchronous closure. All current LSP request handlers (completions, folding ranges, goto definition, references, diagnostics) use this path.
-- `with_session_mut_task` — submit an async task to a `Queue` backed by an mpsc channel. Used for expensive background work like inspector refresh, so it doesn't block the request path.
+- `with_session_mut_task` — submit an async task to a `Queue` backed by an mpsc channel. Used for expensive background work like project introspection refresh, so it doesn't block the request path.
 
 A `SessionSnapshot` type (idea borrowed from Ruff/ty, natch) exists for cloning the database for concurrent read-only access, but current request handlers don't use it yet — everything goes through the session lock. This could evolve toward a snapshot-per-request model, but it hasn't been necessary so far.
 
@@ -56,9 +56,9 @@ A `SessionSnapshot` type (idea borrowed from Ruff/ty, natch) exists for cloning 
 
 ### `crates/djls-db`
 
-The concrete Salsa database. `DjangoDatabase` implements every `Db` trait defined across the other crates — it's the single type that ties the whole trait hierarchy together. Both the LSP server and the `djls check` CLI use it.
+The concrete Salsa database. `DjangoDatabase` owns Salsa storage plus runtime infrastructure: the overlay-backed file reader, the tracked-file side table, the current `Project` input handle, settings, and the project introspector process manager. It implements the database traits defined by the lower crates. Both the LSP server and the `djls check` CLI use it.
 
-This crate also owns the inspector refresh logic: querying the Python subprocess, updating Salsa inputs with the results, and managing the disk cache at `~/.cache/djls/inspector/`.
+This crate should stay boring. It wires traits to concrete state and handles local mutation such as settings updates and file creation. Project refresh workflows live in `djls-semantic`; CLI and LSP orchestration live in `djls` and `djls-server`.
 
 ### `crates/djls-templates`
 
@@ -96,7 +96,7 @@ This crate also owns:
 
 **Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
 
-`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template libraries, and extraction results. This module also owns the Python inspector subprocess (`Inspector`), module resolution, and the `TemplateLibraries` type that holds the combined knowledge from inspector results and environment scanning.
+`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template directories, template libraries, and extraction results. This module also owns project introspection, module resolution, and the `TemplateLibraries` type that holds the combined knowledge from introspection results and environment scanning. Imperative refresh functions in this module synchronize external project state into Salsa inputs; tracked semantic queries then derive validation data from those inputs.
 
 ### `crates/djls-ide`
 
@@ -126,20 +126,25 @@ Corpus management for integration tests. Syncs real-world Django project source 
 
 ## The Database Trait Stack
 
-Salsa requires a single concrete database type, but we don't want every crate to depend on every other crate. Layered traits let each crate declare only the capabilities it needs:
+Salsa requires a single concrete database type, but each crate should see only the capabilities it needs. DJLS follows the same broad pattern as Ruff/ty, rust-analyzer, BAML, and Cairo: the concrete database owns state, database traits expose capabilities, tracked functions compute derived facts, and imperative refresh code stays outside tracked queries.
 
 ```
 salsa::Database
-├── SourceDb          (djls-source)    — file tracking, read_file, revision bumping
-│   ├── WorkspaceDb   (djls-workspace) — file system access (overlay → disk)
-│   └── TemplateDb    (djls-templates) — marker trait for template parsing context
-│       └── SemanticDb (djls-semantic) — tag specs, filter specs, template libraries, diagnostics config
-└── ProjectDb         (djls-semantic)  — project input, inspector access
+├── SourceDb   (djls-source)   — tracked files, file lookup, read_file
+└── ProjectDb  (djls-semantic) — current Project input, project introspector
+     └── SemanticDb (djls-semantic) — semantic accessors used by validation and IDE features
 ```
 
-Note the two independent roots: `SourceDb` and `ProjectDb` both extend `salsa::Database` directly. `TemplateDb` extends `SourceDb` (not `WorkspaceDb`) — it needs file access but not the overlay filesystem.
+Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. `djls-workspace` also has no database trait; it owns document buffers, the overlay filesystem, and file discovery helpers, while `DjangoDatabase` observes that state through `SourceDb::read_file`.
 
-`DjangoDatabase` in `djls-db` implements all of them. Test databases and `BenchDatabase` implement only the subset they need, which keeps tests fast and focused.
+`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` can still implement the same traits with fixture-backed semantic data, but the trait hierarchy now makes project context an explicit semantic dependency.
+
+### Salsa boundary rules
+
+- Concrete database structs own storage and runtime infrastructure. They should not become semantic service objects.
+- Database traits describe capabilities: file access, current project access, introspector access, or semantic fixture access.
+- Tracked queries compute values from Salsa inputs and tracked files. They should not query subprocesses, write caches, or mutate inputs.
+- Free functions perform imperative synchronization from the outside world into Salsa inputs: loading the introspection cache, refreshing template directories and libraries, discovering workspace Python files, scanning installed packages, and updating `Project` fields with setters.
 
 ## How Knowledge Gets In
 
@@ -150,12 +155,12 @@ Note the two independent roots: `SourceDb` and `ProjectDb` both extend `salsa::D
 
 The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, templatetag libraries, and the symbols they export. A Python subprocess currently provides this.
 
-A small Python program from `crates/djls-semantic/inspector/` ships embedded in the binary as a zipapp. At startup the server writes it to a temp file and runs it against the project's Python interpreter with Django configured. The inspector queries Django's template engine registry and returns JSON describing installed libraries and their symbols.
+A small Python program from `crates/djls-semantic/inspector/` ships embedded in the binary as a zipapp. At startup the server writes it to a temp file and runs it against the project's Python interpreter with Django configured. Project introspection queries Django's template engine registry and returns JSON describing template directories, installed libraries, and their symbols.
 
 Startup uses two phases to avoid blocking the editor:
 
 1. A cache check during `initialized`. The server loads a cached inspector response from `~/.cache/djls/inspector/`. The cache key is a SHA-256 hash of the project root, interpreter path, settings module, and PYTHONPATH. If the cache exists (and its `djls_version` matches), the server becomes functional immediately with the cached data.
-2. A background task spawns the real inspector subprocess, updates the Salsa inputs, and writes a fresh cache. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
+2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, template libraries, discovered workspace Python files, extracted validation rules from installed packages, and external model graphs. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
 
 This means that in the common case (you've opened this project before and the environment hasn't changed), startup is nearly instant — the server just reads a JSON file from disk.
 
@@ -173,7 +178,7 @@ This works well for `simple_tag` and `inclusion_tag` registrations where the fun
 Two paths exist for extraction:
 
 - **External modules** (site-packages) — extracted once during startup, stored in `Project.extracted_external_rules`. These don't change during a session.
-- **Workspace modules** (project code) — extracted via Salsa tracked queries, so they automatically recompute when you edit a templatetag file.
+- **Workspace modules** (project code) — discovered during project refresh, then extracted through Salsa tracked queries over tracked files. Edits to known files recompute automatically; new files enter the graph on the next project refresh.
 
 ## The Template Pipeline
 

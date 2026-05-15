@@ -7,10 +7,10 @@
 use std::sync::Arc;
 
 use camino::Utf8Path;
+use djls_source::Db;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
 
-use crate::db::Db;
 use crate::document::DocumentChange;
 use crate::document::TextDocument;
 use crate::files::Buffers;
@@ -383,13 +383,6 @@ mod tests {
 
             fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
                 self.fs.read_to_string(path)
-            }
-        }
-
-        #[salsa::db]
-        impl crate::db::Db for TestDb {
-            fn fs(&self) -> Arc<dyn FileSystem> {
-                self.fs.clone()
             }
         }
 

@@ -9,8 +9,7 @@ use crate::db::Db as SemanticDb;
 use crate::primitives::Template;
 use crate::primitives::TemplateName;
 
-#[salsa::tracked]
-pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
+pub(crate) fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
     let mut templates = Vec::new();
 
     // TODO(virtual-paths): After DocumentPath enum is added, also discover
@@ -56,8 +55,7 @@ pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
     templates
 }
 
-#[salsa::tracked]
-pub fn find_template<'db>(
+pub(crate) fn find_template<'db>(
     db: &'db dyn SemanticDb,
     template_name: TemplateName<'db>,
 ) -> Option<Template<'db>> {
@@ -148,7 +146,6 @@ pub fn find_references_to_template<'db>(
     matches
 }
 
-#[salsa::tracked]
 fn template_reference_index(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
     let mut references = Vec::new();
     let templates = discover_templates(db);

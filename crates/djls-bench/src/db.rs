@@ -9,7 +9,6 @@ use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FxDashMap;
-use djls_templates::Db as TemplateDb;
 use salsa::Setter;
 
 #[salsa::db]
@@ -93,7 +92,15 @@ impl SourceDb for Db {
 }
 
 #[salsa::db]
-impl TemplateDb for Db {}
+impl djls_semantic::ProjectDb for Db {
+    fn project(&self) -> Option<djls_semantic::Project> {
+        None
+    }
+
+    fn project_introspector(&self) -> Arc<djls_semantic::ProjectIntrospector> {
+        Arc::new(djls_semantic::ProjectIntrospector::new())
+    }
+}
 
 #[salsa::db]
 impl SemanticDb for Db {

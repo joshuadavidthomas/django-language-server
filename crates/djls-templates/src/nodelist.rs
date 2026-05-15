@@ -1,3 +1,4 @@
+use djls_source::Db;
 use djls_source::Offset;
 use djls_source::Span;
 
@@ -15,7 +16,7 @@ pub struct NodeList<'db> {
 
 impl<'db> NodeList<'db> {
     #[must_use]
-    pub fn node_at(self, db: &'db dyn crate::Db, offset: Offset) -> Option<&'db Node> {
+    pub fn node_at(self, db: &'db dyn Db, offset: Offset) -> Option<&'db Node> {
         self.nodelist(db)
             .iter()
             .find(|node| node.full_span().contains(offset))
