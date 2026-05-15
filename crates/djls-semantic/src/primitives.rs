@@ -3,6 +3,7 @@ use djls_source::File;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_templates::Node;
+use djls_templates::TagBit;
 
 use crate::db::Db as SemanticDb;
 
@@ -16,28 +17,32 @@ impl<'db> Template<'db> {
     pub fn path_buf(&'db self, db: &'db dyn SemanticDb) -> &'db Utf8PathBuf {
         self.file(db).path(db)
     }
+
+    pub fn tags(self, db: &'db dyn SemanticDb) -> &'db [Tag] {
+        template_tags(db, self)
+    }
 }
 
-#[salsa::tracked]
-impl<'db> Template<'db> {
-    #[salsa::tracked(returns(ref))]
-    pub fn tags(self, db: &'db dyn SemanticDb) -> Vec<Tag<'db>> {
-        let file = self.file(db);
-        let Some(nodelist) = parse_template(db, file) else {
-            return Vec::new();
-        };
+// Tags are a cached projection of a template's parsed nodes, not independent
+// Salsa identities. Keep the query boundary here and expose it through
+// `Template::tags` so callers can still ask a template for its tags.
+#[salsa::tracked(returns(ref))]
+fn template_tags(db: &dyn SemanticDb, template: Template<'_>) -> Vec<Tag> {
+    let file = template.file(db);
+    let Some(nodelist) = parse_template(db, file) else {
+        return Vec::new();
+    };
 
-        nodelist
-            .nodelist(db)
-            .iter()
-            .filter_map(|node| match node {
-                Node::Tag {
-                    name, bits, span, ..
-                } => Some(Tag::new(db, name.clone(), bits.clone(), *span)),
-                _ => None,
-            })
-            .collect()
-    }
+    nodelist
+        .nodelist(db)
+        .iter()
+        .filter_map(|node| match node {
+            Node::Tag {
+                name, bits, span, ..
+            } => Some(Tag::new(name.clone(), bits.clone(), *span)),
+            _ => None,
+        })
+        .collect()
 }
 
 #[salsa::interned]
@@ -46,11 +51,31 @@ pub struct TemplateName {
     pub name: String,
 }
 
-#[salsa::tracked]
-pub struct Tag<'db> {
-    #[returns(ref)]
-    pub name: String,
-    #[returns(ref)]
-    pub bits: Vec<djls_templates::TagBit>,
-    pub span: Span,
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Tag {
+    name: String,
+    bits: Vec<TagBit>,
+    span: Span,
+}
+
+impl Tag {
+    #[must_use]
+    pub fn new(name: String, bits: Vec<TagBit>, span: Span) -> Self {
+        Self { name, bits, span }
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn bits(&self) -> &[TagBit] {
+        &self.bits
+    }
+
+    #[must_use]
+    pub fn span(&self) -> Span {
+        self.span
+    }
 }
