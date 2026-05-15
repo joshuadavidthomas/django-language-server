@@ -29,6 +29,9 @@ fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_typ
             .collect()
     });
 
+    // `deprecated` is itself deprecated by LSP 3.15 in favor of `tags`, but
+    // `ls_types::DocumentSymbol` still includes the field for wire compatibility.
+    // We set both to `None` because template outline items are not deprecated.
     #[allow(deprecated)]
     ls_types::DocumentSymbol {
         name: item.label.clone(),
