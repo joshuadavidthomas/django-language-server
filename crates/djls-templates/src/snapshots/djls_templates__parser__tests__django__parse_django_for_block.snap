@@ -5,10 +5,22 @@ expression: test_nodelist
 nodelist:
   - type: Tag
     name: for
+    name_span:
+      - 3
+      - 3
     bits:
-      - item
-      - in
-      - items
+      - text: item
+        span:
+          - 7
+          - 4
+      - text: in
+        span:
+          - 12
+          - 2
+      - text: items
+        span:
+          - 15
+          - 5
     span:
       - 2
       - 19
@@ -26,6 +38,9 @@ nodelist:
       - 10
   - type: Tag
     name: empty
+    name_span:
+      - 36
+      - 5
     bits: []
     span:
       - 35
@@ -42,6 +57,9 @@ nodelist:
       - 8
   - type: Tag
     name: endfor
+    name_span:
+      - 55
+      - 6
     bits: []
     span:
       - 54

@@ -3,7 +3,7 @@ pub mod symbols;
 
 use djls_templates::Node;
 use djls_templates::NodeList;
-pub use loads::parse_load_bits;
+pub use loads::LoadArgument;
 pub use loads::LoadKind;
 pub use loads::LoadState;
 pub use loads::LoadStatement;
@@ -24,10 +24,7 @@ pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLi
         .filter_map(|node| match node {
             Node::Tag {
                 name, bits, span, ..
-            } if name == "load" => {
-                let kind = parse_load_bits(bits)?;
-                Some(LoadStatement::new(*span, kind))
-            }
+            } => LoadStatement::from_tag(name, bits, *span),
             _ => None,
         })
         .collect();

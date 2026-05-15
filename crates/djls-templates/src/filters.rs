@@ -1,6 +1,7 @@
 use djls_source::Span;
 use serde::Serialize;
 
+use crate::bits::FilterArgument;
 use crate::quotes::for_each_unquoted;
 
 /// A parsed filter expression within a Django variable node.
@@ -11,14 +12,22 @@ use crate::quotes::for_each_unquoted;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Filter {
     pub name: String,
-    pub arg: Option<String>,
+    pub arg: Option<FilterArgument>,
     pub span: Span,
 }
 
 impl Filter {
     #[must_use]
-    pub fn new(name: String, arg: Option<String>, span: Span) -> Self {
+    pub fn new(name: String, arg: Option<FilterArgument>, span: Span) -> Self {
         Self { name, arg, span }
+    }
+
+    #[must_use]
+    pub fn label(&self) -> String {
+        self.arg.as_ref().map_or_else(
+            || self.name.clone(),
+            |arg| format!("{}:{}", self.name, arg.as_str()),
+        )
     }
 }
 
@@ -75,11 +84,19 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
     let (name, arg) = match colon_pos {
         Some(pos) => {
             let name = trimmed[..pos].trim();
-            let arg = trimmed[pos + 1..].trim();
+            let arg_raw = &trimmed[pos + 1..];
+            let arg_trimmed_start = arg_raw.len() - arg_raw.trim_start().len();
+            let arg = arg_raw.trim();
             let arg = if arg.is_empty() {
                 None
             } else {
-                Some(arg.to_string())
+                Some(FilterArgument::new(
+                    arg.to_string(),
+                    Span::saturating_from_parts_usize(
+                        filter_offset as usize + pos + 1 + arg_trimmed_start,
+                        arg.len(),
+                    ),
+                ))
             };
             (name.to_string(), arg)
         }

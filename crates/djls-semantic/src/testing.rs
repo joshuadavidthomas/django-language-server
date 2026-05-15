@@ -456,6 +456,7 @@ fn standard_tag_specs() -> TagSpecs {
             end_tag: None,
             intermediate_tags: Cow::Borrowed(&[]),
             opaque: false,
+            semantic_role: None,
             extracted_rules: Some(
                 TagRule {
                     arg_constraints: vec![ArgumentCountConstraint::Exact(2)],

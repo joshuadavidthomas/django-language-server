@@ -92,10 +92,10 @@ error[S113]: Filter 'ambiguous_filter' is available from multiple libraries: 'al
 
 ```snapshot
 error[S120]: Unknown template tag library 'nonexistent_library'
- --> test.html:1:1
+ --> test.html:1:9
   |
 1 | {% load nonexistent_library %}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         ^^^^^^^^^^^^^^^^^^^
 ```
 
 ## tag app is not installed

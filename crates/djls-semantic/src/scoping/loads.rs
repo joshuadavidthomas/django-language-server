@@ -2,17 +2,73 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use djls_source::Span;
+use djls_templates::TagBit;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadArgument {
+    name: String,
+    span: Span,
+}
+
+impl LoadArgument {
+    #[must_use]
+    pub fn new(name: String, span: Span) -> Self {
+        Self { name, span }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl From<&TagBit> for LoadArgument {
+    fn from(bit: &TagBit) -> Self {
+        Self::new(bit.as_str().to_string(), bit.span)
+    }
+}
+
+impl From<&str> for LoadArgument {
+    fn from(name: &str) -> Self {
+        Self::new(name.to_string(), Span::new(0, 0))
+    }
+}
+
+impl From<String> for LoadArgument {
+    fn from(name: String) -> Self {
+        Self::new(name, Span::new(0, 0))
+    }
+}
 
 /// The kind of a `{% load %}` statement.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoadKind {
     /// `{% load i18n %}` or `{% load i18n static %}` — loads entire libraries.
-    FullLoad { libraries: Vec<String> },
+    FullLoad { libraries: Vec<LoadArgument> },
     /// `{% load trans blocktrans from i18n %}` — selectively imports named symbols.
     SelectiveImport {
-        symbols: Vec<String>,
-        library: String,
+        symbols: Vec<LoadArgument>,
+        library: LoadArgument,
     },
+}
+
+impl LoadKind {
+    /// Parse a `{% load %}` tag into a load kind.
+    ///
+    /// Returns `None` for non-`load` tags or malformed load bits.
+    #[must_use]
+    pub fn from_tag(name: &str, bits: &[TagBit]) -> Option<Self> {
+        if name != "load" {
+            return None;
+        }
+
+        parse_load_bits(bits)
+    }
 }
 
 /// A parsed `{% load %}` tag with its source span and load kind.
@@ -28,6 +84,14 @@ impl LoadStatement {
         Self { span, kind }
     }
 
+    /// Parse a `Node::Tag` into a load statement.
+    ///
+    /// Returns `None` for non-`load` tags or malformed load bits.
+    #[must_use]
+    pub fn from_tag(name: &str, bits: &[TagBit], span: Span) -> Option<Self> {
+        Some(Self::new(span, LoadKind::from_tag(name, bits)?))
+    }
+
     #[must_use]
     pub fn span(&self) -> Span {
         self.span
@@ -39,10 +103,10 @@ impl LoadStatement {
     }
 }
 
-/// Parse the `bits` from a `Node::Tag` where `name == "load"` into a `LoadKind`.
+/// Parse the bits from a `Node::Tag` where `name == "load"` into a `LoadKind`.
 ///
-/// The `bits` slice contains only the arguments to the load tag — the tag name
-/// "load" is NOT included (the parser separates it into `Node::Tag::name`).
+/// The bit slice contains only the bits after the load tag name — the tag name
+/// itself is NOT included (the parser separates it into `Node::Tag::name`).
 ///
 /// Returns `None` if the bits are empty or malformed (e.g. `{% load from %}`
 /// with no symbols, or `{% load trans from %}` with no library).
@@ -54,30 +118,29 @@ impl LoadStatement {
 /// - `["trans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans"], library: "i18n" }`
 /// - `["trans", "blocktrans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans", "blocktrans"], library: "i18n" }`
 #[must_use]
-pub fn parse_load_bits(bits: &[String]) -> Option<LoadKind> {
+fn parse_load_bits(bits: &[TagBit]) -> Option<LoadKind> {
     if bits.is_empty() {
         return None;
     }
 
-    let from_idx = bits.iter().position(|b| b == "from");
+    let from_idx = bits.iter().position(|bit| bit.as_str() == "from");
 
     match from_idx {
         Some(idx) => {
-            let symbols: Vec<String> = bits[..idx].to_vec();
+            let symbols: Vec<LoadArgument> = bits[..idx].iter().map(Into::into).collect();
             let rest = &bits[idx + 1..];
 
-            // Must have at least one symbol and exactly one library after "from"
             if symbols.is_empty() || rest.len() != 1 {
                 return None;
             }
 
             Some(LoadKind::SelectiveImport {
                 symbols,
-                library: rest[0].clone(),
+                library: (&rest[0]).into(),
             })
         }
         None => Some(LoadKind::FullLoad {
-            libraries: bits.to_vec(),
+            libraries: bits.iter().map(Into::into).collect(),
         }),
     }
 }
@@ -195,8 +258,10 @@ impl LoadedLibraries {
 mod tests {
     use super::*;
 
-    fn bits(s: &str) -> Vec<String> {
-        s.split_whitespace().map(String::from).collect()
+    fn bits(s: &str) -> Vec<TagBit> {
+        s.split_whitespace()
+            .map(|text| TagBit::new(text.to_string(), Span::new(0, 0)))
+            .collect()
     }
 
     #[test]
@@ -242,6 +307,34 @@ mod tests {
                 symbols: vec!["trans".into(), "blocktrans".into()],
                 library: "i18n".into(),
             })
+        );
+    }
+
+    #[test]
+    fn load_kind_requires_load_tag_name() {
+        assert_eq!(LoadKind::from_tag("include", &bits("i18n")), None);
+        assert_eq!(
+            LoadKind::from_tag("load", &bits("i18n")),
+            Some(LoadKind::FullLoad {
+                libraries: vec!["i18n".into()]
+            })
+        );
+    }
+
+    #[test]
+    fn load_statement_requires_load_tag_name() {
+        assert_eq!(
+            LoadStatement::from_tag("include", &bits("i18n"), Span::new(1, 5)),
+            None
+        );
+        assert_eq!(
+            LoadStatement::from_tag("load", &bits("i18n"), Span::new(1, 5)),
+            Some(LoadStatement::new(
+                Span::new(1, 5),
+                LoadKind::FullLoad {
+                    libraries: vec!["i18n".into()]
+                }
+            ))
         );
     }
 

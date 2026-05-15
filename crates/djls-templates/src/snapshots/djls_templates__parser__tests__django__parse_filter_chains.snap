@@ -7,7 +7,11 @@ nodelist:
     var: value
     filters:
       - name: default
-        arg: "'nothing'"
+        arg:
+          text: "'nothing'"
+          span:
+            - 17
+            - 9
         span:
           - 9
           - 17

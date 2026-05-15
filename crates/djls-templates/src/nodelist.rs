@@ -1,6 +1,7 @@
 use djls_source::Offset;
 use djls_source::Span;
 
+use crate::bits::TagBit;
 use crate::filters::Filter;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
@@ -25,7 +26,8 @@ impl<'db> NodeList<'db> {
 pub enum Node {
     Tag {
         name: String,
-        bits: Vec<String>,
+        name_span: Span,
+        bits: Vec<TagBit>,
         span: Span,
     },
     Comment {
@@ -37,6 +39,7 @@ pub enum Node {
     },
     Variable {
         var: String,
+        var_span: Span,
         filters: Vec<Filter>,
         span: Span,
     },
@@ -73,14 +76,8 @@ impl Node {
     #[must_use]
     pub fn identifier_span(&self) -> Option<Span> {
         match self {
-            Node::Tag { name, span, .. } => {
-                // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
-                Some(span.with_length_usize_saturating(name.len()))
-            }
-            Node::Variable { var, span, .. } => {
-                // Just the variable name (e.g., "user" in "{{ user.name|title }}")
-                Some(span.with_length_usize_saturating(var.len()))
-            }
+            Node::Tag { name_span, .. } => Some(*name_span),
+            Node::Variable { var_span, .. } => Some(*var_span),
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }

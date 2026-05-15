@@ -1,3 +1,4 @@
+use djls_templates::TagBit;
 use rustc_hash::FxHashMap;
 
 /// Role a tag plays in Django's block structure.
@@ -50,8 +51,8 @@ impl<'db> TagIndex<'db> {
         self,
         db: &'db dyn crate::Db,
         opener_name: &str,
-        opener_bits: &[String],
-        closer_bits: &[String],
+        opener_bits: &[TagBit],
+        closer_bits: &[TagBit],
     ) -> CloseValidation {
         if !matches!(self.roles(db).get(opener_name), Some(TagRole::Opener(_))) {
             return CloseValidation::NotABlock;
@@ -61,10 +62,10 @@ impl<'db> TagIndex<'db> {
         // e.g. `{% endblock content %}` must match `{% block content %}`
         if let Some(closer_arg) = closer_bits.first() {
             if let Some(opener_arg) = opener_bits.first() {
-                if closer_arg != opener_arg {
+                if closer_arg.as_str() != opener_arg.as_str() {
                     return CloseValidation::ArgumentMismatch {
-                        expected: opener_arg.clone(),
-                        got: closer_arg.clone(),
+                        expected: opener_arg.as_str().to_string(),
+                        got: closer_arg.as_str().to_string(),
                     };
                 }
             }

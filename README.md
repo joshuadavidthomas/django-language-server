@@ -44,7 +44,7 @@ A language server for the Django web framework.
   ![Hover template](docs/assets/hover-template.png)
 - [ ] **Rename** - Refactor names across files
 - [ ] **Code actions** - Quick fixes and refactorings
-- [ ] **Document symbols** - Outline view of template structure
+- [x] **Document symbols** - Outline view of template structure
 - [ ] **Workspace symbols** - Search across all project templates
 - [ ] **Signature help** - Parameter hints while typing
 
@@ -75,6 +75,7 @@ Once configured, open any Django template file in your project to get:
 - Hover documentation for template tags, filters, libraries, and template references
 - Navigation to template definitions and references
 - Folding for Django template regions
+- Outline symbols for template structure
 
 ## Documentation
 

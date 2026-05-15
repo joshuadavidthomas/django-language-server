@@ -67,7 +67,7 @@ pub fn find_references(
 
                     Some(ls_types::Location {
                         uri: ref_file.path(db).to_lsp_uri()?,
-                        range: reference.tag_span(db).to_lsp_range(line_index),
+                        range: reference.span(db).to_lsp_range(line_index),
                     })
                 })
                 .collect();

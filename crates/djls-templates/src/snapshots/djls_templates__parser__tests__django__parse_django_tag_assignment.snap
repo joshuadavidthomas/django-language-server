@@ -5,10 +5,22 @@ expression: test_nodelist
 nodelist:
   - type: Tag
     name: url
+    name_span:
+      - 3
+      - 3
     bits:
-      - "'view-name'"
-      - as
-      - view
+      - text: "'view-name'"
+        span:
+          - 7
+          - 11
+      - text: as
+        span:
+          - 19
+          - 2
+      - text: view
+        span:
+          - 22
+          - 4
     span:
       - 2
       - 25

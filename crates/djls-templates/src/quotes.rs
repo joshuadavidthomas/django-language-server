@@ -1,3 +1,123 @@
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum Quote {
+    Single,
+    Double,
+}
+
+impl TryFrom<char> for Quote {
+    type Error = ();
+
+    fn try_from(ch: char) -> Result<Self, Self::Error> {
+        match ch {
+            '\'' => Ok(Self::Single),
+            '"' => Ok(Self::Double),
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<Quote> for char {
+    fn from(quote: Quote) -> Self {
+        match quote {
+            Quote::Single => '\'',
+            Quote::Double => '"',
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TemplateString<'a> {
+    Quoted(QuotedTemplateString<'a>),
+    Unquoted(&'a str),
+}
+
+impl<'a> TemplateString<'a> {
+    #[must_use]
+    pub fn parse(raw: &'a str) -> Self {
+        let raw = raw.trim();
+        let Some(first) = raw.chars().next() else {
+            return Self::Unquoted(raw);
+        };
+        let Ok(quote) = Quote::try_from(first) else {
+            return Self::Unquoted(raw);
+        };
+
+        let quote_char: char = quote.into();
+        if raw.len() < 2 || !raw.ends_with(quote_char) {
+            return Self::Unquoted(raw);
+        }
+
+        Self::Quoted(QuotedTemplateString {
+            raw,
+            value: &raw[1..raw.len() - 1],
+            quote,
+        })
+    }
+
+    #[must_use]
+    pub fn raw(self) -> &'a str {
+        match self {
+            Self::Quoted(value) => value.raw,
+            Self::Unquoted(raw) => raw,
+        }
+    }
+
+    #[must_use]
+    pub fn value(self) -> &'a str {
+        match self {
+            Self::Quoted(value) => value.value,
+            Self::Unquoted(raw) => raw,
+        }
+    }
+
+    #[must_use]
+    pub fn quoted_value(self) -> Option<&'a str> {
+        match self {
+            Self::Quoted(value) => Some(value.value),
+            Self::Unquoted(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn quote(self) -> Option<Quote> {
+        match self {
+            Self::Quoted(value) => Some(value.quote),
+            Self::Unquoted(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn is_quoted(self) -> bool {
+        matches!(self, Self::Quoted(_))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct QuotedTemplateString<'a> {
+    raw: &'a str,
+    value: &'a str,
+    quote: Quote,
+}
+
+impl<'a> QuotedTemplateString<'a> {
+    #[must_use]
+    pub fn raw(self) -> &'a str {
+        self.raw
+    }
+
+    #[must_use]
+    pub fn value(self) -> &'a str {
+        self.value
+    }
+
+    #[must_use]
+    pub fn quote(self) -> Quote {
+        self.quote
+    }
+}
+
 /// Find positions of a delimiter character in `s`, skipping occurrences inside
 /// single- or double-quoted regions.
 ///
@@ -39,10 +159,16 @@ pub(crate) fn for_each_unquoted(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SplitPiece<'a> {
+    pub text: &'a str,
+    pub start: usize,
+}
+
 /// Split `s` on whitespace while respecting quoted regions (with escape handling).
 ///
-/// Returns owned strings for each whitespace-delimited token.
-pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
+/// Returns borrowed tokens with byte offsets relative to `s`.
+pub(crate) fn split_on_whitespace_with_offsets(s: &str) -> Vec<SplitPiece<'_>> {
     let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
     let mut start = None;
     let mut quote: Option<char> = None;
@@ -82,7 +208,10 @@ pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
             }
             _ if ch.is_whitespace() => {
                 if let Some(s_start) = start.take() {
-                    pieces.push(s[s_start..idx].to_owned());
+                    pieces.push(SplitPiece {
+                        text: &s[s_start..idx],
+                        start: s_start,
+                    });
                 }
             }
             _ => {
@@ -93,14 +222,55 @@ pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
         }
     }
     if let Some(s_start) = start {
-        pieces.push(s[s_start..].to_owned());
+        pieces.push(SplitPiece {
+            text: &s[s_start..],
+            start: s_start,
+        });
     }
     pieces
+}
+
+/// Split `s` on whitespace while respecting quoted regions (with escape handling).
+///
+/// Returns owned strings for each whitespace-delimited token.
+#[cfg(test)]
+pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
+    split_on_whitespace_with_offsets(s)
+        .into_iter()
+        .map(|piece| piece.text.to_owned())
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn template_string_recognizes_single_quoted_values() {
+        let value = TemplateString::parse("'images/logo.png'");
+
+        assert_eq!(value.raw(), "'images/logo.png'");
+        assert_eq!(value.value(), "images/logo.png");
+        assert_eq!(value.quote(), Some(Quote::Single));
+    }
+
+    #[test]
+    fn template_string_recognizes_double_quoted_values() {
+        let value = TemplateString::parse(r#""base.html""#);
+
+        assert_eq!(value.raw(), r#""base.html""#);
+        assert_eq!(value.value(), "base.html");
+        assert_eq!(value.quote(), Some(Quote::Double));
+    }
+
+    #[test]
+    fn template_string_leaves_bare_values_unquoted() {
+        let value = TemplateString::parse("user.name");
+
+        assert_eq!(value.raw(), "user.name");
+        assert_eq!(value.value(), "user.name");
+        assert_eq!(value.quote(), None);
+    }
 
     #[test]
     fn unquoted_delimiters_found() {
@@ -224,5 +394,32 @@ mod tests {
     fn split_whitespace_empty() {
         assert!(split_on_whitespace("").is_empty());
         assert!(split_on_whitespace("   ").is_empty());
+    }
+
+    #[test]
+    fn split_whitespace_offsets() {
+        let pieces = split_on_whitespace_with_offsets(r#"  url "view name" as view"#);
+
+        assert_eq!(
+            pieces,
+            vec![
+                SplitPiece {
+                    text: "url",
+                    start: 2,
+                },
+                SplitPiece {
+                    text: r#""view name""#,
+                    start: 6,
+                },
+                SplitPiece {
+                    text: "as",
+                    start: 18,
+                },
+                SplitPiece {
+                    text: "view",
+                    start: 21,
+                },
+            ]
+        );
     }
 }

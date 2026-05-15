@@ -128,7 +128,7 @@ impl TemplateReference<'_> {
         template.file(db)
     }
 
-    pub fn tag_span(&self, db: &dyn SemanticDb) -> Span {
+    pub fn span(&self, db: &dyn SemanticDb) -> Span {
         self.tag(db).span(db)
     }
 }
@@ -162,22 +162,17 @@ fn template_reference_index(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
         for tag in template.tags(db) {
             let tag_name = tag.name(db);
             if tag_name == "extends" || tag_name == "include" {
-                if let Some(template_str) = tag.arguments(db).first() {
-                    let template_str = template_str.trim();
-                    if template_str.len() >= 2 {
-                        let first = template_str.chars().next().unwrap();
-                        let last = template_str.chars().last().unwrap();
-                        if (first == '"' || first == '\'') && first == last {
-                            let template_name = template_str[1..template_str.len() - 1].to_string();
-
-                            references.push(TemplateReference::new(
-                                db,
-                                template,
-                                TemplateName::new(db, template_name),
-                                tag,
-                            ));
-                        }
-                    }
+                if let Some(template_name) = tag
+                    .bits(db)
+                    .first()
+                    .and_then(|argument| argument.template_string().quoted_value())
+                {
+                    references.push(TemplateReference::new(
+                        db,
+                        template,
+                        TemplateName::new(db, template_name.to_string()),
+                        tag,
+                    ));
                 }
             }
         }

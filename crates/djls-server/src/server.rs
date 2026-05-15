@@ -194,6 +194,7 @@ impl LanguageServer for DjangoLanguageServer {
                 folding_range_provider: Some(ls_types::FoldingRangeProviderCapability::Simple(
                     true,
                 )),
+                document_symbol_provider: Some(ls_types::OneOf::Left(true)),
                 hover_provider: Some(ls_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(ls_types::OneOf::Left(true)),
                 references_provider: Some(ls_types::OneOf::Left(true)),
@@ -463,6 +464,30 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         Ok(Some(ranges))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: ls_types::DocumentSymbolParams,
+    ) -> LspResult<Option<ls_types::DocumentSymbolResponse>> {
+        let symbols = self
+            .with_session(|session| {
+                let Some(file) =
+                    session.file_for_document_request(&params.text_document, "document symbol")
+                else {
+                    return Vec::new();
+                };
+                let db = session.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return Vec::new();
+                }
+
+                djls_ide::document_symbols(db, file)
+            })
+            .await;
+
+        Ok(Some(ls_types::DocumentSymbolResponse::Nested(symbols)))
     }
 
     async fn goto_definition(

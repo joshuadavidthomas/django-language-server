@@ -41,7 +41,7 @@ impl ExtendsPosition {
 
 /// Combined validator that performs a single-pass validation of a template AST.
 ///
-/// This visitor consolidates multiple validation rules (scoping, arity, arguments,
+/// This visitor consolidates multiple validation rules (scoping, arity, bits,
 /// structure) into a single walk of the `NodeList`, reducing redundant traversals.
 pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
@@ -95,7 +95,13 @@ impl<'a> TemplateValidator<'a> {
 }
 
 impl Visitor for TemplateValidator<'_> {
-    fn visit_tag(&mut self, name: &str, bits: &[String], span: Span) {
+    fn visit_tag(
+        &mut self,
+        name: &str,
+        _name_span: Span,
+        bits: &[djls_templates::TagBit],
+        span: Span,
+    ) {
         let is_opaque = self.opaque_regions.is_opaque(span.start());
 
         // 1. Extends validation (cares about order/opacity)
@@ -106,19 +112,19 @@ impl Visitor for TemplateValidator<'_> {
             use crate::ValidationError;
             use crate::ValidationErrorAccumulator;
 
-            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+            let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
             match self.extends_position {
                 ExtendsPosition::Start => {}
                 ExtendsPosition::AfterContent => {
                     ValidationErrorAccumulator(ValidationError::ExtendsMustBeFirst {
-                        span: marker_span,
+                        span: full_span,
                     })
                     .accumulate(self.db);
                 }
                 ExtendsPosition::AfterExtends => {
                     ValidationErrorAccumulator(ValidationError::MultipleExtends {
-                        span: marker_span,
+                        span: full_span,
                     })
                     .accumulate(self.db);
                 }
@@ -149,9 +155,7 @@ impl Visitor for TemplateValidator<'_> {
             }
 
             // 4. Load library validation
-            if name == "load" {
-                scoping::check_load_libraries_rule(self.db, bits, span, self.template_libraries);
-            }
+            scoping::check_load_libraries_rule(self.db, name, bits, self.template_libraries);
 
             // 5. If expression validation
             if name == "if" || name == "elif" {
@@ -162,7 +166,7 @@ impl Visitor for TemplateValidator<'_> {
         self.extends_position = self.extends_position.record_non_text();
     }
 
-    fn visit_variable(&mut self, _var: &str, filters: &[Filter], span: Span) {
+    fn visit_variable(&mut self, _var: &str, _var_span: Span, filters: &[Filter], span: Span) {
         if !filters.is_empty() && !self.opaque_regions.is_opaque(span.start()) {
             let symbols = self.symbol_index.symbols_at(span.start());
 

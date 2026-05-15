@@ -45,6 +45,7 @@
 //! let (nodelist, errors) = parser.parse()?;
 //! ```
 
+mod bits;
 pub mod db;
 mod error;
 mod filters;
@@ -55,6 +56,8 @@ mod quotes;
 pub mod tokens;
 pub mod visitor;
 
+pub use bits::FilterArgument;
+pub use bits::TagBit;
 pub use db::Db;
 pub use db::TemplateErrorAccumulator;
 use djls_source::File;
@@ -66,6 +69,9 @@ pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
+pub use quotes::Quote;
+pub use quotes::QuotedTemplateString;
+pub use quotes::TemplateString;
 use salsa::Accumulator;
 
 /// Parse a Django template file and accumulate diagnostics.

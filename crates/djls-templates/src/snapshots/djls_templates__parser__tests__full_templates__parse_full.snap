@@ -12,8 +12,14 @@ nodelist:
       - 463
   - type: Tag
     name: if
+    name_span:
+      - 466
+      - 2
     bits:
-      - user.is_authenticated
+      - text: user.is_authenticated
+        span:
+          - 469
+          - 21
     span:
       - 465
       - 26
@@ -50,7 +56,11 @@ nodelist:
           - 574
           - 5
       - name: default
-        arg: "'Guest'"
+        arg:
+          text: "'Guest'"
+          span:
+            - 588
+            - 7
         span:
           - 580
           - 15
@@ -69,8 +79,14 @@ nodelist:
       - 23
   - type: Tag
     name: if
+    name_span:
+      - 624
+      - 2
     bits:
-      - user.is_staff
+      - text: user.is_staff
+        span:
+          - 627
+          - 13
     span:
       - 623
       - 18
@@ -86,6 +102,9 @@ nodelist:
       - 56
   - type: Tag
     name: else
+    name_span:
+      - 702
+      - 4
     bits: []
     span:
       - 701
@@ -102,6 +121,9 @@ nodelist:
       - 55
   - type: Tag
     name: endif
+    name_span:
+      - 767
+      - 5
     bits: []
     span:
       - 766
@@ -118,6 +140,9 @@ nodelist:
       - 13
   - type: Tag
     name: endif
+    name_span:
+      - 791
+      - 5
     bits: []
     span:
       - 790

@@ -97,9 +97,11 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
     OpaqueRegions::new(spans)
 }
 
-fn push_opaque_segment(frame: &OpaqueFrame<'_>, marker_span: Span, spans: &mut Vec<Span>) {
+fn push_opaque_segment(frame: &OpaqueFrame<'_>, content_span: Span, spans: &mut Vec<Span>) {
     if frame.is_opaque {
-        let content_end = marker_span.start().saturating_sub(TagDelimiter::LENGTH_U32);
+        let content_end = content_span
+            .start()
+            .saturating_sub(TagDelimiter::LENGTH_U32);
         spans.push(Span::saturating_from_bounds_usize(
             frame.segment_start as usize,
             content_end as usize,
@@ -150,6 +152,7 @@ mod tests {
                 }]
                 .into(),
                 opaque: true,
+                semantic_role: None,
                 extracted_rules: None,
             },
         );
