@@ -289,15 +289,8 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
         return ExtractionResult::default();
     };
     let module = parsed.into_syntax();
-
-    extract_rules_from_body(&module.body, module_path)
-}
-
-/// Extract validation rules from a pre-parsed module body.
-#[must_use]
-fn extract_rules_from_body(body: &[ruff_python_ast::Stmt], module_path: &str) -> ExtractionResult {
-    let registrations = registry::collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
+    let registrations = registry::collect_registrations_from_body(&module.body);
+    let func_defs = collect_func_defs(&module.body);
 
     let mut result = ExtractionResult::default();
 
