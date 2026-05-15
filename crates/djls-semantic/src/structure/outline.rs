@@ -1,6 +1,6 @@
 use djls_source::Span;
 use djls_templates::Filter;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
@@ -32,15 +32,15 @@ impl OutlineItem {
     fn tag_name(
         tag: &str,
         tag_span: Span,
-        arguments: &[TagArgument],
+        bits: &[TagBit],
         spec: TagOutlineSpec,
         span: Span,
         children: Vec<Self>,
     ) -> Self {
         let mut label = tag.to_string();
-        for argument in arguments {
+        for bit in bits {
             label.push(' ');
-            label.push_str(argument.as_str());
+            label.push_str(bit.as_str());
         }
 
         Self {
@@ -53,19 +53,13 @@ impl OutlineItem {
         }
     }
 
-    fn argument(
-        tag: &str,
-        argument: &TagArgument,
-        spec: TagOutlineSpec,
-        span: Span,
-        children: Vec<Self>,
-    ) -> Self {
+    fn bit(tag: &str, bit: &TagBit, spec: TagOutlineSpec, span: Span, children: Vec<Self>) -> Self {
         Self {
-            label: argument.template_string().value().to_string(),
+            label: bit.template_string().value().to_string(),
             detail: Some(tag.to_string()),
             kind: spec.role.into(),
             span,
-            selection_span: argument.span,
+            selection_span: bit.span,
             children,
         }
     }
@@ -125,26 +119,26 @@ impl TagOutlineSpec {
         self,
         tag: &str,
         tag_span: Span,
-        arguments: &[TagArgument],
+        bits: &[TagBit],
         span: Span,
         children: Vec<OutlineItem>,
     ) -> Vec<OutlineItem> {
         match self.target {
             TagOutlineTarget::TagName => vec![OutlineItem::tag_name(
-                tag, tag_span, arguments, self, span, children,
+                tag, tag_span, bits, self, span, children,
             )],
-            TagOutlineTarget::FirstArgument => {
-                if let Some(argument) = arguments.first() {
-                    vec![OutlineItem::argument(tag, argument, self, span, children)]
+            TagOutlineTarget::FirstBit => {
+                if let Some(bit) = bits.first() {
+                    vec![OutlineItem::bit(tag, bit, self, span, children)]
                 } else {
                     vec![OutlineItem::tag_name(
-                        tag, tag_span, arguments, self, span, children,
+                        tag, tag_span, bits, self, span, children,
                     )]
                 }
             }
-            TagOutlineTarget::EachArgument => arguments
+            TagOutlineTarget::EachBit => bits
                 .iter()
-                .map(|argument| OutlineItem::argument(tag, argument, self, span, Vec::new()))
+                .map(|bit| OutlineItem::bit(tag, bit, self, span, Vec::new()))
                 .collect(),
         }
     }
@@ -182,25 +176,19 @@ fn outline_items_for_node(
         TemplateNode::Block {
             tag,
             tag_span,
-            arguments,
+            bits,
             body,
             role: BlockRole::Opener,
             ..
         } => {
             let spec = tag_specs.block_outline(tag);
             let children = outline_items_for_block_container(regions, tag_specs, *body, tag);
-            spec.items_for_tag(
-                tag,
-                *tag_span,
-                arguments,
-                *regions.get(*body).span(),
-                children,
-            )
+            spec.items_for_tag(tag, *tag_span, bits, *regions.get(*body).span(), children)
         }
         TemplateNode::Block {
             tag,
             tag_span,
-            arguments,
+            bits,
             full_span,
             body,
             role: BlockRole::Segment,
@@ -208,18 +196,18 @@ fn outline_items_for_node(
         } => {
             let spec: TagOutlineSpec = TagOutlineRole::ControlFlow.into();
             let children = outline_items_for_region(regions, tag_specs, *body);
-            spec.items_for_tag(tag, *tag_span, arguments, *full_span, children)
+            spec.items_for_tag(tag, *tag_span, bits, *full_span, children)
         }
         TemplateNode::StandaloneTag {
             tag,
             tag_span,
-            arguments,
+            bits,
             full_span,
             ..
         } => tag_specs
             .standalone_outline(tag)
             .map_or_else(Vec::new, |spec| {
-                spec.items_for_tag(tag, *tag_span, arguments, *full_span, Vec::new())
+                spec.items_for_tag(tag, *tag_span, bits, *full_span, Vec::new())
             }),
         TemplateNode::Variable {
             var,

@@ -116,12 +116,12 @@ impl<'a> QuotedTemplateString<'a> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-pub struct TagArgument {
+pub struct TagBit {
     pub text: String,
     pub span: Span,
 }
 
-impl TagArgument {
+impl TagBit {
     #[must_use]
     pub fn new(text: String, span: Span) -> Self {
         Self { text, span }
@@ -138,7 +138,7 @@ impl TagArgument {
     }
 }
 
-impl AsRef<str> for TagArgument {
+impl AsRef<str> for TagBit {
     fn as_ref(&self) -> &str {
         self.as_str()
     }

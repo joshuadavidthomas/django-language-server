@@ -45,7 +45,7 @@
 //! let (nodelist, errors) = parser.parse()?;
 //! ```
 
-mod arguments;
+mod bits;
 pub mod db;
 mod error;
 mod filters;
@@ -56,10 +56,10 @@ mod quotes;
 pub mod tokens;
 pub mod visitor;
 
-pub use arguments::FilterArgument;
-pub use arguments::Quote;
-pub use arguments::TagArgument;
-pub use arguments::TemplateString;
+pub use bits::FilterArgument;
+pub use bits::Quote;
+pub use bits::TagBit;
+pub use bits::TemplateString;
 pub use db::Db;
 pub use db::TemplateErrorAccumulator;
 use djls_source::File;

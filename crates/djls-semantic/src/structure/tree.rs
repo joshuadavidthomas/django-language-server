@@ -1,6 +1,6 @@
 use djls_source::Span;
 use djls_templates::Filter;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 use serde::Serialize;
 
 #[salsa::tracked]
@@ -161,7 +161,7 @@ pub enum TemplateNode {
     Block {
         tag: String,
         tag_span: Span,
-        arguments: Vec<TagArgument>,
+        bits: Vec<TagBit>,
         marker_span: Span,
         full_span: Span,
         body: RegionId,
@@ -170,7 +170,7 @@ pub enum TemplateNode {
     StandaloneTag {
         tag: String,
         tag_span: Span,
-        arguments: Vec<TagArgument>,
+        bits: Vec<TagBit>,
         marker_span: Span,
         full_span: Span,
     },
@@ -213,7 +213,7 @@ mod tests {
     use djls_source::Span;
     use djls_templates::parse_template;
     use djls_templates::Node;
-    use djls_templates::TagArgument;
+    use djls_templates::TagBit;
     use rustc_hash::FxHashMap;
 
     use super::BlockRole;
@@ -241,7 +241,7 @@ mod tests {
         Tag {
             name: String,
             name_span: Span,
-            arguments: Vec<djls_templates::TagArgument>,
+            bits: Vec<djls_templates::TagBit>,
             span: Span,
         },
         Variable {
@@ -270,12 +270,12 @@ mod tests {
                 Node::Tag {
                     name,
                     name_span,
-                    arguments,
+                    bits,
                     span,
                 } => Self::Tag {
                     name: name.clone(),
                     name_span: *name_span,
-                    arguments: arguments.clone(),
+                    bits: bits.clone(),
                     span: *span,
                 },
                 Node::Variable {
@@ -407,12 +407,9 @@ mod tests {
             .nodes()
             .iter()
             .filter_map(|node| match node {
-                TemplateNode::StandaloneTag { tag, arguments, .. } => Some((
+                TemplateNode::StandaloneTag { tag, bits, .. } => Some((
                     tag.as_str(),
-                    arguments
-                        .iter()
-                        .map(TagArgument::as_str)
-                        .collect::<Vec<_>>(),
+                    bits.iter().map(TagBit::as_str).collect::<Vec<_>>(),
                 )),
                 _ => None,
             })
@@ -471,15 +468,12 @@ mod tests {
             .filter_map(|node| match node {
                 TemplateNode::Block {
                     tag,
-                    arguments,
+                    bits,
                     role: BlockRole::Segment,
                     ..
                 } => Some((
                     tag.as_str(),
-                    arguments
-                        .iter()
-                        .map(TagArgument::as_str)
-                        .collect::<Vec<_>>(),
+                    bits.iter().map(TagBit::as_str).collect::<Vec<_>>(),
                 )),
                 _ => None,
             })
@@ -510,9 +504,9 @@ mod tests {
             .iter()
             .any(|node| matches!(
                 node,
-                TemplateNode::StandaloneTag { tag, arguments, .. }
+                TemplateNode::StandaloneTag { tag, bits, .. }
                     if tag == "include"
-                        && arguments.first().is_some_and(|arg| arg.as_str() == "\"card.html\"")
+                        && bits.first().is_some_and(|arg| arg.as_str() == "\"card.html\"")
             )));
     }
 
@@ -561,9 +555,9 @@ mod tests {
 
         assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(
             node,
-            TemplateNode::Block { tag, arguments, .. }
+            TemplateNode::Block { tag, bits, .. }
                 if tag == "partialdef"
-                    && arguments.first().is_some_and(|arg| arg.as_str() == "card")
+                    && bits.first().is_some_and(|arg| arg.as_str() == "card")
         )));
     }
 

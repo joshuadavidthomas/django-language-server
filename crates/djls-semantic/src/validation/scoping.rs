@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Filter;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 use salsa::Accumulator;
 
 use crate::db::Db;
@@ -134,7 +134,7 @@ pub(crate) fn check_filter_scoping_rule(
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
-    arguments: &[TagArgument],
+    bits: &[TagBit],
     _span: Span,
     template_libraries: &crate::TemplateLibraries,
 ) {
@@ -142,7 +142,7 @@ pub(crate) fn check_load_libraries_rule(
         return;
     }
 
-    let Some(kind) = crate::scoping::parse_load_arguments(arguments) else {
+    let Some(kind) = crate::scoping::parse_load_bits(bits) else {
         return;
     };
 

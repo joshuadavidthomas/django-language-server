@@ -1,6 +1,6 @@
 ---
 source: crates/djls-semantic/src/structure/tree.rs
-expression: nodelist_view
+expression: nodelist_view(nodelist.nodelist(&db))
 ---
 nodes:
   - kind: Text
@@ -12,7 +12,7 @@ nodes:
     name_span:
       start: 4
       length: 7
-    arguments:
+    bits:
       - text: "\"base.html\""
         span:
           start: 12
@@ -29,7 +29,7 @@ nodes:
     name_span:
       start: 30
       length: 4
-    arguments:
+    bits:
       - text: static
         span:
           start: 35
@@ -50,7 +50,7 @@ nodes:
     name_span:
       start: 53
       length: 5
-    arguments:
+    bits:
       - text: header
         span:
           start: 59
@@ -67,7 +67,7 @@ nodes:
     name_span:
       start: 91
       length: 8
-    arguments:
+    bits:
       - text: header
         span:
           start: 100
@@ -84,7 +84,7 @@ nodes:
     name_span:
       start: 114
       length: 2
-    arguments:
+    bits:
       - text: user.is_authenticated
         span:
           start: 117
@@ -114,7 +114,7 @@ nodes:
     name_span:
       start: 184
       length: 2
-    arguments:
+    bits:
       - text: user.is_superuser
         span:
           start: 187
@@ -131,7 +131,7 @@ nodes:
     name_span:
       start: 242
       length: 4
-    arguments:
+    bits:
       - text: user.is_staff
         span:
           start: 247
@@ -148,7 +148,7 @@ nodes:
     name_span:
       start: 300
       length: 4
-    arguments: []
+    bits: []
     span:
       start: 299
       length: 6
@@ -161,7 +161,7 @@ nodes:
     name_span:
       start: 349
       length: 5
-    arguments: []
+    bits: []
     span:
       start: 348
       length: 7
@@ -174,7 +174,7 @@ nodes:
     name_span:
       start: 361
       length: 4
-    arguments: []
+    bits: []
     span:
       start: 360
       length: 6
@@ -187,7 +187,7 @@ nodes:
     name_span:
       start: 397
       length: 5
-    arguments: []
+    bits: []
     span:
       start: 396
       length: 7
@@ -200,7 +200,7 @@ nodes:
     name_span:
       start: 410
       length: 3
-    arguments:
+    bits:
       - text: item
         span:
           start: 414
@@ -238,7 +238,7 @@ nodes:
     name_span:
       start: 458
       length: 6
-    arguments: []
+    bits: []
     span:
       start: 457
       length: 8

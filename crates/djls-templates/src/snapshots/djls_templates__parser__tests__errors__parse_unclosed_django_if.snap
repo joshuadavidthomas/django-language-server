@@ -8,7 +8,7 @@ nodelist:
     name_span:
       - 3
       - 2
-    arguments:
+    bits:
       - text: user.is_authenticated
         span:
           - 6

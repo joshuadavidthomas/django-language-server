@@ -44,7 +44,7 @@ enum NodeSnapshot {
     BlockTag {
         tag: String,
         tag_span: djls_source::Span,
-        arguments: Vec<djls_templates::TagArgument>,
+        bits: Vec<djls_templates::TagBit>,
         marker_span: djls_source::Span,
         full_span: djls_source::Span,
         body: u32,
@@ -53,7 +53,7 @@ enum NodeSnapshot {
     StandaloneTag {
         tag: String,
         tag_span: djls_source::Span,
-        arguments: Vec<djls_templates::TagArgument>,
+        bits: Vec<djls_templates::TagBit>,
         marker_span: djls_source::Span,
         full_span: djls_source::Span,
     },
@@ -81,7 +81,7 @@ impl From<&TemplateNode> for NodeSnapshot {
             TemplateNode::Block {
                 tag,
                 tag_span,
-                arguments,
+                bits,
                 marker_span,
                 full_span,
                 body,
@@ -89,7 +89,7 @@ impl From<&TemplateNode> for NodeSnapshot {
             } => Self::BlockTag {
                 tag: tag.clone(),
                 tag_span: *tag_span,
-                arguments: arguments.clone(),
+                bits: bits.clone(),
                 marker_span: *marker_span,
                 full_span: *full_span,
                 body: body.id(),
@@ -98,13 +98,13 @@ impl From<&TemplateNode> for NodeSnapshot {
             TemplateNode::StandaloneTag {
                 tag,
                 tag_span,
-                arguments,
+                bits,
                 marker_span,
                 full_span,
             } => Self::StandaloneTag {
                 tag: tag.clone(),
                 tag_span: *tag_span,
-                arguments: arguments.clone(),
+                bits: bits.clone(),
                 marker_span: *marker_span,
                 full_span: *full_span,
             },

@@ -91,7 +91,7 @@ pub use resolution::ResolveResult;
 pub use resolution::TemplateReference;
 pub use scoping::compute_loaded_libraries;
 pub use scoping::compute_symbol_index;
-pub use scoping::parse_load_arguments;
+pub use scoping::parse_load_bits;
 pub use scoping::AvailableSymbols;
 pub use scoping::FilterAvailability;
 pub use scoping::LoadArgument;

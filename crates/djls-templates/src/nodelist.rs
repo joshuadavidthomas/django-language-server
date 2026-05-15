@@ -1,7 +1,7 @@
 use djls_source::Offset;
 use djls_source::Span;
 
-use crate::arguments::TagArgument;
+use crate::bits::TagBit;
 use crate::filters::Filter;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
@@ -27,7 +27,7 @@ pub enum Node {
     Tag {
         name: String,
         name_span: Span,
-        arguments: Vec<TagArgument>,
+        bits: Vec<TagBit>,
         span: Span,
     },
     Comment {

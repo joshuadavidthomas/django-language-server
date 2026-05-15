@@ -163,7 +163,7 @@ fn template_reference_index(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
             let tag_name = tag.name(db);
             if tag_name == "extends" || tag_name == "include" {
                 if let Some(template_name) = tag
-                    .arguments(db)
+                    .bits(db)
                     .first()
                     .and_then(|argument| argument.template_string().quoted_value())
                 {

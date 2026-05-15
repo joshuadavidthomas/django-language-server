@@ -1,6 +1,6 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 use salsa::Accumulator;
 
 use crate::db::Db;
@@ -11,14 +11,14 @@ use crate::ValidationErrorAccumulator;
 pub(crate) fn check_tag_arguments_rule(
     db: &dyn Db,
     name: &str,
-    arguments: &[TagArgument],
+    bits: &[TagBit],
     span: Span,
     rules: &crate::TagRule,
 ) {
     let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-    let bits = arguments
+    let bits = bits
         .iter()
-        .map(|argument| argument.as_str().to_string())
+        .map(|bit| bit.as_str().to_string())
         .collect::<Vec<_>>();
     for error in evaluate_tag_rules(name, &bits, rules, marker_span) {
         ValidationErrorAccumulator(error).accumulate(db);

@@ -8,7 +8,7 @@ nodelist:
     name_span:
       - 3
       - 3
-    arguments:
+    bits:
       - text: item
         span:
           - 7
@@ -41,7 +41,7 @@ nodelist:
     name_span:
       - 36
       - 5
-    arguments: []
+    bits: []
     span:
       - 35
       - 7
@@ -60,7 +60,7 @@ nodelist:
     name_span:
       - 55
       - 6
-    arguments: []
+    bits: []
     span:
       - 54
       - 8

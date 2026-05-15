@@ -461,8 +461,8 @@ impl TagOutlineRole {
             Self::TemplateReference
             | Self::NamedRegion
             | Self::AssetReference
-            | Self::RouteReference => TagOutlineTarget::FirstArgument,
-            Self::LibraryImport => TagOutlineTarget::EachArgument,
+            | Self::RouteReference => TagOutlineTarget::FirstBit,
+            Self::LibraryImport => TagOutlineTarget::EachBit,
             Self::ControlFlow | Self::Callable => TagOutlineTarget::TagName,
         }
     }
@@ -471,8 +471,8 @@ impl TagOutlineRole {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TagOutlineTarget {
     TagName,
-    FirstArgument,
-    EachArgument,
+    FirstBit,
+    EachBit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

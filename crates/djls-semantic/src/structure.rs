@@ -1,7 +1,7 @@
 //! Semantic structure for Django templates.
 //!
 //! `TemplateTree` is a structural semantic projection over
-//! `djls_templates::NodeList`. It preserves source spans, parsed tag arguments,
+//! `djls_templates::NodeList`. It preserves source spans, parsed tag bits,
 //! block hierarchy, standalone tags, variables, and non-tag regions needed by
 //! semantic features such as opaque-region detection and document outlines.
 //!

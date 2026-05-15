@@ -1,6 +1,6 @@
 use djls_source::Span;
 
-use crate::arguments::TagArgument;
+use crate::bits::TagBit;
 use crate::filters::Filter;
 use crate::nodelist::Node;
 use crate::parser::ParseError;
@@ -11,14 +11,7 @@ pub trait Visitor {
         walk_node(self, node);
     }
 
-    fn visit_tag(
-        &mut self,
-        _name: &str,
-        _name_span: Span,
-        _arguments: &[TagArgument],
-        _span: Span,
-    ) {
-    }
+    fn visit_tag(&mut self, _name: &str, _name_span: Span, _bits: &[TagBit], _span: Span) {}
     fn visit_variable(&mut self, _var: &str, _var_span: Span, _filters: &[Filter], _span: Span) {}
     fn visit_comment(&mut self, _content: &str, _span: Span) {}
     fn visit_text(&mut self, _span: Span) {}
@@ -31,9 +24,9 @@ pub fn walk_node<V: Visitor + ?Sized>(visitor: &mut V, node: &Node) {
         Node::Tag {
             name,
             name_span,
-            arguments,
+            bits,
             span,
-        } => visitor.visit_tag(name, *name_span, arguments, *span),
+        } => visitor.visit_tag(name, *name_span, bits, *span),
         Node::Variable {
             var,
             var_span,

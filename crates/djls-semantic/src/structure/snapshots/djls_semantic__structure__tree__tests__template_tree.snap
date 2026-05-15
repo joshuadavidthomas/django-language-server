@@ -18,7 +18,7 @@ regions:
         tag_span:
           start: 4
           length: 7
-        arguments:
+        bits:
           - text: "\"base.html\""
             span:
               start: 12
@@ -38,7 +38,7 @@ regions:
         tag_span:
           start: 30
           length: 4
-        arguments:
+        bits:
           - text: static
             span:
               start: 35
@@ -62,7 +62,7 @@ regions:
         tag_span:
           start: 53
           length: 5
-        arguments:
+        bits:
           - text: header
             span:
               start: 59
@@ -84,7 +84,7 @@ regions:
         tag_span:
           start: 114
           length: 2
-        arguments:
+        bits:
           - text: user.is_authenticated
             span:
               start: 117
@@ -106,7 +106,7 @@ regions:
         tag_span:
           start: 410
           length: 3
-        arguments:
+        bits:
           - text: item
             span:
               start: 414
@@ -141,7 +141,7 @@ regions:
         tag_span:
           start: 53
           length: 5
-        arguments:
+        bits:
           - text: header
             span:
               start: 59
@@ -173,7 +173,7 @@ regions:
         tag_span:
           start: 114
           length: 2
-        arguments:
+        bits:
           - text: user.is_authenticated
             span:
               start: 117
@@ -191,7 +191,7 @@ regions:
         tag_span:
           start: 361
           length: 4
-        arguments: []
+        bits: []
         marker_span:
           start: 360
           length: 6
@@ -227,7 +227,7 @@ regions:
         tag_span:
           start: 184
           length: 2
-        arguments:
+        bits:
           - text: user.is_superuser
             span:
               start: 187
@@ -254,7 +254,7 @@ regions:
         tag_span:
           start: 184
           length: 2
-        arguments:
+        bits:
           - text: user.is_superuser
             span:
               start: 187
@@ -272,7 +272,7 @@ regions:
         tag_span:
           start: 242
           length: 4
-        arguments:
+        bits:
           - text: user.is_staff
             span:
               start: 247
@@ -290,7 +290,7 @@ regions:
         tag_span:
           start: 300
           length: 4
-        arguments: []
+        bits: []
         marker_span:
           start: 299
           length: 6
@@ -345,7 +345,7 @@ regions:
         tag_span:
           start: 410
           length: 3
-        arguments:
+        bits:
           - text: item
             span:
               start: 414

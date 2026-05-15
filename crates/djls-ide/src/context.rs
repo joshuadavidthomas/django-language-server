@@ -4,7 +4,7 @@ use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_templates::Node;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum OffsetContext {
@@ -35,9 +35,9 @@ impl OffsetContext {
             Node::Tag {
                 name,
                 name_span,
-                arguments,
+                bits,
                 ..
-            } => Self::from_tag(name, *name_span, arguments, offset),
+            } => Self::from_tag(name, *name_span, bits, offset),
             Node::Variable {
                 var,
                 var_span,
@@ -70,7 +70,7 @@ impl OffsetContext {
         }
     }
 
-    fn from_tag(name: &str, name_span: Span, arguments: &[TagArgument], offset: Offset) -> Self {
+    fn from_tag(name: &str, name_span: Span, bits: &[TagBit], offset: Offset) -> Self {
         if name_span.contains(offset) {
             return Self::Tag {
                 name: name.to_string(),
@@ -79,16 +79,17 @@ impl OffsetContext {
         }
 
         match name {
-            "extends" | "include" => arguments
-                .first()
-                .filter(|argument| argument.span.contains(offset))
-                .map_or(Self::None, |argument| Self::TemplateReference {
-                    name: argument.template_string().value().to_string(),
-                    span: argument.span,
-                }),
+            "extends" | "include" => {
+                bits.first()
+                    .filter(|bit| bit.span.contains(offset))
+                    .map_or(Self::None, |bit| Self::TemplateReference {
+                        name: bit.template_string().value().to_string(),
+                        span: bit.span,
+                    })
+            }
 
             "load" => {
-                let Some(load_kind) = djls_semantic::parse_load_arguments(arguments) else {
+                let Some(load_kind) = djls_semantic::parse_load_bits(bits) else {
                     return Self::None;
                 };
 

@@ -1,6 +1,6 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 use salsa::Accumulator;
 
 use crate::db::Db;
@@ -8,13 +8,8 @@ use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
-pub(crate) fn check_if_expression_rule(
-    db: &dyn Db,
-    name: &str,
-    arguments: &[TagArgument],
-    span: Span,
-) {
-    if let Some(message) = validate_expression(arguments) {
+pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[TagBit], span: Span) {
+    if let Some(message) = validate_expression(bits) {
         let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
         ValidationErrorAccumulator(ValidationError::ExpressionSyntaxError {
             tag: name.to_string(),
@@ -28,7 +23,7 @@ pub(crate) fn check_if_expression_rule(
 /// Validate expression tokens for `{% if %}` / `{% elif %}`.
 ///
 /// Returns an error message matching Django's style, or `None` if valid.
-fn validate_expression(tokens: &[TagArgument]) -> Option<String> {
+fn validate_expression(tokens: &[TagBit]) -> Option<String> {
     if tokens.is_empty() {
         return Some("Unexpected end of expression in if tag.".to_string());
     }
@@ -128,7 +123,7 @@ impl Operator {
 
 // Tokenizer
 
-fn tokenize(tokens: &[TagArgument]) -> Vec<Token> {
+fn tokenize(tokens: &[TagBit]) -> Vec<Token> {
     let mut result = Vec::new();
     let mut i = 0;
 

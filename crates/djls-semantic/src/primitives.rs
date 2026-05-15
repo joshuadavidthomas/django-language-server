@@ -28,11 +28,8 @@ impl<'db> Template<'db> {
             .iter()
             .filter_map(|node| match node {
                 Node::Tag {
-                    name,
-                    arguments,
-                    span,
-                    ..
-                } => Some(Tag::new(db, name.clone(), arguments.clone(), *span)),
+                    name, bits, span, ..
+                } => Some(Tag::new(db, name.clone(), bits.clone(), *span)),
                 _ => None,
             })
             .collect()
@@ -50,6 +47,6 @@ pub struct Tag<'db> {
     #[returns(ref)]
     pub name: String,
     #[returns(ref)]
-    pub arguments: Vec<djls_templates::TagArgument>,
+    pub bits: Vec<djls_templates::TagBit>,
     pub span: Span,
 }

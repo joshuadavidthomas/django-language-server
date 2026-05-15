@@ -15,7 +15,7 @@ nodelist:
     name_span:
       - 466
       - 2
-    arguments:
+    bits:
       - text: user.is_authenticated
         span:
           - 469
@@ -82,7 +82,7 @@ nodelist:
     name_span:
       - 624
       - 2
-    arguments:
+    bits:
       - text: user.is_staff
         span:
           - 627
@@ -105,7 +105,7 @@ nodelist:
     name_span:
       - 702
       - 4
-    arguments: []
+    bits: []
     span:
       - 701
       - 6
@@ -124,7 +124,7 @@ nodelist:
     name_span:
       - 767
       - 5
-    arguments: []
+    bits: []
     span:
       - 766
       - 7
@@ -143,7 +143,7 @@ nodelist:
     name_span:
       - 791
       - 5
-    arguments: []
+    bits: []
     span:
       - 790
       - 7

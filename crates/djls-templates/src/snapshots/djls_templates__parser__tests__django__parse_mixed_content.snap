@@ -15,7 +15,7 @@ nodelist:
     name_span:
       - 12
       - 2
-    arguments:
+    bits:
       - text: user.is_authenticated
         span:
           - 15
@@ -67,7 +67,7 @@ nodelist:
     name_span:
       - 89
       - 3
-    arguments:
+    bits:
       - text: group
         span:
           - 93
@@ -98,7 +98,7 @@ nodelist:
     name_span:
       - 128
       - 2
-    arguments:
+    bits:
       - text: forloop.first
         span:
           - 131
@@ -121,7 +121,7 @@ nodelist:
     name_span:
       - 151
       - 5
-    arguments: []
+    bits: []
     span:
       - 150
       - 7
@@ -156,7 +156,7 @@ nodelist:
     name_span:
       - 196
       - 2
-    arguments:
+    bits:
       - text: not
         span:
           - 199
@@ -183,7 +183,7 @@ nodelist:
     name_span:
       - 223
       - 5
-    arguments: []
+    bits: []
     span:
       - 222
       - 7
@@ -202,7 +202,7 @@ nodelist:
     name_span:
       - 243
       - 2
-    arguments:
+    bits:
       - text: forloop.last
         span:
           - 246
@@ -225,7 +225,7 @@ nodelist:
     name_span:
       - 265
       - 5
-    arguments: []
+    bits: []
     span:
       - 264
       - 7
@@ -244,7 +244,7 @@ nodelist:
     name_span:
       - 281
       - 5
-    arguments: []
+    bits: []
     span:
       - 280
       - 7
@@ -263,7 +263,7 @@ nodelist:
     name_span:
       - 317
       - 6
-    arguments: []
+    bits: []
     span:
       - 316
       - 8
@@ -282,7 +282,7 @@ nodelist:
     name_span:
       - 330
       - 4
-    arguments: []
+    bits: []
     span:
       - 329
       - 6
@@ -301,7 +301,7 @@ nodelist:
     name_span:
       - 351
       - 5
-    arguments: []
+    bits: []
     span:
       - 350
       - 7

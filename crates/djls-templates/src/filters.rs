@@ -1,7 +1,7 @@
 use djls_source::Span;
 use serde::Serialize;
 
-use crate::arguments::FilterArgument;
+use crate::bits::FilterArgument;
 use crate::quotes::for_each_unquoted;
 
 /// A parsed filter expression within a Django variable node.

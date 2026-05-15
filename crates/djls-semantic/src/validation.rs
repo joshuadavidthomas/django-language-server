@@ -41,7 +41,7 @@ impl ExtendsPosition {
 
 /// Combined validator that performs a single-pass validation of a template AST.
 ///
-/// This visitor consolidates multiple validation rules (scoping, arity, arguments,
+/// This visitor consolidates multiple validation rules (scoping, arity, bits,
 /// structure) into a single walk of the `NodeList`, reducing redundant traversals.
 pub struct TemplateValidator<'a> {
     db: &'a dyn Db,
@@ -99,7 +99,7 @@ impl Visitor for TemplateValidator<'_> {
         &mut self,
         name: &str,
         _name_span: Span,
-        arguments: &[djls_templates::TagArgument],
+        bits: &[djls_templates::TagBit],
         span: Span,
     ) {
         let is_opaque = self.opaque_regions.is_opaque(span.start());
@@ -150,23 +150,18 @@ impl Visitor for TemplateValidator<'_> {
             // 3. Argument validation
             if let Some(spec) = self.tag_specs.get(name) {
                 if let Some(rules) = &spec.extracted_rules {
-                    arguments::check_tag_arguments_rule(self.db, name, arguments, span, rules);
+                    arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
                 }
             }
 
             // 4. Load library validation
             if name == "load" {
-                scoping::check_load_libraries_rule(
-                    self.db,
-                    arguments,
-                    span,
-                    self.template_libraries,
-                );
+                scoping::check_load_libraries_rule(self.db, bits, span, self.template_libraries);
             }
 
             // 5. If expression validation
             if name == "if" || name == "elif" {
-                if_expressions::check_if_expression_rule(self.db, name, arguments, span);
+                if_expressions::check_if_expression_rule(self.db, name, bits, span);
             }
         }
 

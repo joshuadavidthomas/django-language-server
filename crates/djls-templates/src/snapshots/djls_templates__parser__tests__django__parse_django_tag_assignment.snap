@@ -8,7 +8,7 @@ nodelist:
     name_span:
       - 3
       - 3
-    arguments:
+    bits:
       - text: "'view-name'"
         span:
           - 7

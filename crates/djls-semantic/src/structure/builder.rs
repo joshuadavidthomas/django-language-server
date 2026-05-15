@@ -3,7 +3,7 @@ use djls_templates::tokens::TagDelimiter;
 use djls_templates::visitor::Visitor;
 use djls_templates::Filter;
 use djls_templates::ParseError;
-use djls_templates::TagArgument;
+use djls_templates::TagBit;
 use salsa::Accumulator;
 
 use crate::structure::grammar::CloseValidation;
@@ -108,7 +108,7 @@ impl<'db> TemplateTreeBuilder<'db> {
             .map_or(self.root, |frame| frame.segment_body)
     }
 
-    fn handle_tag(&mut self, name: &str, name_span: Span, arguments: &[TagArgument], span: Span) {
+    fn handle_tag(&mut self, name: &str, name_span: Span, bits: &[TagBit], span: Span) {
         let full_span = span.expand_template_tag_marker();
         match self.index.classify(self.db, name) {
             TagClass::Opener => {
@@ -125,7 +125,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                     node: TemplateNode::Block {
                         tag: name.to_string(),
                         tag_span: name_span,
-                        arguments: arguments.to_vec(),
+                        bits: bits.to_vec(),
                         marker_span: span,
                         full_span,
                         body: container,
@@ -137,7 +137,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                     node: TemplateNode::Block {
                         tag: name.to_string(),
                         tag_span: name_span,
-                        arguments: arguments.to_vec(),
+                        bits: bits.to_vec(),
                         marker_span: span,
                         full_span,
                         body: segment,
@@ -147,7 +147,7 @@ impl<'db> TemplateTreeBuilder<'db> {
 
                 self.stack.push(TreeFrame {
                     opener_name: name.to_string(),
-                    opener_arguments: arguments.to_vec(),
+                    opener_bits: bits.to_vec(),
                     opener_span: full_span,
                     container_body: container,
                     parent_region: parent,
@@ -155,10 +155,10 @@ impl<'db> TemplateTreeBuilder<'db> {
                 });
             }
             TagClass::Closer { opener_name } => {
-                self.close_block(name, opener_name, arguments, span);
+                self.close_block(name, opener_name, bits, span);
             }
             TagClass::Intermediate { possible_openers } => {
-                self.add_intermediate(name, possible_openers, name_span, arguments, span);
+                self.add_intermediate(name, possible_openers, name_span, bits, span);
             }
             TagClass::Unknown => {
                 self.ops.push(TreeOp::AddNode {
@@ -166,7 +166,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                     node: TemplateNode::StandaloneTag {
                         tag: name.to_string(),
                         tag_span: name_span,
-                        arguments: arguments.to_vec(),
+                        bits: bits.to_vec(),
                         marker_span: span,
                         full_span,
                     },
@@ -179,7 +179,7 @@ impl<'db> TemplateTreeBuilder<'db> {
         &mut self,
         closer_name: &str,
         opener_name: &str,
-        closer_arguments: &[TagArgument],
+        closer_bits: &[TagBit],
         span: Span,
     ) {
         let marker_span = span.expand_template_tag_marker();
@@ -210,12 +210,10 @@ impl<'db> TemplateTreeBuilder<'db> {
         }
 
         let frame = self.stack.pop().unwrap();
-        match self.index.validate_close(
-            self.db,
-            opener_name,
-            &frame.opener_arguments,
-            closer_arguments,
-        ) {
+        match self
+            .index
+            .validate_close(self.db, opener_name, &frame.opener_bits, closer_bits)
+        {
             CloseValidation::Valid => {
                 let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
                 self.ops.push(TreeOp::FinalizeSpanTo {
@@ -272,7 +270,7 @@ impl<'db> TemplateTreeBuilder<'db> {
         tag_name: &str,
         possible_openers: &[String],
         name_span: Span,
-        arguments: &[TagArgument],
+        bits: &[TagBit],
         span: Span,
     ) {
         let full_span = span.expand_template_tag_marker();
@@ -297,7 +295,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                     node: TemplateNode::Block {
                         tag: tag_name.to_string(),
                         tag_span: name_span,
-                        arguments: arguments.to_vec(),
+                        bits: bits.to_vec(),
                         marker_span: span,
                         full_span,
                         body: new_segment_id,
@@ -378,7 +376,7 @@ fn describe_intermediate_parent(possible_openers: &[String]) -> String {
 
 struct TreeFrame {
     opener_name: String,
-    opener_arguments: Vec<TagArgument>,
+    opener_bits: Vec<TagBit>,
     opener_span: Span,
     container_body: RegionId,
     parent_region: RegionId,
@@ -386,8 +384,8 @@ struct TreeFrame {
 }
 
 impl Visitor for TemplateTreeBuilder<'_> {
-    fn visit_tag(&mut self, name: &str, name_span: Span, arguments: &[TagArgument], span: Span) {
-        self.handle_tag(name, name_span, arguments, span);
+    fn visit_tag(&mut self, name: &str, name_span: Span, bits: &[TagBit], span: Span) {
+        self.handle_tag(name, name_span, bits, span);
     }
 
     fn visit_comment(&mut self, _content: &str, span: Span) {

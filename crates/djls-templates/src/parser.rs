@@ -2,7 +2,7 @@ use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::arguments::TagArgument;
+use crate::bits::TagBit;
 use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::filters::Filter;
@@ -92,12 +92,12 @@ impl Parser {
         };
 
         let span = token.content_span_or_fallback();
-        let (name, name_span, arguments) = Self::parse_tag_args(content_ref, span.start_usize())?;
+        let (name, name_span, bits) = Self::parse_tag_args(content_ref, span.start_usize())?;
 
         Ok(Node::Tag {
             name,
             name_span,
-            arguments,
+            bits,
             span,
         })
     }
@@ -105,21 +105,21 @@ impl Parser {
     fn parse_tag_args(
         content: &str,
         position: usize,
-    ) -> Result<(String, Span, Vec<TagArgument>), ParseError> {
+    ) -> Result<(String, Span, Vec<TagBit>), ParseError> {
         let pieces = split_on_whitespace_with_offsets(content);
         let mut iter = pieces.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         let name_span = Span::saturating_from_parts_usize(position + name.start, name.text.len());
-        let arguments = iter
+        let bits = iter
             .map(|piece| {
-                TagArgument::new(
+                TagBit::new(
                     piece.text.to_string(),
                     Span::saturating_from_parts_usize(position + piece.start, piece.text.len()),
                 )
             })
             .collect();
 
-        Ok((name.text.to_string(), name_span, arguments))
+        Ok((name.text.to_string(), name_span, bits))
     }
 
     fn parse_comment(&mut self) -> Result<Node, ParseError> {
@@ -357,16 +357,16 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
-    struct TestArgument {
+    struct TestSpannedText {
         text: String,
         span: (u32, u32),
     }
 
-    impl TestArgument {
-        fn from_tag(argument: &crate::TagArgument) -> Self {
+    impl TestSpannedText {
+        fn from_tag(bit: &crate::TagBit) -> Self {
             Self {
-                text: argument.text.clone(),
-                span: (&argument.span).into(),
+                text: bit.text.clone(),
+                span: (&bit.span).into(),
             }
         }
 
@@ -382,7 +382,7 @@ mod tests {
     struct TestFilter {
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        arg: Option<TestArgument>,
+        arg: Option<TestSpannedText>,
         span: (u32, u32),
     }
 
@@ -390,7 +390,7 @@ mod tests {
         fn from_filter(filter: &crate::filters::Filter) -> Self {
             Self {
                 name: filter.name.clone(),
-                arg: filter.arg.as_ref().map(TestArgument::from_filter),
+                arg: filter.arg.as_ref().map(TestSpannedText::from_filter),
                 span: (&filter.span).into(),
             }
         }
@@ -402,7 +402,7 @@ mod tests {
         Tag {
             name: String,
             name_span: (u32, u32),
-            arguments: Vec<TestArgument>,
+            bits: Vec<TestSpannedText>,
             span: (u32, u32),
             full_span: (u32, u32),
         },
@@ -434,12 +434,12 @@ mod tests {
                 Node::Tag {
                     name,
                     name_span,
-                    arguments,
+                    bits,
                     span,
                 } => TestNode::Tag {
                     name: name.clone(),
                     name_span: name_span.into(),
-                    arguments: arguments.iter().map(TestArgument::from_tag).collect(),
+                    bits: bits.iter().map(TestSpannedText::from_tag).collect(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
