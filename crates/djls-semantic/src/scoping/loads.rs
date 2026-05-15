@@ -2,16 +2,58 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use djls_source::Span;
+use djls_templates::TagArgument;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadArgument {
+    name: String,
+    span: Span,
+}
+
+impl LoadArgument {
+    #[must_use]
+    pub fn new(name: String, span: Span) -> Self {
+        Self { name, span }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl From<&TagArgument> for LoadArgument {
+    fn from(argument: &TagArgument) -> Self {
+        Self::new(argument.as_str().to_string(), argument.span)
+    }
+}
+
+impl From<&str> for LoadArgument {
+    fn from(name: &str) -> Self {
+        Self::new(name.to_string(), Span::new(0, 0))
+    }
+}
+
+impl From<String> for LoadArgument {
+    fn from(name: String) -> Self {
+        Self::new(name, Span::new(0, 0))
+    }
+}
 
 /// The kind of a `{% load %}` statement.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoadKind {
     /// `{% load i18n %}` or `{% load i18n static %}` — loads entire libraries.
-    FullLoad { libraries: Vec<String> },
+    FullLoad { libraries: Vec<LoadArgument> },
     /// `{% load trans blocktrans from i18n %}` — selectively imports named symbols.
     SelectiveImport {
-        symbols: Vec<String>,
-        library: String,
+        symbols: Vec<LoadArgument>,
+        library: LoadArgument,
     },
 }
 
@@ -39,12 +81,12 @@ impl LoadStatement {
     }
 }
 
-/// Parse the `bits` from a `Node::Tag` where `name == "load"` into a `LoadKind`.
+/// Parse the arguments from a `Node::Tag` where `name == "load"` into a `LoadKind`.
 ///
-/// The `bits` slice contains only the arguments to the load tag — the tag name
+/// The argument slice contains only the arguments to the load tag — the tag name
 /// "load" is NOT included (the parser separates it into `Node::Tag::name`).
 ///
-/// Returns `None` if the bits are empty or malformed (e.g. `{% load from %}`
+/// Returns `None` if the arguments are empty or malformed (e.g. `{% load from %}`
 /// with no symbols, or `{% load trans from %}` with no library).
 ///
 /// # Examples
@@ -54,30 +96,31 @@ impl LoadStatement {
 /// - `["trans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans"], library: "i18n" }`
 /// - `["trans", "blocktrans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans", "blocktrans"], library: "i18n" }`
 #[must_use]
-pub fn parse_load_bits(bits: &[String]) -> Option<LoadKind> {
-    if bits.is_empty() {
+pub fn parse_load_arguments(arguments: &[TagArgument]) -> Option<LoadKind> {
+    if arguments.is_empty() {
         return None;
     }
 
-    let from_idx = bits.iter().position(|b| b == "from");
+    let from_idx = arguments
+        .iter()
+        .position(|argument| argument.as_str() == "from");
 
     match from_idx {
         Some(idx) => {
-            let symbols: Vec<String> = bits[..idx].to_vec();
-            let rest = &bits[idx + 1..];
+            let symbols: Vec<LoadArgument> = arguments[..idx].iter().map(Into::into).collect();
+            let rest = &arguments[idx + 1..];
 
-            // Must have at least one symbol and exactly one library after "from"
             if symbols.is_empty() || rest.len() != 1 {
                 return None;
             }
 
             Some(LoadKind::SelectiveImport {
                 symbols,
-                library: rest[0].clone(),
+                library: (&rest[0]).into(),
             })
         }
         None => Some(LoadKind::FullLoad {
-            libraries: bits.to_vec(),
+            libraries: arguments.iter().map(Into::into).collect(),
         }),
     }
 }
@@ -195,13 +238,15 @@ impl LoadedLibraries {
 mod tests {
     use super::*;
 
-    fn bits(s: &str) -> Vec<String> {
-        s.split_whitespace().map(String::from).collect()
+    fn arguments(s: &str) -> Vec<TagArgument> {
+        s.split_whitespace()
+            .map(|text| TagArgument::new(text.to_string(), Span::new(0, 0)))
+            .collect()
     }
 
     #[test]
     fn parse_full_load_single() {
-        let result = parse_load_bits(&bits("i18n"));
+        let result = parse_load_arguments(&arguments("i18n"));
         assert_eq!(
             result,
             Some(LoadKind::FullLoad {
@@ -212,7 +257,7 @@ mod tests {
 
     #[test]
     fn parse_full_load_multiple() {
-        let result = parse_load_bits(&bits("i18n static"));
+        let result = parse_load_arguments(&arguments("i18n static"));
         assert_eq!(
             result,
             Some(LoadKind::FullLoad {
@@ -223,7 +268,7 @@ mod tests {
 
     #[test]
     fn parse_selective_import_single() {
-        let result = parse_load_bits(&bits("trans from i18n"));
+        let result = parse_load_arguments(&arguments("trans from i18n"));
         assert_eq!(
             result,
             Some(LoadKind::SelectiveImport {
@@ -235,7 +280,7 @@ mod tests {
 
     #[test]
     fn parse_selective_import_multiple() {
-        let result = parse_load_bits(&bits("trans blocktrans from i18n"));
+        let result = parse_load_arguments(&arguments("trans blocktrans from i18n"));
         assert_eq!(
             result,
             Some(LoadKind::SelectiveImport {
@@ -247,25 +292,28 @@ mod tests {
 
     #[test]
     fn parse_empty_bits() {
-        assert_eq!(parse_load_bits(&[]), None);
+        assert_eq!(parse_load_arguments(&[]), None);
     }
 
     #[test]
     fn parse_load_from_no_symbols() {
         // {% load from i18n %} — "from" at index 0 means no symbols before it
-        assert_eq!(parse_load_bits(&bits("from i18n")), None);
+        assert_eq!(parse_load_arguments(&arguments("from i18n")), None);
     }
 
     #[test]
     fn parse_load_from_no_library() {
         // {% load trans from %} — missing library after "from"
-        assert_eq!(parse_load_bits(&bits("trans from")), None);
+        assert_eq!(parse_load_arguments(&arguments("trans from")), None);
     }
 
     #[test]
     fn parse_load_from_multiple_libraries() {
         // {% load trans from i18n static %} — too many tokens after "from"
-        assert_eq!(parse_load_bits(&bits("trans from i18n static")), None);
+        assert_eq!(
+            parse_load_arguments(&arguments("trans from i18n static")),
+            None
+        );
     }
 
     // --- LoadedLibraries tests ---

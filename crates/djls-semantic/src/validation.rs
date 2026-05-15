@@ -95,7 +95,13 @@ impl<'a> TemplateValidator<'a> {
 }
 
 impl Visitor for TemplateValidator<'_> {
-    fn visit_tag(&mut self, name: &str, bits: &[String], span: Span) {
+    fn visit_tag(
+        &mut self,
+        name: &str,
+        _name_span: Span,
+        arguments: &[djls_templates::TagArgument],
+        span: Span,
+    ) {
         let is_opaque = self.opaque_regions.is_opaque(span.start());
 
         // 1. Extends validation (cares about order/opacity)
@@ -144,25 +150,30 @@ impl Visitor for TemplateValidator<'_> {
             // 3. Argument validation
             if let Some(spec) = self.tag_specs.get(name) {
                 if let Some(rules) = &spec.extracted_rules {
-                    arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
+                    arguments::check_tag_arguments_rule(self.db, name, arguments, span, rules);
                 }
             }
 
             // 4. Load library validation
             if name == "load" {
-                scoping::check_load_libraries_rule(self.db, bits, span, self.template_libraries);
+                scoping::check_load_libraries_rule(
+                    self.db,
+                    arguments,
+                    span,
+                    self.template_libraries,
+                );
             }
 
             // 5. If expression validation
             if name == "if" || name == "elif" {
-                if_expressions::check_if_expression_rule(self.db, name, bits, span);
+                if_expressions::check_if_expression_rule(self.db, name, arguments, span);
             }
         }
 
         self.extends_position = self.extends_position.record_non_text();
     }
 
-    fn visit_variable(&mut self, _var: &str, filters: &[Filter], span: Span) {
+    fn visit_variable(&mut self, _var: &str, _var_span: Span, filters: &[Filter], span: Span) {
         if !filters.is_empty() && !self.opaque_regions.is_opaque(span.start()) {
             let symbols = self.symbol_index.symbols_at(span.start());
 

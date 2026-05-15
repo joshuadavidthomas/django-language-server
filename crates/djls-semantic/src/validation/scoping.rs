@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Filter;
+use djls_templates::TagArgument;
 use salsa::Accumulator;
 
 use crate::db::Db;
@@ -133,15 +134,15 @@ pub(crate) fn check_filter_scoping_rule(
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
-    bits: &[String],
-    span: Span,
+    arguments: &[TagArgument],
+    _span: Span,
     template_libraries: &crate::TemplateLibraries,
 ) {
     if template_libraries.active_knowledge != Knowledge::Known {
         return;
     }
 
-    let Some(kind) = crate::scoping::parse_load_bits(bits) else {
+    let Some(kind) = crate::scoping::parse_load_arguments(arguments) else {
         return;
     };
 
@@ -151,7 +152,7 @@ pub(crate) fn check_load_libraries_rule(
     };
 
     for lib in libs {
-        if let Ok(name) = LibraryName::parse(&lib) {
+        if let Ok(name) = LibraryName::parse(lib.as_str()) {
             if template_libraries.loadable.contains_key(&name) {
                 continue;
             }
@@ -160,21 +161,19 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         }
 
-        let candidates = template_libraries.discovered_app_modules_for_library_str(&lib);
+        let candidates = template_libraries.discovered_app_modules_for_library_str(lib.as_str());
         if candidates.is_empty() {
-            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
             ValidationErrorAccumulator(ValidationError::UnknownLibrary {
-                name: lib,
-                span: marker_span,
+                name: lib.as_str().to_string(),
+                span: lib.span(),
             })
             .accumulate(db);
         } else {
-            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
             ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
-                name: lib,
+                name: lib.as_str().to_string(),
                 app: candidates[0].clone(),
                 candidates,
-                span: marker_span,
+                span: lib.span(),
             })
             .accumulate(db);
         }

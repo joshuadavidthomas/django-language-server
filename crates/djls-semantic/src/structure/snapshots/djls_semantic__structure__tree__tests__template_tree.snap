@@ -15,8 +15,14 @@ regions:
           length: 1
       - node: StandaloneTag
         tag: extends
-        bits:
-          - "\"base.html\""
+        tag_span:
+          start: 4
+          length: 7
+        arguments:
+          - text: "\"base.html\""
+            span:
+              start: 12
+              length: 11
         marker_span:
           start: 3
           length: 21
@@ -29,9 +35,18 @@ regions:
           length: 1
       - node: StandaloneTag
         tag: load
-        bits:
-          - static
-          - i18n
+        tag_span:
+          start: 30
+          length: 4
+        arguments:
+          - text: static
+            span:
+              start: 35
+              length: 6
+          - text: i18n
+            span:
+              start: 42
+              length: 4
         marker_span:
           start: 29
           length: 18
@@ -44,8 +59,14 @@ regions:
           length: 1
       - node: BlockTag
         tag: block
-        bits:
-          - header
+        tag_span:
+          start: 53
+          length: 5
+        arguments:
+          - text: header
+            span:
+              start: 59
+              length: 6
         marker_span:
           start: 52
           length: 14
@@ -60,8 +81,14 @@ regions:
           length: 2
       - node: BlockTag
         tag: if
-        bits:
-          - user.is_authenticated
+        tag_span:
+          start: 114
+          length: 2
+        arguments:
+          - text: user.is_authenticated
+            span:
+              start: 117
+              length: 21
         marker_span:
           start: 113
           length: 26
@@ -76,10 +103,22 @@ regions:
           length: 2
       - node: BlockTag
         tag: for
-        bits:
-          - item
-          - in
-          - items
+        tag_span:
+          start: 410
+          length: 3
+        arguments:
+          - text: item
+            span:
+              start: 414
+              length: 4
+          - text: in
+            span:
+              start: 419
+              length: 2
+          - text: items
+            span:
+              start: 422
+              length: 5
         marker_span:
           start: 409
           length: 19
@@ -99,8 +138,14 @@ regions:
     nodes:
       - node: BlockTag
         tag: block
-        bits:
-          - header
+        tag_span:
+          start: 53
+          length: 5
+        arguments:
+          - text: header
+            span:
+              start: 59
+              length: 6
         marker_span:
           start: 52
           length: 14
@@ -125,8 +170,14 @@ regions:
     nodes:
       - node: BlockTag
         tag: if
-        bits:
-          - user.is_authenticated
+        tag_span:
+          start: 114
+          length: 2
+        arguments:
+          - text: user.is_authenticated
+            span:
+              start: 117
+              length: 21
         marker_span:
           start: 113
           length: 26
@@ -137,7 +188,10 @@ regions:
         role: Segment
       - node: BlockTag
         tag: else
-        bits: []
+        tag_span:
+          start: 361
+          length: 4
+        arguments: []
         marker_span:
           start: 360
           length: 6
@@ -156,6 +210,11 @@ regions:
           start: 141
           length: 16
       - node: Variable
+        var: user.name
+        var_span:
+          start: 160
+          length: 9
+        filters: []
         span:
           start: 159
           length: 11
@@ -165,8 +224,14 @@ regions:
           length: 9
       - node: BlockTag
         tag: if
-        bits:
-          - user.is_superuser
+        tag_span:
+          start: 184
+          length: 2
+        arguments:
+          - text: user.is_superuser
+            span:
+              start: 187
+              length: 17
         marker_span:
           start: 183
           length: 22
@@ -186,8 +251,14 @@ regions:
     nodes:
       - node: BlockTag
         tag: if
-        bits:
-          - user.is_superuser
+        tag_span:
+          start: 184
+          length: 2
+        arguments:
+          - text: user.is_superuser
+            span:
+              start: 187
+              length: 17
         marker_span:
           start: 183
           length: 22
@@ -198,8 +269,14 @@ regions:
         role: Segment
       - node: BlockTag
         tag: elif
-        bits:
-          - user.is_staff
+        tag_span:
+          start: 242
+          length: 4
+        arguments:
+          - text: user.is_staff
+            span:
+              start: 247
+              length: 13
         marker_span:
           start: 241
           length: 20
@@ -210,7 +287,10 @@ regions:
         role: Segment
       - node: BlockTag
         tag: else
-        bits: []
+        tag_span:
+          start: 300
+          length: 4
+        arguments: []
         marker_span:
           start: 299
           length: 6
@@ -262,10 +342,22 @@ regions:
     nodes:
       - node: BlockTag
         tag: for
-        bits:
-          - item
-          - in
-          - items
+        tag_span:
+          start: 410
+          length: 3
+        arguments:
+          - text: item
+            span:
+              start: 414
+              length: 4
+          - text: in
+            span:
+              start: 419
+              length: 2
+          - text: items
+            span:
+              start: 422
+              length: 5
         marker_span:
           start: 409
           length: 19
@@ -284,6 +376,11 @@ regions:
           start: 430
           length: 9
       - node: Variable
+        var: item
+        var_span:
+          start: 442
+          length: 4
+        filters: []
         span:
           start: 441
           length: 6

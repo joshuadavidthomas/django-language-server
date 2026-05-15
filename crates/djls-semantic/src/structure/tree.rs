@@ -1,4 +1,6 @@
 use djls_source::Span;
+use djls_templates::Filter;
+use djls_templates::TagArgument;
 use serde::Serialize;
 
 #[salsa::tracked]
@@ -158,7 +160,8 @@ pub enum TemplateNode {
     /// without nested ownership inside the Salsa-tracked tree.
     Block {
         tag: String,
-        bits: Vec<String>,
+        tag_span: Span,
+        arguments: Vec<TagArgument>,
         marker_span: Span,
         full_span: Span,
         body: RegionId,
@@ -166,11 +169,15 @@ pub enum TemplateNode {
     },
     StandaloneTag {
         tag: String,
-        bits: Vec<String>,
+        tag_span: Span,
+        arguments: Vec<TagArgument>,
         marker_span: Span,
         full_span: Span,
     },
     Variable {
+        var: String,
+        var_span: Span,
+        filters: Vec<Filter>,
         span: Span,
     },
     Comment {
@@ -191,7 +198,7 @@ impl TemplateNode {
             TemplateNode::Block { full_span, .. }
             | TemplateNode::StandaloneTag { full_span, .. }
             | TemplateNode::Error { full_span, .. } => *full_span,
-            TemplateNode::Variable { span }
+            TemplateNode::Variable { span, .. }
             | TemplateNode::Comment { span }
             | TemplateNode::Text { span } => *span,
         }
@@ -206,6 +213,7 @@ mod tests {
     use djls_source::Span;
     use djls_templates::parse_template;
     use djls_templates::Node;
+    use djls_templates::TagArgument;
     use rustc_hash::FxHashMap;
 
     use super::BlockRole;
@@ -221,6 +229,89 @@ mod tests {
     use crate::TagSpec;
     use crate::TagSpecs;
     use crate::ValidationError;
+
+    #[derive(serde::Serialize)]
+    struct NodeListView {
+        nodes: Vec<NodeView>,
+    }
+
+    #[derive(serde::Serialize)]
+    #[serde(tag = "kind")]
+    enum NodeView {
+        Tag {
+            name: String,
+            name_span: Span,
+            arguments: Vec<djls_templates::TagArgument>,
+            span: Span,
+        },
+        Variable {
+            var: String,
+            var_span: Span,
+            filters: Vec<djls_templates::Filter>,
+            span: Span,
+        },
+        Comment {
+            content: String,
+            span: Span,
+        },
+        Text {
+            span: Span,
+        },
+        Error {
+            span: Span,
+            full_span: Span,
+            error: String,
+        },
+    }
+
+    impl From<&Node> for NodeView {
+        fn from(node: &Node) -> Self {
+            match node {
+                Node::Tag {
+                    name,
+                    name_span,
+                    arguments,
+                    span,
+                } => Self::Tag {
+                    name: name.clone(),
+                    name_span: *name_span,
+                    arguments: arguments.clone(),
+                    span: *span,
+                },
+                Node::Variable {
+                    var,
+                    var_span,
+                    filters,
+                    span,
+                } => Self::Variable {
+                    var: var.clone(),
+                    var_span: *var_span,
+                    filters: filters.clone(),
+                    span: *span,
+                },
+                Node::Comment { content, span } => Self::Comment {
+                    content: content.clone(),
+                    span: *span,
+                },
+                Node::Text { span } => Self::Text { span: *span },
+                Node::Error {
+                    span,
+                    full_span,
+                    error,
+                } => Self::Error {
+                    span: *span,
+                    full_span: *full_span,
+                    error: error.to_string(),
+                },
+            }
+        }
+    }
+
+    fn nodelist_view(nodes: &[Node]) -> NodeListView {
+        NodeListView {
+            nodes: nodes.iter().map(NodeView::from).collect(),
+        }
+    }
 
     #[test]
     fn test_template_tree_building() {
@@ -255,72 +346,7 @@ mod tests {
         let file = File::new(&db, "test.html".into(), 0);
         let nodelist = parse_template(&db, file).expect("should parse");
 
-        let nodelist_view = {
-            #[derive(serde::Serialize)]
-            struct NodeListView {
-                nodes: Vec<NodeView>,
-            }
-            #[derive(serde::Serialize)]
-            #[serde(tag = "kind")]
-            enum NodeView {
-                Tag {
-                    name: String,
-                    bits: Vec<String>,
-                    span: Span,
-                },
-                Variable {
-                    var: String,
-                    filters: Vec<djls_templates::Filter>,
-                    span: Span,
-                },
-                Comment {
-                    content: String,
-                    span: Span,
-                },
-                Text {
-                    span: Span,
-                },
-                Error {
-                    span: Span,
-                    full_span: Span,
-                    error: String,
-                },
-            }
-
-            let nodes = nodelist
-                .nodelist(&db)
-                .iter()
-                .map(|n| match n {
-                    Node::Tag { name, bits, span } => NodeView::Tag {
-                        name: name.clone(),
-                        bits: bits.clone(),
-                        span: *span,
-                    },
-                    Node::Variable { var, filters, span } => NodeView::Variable {
-                        var: var.clone(),
-                        filters: filters.clone(),
-                        span: *span,
-                    },
-                    Node::Comment { content, span } => NodeView::Comment {
-                        content: content.clone(),
-                        span: *span,
-                    },
-                    Node::Text { span } => NodeView::Text { span: *span },
-                    Node::Error {
-                        span,
-                        full_span,
-                        error,
-                    } => NodeView::Error {
-                        span: *span,
-                        full_span: *full_span,
-                        error: error.to_string(),
-                    },
-                })
-                .collect();
-
-            NodeListView { nodes }
-        };
-        insta::assert_yaml_snapshot!("nodelist", nodelist_view);
+        insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
         let template_tree = build_template_tree(&db, nodelist);
         insta::assert_yaml_snapshot!(
             "template_tree",
@@ -381,23 +407,21 @@ mod tests {
             .nodes()
             .iter()
             .filter_map(|node| match node {
-                TemplateNode::StandaloneTag { tag, bits, .. } => {
-                    Some((tag.as_str(), bits.as_slice()))
-                }
+                TemplateNode::StandaloneTag { tag, arguments, .. } => Some((
+                    tag.as_str(),
+                    arguments
+                        .iter()
+                        .map(TagArgument::as_str)
+                        .collect::<Vec<_>>(),
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
 
         assert_eq!(tags.len(), 3);
-        assert_eq!(tags[0], ("extends", &["\"base.html\"".to_string()][..]));
-        assert_eq!(
-            tags[1],
-            ("load", &["static".to_string(), "i18n".to_string()][..])
-        );
-        assert_eq!(
-            tags[2],
-            ("include", &["\"partials/nav.html\"".to_string()][..])
-        );
+        assert_eq!(tags[0], ("extends", vec!["\"base.html\""]));
+        assert_eq!(tags[1], ("load", vec!["static", "i18n"]));
+        assert_eq!(tags[2], ("include", vec!["\"partials/nav.html\""]));
     }
 
     #[test]
@@ -447,18 +471,24 @@ mod tests {
             .filter_map(|node| match node {
                 TemplateNode::Block {
                     tag,
-                    bits,
+                    arguments,
                     role: BlockRole::Segment,
                     ..
-                } => Some((tag.as_str(), bits.as_slice())),
+                } => Some((
+                    tag.as_str(),
+                    arguments
+                        .iter()
+                        .map(TagArgument::as_str)
+                        .collect::<Vec<_>>(),
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
 
         assert_eq!(segment_tags.len(), 3);
-        assert_eq!(segment_tags[0], ("if", &["user".to_string()][..]));
-        assert_eq!(segment_tags[1], ("elif", &["staff".to_string()][..]));
-        assert_eq!(segment_tags[2], ("else", &[][..]));
+        assert_eq!(segment_tags[0], ("if", vec!["user"]));
+        assert_eq!(segment_tags[1], ("elif", vec!["staff"]));
+        assert_eq!(segment_tags[2], ("else", Vec::<&str>::new()));
     }
 
     #[test]
@@ -480,8 +510,9 @@ mod tests {
             .iter()
             .any(|node| matches!(
                 node,
-                TemplateNode::StandaloneTag { tag, bits, .. }
-                    if tag == "include" && bits == &["\"card.html\"".to_string()]
+                TemplateNode::StandaloneTag { tag, arguments, .. }
+                    if tag == "include"
+                        && arguments.first().is_some_and(|arg| arg.as_str() == "\"card.html\"")
             )));
     }
 
@@ -530,8 +561,9 @@ mod tests {
 
         assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(
             node,
-            TemplateNode::Block { tag, bits, .. }
-                if tag == "partialdef" && bits == &["card".to_string()]
+            TemplateNode::Block { tag, arguments, .. }
+                if tag == "partialdef"
+                    && arguments.first().is_some_and(|arg| arg.as_str() == "card")
         )));
     }
 

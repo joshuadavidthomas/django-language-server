@@ -4,6 +4,7 @@ use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_templates::Node;
+use djls_templates::TagArgument;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum OffsetContext {
@@ -22,25 +23,27 @@ impl OffsetContext {
             return Self::None;
         };
 
-        let source = file.source(db);
         let Some(node) = nodelist.node_at(db, offset) else {
             return Self::None;
         };
 
-        Self::from_node(node, source.as_str(), offset)
+        Self::from_node(node, offset)
     }
 
-    pub(crate) fn from_node(node: &Node, source: &str, offset: Offset) -> Self {
+    pub(crate) fn from_node(node: &Node, offset: Offset) -> Self {
         match node {
-            Node::Tag { name, bits, span } => Self::from_tag(
+            Node::Tag {
                 name,
-                bits,
-                *span,
-                node.identifier_span().unwrap_or(*span),
-                source,
-                offset,
-            ),
-            Node::Variable { var, filters, span } => {
+                name_span,
+                arguments,
+                ..
+            } => Self::from_tag(name, *name_span, arguments, offset),
+            Node::Variable {
+                var,
+                var_span,
+                filters,
+                ..
+            } => {
                 if let Some(filter) = filters.iter().find(|filter| {
                     filter
                         .span
@@ -54,32 +57,20 @@ impl OffsetContext {
                     };
                 }
 
-                if node
-                    .identifier_span()
-                    .is_some_and(|span| span.contains(offset))
-                {
-                    // TODO: Use Python/ORM inference here for variable hover once template
-                    // context types are available.
-                    Self::Variable {
+                if var_span.contains(offset) {
+                    return Self::Variable {
                         name: var.clone(),
-                        span: *span,
-                    }
-                } else {
-                    Self::None
+                        span: *var_span,
+                    };
                 }
+
+                Self::None
             }
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => Self::None,
         }
     }
 
-    fn from_tag(
-        name: &str,
-        bits: &[String],
-        span: Span,
-        name_span: Span,
-        source: &str,
-        offset: Offset,
-    ) -> Self {
+    fn from_tag(name: &str, name_span: Span, arguments: &[TagArgument], offset: Offset) -> Self {
         if name_span.contains(offset) {
             return Self::Tag {
                 name: name.to_string(),
@@ -87,92 +78,50 @@ impl OffsetContext {
             };
         }
 
-        let first_bit = bits
-            .first()
-            .and_then(|bit| bit_span(source, span, bit, 0).map(|(_, span)| (bit, span)))
-            .filter(|(_, span)| span.contains(offset));
-
         match name {
-            "extends" | "include" => {
-                first_bit.map_or(Self::None, |(bit, span)| Self::TemplateReference {
-                    name: strip_template_reference_quotes(bit).to_string(),
-                    span,
-                })
-            }
+            "extends" | "include" => arguments
+                .first()
+                .filter(|argument| argument.span.contains(offset))
+                .map_or(Self::None, |argument| Self::TemplateReference {
+                    name: argument.template_string().value().to_string(),
+                    span: argument.span,
+                }),
 
             "load" => {
-                let Some(load_kind) = djls_semantic::parse_load_bits(bits) else {
+                let Some(load_kind) = djls_semantic::parse_load_arguments(arguments) else {
                     return Self::None;
                 };
 
-                let mut search_start = 0;
-                for bit in bits {
-                    let Some((relative_start, span)) = bit_span(source, span, bit, search_start)
-                    else {
-                        continue;
-                    };
+                match load_kind {
+                    LoadKind::FullLoad { libraries } => libraries
+                        .into_iter()
+                        .find(|library| library.span().contains(offset))
+                        .map_or(Self::None, |library| Self::LoadLibrary {
+                            name: library.as_str().to_string(),
+                            span: library.span(),
+                        }),
+                    LoadKind::SelectiveImport { symbols, library } => {
+                        if library.span().contains(offset) {
+                            return Self::LoadLibrary {
+                                name: library.as_str().to_string(),
+                                span: library.span(),
+                            };
+                        }
 
-                    match &load_kind {
-                        LoadKind::FullLoad { libraries }
-                            if libraries.iter().any(|library| library == bit)
-                                && span.contains(offset) =>
-                        {
-                            return Self::LoadLibrary {
-                                name: bit.clone(),
-                                span,
-                            };
-                        }
-                        LoadKind::SelectiveImport { library, .. }
-                            if library == bit && span.contains(offset) =>
-                        {
-                            return Self::LoadLibrary {
-                                name: bit.clone(),
-                                span,
-                            };
-                        }
-                        LoadKind::SelectiveImport { symbols, .. }
-                            if symbols.iter().any(|symbol| symbol == bit)
-                                && span.contains(offset) =>
-                        {
-                            return Self::LoadSymbol {
-                                name: bit.clone(),
-                                span,
-                            };
-                        }
-                        LoadKind::FullLoad { .. } | LoadKind::SelectiveImport { .. } => {}
+                        symbols
+                            .into_iter()
+                            .find(|symbol| symbol.span().contains(offset))
+                            .map_or(Self::None, |symbol| Self::LoadSymbol {
+                                name: symbol.as_str().to_string(),
+                                span: symbol.span(),
+                            })
                     }
-
-                    search_start = relative_start + bit.len();
                 }
-
-                Self::None
             }
 
             _ => Self::None,
         }
     }
-}
-
-fn bit_span(source: &str, tag_span: Span, bit: &str, search_start: usize) -> Option<(usize, Span)> {
-    let content_start = tag_span.start_usize();
-    let content_end = tag_span.end_usize();
-    let content = source.get(content_start..content_end)?;
-    let relative_start = search_start + content[search_start..].find(bit)?;
-    let span = Span::saturating_from_parts_usize(content_start + relative_start, bit.len());
-    Some((relative_start, span))
-}
-
-pub(crate) fn strip_template_reference_quotes(raw: &str) -> &str {
-    let trimmed = raw.trim();
-    trimmed
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| {
-            trimmed
-                .strip_prefix('\'')
-                .and_then(|s| s.strip_suffix('\''))
-        })
-        .unwrap_or(trimmed)
 }
 
 #[cfg(test)]
@@ -189,164 +138,139 @@ mod tests {
         Offset::new(u32::try_from(source.find(needle).unwrap()).unwrap())
     }
 
+    fn parsed_tag(source: &str) -> Node {
+        let (nodes, errors) = djls_templates::parse_template_impl(source);
+        assert!(errors.is_empty(), "unexpected parse errors: {errors:?}");
+        nodes.into_iter().next().expect("expected one node")
+    }
+
     #[test]
-    fn strip_template_reference_quotes_strips_double_quotes() {
+    fn identifies_template_reference_context() {
+        let source = r#"{% extends "base.html" %}"#;
+        let node = parsed_tag(source);
+
+        let context = OffsetContext::from_node(&node, offset_of(source, "base"));
+
         assert_eq!(
-            strip_template_reference_quotes("\"base.html\""),
-            "base.html"
+            context,
+            OffsetContext::TemplateReference {
+                name: "base.html".to_string(),
+                span: Span::saturating_from_parts_usize(11, 11),
+            }
         );
     }
 
     #[test]
-    fn strip_template_reference_quotes_strips_single_quotes() {
-        assert_eq!(strip_template_reference_quotes("'base.html'"), "base.html");
-    }
-
-    #[test]
-    fn strip_template_reference_quotes_strips_quotes_and_whitespace() {
-        assert_eq!(
-            strip_template_reference_quotes("  \"base.html\"  "),
-            "base.html"
-        );
-    }
-
-    #[test]
-    fn strip_template_reference_quotes_handles_unquoted() {
-        assert_eq!(strip_template_reference_quotes("base.html"), "base.html");
-    }
-
-    #[test]
-    fn tag_name_context_wins_on_tag_name() {
-        let source = "{% extends \"base.html\" %}";
-        let result = OffsetContext::from_tag(
-            "extends",
-            &["\"base.html\"".to_string()],
-            tag_span(source),
-            Span::new(3, 7),
-            source,
-            offset_of(source, "extends"),
-        );
-
-        assert!(matches!(
-            result,
-            OffsetContext::Tag { name, .. } if name == "extends"
-        ));
-    }
-
-    #[test]
-    fn extends_template_reference_context_on_template_name() {
-        let source = "{% extends \"base.html\" %}";
-        let result = OffsetContext::from_tag(
-            "extends",
-            &["\"base.html\"".to_string()],
-            tag_span(source),
-            Span::new(3, 7),
-            source,
-            offset_of(source, "base.html"),
-        );
-
-        assert!(matches!(
-            result,
-            OffsetContext::TemplateReference { name, .. } if name == "base.html"
-        ));
-    }
-
-    #[test]
-    fn include_template_reference_context() {
-        let source = "{% include \"partial.html\" %}";
-        let result = OffsetContext::from_tag(
-            "include",
-            &["\"partial.html\"".to_string()],
-            tag_span(source),
-            Span::new(3, 7),
-            source,
-            offset_of(source, "partial.html"),
-        );
-
-        assert!(matches!(
-            result,
-            OffsetContext::TemplateReference { name, .. } if name == "partial.html"
-        ));
-    }
-
-    #[test]
-    fn load_library_context() {
+    fn identifies_load_library_context() {
         let source = "{% load static i18n %}";
-        let result = OffsetContext::from_tag(
-            "load",
-            &["static".to_string(), "i18n".to_string()],
-            tag_span(source),
-            Span::new(3, 4),
-            source,
-            offset_of(source, "static"),
-        );
+        let node = parsed_tag(source);
 
-        assert!(matches!(
-            result,
-            OffsetContext::LoadLibrary { name, .. } if name == "static"
-        ));
+        let context = OffsetContext::from_node(&node, offset_of(source, "static"));
+
+        assert_eq!(
+            context,
+            OffsetContext::LoadLibrary {
+                name: "static".to_string(),
+                span: Span::saturating_from_parts_usize(8, 6),
+            }
+        );
     }
 
     #[test]
-    fn selective_load_symbol_and_library_contexts() {
+    fn identifies_selective_load_symbol_context() {
+        let source = "{% load trans blocktrans from i18n %}";
+        let node = parsed_tag(source);
+
+        let context = OffsetContext::from_node(&node, offset_of(source, "blocktrans"));
+
+        assert_eq!(
+            context,
+            OffsetContext::LoadSymbol {
+                name: "blocktrans".to_string(),
+                span: Span::saturating_from_parts_usize(14, 10),
+            }
+        );
+    }
+
+    #[test]
+    fn identifies_selective_load_library_context() {
         let source = "{% load trans from i18n %}";
-        let bits = ["trans".to_string(), "from".to_string(), "i18n".to_string()];
+        let node = parsed_tag(source);
 
-        let symbol = OffsetContext::from_tag(
-            "load",
-            &bits,
-            tag_span(source),
-            Span::new(3, 4),
-            source,
-            offset_of(source, "trans"),
-        );
-        let library = OffsetContext::from_tag(
-            "load",
-            &bits,
-            tag_span(source),
-            Span::new(3, 4),
-            source,
-            offset_of(source, "i18n"),
-        );
+        let context = OffsetContext::from_node(&node, offset_of(source, "i18n"));
 
-        assert!(matches!(
-            symbol,
-            OffsetContext::LoadSymbol { name, .. } if name == "trans"
-        ));
-        assert!(matches!(
-            library,
-            OffsetContext::LoadLibrary { name, .. } if name == "i18n"
-        ));
+        assert_eq!(
+            context,
+            OffsetContext::LoadLibrary {
+                name: "i18n".to_string(),
+                span: Span::saturating_from_parts_usize(19, 4),
+            }
+        );
     }
 
     #[test]
-    fn generic_tag_argument_is_not_a_context() {
-        let source = "{% if user.is_authenticated %}";
-        let result = OffsetContext::from_tag(
-            "if",
-            &["user.is_authenticated".to_string()],
-            tag_span(source),
-            Span::new(3, 2),
-            source,
-            offset_of(source, "user"),
-        );
+    fn identifies_tag_name_context() {
+        let source = "{% if user %}";
+        let node = parsed_tag(source);
 
-        assert_eq!(result, OffsetContext::None);
+        let context = OffsetContext::from_node(&node, offset_of(source, "if"));
+
+        assert_eq!(
+            context,
+            OffsetContext::Tag {
+                name: "if".to_string(),
+                span: Span::saturating_from_parts_usize(3, 2),
+            }
+        );
     }
 
     #[test]
-    fn variable_filter_context() {
+    fn ignores_unrecognized_tag_arguments() {
+        let source = "{% if user %}";
+        let node = parsed_tag(source);
+
+        let context = OffsetContext::from_node(&node, offset_of(source, "user"));
+
+        assert_eq!(context, OffsetContext::None);
+    }
+
+    #[test]
+    fn identifies_filter_context() {
         let node = Node::Variable {
-            var: "value".to_string(),
-            filters: vec![Filter::new("title".to_string(), None, Span::new(9, 5))],
-            span: Span::new(3, 11),
+            var: "user.name".to_string(),
+            var_span: Span::new(3, 9),
+            filters: vec![Filter::new("title".to_string(), None, Span::new(13, 5))],
+            span: tag_span("{{ user.name|title }}"),
         };
 
-        let result = OffsetContext::from_node(&node, "{{ value|title }}", Offset::new(10));
+        let context = OffsetContext::from_node(&node, Offset::new(14));
 
-        assert!(matches!(
-            result,
-            OffsetContext::Filter { name, .. } if name == "title"
-        ));
+        assert_eq!(
+            context,
+            OffsetContext::Filter {
+                name: "title".to_string(),
+                span: Span::new(13, 5),
+            }
+        );
+    }
+
+    #[test]
+    fn identifies_variable_context() {
+        let node = Node::Variable {
+            var: "user.name".to_string(),
+            var_span: Span::new(3, 9),
+            filters: vec![Filter::new("title".to_string(), None, Span::new(13, 5))],
+            span: tag_span("{{ user.name|title }}"),
+        };
+
+        let context = OffsetContext::from_node(&node, Offset::new(5));
+
+        assert_eq!(
+            context,
+            OffsetContext::Variable {
+                name: "user.name".to_string(),
+                span: Span::new(3, 9),
+            }
+        );
     }
 }

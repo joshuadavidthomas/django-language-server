@@ -1,5 +1,6 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
+use djls_templates::TagArgument;
 use salsa::Accumulator;
 
 use crate::db::Db;
@@ -7,8 +8,13 @@ use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
-pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[String], span: Span) {
-    if let Some(message) = validate_expression(bits) {
+pub(crate) fn check_if_expression_rule(
+    db: &dyn Db,
+    name: &str,
+    arguments: &[TagArgument],
+    span: Span,
+) {
+    if let Some(message) = validate_expression(arguments) {
         let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
         ValidationErrorAccumulator(ValidationError::ExpressionSyntaxError {
             tag: name.to_string(),
@@ -22,7 +28,7 @@ pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[String],
 /// Validate expression tokens for `{% if %}` / `{% elif %}`.
 ///
 /// Returns an error message matching Django's style, or `None` if valid.
-fn validate_expression(tokens: &[String]) -> Option<String> {
+fn validate_expression(tokens: &[TagArgument]) -> Option<String> {
     if tokens.is_empty() {
         return Some("Unexpected end of expression in if tag.".to_string());
     }
@@ -122,18 +128,18 @@ impl Operator {
 
 // Tokenizer
 
-fn tokenize(tokens: &[String]) -> Vec<Token> {
+fn tokenize(tokens: &[TagArgument]) -> Vec<Token> {
     let mut result = Vec::new();
     let mut i = 0;
 
     while i < tokens.len() {
         let token = &tokens[i];
         let mapped = match token.as_str() {
-            "is" if i + 1 < tokens.len() && tokens[i + 1] == "not" => {
+            "is" if i + 1 < tokens.len() && tokens[i + 1].as_str() == "not" => {
                 i += 1;
                 Token::Operator(Operator::IsNot)
             }
-            "not" if i + 1 < tokens.len() && tokens[i + 1] == "in" => {
+            "not" if i + 1 < tokens.len() && tokens[i + 1].as_str() == "in" => {
                 i += 1;
                 Token::Operator(Operator::NotIn)
             }
@@ -148,7 +154,7 @@ fn tokenize(tokens: &[String]) -> Vec<Token> {
             ">=" => Token::Operator(Operator::Ge),
             "<" => Token::Operator(Operator::Lt),
             "<=" => Token::Operator(Operator::Le),
-            _ => Token::Literal(token.clone()),
+            _ => Token::Literal(token.as_str().to_string()),
         };
         result.push(mapped);
         i += 1;

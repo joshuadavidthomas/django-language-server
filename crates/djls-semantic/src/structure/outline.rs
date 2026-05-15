@@ -1,13 +1,16 @@
 use djls_source::Span;
 use djls_templates::Filter;
-use djls_templates::Node;
+use djls_templates::TagArgument;
 
 use crate::structure::BlockRole;
+use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
 use crate::Db;
 use crate::TagOutlineRole;
+use crate::TagOutlineSpec;
+use crate::TagOutlineTarget;
 use crate::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -25,6 +28,71 @@ pub struct OutlineItem {
     pub children: Vec<OutlineItem>,
 }
 
+impl OutlineItem {
+    fn tag_name(
+        tag: &str,
+        tag_span: Span,
+        arguments: &[TagArgument],
+        spec: TagOutlineSpec,
+        span: Span,
+        children: Vec<Self>,
+    ) -> Self {
+        let mut label = tag.to_string();
+        for argument in arguments {
+            label.push(' ');
+            label.push_str(argument.as_str());
+        }
+
+        Self {
+            label,
+            detail: Some(tag.to_string()),
+            kind: spec.role.into(),
+            span,
+            selection_span: tag_span,
+            children,
+        }
+    }
+
+    fn argument(
+        tag: &str,
+        argument: &TagArgument,
+        spec: TagOutlineSpec,
+        span: Span,
+        children: Vec<Self>,
+    ) -> Self {
+        Self {
+            label: argument.template_string().value().to_string(),
+            detail: Some(tag.to_string()),
+            kind: spec.role.into(),
+            span,
+            selection_span: argument.span,
+            children,
+        }
+    }
+
+    fn variable(var: &str, var_span: Span, filters: &[Filter], span: Span) -> Self {
+        Self {
+            label: var.to_string(),
+            detail: Some("variable".to_string()),
+            kind: OutlineKind::Variable,
+            span,
+            selection_span: var_span,
+            children: filters.iter().map(Self::filter).collect(),
+        }
+    }
+
+    fn filter(filter: &Filter) -> Self {
+        Self {
+            label: filter.label(),
+            detail: Some("filter".to_string()),
+            kind: OutlineKind::Filter,
+            span: filter.span,
+            selection_span: filter.span.with_length_usize_saturating(filter.name.len()),
+            children: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutlineKind {
     NamedRegion,
@@ -38,112 +106,127 @@ pub enum OutlineKind {
     Filter,
 }
 
+impl From<TagOutlineRole> for OutlineKind {
+    fn from(role: TagOutlineRole) -> Self {
+        match role {
+            TagOutlineRole::TemplateReference => Self::TemplateReference,
+            TagOutlineRole::LibraryImport => Self::LibraryImport,
+            TagOutlineRole::NamedRegion => Self::NamedRegion,
+            TagOutlineRole::ControlFlow => Self::ControlFlow,
+            TagOutlineRole::Callable => Self::Callable,
+            TagOutlineRole::AssetReference => Self::FileReference,
+            TagOutlineRole::RouteReference => Self::RouteReference,
+        }
+    }
+}
+
+impl TagOutlineSpec {
+    fn items_for_tag(
+        self,
+        tag: &str,
+        tag_span: Span,
+        arguments: &[TagArgument],
+        span: Span,
+        children: Vec<OutlineItem>,
+    ) -> Vec<OutlineItem> {
+        match self.target {
+            TagOutlineTarget::TagName => vec![OutlineItem::tag_name(
+                tag, tag_span, arguments, self, span, children,
+            )],
+            TagOutlineTarget::FirstArgument => {
+                if let Some(argument) = arguments.first() {
+                    vec![OutlineItem::argument(tag, argument, self, span, children)]
+                } else {
+                    vec![OutlineItem::tag_name(
+                        tag, tag_span, arguments, self, span, children,
+                    )]
+                }
+            }
+            TagOutlineTarget::EachArgument => arguments
+                .iter()
+                .map(|argument| OutlineItem::argument(tag, argument, self, span, Vec::new()))
+                .collect(),
+        }
+    }
+}
+
 #[must_use]
-pub fn build_template_outline(
-    db: &dyn Db,
-    nodelist: djls_templates::NodeList<'_>,
-    tree: TemplateTree<'_>,
-    source: &str,
-) -> TemplateOutline {
+pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> TemplateOutline {
     let regions = tree.regions(db);
     let root = tree.root(db);
-    let source_nodes = SourceNodes::new(nodelist.nodelist(db), source);
 
     TemplateOutline {
-        items: outline_items_for_region(regions, db.tag_specs(), &source_nodes, root),
+        items: outline_items_for_region(regions, db.tag_specs(), root),
     }
 }
 
 fn outline_items_for_region(
     regions: &Regions,
     tag_specs: &TagSpecs,
-    source_nodes: &SourceNodes<'_>,
-    region: crate::structure::RegionId,
+    region: RegionId,
 ) -> Vec<OutlineItem> {
     regions
         .get(region)
         .nodes()
         .iter()
-        .flat_map(|node| outline_items_for_node(regions, tag_specs, source_nodes, node))
+        .flat_map(|node| outline_items_for_node(regions, tag_specs, node))
         .collect()
 }
 
 fn outline_items_for_node(
     regions: &Regions,
     tag_specs: &TagSpecs,
-    source_nodes: &SourceNodes<'_>,
     node: &TemplateNode,
 ) -> Vec<OutlineItem> {
     match node {
         TemplateNode::Block {
             tag,
-            bits,
-            marker_span,
+            tag_span,
+            arguments,
             body,
             role: BlockRole::Opener,
             ..
         } => {
-            let children =
-                outline_items_for_block_container(regions, tag_specs, source_nodes, *body, tag);
-            let role = outline_role_for_block(tag_specs, tag);
-
-            vec![OutlineItem {
-                label: outline_label(tag, bits, role),
-                detail: Some(tag.clone()),
-                kind: outline_kind(role),
-                span: *regions.get(*body).span(),
-                selection_span: tag_selection_span(
-                    source_nodes.source,
-                    *marker_span,
-                    tag,
-                    bits,
-                    role,
-                ),
+            let spec = tag_specs.block_outline(tag);
+            let children = outline_items_for_block_container(regions, tag_specs, *body, tag);
+            spec.items_for_tag(
+                tag,
+                *tag_span,
+                arguments,
+                *regions.get(*body).span(),
                 children,
-            }]
+            )
         }
         TemplateNode::Block {
             tag,
-            bits,
-            marker_span,
+            tag_span,
+            arguments,
             full_span,
             body,
             role: BlockRole::Segment,
+            ..
         } => {
-            let children = outline_items_for_region(regions, tag_specs, source_nodes, *body);
-            let role = TagOutlineRole::ControlFlow;
-
-            vec![OutlineItem {
-                label: outline_label(tag, bits, role),
-                detail: Some(tag.clone()),
-                kind: outline_kind(role),
-                span: *full_span,
-                selection_span: tag_selection_span(
-                    source_nodes.source,
-                    *marker_span,
-                    tag,
-                    bits,
-                    role,
-                ),
-                children,
-            }]
+            let spec: TagOutlineSpec = TagOutlineRole::ControlFlow.into();
+            let children = outline_items_for_region(regions, tag_specs, *body);
+            spec.items_for_tag(tag, *tag_span, arguments, *full_span, children)
         }
         TemplateNode::StandaloneTag {
             tag,
-            bits,
+            tag_span,
+            arguments,
             full_span,
-            marker_span,
-        } => outline_items_for_standalone(
-            tag_specs,
-            source_nodes.source,
-            tag,
-            bits,
-            *full_span,
-            *marker_span,
-        ),
-        TemplateNode::Variable { span } => source_nodes
-            .variable(*span)
-            .map_or_else(Vec::new, |variable| vec![variable.outline_item(*span)]),
+            ..
+        } => tag_specs
+            .standalone_outline(tag)
+            .map_or_else(Vec::new, |spec| {
+                spec.items_for_tag(tag, *tag_span, arguments, *full_span, Vec::new())
+            }),
+        TemplateNode::Variable {
+            var,
+            var_span,
+            filters,
+            span,
+        } => vec![OutlineItem::variable(var, *var_span, filters, *span)],
         TemplateNode::Comment { .. } | TemplateNode::Text { .. } | TemplateNode::Error { .. } => {
             Vec::new()
         }
@@ -153,8 +236,7 @@ fn outline_items_for_node(
 fn outline_items_for_block_container(
     regions: &Regions,
     tag_specs: &TagSpecs,
-    source_nodes: &SourceNodes<'_>,
-    container: crate::structure::RegionId,
+    container: RegionId,
     opener_tag: &str,
 ) -> Vec<OutlineItem> {
     regions
@@ -167,218 +249,10 @@ fn outline_items_for_block_container(
                 body,
                 role: BlockRole::Segment,
                 ..
-            } if tag == opener_tag => {
-                outline_items_for_region(regions, tag_specs, source_nodes, *body)
-            }
-            _ => outline_items_for_node(regions, tag_specs, source_nodes, node),
+            } if tag == opener_tag => outline_items_for_region(regions, tag_specs, *body),
+            _ => outline_items_for_node(regions, tag_specs, node),
         })
         .collect()
-}
-
-struct SourceNodes<'a> {
-    source: &'a str,
-    variables: Vec<VariableNode<'a>>,
-}
-
-impl<'a> SourceNodes<'a> {
-    fn new(nodes: &'a [Node], source: &'a str) -> Self {
-        let variables = nodes
-            .iter()
-            .filter_map(|node| match node {
-                Node::Variable { var, filters, span } => Some(VariableNode {
-                    var,
-                    filters,
-                    span: *span,
-                    selection_span: span_for_text(source, *span, var, 0)
-                        .unwrap_or_else(|| span.with_length_usize_saturating(var.len())),
-                }),
-                Node::Tag { .. }
-                | Node::Comment { .. }
-                | Node::Text { .. }
-                | Node::Error { .. } => None,
-            })
-            .collect();
-
-        Self { source, variables }
-    }
-
-    fn variable(&self, span: Span) -> Option<&VariableNode<'a>> {
-        self.variables.iter().find(|variable| variable.span == span)
-    }
-}
-
-struct VariableNode<'a> {
-    var: &'a str,
-    filters: &'a [Filter],
-    span: Span,
-    selection_span: Span,
-}
-
-impl VariableNode<'_> {
-    fn outline_item(&self, span: Span) -> OutlineItem {
-        OutlineItem {
-            label: self.var.to_string(),
-            detail: Some("variable".to_string()),
-            kind: OutlineKind::Variable,
-            span,
-            selection_span: self.selection_span,
-            children: self.filters.iter().map(filter_outline_item).collect(),
-        }
-    }
-}
-
-fn filter_outline_item(filter: &Filter) -> OutlineItem {
-    OutlineItem {
-        label: filter_label(filter),
-        detail: Some("filter".to_string()),
-        kind: OutlineKind::Filter,
-        span: filter.span,
-        selection_span: filter.span,
-        children: Vec::new(),
-    }
-}
-
-fn filter_label(filter: &Filter) -> String {
-    filter.arg.as_ref().map_or_else(
-        || filter.name.clone(),
-        |arg| format!("{}:{}", filter.name, arg),
-    )
-}
-
-fn outline_items_for_standalone(
-    tag_specs: &TagSpecs,
-    source: &str,
-    tag: &str,
-    bits: &[String],
-    full_span: Span,
-    marker_span: Span,
-) -> Vec<OutlineItem> {
-    let Some(role) = outline_role_for_standalone(tag_specs, tag) else {
-        return Vec::new();
-    };
-
-    if role == TagOutlineRole::LibraryImport {
-        let mut search_start = 0;
-        return bits
-            .iter()
-            .map(|bit| {
-                let selection_span =
-                    span_for_text(source, marker_span, bit, search_start).unwrap_or(marker_span);
-                search_start = selection_span
-                    .end_usize()
-                    .saturating_sub(marker_span.start_usize());
-
-                OutlineItem {
-                    label: outline_target_label(std::slice::from_ref(bit)),
-                    detail: Some(tag.to_string()),
-                    kind: outline_kind(role),
-                    span: full_span,
-                    selection_span,
-                    children: Vec::new(),
-                }
-            })
-            .collect();
-    }
-
-    vec![OutlineItem {
-        label: outline_label(tag, bits, role),
-        detail: Some(tag.to_string()),
-        kind: outline_kind(role),
-        span: full_span,
-        selection_span: tag_selection_span(source, marker_span, tag, bits, role),
-        children: Vec::new(),
-    }]
-}
-
-fn tag_selection_span(
-    source: &str,
-    marker_span: Span,
-    tag: &str,
-    bits: &[String],
-    role: TagOutlineRole,
-) -> Span {
-    match role {
-        TagOutlineRole::TemplateReference
-        | TagOutlineRole::LibraryImport
-        | TagOutlineRole::NamedRegion
-        | TagOutlineRole::AssetReference
-        | TagOutlineRole::RouteReference => bits
-            .first()
-            .and_then(|bit| span_for_text(source, marker_span, bit, 0))
-            .unwrap_or_else(|| span_for_text(source, marker_span, tag, 0).unwrap_or(marker_span)),
-        TagOutlineRole::ControlFlow | TagOutlineRole::Callable => {
-            span_for_text(source, marker_span, tag, 0).unwrap_or(marker_span)
-        }
-    }
-}
-
-fn span_for_text(source: &str, span: Span, text: &str, search_start: usize) -> Option<Span> {
-    let content = source.get(span.start_usize()..span.end_usize())?;
-    let relative_start = search_start + content.get(search_start..)?.find(text)?;
-    Some(Span::saturating_from_parts_usize(
-        span.start_usize() + relative_start,
-        text.len(),
-    ))
-}
-
-fn outline_role_for_block(tag_specs: &TagSpecs, tag: &str) -> TagOutlineRole {
-    tag_specs
-        .get(tag)
-        .and_then(|spec| spec.outline_role)
-        .unwrap_or(TagOutlineRole::ControlFlow)
-}
-
-fn outline_role_for_standalone(tag_specs: &TagSpecs, tag: &str) -> Option<TagOutlineRole> {
-    tag_specs.get(tag).and_then(|spec| spec.outline_role)
-}
-
-fn outline_kind(role: TagOutlineRole) -> OutlineKind {
-    match role {
-        TagOutlineRole::TemplateReference => OutlineKind::TemplateReference,
-        TagOutlineRole::LibraryImport => OutlineKind::LibraryImport,
-        TagOutlineRole::NamedRegion => OutlineKind::NamedRegion,
-        TagOutlineRole::ControlFlow => OutlineKind::ControlFlow,
-        TagOutlineRole::Callable => OutlineKind::Callable,
-        TagOutlineRole::AssetReference => OutlineKind::FileReference,
-        TagOutlineRole::RouteReference => OutlineKind::RouteReference,
-    }
-}
-
-fn outline_label(tag: &str, bits: &[String], role: TagOutlineRole) -> String {
-    match role {
-        TagOutlineRole::TemplateReference
-        | TagOutlineRole::LibraryImport
-        | TagOutlineRole::NamedRegion
-        | TagOutlineRole::AssetReference
-        | TagOutlineRole::RouteReference => outline_target_label(bits),
-        TagOutlineRole::ControlFlow | TagOutlineRole::Callable => outline_tag_label(tag, bits),
-    }
-}
-
-fn outline_tag_label(tag: &str, bits: &[String]) -> String {
-    if bits.is_empty() {
-        tag.to_string()
-    } else {
-        format!("{} {}", tag, bits.join(" "))
-    }
-}
-
-fn outline_target_label(bits: &[String]) -> String {
-    if bits.is_empty() {
-        return String::new();
-    }
-
-    bits.iter()
-        .map(|bit| strip_quotes(bit).unwrap_or(bit).to_string())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn strip_quotes(value: &str) -> Option<&str> {
-    value
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
 }
 
 #[cfg(test)]
@@ -402,7 +276,7 @@ mod tests {
         let file = File::new(db, "test.html".into(), 0);
         let nodelist = parse_template(db, file).expect("should parse");
         let tree = build_template_tree(db, nodelist);
-        build_template_outline(db, nodelist, tree, source)
+        build_template_outline(db, tree)
     }
 
     fn labels(items: &[OutlineItem]) -> Vec<&str> {

@@ -13,9 +13,8 @@ pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types:
         return Vec::new();
     };
 
-    let source = file.source(db);
     let tree = djls_semantic::build_template_tree(db, nodelist);
-    let outline = djls_semantic::build_template_outline(db, nodelist, tree, source.as_str());
+    let outline = djls_semantic::build_template_outline(db, tree);
     outline_to_document_symbols(&outline, file.line_index(db))
 }
 

@@ -9,8 +9,14 @@ nodes:
       length: 1
   - kind: Tag
     name: extends
-    bits:
-      - "\"base.html\""
+    name_span:
+      start: 4
+      length: 7
+    arguments:
+      - text: "\"base.html\""
+        span:
+          start: 12
+          length: 11
     span:
       start: 3
       length: 21
@@ -20,9 +26,18 @@ nodes:
       length: 1
   - kind: Tag
     name: load
-    bits:
-      - static
-      - i18n
+    name_span:
+      start: 30
+      length: 4
+    arguments:
+      - text: static
+        span:
+          start: 35
+          length: 6
+      - text: i18n
+        span:
+          start: 42
+          length: 4
     span:
       start: 29
       length: 18
@@ -32,8 +47,14 @@ nodes:
       length: 1
   - kind: Tag
     name: block
-    bits:
-      - header
+    name_span:
+      start: 53
+      length: 5
+    arguments:
+      - text: header
+        span:
+          start: 59
+          length: 6
     span:
       start: 52
       length: 14
@@ -43,8 +64,14 @@ nodes:
       length: 20
   - kind: Tag
     name: endblock
-    bits:
-      - header
+    name_span:
+      start: 91
+      length: 8
+    arguments:
+      - text: header
+        span:
+          start: 100
+          length: 6
     span:
       start: 90
       length: 17
@@ -54,8 +81,14 @@ nodes:
       length: 2
   - kind: Tag
     name: if
-    bits:
-      - user.is_authenticated
+    name_span:
+      start: 114
+      length: 2
+    arguments:
+      - text: user.is_authenticated
+        span:
+          start: 117
+          length: 21
     span:
       start: 113
       length: 26
@@ -65,6 +98,9 @@ nodes:
       length: 16
   - kind: Variable
     var: user.name
+    var_span:
+      start: 160
+      length: 9
     filters: []
     span:
       start: 159
@@ -75,8 +111,14 @@ nodes:
       length: 9
   - kind: Tag
     name: if
-    bits:
-      - user.is_superuser
+    name_span:
+      start: 184
+      length: 2
+    arguments:
+      - text: user.is_superuser
+        span:
+          start: 187
+          length: 17
     span:
       start: 183
       length: 22
@@ -86,8 +128,14 @@ nodes:
       length: 32
   - kind: Tag
     name: elif
-    bits:
-      - user.is_staff
+    name_span:
+      start: 242
+      length: 4
+    arguments:
+      - text: user.is_staff
+        span:
+          start: 247
+          length: 13
     span:
       start: 241
       length: 20
@@ -97,7 +145,10 @@ nodes:
       length: 34
   - kind: Tag
     name: else
-    bits: []
+    name_span:
+      start: 300
+      length: 4
+    arguments: []
     span:
       start: 299
       length: 6
@@ -107,7 +158,10 @@ nodes:
       length: 39
   - kind: Tag
     name: endif
-    bits: []
+    name_span:
+      start: 349
+      length: 5
+    arguments: []
     span:
       start: 348
       length: 7
@@ -117,7 +171,10 @@ nodes:
       length: 1
   - kind: Tag
     name: else
-    bits: []
+    name_span:
+      start: 361
+      length: 4
+    arguments: []
     span:
       start: 360
       length: 6
@@ -127,7 +184,10 @@ nodes:
       length: 26
   - kind: Tag
     name: endif
-    bits: []
+    name_span:
+      start: 397
+      length: 5
+    arguments: []
     span:
       start: 396
       length: 7
@@ -137,10 +197,22 @@ nodes:
       length: 2
   - kind: Tag
     name: for
-    bits:
-      - item
-      - in
-      - items
+    name_span:
+      start: 410
+      length: 3
+    arguments:
+      - text: item
+        span:
+          start: 414
+          length: 4
+      - text: in
+        span:
+          start: 419
+          length: 2
+      - text: items
+        span:
+          start: 422
+          length: 5
     span:
       start: 409
       length: 19
@@ -150,6 +222,9 @@ nodes:
       length: 9
   - kind: Variable
     var: item
+    var_span:
+      start: 442
+      length: 4
     filters: []
     span:
       start: 441
@@ -160,7 +235,10 @@ nodes:
       length: 6
   - kind: Tag
     name: endfor
-    bits: []
+    name_span:
+      start: 458
+      length: 6
+    arguments: []
     span:
       start: 457
       length: 8

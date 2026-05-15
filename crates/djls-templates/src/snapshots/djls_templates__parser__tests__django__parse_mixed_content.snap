@@ -12,8 +12,14 @@ nodelist:
       - 9
   - type: Tag
     name: if
-    bits:
-      - user.is_authenticated
+    name_span:
+      - 12
+      - 2
+    arguments:
+      - text: user.is_authenticated
+        span:
+          - 15
+          - 21
     span:
       - 11
       - 26
@@ -35,7 +41,11 @@ nodelist:
           - 57
           - 5
       - name: default
-        arg: "'Guest'"
+        arg:
+          text: "'Guest'"
+          span:
+            - 71
+            - 7
         span:
           - 63
           - 15
@@ -54,10 +64,22 @@ nodelist:
       - 5
   - type: Tag
     name: for
-    bits:
-      - group
-      - in
-      - user.groups
+    name_span:
+      - 89
+      - 3
+    arguments:
+      - text: group
+        span:
+          - 93
+          - 5
+      - text: in
+        span:
+          - 99
+          - 2
+      - text: user.groups
+        span:
+          - 102
+          - 11
     span:
       - 88
       - 26
@@ -73,8 +95,14 @@ nodelist:
       - 9
   - type: Tag
     name: if
-    bits:
-      - forloop.first
+    name_span:
+      - 128
+      - 2
+    arguments:
+      - text: forloop.first
+        span:
+          - 131
+          - 13
     span:
       - 127
       - 18
@@ -90,7 +118,10 @@ nodelist:
       - 1
   - type: Tag
     name: endif
-    bits: []
+    name_span:
+      - 151
+      - 5
+    arguments: []
     span:
       - 150
       - 7
@@ -122,9 +153,18 @@ nodelist:
       - 9
   - type: Tag
     name: if
-    bits:
-      - not
-      - forloop.last
+    name_span:
+      - 196
+      - 2
+    arguments:
+      - text: not
+        span:
+          - 199
+          - 3
+      - text: forloop.last
+        span:
+          - 203
+          - 12
     span:
       - 195
       - 21
@@ -140,7 +180,10 @@ nodelist:
       - 2
   - type: Tag
     name: endif
-    bits: []
+    name_span:
+      - 223
+      - 5
+    arguments: []
     span:
       - 222
       - 7
@@ -156,8 +199,14 @@ nodelist:
       - 9
   - type: Tag
     name: if
-    bits:
-      - forloop.last
+    name_span:
+      - 243
+      - 2
+    arguments:
+      - text: forloop.last
+        span:
+          - 246
+          - 12
     span:
       - 242
       - 17
@@ -173,7 +222,10 @@ nodelist:
       - 1
   - type: Tag
     name: endif
-    bits: []
+    name_span:
+      - 265
+      - 5
+    arguments: []
     span:
       - 264
       - 7
@@ -189,7 +241,10 @@ nodelist:
       - 5
   - type: Tag
     name: empty
-    bits: []
+    name_span:
+      - 281
+      - 5
+    arguments: []
     span:
       - 280
       - 7
@@ -205,7 +260,10 @@ nodelist:
       - 25
   - type: Tag
     name: endfor
-    bits: []
+    name_span:
+      - 317
+      - 6
+    arguments: []
     span:
       - 316
       - 8
@@ -221,7 +279,10 @@ nodelist:
       - 1
   - type: Tag
     name: else
-    bits: []
+    name_span:
+      - 330
+      - 4
+    arguments: []
     span:
       - 329
       - 6
@@ -237,7 +298,10 @@ nodelist:
       - 11
   - type: Tag
     name: endif
-    bits: []
+    name_span:
+      - 351
+      - 5
+    arguments: []
     span:
       - 350
       - 7

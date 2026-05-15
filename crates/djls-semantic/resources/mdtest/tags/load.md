@@ -42,10 +42,10 @@
 
 ```snapshot
 error[S120]: Unknown template tag library 'staticfiles'
- --> test.html:1:1
+ --> test.html:1:21
   |
 1 | {% load static from staticfiles %}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |                     ^^^^^^^^^^^
 ```
 
 ### rejects unknown library
@@ -56,8 +56,8 @@ error[S120]: Unknown template tag library 'staticfiles'
 
 ```snapshot
 error[S120]: Unknown template tag library 'nonexistent_library'
- --> test.html:1:1
+ --> test.html:1:9
   |
 1 | {% load nonexistent_library %}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         ^^^^^^^^^^^^^^^^^^^
 ```

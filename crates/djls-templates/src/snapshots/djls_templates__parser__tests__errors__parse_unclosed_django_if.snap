@@ -5,8 +5,14 @@ expression: test_nodelist
 nodelist:
   - type: Tag
     name: if
-    bits:
-      - user.is_authenticated
+    name_span:
+      - 3
+      - 2
+    arguments:
+      - text: user.is_authenticated
+        span:
+          - 6
+          - 21
     span:
       - 2
       - 26

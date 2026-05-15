@@ -39,10 +39,16 @@ pub(crate) fn for_each_unquoted(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SplitPiece<'a> {
+    pub text: &'a str,
+    pub start: usize,
+}
+
 /// Split `s` on whitespace while respecting quoted regions (with escape handling).
 ///
-/// Returns owned strings for each whitespace-delimited token.
-pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
+/// Returns borrowed tokens with byte offsets relative to `s`.
+pub(crate) fn split_on_whitespace_with_offsets(s: &str) -> Vec<SplitPiece<'_>> {
     let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
     let mut start = None;
     let mut quote: Option<char> = None;
@@ -82,7 +88,10 @@ pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
             }
             _ if ch.is_whitespace() => {
                 if let Some(s_start) = start.take() {
-                    pieces.push(s[s_start..idx].to_owned());
+                    pieces.push(SplitPiece {
+                        text: &s[s_start..idx],
+                        start: s_start,
+                    });
                 }
             }
             _ => {
@@ -93,9 +102,23 @@ pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
         }
     }
     if let Some(s_start) = start {
-        pieces.push(s[s_start..].to_owned());
+        pieces.push(SplitPiece {
+            text: &s[s_start..],
+            start: s_start,
+        });
     }
     pieces
+}
+
+/// Split `s` on whitespace while respecting quoted regions (with escape handling).
+///
+/// Returns owned strings for each whitespace-delimited token.
+#[cfg(test)]
+pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
+    split_on_whitespace_with_offsets(s)
+        .into_iter()
+        .map(|piece| piece.text.to_owned())
+        .collect()
 }
 
 #[cfg(test)]
@@ -224,5 +247,32 @@ mod tests {
     fn split_whitespace_empty() {
         assert!(split_on_whitespace("").is_empty());
         assert!(split_on_whitespace("   ").is_empty());
+    }
+
+    #[test]
+    fn split_whitespace_offsets() {
+        let pieces = split_on_whitespace_with_offsets(r#"  url "view name" as view"#);
+
+        assert_eq!(
+            pieces,
+            vec![
+                SplitPiece {
+                    text: "url",
+                    start: 2,
+                },
+                SplitPiece {
+                    text: r#""view name""#,
+                    start: 6,
+                },
+                SplitPiece {
+                    text: "as",
+                    start: 18,
+                },
+                SplitPiece {
+                    text: "view",
+                    start: 21,
+                },
+            ]
+        );
     }
 }

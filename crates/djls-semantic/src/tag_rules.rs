@@ -161,11 +161,11 @@ impl Constraint for ChoiceAt {
 
 /// Evaluate extracted tag rules against template tag arguments.
 ///
-/// `bits` is the tag's argument list as produced by the parser, which
-/// **excludes** the tag name. Extraction rules use `split_contents()` indices
-/// where the tag name is at index 0, so the evaluator adjusts by adding 1 to
-/// `bits.len()` when comparing against `ArgumentCountConstraint` values, and
-/// subtracting 1 from `RequiredKeyword.position` when indexing into `bits`.
+/// `bits` is the tag's argument list as text, excluding the tag name. Extraction
+/// rules use Django `split_contents()` indices where the tag name is at index 0,
+/// so the evaluator adjusts by adding 1 to `bits.len()` when comparing against
+/// `ArgumentCountConstraint` values, and subtracting 1 from
+/// `RequiredKeyword.position` when indexing into `bits`.
 #[must_use]
 pub fn evaluate_tag_rules(
     tag_name: &str,

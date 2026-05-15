@@ -43,7 +43,8 @@ struct RegionSnapshot {
 enum NodeSnapshot {
     BlockTag {
         tag: String,
-        bits: Vec<String>,
+        tag_span: djls_source::Span,
+        arguments: Vec<djls_templates::TagArgument>,
         marker_span: djls_source::Span,
         full_span: djls_source::Span,
         body: u32,
@@ -51,11 +52,15 @@ enum NodeSnapshot {
     },
     StandaloneTag {
         tag: String,
-        bits: Vec<String>,
+        tag_span: djls_source::Span,
+        arguments: Vec<djls_templates::TagArgument>,
         marker_span: djls_source::Span,
         full_span: djls_source::Span,
     },
     Variable {
+        var: String,
+        var_span: djls_source::Span,
+        filters: Vec<djls_templates::Filter>,
         span: djls_source::Span,
     },
     Comment {
@@ -75,14 +80,16 @@ impl From<&TemplateNode> for NodeSnapshot {
         match node {
             TemplateNode::Block {
                 tag,
-                bits,
+                tag_span,
+                arguments,
                 marker_span,
                 full_span,
                 body,
                 role,
             } => Self::BlockTag {
                 tag: tag.clone(),
-                bits: bits.clone(),
+                tag_span: *tag_span,
+                arguments: arguments.clone(),
                 marker_span: *marker_span,
                 full_span: *full_span,
                 body: body.id(),
@@ -90,16 +97,28 @@ impl From<&TemplateNode> for NodeSnapshot {
             },
             TemplateNode::StandaloneTag {
                 tag,
-                bits,
+                tag_span,
+                arguments,
                 marker_span,
                 full_span,
             } => Self::StandaloneTag {
                 tag: tag.clone(),
-                bits: bits.clone(),
+                tag_span: *tag_span,
+                arguments: arguments.clone(),
                 marker_span: *marker_span,
                 full_span: *full_span,
             },
-            TemplateNode::Variable { span } => Self::Variable { span: *span },
+            TemplateNode::Variable {
+                var,
+                var_span,
+                filters,
+                span,
+            } => Self::Variable {
+                var: var.clone(),
+                var_span: *var_span,
+                filters: filters.clone(),
+                span: *span,
+            },
             TemplateNode::Comment { span } => Self::Comment { span: *span },
             TemplateNode::Text { span } => Self::Text { span: *span },
             TemplateNode::Error { span, full_span } => Self::Error {

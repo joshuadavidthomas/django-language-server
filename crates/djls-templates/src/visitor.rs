@@ -1,5 +1,6 @@
 use djls_source::Span;
 
+use crate::arguments::TagArgument;
 use crate::filters::Filter;
 use crate::nodelist::Node;
 use crate::parser::ParseError;
@@ -10,8 +11,15 @@ pub trait Visitor {
         walk_node(self, node);
     }
 
-    fn visit_tag(&mut self, _name: &str, _bits: &[String], _span: Span) {}
-    fn visit_variable(&mut self, _var: &str, _filters: &[Filter], _span: Span) {}
+    fn visit_tag(
+        &mut self,
+        _name: &str,
+        _name_span: Span,
+        _arguments: &[TagArgument],
+        _span: Span,
+    ) {
+    }
+    fn visit_variable(&mut self, _var: &str, _var_span: Span, _filters: &[Filter], _span: Span) {}
     fn visit_comment(&mut self, _content: &str, _span: Span) {}
     fn visit_text(&mut self, _span: Span) {}
     fn visit_error(&mut self, _span: Span, _full_span: Span, _error: &ParseError) {}
@@ -20,8 +28,18 @@ pub trait Visitor {
 /// Recursively walk a single node, calling the appropriate visitor methods.
 pub fn walk_node<V: Visitor + ?Sized>(visitor: &mut V, node: &Node) {
     match node {
-        Node::Tag { name, bits, span } => visitor.visit_tag(name, bits, *span),
-        Node::Variable { var, filters, span } => visitor.visit_variable(var, filters, *span),
+        Node::Tag {
+            name,
+            name_span,
+            arguments,
+            span,
+        } => visitor.visit_tag(name, *name_span, arguments, *span),
+        Node::Variable {
+            var,
+            var_span,
+            filters,
+            span,
+        } => visitor.visit_variable(var, *var_span, filters, *span),
         Node::Comment { content, span } => visitor.visit_comment(content, *span),
         Node::Text { span } => visitor.visit_text(*span),
         Node::Error {
