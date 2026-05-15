@@ -6,12 +6,14 @@ pub enum Quote {
     Double,
 }
 
-impl Quote {
-    fn from_char(ch: char) -> Option<Self> {
+impl TryFrom<char> for Quote {
+    type Error = ();
+
+    fn try_from(ch: char) -> Result<Self, Self::Error> {
         match ch {
-            '\'' => Some(Self::Single),
-            '"' => Some(Self::Double),
-            _ => None,
+            '\'' => Ok(Self::Single),
+            '"' => Ok(Self::Double),
+            _ => Err(()),
         }
     }
 }
@@ -38,11 +40,12 @@ impl<'a> TemplateString<'a> {
         let Some(first) = raw.chars().next() else {
             return Self::Unquoted(raw);
         };
-        let Some(quote) = Quote::from_char(first) else {
+        let Ok(quote) = Quote::try_from(first) else {
             return Self::Unquoted(raw);
         };
 
-        if raw.len() < 2 || !raw.ends_with(char::from(quote)) {
+        let quote_char: char = quote.into();
+        if raw.len() < 2 || !raw.ends_with(quote_char) {
             return Self::Unquoted(raw);
         }
 
