@@ -57,6 +57,20 @@ pub enum LoadKind {
     },
 }
 
+impl LoadKind {
+    /// Parse a `{% load %}` tag into a load kind.
+    ///
+    /// Returns `None` for non-`load` tags or malformed load bits.
+    #[must_use]
+    pub fn from_tag(name: &str, bits: &[TagBit]) -> Option<Self> {
+        if name != "load" {
+            return None;
+        }
+
+        parse_load_bits(bits)
+    }
+}
+
 /// A parsed `{% load %}` tag with its source span and load kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoadStatement {
@@ -68,6 +82,14 @@ impl LoadStatement {
     #[must_use]
     pub fn new(span: Span, kind: LoadKind) -> Self {
         Self { span, kind }
+    }
+
+    /// Parse a `Node::Tag` into a load statement.
+    ///
+    /// Returns `None` for non-`load` tags or malformed load bits.
+    #[must_use]
+    pub fn from_tag(name: &str, bits: &[TagBit], span: Span) -> Option<Self> {
+        Some(Self::new(span, LoadKind::from_tag(name, bits)?))
     }
 
     #[must_use]
@@ -96,7 +118,7 @@ impl LoadStatement {
 /// - `["trans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans"], library: "i18n" }`
 /// - `["trans", "blocktrans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans", "blocktrans"], library: "i18n" }`
 #[must_use]
-pub fn parse_load_bits(bits: &[TagBit]) -> Option<LoadKind> {
+fn parse_load_bits(bits: &[TagBit]) -> Option<LoadKind> {
     if bits.is_empty() {
         return None;
     }
@@ -285,6 +307,34 @@ mod tests {
                 symbols: vec!["trans".into(), "blocktrans".into()],
                 library: "i18n".into(),
             })
+        );
+    }
+
+    #[test]
+    fn load_kind_requires_load_tag_name() {
+        assert_eq!(LoadKind::from_tag("include", &bits("i18n")), None);
+        assert_eq!(
+            LoadKind::from_tag("load", &bits("i18n")),
+            Some(LoadKind::FullLoad {
+                libraries: vec!["i18n".into()]
+            })
+        );
+    }
+
+    #[test]
+    fn load_statement_requires_load_tag_name() {
+        assert_eq!(
+            LoadStatement::from_tag("include", &bits("i18n"), Span::new(1, 5)),
+            None
+        );
+        assert_eq!(
+            LoadStatement::from_tag("load", &bits("i18n"), Span::new(1, 5)),
+            Some(LoadStatement::new(
+                Span::new(1, 5),
+                LoadKind::FullLoad {
+                    libraries: vec!["i18n".into()]
+                }
+            ))
         );
     }
 

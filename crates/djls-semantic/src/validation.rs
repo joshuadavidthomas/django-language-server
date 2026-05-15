@@ -155,9 +155,7 @@ impl Visitor for TemplateValidator<'_> {
             }
 
             // 4. Load library validation
-            if name == "load" {
-                scoping::check_load_libraries_rule(self.db, bits, self.template_libraries);
-            }
+            scoping::check_load_libraries_rule(self.db, name, bits, self.template_libraries);
 
             // 5. If expression validation
             if name == "if" || name == "elif" {

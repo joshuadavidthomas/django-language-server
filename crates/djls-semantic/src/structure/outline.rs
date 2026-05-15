@@ -97,7 +97,7 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagSemanticRole::LibraryImport => match crate::parse_load_bits(bits) {
+        TagSemanticRole::LibraryImport => match LoadKind::from_tag(tag, bits) {
             Some(LoadKind::FullLoad { libraries }) => libraries
                 .into_iter()
                 .map(|library| OutlineItem {

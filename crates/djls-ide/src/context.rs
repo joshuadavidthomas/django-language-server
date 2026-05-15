@@ -89,7 +89,7 @@ impl OffsetContext {
             }
 
             "load" => {
-                let Some(load_kind) = djls_semantic::parse_load_bits(bits) else {
+                let Some(load_kind) = LoadKind::from_tag(name, bits) else {
                     return Self::None;
                 };
 

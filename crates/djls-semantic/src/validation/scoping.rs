@@ -134,6 +134,7 @@ pub(crate) fn check_filter_scoping_rule(
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
+    name: &str,
     bits: &[TagBit],
     template_libraries: &crate::TemplateLibraries,
 ) {
@@ -141,7 +142,7 @@ pub(crate) fn check_load_libraries_rule(
         return;
     }
 
-    let Some(kind) = crate::scoping::parse_load_bits(bits) else {
+    let Some(kind) = crate::scoping::LoadKind::from_tag(name, bits) else {
         return;
     };
 
