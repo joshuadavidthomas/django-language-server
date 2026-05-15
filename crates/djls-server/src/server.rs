@@ -18,7 +18,6 @@ use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::queue::Queue;
 use crate::session::Session;
-use crate::session::SessionSnapshot;
 
 pub struct DjangoLanguageServer {
     client: Client,
@@ -52,23 +51,6 @@ impl DjangoLanguageServer {
     {
         let mut session = self.session.lock().await;
         f(&mut session)
-    }
-
-    pub async fn with_session_task<F, Fut>(&self, f: F)
-    where
-        F: FnOnce(SessionSnapshot) -> Fut + Send + 'static,
-        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
-    {
-        let snapshot = {
-            let session = self.session.lock().await;
-            session.snapshot()
-        };
-
-        if let Err(e) = self.queue.submit(async move { f(snapshot).await }).await {
-            tracing::error!("Failed to submit task: {}", e);
-        } else {
-            tracing::info!("Task submitted successfully");
-        }
     }
 
     pub async fn with_session_mut_task<F, Fut>(&self, f: F) -> oneshot::Receiver<anyhow::Result<()>>

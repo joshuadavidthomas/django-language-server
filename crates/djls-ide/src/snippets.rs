@@ -4,7 +4,7 @@ use djls_semantic::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of extracted arguments
 #[must_use]
-pub fn generate_snippet_from_args(args: &[CompletionArg]) -> String {
+pub(crate) fn generate_snippet_from_args(args: &[CompletionArg]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
 
@@ -48,7 +48,7 @@ pub fn generate_snippet_from_args(args: &[CompletionArg]) -> String {
 
 /// Generate a complete LSP snippet for a tag including the tag name
 #[must_use]
-pub fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
+pub(crate) fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
     let args = spec.completion_args();
 
     let args_snippet = generate_snippet_from_args(&args);
@@ -62,7 +62,7 @@ pub fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
 
 /// Generate a complete LSP snippet for a tag including the tag name and closing tag if needed
 #[must_use]
-pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> String {
+pub(crate) fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> String {
     // Special handling for block tag to mirror the name in endblock
     if tag_name == "block" {
         let snippet = String::from("block ${1:name} %}\n$0\n{% endblock ${1} %}");
@@ -85,7 +85,7 @@ pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> Stri
 
 /// Generate a partial snippet starting from a specific argument position
 #[must_use]
-pub fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -> String {
+pub(crate) fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -> String {
     let args = spec.completion_args();
 
     if starting_from_position >= args.len() {

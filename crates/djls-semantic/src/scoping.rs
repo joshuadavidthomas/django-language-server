@@ -17,7 +17,7 @@ use crate::db::Db;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
 #[salsa::tracked(returns(ref))]
-pub fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLibraries {
+pub(crate) fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLibraries {
     let statements: Vec<LoadStatement> = nodelist
         .nodelist(db)
         .iter()

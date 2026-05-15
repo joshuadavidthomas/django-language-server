@@ -3,6 +3,7 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
+#[cfg(test)]
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
@@ -85,16 +86,13 @@ impl Session {
         }
     }
 
-    pub fn snapshot(&self) -> SessionSnapshot {
+    #[cfg(test)]
+    fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot::new(self.db.clone(), self.client_info.clone())
     }
 
     pub fn client_info(&self) -> &ClientInfo {
         &self.client_info
-    }
-
-    pub fn client_capabilities(&self) -> crate::client::ClientCapabilities {
-        self.client_info.capabilities()
     }
 
     pub fn db(&self) -> &DjangoDatabase {
@@ -188,7 +186,8 @@ impl Session {
     }
 
     /// Get a document from the buffer if it's open.
-    pub fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+    #[cfg(test)]
+    fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
         self.workspace.get_document(path)
     }
 
@@ -249,28 +248,26 @@ impl Default for Session {
     }
 }
 
-/// Immutable snapshot of session state for background tasks
+/// Immutable snapshot of session state for tests.
+#[cfg(test)]
 #[derive(Clone)]
-pub struct SessionSnapshot {
+struct SessionSnapshot {
     db: DjangoDatabase,
     client_info: ClientInfo,
 }
 
+#[cfg(test)]
 impl SessionSnapshot {
-    pub fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
+    fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
         Self { db, client_info }
     }
 
-    pub fn db(&self) -> &DjangoDatabase {
+    fn db(&self) -> &DjangoDatabase {
         &self.db
     }
 
-    pub fn client_info(&self) -> &ClientInfo {
+    fn client_info(&self) -> &ClientInfo {
         &self.client_info
-    }
-
-    pub fn client_capabilities(&self) -> crate::client::ClientCapabilities {
-        self.client_info.capabilities()
     }
 }
 

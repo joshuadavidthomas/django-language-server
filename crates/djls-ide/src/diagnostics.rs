@@ -63,7 +63,7 @@ impl DiagnosticError for ValidationError {
 
 fn push_with_severity(
     mut diagnostic: ls_types::Diagnostic,
-    config: &djls_conf::diagnostics::DiagnosticsConfig,
+    config: &djls_conf::DiagnosticsConfig,
     diagnostics: &mut Vec<ls_types::Diagnostic>,
 ) {
     if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {

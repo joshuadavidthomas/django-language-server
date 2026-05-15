@@ -129,7 +129,7 @@ fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
 ///
 /// Returns `None` if the diagnostic code is suppressed by `config`.
 #[must_use]
-pub fn render_template_error(
+pub(crate) fn render_template_error(
     source: &str,
     path: &str,
     error: &TemplateError,

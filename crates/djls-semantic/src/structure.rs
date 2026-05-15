@@ -9,12 +9,13 @@
 //! not affect structure, such as exact parse errors, remain available from the
 //! original `NodeList`.
 
-pub mod builder;
-pub mod grammar;
-pub mod opaque;
-pub mod outline;
-pub mod snapshot;
-pub mod tree;
+pub(crate) mod builder;
+pub(crate) mod grammar;
+pub(crate) mod opaque;
+pub(crate) mod outline;
+#[cfg(test)]
+pub(crate) mod snapshot;
+pub(crate) mod tree;
 
 pub use builder::TemplateTreeBuilder;
 pub use grammar::TagIndex;

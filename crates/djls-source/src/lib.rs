@@ -8,7 +8,6 @@ mod protocol;
 mod render;
 
 pub use collections::FxDashMap;
-pub use collections::FxDashSet;
 pub use db::Db;
 pub use file::File;
 pub use file::FileKind;

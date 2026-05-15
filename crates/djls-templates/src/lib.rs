@@ -38,23 +38,21 @@
 //! let errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 //!
 //! // For direct parsing (testing/debugging):
-//! use djls_templates::{Lexer, Parser};
+//! use djls_templates::parse_template_impl;
 //!
-//! let tokens = Lexer::new(source).tokenize()?;
-//! let mut parser = Parser::new(tokens);
-//! let (nodelist, errors) = parser.parse()?;
+//! let (nodelist, errors) = parse_template_impl(source);
 //! ```
 
 mod bits;
-pub mod db;
+mod db;
 mod error;
 mod filters;
 mod lexer;
-pub mod nodelist;
+mod nodelist;
 mod parser;
 mod quotes;
-pub mod tokens;
-pub mod visitor;
+mod tokens;
+mod visitor;
 
 pub use bits::FilterArgument;
 pub use bits::TagBit;
@@ -64,15 +62,16 @@ use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;
 pub use filters::Filter;
-pub use lexer::Lexer;
 pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
-pub use parser::Parser;
 pub use quotes::Quote;
 pub use quotes::QuotedTemplateString;
 pub use quotes::TemplateString;
 use salsa::Accumulator;
+pub use tokens::TagDelimiter;
+pub use visitor::walk_nodelist;
+pub use visitor::Visitor;
 
 /// Parse a Django template file and accumulate diagnostics.
 ///
@@ -103,8 +102,8 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
 /// Returns a tuple of (nodes, errors) where nodes include Error nodes for parse errors
 #[must_use]
 pub fn parse_template_impl(source: &str) -> (Vec<Node>, Vec<ParseError>) {
-    let mut lexer = Lexer::new(source);
+    let mut lexer = lexer::Lexer::new(source);
     let tokens = lexer.tokenize();
-    let mut parser = Parser::new(tokens);
+    let mut parser = parser::Parser::new(tokens);
     parser.parse()
 }

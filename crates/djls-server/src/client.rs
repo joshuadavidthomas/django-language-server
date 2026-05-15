@@ -60,16 +60,6 @@ impl ClientInfo {
     }
 
     #[must_use]
-    pub fn capabilities(&self) -> ClientCapabilities {
-        self.capabilities
-    }
-
-    #[must_use]
-    pub fn options(&self) -> &ClientOptions {
-        &self.options
-    }
-
-    #[must_use]
     pub fn config_overrides(&self) -> &Settings {
         &self.options.settings
     }

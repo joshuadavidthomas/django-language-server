@@ -6,7 +6,7 @@ use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
-pub struct Lexer {
+pub(crate) struct Lexer {
     source: String,
     start: usize,
     current: usize,
@@ -14,7 +14,7 @@ pub struct Lexer {
 
 impl Lexer {
     #[must_use]
-    pub fn new(source: &str) -> Self {
+    pub(crate) fn new(source: &str) -> Self {
         Lexer {
             source: String::from(source),
             start: 0,
@@ -22,7 +22,7 @@ impl Lexer {
         }
     }
 
-    pub fn tokenize(&mut self) -> Vec<Token> {
+    pub(crate) fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = TokenStream::with_estimated_capacity(&self.source);
 
         while !self.is_at_end() {

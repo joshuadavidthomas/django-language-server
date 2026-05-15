@@ -17,7 +17,6 @@ mod scanning;
 mod settings;
 
 pub use check::check_file;
-pub use check::render_template_error;
 pub use check::render_validation_error;
 pub use check::CheckResult;
 pub use check::FileCheckResult;

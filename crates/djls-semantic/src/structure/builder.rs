@@ -1,9 +1,9 @@
 use djls_source::Span;
-use djls_templates::tokens::TagDelimiter;
-use djls_templates::visitor::Visitor;
 use djls_templates::Filter;
 use djls_templates::ParseError;
 use djls_templates::TagBit;
+use djls_templates::TagDelimiter;
+use djls_templates::Visitor;
 use salsa::Accumulator;
 
 use crate::structure::grammar::CloseValidation;

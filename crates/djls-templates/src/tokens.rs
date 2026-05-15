@@ -52,7 +52,7 @@ impl TagDelimiter {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Token {
+pub(crate) enum Token {
     Block {
         content: String,
         span: Span,
@@ -93,41 +93,6 @@ impl Token {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.clone(),
-            Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
-            Token::Newline { span, .. } => {
-                if span.length() == 2 {
-                    "\r\n".to_string()
-                } else {
-                    "\n".to_string()
-                }
-            }
-            Token::Eof => String::new(),
-        }
-    }
-
-    /// Get the lexeme as it appears in source
-    #[must_use]
-    pub fn lexeme(&self) -> String {
-        match self {
-            Token::Block { content, .. } => format!(
-                "{} {} {}",
-                TagDelimiter::Block.opener(),
-                content,
-                TagDelimiter::Block.closer()
-            ),
-            Token::Variable { content, .. } => format!(
-                "{} {} {}",
-                TagDelimiter::Variable.opener(),
-                content,
-                TagDelimiter::Variable.closer()
-            ),
-            Token::Comment { content, .. } => format!(
-                "{} {} {}",
-                TagDelimiter::Comment.opener(),
-                content,
-                TagDelimiter::Comment.closer()
-            ),
-            Token::Text { content, .. } | Token::Error { content, .. } => content.clone(),
             Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
                 if span.length() == 2 {
@@ -300,7 +265,7 @@ impl Token {
 }
 
 #[cfg(test)]
-pub struct TokenSnapshotVec(pub Vec<Token>);
+pub(crate) struct TokenSnapshotVec(pub Vec<Token>);
 
 #[cfg(test)]
 impl TokenSnapshotVec {
@@ -311,7 +276,7 @@ impl TokenSnapshotVec {
 }
 
 #[derive(Debug, Clone)]
-pub struct TokenStream(Vec<Token>);
+pub(crate) struct TokenStream(Vec<Token>);
 
 impl TokenStream {
     const CHARS_PER_TOKEN: usize = 6;
@@ -328,24 +293,6 @@ impl TokenStream {
     #[inline]
     pub fn push(&mut self, token: Token) {
         self.0.push(token);
-    }
-
-    /// Get the number of tokens in the stream.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Get the number of content tokens (excluding EOF).
-    #[must_use]
-    pub fn content_len(&self) -> usize {
-        self.0.len().saturating_sub(1)
-    }
-
-    /// Check if stream is empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 

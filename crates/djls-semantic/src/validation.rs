@@ -6,10 +6,10 @@ pub mod scoping;
 use std::collections::HashMap;
 
 use djls_source::Span;
-use djls_templates::nodelist::Node;
-use djls_templates::visitor::walk_nodelist;
-use djls_templates::visitor::Visitor;
+use djls_templates::walk_nodelist;
 use djls_templates::Filter;
+use djls_templates::Node;
+use djls_templates::Visitor;
 
 use crate::db::Db;
 use crate::scoping::SymbolIndex;
@@ -43,7 +43,7 @@ impl ExtendsPosition {
 ///
 /// This visitor consolidates multiple validation rules (scoping, arity, bits,
 /// structure) into a single walk of the `NodeList`, reducing redundant traversals.
-pub struct TemplateValidator<'a> {
+pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
     symbol_index: &'a SymbolIndex,
@@ -106,7 +106,7 @@ impl Visitor for TemplateValidator<'_> {
 
         // 1. Extends validation (cares about order/opacity)
         if name == "extends" {
-            use djls_templates::tokens::TagDelimiter;
+            use djls_templates::TagDelimiter;
             use salsa::Accumulator;
 
             use crate::ValidationError;

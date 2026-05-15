@@ -63,7 +63,7 @@ use crate::python::registry::ExtractionOutput;
 /// Wraps Ruff's statement list in a tracked struct. The parsed AST is
 /// invalidated when the source file changes.
 #[salsa::tracked]
-pub struct ParsedPythonModule<'db> {
+pub(crate) struct ParsedPythonModule<'db> {
     #[tracked]
     #[returns(ref)]
     pub body: Vec<Stmt>,
@@ -75,7 +75,7 @@ pub struct ParsedPythonModule<'db> {
 /// same callee name, same abstract argument values produce the same
 /// `HelperCall` identity, enabling Salsa's built-in memoization.
 #[salsa::interned]
-pub struct HelperCall<'db> {
+pub(crate) struct HelperCall<'db> {
     pub file: File,
     #[returns(ref)]
     pub callee_name: String,
@@ -89,7 +89,10 @@ pub struct HelperCall<'db> {
 /// The parsed AST is cached by Salsa and invalidated when
 /// `file.source(db)` changes.
 #[salsa::tracked]
-pub fn parse_python_module(db: &dyn djls_source::Db, file: File) -> Option<ParsedPythonModule<'_>> {
+pub(crate) fn parse_python_module(
+    db: &dyn djls_source::Db,
+    file: File,
+) -> Option<ParsedPythonModule<'_>> {
     let source = file.source(db);
     if *source.kind() != FileKind::Python {
         return None;
@@ -118,7 +121,7 @@ pub fn parse_python_module(db: &dyn djls_source::Db, file: File) -> Option<Parse
     cycle_initial=analyze_helper_cycle_initial,
     cycle_fn=analyze_helper_cycle_recover,
 )]
-pub fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> AbstractValue {
+pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> AbstractValue {
     let Some(parsed) = parse_python_module(db, call.file(db)) else {
         return AbstractValue::Unknown;
     };

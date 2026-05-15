@@ -1,5 +1,5 @@
-use djls_templates::visitor::Visitor;
 use djls_templates::NodeList;
+use djls_templates::Visitor;
 
 use crate::Db;
 

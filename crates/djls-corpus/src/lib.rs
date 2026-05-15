@@ -33,9 +33,16 @@ use camino::Utf8PathBuf;
 use ignore::WalkBuilder;
 
 pub(crate) mod archive;
-pub mod lock;
-pub mod manifest;
-pub mod sync;
+mod lock;
+mod manifest;
+mod sync;
+
+pub use lock::lock_corpus;
+pub use lock::LockFilter;
+pub use lock::Lockfile;
+pub use manifest::Manifest;
+pub use sync::clean_entries;
+pub use sync::sync_corpus;
 
 const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
 const LOCKFILE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.lock");
