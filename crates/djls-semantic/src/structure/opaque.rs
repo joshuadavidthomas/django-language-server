@@ -152,7 +152,7 @@ mod tests {
                 }]
                 .into(),
                 opaque: true,
-                outline_role: None,
+                semantic_role: None,
                 extracted_rules: None,
             },
         );

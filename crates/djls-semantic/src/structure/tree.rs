@@ -544,7 +544,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                outline_role: None,
+                semantic_role: None,
                 extracted_rules: None,
             },
         )])));

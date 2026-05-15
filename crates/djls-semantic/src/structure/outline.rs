@@ -7,7 +7,8 @@ use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
 use crate::Db;
-use crate::TagOutlineRole;
+use crate::LoadKind;
+use crate::TagSemanticRole;
 use crate::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,16 +39,16 @@ pub enum OutlineKind {
     Filter,
 }
 
-impl From<TagOutlineRole> for OutlineKind {
-    fn from(role: TagOutlineRole) -> Self {
+impl From<TagSemanticRole> for OutlineKind {
+    fn from(role: TagSemanticRole) -> Self {
         match role {
-            TagOutlineRole::TemplateReference => Self::TemplateReference,
-            TagOutlineRole::LibraryImport => Self::LibraryImport,
-            TagOutlineRole::NamedRegion => Self::NamedRegion,
-            TagOutlineRole::ControlFlow => Self::ControlFlow,
-            TagOutlineRole::Callable => Self::Callable,
-            TagOutlineRole::AssetReference => Self::FileReference,
-            TagOutlineRole::RouteReference => Self::RouteReference,
+            TagSemanticRole::TemplateReference => Self::TemplateReference,
+            TagSemanticRole::LibraryImport => Self::LibraryImport,
+            TagSemanticRole::NamedRegion => Self::NamedRegion,
+            TagSemanticRole::ControlFlow => Self::ControlFlow,
+            TagSemanticRole::Callable => Self::Callable,
+            TagSemanticRole::AssetReference => Self::FileReference,
+            TagSemanticRole::RouteReference => Self::RouteReference,
         }
     }
 }
@@ -63,7 +64,7 @@ pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> TemplateOu
 }
 
 fn outline_items_for_tag(
-    role: TagOutlineRole,
+    role: TagSemanticRole,
     tag: &str,
     name_span: Span,
     bits: &[TagBit],
@@ -71,10 +72,10 @@ fn outline_items_for_tag(
     children: Vec<OutlineItem>,
 ) -> Vec<OutlineItem> {
     match role {
-        TagOutlineRole::TemplateReference
-        | TagOutlineRole::NamedRegion
-        | TagOutlineRole::AssetReference
-        | TagOutlineRole::RouteReference => {
+        TagSemanticRole::TemplateReference
+        | TagSemanticRole::NamedRegion
+        | TagSemanticRole::AssetReference
+        | TagSemanticRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
                 OutlineItem {
                     label: bit.template_string().value().to_string(),
@@ -96,18 +97,29 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagOutlineRole::LibraryImport => bits
-            .iter()
-            .map(|bit| OutlineItem {
-                label: bit.template_string().value().to_string(),
+        TagSemanticRole::LibraryImport => match crate::parse_load_bits(bits) {
+            Some(LoadKind::FullLoad { libraries }) => libraries
+                .into_iter()
+                .map(|library| OutlineItem {
+                    label: library.as_str().to_string(),
+                    detail: Some(tag.to_string()),
+                    kind: role.into(),
+                    span,
+                    selection_span: library.span(),
+                    children: Vec::new(),
+                })
+                .collect(),
+            Some(LoadKind::SelectiveImport { library, .. }) => vec![OutlineItem {
+                label: library.as_str().to_string(),
                 detail: Some(tag.to_string()),
                 kind: role.into(),
                 span,
-                selection_span: bit.span,
+                selection_span: library.span(),
                 children: Vec::new(),
-            })
-            .collect(),
-        TagOutlineRole::ControlFlow | TagOutlineRole::Callable => {
+            }],
+            None => Vec::new(),
+        },
+        TagSemanticRole::ControlFlow | TagSemanticRole::Callable => {
             let mut label = tag.to_string();
             for bit in bits {
                 label.push(' ');
@@ -155,8 +167,8 @@ fn outline_items_for_node(
         } => {
             let role = tag_specs
                 .get(tag)
-                .and_then(|spec| spec.outline_role)
-                .unwrap_or(TagOutlineRole::ControlFlow);
+                .and_then(|spec| spec.semantic_role)
+                .unwrap_or(TagSemanticRole::ControlFlow);
             let children = regions
                 .get(*body)
                 .nodes()
@@ -194,7 +206,7 @@ fn outline_items_for_node(
         } => {
             let children = outline_items_for_region(regions, tag_specs, *body);
             outline_items_for_tag(
-                TagOutlineRole::ControlFlow,
+                TagSemanticRole::ControlFlow,
                 tag,
                 *name_span,
                 bits,
@@ -210,7 +222,7 @@ fn outline_items_for_node(
             ..
         } => tag_specs
             .get(tag)
-            .and_then(|spec| spec.outline_role)
+            .and_then(|spec| spec.semantic_role)
             .map_or_else(Vec::new, |role| {
                 outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
             }),
@@ -221,7 +233,7 @@ fn outline_items_for_node(
             span,
         } => vec![OutlineItem {
             label: var.clone(),
-            detail: Some("variable".to_string()),
+            detail: None,
             kind: OutlineKind::Variable,
             span: *span,
             selection_span: *var_span,
@@ -229,7 +241,7 @@ fn outline_items_for_node(
                 .iter()
                 .map(|filter| OutlineItem {
                     label: filter.label(),
-                    detail: Some("filter".to_string()),
+                    detail: None,
                     kind: OutlineKind::Filter,
                     span: filter.span,
                     selection_span: filter.span.with_length_usize_saturating(filter.name.len()),
@@ -309,6 +321,20 @@ mod tests {
     }
 
     #[test]
+    fn selective_load_uses_library_as_outline_item() {
+        let db = TestDatabase::new();
+        let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");
+
+        assert_eq!(labels(&outline.items), vec!["i18n"]);
+        assert_eq!(outline.items[0].kind, OutlineKind::LibraryImport);
+        assert_eq!(outline.items[0].detail.as_deref(), Some("load"));
+        assert_eq!(
+            outline.items[0].selection_span.start_usize(),
+            "{% load trans blocktrans from ".len()
+        );
+    }
+
+    #[test]
     fn nested_blocks_produce_nested_outline_items() {
         let db = TestDatabase::new();
         let outline = outline_for_source(
@@ -349,7 +375,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                outline_role: Some(crate::TagOutlineRole::Callable),
+                semantic_role: Some(crate::TagSemanticRole::Callable),
                 extracted_rules: None,
             },
         )])));
@@ -358,6 +384,43 @@ mod tests {
 
         assert_eq!(labels(&outline.items), vec!["partialdef card"]);
         assert_eq!(outline.items[0].kind, OutlineKind::Callable);
+    }
+
+    #[test]
+    fn tags_without_semantic_role_hide_standalone_tags_but_keep_blocks() {
+        let mut specs = builtin_tag_specs();
+        specs.merge(TagSpecs::new(FxHashMap::from_iter([
+            (
+                "myblock".to_string(),
+                TagSpec {
+                    module: Cow::Borrowed("myapp.templatetags.custom"),
+                    end_tag: Some(EndTag {
+                        name: Cow::Borrowed("endmyblock"),
+                        required: true,
+                    }),
+                    intermediate_tags: Cow::Borrowed(&[]),
+                    opaque: false,
+                    semantic_role: None,
+                    extracted_rules: None,
+                },
+            ),
+            (
+                "mytag".to_string(),
+                TagSpec {
+                    module: Cow::Borrowed("myapp.templatetags.custom"),
+                    end_tag: None,
+                    intermediate_tags: Cow::Borrowed(&[]),
+                    opaque: false,
+                    semantic_role: None,
+                    extracted_rules: None,
+                },
+            ),
+        ])));
+        let db = TestDatabase::new().with_specs(specs);
+        let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}");
+
+        assert_eq!(labels(&outline.items), vec!["myblock thing"]);
+        assert_eq!(outline.items[0].kind, OutlineKind::ControlFlow);
     }
 
     #[test]

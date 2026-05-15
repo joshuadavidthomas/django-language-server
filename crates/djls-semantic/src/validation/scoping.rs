@@ -135,7 +135,6 @@ pub(crate) fn check_filter_scoping_rule(
 pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
     bits: &[TagBit],
-    _span: Span,
     template_libraries: &crate::TemplateLibraries,
 ) {
     if template_libraries.active_knowledge != Knowledge::Known {
