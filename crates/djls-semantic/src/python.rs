@@ -19,7 +19,7 @@ pub use models::ModelGraph;
 pub use models::ModulePath;
 pub use models::Relation;
 pub use models::RelationType;
-pub(crate) use registry::RegistrationInfo;
+use registry::RegistrationInfo;
 use ruff_python_ast::statement_visitor::walk_stmt;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Stmt;
