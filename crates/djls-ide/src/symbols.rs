@@ -1,10 +1,7 @@
-use djls_semantic::OutlineItem;
 use djls_source::File;
-use djls_source::LineIndex;
 use tower_lsp_server::ls_types;
 
-use crate::ext::OutlineKindExt;
-use crate::ext::SpanExt;
+use crate::ext::TemplateOutlineExt;
 
 #[must_use]
 pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentSymbol> {
@@ -14,40 +11,13 @@ pub fn document_symbols(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types:
 
     let tree = djls_semantic::build_template_tree(db, nodelist);
     let outline = djls_semantic::build_template_outline(db, tree);
-    let line_index = file.line_index(db);
-    outline
-        .items
-        .iter()
-        .map(|item| item_to_document_symbol(item, line_index))
-        .collect()
-}
-
-fn item_to_document_symbol(item: &OutlineItem, line_index: &LineIndex) -> ls_types::DocumentSymbol {
-    let children = (!item.children.is_empty()).then(|| {
-        item.children
-            .iter()
-            .map(|child| item_to_document_symbol(child, line_index))
-            .collect()
-    });
-
-    ls_types::DocumentSymbol {
-        name: item.label.clone(),
-        detail: item.detail.clone(),
-        kind: item.kind.to_lsp_symbol_kind(),
-        tags: None,
-        // `deprecated` is itself deprecated by LSP 3.15 in favor of `tags`, but
-        // `ls_types::DocumentSymbol` still includes the field for wire compatibility.
-        // We set both to `None` because template outline items are not deprecated.
-        #[allow(deprecated)]
-        deprecated: None,
-        range: item.span.to_lsp_range(line_index),
-        selection_range: item.selection_span.to_lsp_range(line_index),
-        children,
-    }
+    outline.to_lsp_document_symbols(file.line_index(db))
 }
 
 #[cfg(test)]
 mod tests {
+    use djls_semantic::OutlineItem;
+    use djls_source::LineIndex;
     use djls_source::Span;
 
     use super::*;
@@ -91,11 +61,7 @@ mod tests {
             }],
         };
 
-        let symbols = outline
-            .items
-            .iter()
-            .map(|item| item_to_document_symbol(item, &line_index))
-            .collect::<Vec<_>>();
+        let symbols = outline.to_lsp_document_symbols(&line_index);
 
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "content");
