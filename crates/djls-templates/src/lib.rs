@@ -57,9 +57,7 @@ pub mod tokens;
 pub mod visitor;
 
 pub use bits::FilterArgument;
-pub use bits::Quote;
 pub use bits::TagBit;
-pub use bits::TemplateString;
 pub use db::Db;
 pub use db::TemplateErrorAccumulator;
 use djls_source::File;
@@ -71,6 +69,9 @@ pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
+pub use quotes::Quote;
+pub use quotes::QuotedTemplateString;
+pub use quotes::TemplateString;
 use salsa::Accumulator;
 
 /// Parse a Django template file and accumulate diagnostics.
