@@ -1,7 +1,12 @@
+mod check;
 mod db;
 mod fixtures;
 mod specs;
 
+pub use check::check_file;
+pub use check::render_validation_error;
+pub use check::CheckResult;
+pub use check::FileCheckResult;
 pub use db::Db;
 pub use fixtures::model_fixtures;
 pub use fixtures::python_fixtures;

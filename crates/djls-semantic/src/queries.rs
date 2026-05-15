@@ -8,7 +8,7 @@ use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
 use crate::python::extract_model_graph;
 use crate::python::extract_tag_rules;
-use crate::python::BlockSpecMap;
+use crate::python::BlockSpecs;
 use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
@@ -175,7 +175,7 @@ fn collect_workspace_filter_arities(
 }
 
 #[salsa::tracked(returns(ref))]
-fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecMap)> {
+fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
     for resolved in resolve_workspace_registration_modules(db, project) {

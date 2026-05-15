@@ -26,6 +26,17 @@ pub trait Db: salsa::Database {
     /// Get the shared project introspector.
     fn project_introspector(&self) -> Arc<ProjectIntrospector>;
 
+    /// Refresh external semantic data for the current project.
+    ///
+    /// This scans installed packages for template rule extraction data and
+    /// model definitions. Workspace files are handled by tracked Salsa queries.
+    fn refresh_external_semantic_data(&mut self)
+    where
+        Self: Sized,
+    {
+        super::external::refresh_external_semantic_data(self);
+    }
+
     /// Return the current project root or fall back to the current working directory.
     fn project_root_or_cwd(&self) -> Utf8PathBuf {
         if let Some(project) = self.project() {

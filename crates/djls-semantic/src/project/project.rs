@@ -9,11 +9,11 @@ use crate::project::django::django_available;
 use crate::project::django::template_dirs;
 use crate::project::python::Interpreter;
 use crate::project::symbols::TemplateLibraries;
-use crate::BlockSpecMap;
-use crate::FilterArityMap;
-use crate::ModelGraph;
-use crate::ModulePath;
-use crate::TagRuleMap;
+use crate::python::BlockSpecs;
+use crate::python::FilterArityMap;
+use crate::python::ModelGraph;
+use crate::python::ModulePath;
+use crate::python::TagRuleMap;
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -58,21 +58,21 @@ pub struct Project {
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_external_data`. Workspace files use tracked queries.
     #[returns(ref)]
-    pub extracted_external_tag_rules: FxHashMap<String, TagRuleMap>,
+    pub(crate) extracted_external_tag_rules: FxHashMap<String, TagRuleMap>,
     /// Extracted filter arities from external modules (site-packages), keyed by
     /// registration module path. Populated by `refresh_external_data`.
     #[returns(ref)]
-    pub extracted_external_filter_arities: FxHashMap<String, FilterArityMap>,
+    pub(crate) extracted_external_filter_arities: FxHashMap<String, FilterArityMap>,
     /// Extracted block specs from external modules (site-packages), keyed by
     /// registration module path. Populated by `refresh_external_data`.
     #[returns(ref)]
-    pub extracted_external_block_specs: FxHashMap<String, BlockSpecMap>,
+    pub(crate) extracted_external_block_specs: FxHashMap<String, BlockSpecs>,
     /// Model graphs from external packages (site-packages), keyed by module
     /// path (e.g., `"django.contrib.auth.models"`). Populated by scanning
     /// the venv's site-packages directory. Workspace `models.py` files use
     /// tracked queries via `collect_workspace_models` instead.
     #[returns(ref)]
-    pub extracted_external_models: FxHashMap<ModulePath, ModelGraph>,
+    pub(crate) extracted_external_models: FxHashMap<ModulePath, ModelGraph>,
 }
 
 impl Project {

@@ -1,6 +1,7 @@
 mod cache;
 mod db;
 mod django;
+mod external;
 #[path = "project/project.rs"]
 mod input;
 mod inspector;

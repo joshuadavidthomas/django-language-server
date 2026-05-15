@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
+use serde::ser::SerializeMap;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::Serializer;
 
 /// Identifies a specific tag or filter registration within a module.
 ///
@@ -44,7 +47,54 @@ pub enum SymbolKind {
 
 pub type TagRuleMap = FxHashMap<SymbolKey, Arc<TagRule>>;
 pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
-pub type BlockSpecMap = FxHashMap<SymbolKey, BlockSpec>;
+pub(crate) type BlockSpecMap = FxHashMap<SymbolKey, BlockSpec>;
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct BlockSpecs(pub(crate) BlockSpecMap);
+
+impl Serialize for BlockSpecs {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut sorted = BTreeMap::new();
+        for (key, value) in &self.0 {
+            let kind = match key.kind {
+                SymbolKind::Tag => "tag",
+                SymbolKind::Filter => "filter",
+            };
+            sorted.insert(
+                format!("{}::{kind}::{}", key.registration_module, key.name),
+                value,
+            );
+        }
+
+        let mut map = serializer.serialize_map(Some(sorted.len()))?;
+        for (key, value) in sorted {
+            map.serialize_entry(&key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl BlockSpecs {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn as_map(&self) -> &BlockSpecMap {
+        &self.0
+    }
+
+    pub(crate) fn insert(&mut self, key: SymbolKey, value: BlockSpec) {
+        self.0.insert(key, value);
+    }
+
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.0.extend(other.0);
+    }
+}
 
 /// Result of extracting rules from a Python registration module.
 ///
@@ -56,7 +106,7 @@ pub type BlockSpecMap = FxHashMap<SymbolKey, BlockSpec>;
 pub struct ExtractionResult {
     pub tag_rules: TagRuleMap,
     pub filter_arities: FilterArityMap,
-    pub block_specs: BlockSpecMap,
+    pub block_specs: BlockSpecs,
 }
 
 impl ExtractionResult {
@@ -284,7 +334,7 @@ pub(crate) struct KnownOptions {
 /// exclusively from `parser.parse()` call patterns and control flow — never
 /// from string prefix heuristics.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockSpec {
+pub(crate) struct BlockSpec {
     /// The closing tag name (e.g., `"endfor"`), or `None` if inference was
     /// ambiguous and we couldn't determine the closer with confidence.
     pub end_tag: Option<String>,

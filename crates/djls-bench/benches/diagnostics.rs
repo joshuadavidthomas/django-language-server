@@ -173,13 +173,13 @@ fn collect_incremental(bencher: Bencher) {
 struct ValidationRenderFixture<'a> {
     source: &'a str,
     path: &'a str,
-    check: djls_db::CheckResult,
+    check: djls_bench::CheckResult,
 }
 
 fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRenderFixture<'_> {
     let mut db = realistic_db();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-    let check = djls_db::check_file(&db, file);
+    let check = djls_bench::check_file(&db, file);
     assert!(
         !check.validation_errors.is_empty(),
         "validation error rendering fixture '{}' produced no validation errors",
@@ -206,7 +206,7 @@ fn render_validation(bencher: Bencher) {
         let mut rendered_count = 0;
         for fixture in &fixtures {
             for error in &fixture.check.validation_errors {
-                if djls_db::render_validation_error(
+                if djls_bench::render_validation_error(
                     fixture.source,
                     fixture.path,
                     error,
@@ -228,7 +228,7 @@ fn render_validation_synthetic(bencher: Bencher) {
     let mut db = realistic_db();
     let file = db.file_with_contents("bench.html".into(), MANY_ERRORS_SOURCE);
 
-    let check = djls_db::check_file(&db, file);
+    let check = djls_bench::check_file(&db, file);
     assert!(
         !check.validation_errors.is_empty(),
         "synthetic validation error benchmark produced no validation errors",
@@ -241,7 +241,7 @@ fn render_validation_synthetic(bencher: Bencher) {
         let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for error in &check.validation_errors {
-                if djls_db::render_validation_error(
+                if djls_bench::render_validation_error(
                     MANY_ERRORS_SOURCE,
                     "bench.html",
                     error,

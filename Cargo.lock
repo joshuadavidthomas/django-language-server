@@ -761,6 +761,7 @@ dependencies = [
  "djls-semantic",
  "djls-server",
  "djls-source",
+ "djls-templates",
  "djls-workspace",
  "rayon",
  "tempfile",

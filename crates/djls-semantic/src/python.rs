@@ -25,8 +25,8 @@ use ruff_python_ast::StmtFunctionDef;
 pub(crate) use types::ArgumentCountConstraint;
 #[cfg(test)]
 pub(crate) use types::AsVar;
-pub use types::BlockSpec;
-pub use types::BlockSpecMap;
+pub(crate) use types::BlockSpec;
+pub use types::BlockSpecs;
 pub(crate) use types::ChoiceAt;
 pub(crate) use types::ExtractedArg;
 pub(crate) use types::ExtractedArgKind;
@@ -247,16 +247,16 @@ pub fn extract_block_specs(
     db: &dyn djls_source::Db,
     file: File,
     registration_module: ModulePath,
-) -> BlockSpecMap {
+) -> BlockSpecs {
     let Some(parsed) = parse_python_module(db, file) else {
-        return BlockSpecMap::default();
+        return BlockSpecs::default();
     };
 
     let registration_module = registration_module.into_string();
     let body = parsed.body(db);
     let registrations = registry::collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
-    let mut block_specs = BlockSpecMap::default();
+    let mut block_specs = BlockSpecs::default();
 
     for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
         if let Some(block_spec) = normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
@@ -414,6 +414,7 @@ mod tests {
                     .collect(),
                 block_specs: result
                     .block_specs
+                    .as_map()
                     .iter()
                     .map(|(k, v)| (key_str(k), v.clone()))
                     .collect(),
@@ -492,10 +493,10 @@ def hello():
         let result = extract_rules(&source, "django.template.loader_tags");
         let key = SymbolKey::tag("django.template.loader_tags", "block");
         assert!(
-            result.block_specs.contains_key(&key),
+            result.block_specs.as_map().contains_key(&key),
             "should extract block spec for block tag"
         );
-        let spec = &result.block_specs[&key];
+        let spec = &result.block_specs.as_map()[&key];
         assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
     }
 
@@ -660,7 +661,7 @@ register.tag("for", do_for)
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "autoescape");
         assert!(
-            result.tag_rules.contains_key(&key) || result.block_specs.contains_key(&key),
+            result.tag_rules.contains_key(&key) || result.block_specs.as_map().contains_key(&key),
             "autoescape should be extracted"
         );
     }
@@ -686,7 +687,7 @@ register.tag("for", do_for)
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "partialdef");
         assert!(
-            result.tag_rules.contains_key(&key) || result.block_specs.contains_key(&key),
+            result.tag_rules.contains_key(&key) || result.block_specs.as_map().contains_key(&key),
             "partialdef should be extracted (name from kwarg)"
         );
     }
@@ -885,8 +886,8 @@ register.tag("for", do_for)
         let source = django_source("django/template/defaulttags.py").unwrap();
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "for");
-        assert!(result.block_specs.contains_key(&key));
-        let spec = &result.block_specs[&key];
+        assert!(result.block_specs.as_map().contains_key(&key));
+        let spec = &result.block_specs.as_map()[&key];
         assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
         assert!(spec.intermediates.contains(&"empty".to_string()));
     }
@@ -897,8 +898,8 @@ register.tag("for", do_for)
         let source = django_source("django/template/defaulttags.py").unwrap();
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "if");
-        assert!(result.block_specs.contains_key(&key));
-        let spec = &result.block_specs[&key];
+        assert!(result.block_specs.as_map().contains_key(&key));
+        let spec = &result.block_specs.as_map()[&key];
         assert_eq!(spec.end_tag.as_deref(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
         assert!(spec.intermediates.contains(&"else".to_string()));
@@ -912,8 +913,8 @@ register.tag("for", do_for)
         let source = django_source("django/template/defaulttags.py").unwrap();
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "comment");
-        assert!(result.block_specs.contains_key(&key));
-        let spec = &result.block_specs[&key];
+        assert!(result.block_specs.as_map().contains_key(&key));
+        let spec = &result.block_specs.as_map()[&key];
         assert!(spec.opaque);
         assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
     }
@@ -925,8 +926,8 @@ register.tag("for", do_for)
         let source = django_source("django/template/defaulttags.py").unwrap();
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "verbatim");
-        assert!(result.block_specs.contains_key(&key));
-        let spec = &result.block_specs[&key];
+        assert!(result.block_specs.as_map().contains_key(&key));
+        let spec = &result.block_specs.as_map()[&key];
         assert!(
             !spec.opaque,
             "real verbatim uses parser.parse(), not skip_past"
@@ -941,8 +942,8 @@ register.tag("for", do_for)
         let source = django_source("django/template/defaulttags.py").unwrap();
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "spaceless");
-        assert!(result.block_specs.contains_key(&key));
-        let spec = &result.block_specs[&key];
+        assert!(result.block_specs.as_map().contains_key(&key));
+        let spec = &result.block_specs.as_map()[&key];
         // Dynamic end-tag detected as None (computed at runtime), but
         // extract_rules() fills it with "end{name}" as fallback
         assert!(spec.end_tag.is_some());
@@ -954,8 +955,8 @@ register.tag("for", do_for)
         let source = django_source("django/template/loader_tags.py").unwrap();
         let result = extract_rules(&source, "django.template.loader_tags");
         let key = SymbolKey::tag("django.template.loader_tags", "block");
-        assert!(result.block_specs.contains_key(&key));
-        let spec = &result.block_specs[&key];
+        assert!(result.block_specs.as_map().contains_key(&key));
+        let spec = &result.block_specs.as_map()[&key];
         assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);

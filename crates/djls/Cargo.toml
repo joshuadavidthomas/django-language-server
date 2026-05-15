@@ -9,6 +9,7 @@ djls-db = { workspace = true }
 djls-semantic = { workspace = true }
 djls-server = { workspace = true }
 djls-source = { workspace = true }
+djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
