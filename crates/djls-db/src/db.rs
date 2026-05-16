@@ -124,7 +124,7 @@ impl salsa::Database for DjangoDatabase {}
 #[salsa::db]
 impl SourceDb for DjangoDatabase {
     fn create_file(&self, path: &Utf8Path) -> File {
-        let file = File::new(self, path.to_owned(), 0);
+        let file = File::tracked(self, path.to_owned(), 0);
         self.files.insert(path.to_owned(), file);
         file
     }

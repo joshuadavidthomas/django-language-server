@@ -6,6 +6,7 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::File;
 use rustc_hash::FxHashMap;
+use salsa::Durability;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
@@ -177,8 +178,7 @@ impl Project {
         let resolved_django_settings_module = resolve_django_settings(root, settings);
         let env_vars = load_env_file(root, settings);
 
-        Project::new(
-            db,
+        Project::builder(
             root.to_path_buf(),
             interpreter,
             resolved_django_settings_module,
@@ -193,6 +193,14 @@ impl Project {
             FxHashMap::default(),
             FxHashMap::default(),
         )
+        .durability(Durability::MEDIUM)
+        .root_durability(Durability::HIGH)
+        .project_files_durability(Durability::LOW)
+        .extracted_external_tag_rules_durability(Durability::HIGH)
+        .extracted_external_filter_arities_durability(Durability::HIGH)
+        .extracted_external_block_specs_durability(Durability::HIGH)
+        .extracted_external_models_durability(Durability::HIGH)
+        .new(db)
     }
 }
 

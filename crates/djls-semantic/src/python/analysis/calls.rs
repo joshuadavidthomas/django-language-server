@@ -190,7 +190,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert(path.to_string(), source.to_string());
-            djls_source::File::new(self, path.into(), 0)
+            djls_source::File::tracked(self, path.into(), 0)
         }
     }
 
@@ -200,7 +200,7 @@ mod tests {
     #[salsa::db]
     impl djls_source::Db for TestDatabase {
         fn create_file(&self, path: &Utf8Path) -> djls_source::File {
-            djls_source::File::new(self, path.to_owned(), 0)
+            djls_source::File::tracked(self, path.to_owned(), 0)
         }
 
         fn get_file(&self, _path: &Utf8Path) -> Option<djls_source::File> {

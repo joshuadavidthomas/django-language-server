@@ -145,6 +145,7 @@ Template parsing does not need its own database trait. `parse_template` depends 
 - Database traits describe capabilities: file access, current project access, introspector access, or semantic fixture access.
 - Tracked queries compute values from Salsa inputs and tracked files. They should not query subprocesses, write caches, or mutate inputs.
 - Free functions perform imperative synchronization from the outside world into Salsa inputs: loading the introspection cache, refreshing template directories and libraries, indexing first-party project files, scanning installed packages, and updating `Project` fields with setters.
+- Durability follows the same split: first-party file revisions and the project file set are low durability; project configuration and introspection results are medium durability; installed-package extraction results and stable file identity are high durability.
 
 ## How Knowledge Gets In
 

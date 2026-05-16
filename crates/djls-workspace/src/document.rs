@@ -176,7 +176,7 @@ mod tests {
     #[salsa::db]
     impl djls_source::Db for TestDb {
         fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_path_buf(), 0)
+            File::tracked(self, path.to_path_buf(), 0)
         }
 
         fn get_file(&self, _path: &Utf8Path) -> Option<File> {

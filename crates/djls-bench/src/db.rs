@@ -53,7 +53,7 @@ impl Db {
 
     pub fn file_with_contents(&mut self, path: Utf8PathBuf, contents: &str) -> File {
         self.sources.insert(path.clone(), contents.to_string());
-        File::new(self, path, 0)
+        File::tracked(self, path, 0)
     }
 
     pub fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
@@ -75,7 +75,7 @@ impl salsa::Database for Db {}
 #[salsa::db]
 impl SourceDb for Db {
     fn create_file(&self, path: &Utf8Path) -> File {
-        File::new(self, path.to_owned(), 0)
+        File::tracked(self, path.to_owned(), 0)
     }
 
     fn get_file(&self, _path: &Utf8Path) -> Option<File> {

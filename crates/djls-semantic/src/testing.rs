@@ -188,7 +188,7 @@ impl TestDatabase {
 
     #[must_use]
     pub(crate) fn create_file_with_revision(&self, path: &Utf8Path, revision: u64) -> File {
-        File::new(self, path.to_owned(), revision)
+        File::tracked(self, path.to_owned(), revision)
     }
 }
 
@@ -198,7 +198,7 @@ impl salsa::Database for TestDatabase {}
 #[salsa::db]
 impl djls_source::Db for TestDatabase {
     fn create_file(&self, path: &Utf8Path) -> File {
-        File::new(self, path.to_owned(), 0)
+        File::tracked(self, path.to_owned(), 0)
     }
 
     fn get_file(&self, _path: &Utf8Path) -> Option<File> {

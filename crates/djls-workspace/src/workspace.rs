@@ -165,7 +165,7 @@ mod tests {
         #[salsa::db]
         impl djls_source::Db for TestDb {
             fn create_file(&self, path: &Utf8Path) -> djls_source::File {
-                djls_source::File::new(self, path.to_owned(), 0)
+                djls_source::File::tracked(self, path.to_owned(), 0)
             }
 
             fn get_file(&self, _path: &Utf8Path) -> Option<djls_source::File> {
@@ -372,7 +372,7 @@ mod tests {
         #[salsa::db]
         impl djls_source::Db for TestDb {
             fn create_file(&self, path: &Utf8Path) -> File {
-                let file = File::new(self, path.to_owned(), 0);
+                let file = File::tracked(self, path.to_owned(), 0);
                 self.files.insert(path.to_owned(), file);
                 file
             }
