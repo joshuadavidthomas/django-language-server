@@ -69,6 +69,8 @@ impl LineIndex {
         self.0.get(line as usize).copied()
     }
 
+    // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
+    // The index is derived from that text, so public callers should usually go through `File`.
     #[must_use]
     pub fn end_line_col(&self, text: &str, encoding: PositionEncoding) -> LineCol {
         let line = u32::try_from(self.lines().len().saturating_sub(1)).unwrap_or_default();
@@ -104,6 +106,8 @@ impl LineIndex {
         LineCol::new(u32::try_from(line).unwrap_or_default(), column)
     }
 
+    // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
+    // The index is derived from that text, so public callers should usually go through `File`.
     #[must_use]
     pub fn offset(&self, text: &str, line_col: LineCol, encoding: PositionEncoding) -> Offset {
         let line = line_col.line();

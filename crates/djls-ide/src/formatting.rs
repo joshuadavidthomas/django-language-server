@@ -14,11 +14,10 @@ pub fn format_document(
 ) -> Vec<ls_types::TextEdit> {
     let source = file.source(db);
     let path = file.path(db);
-    let line_index = file.line_index(db);
 
     match djls_format::format_template(source.as_str(), path, backend) {
         Ok(FormatOutcome::Changed(formatted)) => {
-            let (line, character) = line_index.end_line_col(source.as_str(), encoding).into();
+            let (line, character) = file.end_line_col(db, encoding).into();
             vec![ls_types::TextEdit::new(
                 ls_types::Range::new(
                     ls_types::Position::new(0, 0),

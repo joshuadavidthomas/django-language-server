@@ -6,6 +6,8 @@ use camino::Utf8PathBuf;
 
 use crate::db::Db;
 use crate::line::LineIndex;
+use crate::LineCol;
+use crate::PositionEncoding;
 
 #[salsa::input]
 pub struct File {
@@ -31,6 +33,13 @@ impl File {
     pub fn line_index(self, db: &dyn Db) -> LineIndex {
         let text = self.source(db);
         LineIndex::from(text.0.source.as_str())
+    }
+
+    #[must_use]
+    pub fn end_line_col(self, db: &dyn Db, encoding: PositionEncoding) -> LineCol {
+        let source = self.source(db);
+        let line_index = self.line_index(db);
+        line_index.end_line_col(source.as_str(), encoding)
     }
 }
 
