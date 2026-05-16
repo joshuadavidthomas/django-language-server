@@ -2,66 +2,37 @@ use camino::Utf8PathBuf;
 use djls_source::safe_join;
 use djls_source::File;
 use djls_source::Span;
-use djls_source::Utf8PathClean;
-use ignore::WalkBuilder;
 
 use crate::db::Db as SemanticDb;
 use crate::primitives::Template;
 use crate::primitives::TemplateName;
+use crate::Project;
 
 #[salsa::tracked]
-pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
-    let mut templates = Vec::new();
-
-    // TODO(virtual-paths): After DocumentPath enum is added, also discover
-    // virtual documents from open buffers and add them to the template index.
-    // This will allow {% extends "virtual/untitled-1.html" %} to work.
-
-    if let Some(search_dirs) = db.template_dirs() {
-        tracing::debug!("Discovering templates in {} directories", search_dirs.len());
-
-        for dir in &search_dirs {
-            if !dir.exists() {
-                tracing::warn!("Template directory does not exist: {}", dir);
-                continue;
-            }
-
-            for entry in WalkBuilder::new(dir.as_std_path())
-                .standard_filters(false)
-                .build()
-                .filter_map(std::result::Result::ok)
-                .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-            {
-                let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
-                    continue;
-                };
-
-                let name = match path.strip_prefix(dir) {
-                    Ok(rel) => rel.clean().to_string(),
-                    Err(_) => continue,
-                };
-
-                templates.push(Template::new(
-                    db,
-                    TemplateName::new(db, name),
-                    db.get_or_create_file(&path),
-                ));
-            }
-        }
-    } else {
-        tracing::warn!("No template directories configured");
-    }
+pub(crate) fn discover_templates(db: &dyn SemanticDb, project: Project) -> Vec<Template<'_>> {
+    let templates: Vec<_> = project
+        .template_files(db)
+        .iter()
+        .map(|template| {
+            Template::new(
+                db,
+                TemplateName::new(db, template.name().to_string()),
+                template.file(),
+            )
+        })
+        .collect();
 
     tracing::debug!("Discovered {} total templates", templates.len());
     templates
 }
 
 #[salsa::tracked]
-pub fn find_template<'db>(
+pub(crate) fn find_template<'db>(
     db: &'db dyn SemanticDb,
+    project: Project,
     template_name: TemplateName<'db>,
 ) -> Option<Template<'db>> {
-    let templates = discover_templates(db);
+    let templates = discover_templates(db, project);
 
     templates
         .iter()
@@ -95,15 +66,23 @@ impl<'db> ResolveResult<'db> {
 
 pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResult<'db> {
     let template_name = TemplateName::new(db, name.to_string());
-    if let Some(template) = find_template(db, template_name) {
+    let Some(project) = db.project() else {
+        return ResolveResult::NotFound {
+            name: name.to_string(),
+            tried: Vec::new(),
+        };
+    };
+
+    if let Some(template) = find_template(db, project, template_name) {
         return ResolveResult::Found(template);
     }
 
-    let tried = db
-        .template_dirs()
+    let tried = project
+        .template_dirs(db)
+        .as_known()
         .map(|dirs| {
             dirs.iter()
-                .filter_map(|d| safe_join(d, name).ok())
+                .filter_map(|dir| safe_join(dir, name).ok())
                 .collect()
         })
         .unwrap_or_default();
@@ -132,8 +111,12 @@ pub fn find_references_to_template<'db>(
     db: &'db dyn SemanticDb,
     name: &str,
 ) -> Vec<TemplateReference<'db>> {
+    let Some(project) = db.project() else {
+        return Vec::new();
+    };
+
     let template_name = TemplateName::new(db, name.to_string());
-    let all_refs = template_reference_index(db);
+    let all_refs = template_reference_index(db, project);
 
     let matches: Vec<_> = all_refs
         .into_iter()
@@ -149,9 +132,9 @@ pub fn find_references_to_template<'db>(
 }
 
 #[salsa::tracked]
-fn template_reference_index(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
+fn template_reference_index(db: &dyn SemanticDb, project: Project) -> Vec<TemplateReference<'_>> {
     let mut references = Vec::new();
-    let templates = discover_templates(db);
+    let templates = discover_templates(db, project);
 
     for template in templates {
         for tag in template.tags(db) {

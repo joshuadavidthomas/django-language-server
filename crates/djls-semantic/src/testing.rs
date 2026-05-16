@@ -12,6 +12,7 @@ use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
 use djls_source::Severity;
+use djls_source::SourceFiles;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_workspace::FileSystem;
@@ -139,6 +140,7 @@ pub(crate) fn make_template_libraries_tags_only(
 pub(crate) struct TestDatabase {
     storage: salsa::Storage<Self>,
     fs: Arc<Mutex<InMemoryFileSystem>>,
+    files: SourceFiles,
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
@@ -150,6 +152,7 @@ impl TestDatabase {
         Self {
             storage: salsa::Storage::default(),
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+            files: SourceFiles::default(),
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
@@ -188,7 +191,10 @@ impl TestDatabase {
 
     #[must_use]
     pub(crate) fn create_file_with_revision(&self, path: &Utf8Path, revision: u64) -> File {
-        File::new(self, path.to_owned(), revision)
+        File::builder(path.to_owned(), revision)
+            .durability(salsa::Durability::LOW)
+            .path_durability(salsa::Durability::HIGH)
+            .new(self)
     }
 }
 
@@ -197,12 +203,8 @@ impl salsa::Database for TestDatabase {}
 
 #[salsa::db]
 impl djls_source::Db for TestDatabase {
-    fn create_file(&self, path: &Utf8Path) -> File {
-        File::new(self, path.to_owned(), 0)
-    }
-
-    fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-        None
+    fn files(&self) -> &SourceFiles {
+        &self.files
     }
 
     fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
@@ -211,7 +213,15 @@ impl djls_source::Db for TestDatabase {
 }
 
 #[salsa::db]
-impl djls_templates::Db for TestDatabase {}
+impl crate::ProjectDb for TestDatabase {
+    fn project(&self) -> Option<crate::Project> {
+        None
+    }
+
+    fn project_introspector(&self) -> Arc<crate::ProjectIntrospector> {
+        Arc::new(crate::ProjectIntrospector::new())
+    }
+}
 
 #[salsa::db]
 impl crate::Db for TestDatabase {

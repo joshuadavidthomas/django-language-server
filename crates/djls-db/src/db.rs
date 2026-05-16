@@ -1,7 +1,7 @@
 //! Concrete Salsa database implementation for the Django Language Server.
 //!
 //! This module provides the concrete [`DjangoDatabase`] that implements all
-//! the database traits from workspace, template, and project crates. This follows
+//! the database traits from source, semantic, and project crates. This follows
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::sync::Arc;
@@ -13,7 +13,6 @@ use djls_conf::Settings;
 use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
-use djls_semantic::template_dirs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
@@ -21,17 +20,14 @@ use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
-use djls_source::File;
-use djls_source::FxDashMap;
-use djls_templates::Db as TemplateDb;
-use djls_workspace::Db as WorkspaceDb;
+use djls_source::SourceFiles;
 use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
 /// This database implements all the traits from various crates:
-/// - [`WorkspaceDb`] for file system access and core operations
-/// - [`TemplateDb`] for template parsing and diagnostics
+/// - [`SourceDb`] for file tracking and file reads
+/// - [`SemanticDb`] for template semantics and diagnostics
 /// - [`ProjectDb`] for project metadata and Python environment
 #[salsa::db]
 #[derive(Clone)]
@@ -40,7 +36,7 @@ pub struct DjangoDatabase {
     pub(crate) fs: Arc<dyn FileSystem>,
 
     /// Registry of tracked files used by the workspace layer.
-    pub(crate) files: Arc<FxDashMap<Utf8PathBuf, File>>,
+    pub(crate) files: SourceFiles,
 
     /// The single project for this database instance
     pub(crate) project: Arc<Mutex<Option<Project>>>,
@@ -68,7 +64,7 @@ impl Default for DjangoDatabase {
 
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
@@ -99,7 +95,7 @@ impl DjangoDatabase {
     ) -> Self {
         let mut db = Self {
             fs: file_system,
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
@@ -126,30 +122,14 @@ impl salsa::Database for DjangoDatabase {}
 
 #[salsa::db]
 impl SourceDb for DjangoDatabase {
-    fn create_file(&self, path: &Utf8Path) -> File {
-        let file = File::new(self, path.to_owned(), 0);
-        self.files.insert(path.to_owned(), file);
-        file
-    }
-
-    fn get_file(&self, path: &Utf8Path) -> Option<File> {
-        self.files.get(path).map(|entry| *entry)
+    fn files(&self) -> &SourceFiles {
+        &self.files
     }
 
     fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
         self.fs.read_to_string(path)
     }
 }
-
-#[salsa::db]
-impl WorkspaceDb for DjangoDatabase {
-    fn fs(&self) -> Arc<dyn FileSystem> {
-        self.fs.clone()
-    }
-}
-
-#[salsa::db]
-impl TemplateDb for DjangoDatabase {}
 
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
@@ -164,8 +144,12 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project()
-            .and_then(|project| template_dirs(self, project))
+        self.project().and_then(|project| {
+            project
+                .template_dirs(self)
+                .as_known()
+                .map(<[Utf8PathBuf]>::to_vec)
+        })
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -228,8 +212,11 @@ mod invalidation_tests {
     use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
     use djls_semantic::Project;
+    use djls_semantic::ProjectPythonIndex;
+    use djls_semantic::ProjectTemplateFiles;
+    use djls_semantic::TemplateDirs;
     use djls_semantic::TemplateLibraries;
-    use djls_source::FxDashMap;
+    use djls_source::SourceFiles;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
     use salsa::Setter;
@@ -270,7 +257,7 @@ mod invalidation_tests {
 
         let db = DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
@@ -300,8 +287,11 @@ mod invalidation_tests {
             dsm,
             settings.pythonpath().to_vec(),
             Vec::new(),
+            TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
+            ProjectTemplateFiles::default(),
+            ProjectPythonIndex::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
@@ -459,7 +449,10 @@ mod invalidation_tests {
         let (db, event_log) = test_db_with_project();
 
         // Create a Python file and track it
-        let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
+        let file = djls_source::Db::get_or_create_file(
+            &db,
+            camino::Utf8Path::new("/test/project/tags.py"),
+        );
 
         // First extraction
         let _result1 = djls_semantic::extract_filter_arities(
@@ -491,7 +484,10 @@ mod invalidation_tests {
         let (mut db, event_log) = test_db_with_project();
 
         // Create and extract from a file (file doesn't exist, source is empty)
-        let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
+        let file = djls_source::Db::get_or_create_file(
+            &db,
+            camino::Utf8Path::new("/test/project/tags.py"),
+        );
         let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
@@ -540,7 +536,7 @@ def my_filter(value, arg):
 
         let db = DjangoDatabase {
             fs: Arc::new(fs),
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
@@ -553,7 +549,10 @@ def my_filter(value, arg):
             logs: Arc::new(Mutex::new(None)),
         };
 
-        let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
+        let file = djls_source::Db::get_or_create_file(
+            &db,
+            camino::Utf8Path::new("/test/project/tags.py"),
+        );
         let result = djls_semantic::extract_filter_arities(
             &db,
             file,

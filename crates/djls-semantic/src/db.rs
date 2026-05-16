@@ -1,15 +1,15 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_templates::Db as TemplateDb;
 
 use crate::errors::ValidationError;
+use crate::project::Db as ProjectDb;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
 use crate::ModelGraph;
 use crate::TemplateLibraries;
 
 #[salsa::db]
-pub trait Db: TemplateDb {
+pub trait Db: ProjectDb {
     /// Get the Django tag specifications for semantic analysis.
     fn tag_specs(&self) -> &TagSpecs;
 

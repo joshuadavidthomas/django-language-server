@@ -1,7 +1,7 @@
-mod system;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+
+use super::system;
 
 /// Interpreter specification for Python environment discovery.
 ///

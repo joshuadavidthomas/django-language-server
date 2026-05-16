@@ -81,6 +81,10 @@ def get_template_dirs() -> TemplateDirsQueryData:
     from django.apps import apps
     from django.conf import settings
 
+    success, error = initialize_django()
+    if not success:
+        raise RuntimeError(error or "Django is not configured")
+
     dirs = []
 
     for engine in settings.TEMPLATES:
@@ -116,13 +120,12 @@ class TemplateLibrariesQueryData:
 
 
 def get_installed_template_libraries() -> TemplateLibrariesQueryData:
-    import django
-    from django.apps import apps
     from django.template.engine import Engine
     from django.template.library import import_library
 
-    if not apps.ready:
-        django.setup()
+    success, error = initialize_django()
+    if not success:
+        raise RuntimeError(error or "Django is not configured")
 
     symbols: list[TemplateLibrarySymbol] = []
 

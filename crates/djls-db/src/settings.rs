@@ -105,6 +105,10 @@ impl DjangoDatabase {
             project.set_tagspecs(self).to(new_tagspecs);
         }
 
+        if env_changed {
+            project.register_source_roots(self);
+        }
+
         env_changed
     }
 }

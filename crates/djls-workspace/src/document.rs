@@ -153,6 +153,7 @@ mod tests {
     use camino::Utf8Path;
     use djls_source::LineCol;
     use djls_source::Range;
+    use djls_source::SourceFiles;
 
     use super::*;
 
@@ -160,12 +161,14 @@ mod tests {
     #[derive(Clone)]
     struct TestDb {
         storage: salsa::Storage<Self>,
+        files: SourceFiles,
     }
 
     impl Default for TestDb {
         fn default() -> Self {
             Self {
                 storage: salsa::Storage::new(None),
+                files: SourceFiles::default(),
             }
         }
     }
@@ -175,12 +178,8 @@ mod tests {
 
     #[salsa::db]
     impl djls_source::Db for TestDb {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_path_buf(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
+        fn files(&self) -> &SourceFiles {
+            &self.files
         }
 
         fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
@@ -191,7 +190,7 @@ mod tests {
     fn text_document(content: &str, version: i32, kind: FileKind) -> TextDocument {
         let db = TestDb::default();
         let path = Utf8Path::new("/test.txt");
-        let file = File::new(&db, path.into(), 0);
+        let file = db.create_file(path);
         TextDocument::new(content.to_string(), version, kind, file)
     }
 

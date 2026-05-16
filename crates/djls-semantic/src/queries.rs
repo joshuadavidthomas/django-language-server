@@ -1,9 +1,9 @@
+use djls_source::File;
+
 use crate::db::Db;
-use crate::project::build_search_paths;
-use crate::project::discover_workspace_model_files;
-use crate::project::resolve_modules;
+use crate::project::project_model_modules;
+use crate::project::project_templatetag_modules;
 use crate::project::Project;
-use crate::project::ResolvedModule;
 use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
 use crate::python::extract_model_graph;
@@ -92,62 +92,35 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 
 #[salsa::tracked(returns(ref))]
 fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
-    let root = project.root(db);
-
-    let model_files = discover_workspace_model_files(root);
-    if model_files.is_empty() {
-        return Vec::new();
-    }
-
     let mut results = Vec::new();
 
-    for (module_path, file_path) in model_files {
-        let file = db.get_or_create_file(&file_path);
-        let source = file.source(db);
-
-        let graph = extract_model_graph(source.as_ref(), module_path.as_str());
+    for module in project_model_modules(db, project) {
+        let graph = extract_workspace_model_graph(db, module.file(), module.module_path().clone());
         if !graph.is_empty() {
-            results.push((module_path, graph));
+            results.push((module.module_path().clone(), graph));
         }
     }
 
     results
 }
 
-fn resolve_workspace_registration_modules(db: &dyn Db, project: Project) -> Vec<ResolvedModule> {
-    let template_libraries = project.template_libraries(db);
-    let interpreter = project.interpreter(db);
-    let root = project.root(db);
-    let pythonpath = project.pythonpath(db);
-
-    let module_paths = template_libraries.registration_modules();
-    if module_paths.is_empty() {
-        return Vec::new();
-    }
-
-    let module_paths: Vec<String> = module_paths
-        .iter()
-        .map(|module| module.as_str().to_string())
-        .collect();
-
-    let search_paths = build_search_paths(interpreter, root, pythonpath);
-
-    let (workspace_modules, _external) =
-        resolve_modules(module_paths.iter().map(String::as_str), &search_paths, root);
-
-    workspace_modules
+#[salsa::tracked]
+fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePath) -> ModelGraph {
+    let source = file.source(db);
+    let module_path = module_path.into_string();
+    extract_model_graph(source.as_ref(), &module_path)
 }
 
 #[salsa::tracked(returns(ref))]
 fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
     let mut results = Vec::new();
 
-    for resolved in resolve_workspace_registration_modules(db, project) {
-        let file = db.get_or_create_file(&resolved.file_path);
-        let tag_rules = extract_tag_rules(db, file, ModulePath::new(resolved.module_path.clone()));
+    for module in project_templatetag_modules(db, project) {
+        let file = module.file();
+        let tag_rules = extract_tag_rules(db, file, module.module_path().clone());
 
         if !tag_rules.is_empty() {
-            results.push((resolved.module_path, tag_rules.clone()));
+            results.push((module.module_path().as_str().to_string(), tag_rules.clone()));
         }
     }
 
@@ -161,13 +134,15 @@ fn collect_workspace_filter_arities(
 ) -> Vec<(String, FilterArityMap)> {
     let mut results = Vec::new();
 
-    for resolved in resolve_workspace_registration_modules(db, project) {
-        let file = db.get_or_create_file(&resolved.file_path);
-        let filter_arities =
-            extract_filter_arities(db, file, ModulePath::new(resolved.module_path.clone()));
+    for module in project_templatetag_modules(db, project) {
+        let file = module.file();
+        let filter_arities = extract_filter_arities(db, file, module.module_path().clone());
 
         if !filter_arities.is_empty() {
-            results.push((resolved.module_path, filter_arities.clone()));
+            results.push((
+                module.module_path().as_str().to_string(),
+                filter_arities.clone(),
+            ));
         }
     }
 
@@ -178,13 +153,15 @@ fn collect_workspace_filter_arities(
 fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
-    for resolved in resolve_workspace_registration_modules(db, project) {
-        let file = db.get_or_create_file(&resolved.file_path);
-        let block_specs =
-            extract_block_specs(db, file, ModulePath::new(resolved.module_path.clone()));
+    for module in project_templatetag_modules(db, project) {
+        let file = module.file();
+        let block_specs = extract_block_specs(db, file, module.module_path().clone());
 
         if !block_specs.is_empty() {
-            results.push((resolved.module_path, block_specs.clone()));
+            results.push((
+                module.module_path().as_str().to_string(),
+                block_specs.clone(),
+            ));
         }
     }
 

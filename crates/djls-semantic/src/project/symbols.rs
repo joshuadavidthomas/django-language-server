@@ -6,8 +6,6 @@ use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::project::db::Db as ProjectDb;
-use crate::project::introspector::IntrospectionRequest;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
 use crate::project::names::TemplateSymbolName;
@@ -174,28 +172,11 @@ pub enum Knowledge {
     Unknown,
 }
 
-#[derive(Serialize)]
-struct TemplateLibrarySnapshotRequest;
-
 #[derive(Serialize, Deserialize)]
 pub struct TemplateLibrarySnapshot {
     pub symbols: Vec<TemplateSymbolSnapshot>,
     pub libraries: BTreeMap<String, String>,
     pub builtins: Vec<String>,
-}
-
-impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
-    const NAME: &'static str = "template_libraries";
-    type Response = TemplateLibrarySnapshot;
-}
-
-/// Fetch the active template library snapshot for the current project.
-#[must_use]
-pub(crate) fn fetch_template_library_snapshot(
-    db: &dyn ProjectDb,
-) -> Option<TemplateLibrarySnapshot> {
-    db.project_introspector()
-        .query(db, &TemplateLibrarySnapshotRequest)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

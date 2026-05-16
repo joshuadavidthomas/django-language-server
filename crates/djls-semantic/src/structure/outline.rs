@@ -267,7 +267,7 @@ fn outline_items_for_node(
 mod tests {
     use std::borrow::Cow;
 
-    use djls_source::File;
+    use camino::Utf8Path;
     use djls_templates::parse_template;
     use rustc_hash::FxHashMap;
 
@@ -281,7 +281,7 @@ mod tests {
 
     fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<OutlineItem> {
         db.add_file("test.html", source);
-        let file = File::new(db, "test.html".into(), 0);
+        let file = db.create_file(Utf8Path::new("test.html"));
         let nodelist = parse_template(db, file).expect("should parse");
         let tree = build_template_tree(db, nodelist);
         build_template_outline(db, tree)

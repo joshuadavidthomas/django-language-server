@@ -174,6 +174,7 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         files: Arc<Mutex<std::collections::HashMap<String, String>>>,
+        source_files: djls_source::SourceFiles,
     }
 
     impl TestDatabase {
@@ -181,6 +182,7 @@ mod tests {
             Self {
                 storage: salsa::Storage::default(),
                 files: Arc::new(Mutex::new(std::collections::HashMap::new())),
+                source_files: djls_source::SourceFiles::default(),
             }
         }
 
@@ -190,7 +192,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert(path.to_string(), source.to_string());
-            djls_source::File::new(self, path.into(), 0)
+            self.source_files.get_or_create(self, Utf8Path::new(path))
         }
     }
 
@@ -199,12 +201,8 @@ mod tests {
 
     #[salsa::db]
     impl djls_source::Db for TestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> djls_source::File {
-            djls_source::File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<djls_source::File> {
-            None
+        fn files(&self) -> &djls_source::SourceFiles {
+            &self.source_files
         }
 
         fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
