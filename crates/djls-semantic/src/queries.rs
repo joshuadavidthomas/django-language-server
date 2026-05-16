@@ -2,6 +2,7 @@ use djls_source::File;
 
 use crate::db::Db;
 use crate::project::Project;
+use crate::project::ProjectPythonModule;
 use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
 use crate::python::extract_model_graph;
@@ -92,7 +93,7 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
     let mut results = Vec::new();
 
-    for module in project.python_index(db).models() {
+    for module in project_model_modules(db, project) {
         let graph = extract_workspace_model_graph(db, module.file(), module.module_path().clone());
         if !graph.is_empty() {
             results.push((module.module_path().clone(), graph));
@@ -110,10 +111,20 @@ fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePat
 }
 
 #[salsa::tracked(returns(ref))]
+fn project_model_modules(db: &dyn Db, project: Project) -> Vec<ProjectPythonModule> {
+    project.python_index(db).models().cloned().collect()
+}
+
+#[salsa::tracked(returns(ref))]
+fn project_templatetag_modules(db: &dyn Db, project: Project) -> Vec<ProjectPythonModule> {
+    project.python_index(db).templatetags().cloned().collect()
+}
+
+#[salsa::tracked(returns(ref))]
 fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
     let mut results = Vec::new();
 
-    for module in project.python_index(db).templatetags() {
+    for module in project_templatetag_modules(db, project) {
         let file = module.file();
         let tag_rules = extract_tag_rules(db, file, module.module_path().clone());
 
@@ -132,7 +143,7 @@ fn collect_workspace_filter_arities(
 ) -> Vec<(String, FilterArityMap)> {
     let mut results = Vec::new();
 
-    for module in project.python_index(db).templatetags() {
+    for module in project_templatetag_modules(db, project) {
         let file = module.file();
         let filter_arities = extract_filter_arities(db, file, module.module_path().clone());
 
@@ -151,7 +162,7 @@ fn collect_workspace_filter_arities(
 fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
-    for module in project.python_index(db).templatetags() {
+    for module in project_templatetag_modules(db, project) {
         let file = module.file();
         let block_specs = extract_block_specs(db, file, module.module_path().clone());
 
