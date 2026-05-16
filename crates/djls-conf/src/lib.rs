@@ -1,4 +1,5 @@
 mod diagnostics;
+mod format;
 mod tagspecs;
 
 use std::fs;
@@ -17,6 +18,8 @@ use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
 pub use crate::diagnostics::DiagnosticsConfig;
+pub use crate::format::FormatBackend;
+pub use crate::format::FormatConfig;
 pub use crate::tagspecs::ArgKindDef;
 pub use crate::tagspecs::ArgTypeDef;
 pub use crate::tagspecs::EndTagDef;
@@ -76,6 +79,8 @@ pub struct Settings {
     tagspecs: TagSpecDef,
     #[serde(default)]
     diagnostics: DiagnosticsConfig,
+    #[serde(default)]
+    format: FormatConfig,
 }
 
 impl Settings {
@@ -101,6 +106,9 @@ impl Settings {
             // For diagnostics, override if the config is non-default
             if overrides.diagnostics != DiagnosticsConfig::default() {
                 settings.diagnostics = overrides.diagnostics;
+            }
+            if overrides.format != FormatConfig::default() {
+                settings.format = overrides.format;
             }
         }
 
@@ -184,6 +192,11 @@ impl Settings {
     pub fn diagnostics(&self) -> &DiagnosticsConfig {
         &self.diagnostics
     }
+
+    #[must_use]
+    pub fn format(&self) -> &FormatConfig {
+        &self.format
+    }
 }
 
 #[cfg(test)]
@@ -211,6 +224,7 @@ mod tests {
                     env_file: None,
                     tagspecs: TagSpecDef::default(),
                     diagnostics: DiagnosticsConfig::default(),
+                    format: FormatConfig::default(),
                 }
             );
         }
@@ -306,6 +320,24 @@ mod tests {
                     ..Default::default()
                 }
             );
+        }
+
+        #[test]
+        fn test_load_format_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[format]
+enabled = false
+backend = "djangofmt"
+"#,
+            )
+            .unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+            assert!(!settings.format().enabled());
+            assert_eq!(settings.format().backend(), FormatBackend::Djangofmt);
         }
 
         #[test]
