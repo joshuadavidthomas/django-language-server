@@ -1,5 +1,4 @@
 mod diagnostics;
-mod fmt;
 mod tagspecs;
 
 use std::fs;
@@ -18,9 +17,6 @@ use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
 pub use crate::diagnostics::DiagnosticsConfig;
-pub use crate::fmt::ContentType;
-pub use crate::fmt::FormatConfig;
-pub use crate::fmt::IndentStyle;
 pub use crate::tagspecs::ArgKindDef;
 pub use crate::tagspecs::ArgTypeDef;
 pub use crate::tagspecs::EndTagDef;
@@ -80,8 +76,6 @@ pub struct Settings {
     tagspecs: TagSpecDef,
     #[serde(default)]
     diagnostics: DiagnosticsConfig,
-    #[serde(default)]
-    format: FormatConfig,
 }
 
 impl Settings {
@@ -107,9 +101,6 @@ impl Settings {
             // For diagnostics, override if the config is non-default
             if overrides.diagnostics != DiagnosticsConfig::default() {
                 settings.diagnostics = overrides.diagnostics;
-            }
-            if overrides.format != FormatConfig::default() {
-                settings.format = overrides.format;
             }
         }
 
@@ -193,11 +184,6 @@ impl Settings {
     pub fn diagnostics(&self) -> &DiagnosticsConfig {
         &self.diagnostics
     }
-
-    #[must_use]
-    pub fn format(&self) -> &FormatConfig {
-        &self.format
-    }
 }
 
 #[cfg(test)]
@@ -225,7 +211,6 @@ mod tests {
                     env_file: None,
                     tagspecs: TagSpecDef::default(),
                     diagnostics: DiagnosticsConfig::default(),
-                    format: FormatConfig::default(),
                 }
             );
         }
@@ -354,74 +339,6 @@ T100 = "hint"
                 settings.diagnostics.get_severity("T100"),
                 DiagnosticSeverity::Hint
             );
-        }
-
-        #[test]
-        fn test_load_format_config() {
-            let dir = tempdir().unwrap();
-            fs::write(
-                dir.path().join("djls.toml"),
-                r#"
-[format]
-indent_width = 2
-indent_style = "tabs"
-content_type = "html"
-print_width = 100
-"#,
-            )
-            .unwrap();
-
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            assert_eq!(settings.format().indent_width(), 2);
-            assert_eq!(settings.format().indent_style(), IndentStyle::Tabs);
-            assert_eq!(settings.format().content_type(), ContentType::Html);
-            assert_eq!(settings.format().print_width(), 100);
-        }
-
-        #[test]
-        fn test_load_format_config_defaults_missing_fields() {
-            let dir = tempdir().unwrap();
-            fs::write(
-                dir.path().join("djls.toml"),
-                r#"
-[format]
-content_type = "text"
-"#,
-            )
-            .unwrap();
-
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            assert_eq!(settings.format().content_type(), ContentType::Text);
-            assert_eq!(
-                settings.format().indent_width(),
-                FormatConfig::default().indent_width()
-            );
-            assert_eq!(
-                settings.format().indent_style(),
-                FormatConfig::default().indent_style()
-            );
-            assert_eq!(
-                settings.format().print_width(),
-                FormatConfig::default().print_width()
-            );
-        }
-
-        #[test]
-        fn test_load_format_config_rejects_zero_widths() {
-            let dir = tempdir().unwrap();
-            fs::write(
-                dir.path().join("djls.toml"),
-                r"
-[format]
-indent_width = 0
-print_width = 0
-",
-            )
-            .unwrap();
-
-            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
-            assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
         }
     }
 
