@@ -1,9 +1,9 @@
 name: release
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -13,18 +13,28 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+    permissions:
+      contents: read
+
+  test:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
   build:
     uses: ./.github/workflows/build.yml
+    needs: [lint, test]
     permissions:
       attestations: write
       contents: read
       id-token: write
     with:
-      version: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      version: ${{ github.ref_name }}
 
   release:
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     needs: build
     environment: release
     permissions:
@@ -44,9 +54,9 @@ jobs:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
 
-      - name: Upload release assets to GitHub
+      - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release upload "${TAG_NAME}" binary-*/*
+          gh release create "${TAG_NAME}" binary-*/* --generate-notes
