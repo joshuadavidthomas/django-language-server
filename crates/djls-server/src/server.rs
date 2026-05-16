@@ -542,9 +542,8 @@ impl LanguageServer for DjangoLanguageServer {
                 }
 
                 djls_ide::format_document(
-                    source.as_str(),
-                    file.path(db),
-                    file.line_index(db),
+                    db,
+                    file,
                     session.client_info().position_encoding(),
                     format_config.backend(),
                 )

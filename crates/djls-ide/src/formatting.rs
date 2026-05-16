@@ -1,22 +1,26 @@
-use camino::Utf8Path;
 use djls_conf::FormatBackend;
 use djls_format::FormatOutcome;
+use djls_source::Db;
+use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use tower_lsp_server::ls_types;
 
 #[must_use]
 pub fn format_document(
-    source: &str,
-    path: &Utf8Path,
-    line_index: &LineIndex,
+    db: &dyn Db,
+    file: File,
     encoding: PositionEncoding,
     backend: FormatBackend,
 ) -> Vec<ls_types::TextEdit> {
-    match djls_format::format_template(source, path, backend) {
+    let source = file.source(db);
+    let path = file.path(db);
+    let line_index = file.line_index(db);
+
+    match djls_format::format_template(source.as_str(), path, backend) {
         Ok(FormatOutcome::Changed(formatted)) => {
             vec![ls_types::TextEdit::new(
-                full_document_range(source, line_index, encoding),
+                full_document_range(source.as_str(), line_index, encoding),
                 formatted,
             )]
         }
@@ -63,25 +67,54 @@ fn document_end_position(
 mod tests {
     use camino::Utf8Path;
     use djls_conf::FormatBackend;
+    use djls_source::Db as _;
     use djls_source::LineIndex;
     use djls_source::PositionEncoding;
+    use djls_source::SourceFiles;
     use tower_lsp_server::ls_types;
 
     use super::document_end_position;
     use super::format_document;
 
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+        files: SourceFiles,
+        source: String,
+    }
+
+    impl TestDb {
+        fn new(source: impl Into<String>) -> Self {
+            Self {
+                storage: salsa::Storage::new(None),
+                files: SourceFiles::default(),
+                source: source.into(),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDb {
+        fn files(&self) -> &SourceFiles {
+            &self.files
+        }
+
+        fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
+            Ok(self.source.clone())
+        }
+    }
+
     #[test]
     fn format_document_returns_full_document_edit() {
         let source = "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}');\">\n    Content\n</div>\n";
-        let line_index = LineIndex::from(source);
+        let db = TestDb::new(source);
+        let file = db.create_file(Utf8Path::new("template.html"));
 
-        let edits = format_document(
-            source,
-            Utf8Path::new("template.html"),
-            &line_index,
-            PositionEncoding::Utf16,
-            FormatBackend::Djangofmt,
-        );
+        let edits = format_document(&db, file, PositionEncoding::Utf16, FormatBackend::Djangofmt);
 
         assert_eq!(edits.len(), 1);
         assert_eq!(
