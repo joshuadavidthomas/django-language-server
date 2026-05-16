@@ -2,7 +2,6 @@ use djls_conf::FormatBackend;
 use djls_format::FormatOutcome;
 use djls_source::Db;
 use djls_source::File;
-use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use tower_lsp_server::ls_types;
 
@@ -19,8 +18,12 @@ pub fn format_document(
 
     match djls_format::format_template(source.as_str(), path, backend) {
         Ok(FormatOutcome::Changed(formatted)) => {
+            let (line, character) = line_index.end_line_col(source.as_str(), encoding).into();
             vec![ls_types::TextEdit::new(
-                full_document_range(source.as_str(), line_index, encoding),
+                ls_types::Range::new(
+                    ls_types::Position::new(0, 0),
+                    ls_types::Position::new(line, character),
+                ),
                 formatted,
             )]
         }
@@ -32,37 +35,15 @@ pub fn format_document(
     }
 }
 
-fn full_document_range(
-    source: &str,
-    line_index: &LineIndex,
-    encoding: PositionEncoding,
-) -> ls_types::Range {
-    ls_types::Range {
-        start: ls_types::Position::new(0, 0),
-        end: document_end_position(source, line_index, encoding),
-    }
-}
-
-fn document_end_position(
-    source: &str,
-    line_index: &LineIndex,
-    encoding: PositionEncoding,
-) -> ls_types::Position {
-    let (line, character) = line_index.end_line_col(source, encoding).into();
-    ls_types::Position::new(line, character)
-}
-
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
     use djls_conf::FormatBackend;
     use djls_source::Db as _;
-    use djls_source::LineIndex;
     use djls_source::PositionEncoding;
     use djls_source::SourceFiles;
     use tower_lsp_server::ls_types;
 
-    use super::document_end_position;
     use super::format_document;
 
     #[salsa::db]
@@ -113,36 +94,6 @@ mod tests {
         assert_eq!(
             edits[0].new_text,
             "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}')\">\n    Content\n</div>\n",
-        );
-    }
-
-    #[test]
-    fn document_end_position_handles_trailing_newline() {
-        let source = "first\nsecond\n";
-        let line_index = LineIndex::from(source);
-
-        assert_eq!(
-            document_end_position(source, &line_index, PositionEncoding::Utf16),
-            ls_types::Position::new(2, 0),
-        );
-    }
-
-    #[test]
-    fn document_end_position_uses_client_encoding() {
-        let source = "emoji: 🐍";
-        let line_index = LineIndex::from(source);
-
-        assert_eq!(
-            document_end_position(source, &line_index, PositionEncoding::Utf8),
-            ls_types::Position::new(0, 11),
-        );
-        assert_eq!(
-            document_end_position(source, &line_index, PositionEncoding::Utf16),
-            ls_types::Position::new(0, 9),
-        );
-        assert_eq!(
-            document_end_position(source, &line_index, PositionEncoding::Utf32),
-            ls_types::Position::new(0, 8),
         );
     }
 }
