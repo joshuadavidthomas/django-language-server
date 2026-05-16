@@ -530,8 +530,13 @@ impl LanguageServer for DjangoLanguageServer {
                     return Vec::new();
                 };
                 let db = session.db();
-                let source = file.source(db);
+                let format_config = db.settings().format().clone();
 
+                if !format_config.enabled() {
+                    return Vec::new();
+                }
+
+                let source = file.source(db);
                 if *source.kind() != FileKind::Template {
                     return Vec::new();
                 }
@@ -541,7 +546,7 @@ impl LanguageServer for DjangoLanguageServer {
                     file.path(db),
                     file.line_index(db),
                     session.client_info().position_encoding(),
-                    db.settings().format(),
+                    format_config.backend(),
                 )
             })
             .await;

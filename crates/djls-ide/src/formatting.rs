@@ -1,6 +1,5 @@
 use camino::Utf8Path;
 use djls_conf::FormatBackend;
-use djls_conf::FormatConfig;
 use djls_format::FormatOutcome;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
@@ -12,13 +11,9 @@ pub fn format_document(
     path: &Utf8Path,
     line_index: &LineIndex,
     encoding: PositionEncoding,
-    config: &FormatConfig,
+    backend: FormatBackend,
 ) -> Vec<ls_types::TextEdit> {
-    if !config.enabled() {
-        return Vec::new();
-    }
-
-    let result = match config.backend() {
+    let result = match backend {
         FormatBackend::Djangofmt => djls_format::format_template(source, path),
     };
 
@@ -71,7 +66,7 @@ fn document_end_position(
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
-    use djls_conf::FormatConfig;
+    use djls_conf::FormatBackend;
     use djls_source::LineIndex;
     use djls_source::PositionEncoding;
     use tower_lsp_server::ls_types;
@@ -89,7 +84,7 @@ mod tests {
             Utf8Path::new("template.html"),
             &line_index,
             PositionEncoding::Utf16,
-            &FormatConfig::default(),
+            FormatBackend::Djangofmt,
         );
 
         assert_eq!(edits.len(), 1);
