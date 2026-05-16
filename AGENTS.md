@@ -24,17 +24,16 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 - Do not edit text inside cog-generated blocks by hand. Update the source of truth, then run `just cog` to regenerate the block.
 
 ## Crate Responsibilities
-Quick routing:
-- `djls-server`: LSP/session glue. Resolve documents, check file kind, call `djls-ide`.
-- `djls-ide`: IDE feature behavior and LSP-shaped outputs.
-- `djls-format`: formatter backend adapter boundary.
 - `djls-conf`: config schema/loading.
+- `djls-format`: formatter backend adapter boundary.
+- `djls-ide`: IDE feature behavior and LSP-shaped outputs.
 - `djls-semantic`: Django/project/template meaning.
-- `djls-templates`: template syntax only.
+- `djls-server`: LSP/session glue. Resolve documents, check file kind, call `djls-ide`.
 - `djls-source`: files, spans, line indexes, diagnostics primitives.
+- `djls-templates`: template syntax only.
 - `djls-workspace`: VFS, open buffers, file discovery.
 
-For the deeper map, read `ARCHITECTURE.md`.
+This is the quick routing guide. For the full crate-by-crate architecture, dependency direction, and examples, read `ARCHITECTURE.md`.
 
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
