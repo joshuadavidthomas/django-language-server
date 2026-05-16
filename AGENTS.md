@@ -23,7 +23,7 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 ## Generated Content
 - Do not edit text inside cog-generated blocks by hand. Update the source of truth, then run `just cog` to regenerate the block.
 
-## Crate Routing
+## Crate Responsibilities
 Quick routing:
 - `djls-server`: LSP/session glue. Resolve documents, check file kind, call `djls-ide`.
 - `djls-ide`: IDE feature behavior and LSP-shaped outputs.
