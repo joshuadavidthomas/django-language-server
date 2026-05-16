@@ -79,7 +79,3 @@ TagSpecs can be configured in your project's `djls.toml`, `.djls.toml`, or `pypr
 - `"assignment"` - Variable assignment pattern
 - `"modifier"` - Boolean modifier flag
 - `"choice"` - Choice from specific literals (requires `extra.choices`)
-
-## Migration from v0.4.0
-
-The legacy v0.4.0 flat TagSpecs format was deprecated in v6.0.0 and removed in v6.0.3. Use the v0.6.0 hierarchical format shown above.
