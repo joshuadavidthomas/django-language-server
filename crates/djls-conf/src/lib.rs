@@ -14,7 +14,6 @@ use config::File;
 use config::FileFormat;
 use directories::ProjectDirs;
 use serde::Deserialize;
-use serde::Deserializer;
 use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
@@ -77,41 +76,12 @@ pub struct Settings {
     #[serde(default)]
     pythonpath: Vec<String>,
     env_file: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_tagspecs")]
+    #[serde(default)]
     tagspecs: TagSpecDef,
     #[serde(default)]
     diagnostics: DiagnosticsConfig,
     #[serde(default)]
     format: FormatConfig,
-}
-
-fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-    use serde_json::Value;
-
-    let value = Value::deserialize(deserializer)?;
-
-    if let Ok(new_format) = TagSpecDef::deserialize(&value) {
-        return Ok(new_format);
-    }
-
-    #[allow(deprecated)]
-    if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
-        tracing::warn!(concat!(
-            "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. ",
-            "The old format will be removed in v6.0.3. ",
-            "See migration guide: https://djls.joshthomas.dev/configuration/tagspecs/#migration-from-v040",
-        ));
-        #[allow(deprecated)]
-        return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
-    }
-
-    Err(D::Error::custom(
-        "Invalid tagspecs format. Expected v0.6.0 hierarchical format or legacy v0.4.0 array format",
-    ))
 }
 
 impl Settings {
@@ -658,9 +628,13 @@ kind = "variable"
             assert_eq!(doc.libraries[0].tags.len(), 1);
             assert_eq!(doc.libraries[0].tags[0].name, "switch");
         }
+    }
+
+    mod errors {
+        use super::*;
 
         #[test]
-        fn test_load_legacy_tagspecs_v040_array_format() {
+        fn test_rejects_legacy_tagspecs_v040_array_format() {
             let dir = tempdir().unwrap();
 
             fs::write(
@@ -674,19 +648,11 @@ end_tag = { name = "endblock", optional = false }
             )
             .unwrap();
 
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            let doc = settings.tagspecs();
+            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
 
-            assert_eq!(doc.version, "0.6.0");
-            assert_eq!(doc.libraries.len(), 1);
-            assert_eq!(doc.libraries[0].module, "django.template.loader_tags");
-            assert_eq!(doc.libraries[0].tags.len(), 1);
-            assert_eq!(doc.libraries[0].tags[0].name, "block");
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
         }
-    }
-
-    mod errors {
-        use super::*;
 
         #[test]
         fn test_invalid_toml_content() {
