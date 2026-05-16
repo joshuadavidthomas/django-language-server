@@ -215,8 +215,8 @@ mod invalidation_tests {
     use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
     use djls_semantic::Project;
+    use djls_semantic::ProjectFileSet;
     use djls_semantic::TemplateLibraries;
-    use djls_semantic::WorkspaceSemanticSources;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
@@ -291,7 +291,7 @@ mod invalidation_tests {
             None,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            WorkspaceSemanticSources::default(),
+            ProjectFileSet::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),

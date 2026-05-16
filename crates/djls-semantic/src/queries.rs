@@ -90,13 +90,13 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
     let mut results = Vec::new();
 
-    for (module_path, file_path) in project.workspace_semantic_sources(db).model_files() {
-        let file = db.get_or_create_file(file_path);
+    for module in project.project_files(db).model_modules() {
+        let file = module.file();
         let source = file.source(db);
 
-        let graph = extract_model_graph(source.as_ref(), module_path.as_str());
+        let graph = extract_model_graph(source.as_ref(), module.module_path().as_str());
         if !graph.is_empty() {
-            results.push((module_path.clone(), graph));
+            results.push((module.module_path().clone(), graph));
         }
     }
 
@@ -107,15 +107,12 @@ fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, M
 fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
     let mut results = Vec::new();
 
-    for (module_path, file_path) in project
-        .workspace_semantic_sources(db)
-        .registration_modules()
-    {
-        let file = db.get_or_create_file(file_path);
-        let tag_rules = extract_tag_rules(db, file, ModulePath::new(module_path.clone()));
+    for module in project.project_files(db).templatetag_modules() {
+        let file = module.file();
+        let tag_rules = extract_tag_rules(db, file, module.module_path().clone());
 
         if !tag_rules.is_empty() {
-            results.push((module_path.clone(), tag_rules.clone()));
+            results.push((module.module_path().as_str().to_string(), tag_rules.clone()));
         }
     }
 
@@ -129,15 +126,15 @@ fn collect_workspace_filter_arities(
 ) -> Vec<(String, FilterArityMap)> {
     let mut results = Vec::new();
 
-    for (module_path, file_path) in project
-        .workspace_semantic_sources(db)
-        .registration_modules()
-    {
-        let file = db.get_or_create_file(file_path);
-        let filter_arities = extract_filter_arities(db, file, ModulePath::new(module_path.clone()));
+    for module in project.project_files(db).templatetag_modules() {
+        let file = module.file();
+        let filter_arities = extract_filter_arities(db, file, module.module_path().clone());
 
         if !filter_arities.is_empty() {
-            results.push((module_path.clone(), filter_arities.clone()));
+            results.push((
+                module.module_path().as_str().to_string(),
+                filter_arities.clone(),
+            ));
         }
     }
 
@@ -148,15 +145,15 @@ fn collect_workspace_filter_arities(
 fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
-    for (module_path, file_path) in project
-        .workspace_semantic_sources(db)
-        .registration_modules()
-    {
-        let file = db.get_or_create_file(file_path);
-        let block_specs = extract_block_specs(db, file, ModulePath::new(module_path.clone()));
+    for module in project.project_files(db).templatetag_modules() {
+        let file = module.file();
+        let block_specs = extract_block_specs(db, file, module.module_path().clone());
 
         if !block_specs.is_empty() {
-            results.push((module_path.clone(), block_specs.clone()));
+            results.push((
+                module.module_path().as_str().to_string(),
+                block_specs.clone(),
+            ));
         }
     }
 

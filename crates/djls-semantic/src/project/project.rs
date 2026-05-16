@@ -1,7 +1,10 @@
+use std::fmt;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
+use djls_source::File;
 use rustc_hash::FxHashMap;
 
 use crate::project::db::Db as ProjectDb;
@@ -14,28 +17,91 @@ use crate::python::ModulePath;
 use crate::python::TagRuleMap;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct WorkspaceSemanticSources {
-    model_files: Vec<(ModulePath, Utf8PathBuf)>,
-    registration_modules: Vec<(String, Utf8PathBuf)>,
+pub struct ProjectFileSet {
+    templates: Vec<ProjectTemplateFile>,
+    model_modules: Vec<ProjectPythonModule>,
+    templatetag_modules: Vec<ProjectPythonModule>,
 }
 
-impl WorkspaceSemanticSources {
+impl ProjectFileSet {
     pub(crate) fn new(
-        model_files: Vec<(ModulePath, Utf8PathBuf)>,
-        registration_modules: Vec<(String, Utf8PathBuf)>,
+        templates: Vec<ProjectTemplateFile>,
+        model_modules: Vec<ProjectPythonModule>,
+        templatetag_modules: Vec<ProjectPythonModule>,
     ) -> Self {
         Self {
-            model_files,
-            registration_modules,
+            templates,
+            model_modules,
+            templatetag_modules,
         }
     }
 
-    pub(crate) fn model_files(&self) -> &[(ModulePath, Utf8PathBuf)] {
-        &self.model_files
+    pub(crate) fn templates(&self) -> &[ProjectTemplateFile] {
+        &self.templates
     }
 
-    pub(crate) fn registration_modules(&self) -> &[(String, Utf8PathBuf)] {
-        &self.registration_modules
+    pub(crate) fn model_modules(&self) -> &[ProjectPythonModule] {
+        &self.model_modules
+    }
+
+    pub(crate) fn templatetag_modules(&self) -> &[ProjectPythonModule] {
+        &self.templatetag_modules
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ProjectTemplateFile {
+    name: String,
+    file: File,
+}
+
+impl ProjectTemplateFile {
+    pub(crate) fn new(name: String, file: File) -> Self {
+        Self { name, file }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn file(&self) -> File {
+        self.file
+    }
+}
+
+impl fmt::Debug for ProjectTemplateFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProjectTemplateFile")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ProjectPythonModule {
+    module_path: ModulePath,
+    file: File,
+}
+
+impl ProjectPythonModule {
+    pub(crate) fn new(module_path: ModulePath, file: File) -> Self {
+        Self { module_path, file }
+    }
+
+    pub(crate) fn module_path(&self) -> &ModulePath {
+        &self.module_path
+    }
+
+    pub(crate) fn file(&self) -> File {
+        self.file
+    }
+}
+
+impl fmt::Debug for ProjectPythonModule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProjectPythonModule")
+            .field("module_path", &self.module_path)
+            .finish_non_exhaustive()
     }
 }
 
@@ -81,9 +147,9 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// Workspace Python files discovered by project refresh.
+    /// First-party files discovered for this project.
     #[returns(ref)]
-    pub(crate) workspace_semantic_sources: WorkspaceSemanticSources,
+    pub(crate) project_files: ProjectFileSet,
     /// Extracted tag rules from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_external_data`. Workspace files use tracked queries.
@@ -121,7 +187,7 @@ impl Project {
             None,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            WorkspaceSemanticSources::default(),
+            ProjectFileSet::default(),
             FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
