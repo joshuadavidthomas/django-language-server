@@ -1,0 +1,13 @@
+[package]
+name = "djls-format"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+camino = { workspace = true }
+djls-conf = { workspace = true }
+djangofmt = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

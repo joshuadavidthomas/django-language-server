@@ -185,6 +185,7 @@ impl LanguageServer for DjangoLanguageServer {
                 hover_provider: Some(ls_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(ls_types::OneOf::Left(true)),
                 references_provider: Some(ls_types::OneOf::Left(true)),
+                document_formatting_provider: Some(ls_types::OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ls_types::ServerInfo {
@@ -515,6 +516,41 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         Ok(response)
+    }
+
+    async fn formatting(
+        &self,
+        params: ls_types::DocumentFormattingParams,
+    ) -> LspResult<Option<Vec<ls_types::TextEdit>>> {
+        let edits = self
+            .with_session(|session| {
+                let Some(file) =
+                    session.file_for_document_request(&params.text_document, "formatting")
+                else {
+                    return Vec::new();
+                };
+                let db = session.db();
+                let format_config = db.settings().format().clone();
+
+                if !format_config.enabled() {
+                    return Vec::new();
+                }
+
+                let source = file.source(db);
+                if *source.kind() != FileKind::Template {
+                    return Vec::new();
+                }
+
+                djls_ide::format_document(
+                    db,
+                    file,
+                    session.client_info().position_encoding(),
+                    format_config.backend(),
+                )
+            })
+            .await;
+
+        Ok(Some(edits))
     }
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {

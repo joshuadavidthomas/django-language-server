@@ -69,6 +69,25 @@ impl LineIndex {
         self.0.get(line as usize).copied()
     }
 
+    // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
+    // The index is derived from that text, so public callers should usually go through `File`.
+    #[must_use]
+    pub fn end_line_col(&self, text: &str, encoding: PositionEncoding) -> LineCol {
+        let line = u32::try_from(self.lines().len().saturating_sub(1)).unwrap_or_default();
+        let line_start = self.lines().last().copied().unwrap_or_default() as usize;
+        let line_text = &text[line_start.min(text.len())..];
+        let column = match encoding {
+            PositionEncoding::Utf8 => u32::try_from(line_text.len()).unwrap_or(u32::MAX),
+            PositionEncoding::Utf16 => line_text
+                .chars()
+                .map(|character| u32::try_from(character.len_utf16()).unwrap_or_default())
+                .sum(),
+            PositionEncoding::Utf32 => u32::try_from(line_text.chars().count()).unwrap_or(u32::MAX),
+        };
+
+        LineCol::new(line, column)
+    }
+
     #[must_use]
     pub fn to_line_col(&self, offset: Offset) -> LineCol {
         if self.lines().is_empty() {
@@ -87,6 +106,8 @@ impl LineIndex {
         LineCol::new(u32::try_from(line).unwrap_or_default(), column)
     }
 
+    // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
+    // The index is derived from that text, so public callers should usually go through `File`.
     #[must_use]
     pub fn offset(&self, text: &str, line_col: LineCol, encoding: PositionEncoding) -> Offset {
         let line = line_col.line();
@@ -238,5 +259,35 @@ mod tests {
         assert_eq!(index.to_line_col(Offset::new(0)), LineCol::new(0, 0));
         assert_eq!(index.to_line_col(Offset::new(7)), LineCol::new(1, 0));
         assert_eq!(index.to_line_col(Offset::new(8)), LineCol::new(1, 1));
+    }
+
+    #[test]
+    fn test_end_line_col_with_trailing_newline() {
+        let text = "first\nsecond\n";
+        let index = LineIndex::from(text);
+
+        assert_eq!(
+            index.end_line_col(text, PositionEncoding::Utf16),
+            LineCol::new(2, 0),
+        );
+    }
+
+    #[test]
+    fn test_end_line_col_uses_position_encoding() {
+        let text = "emoji: 🐍";
+        let index = LineIndex::from(text);
+
+        assert_eq!(
+            index.end_line_col(text, PositionEncoding::Utf8),
+            LineCol::new(0, 11),
+        );
+        assert_eq!(
+            index.end_line_col(text, PositionEncoding::Utf16),
+            LineCol::new(0, 9),
+        );
+        assert_eq!(
+            index.end_line_col(text, PositionEncoding::Utf32),
+            LineCol::new(0, 8),
+        );
     }
 }

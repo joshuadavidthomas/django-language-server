@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added opt-in whole-document Django template formatting through `djangofmt`.
+
 ## [6.0.3]
 
 ### Added
