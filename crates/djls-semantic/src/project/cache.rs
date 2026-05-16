@@ -19,7 +19,9 @@ use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
 
+use crate::project::db::Db as ProjectDb;
 use crate::project::Interpreter;
+use crate::project::Project;
 use crate::project::TemplateLibrarySnapshot;
 
 /// Envelope wrapping a cached template library snapshot with version metadata.
@@ -75,11 +77,49 @@ fn cache_dir(
     Some(base.join("inspector").join(&key[..16]))
 }
 
+/// Load a cached template library snapshot for the current project environment.
+pub(crate) fn load_template_library_snapshot_for_project(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Option<TemplateLibrarySnapshot> {
+    let interpreter = project.interpreter(db).clone();
+    let root = project.root(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+
+    load_cached_template_library_snapshot(
+        &root,
+        &interpreter,
+        django_settings_module.as_deref(),
+        &pythonpath,
+    )
+}
+
+/// Save a template library snapshot for the current project environment.
+pub(crate) fn save_template_library_snapshot_for_project(
+    db: &dyn ProjectDb,
+    project: Project,
+    response: &TemplateLibrarySnapshot,
+) {
+    let interpreter = project.interpreter(db).clone();
+    let root = project.root(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+
+    save_template_library_snapshot(
+        &root,
+        &interpreter,
+        django_settings_module.as_deref(),
+        &pythonpath,
+        response,
+    );
+}
+
 /// Load a cached template library snapshot from disk.
 ///
 /// Returns `None` if the cache file doesn't exist, is corrupt, or was written
 /// by a different djls version.
-pub(crate) fn load_cached_template_library_snapshot(
+fn load_cached_template_library_snapshot(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
@@ -108,7 +148,7 @@ pub(crate) fn load_cached_template_library_snapshot(
 /// Write a template library snapshot to the filesystem cache.
 ///
 /// Best-effort: logs warnings on failure but never panics.
-pub(crate) fn save_template_library_snapshot(
+fn save_template_library_snapshot(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,

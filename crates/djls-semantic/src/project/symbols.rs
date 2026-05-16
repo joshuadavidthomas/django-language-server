@@ -3,14 +3,17 @@ use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashSet;
+use salsa::Setter;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::project::cache;
 use crate::project::db::Db as ProjectDb;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
 use crate::project::names::TemplateSymbolName;
+use crate::project::Project;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -189,11 +192,52 @@ impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
     type Response = TemplateLibrarySnapshot;
 }
 
-/// Fetch the active template library snapshot for the current project.
-#[must_use]
-pub(crate) fn fetch_template_library_snapshot(
-    db: &dyn ProjectDb,
-) -> Option<TemplateLibrarySnapshot> {
+/// Populate template libraries from the filesystem cache, if available.
+///
+/// This is a fast, synchronous startup path. It gives completions and
+/// diagnostics previously discovered library data while fresh project
+/// introspection runs in the background.
+pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
+    let Some(project) = db.project() else {
+        return false;
+    };
+
+    let Some(snapshot) = cache::load_template_library_snapshot_for_project(db, project) else {
+        return false;
+    };
+
+    if apply_template_library_snapshot(db, project, snapshot) {
+        project.refresh_templatetag_modules(db);
+    }
+
+    true
+}
+
+pub(super) fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
+    let Some(snapshot) = fetch_template_library_snapshot(db) else {
+        return;
+    };
+
+    cache::save_template_library_snapshot_for_project(db, project, &snapshot);
+    apply_template_library_snapshot(db, project, snapshot);
+}
+
+fn apply_template_library_snapshot(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    snapshot: TemplateLibrarySnapshot,
+) -> bool {
+    let current = project.template_libraries(db).clone();
+    let next = current.apply_active_snapshot(Some(snapshot));
+    if project.template_libraries(db) == &next {
+        return false;
+    }
+
+    project.set_template_libraries(db).to(next);
+    true
+}
+
+fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
     db.project_introspector()
         .query(db, &TemplateLibrarySnapshotRequest)
 }

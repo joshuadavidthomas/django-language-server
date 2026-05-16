@@ -1,9 +1,12 @@
 use camino::Utf8PathBuf;
+use salsa::Setter;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::introspector::IntrospectionRequest;
+use crate::project::Project;
+use crate::project::TemplateDirs;
 
 #[derive(Serialize)]
 struct TemplateDirsRequest;
@@ -18,8 +21,19 @@ impl IntrospectionRequest for TemplateDirsRequest {
     type Response = TemplateDirsResponse;
 }
 
-/// Fetch template directories from project introspection.
-pub(super) fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
+/// Refresh template directories from project introspection.
+pub(super) fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
+    let Some(dirs) = fetch_template_dirs(db) else {
+        return;
+    };
+
+    let next = TemplateDirs::Known(dirs);
+    if project.template_dirs(db) != &next {
+        project.set_template_dirs(db).to(next);
+    }
+}
+
+fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
     tracing::debug!("Requesting template directories from project introspection");
 
     let response = db.project_introspector().query(db, &TemplateDirsRequest)?;
