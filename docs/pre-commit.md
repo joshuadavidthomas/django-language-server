@@ -13,7 +13,7 @@ Add the following to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/joshuadavidthomas/django-language-server
-    rev: v6.0.2  # use the latest release tag
+    rev: v6.0.3  # use the latest release tag
     hooks:
       - id: djls-check
 ```
@@ -31,7 +31,7 @@ Pass additional arguments to `djls check` via the `args` option:
 ```yaml
 repos:
   - repo: https://github.com/joshuadavidthomas/django-language-server
-    rev: v6.0.2
+    rev: v6.0.3
     hooks:
       - id: djls-check
         args: [--select, "S100,S117", --color, never]
