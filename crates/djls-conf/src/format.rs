@@ -11,7 +11,7 @@ pub struct FormatConfig {
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             backend: FormatBackend::Djangofmt,
         }
     }
@@ -37,5 +37,5 @@ pub enum FormatBackend {
 }
 
 fn default_enabled() -> bool {
-    true
+    false
 }

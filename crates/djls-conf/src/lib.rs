@@ -329,14 +329,14 @@ mod tests {
                 dir.path().join("djls.toml"),
                 r#"
 [format]
-enabled = false
+enabled = true
 backend = "djangofmt"
 "#,
             )
             .unwrap();
             let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
-            assert!(!settings.format().enabled());
+            assert!(settings.format().enabled());
             assert_eq!(settings.format().backend(), FormatBackend::Djangofmt);
         }
 

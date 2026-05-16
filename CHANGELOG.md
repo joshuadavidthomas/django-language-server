@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added whole-document Django template formatting through `djangofmt`.
+- Added opt-in whole-document Django template formatting through `djangofmt`.
 
 ## [6.0.3]
 
