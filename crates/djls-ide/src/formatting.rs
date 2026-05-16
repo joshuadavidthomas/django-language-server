@@ -13,11 +13,7 @@ pub fn format_document(
     encoding: PositionEncoding,
     backend: FormatBackend,
 ) -> Vec<ls_types::TextEdit> {
-    let result = match backend {
-        FormatBackend::Djangofmt => djls_format::format_template(source, path),
-    };
-
-    match result {
+    match djls_format::format_template(source, path, backend) {
         Ok(FormatOutcome::Changed(formatted)) => {
             vec![ls_types::TextEdit::new(
                 full_document_range(source, line_index, encoding),

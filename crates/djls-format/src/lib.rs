@@ -3,6 +3,7 @@ use djangofmt::args::Profile;
 use djangofmt::commands::format::format_text;
 use djangofmt::commands::format::FormatterConfig;
 use djangofmt::pyproject;
+use djls_conf::FormatBackend;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +19,17 @@ pub enum FormatError {
     Djangofmt(String),
 }
 
-pub fn format_template(source: &str, path: &Utf8Path) -> Result<FormatOutcome, FormatError> {
+pub fn format_template(
+    source: &str,
+    path: &Utf8Path,
+    backend: FormatBackend,
+) -> Result<FormatOutcome, FormatError> {
+    match backend {
+        FormatBackend::Djangofmt => format_with_djangofmt(source, path),
+    }
+}
+
+fn format_with_djangofmt(source: &str, path: &Utf8Path) -> Result<FormatOutcome, FormatError> {
     let options = pyproject::load_options(path.as_std_path());
     let profile = options
         .profile
@@ -56,7 +67,8 @@ mod tests {
         let source = "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}');\">\n    Content\n</div>\n";
 
         assert_eq!(
-            format_template(source, Utf8Path::new("template.html")).unwrap(),
+            format_template(source, Utf8Path::new("template.html"), FormatBackend::Djangofmt)
+                .unwrap(),
             FormatOutcome::Changed(
                 "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}')\">\n    Content\n</div>\n"
                     .to_string(),
@@ -69,7 +81,12 @@ mod tests {
         let source = "<div>Content</div>\n";
 
         assert_eq!(
-            format_template(source, Utf8Path::new("template.html")).unwrap(),
+            format_template(
+                source,
+                Utf8Path::new("template.html"),
+                FormatBackend::Djangofmt
+            )
+            .unwrap(),
             FormatOutcome::Unchanged,
         );
     }
@@ -79,7 +96,12 @@ mod tests {
         let source = "<!-- djangofmt:ignore -->\n<div>Content</div>\n";
 
         assert_eq!(
-            format_template(source, Utf8Path::new("template.html")).unwrap(),
+            format_template(
+                source,
+                Utf8Path::new("template.html"),
+                FormatBackend::Djangofmt
+            )
+            .unwrap(),
             FormatOutcome::Ignored,
         );
     }

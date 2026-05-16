@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 camino = { workspace = true }
+djls-conf = { workspace = true }
 djangofmt = { workspace = true }
 thiserror = { workspace = true }
 
