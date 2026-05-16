@@ -7,9 +7,11 @@ use crate::project::db::Db;
 use crate::project::resolve::build_search_paths;
 use crate::project::resolve::discover_workspace_model_files;
 use crate::project::resolve::resolve_modules;
-use crate::project::ProjectFileSet;
 use crate::project::ProjectPythonModule;
+use crate::project::ProjectPythonModules;
 use crate::project::ProjectTemplateFile;
+use crate::project::ProjectTemplateFiles;
+use crate::project::TemplateDirs;
 use crate::python::ModulePath;
 
 /// Populate template libraries from the filesystem cache, if available.
@@ -40,8 +42,8 @@ pub fn load_template_library_cache(db: &mut dyn Db) -> bool {
     let next = current.apply_active_snapshot(Some(response));
     if project.template_libraries(db) != &next {
         project.set_template_libraries(db).to(next);
+        refresh_project_templatetag_modules(db);
     }
-    refresh_project_files(db);
 
     true
 }
@@ -61,19 +63,51 @@ pub fn refresh_external_data(db: &mut dyn Db) {
 
 /// Refresh first-party files used by project-aware semantic analysis.
 fn refresh_project_files(db: &mut dyn Db) {
+    refresh_project_template_files(db);
+    refresh_project_model_modules(db);
+    refresh_project_templatetag_modules(db);
+}
+
+fn refresh_project_template_files(db: &mut dyn Db) {
+    let Some(project) = db.project() else {
+        return;
+    };
+
+    let next = ProjectTemplateFiles::from_ordered(discover_project_template_files(db));
+    if project.template_files(db) != &next {
+        project.set_template_files(db).to(next);
+    }
+}
+
+fn refresh_project_model_modules(db: &mut dyn Db) {
     let Some(project) = db.project() else {
         return;
     };
 
     let root = project.root(db).clone();
-    let templates = discover_project_template_files(db);
     let model_modules = discover_workspace_model_files(&root)
         .into_iter()
         .map(|(module_path, file_path)| {
-            ProjectPythonModule::new(module_path, db.get_or_create_file(&file_path))
+            ProjectPythonModule::new(
+                module_path,
+                file_path.clone(),
+                db.get_or_create_file(&file_path),
+            )
         })
         .collect();
 
+    let next = ProjectPythonModules::new(model_modules);
+    if project.model_modules(db) != &next {
+        project.set_model_modules(db).to(next);
+    }
+}
+
+fn refresh_project_templatetag_modules(db: &mut dyn Db) {
+    let Some(project) = db.project() else {
+        return;
+    };
+
+    let root = project.root(db).clone();
     let module_paths: Vec<String> = project
         .template_libraries(db)
         .registration_modules()
@@ -97,15 +131,16 @@ fn refresh_project_files(db: &mut dyn Db) {
             .map(|module| {
                 ProjectPythonModule::new(
                     ModulePath::new(module.module_path),
+                    module.file_path.clone(),
                     db.get_or_create_file(&module.file_path),
                 )
             })
             .collect()
     };
 
-    let next = ProjectFileSet::new(templates, model_modules, templatetag_modules);
-    if project.project_files(db) != &next {
-        project.set_project_files(db).to(next);
+    let next = ProjectPythonModules::new(templatetag_modules);
+    if project.templatetag_modules(db) != &next {
+        project.set_templatetag_modules(db).to(next);
     }
 }
 
@@ -114,7 +149,7 @@ fn discover_project_template_files(db: &dyn Db) -> Vec<ProjectTemplateFile> {
         return Vec::new();
     };
 
-    let Some(search_dirs) = project.template_dirs(db) else {
+    let Some(search_dirs) = project.template_dirs(db).as_known() else {
         return Vec::new();
     };
 
@@ -126,6 +161,7 @@ fn discover_project_template_files(db: &dyn Db) -> Vec<ProjectTemplateFile> {
             continue;
         }
 
+        let mut dir_templates = Vec::new();
         for entry in WalkBuilder::new(dir.as_std_path())
             .standard_filters(false)
             .build()
@@ -145,8 +181,15 @@ fn discover_project_template_files(db: &dyn Db) -> Vec<ProjectTemplateFile> {
                 Err(_) => continue,
             };
 
-            templates.push(ProjectTemplateFile::new(name, db.get_or_create_file(&path)));
+            dir_templates.push((name, path));
         }
+
+        dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
+            a_name.cmp(b_name).then_with(|| a_path.cmp(b_path))
+        });
+        templates.extend(dir_templates.into_iter().map(|(name, path)| {
+            ProjectTemplateFile::new(name, path.clone(), db.get_or_create_file(&path))
+        }));
     }
 
     templates
@@ -158,7 +201,11 @@ fn refresh_template_dirs(db: &mut dyn Db) {
         return;
     };
 
-    let next = super::django::fetch_template_dirs(db);
+    let Some(dirs) = super::django::fetch_template_dirs(db) else {
+        return;
+    };
+
+    let next = TemplateDirs::Known(dirs);
     if project.template_dirs(db) != &next {
         project.set_template_dirs(db).to(next);
     }

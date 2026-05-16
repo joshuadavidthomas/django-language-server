@@ -11,6 +11,7 @@ use salsa::Durability;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
+use crate::project::resolve::find_site_packages;
 use crate::project::symbols::TemplateLibraries;
 use crate::python::BlockSpecs;
 use crate::python::FilterArityMap;
@@ -19,47 +20,79 @@ use crate::python::ModulePath;
 use crate::python::TagRuleMap;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ProjectFileSet {
-    templates: Vec<ProjectTemplateFile>,
-    model_modules: Vec<ProjectPythonModule>,
-    templatetag_modules: Vec<ProjectPythonModule>,
+pub enum TemplateDirs {
+    #[default]
+    Unknown,
+    Known(Vec<Utf8PathBuf>),
 }
 
-impl ProjectFileSet {
-    pub(crate) fn new(
-        templates: Vec<ProjectTemplateFile>,
-        model_modules: Vec<ProjectPythonModule>,
-        templatetag_modules: Vec<ProjectPythonModule>,
-    ) -> Self {
-        Self {
-            templates,
-            model_modules,
-            templatetag_modules,
+impl TemplateDirs {
+    #[must_use]
+    pub fn as_known(&self) -> Option<&[Utf8PathBuf]> {
+        match self {
+            Self::Unknown => None,
+            Self::Known(dirs) => Some(dirs),
         }
     }
+}
 
-    pub(crate) fn templates(&self) -> &[ProjectTemplateFile] {
-        &self.templates
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
+
+impl ProjectTemplateFiles {
+    pub(crate) fn from_ordered(templates: Vec<ProjectTemplateFile>) -> Self {
+        Self(templates)
     }
 
-    pub(crate) fn model_modules(&self) -> &[ProjectPythonModule] {
-        &self.model_modules
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
+        self.0.iter()
+    }
+}
+
+impl fmt::Debug for ProjectTemplateFiles {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("ProjectTemplateFiles")
+            .field(&self.0)
+            .finish()
+    }
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ProjectPythonModules(Vec<ProjectPythonModule>);
+
+impl ProjectPythonModules {
+    pub(crate) fn new(mut modules: Vec<ProjectPythonModule>) -> Self {
+        modules.sort_by(|a, b| {
+            a.module_path
+                .cmp(&b.module_path)
+                .then_with(|| a.path.cmp(&b.path))
+        });
+        Self(modules)
     }
 
-    pub(crate) fn templatetag_modules(&self) -> &[ProjectPythonModule] {
-        &self.templatetag_modules
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectPythonModule> {
+        self.0.iter()
+    }
+}
+
+impl fmt::Debug for ProjectPythonModules {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("ProjectPythonModules")
+            .field(&self.0)
+            .finish()
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ProjectTemplateFile {
     name: String,
+    path: Utf8PathBuf,
     file: File,
 }
 
 impl ProjectTemplateFile {
-    pub(crate) fn new(name: String, file: File) -> Self {
-        Self { name, file }
+    pub(crate) fn new(name: String, path: Utf8PathBuf, file: File) -> Self {
+        Self { name, path, file }
     }
 
     pub(crate) fn name(&self) -> &str {
@@ -75,6 +108,7 @@ impl fmt::Debug for ProjectTemplateFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProjectTemplateFile")
             .field("name", &self.name)
+            .field("path", &self.path)
             .finish_non_exhaustive()
     }
 }
@@ -82,12 +116,17 @@ impl fmt::Debug for ProjectTemplateFile {
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ProjectPythonModule {
     module_path: ModulePath,
+    path: Utf8PathBuf,
     file: File,
 }
 
 impl ProjectPythonModule {
-    pub(crate) fn new(module_path: ModulePath, file: File) -> Self {
-        Self { module_path, file }
+    pub(crate) fn new(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
+        Self {
+            module_path,
+            path,
+            file,
+        }
     }
 
     pub(crate) fn module_path(&self) -> &ModulePath {
@@ -103,6 +142,7 @@ impl fmt::Debug for ProjectPythonModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProjectPythonModule")
             .field("module_path", &self.module_path)
+            .field("path", &self.path)
             .finish_non_exhaustive()
     }
 }
@@ -136,7 +176,7 @@ pub struct Project {
     pub env_vars: Vec<(String, String)>,
     /// Template directories reported by project introspection.
     #[returns(ref)]
-    pub template_dirs: Option<Vec<Utf8PathBuf>>,
+    pub template_dirs: TemplateDirs,
     /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
@@ -149,9 +189,15 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// First-party files discovered for this project.
+    /// First-party template files discovered for this project.
     #[returns(ref)]
-    pub(crate) project_files: ProjectFileSet,
+    pub(crate) template_files: ProjectTemplateFiles,
+    /// First-party model modules discovered for this project.
+    #[returns(ref)]
+    pub(crate) model_modules: ProjectPythonModules,
+    /// First-party templatetag modules discovered for this project.
+    #[returns(ref)]
+    pub(crate) templatetag_modules: ProjectPythonModules,
     /// Extracted tag rules from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_external_data`. Workspace files use tracked queries.
@@ -179,8 +225,11 @@ impl Project {
         let resolved_django_settings_module = resolve_django_settings(root, settings);
         let env_vars = load_env_file(root, settings);
 
-        db.files()
-            .try_add_root(root.to_path_buf(), FileRootKind::Project);
+        let source_files = db.files();
+        source_files.try_add_root(root.to_path_buf(), FileRootKind::Project);
+        if let Some(site_packages) = find_site_packages(&interpreter, root) {
+            source_files.try_add_root(site_packages, FileRootKind::LibrarySearchPath);
+        }
 
         Project::builder(
             root.to_path_buf(),
@@ -188,10 +237,12 @@ impl Project {
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
             env_vars,
-            None,
+            TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            ProjectFileSet::default(),
+            ProjectTemplateFiles::default(),
+            ProjectPythonModules::default(),
+            ProjectPythonModules::default(),
             FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
@@ -199,7 +250,9 @@ impl Project {
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
-        .project_files_durability(Durability::LOW)
+        .template_files_durability(Durability::LOW)
+        .model_modules_durability(Durability::LOW)
+        .templatetag_modules_durability(Durability::LOW)
         .extracted_external_tag_rules_durability(Durability::HIGH)
         .extracted_external_filter_arities_durability(Durability::HIGH)
         .extracted_external_block_specs_durability(Durability::HIGH)

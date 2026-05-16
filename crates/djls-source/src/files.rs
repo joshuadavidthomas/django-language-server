@@ -8,6 +8,10 @@ use salsa::Durability;
 use crate::collections::FxDashMap;
 use crate::File;
 
+/// Registry that maps source paths to Salsa `File` inputs.
+///
+/// File durability is assigned when the `File` is first created. Register roots
+/// before creating files beneath them.
 #[derive(Clone, Default)]
 pub struct SourceFiles {
     inner: Arc<SourceFilesInner>,
@@ -19,15 +23,19 @@ struct SourceFilesInner {
     roots: RwLock<Vec<FileRoot>>,
 }
 
+/// A source root as known when files are created.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FileRoot {
     path: Utf8PathBuf,
     kind: FileRootKind,
 }
 
+/// Classification used to assign durability to files under a root.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FileRootKind {
+    /// First-party files edited by the user.
     Project,
+    /// Dependency files from import/search paths.
     LibrarySearchPath,
 }
 
@@ -60,6 +68,10 @@ impl SourceFiles {
         })
     }
 
+    /// Register a root for future file creation.
+    ///
+    /// If the same root already exists, its original kind is preserved.
+    /// Existing files keep the durability assigned when they were created.
     pub fn try_add_root(&self, path: Utf8PathBuf, kind: FileRootKind) {
         let mut roots = self
             .inner

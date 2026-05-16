@@ -144,8 +144,12 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project()
-            .and_then(|project| project.template_dirs(self).clone())
+        self.project().and_then(|project| {
+            project
+                .template_dirs(self)
+                .as_known()
+                .map(<[Utf8PathBuf]>::to_vec)
+        })
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -208,7 +212,9 @@ mod invalidation_tests {
     use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
     use djls_semantic::Project;
-    use djls_semantic::ProjectFileSet;
+    use djls_semantic::ProjectPythonModules;
+    use djls_semantic::ProjectTemplateFiles;
+    use djls_semantic::TemplateDirs;
     use djls_semantic::TemplateLibraries;
     use djls_source::SourceFiles;
     use djls_workspace::InMemoryFileSystem;
@@ -281,10 +287,12 @@ mod invalidation_tests {
             dsm,
             settings.pythonpath().to_vec(),
             Vec::new(),
-            None,
+            TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            ProjectFileSet::default(),
+            ProjectTemplateFiles::default(),
+            ProjectPythonModules::default(),
+            ProjectPythonModules::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),

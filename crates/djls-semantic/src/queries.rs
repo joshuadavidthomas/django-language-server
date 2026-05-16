@@ -90,7 +90,7 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
     let mut results = Vec::new();
 
-    for module in project.project_files(db).model_modules() {
+    for module in project.model_modules(db).iter() {
         let file = module.file();
         let source = file.source(db);
 
@@ -107,7 +107,7 @@ fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, M
 fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
     let mut results = Vec::new();
 
-    for module in project.project_files(db).templatetag_modules() {
+    for module in project.templatetag_modules(db).iter() {
         let file = module.file();
         let tag_rules = extract_tag_rules(db, file, module.module_path().clone());
 
@@ -126,7 +126,7 @@ fn collect_workspace_filter_arities(
 ) -> Vec<(String, FilterArityMap)> {
     let mut results = Vec::new();
 
-    for module in project.project_files(db).templatetag_modules() {
+    for module in project.templatetag_modules(db).iter() {
         let file = module.file();
         let filter_arities = extract_filter_arities(db, file, module.module_path().clone());
 
@@ -145,7 +145,7 @@ fn collect_workspace_filter_arities(
 fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
-    for module in project.project_files(db).templatetag_modules() {
+    for module in project.templatetag_modules(db).iter() {
         let file = module.file();
         let block_specs = extract_block_specs(db, file, module.module_path().clone());
 

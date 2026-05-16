@@ -11,8 +11,7 @@ use crate::Project;
 #[salsa::tracked]
 pub(crate) fn discover_templates(db: &dyn SemanticDb, project: Project) -> Vec<Template<'_>> {
     let templates: Vec<_> = project
-        .project_files(db)
-        .templates()
+        .template_files(db)
         .iter()
         .map(|template| {
             Template::new(
@@ -80,7 +79,7 @@ pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResu
 
     let tried = project
         .template_dirs(db)
-        .as_ref()
+        .as_known()
         .map(|dirs| {
             dirs.iter()
                 .filter_map(|dir| safe_join(dir, name).ok())
