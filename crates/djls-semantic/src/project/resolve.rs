@@ -25,27 +25,6 @@ fn module_path_from_relative(rel: &Utf8Path) -> ModulePath {
     ModulePath::new(dotted)
 }
 
-/// Check whether a file path is a Django model source file.
-///
-/// Matches `models.py` (single-file) and any `.py` file nested at any
-/// depth inside a `models/` package (a directory named `models` that
-/// contains `__init__.py`).
-fn is_model_file(path: &Utf8Path) -> bool {
-    if path.file_name() == Some("models.py") {
-        return true;
-    }
-    if path.extension() == Some("py") {
-        let mut dir = path.parent();
-        while let Some(d) = dir {
-            if d.file_name() == Some("models") {
-                return d.join("__init__.py").exists();
-            }
-            dir = d.parent();
-        }
-    }
-    false
-}
-
 /// Classification of where a module lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModuleLocation {
@@ -53,6 +32,16 @@ pub(crate) enum ModuleLocation {
     Workspace,
     /// Module is external (site-packages, stdlib, etc.)
     External,
+}
+
+impl ModuleLocation {
+    fn classify(path: &Utf8Path, project_root: &Utf8Path) -> Self {
+        if path.starts_with(project_root) {
+            Self::Workspace
+        } else {
+            Self::External
+        }
+    }
 }
 
 /// Resolved module information.
@@ -87,7 +76,7 @@ pub(crate) fn resolve_module(
         // Try as .py file
         let py_file = candidate.with_extension("py");
         if py_file.exists() {
-            let location = classify_location(&py_file, project_root);
+            let location = ModuleLocation::classify(&py_file, project_root);
             return Some(ResolvedModule {
                 module_path: module_path.to_string(),
                 file_path: py_file,
@@ -98,7 +87,7 @@ pub(crate) fn resolve_module(
         // Try as package/__init__.py
         let init_file = candidate.join("__init__.py");
         if init_file.exists() {
-            let location = classify_location(&init_file, project_root);
+            let location = ModuleLocation::classify(&init_file, project_root);
             return Some(ResolvedModule {
                 module_path: module_path.to_string(),
                 file_path: init_file,
@@ -108,14 +97,6 @@ pub(crate) fn resolve_module(
     }
 
     None
-}
-
-fn classify_location(path: &Utf8Path, project_root: &Utf8Path) -> ModuleLocation {
-    if path.starts_with(project_root) {
-        ModuleLocation::Workspace
-    } else {
-        ModuleLocation::External
-    }
 }
 
 /// Resolve multiple module paths, partitioned by location.
@@ -278,18 +259,34 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
-/// Shared walk-and-collect logic for model file discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModelFileDiscovery {
+    Workspace,
+    External,
+}
+
+/// Discover Django model source files and return their resolved module paths.
 ///
-/// Configures a `WalkBuilder` via `builder_cfg`, walks the directory tree,
-/// and collects `(module_path, file_path)` pairs for files that pass
-/// `is_model_file` and the caller-supplied `filter` predicate.
-fn discover_model_files(
+/// Finds `models.py` files and `.py` files inside `models/` packages
+/// (directories with `__init__.py`) without reading file contents.
+#[must_use]
+pub(crate) fn discover_model_files(
     base_dir: &Utf8Path,
-    builder_cfg: impl FnOnce(&mut ignore::WalkBuilder),
-    filter: impl Fn(&Utf8Path) -> bool,
+    discovery: ModelFileDiscovery,
 ) -> Vec<(ModulePath, Utf8PathBuf)> {
     let mut builder = ignore::WalkBuilder::new(base_dir.as_std_path());
-    builder_cfg(&mut builder);
+    match discovery {
+        ModelFileDiscovery::Workspace => {
+            builder.hidden(true).git_ignore(true);
+        }
+        ModelFileDiscovery::External => {
+            builder
+                .hidden(false)
+                .git_ignore(false)
+                .git_global(false)
+                .git_exclude(false);
+        }
+    }
 
     let mut results = Vec::new();
 
@@ -302,7 +299,30 @@ fn discover_model_files(
             continue;
         };
 
-        if !is_model_file(&path) || !filter(&path) {
+        let is_django_model_source = if path.file_name() == Some("models.py") {
+            true
+        } else if path.extension() == Some("py") {
+            let mut dir = path.parent();
+            let mut in_models_package = false;
+            while let Some(parent) = dir {
+                if parent.file_name() == Some("models") {
+                    in_models_package = parent.join("__init__.py").exists();
+                    break;
+                }
+                dir = parent.parent();
+            }
+            in_models_package
+        } else {
+            false
+        };
+
+        if !is_django_model_source {
+            continue;
+        }
+
+        if discovery == ModelFileDiscovery::Workspace
+            && path.components().any(|c| c.as_str() == "site-packages")
+        {
             continue;
         }
 
@@ -315,45 +335,6 @@ fn discover_model_files(
 
     results.sort_by(|(a, _), (b, _)| a.cmp(b));
     results
-}
-
-/// Discover model source files in a directory tree and return their resolved paths.
-///
-/// Walks the directory recursively looking for both `models.py` files and
-/// `.py` files inside `models/` packages (directories with `__init__.py`).
-/// Returns `(module_path, file_path)` pairs without reading file contents.
-///
-/// Uses a raw walk with no git-ignore filtering, suitable for directories
-/// outside the workspace (e.g. site-packages).
-#[must_use]
-pub(crate) fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
-    discover_model_files(
-        base_dir,
-        |wb| {
-            wb.hidden(false)
-                .git_ignore(false)
-                .git_global(false)
-                .git_exclude(false);
-        },
-        |_| true,
-    )
-}
-
-/// Discover model source files in the workspace and return their resolved paths.
-///
-/// Walks the project root looking for `models.py` files and `.py` files
-/// inside `models/` packages. Returns a list of `(module_path, file_path)`
-/// pairs where `module_path` is the dotted module path relative to the
-/// project root.
-#[must_use]
-pub(crate) fn discover_workspace_model_files(root: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
-    discover_model_files(
-        root,
-        |wb| {
-            wb.hidden(true).git_ignore(true);
-        },
-        |path| !path.components().any(|c| c.as_str() == "site-packages"),
-    )
 }
 
 #[cfg(test)]
@@ -493,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_model_files_in_dir_finds_models() {
+    fn discover_external_model_files_finds_models() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -511,14 +492,14 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files_in_dir(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::External);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
     }
 
     #[test]
-    fn discover_model_files_in_dir_finds_files_without_inspecting_contents() {
+    fn discover_external_model_files_finds_files_without_inspecting_contents() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -527,13 +508,13 @@ class Article(models.Model):
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
         // Discovery finds the file (it doesn't inspect contents)
-        let results = discover_model_files_in_dir(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::External);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "emptyapp.models");
     }
 
     #[test]
-    fn discover_model_files_in_dir_nested_apps() {
+    fn discover_external_model_files_nested_apps() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -550,7 +531,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let results = discover_model_files_in_dir(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::External);
         assert_eq!(results.len(), 2);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(module_paths.contains(&"blog.models"));
@@ -558,7 +539,7 @@ class Article(models.Model):
     }
 
     #[test]
-    fn discover_workspace_model_files_finds_models() {
+    fn discover_model_files_workspace_finds_models() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -570,14 +551,14 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_workspace_model_files(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
     }
 
     #[test]
-    fn discover_model_files_in_dir_package() {
+    fn discover_external_model_files_package() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -599,7 +580,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files_in_dir(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::External);
         // Discovers all three files (including __init__.py)
         assert_eq!(results.len(), 3);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
@@ -622,7 +603,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_workspace_model_files(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models"),
@@ -664,7 +645,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_workspace_model_files(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
@@ -673,7 +654,7 @@ class Article(models.Model):
     }
 
     #[test]
-    fn discover_model_files_in_dir_nested_package() {
+    fn discover_external_model_files_nested_package() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -687,7 +668,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files_in_dir(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::External);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
@@ -696,7 +677,7 @@ class Article(models.Model):
     }
 
     #[test]
-    fn discover_workspace_model_files_skips_site_packages() {
+    fn discover_model_files_workspace_skips_site_packages() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
@@ -710,7 +691,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_workspace_model_files(&root);
+        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
         assert!(
             results.is_empty(),
             "should not discover models in site-packages"

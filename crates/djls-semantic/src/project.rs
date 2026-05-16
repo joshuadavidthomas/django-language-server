@@ -1,5 +1,4 @@
 mod db;
-#[path = "project/project.rs"]
 mod input;
 mod introspector;
 mod names;
@@ -7,6 +6,7 @@ mod python;
 mod resolve;
 mod symbols;
 mod sync;
+mod system;
 
 pub use db::Db;
 pub use input::load_env_file;

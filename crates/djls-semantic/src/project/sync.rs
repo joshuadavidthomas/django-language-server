@@ -29,10 +29,10 @@ use super::input::TemplateDirs;
 use super::introspector::IntrospectionRequest;
 use super::python::Interpreter;
 use super::resolve::build_search_paths;
-use super::resolve::discover_model_files_in_dir;
-use super::resolve::discover_workspace_model_files;
+use super::resolve::discover_model_files;
 use super::resolve::find_site_packages;
 use super::resolve::resolve_modules;
+use super::resolve::ModelFileDiscovery;
 use super::resolve::ResolvedModule;
 use super::symbols::TemplateLibrarySnapshot;
 use crate::python::extract_model_graph;
@@ -389,7 +389,7 @@ fn discover_project_template_files(
 
 fn refresh_python_index(db: &mut dyn ProjectDb, project: Project) {
     let root = project.root(db).clone();
-    let modules = discover_workspace_model_files(&root)
+    let modules = discover_model_files(&root, ModelFileDiscovery::Workspace)
         .into_iter()
         .map(|(module_path, file_path)| {
             ProjectPythonModule::model(
@@ -466,7 +466,7 @@ fn scan_external_models(db: &mut dyn ProjectDb, project: Project) {
 
     let new_models = match find_site_packages(&interpreter, &root) {
         Some(site_packages) => {
-            let files = discover_model_files_in_dir(&site_packages);
+            let files = discover_model_files(&site_packages, ModelFileDiscovery::External);
             extract_models_from_files(&files)
         }
         None => FxHashMap::default(),
@@ -679,7 +679,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files_in_dir(&root);
+        let files = discover_model_files(&root, ModelFileDiscovery::External);
         let results = extract_models_from_files(&files);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
@@ -695,7 +695,7 @@ class Article(models.Model):
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let files = discover_model_files_in_dir(&root);
+        let files = discover_model_files(&root, ModelFileDiscovery::External);
         let results = extract_models_from_files(&files);
         assert!(results.is_empty());
     }
@@ -718,7 +718,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let files = discover_model_files_in_dir(&root);
+        let files = discover_model_files(&root, ModelFileDiscovery::External);
         let results = extract_models_from_files(&files);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
@@ -748,7 +748,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files_in_dir(&root);
+        let files = discover_model_files(&root, ModelFileDiscovery::External);
         let results = extract_models_from_files(&files);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
@@ -773,7 +773,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files_in_dir(&root);
+        let files = discover_model_files(&root, ModelFileDiscovery::External);
         let results = extract_models_from_files(&files);
         assert!(
             results.contains_key("myapp.models.base.abstract"),
