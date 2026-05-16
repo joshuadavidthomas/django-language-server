@@ -1,3 +1,4 @@
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::Utf8PathClean;
 use ignore::WalkBuilder;
@@ -7,6 +8,7 @@ use crate::project::db::Db;
 use crate::project::resolve::build_search_paths;
 use crate::project::resolve::discover_workspace_model_files;
 use crate::project::resolve::resolve_modules;
+use crate::project::Project;
 use crate::project::ProjectPythonIndex;
 use crate::project::ProjectPythonModule;
 use crate::project::ProjectTemplateFile;
@@ -39,10 +41,20 @@ pub fn load_template_library_cache(db: &mut dyn Db) -> bool {
     };
 
     let current = project.template_libraries(db).clone();
-    let next = current.apply_active_snapshot(Some(response));
-    if project.template_libraries(db) != &next {
-        project.set_template_libraries(db).to(next);
-        refresh_project_python_templatetags(db);
+    let next_libraries = current.apply_active_snapshot(Some(response));
+    if project.template_libraries(db) != &next_libraries {
+        project.set_template_libraries(db).to(next_libraries);
+
+        let modules = project
+            .python_index(db)
+            .models()
+            .cloned()
+            .chain(collect_templatetag_modules(db, project))
+            .collect();
+        let next_index = ProjectPythonIndex::new(modules);
+        if project.python_index(db) != &next_index {
+            project.set_python_index(db).to(next_index);
+        }
     }
 
     true
@@ -50,75 +62,67 @@ pub fn load_template_library_cache(db: &mut dyn Db) -> bool {
 
 /// Refresh all external project data.
 ///
-/// Updates active template library data from project introspection, refreshes
-/// the first-party project file set, then scans installed packages for
-/// validation rules and model definitions. Workspace file contents still flow through
-/// tracked Salsa files.
+/// This is the imperative boundary between the outside world and Salsa inputs:
+/// it asks Django/Python/the filesystem for current facts, writes changed facts
+/// into the `Project` input, then lets tracked semantic queries handle editor
+/// file contents and downstream derivations.
 pub fn refresh_external_data(db: &mut dyn Db) {
-    refresh_template_dirs(db);
-    refresh_template_libraries(db);
-    refresh_project_files(db);
-    refresh_external_semantic_data(db);
-}
-
-/// Refresh first-party files used by project-aware semantic analysis.
-fn refresh_project_files(db: &mut dyn Db) {
-    refresh_project_template_files(db);
-    refresh_project_python_index(db);
-}
-
-fn refresh_project_template_files(db: &mut dyn Db) {
     let Some(project) = db.project() else {
         return;
     };
 
-    let next = ProjectTemplateFiles::from_ordered(discover_project_template_files(db));
-    if project.template_files(db) != &next {
-        project.set_template_files(db).to(next);
+    if let Some(dirs) = super::django::fetch_template_dirs(db) {
+        let next_dirs = TemplateDirs::Known(dirs);
+        if project.template_dirs(db) != &next_dirs {
+            project.set_template_dirs(db).to(next_dirs);
+        }
     }
-}
 
-fn refresh_project_python_index(db: &mut dyn Db) {
-    let Some(project) = db.project() else {
-        return;
-    };
-
-    let modules = discover_project_model_modules(db)
-        .into_iter()
-        .chain(discover_project_templatetag_modules(db))
-        .collect();
-
-    let next = ProjectPythonIndex::new(modules);
-    if project.python_index(db) != &next {
-        project.set_python_index(db).to(next);
-    }
-}
-
-fn refresh_project_python_templatetags(db: &mut dyn Db) {
-    let Some(project) = db.project() else {
-        return;
-    };
-
-    let modules = project
-        .python_index(db)
-        .models()
-        .cloned()
-        .chain(discover_project_templatetag_modules(db))
-        .collect();
-
-    let next = ProjectPythonIndex::new(modules);
-    if project.python_index(db) != &next {
-        project.set_python_index(db).to(next);
-    }
-}
-
-fn discover_project_model_modules(db: &dyn Db) -> Vec<ProjectPythonModule> {
-    let Some(project) = db.project() else {
-        return Vec::new();
-    };
-
+    let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
-    discover_workspace_model_files(&root)
+    let dsm = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+
+    if let Some(response) = super::symbols::fetch_template_library_snapshot(db) {
+        super::cache::save_template_library_snapshot(
+            &root,
+            &interpreter,
+            dsm.as_deref(),
+            &pythonpath,
+            &response,
+        );
+
+        let current = project.template_libraries(db).clone();
+        let next_libraries = current.apply_active_snapshot(Some(response));
+        if project.template_libraries(db) != &next_libraries {
+            project.set_template_libraries(db).to(next_libraries);
+        }
+    }
+
+    let next_templates = match project.template_dirs(db).as_known() {
+        Some(search_dirs) => {
+            ProjectTemplateFiles::from_ordered(collect_template_files(db, search_dirs))
+        }
+        None => ProjectTemplateFiles::default(),
+    };
+    if project.template_files(db) != &next_templates {
+        project.set_template_files(db).to(next_templates);
+    }
+
+    let modules = collect_model_modules(db, &root)
+        .into_iter()
+        .chain(collect_templatetag_modules(db, project))
+        .collect();
+    let next_index = ProjectPythonIndex::new(modules);
+    if project.python_index(db) != &next_index {
+        project.set_python_index(db).to(next_index);
+    }
+
+    super::external::refresh_external_semantic_data(db);
+}
+
+fn collect_model_modules(db: &dyn Db, root: &Utf8Path) -> Vec<ProjectPythonModule> {
+    discover_workspace_model_files(root)
         .into_iter()
         .map(|(module_path, file_path)| {
             ProjectPythonModule::model(
@@ -130,11 +134,7 @@ fn discover_project_model_modules(db: &dyn Db) -> Vec<ProjectPythonModule> {
         .collect()
 }
 
-fn discover_project_templatetag_modules(db: &dyn Db) -> Vec<ProjectPythonModule> {
-    let Some(project) = db.project() else {
-        return Vec::new();
-    };
-
+fn collect_templatetag_modules(db: &dyn Db, project: Project) -> Vec<ProjectPythonModule> {
     let root = project.root(db).clone();
     let module_paths: Vec<String> = project
         .template_libraries(db)
@@ -168,15 +168,7 @@ fn discover_project_templatetag_modules(db: &dyn Db) -> Vec<ProjectPythonModule>
         .collect()
 }
 
-fn discover_project_template_files(db: &dyn Db) -> Vec<ProjectTemplateFile> {
-    let Some(project) = db.project() else {
-        return Vec::new();
-    };
-
-    let Some(search_dirs) = project.template_dirs(db).as_known() else {
-        return Vec::new();
-    };
-
+fn collect_template_files(db: &dyn Db, search_dirs: &[Utf8PathBuf]) -> Vec<ProjectTemplateFile> {
     let mut templates = Vec::new();
 
     for dir in search_dirs {
@@ -217,55 +209,4 @@ fn discover_project_template_files(db: &dyn Db) -> Vec<ProjectTemplateFile> {
     }
 
     templates
-}
-
-/// Refresh template directories from the configured project introspector.
-fn refresh_template_dirs(db: &mut dyn Db) {
-    let Some(project) = db.project() else {
-        return;
-    };
-
-    let Some(dirs) = super::django::fetch_template_dirs(db) else {
-        return;
-    };
-
-    let next = TemplateDirs::Known(dirs);
-    if project.template_dirs(db) != &next {
-        project.set_template_dirs(db).to(next);
-    }
-}
-
-/// Refresh active template libraries from the configured project introspector.
-fn refresh_template_libraries(db: &mut dyn Db) {
-    let Some(project) = db.project() else {
-        return;
-    };
-
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let dsm = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-
-    let Some(response) = super::symbols::fetch_template_library_snapshot(db) else {
-        return;
-    };
-
-    super::cache::save_template_library_snapshot(
-        &root,
-        &interpreter,
-        dsm.as_deref(),
-        &pythonpath,
-        &response,
-    );
-
-    let current = project.template_libraries(db).clone();
-    let next = current.apply_active_snapshot(Some(response));
-    if project.template_libraries(db) != &next {
-        project.set_template_libraries(db).to(next);
-    }
-}
-
-/// Refresh external semantic data for the current project.
-fn refresh_external_semantic_data(db: &mut dyn Db) {
-    super::external::refresh_external_semantic_data(db);
 }
