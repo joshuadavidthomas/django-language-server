@@ -48,18 +48,7 @@ fn document_end_position(
     line_index: &LineIndex,
     encoding: PositionEncoding,
 ) -> ls_types::Position {
-    let line = u32::try_from(line_index.lines().len().saturating_sub(1)).unwrap_or_default();
-    let line_start = line_index.lines().last().copied().unwrap_or_default() as usize;
-    let line_text = &source[line_start.min(source.len())..];
-    let character = match encoding {
-        PositionEncoding::Utf8 => u32::try_from(line_text.len()).unwrap_or(u32::MAX),
-        PositionEncoding::Utf16 => line_text
-            .chars()
-            .map(|character| u32::try_from(character.len_utf16()).unwrap_or_default())
-            .sum(),
-        PositionEncoding::Utf32 => u32::try_from(line_text.chars().count()).unwrap_or(u32::MAX),
-    };
-
+    let (line, character) = line_index.end_line_col(source, encoding).into();
     ls_types::Position::new(line, character)
 }
 
