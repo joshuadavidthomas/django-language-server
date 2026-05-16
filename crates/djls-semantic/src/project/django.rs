@@ -21,15 +21,16 @@ impl IntrospectionRequest for TemplateDirsRequest {
     type Response = TemplateDirsResponse;
 }
 
-/// Refresh template directories from project introspection.
-pub(super) fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
-    let Some(dirs) = fetch_template_dirs(db) else {
-        return;
-    };
+impl Project {
+    pub(crate) fn refresh_template_dirs(self, db: &mut dyn ProjectDb) {
+        let Some(dirs) = fetch_template_dirs(db) else {
+            return;
+        };
 
-    let next = TemplateDirs::Known(dirs);
-    if project.template_dirs(db) != &next {
-        project.set_template_dirs(db).to(next);
+        let next = TemplateDirs::Known(dirs);
+        if self.template_dirs(db) != &next {
+            self.set_template_dirs(db).to(next);
+        }
     }
 }
 

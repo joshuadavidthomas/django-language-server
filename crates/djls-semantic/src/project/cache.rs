@@ -77,42 +77,42 @@ fn cache_dir(
     Some(base.join("inspector").join(&key[..16]))
 }
 
-/// Load a cached template library snapshot for the current project environment.
-pub(crate) fn load_template_library_snapshot_for_project(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Option<TemplateLibrarySnapshot> {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
+impl Project {
+    pub(crate) fn load_template_library_snapshot_cache(
+        self,
+        db: &dyn ProjectDb,
+    ) -> Option<TemplateLibrarySnapshot> {
+        let interpreter = self.interpreter(db).clone();
+        let root = self.root(db).clone();
+        let django_settings_module = self.django_settings_module(db).clone();
+        let pythonpath = self.pythonpath(db).clone();
 
-    load_cached_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-    )
-}
+        load_cached_template_library_snapshot(
+            &root,
+            &interpreter,
+            django_settings_module.as_deref(),
+            &pythonpath,
+        )
+    }
 
-/// Save a template library snapshot for the current project environment.
-pub(crate) fn save_template_library_snapshot_for_project(
-    db: &dyn ProjectDb,
-    project: Project,
-    response: &TemplateLibrarySnapshot,
-) {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
+    pub(crate) fn save_template_library_snapshot_cache(
+        self,
+        db: &dyn ProjectDb,
+        response: &TemplateLibrarySnapshot,
+    ) {
+        let interpreter = self.interpreter(db).clone();
+        let root = self.root(db).clone();
+        let django_settings_module = self.django_settings_module(db).clone();
+        let pythonpath = self.pythonpath(db).clone();
 
-    save_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-        response,
-    );
+        save_template_library_snapshot(
+            &root,
+            &interpreter,
+            django_settings_module.as_deref(),
+            &pythonpath,
+            response,
+        );
+    }
 }
 
 /// Load a cached template library snapshot from disk.

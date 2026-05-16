@@ -9,6 +9,7 @@ use super::resolve::discover_model_files_in_dir;
 use super::resolve::find_site_packages;
 use super::resolve::resolve_modules;
 use super::resolve::ResolvedModule;
+use super::Project;
 use crate::python::extract_model_graph;
 use crate::python::extract_rules;
 use crate::python::BlockSpecs;
@@ -110,82 +111,73 @@ fn split_extraction_results(
     split
 }
 
-/// Refresh external (non-workspace) semantic project data.
-///
-/// Scans the configured Python environment for installed-package template rule
-/// extraction data and model definitions, then updates the current project only
-/// when values changed. Workspace files are handled by tracked Salsa queries so
-/// they can invalidate automatically on file changes.
-pub(super) fn refresh_external_semantic_data(db: &mut dyn Db) {
-    scan_external_rules(db);
-    scan_external_models(db);
-}
+impl Project {
+    /// Refresh external (non-workspace) semantic project data.
+    ///
+    /// Scans the configured Python environment for installed-package template rule
+    /// extraction data and model definitions, then updates the current project only
+    /// when values changed. Workspace files are handled by tracked Salsa queries so
+    /// they can invalidate automatically on file changes.
+    pub(crate) fn refresh_external_semantic_data(self, db: &mut dyn Db) {
+        self.scan_external_rules(db);
+        self.scan_external_models(db);
+    }
 
-/// Scan the venv's site-packages for `models.py` files and extract model
-/// graphs. Updates the project's `extracted_external_models` field if the
-/// results differ from the current value.
-fn scan_external_models(db: &mut dyn Db) {
-    let Some(project) = db.project() else {
-        return;
-    };
+    /// Scan the venv's site-packages for `models.py` files and extract model
+    /// graphs. Updates the project's `extracted_external_models` field if the
+    /// results differ from the current value.
+    fn scan_external_models(self, db: &mut dyn Db) {
+        let interpreter = self.interpreter(db).clone();
+        let root = self.root(db).clone();
 
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
+        let new_models = match find_site_packages(&interpreter, &root) {
+            Some(site_packages) => {
+                let files = discover_model_files_in_dir(&site_packages);
+                extract_models_from_files(&files)
+            }
+            None => FxHashMap::default(),
+        };
 
-    let new_models = match find_site_packages(&interpreter, &root) {
-        Some(site_packages) => {
-            let files = discover_model_files_in_dir(&site_packages);
-            extract_models_from_files(&files)
+        if self.extracted_external_models(db) != &new_models {
+            self.set_extracted_external_models(db).to(new_models);
         }
-        None => FxHashMap::default(),
-    };
-
-    if project.extracted_external_models(db) != &new_models {
-        project.set_extracted_external_models(db).to(new_models);
     }
-}
 
-/// Extract validation rules from external (non-workspace) registration modules
-/// and update the project's extracted rules if they differ.
-fn scan_external_rules(db: &mut dyn Db) {
-    let Some(project) = db.project() else {
-        return;
-    };
+    /// Extract validation rules from external (non-workspace) registration modules
+    /// and update the project's extracted rules if they differ.
+    fn scan_external_rules(self, db: &mut dyn Db) {
+        let interpreter = self.interpreter(db).clone();
+        let root = self.root(db).clone();
+        let pythonpath = self.pythonpath(db).clone();
 
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
+        let modules: FxHashSet<String> = self
+            .template_libraries(db)
+            .registration_modules()
+            .into_iter()
+            .map(|m| m.as_str().to_string())
+            .collect();
 
-    let modules: FxHashSet<String> = project
-        .template_libraries(db)
-        .registration_modules()
-        .into_iter()
-        .map(|m| m.as_str().to_string())
-        .collect();
+        let new_extraction = if modules.is_empty() {
+            SplitExtractionResults::empty()
+        } else {
+            let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
+            let (_workspace, external_modules) =
+                resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
+            split_extraction_results(extract_rules_from_modules(external_modules))
+        };
 
-    let new_extraction = if modules.is_empty() {
-        SplitExtractionResults::empty()
-    } else {
-        let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
-        let (_workspace, external_modules) =
-            resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
-        split_extraction_results(extract_rules_from_modules(external_modules))
-    };
-
-    if project.extracted_external_tag_rules(db) != &new_extraction.tag_rules {
-        project
-            .set_extracted_external_tag_rules(db)
-            .to(new_extraction.tag_rules);
-    }
-    if project.extracted_external_filter_arities(db) != &new_extraction.filter_arities {
-        project
-            .set_extracted_external_filter_arities(db)
-            .to(new_extraction.filter_arities);
-    }
-    if project.extracted_external_block_specs(db) != &new_extraction.block_specs {
-        project
-            .set_extracted_external_block_specs(db)
-            .to(new_extraction.block_specs);
+        if self.extracted_external_tag_rules(db) != &new_extraction.tag_rules {
+            self.set_extracted_external_tag_rules(db)
+                .to(new_extraction.tag_rules);
+        }
+        if self.extracted_external_filter_arities(db) != &new_extraction.filter_arities {
+            self.set_extracted_external_filter_arities(db)
+                .to(new_extraction.filter_arities);
+        }
+        if self.extracted_external_block_specs(db) != &new_extraction.block_specs {
+            self.set_extracted_external_block_specs(db)
+                .to(new_extraction.block_specs);
+        }
     }
 }
 

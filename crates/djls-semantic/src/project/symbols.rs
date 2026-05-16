@@ -7,7 +7,6 @@ use salsa::Setter;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::project::cache;
 use crate::project::db::Db as ProjectDb;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::names::LibraryName;
@@ -198,43 +197,46 @@ impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
 /// diagnostics previously discovered library data while fresh project
 /// introspection runs in the background.
 pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
-    let Some(project) = db.project() else {
-        return false;
-    };
-
-    let Some(snapshot) = cache::load_template_library_snapshot_for_project(db, project) else {
-        return false;
-    };
-
-    if apply_template_library_snapshot(db, project, snapshot) {
-        project.refresh_templatetag_modules(db);
-    }
-
-    true
+    db.project()
+        .is_some_and(|project| project.load_template_library_cache(db))
 }
 
-pub(super) fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
-    let Some(snapshot) = fetch_template_library_snapshot(db) else {
-        return;
-    };
+impl Project {
+    pub(crate) fn load_template_library_cache(self, db: &mut dyn ProjectDb) -> bool {
+        let Some(snapshot) = self.load_template_library_snapshot_cache(db) else {
+            return false;
+        };
 
-    cache::save_template_library_snapshot_for_project(db, project, &snapshot);
-    apply_template_library_snapshot(db, project, snapshot);
-}
+        if self.apply_template_library_snapshot(db, snapshot) {
+            self.refresh_templatetag_modules(db);
+        }
 
-fn apply_template_library_snapshot(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    snapshot: TemplateLibrarySnapshot,
-) -> bool {
-    let current = project.template_libraries(db).clone();
-    let next = current.apply_active_snapshot(Some(snapshot));
-    if project.template_libraries(db) == &next {
-        return false;
+        true
     }
 
-    project.set_template_libraries(db).to(next);
-    true
+    pub(crate) fn refresh_template_libraries(self, db: &mut dyn ProjectDb) {
+        let Some(snapshot) = fetch_template_library_snapshot(db) else {
+            return;
+        };
+
+        self.save_template_library_snapshot_cache(db, &snapshot);
+        self.apply_template_library_snapshot(db, snapshot);
+    }
+
+    fn apply_template_library_snapshot(
+        self,
+        db: &mut dyn ProjectDb,
+        snapshot: TemplateLibrarySnapshot,
+    ) -> bool {
+        let current = self.template_libraries(db).clone();
+        let next = current.apply_active_snapshot(Some(snapshot));
+        if self.template_libraries(db) == &next {
+            return false;
+        }
+
+        self.set_template_libraries(db).to(next);
+        true
+    }
 }
 
 fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {

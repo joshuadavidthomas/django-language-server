@@ -1,4 +1,3 @@
-use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::Utf8PathClean;
 use ignore::WalkBuilder;
@@ -28,17 +27,71 @@ impl Project {
     }
 
     pub(crate) fn refresh_python_index(self, db: &mut dyn Db) {
-        let next = ProjectPythonIndex::discover(db, self);
+        let root = self.root(db).clone();
+        let modules = discover_workspace_model_files(&root)
+            .into_iter()
+            .map(|(module_path, file_path)| {
+                ProjectPythonModule::model(
+                    module_path,
+                    file_path.clone(),
+                    db.get_or_create_file(&file_path),
+                )
+            })
+            .chain(self.templatetag_modules(db))
+            .collect();
+
+        let next = ProjectPythonIndex::new(modules);
         if self.python_index(db) != &next {
             self.set_python_index(db).to(next);
         }
     }
 
     pub(crate) fn refresh_templatetag_modules(self, db: &mut dyn Db) {
-        let next = self.python_index(db).with_current_templatetags(db, self);
+        let modules = self
+            .python_index(db)
+            .models()
+            .cloned()
+            .chain(self.templatetag_modules(db))
+            .collect();
+
+        let next = ProjectPythonIndex::new(modules);
         if self.python_index(db) != &next {
             self.set_python_index(db).to(next);
         }
+    }
+
+    fn templatetag_modules(self, db: &dyn Db) -> Vec<ProjectPythonModule> {
+        let root = self.root(db).clone();
+        let module_paths: Vec<String> = self
+            .template_libraries(db)
+            .registration_modules()
+            .into_iter()
+            .map(|module| module.as_str().to_string())
+            .collect();
+
+        if module_paths.is_empty() {
+            return Vec::new();
+        }
+
+        let interpreter = self.interpreter(db).clone();
+        let pythonpath = self.pythonpath(db).clone();
+        let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
+        let (workspace_modules, _external) = resolve_modules(
+            module_paths.iter().map(String::as_str),
+            &search_paths,
+            &root,
+        );
+
+        workspace_modules
+            .into_iter()
+            .map(|module| {
+                ProjectPythonModule::templatetag(
+                    ModulePath::new(module.module_path),
+                    module.file_path.clone(),
+                    db.get_or_create_file(&module.file_path),
+                )
+            })
+            .collect()
     }
 }
 
@@ -85,73 +138,4 @@ impl ProjectTemplateFiles {
 
         Self::from_ordered(templates)
     }
-}
-
-impl ProjectPythonIndex {
-    fn discover(db: &dyn Db, project: Project) -> Self {
-        let root = project.root(db).clone();
-        let modules = model_modules(db, &root)
-            .into_iter()
-            .chain(templatetag_modules(db, project))
-            .collect();
-
-        Self::new(modules)
-    }
-
-    fn with_current_templatetags(&self, db: &dyn Db, project: Project) -> Self {
-        let modules = self
-            .models()
-            .cloned()
-            .chain(templatetag_modules(db, project))
-            .collect();
-
-        Self::new(modules)
-    }
-}
-
-fn model_modules(db: &dyn Db, root: &Utf8Path) -> Vec<ProjectPythonModule> {
-    discover_workspace_model_files(root)
-        .into_iter()
-        .map(|(module_path, file_path)| {
-            ProjectPythonModule::model(
-                module_path,
-                file_path.clone(),
-                db.get_or_create_file(&file_path),
-            )
-        })
-        .collect()
-}
-
-fn templatetag_modules(db: &dyn Db, project: Project) -> Vec<ProjectPythonModule> {
-    let root = project.root(db).clone();
-    let module_paths: Vec<String> = project
-        .template_libraries(db)
-        .registration_modules()
-        .into_iter()
-        .map(|module| module.as_str().to_string())
-        .collect();
-
-    if module_paths.is_empty() {
-        return Vec::new();
-    }
-
-    let interpreter = project.interpreter(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-    let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
-    let (workspace_modules, _external) = resolve_modules(
-        module_paths.iter().map(String::as_str),
-        &search_paths,
-        &root,
-    );
-
-    workspace_modules
-        .into_iter()
-        .map(|module| {
-            ProjectPythonModule::templatetag(
-                ModulePath::new(module.module_path),
-                module.file_path.clone(),
-                db.get_or_create_file(&module.file_path),
-            )
-        })
-        .collect()
 }
