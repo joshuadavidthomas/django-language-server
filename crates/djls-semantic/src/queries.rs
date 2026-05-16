@@ -1,8 +1,9 @@
 use djls_source::File;
 
 use crate::db::Db;
+use crate::project::project_model_modules;
+use crate::project::project_templatetag_modules;
 use crate::project::Project;
-use crate::project::ProjectPythonModule;
 use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
 use crate::python::extract_model_graph;
@@ -108,16 +109,6 @@ fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePat
     let source = file.source(db);
     let module_path = module_path.into_string();
     extract_model_graph(source.as_ref(), &module_path)
-}
-
-#[salsa::tracked(returns(ref))]
-fn project_model_modules(db: &dyn Db, project: Project) -> Vec<ProjectPythonModule> {
-    project.python_index(db).models().cloned().collect()
-}
-
-#[salsa::tracked(returns(ref))]
-fn project_templatetag_modules(db: &dyn Db, project: Project) -> Vec<ProjectPythonModule> {
-    project.python_index(db).templatetags().cloned().collect()
 }
 
 #[salsa::tracked(returns(ref))]

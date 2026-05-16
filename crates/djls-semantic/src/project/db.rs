@@ -1,9 +1,9 @@
 //! Project-specific database capabilities.
 //!
 //! The trait exposes the runtime state that project-aware semantic code needs:
-//! the current `Project` input and the project introspector. Imperative refresh
-//! workflows live in sibling modules as free functions so the trait stays a
-//! capability boundary rather than a service object.
+//! the current `Project` input and the project introspector. Imperative
+//! synchronization lives outside the trait so it stays a capability boundary
+//! rather than a service object.
 
 use std::sync::Arc;
 

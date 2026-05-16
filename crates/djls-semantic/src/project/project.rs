@@ -200,6 +200,22 @@ impl fmt::Debug for ProjectPythonModule {
     }
 }
 
+#[salsa::tracked(returns(ref))]
+pub(crate) fn project_model_modules(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Vec<ProjectPythonModule> {
+    project.python_index(db).models().cloned().collect()
+}
+
+#[salsa::tracked(returns(ref))]
+pub(crate) fn project_templatetag_modules(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Vec<ProjectPythonModule> {
+    project.python_index(db).templatetags().cloned().collect()
+}
+
 /// Complete project configuration as a Salsa input.
 ///
 /// This represents the core identity of a project: where it is (root path),
