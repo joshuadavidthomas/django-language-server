@@ -56,7 +56,7 @@ A `SessionSnapshot` type (idea borrowed from Ruff/ty, natch) exists for cloning 
 
 ### `crates/djls-db`
 
-The concrete Salsa database. `DjangoDatabase` owns Salsa storage plus runtime infrastructure: the overlay-backed file reader, the tracked-file side table, the current `Project` input handle, settings, and the project introspector process manager. It implements the database traits defined by the lower crates. Both the LSP server and the `djls check` CLI use it.
+The concrete Salsa database. `DjangoDatabase` owns Salsa storage plus runtime infrastructure: the overlay-backed file reader, the source-file registry, the current `Project` input handle, settings, and the project introspector process manager. It implements the database traits defined by the lower crates. Both the LSP server and the `djls check` CLI use it.
 
 This crate should stay boring. It wires traits to concrete state and handles local mutation such as settings updates and file creation. Project refresh workflows live in `djls-semantic`; CLI and LSP orchestration live in `djls` and `djls-server`.
 
@@ -106,7 +106,7 @@ IDE features: completions, diagnostics, folding ranges, snippets, goto definitio
 
 ### `crates/djls-source`
 
-Foundation crate — file representation, text positions, spans, line indexing, diagnostic rendering. Nearly every other crate depends on this one.
+Foundation crate — file representation, source-file registry, text positions, spans, line indexing, diagnostic rendering. `SourceFiles` owns the path-to-`File` side table and assigns Salsa durability from file roots: first-party project roots are low durability, library roots are high durability, and file paths are stable identity. Nearly every other crate depends on this one.
 
 ### `crates/djls-workspace`
 
@@ -130,7 +130,7 @@ Salsa requires a single concrete database type, but each crate should see only t
 
 ```
 salsa::Database
-└── SourceDb   (djls-source)   — tracked files, file lookup, read_file
+└── SourceDb   (djls-source)   — source-file registry, tracked files, read_file
      └── ProjectDb  (djls-semantic) — current Project input, project file set, project introspector
           └── SemanticDb (djls-semantic) — semantic accessors used by validation and IDE features
 ```

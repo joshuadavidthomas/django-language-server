@@ -5,6 +5,7 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::File;
+use djls_source::FileRootKind;
 use rustc_hash::FxHashMap;
 use salsa::Durability;
 
@@ -177,6 +178,9 @@ impl Project {
         let interpreter = Interpreter::discover(settings.venv_path());
         let resolved_django_settings_module = resolve_django_settings(root, settings);
         let env_vars = load_env_file(root, settings);
+
+        db.files()
+            .try_add_root(root.to_path_buf(), FileRootKind::Project);
 
         Project::builder(
             root.to_path_buf(),

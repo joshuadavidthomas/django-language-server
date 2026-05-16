@@ -1,6 +1,7 @@
 mod collections;
 mod db;
 mod file;
+mod files;
 mod line;
 mod path;
 mod position;
@@ -12,6 +13,8 @@ pub use db::Db;
 pub use file::File;
 pub use file::FileKind;
 pub use file::SourceText;
+pub use files::FileRootKind;
+pub use files::SourceFiles;
 pub use line::LineIndex;
 pub use path::safe_join;
 pub use path::SafeJoinError;

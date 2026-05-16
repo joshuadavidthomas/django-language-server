@@ -9,12 +9,14 @@ use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FxDashMap;
+use djls_source::SourceFiles;
 use salsa::Setter;
 
 #[salsa::db]
 #[derive(Clone)]
 pub struct Db {
     sources: Arc<FxDashMap<Utf8PathBuf, String>>,
+    files: SourceFiles,
     tag_specs: Arc<TagSpecs>,
     template_libraries: Arc<djls_semantic::TemplateLibraries>,
     filter_arity_specs: Arc<FilterAritySpecs>,
@@ -26,6 +28,7 @@ impl Db {
     pub fn new() -> Self {
         Self {
             sources: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             tag_specs: Arc::new(TagSpecs::default()),
             template_libraries: Arc::new(djls_semantic::TemplateLibraries::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
@@ -51,9 +54,10 @@ impl Db {
         self
     }
 
-    pub fn file_with_contents(&mut self, path: Utf8PathBuf, contents: &str) -> File {
+    pub fn file_with_contents(&mut self, path: impl Into<Utf8PathBuf>, contents: &str) -> File {
+        let path = path.into();
         self.sources.insert(path.clone(), contents.to_string());
-        File::tracked(self, path, 0)
+        self.files.get_or_create(self, &path)
     }
 
     pub fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
@@ -74,12 +78,8 @@ impl salsa::Database for Db {}
 
 #[salsa::db]
 impl SourceDb for Db {
-    fn create_file(&self, path: &Utf8Path) -> File {
-        File::tracked(self, path.to_owned(), 0)
-    }
-
-    fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-        None
+    fn files(&self) -> &SourceFiles {
+        &self.files
     }
 
     fn read_file(&self, path: &Utf8Path) -> io::Result<String> {

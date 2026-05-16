@@ -149,12 +149,14 @@ mod tests {
         #[derive(Clone)]
         struct TestDb {
             storage: salsa::Storage<Self>,
+            files: djls_source::SourceFiles,
         }
 
         impl Default for TestDb {
             fn default() -> Self {
                 Self {
                     storage: salsa::Storage::new(None),
+                    files: djls_source::SourceFiles::default(),
                 }
             }
         }
@@ -164,12 +166,8 @@ mod tests {
 
         #[salsa::db]
         impl djls_source::Db for TestDb {
-            fn create_file(&self, path: &Utf8Path) -> djls_source::File {
-                djls_source::File::tracked(self, path.to_owned(), 0)
-            }
-
-            fn get_file(&self, _path: &Utf8Path) -> Option<djls_source::File> {
-                None
+            fn files(&self) -> &djls_source::SourceFiles {
+                &self.files
             }
 
             fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
@@ -180,7 +178,7 @@ mod tests {
         fn text_document(content: &str, version: i32, kind: FileKind) -> TextDocument {
             let db = TestDb::default();
             let path = Utf8Path::new("/test.txt");
-            let file = djls_source::File::new(&db, path.into(), 0);
+            let file = db.create_file(path);
             TextDocument::new(content.to_string(), version, kind, file)
         }
 
@@ -342,8 +340,7 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
-        use djls_source::File;
-        use djls_source::FxDashMap;
+        use djls_source::SourceFiles;
         use tempfile::tempdir;
 
         use super::*;
@@ -353,7 +350,7 @@ mod tests {
         struct TestDb {
             storage: salsa::Storage<Self>,
             fs: Arc<dyn FileSystem>,
-            files: Arc<FxDashMap<Utf8PathBuf, File>>,
+            files: SourceFiles,
         }
 
         impl TestDb {
@@ -361,7 +358,7 @@ mod tests {
                 Self {
                     storage: salsa::Storage::default(),
                     fs,
-                    files: Arc::new(FxDashMap::default()),
+                    files: SourceFiles::default(),
                 }
             }
         }
@@ -371,14 +368,8 @@ mod tests {
 
         #[salsa::db]
         impl djls_source::Db for TestDb {
-            fn create_file(&self, path: &Utf8Path) -> File {
-                let file = File::tracked(self, path.to_owned(), 0);
-                self.files.insert(path.to_owned(), file);
-                file
-            }
-
-            fn get_file(&self, path: &Utf8Path) -> Option<File> {
-                self.files.get(path).map(|entry| *entry)
+            fn files(&self) -> &SourceFiles {
+                &self.files
             }
 
             fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {

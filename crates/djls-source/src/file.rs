@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use salsa::Durability;
 
 use crate::db::Db;
 use crate::line::LineIndex;
@@ -16,16 +15,6 @@ pub struct File {
     pub path: Utf8PathBuf,
     /// The revision number for invalidation tracking
     pub revision: u64,
-}
-
-impl File {
-    #[must_use]
-    pub fn tracked(db: &dyn Db, path: Utf8PathBuf, revision: u64) -> Self {
-        Self::builder(path, revision)
-            .path_durability(Durability::HIGH)
-            .revision_durability(Durability::LOW)
-            .new(db)
-    }
 }
 
 #[salsa::tracked]

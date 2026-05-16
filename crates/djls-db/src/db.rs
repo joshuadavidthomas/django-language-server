@@ -20,8 +20,7 @@ use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
-use djls_source::File;
-use djls_source::FxDashMap;
+use djls_source::SourceFiles;
 use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
@@ -37,7 +36,7 @@ pub struct DjangoDatabase {
     pub(crate) fs: Arc<dyn FileSystem>,
 
     /// Registry of tracked files used by the workspace layer.
-    pub(crate) files: Arc<FxDashMap<Utf8PathBuf, File>>,
+    pub(crate) files: SourceFiles,
 
     /// The single project for this database instance
     pub(crate) project: Arc<Mutex<Option<Project>>>,
@@ -65,7 +64,7 @@ impl Default for DjangoDatabase {
 
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
@@ -96,7 +95,7 @@ impl DjangoDatabase {
     ) -> Self {
         let mut db = Self {
             fs: file_system,
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
@@ -123,14 +122,8 @@ impl salsa::Database for DjangoDatabase {}
 
 #[salsa::db]
 impl SourceDb for DjangoDatabase {
-    fn create_file(&self, path: &Utf8Path) -> File {
-        let file = File::tracked(self, path.to_owned(), 0);
-        self.files.insert(path.to_owned(), file);
-        file
-    }
-
-    fn get_file(&self, path: &Utf8Path) -> Option<File> {
-        self.files.get(path).map(|entry| *entry)
+    fn files(&self) -> &SourceFiles {
+        &self.files
     }
 
     fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
@@ -217,7 +210,7 @@ mod invalidation_tests {
     use djls_semantic::Project;
     use djls_semantic::ProjectFileSet;
     use djls_semantic::TemplateLibraries;
-    use djls_source::FxDashMap;
+    use djls_source::SourceFiles;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
     use salsa::Setter;
@@ -258,7 +251,7 @@ mod invalidation_tests {
 
         let db = DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
@@ -449,7 +442,10 @@ mod invalidation_tests {
         let (db, event_log) = test_db_with_project();
 
         // Create a Python file and track it
-        let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
+        let file = djls_source::Db::get_or_create_file(
+            &db,
+            camino::Utf8Path::new("/test/project/tags.py"),
+        );
 
         // First extraction
         let _result1 = djls_semantic::extract_filter_arities(
@@ -481,7 +477,10 @@ mod invalidation_tests {
         let (mut db, event_log) = test_db_with_project();
 
         // Create and extract from a file (file doesn't exist, source is empty)
-        let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
+        let file = djls_source::Db::get_or_create_file(
+            &db,
+            camino::Utf8Path::new("/test/project/tags.py"),
+        );
         let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
@@ -530,7 +529,7 @@ def my_filter(value, arg):
 
         let db = DjangoDatabase {
             fs: Arc::new(fs),
-            files: Arc::new(FxDashMap::default()),
+            files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
@@ -543,7 +542,10 @@ def my_filter(value, arg):
             logs: Arc::new(Mutex::new(None)),
         };
 
-        let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
+        let file = djls_source::Db::get_or_create_file(
+            &db,
+            camino::Utf8Path::new("/test/project/tags.py"),
+        );
         let result = djls_semantic::extract_filter_arities(
             &db,
             file,
