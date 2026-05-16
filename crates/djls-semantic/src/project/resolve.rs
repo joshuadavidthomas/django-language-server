@@ -2,6 +2,7 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::FileRootKind;
 
 use crate::project::Interpreter;
 use crate::ModulePath;
@@ -259,12 +260,6 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ModelFileDiscovery {
-    Workspace,
-    External,
-}
-
 /// Discover Django model source files and return their resolved module paths.
 ///
 /// Finds `models.py` files and `.py` files inside `models/` packages
@@ -272,14 +267,14 @@ pub(crate) enum ModelFileDiscovery {
 #[must_use]
 pub(crate) fn discover_model_files(
     base_dir: &Utf8Path,
-    discovery: ModelFileDiscovery,
+    root_kind: FileRootKind,
 ) -> Vec<(ModulePath, Utf8PathBuf)> {
     let mut builder = ignore::WalkBuilder::new(base_dir.as_std_path());
-    match discovery {
-        ModelFileDiscovery::Workspace => {
+    match root_kind {
+        FileRootKind::Project => {
             builder.hidden(true).git_ignore(true);
         }
-        ModelFileDiscovery::External => {
+        FileRootKind::LibrarySearchPath => {
             builder
                 .hidden(false)
                 .git_ignore(false)
@@ -320,7 +315,7 @@ pub(crate) fn discover_model_files(
             continue;
         }
 
-        if discovery == ModelFileDiscovery::Workspace
+        if root_kind == FileRootKind::Project
             && path.components().any(|c| c.as_str() == "site-packages")
         {
             continue;
@@ -492,7 +487,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::External);
+        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
@@ -508,7 +503,7 @@ class Article(models.Model):
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
         // Discovery finds the file (it doesn't inspect contents)
-        let results = discover_model_files(&root, ModelFileDiscovery::External);
+        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "emptyapp.models");
     }
@@ -531,7 +526,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let results = discover_model_files(&root, ModelFileDiscovery::External);
+        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
         assert_eq!(results.len(), 2);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(module_paths.contains(&"blog.models"));
@@ -551,7 +546,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
+        let results = discover_model_files(&root, FileRootKind::Project);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
@@ -580,7 +575,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::External);
+        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
         // Discovers all three files (including __init__.py)
         assert_eq!(results.len(), 3);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
@@ -603,7 +598,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
+        let results = discover_model_files(&root, FileRootKind::Project);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models"),
@@ -645,7 +640,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
+        let results = discover_model_files(&root, FileRootKind::Project);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
@@ -668,7 +663,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::External);
+        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
@@ -691,7 +686,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, ModelFileDiscovery::Workspace);
+        let results = discover_model_files(&root, FileRootKind::Project);
         assert!(
             results.is_empty(),
             "should not discover models in site-packages"
