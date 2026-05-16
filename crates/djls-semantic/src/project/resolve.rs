@@ -48,7 +48,7 @@ fn is_model_file(path: &Utf8Path) -> bool {
 
 /// Classification of where a module lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModuleLocation {
+pub(crate) enum ModuleLocation {
     /// Module is in the project workspace (tracked as File)
     Workspace,
     /// Module is external (site-packages, stdlib, etc.)
@@ -57,10 +57,10 @@ pub enum ModuleLocation {
 
 /// Resolved module information.
 #[derive(Debug, Clone)]
-pub struct ResolvedModule {
-    pub module_path: String,
-    pub file_path: Utf8PathBuf,
-    pub location: ModuleLocation,
+pub(crate) struct ResolvedModule {
+    pub(crate) module_path: String,
+    pub(crate) file_path: Utf8PathBuf,
+    pub(crate) location: ModuleLocation,
 }
 
 /// Resolve a Python module path to a file path.
@@ -121,7 +121,7 @@ fn classify_location(path: &Utf8Path, project_root: &Utf8Path) -> ModuleLocation
 /// Resolve multiple module paths, partitioned by location.
 ///
 /// Returns `(workspace_modules, external_modules)`.
-pub fn resolve_modules<'a>(
+pub(crate) fn resolve_modules<'a>(
     module_paths: impl IntoIterator<Item = &'a str>,
     sys_path: &[Utf8PathBuf],
     project_root: &Utf8Path,
@@ -148,7 +148,7 @@ pub fn resolve_modules<'a>(
 /// - Explicit PYTHONPATH entries
 /// - Site-packages from the virtual environment (if available)
 #[must_use]
-pub fn build_search_paths(
+pub(crate) fn build_search_paths(
     interpreter: &Interpreter,
     root: &Utf8Path,
     pythonpath: &[String],
@@ -176,7 +176,10 @@ pub fn build_search_paths(
 
 /// Find the site-packages directory for the given interpreter.
 #[must_use]
-pub fn find_site_packages(interpreter: &Interpreter, root: &Utf8Path) -> Option<Utf8PathBuf> {
+pub(crate) fn find_site_packages(
+    interpreter: &Interpreter,
+    root: &Utf8Path,
+) -> Option<Utf8PathBuf> {
     match interpreter {
         Interpreter::VenvPath(path) => find_site_packages_in_venv(Utf8Path::new(path)),
         Interpreter::Auto => {
@@ -323,7 +326,7 @@ fn discover_model_files(
 /// Uses a raw walk with no git-ignore filtering, suitable for directories
 /// outside the workspace (e.g. site-packages).
 #[must_use]
-pub fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
+pub(crate) fn discover_model_files_in_dir(base_dir: &Utf8Path) -> Vec<(ModulePath, Utf8PathBuf)> {
     discover_model_files(
         base_dir,
         |wb| {

@@ -222,20 +222,20 @@ fn refresh_template_libraries(db: &mut dyn Db) {
     let dsm = project.django_settings_module(db).clone();
     let pythonpath = project.pythonpath(db).clone();
 
-    let response = super::symbols::fetch_template_library_snapshot(db);
+    let Some(response) = super::symbols::fetch_template_library_snapshot(db) else {
+        return;
+    };
 
-    if let Some(ref response) = response {
-        super::cache::save_template_library_snapshot(
-            &root,
-            &interpreter,
-            dsm.as_deref(),
-            &pythonpath,
-            response,
-        );
-    }
+    super::cache::save_template_library_snapshot(
+        &root,
+        &interpreter,
+        dsm.as_deref(),
+        &pythonpath,
+        &response,
+    );
 
     let current = project.template_libraries(db).clone();
-    let next = current.apply_active_snapshot(response);
+    let next = current.apply_active_snapshot(Some(response));
     if project.template_libraries(db) != &next {
         project.set_template_libraries(db).to(next);
     }
