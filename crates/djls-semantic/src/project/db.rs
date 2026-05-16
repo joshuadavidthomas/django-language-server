@@ -21,16 +21,15 @@ pub trait Db: SourceDb {
 
     /// Get the shared project introspector.
     fn project_introspector(&self) -> Arc<ProjectIntrospector>;
-}
 
-/// Return the current project root or fall back to the current working directory.
-#[must_use]
-pub fn project_root_or_cwd(db: &dyn Db) -> Utf8PathBuf {
-    if let Some(project) = db.project() {
-        project.root(db).clone()
-    } else if let Ok(current_dir) = std::env::current_dir() {
-        Utf8PathBuf::from_path_buf(current_dir).unwrap_or_else(|_| Utf8PathBuf::from("."))
-    } else {
-        Utf8PathBuf::from(".")
+    /// Return the current project root or fall back to the current working directory.
+    fn project_root_or_cwd(&self) -> Utf8PathBuf {
+        if let Some(project) = self.project() {
+            project.root(self).clone()
+        } else if let Ok(current_dir) = std::env::current_dir() {
+            Utf8PathBuf::from_path_buf(current_dir).unwrap_or_else(|_| Utf8PathBuf::from("."))
+        } else {
+            Utf8PathBuf::from(".")
+        }
     }
 }

@@ -7,8 +7,8 @@ use crate::project::db::Db;
 use crate::project::resolve::build_search_paths;
 use crate::project::resolve::discover_workspace_model_files;
 use crate::project::resolve::resolve_modules;
+use crate::project::ProjectPythonIndex;
 use crate::project::ProjectPythonModule;
-use crate::project::ProjectPythonModules;
 use crate::project::ProjectTemplateFile;
 use crate::project::ProjectTemplateFiles;
 use crate::project::TemplateDirs;
@@ -42,7 +42,7 @@ pub fn load_template_library_cache(db: &mut dyn Db) -> bool {
     let next = current.apply_active_snapshot(Some(response));
     if project.template_libraries(db) != &next {
         project.set_template_libraries(db).to(next);
-        refresh_project_templatetag_modules(db);
+        refresh_project_python_templatetags(db);
     }
 
     true
@@ -64,8 +64,7 @@ pub fn refresh_external_data(db: &mut dyn Db) {
 /// Refresh first-party files used by project-aware semantic analysis.
 fn refresh_project_files(db: &mut dyn Db) {
     refresh_project_template_files(db);
-    refresh_project_model_modules(db);
-    refresh_project_templatetag_modules(db);
+    refresh_project_python_index(db);
 }
 
 fn refresh_project_template_files(db: &mut dyn Db) {
@@ -79,32 +78,61 @@ fn refresh_project_template_files(db: &mut dyn Db) {
     }
 }
 
-fn refresh_project_model_modules(db: &mut dyn Db) {
+fn refresh_project_python_index(db: &mut dyn Db) {
     let Some(project) = db.project() else {
         return;
     };
 
+    let modules = discover_project_model_modules(db)
+        .into_iter()
+        .chain(discover_project_templatetag_modules(db))
+        .collect();
+
+    let next = ProjectPythonIndex::new(modules);
+    if project.python_index(db) != &next {
+        project.set_python_index(db).to(next);
+    }
+}
+
+fn refresh_project_python_templatetags(db: &mut dyn Db) {
+    let Some(project) = db.project() else {
+        return;
+    };
+
+    let modules = project
+        .python_index(db)
+        .models()
+        .cloned()
+        .chain(discover_project_templatetag_modules(db))
+        .collect();
+
+    let next = ProjectPythonIndex::new(modules);
+    if project.python_index(db) != &next {
+        project.set_python_index(db).to(next);
+    }
+}
+
+fn discover_project_model_modules(db: &dyn Db) -> Vec<ProjectPythonModule> {
+    let Some(project) = db.project() else {
+        return Vec::new();
+    };
+
     let root = project.root(db).clone();
-    let model_modules = discover_workspace_model_files(&root)
+    discover_workspace_model_files(&root)
         .into_iter()
         .map(|(module_path, file_path)| {
-            ProjectPythonModule::new(
+            ProjectPythonModule::model(
                 module_path,
                 file_path.clone(),
                 db.get_or_create_file(&file_path),
             )
         })
-        .collect();
-
-    let next = ProjectPythonModules::new(model_modules);
-    if project.model_modules(db) != &next {
-        project.set_model_modules(db).to(next);
-    }
+        .collect()
 }
 
-fn refresh_project_templatetag_modules(db: &mut dyn Db) {
+fn discover_project_templatetag_modules(db: &dyn Db) -> Vec<ProjectPythonModule> {
     let Some(project) = db.project() else {
-        return;
+        return Vec::new();
     };
 
     let root = project.root(db).clone();
@@ -115,33 +143,29 @@ fn refresh_project_templatetag_modules(db: &mut dyn Db) {
         .map(|module| module.as_str().to_string())
         .collect();
 
-    let templatetag_modules = if module_paths.is_empty() {
-        Vec::new()
-    } else {
-        let interpreter = project.interpreter(db).clone();
-        let pythonpath = project.pythonpath(db).clone();
-        let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
-        let (workspace_modules, _external) = resolve_modules(
-            module_paths.iter().map(String::as_str),
-            &search_paths,
-            &root,
-        );
-        workspace_modules
-            .into_iter()
-            .map(|module| {
-                ProjectPythonModule::new(
-                    ModulePath::new(module.module_path),
-                    module.file_path.clone(),
-                    db.get_or_create_file(&module.file_path),
-                )
-            })
-            .collect()
-    };
-
-    let next = ProjectPythonModules::new(templatetag_modules);
-    if project.templatetag_modules(db) != &next {
-        project.set_templatetag_modules(db).to(next);
+    if module_paths.is_empty() {
+        return Vec::new();
     }
+
+    let interpreter = project.interpreter(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+    let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
+    let (workspace_modules, _external) = resolve_modules(
+        module_paths.iter().map(String::as_str),
+        &search_paths,
+        &root,
+    );
+
+    workspace_modules
+        .into_iter()
+        .map(|module| {
+            ProjectPythonModule::templatetag(
+                ModulePath::new(module.module_path),
+                module.file_path.clone(),
+                db.get_or_create_file(&module.file_path),
+            )
+        })
+        .collect()
 }
 
 fn discover_project_template_files(db: &dyn Db) -> Vec<ProjectTemplateFile> {

@@ -212,7 +212,7 @@ mod invalidation_tests {
     use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
     use djls_semantic::Project;
-    use djls_semantic::ProjectPythonModules;
+    use djls_semantic::ProjectPythonIndex;
     use djls_semantic::ProjectTemplateFiles;
     use djls_semantic::TemplateDirs;
     use djls_semantic::TemplateLibraries;
@@ -291,8 +291,7 @@ mod invalidation_tests {
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             ProjectTemplateFiles::default(),
-            ProjectPythonModules::default(),
-            ProjectPythonModules::default(),
+            ProjectPythonIndex::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),
             rustc_hash::FxHashMap::default(),

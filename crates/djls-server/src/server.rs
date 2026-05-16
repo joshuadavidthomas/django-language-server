@@ -2,7 +2,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_semantic::load_template_library_cache;
-use djls_semantic::project_root_or_cwd;
 use djls_semantic::refresh_external_data;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ProjectDb;
@@ -527,7 +526,7 @@ impl LanguageServer for DjangoLanguageServer {
                     return djls_db::SettingsUpdate::default();
                 }
 
-                let project_root = project_root_or_cwd(session.db());
+                let project_root = session.db().project_root_or_cwd();
 
                 match djls_conf::Settings::new(
                     &project_root,

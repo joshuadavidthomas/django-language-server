@@ -74,11 +74,11 @@ impl fmt::Debug for ProjectTemplateFiles {
     }
 }
 
-/// First-party Python modules sorted by module path and file path.
+/// First-party Python modules sorted by module path, path, and kind.
 #[derive(Clone, Default, PartialEq, Eq)]
-pub struct ProjectPythonModules(Vec<ProjectPythonModule>);
+pub struct ProjectPythonIndex(Vec<ProjectPythonModule>);
 
-impl ProjectPythonModules {
+impl ProjectPythonIndex {
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
@@ -94,21 +94,34 @@ impl ProjectPythonModules {
             a.module_path
                 .cmp(&b.module_path)
                 .then_with(|| a.path.cmp(&b.path))
+                .then_with(|| a.kind.cmp(&b.kind))
         });
         Self(modules)
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectPythonModule> {
-        self.0.iter()
+    pub(crate) fn models(&self) -> impl Iterator<Item = &ProjectPythonModule> {
+        self.0
+            .iter()
+            .filter(|module| module.kind == ProjectPythonModuleKind::Model)
+    }
+
+    pub(crate) fn templatetags(&self) -> impl Iterator<Item = &ProjectPythonModule> {
+        self.0
+            .iter()
+            .filter(|module| module.kind == ProjectPythonModuleKind::TemplateTag)
     }
 }
 
-impl fmt::Debug for ProjectPythonModules {
+impl fmt::Debug for ProjectPythonIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ProjectPythonModules")
-            .field(&self.0)
-            .finish()
+        f.debug_tuple("ProjectPythonIndex").field(&self.0).finish()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ProjectPythonModuleKind {
+    Model,
+    TemplateTag,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -145,14 +158,25 @@ impl fmt::Debug for ProjectTemplateFile {
 pub(crate) struct ProjectPythonModule {
     module_path: ModulePath,
     path: Utf8PathBuf,
+    kind: ProjectPythonModuleKind,
     file: File,
 }
 
 impl ProjectPythonModule {
-    pub(crate) fn new(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
+    pub(crate) fn model(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
         Self {
             module_path,
             path,
+            kind: ProjectPythonModuleKind::Model,
+            file,
+        }
+    }
+
+    pub(crate) fn templatetag(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
+        Self {
+            module_path,
+            path,
+            kind: ProjectPythonModuleKind::TemplateTag,
             file,
         }
     }
@@ -171,6 +195,7 @@ impl fmt::Debug for ProjectPythonModule {
         f.debug_struct("ProjectPythonModule")
             .field("module_path", &self.module_path)
             .field("path", &self.path)
+            .field("kind", &self.kind)
             .finish_non_exhaustive()
     }
 }
@@ -220,12 +245,9 @@ pub struct Project {
     /// First-party template files discovered for this project.
     #[returns(ref)]
     pub(crate) template_files: ProjectTemplateFiles,
-    /// First-party model modules discovered for this project.
+    /// First-party Python modules discovered for this project.
     #[returns(ref)]
-    pub(crate) model_modules: ProjectPythonModules,
-    /// First-party templatetag modules discovered for this project.
-    #[returns(ref)]
-    pub(crate) templatetag_modules: ProjectPythonModules,
+    pub(crate) python_index: ProjectPythonIndex,
     /// Extracted tag rules from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_external_data`. Workspace files use tracked queries.
@@ -269,8 +291,7 @@ impl Project {
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             ProjectTemplateFiles::default(),
-            ProjectPythonModules::default(),
-            ProjectPythonModules::default(),
+            ProjectPythonIndex::default(),
             FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
@@ -279,8 +300,7 @@ impl Project {
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
         .template_files_durability(Durability::LOW)
-        .model_modules_durability(Durability::LOW)
-        .templatetag_modules_durability(Durability::LOW)
+        .python_index_durability(Durability::LOW)
         .extracted_external_tag_rules_durability(Durability::HIGH)
         .extracted_external_filter_arities_durability(Durability::HIGH)
         .extracted_external_block_specs_durability(Durability::HIGH)

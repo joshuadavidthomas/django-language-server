@@ -11,12 +11,11 @@ mod refresh;
 mod resolve;
 mod symbols;
 
-pub use db::project_root_or_cwd;
 pub use db::Db;
 pub use input::load_env_file;
 pub use input::Project;
+pub use input::ProjectPythonIndex;
 pub(crate) use input::ProjectPythonModule;
-pub use input::ProjectPythonModules;
 pub(crate) use input::ProjectTemplateFile;
 pub use input::ProjectTemplateFiles;
 pub use input::TemplateDirs;
