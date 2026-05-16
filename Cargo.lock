@@ -958,6 +958,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
+ "djls-format",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -1003,7 +1004,6 @@ dependencies = [
  "dashmap",
  "djls-conf",
  "djls-db",
- "djls-format",
  "djls-ide",
  "djls-semantic",
  "djls-source",
