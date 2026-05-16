@@ -56,6 +56,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Removed
 
+- Removed support for the deprecated TagSpecs v0.4.0 flat format.
 - Dropped Django 4.2 from supported versions.
 - Dropped Django 5.1 from supported versions.
 

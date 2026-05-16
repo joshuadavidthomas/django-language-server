@@ -60,12 +60,6 @@ ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 
-[workspace.lints.rust]
-# Allow deprecated warnings for legacy tagspecs (remove in v6.2.0)
-# NOTE: To see all deprecation warnings when removing legacy code in v6.2.0,
-#       temporarily delete this `deprecated = "allow"` line
-deprecated = "allow"
-
 [profile.bench]
 debug = 2
 
