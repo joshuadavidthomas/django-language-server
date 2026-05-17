@@ -10,6 +10,7 @@
     reason = "Milestone A6 adds app registry facts before project facts are assembled."
 )]
 
+use std::collections::BTreeSet;
 use std::fs;
 
 use camino::Utf8Path;
@@ -215,11 +216,15 @@ fn resolve_app_config_entry(
         })?
         .into_syntax();
 
-    let Some(class) = module
+    let classes = module
         .body
         .iter()
-        .find_map(|stmt| app_config_class(stmt, class_name))
-    else {
+        .filter_map(class_from_stmt)
+        .collect::<Vec<_>>();
+    let app_config_class_names = app_config_class_names(&classes);
+    let Some(class) = classes.into_iter().find(|class| {
+        class.name.as_str() == class_name && app_config_class_names.contains(class.name.as_str())
+    }) else {
         let mut reasons = direct_reasons;
         reasons.push(Reason::file(
             Field::AppsConfig,
@@ -358,11 +363,17 @@ fn select_default_app_config<'a>(
     body: &'a [Stmt],
     config_file: &Utf8Path,
 ) -> DefaultAppConfigSelection<'a> {
+    let classes = body.iter().filter_map(class_from_stmt).collect::<Vec<_>>();
+    let app_config_class_names = app_config_class_names(&classes);
     let mut candidates = Vec::new();
     let mut explicit_default_candidates = Vec::new();
 
-    for class in body.iter().filter_map(app_config_class_from_stmt) {
-        let default = match app_config_default(class, config_file) {
+    for class in classes
+        .iter()
+        .copied()
+        .filter(|class| app_config_class_names.contains(class.name.as_str()))
+    {
+        let default = match app_config_default(class, &classes, config_file) {
             Ok(default) => default,
             Err(reason) => return DefaultAppConfigSelection::Unclear(reason),
         };
@@ -381,32 +392,90 @@ fn select_default_app_config<'a>(
         _ if explicit_default_candidates.len() == 1 => {
             DefaultAppConfigSelection::Selected(explicit_default_candidates[0])
         }
-        _ => DefaultAppConfigSelection::Unclear(Reason::file(
-            Field::AppsConfig,
-            config_file,
-            "default AppConfig selection is ambiguous; set default = True on one AppConfig class",
-        )),
+        _ if explicit_default_candidates.len() > 1 => {
+            DefaultAppConfigSelection::Unclear(Reason::file(
+                Field::AppsConfig,
+                config_file,
+                "more than one AppConfig class sets default = True",
+            ))
+        }
+        _ => DefaultAppConfigSelection::None,
     }
 }
 
-fn app_config_class_from_stmt(stmt: &Stmt) -> Option<&StmtClassDef> {
+fn class_from_stmt(stmt: &Stmt) -> Option<&StmtClassDef> {
     let Stmt::ClassDef(class) = stmt else {
         return None;
     };
-    is_app_config_class(class).then_some(class)
+    Some(class)
 }
 
-fn app_config_default(class: &StmtClassDef, file: &Utf8Path) -> Result<Option<bool>, Reason> {
-    let Some(default) = app_config_assignments(class).default else {
+fn app_config_class_names<'a>(classes: &[&'a StmtClassDef]) -> BTreeSet<&'a str> {
+    let mut names = BTreeSet::new();
+    loop {
+        let before = names.len();
+        for class in classes {
+            if app_config_bases(class)
+                .into_iter()
+                .any(|base| base == "AppConfig" || names.contains(base))
+            {
+                names.insert(class.name.as_str());
+            }
+        }
+        if names.len() == before {
+            return names;
+        }
+    }
+}
+
+fn app_config_default(
+    class: &StmtClassDef,
+    classes: &[&StmtClassDef],
+    file: &Utf8Path,
+) -> Result<Option<bool>, Reason> {
+    app_config_default_inner(class, classes, file, &mut BTreeSet::new())
+}
+
+fn app_config_default_inner<'a>(
+    class: &'a StmtClassDef,
+    classes: &[&'a StmtClassDef],
+    file: &Utf8Path,
+    active_classes: &mut BTreeSet<&'a str>,
+) -> Result<Option<bool>, Reason> {
+    if !active_classes.insert(class.name.as_str()) {
         return Ok(None);
-    };
-    boolean_literal(default).map(Some).ok_or_else(|| {
-        Reason::file(
-            Field::AppsConfig,
-            file,
-            "AppConfig.default must be a boolean literal for static default selection",
-        )
-    })
+    }
+
+    if let Some(default) = app_config_assignments(class).default {
+        active_classes.remove(class.name.as_str());
+        return boolean_literal(default).map(Some).ok_or_else(|| {
+            Reason::file(
+                Field::AppsConfig,
+                file,
+                format!(
+                    "AppConfig.default on `{}` must be a boolean literal for static default selection",
+                    class.name.as_str()
+                ),
+            )
+        });
+    }
+
+    for base in app_config_bases(class) {
+        let Some(parent) = classes
+            .iter()
+            .copied()
+            .find(|candidate| candidate.name.as_str() == base)
+        else {
+            continue;
+        };
+        if let Some(default) = app_config_default_inner(parent, classes, file, active_classes)? {
+            active_classes.remove(class.name.as_str());
+            return Ok(Some(default));
+        }
+    }
+
+    active_classes.remove(class.name.as_str());
+    Ok(None)
 }
 
 fn resolved_config_file(
@@ -419,25 +488,18 @@ fn resolved_config_file(
     }
 }
 
-fn app_config_class<'a>(stmt: &'a Stmt, class_name: &str) -> Option<&'a StmtClassDef> {
-    let Stmt::ClassDef(class) = stmt else {
-        return None;
-    };
-    if class.name.as_str() != class_name {
-        return None;
-    }
-    is_app_config_class(class).then_some(class)
-}
-
-fn is_app_config_class(class: &StmtClassDef) -> bool {
+fn app_config_bases(class: &StmtClassDef) -> Vec<&str> {
     class
         .arguments
         .as_ref()
-        .is_some_and(|arguments| arguments.args.iter().any(is_app_config_base))
-}
-
-fn is_app_config_base(expr: &Expr) -> bool {
-    matches!(base_class_name(expr), Some("AppConfig"))
+        .map(|arguments| {
+            arguments
+                .args
+                .iter()
+                .filter_map(base_class_name)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 fn base_class_name(expr: &Expr) -> Option<&str> {
@@ -975,7 +1037,7 @@ class BetterBlogConfig(AppConfig):
     }
 
     #[test]
-    fn ambiguous_default_app_config_keeps_direct_package_partial() {
+    fn multiple_default_app_configs_without_default_true_keep_direct_package() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("blog/__init__.py"), "");
@@ -998,13 +1060,134 @@ class OtherBlogConfig(AppConfig):
             &search_paths(&root),
         );
 
+        let installed_apps = known_vec(&facts.installed_apps);
+        assert!(installed_apps[0].config.is_none());
+        assert_eq!(known_module(&installed_apps[0].module), module("blog"));
+    }
+
+    #[test]
+    fn multiple_default_true_app_configs_are_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    default = True
+    name = "blog"
+
+class OtherBlogConfig(AppConfig):
+    default = True
+    name = "blog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
         let (installed_apps, reasons) = partial_vec(&facts.installed_apps);
         assert!(installed_apps[0].config.is_none());
         let (app_module, _) = partial_module(&installed_apps[0].module);
         assert_eq!(app_module, module("blog"));
-        assert!(reasons.iter().any(|reason| reason
-            .message
-            .contains("default AppConfig selection is ambiguous")));
+        assert!(reasons
+            .iter()
+            .any(|reason| reason.message.contains("more than one AppConfig")));
+    }
+
+    #[test]
+    fn selected_default_app_config_missing_name_is_unknown() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    pass
+",
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let (installed_apps, reasons) = partial_vec(&facts.installed_apps);
+        assert!(installed_apps[0].config.is_some());
+        assert!(matches!(installed_apps[0].module, Fact::Unknown { .. }));
+        assert!(reasons
+            .iter()
+            .any(|reason| reason.message.contains("AppConfig.name is not assigned")));
+        let (app_registry, _) = partial_vec(&facts.app_registry);
+        assert!(app_registry.is_empty());
+    }
+
+    #[test]
+    fn indirect_app_config_subclasses_match_django_default_selection() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BaseConfig(AppConfig):
+    pass
+
+class BlogConfig(BaseConfig):
+    name = "blog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let installed_apps = known_vec(&facts.installed_apps);
+        assert!(installed_apps[0].config.is_none());
+        assert_eq!(known_module(&installed_apps[0].module), module("blog"));
+    }
+
+    #[test]
+    fn explicit_indirect_app_config_entries_resolve() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BaseConfig(AppConfig):
+    pass
+
+class BlogConfig(BaseConfig):
+    name = "blog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog.apps.BlogConfig".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let installed_apps = known_vec(&facts.installed_apps);
+        let config = installed_apps[0].config.as_ref().unwrap();
+        assert_eq!(config.class_name, "BlogConfig");
+        assert_eq!(known_module(&installed_apps[0].module), module("blog"));
     }
 
     #[test]
