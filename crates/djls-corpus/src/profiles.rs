@@ -264,6 +264,24 @@ mod tests {
             gh401.context_discovery_globs,
             vec!["projects/*/settings/dev.py"]
         );
+        let site1 = gh401
+            .contexts
+            .iter()
+            .find(|context| context.label == "site1-dev")
+            .unwrap();
+        let site2 = gh401
+            .contexts
+            .iter()
+            .find(|context| context.label == "site2-dev")
+            .unwrap();
+        assert_eq!(
+            site1.expected.local_apps,
+            vec!["clientname.app1", "clientname.app2"]
+        );
+        assert_eq!(
+            site2.expected.local_apps,
+            vec!["clientname.app2", "clientname.app3"]
+        );
         assert_eq!(
             gh401.expected_union.local_apps,
             vec!["clientname.app1", "clientname.app2", "clientname.app3"]
