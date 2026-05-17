@@ -4,6 +4,8 @@
 //! settings facts and static app registry facts. It follows Django's loader
 //! order for the standard Django template backend: configured `DIRS` first,
 //! then existing `<app>/templates` directories when `APP_DIRS` is true.
+//! Exact duplicate app-template facts are emitted once at their first flattened
+//! backend occurrence because these facts do not carry backend identity yet.
 
 #![allow(
     dead_code,
@@ -156,14 +158,25 @@ fn append_app_template_dirs(
 fn push_existing_app_template_dirs(dirs: &mut Vec<TemplateDirFact>, apps: &[AppFact]) {
     for app in apps {
         let path = app.path.join("templates");
+        // Django's get_app_template_dirs() only returns app template directories
+        // that exist. Keep that filter here so static facts match runtime dirs.
         if path.is_dir() {
-            dirs.push(TemplateDirFact {
-                path,
-                source: TemplateDirSource::AppDir {
-                    app: app.module.clone(),
+            push_unique_app_template_dir(
+                dirs,
+                TemplateDirFact {
+                    path,
+                    source: TemplateDirSource::AppDir {
+                        app: app.module.clone(),
+                    },
                 },
-            });
+            );
         }
+    }
+}
+
+fn push_unique_app_template_dir(dirs: &mut Vec<TemplateDirFact>, dir: TemplateDirFact) {
+    if !dirs.contains(&dir) {
+        dirs.push(dir);
     }
 }
 
@@ -469,6 +482,20 @@ mod tests {
     }
 
     #[test]
+    fn empty_template_backend_list_is_known_empty() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        mkdir(&root.join("blog/templates"));
+
+        let facts = assemble_template_dirs(
+            &Fact::known(Vec::new()),
+            &Fact::known(vec![app(&root, "blog")]),
+        );
+
+        assert!(known_vec(&facts).is_empty());
+    }
+
+    #[test]
     fn skips_non_django_backends() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
@@ -482,6 +509,36 @@ mod tests {
             assemble_template_dirs(&Fact::known(vec![jinja_backend]), &Fact::known(Vec::new()));
 
         assert!(known_vec(&facts).is_empty());
+    }
+
+    #[test]
+    fn non_django_backend_does_not_block_django_backend_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let mut jinja_backend = backend(
+            Fact::known(vec![settings_dir(root.join("jinja_templates"))]),
+            Fact::known(false),
+        );
+        jinja_backend.backend = Some("django.template.backends.jinja2.Jinja2".to_string());
+
+        let facts = assemble_template_dirs(
+            &Fact::known(vec![
+                jinja_backend,
+                backend(
+                    Fact::known(vec![settings_dir(root.join("django_templates"))]),
+                    Fact::known(false),
+                ),
+            ]),
+            &Fact::known(Vec::new()),
+        );
+
+        assert_eq!(
+            known_vec(&facts)
+                .into_iter()
+                .map(|dir| dir.path)
+                .collect::<Vec<_>>(),
+            [root.join("django_templates")]
+        );
     }
 
     #[test]
@@ -600,6 +657,39 @@ class BlogConfig(AppConfig):
                 .map(|dir| dir.path)
                 .collect::<Vec<_>>(),
             [root.join("src/blog/templates")]
+        );
+    }
+
+    #[test]
+    fn multiple_app_dirs_backends_deduplicate_app_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        mkdir(&root.join("blog/templates"));
+
+        let facts = assemble_template_dirs(
+            &Fact::known(vec![
+                backend(
+                    Fact::known(vec![settings_dir(root.join("first"))]),
+                    Fact::known(true),
+                ),
+                backend(
+                    Fact::known(vec![settings_dir(root.join("second"))]),
+                    Fact::known(true),
+                ),
+            ]),
+            &Fact::known(vec![app(&root, "blog")]),
+        );
+
+        assert_eq!(
+            known_vec(&facts)
+                .into_iter()
+                .map(|dir| dir.path)
+                .collect::<Vec<_>>(),
+            [
+                root.join("first"),
+                root.join("blog/templates"),
+                root.join("second"),
+            ]
         );
     }
 
