@@ -20,13 +20,16 @@ use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
 
+use crate::project::app_registry::AppRegistryFacts;
 use crate::project::app_registry::resolve_app_registry;
 use crate::project::db::Db as ProjectDb;
 use crate::project::facts::Fact;
 use crate::project::facts::Field;
 use crate::project::facts::ModuleLocation;
+use crate::project::facts::ModuleSearchPathEntry;
 use crate::project::facts::Reason;
 use crate::project::facts::ReasonSource;
+use crate::project::facts::SettingsFacts;
 use crate::project::input::Project;
 use crate::project::input::ProjectPythonIndex;
 use crate::project::input::ProjectPythonModule;
@@ -45,6 +48,7 @@ use crate::project::resolve::resolve_modules;
 use crate::project::resolve::ResolvedModule;
 use crate::project::settings_facts::extract_settings_facts_for_module;
 use crate::project::symbols::TemplateLibrarySnapshot;
+use crate::project::template_dirs::assemble_template_dirs;
 use crate::project::template_libraries::assemble_template_libraries;
 use crate::project::template_symbols::assemble_template_library_snapshot;
 use crate::project::template_symbols::assemble_template_symbols;
@@ -106,14 +110,37 @@ impl IntrospectionRequest for TemplateDirsRequest {
 }
 
 fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
-    let Some(dirs) = fetch_template_dirs(db) else {
-        return;
-    };
+    let inspector_dirs = fetch_template_dirs(db);
+    let static_dirs = inspector_dirs
+        .is_none()
+        .then(|| assemble_project_static_template_dirs(db, project));
+    apply_template_dirs_or_static_fallback(db, project, inspector_dirs, static_dirs);
+}
 
+fn apply_template_dirs(db: &mut dyn ProjectDb, project: Project, dirs: Vec<Utf8PathBuf>) -> bool {
     let next = TemplateDirs::Known(dirs);
     if project.template_dirs(db) != &next {
         project.set_template_dirs(db).to(next);
+        return true;
     }
+
+    false
+}
+
+fn apply_template_dirs_or_static_fallback(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    inspector_dirs: Option<Vec<Utf8PathBuf>>,
+    static_dirs: Option<Fact<Vec<Utf8PathBuf>>>,
+) -> bool {
+    if let Some(dirs) = inspector_dirs {
+        return apply_template_dirs(db, project, dirs);
+    }
+
+    let Some(dirs) = static_dirs else {
+        return false;
+    };
+    apply_static_template_dirs(db, project, dirs)
 }
 
 fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
@@ -142,6 +169,73 @@ fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
     }
 
     Some(response.dirs)
+}
+
+fn assemble_project_static_template_dirs(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Fact<Vec<Utf8PathBuf>> {
+    let root = project.root(db).clone();
+    let interpreter = project.interpreter(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+    let site_packages_paths = find_site_packages(&interpreter, &root)
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    assemble_static_template_dirs(
+        &root,
+        django_settings_module.as_deref(),
+        &pythonpath,
+        &site_packages_paths,
+    )
+}
+
+fn apply_static_template_dirs(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    dirs: Fact<Vec<Utf8PathBuf>>,
+) -> bool {
+    let Some(dirs) = usable_static_template_dirs(dirs) else {
+        if project.template_dirs(db) != &TemplateDirs::Unknown {
+            project.set_template_dirs(db).to(TemplateDirs::Unknown);
+        }
+        return false;
+    };
+
+    apply_template_dirs(db, project, dirs)
+}
+
+fn assemble_static_template_dirs(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Fact<Vec<Utf8PathBuf>> {
+    let context = match assemble_static_project_context(
+        root,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ) {
+        Ok(context) => context,
+        Err(reasons) => return Fact::unknown(reasons),
+    };
+
+    let dirs = assemble_template_dirs(
+        &context.settings_facts.template_backends,
+        &context.app_registry.app_registry,
+    )
+    .map(|dirs| dirs.into_iter().map(|dir| dir.path).collect::<Vec<_>>());
+
+    add_static_reasons(dirs, context.reasons)
+}
+
+fn usable_static_template_dirs(dirs: Fact<Vec<Utf8PathBuf>>) -> Option<Vec<Utf8PathBuf>> {
+    match dirs {
+        Fact::Known { value } => Some(value),
+        Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
+    }
 }
 
 #[derive(Serialize)]
@@ -233,31 +327,62 @@ fn assemble_static_template_library_snapshot(
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
 ) -> Fact<TemplateLibrarySnapshot> {
+    let context = match assemble_static_project_context(
+        root,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ) {
+        Ok(context) => context,
+        Err(reasons) => return Fact::unknown(reasons),
+    };
+
+    let template_libraries = assemble_template_libraries(
+        &context.settings_facts.template_backends,
+        &context.app_registry.app_registry,
+    );
+    let template_symbols =
+        assemble_template_symbols(&template_libraries, &context.module_search_paths, root);
+    let snapshot = assemble_template_library_snapshot(&template_libraries, &template_symbols);
+
+    add_static_reasons(snapshot, context.reasons)
+}
+
+struct StaticProjectContext {
+    module_search_paths: Fact<Vec<ModuleSearchPathEntry>>,
+    settings_facts: SettingsFacts,
+    app_registry: AppRegistryFacts,
+    reasons: Vec<Reason>,
+}
+
+fn assemble_static_project_context(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Result<StaticProjectContext, Vec<Reason>> {
     let Some(django_settings_module) = django_settings_module else {
-        return Fact::unknown(vec![Reason::new(
+        return Err(vec![Reason::new(
             Field::DjangoEnvironmentDiscovery,
             ReasonSource::Workspace(root.to_path_buf()),
-            "django_settings_module is not configured; skipped static template library assembly",
+            "django_settings_module is not configured; skipped static project model assembly",
         )]);
     };
 
-    let django_settings_module = match PyModuleName::parse(django_settings_module) {
-        Ok(module) => module,
-        Err(error) => {
-            return Fact::unknown(vec![Reason::new(
-                Field::DjangoEnvironmentDiscovery,
-                ReasonSource::Workspace(root.to_path_buf()),
-                format!("django_settings_module is not a valid Python module path: {error}"),
-            )]);
-        }
-    };
+    let django_settings_module = PyModuleName::parse(django_settings_module).map_err(|error| {
+        vec![Reason::new(
+            Field::DjangoEnvironmentDiscovery,
+            ReasonSource::Workspace(root.to_path_buf()),
+            format!("django_settings_module is not a valid Python module path: {error}"),
+        )]
+    })?;
 
     let explicit_python_paths = pythonpath.iter().map(Utf8PathBuf::from).collect::<Vec<_>>();
     let module_search_paths =
         discover_static_module_search_paths(root, &explicit_python_paths, site_packages_paths);
     let mut static_reasons = module_search_paths.reasons().to_vec();
     let Some(search_paths) = module_search_paths.value() else {
-        return Fact::unknown(module_search_paths.reasons().to_vec());
+        return Err(module_search_paths.reasons().to_vec());
     };
 
     let settings_resolution =
@@ -268,7 +393,7 @@ fn assemble_static_template_library_snapshot(
     );
     let settings_file = match settings_resolution.resolved.value() {
         Some(resolved) => resolved.file.clone(),
-        None => return Fact::unknown(settings_resolution.resolved.reasons().to_vec()),
+        None => return Err(settings_resolution.resolved.reasons().to_vec()),
     };
 
     let settings_facts = extract_settings_facts_for_module(
@@ -278,15 +403,13 @@ fn assemble_static_template_library_snapshot(
         search_paths,
     );
     let app_registry = resolve_app_registry(&settings_facts.installed_apps, root, search_paths);
-    let template_libraries = assemble_template_libraries(
-        &settings_facts.template_backends,
-        &app_registry.app_registry,
-    );
-    let template_symbols =
-        assemble_template_symbols(&template_libraries, &module_search_paths, root);
-    let snapshot = assemble_template_library_snapshot(&template_libraries, &template_symbols);
 
-    add_static_reasons(snapshot, static_reasons)
+    Ok(StaticProjectContext {
+        module_search_paths,
+        settings_facts,
+        app_registry,
+        reasons: static_reasons,
+    })
 }
 
 fn usable_static_template_library_snapshot(
@@ -964,6 +1087,225 @@ def default_tag(value):
 ",
             );
         }
+    }
+
+    fn write_static_template_dirs_fixture(root: &Utf8Path) {
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("templates/base.html"), "");
+        write_file(&root.join("blog/templates/blog/detail.html"), "");
+    }
+
+    #[test]
+    fn template_dirs_routing_prefers_inspector_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        assert!(apply_template_dirs(
+            &mut db,
+            project,
+            vec![root.join("inspector_templates")],
+        ));
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("inspector_templates")])
+        );
+    }
+
+    #[test]
+    fn template_dirs_routing_does_not_assemble_static_when_inspector_dirs_exist() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        assert!(apply_template_dirs_or_static_fallback(
+            &mut db,
+            project,
+            Some(vec![root.join("inspector_templates")]),
+            None,
+        ));
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("inspector_templates")])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_populate_project_template_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        assert!(apply_static_template_dirs(&mut db, project, dirs));
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates"), root.join("blog/templates")])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_drive_template_file_discovery() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_files(&mut db, project);
+
+        assert_eq!(project.template_files(&db).len(), 2);
+    }
+
+    #[test]
+    fn static_template_dirs_use_static_resolver_src_root() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root.join("src"));
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        assert!(apply_static_template_dirs(&mut db, project, dirs));
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![
+                root.join("src/templates"),
+                root.join("src/blog/templates"),
+            ])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_decline_partial_known_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["missing"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("templates/base.html"), "");
+
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+        let Fact::Partial { value, reasons } = &dirs else {
+            panic!("expected partial dirs when an installed app is unresolved");
+        };
+        assert_eq!(value, &[root.join("templates")]);
+        assert!(!reasons.is_empty());
+
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        assert!(apply_template_dirs(
+            &mut db,
+            project,
+            vec![root.join("stale_templates")],
+        ));
+        assert!(!apply_static_template_dirs(&mut db, project, dirs));
+        assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
+    }
+
+    #[test]
+    fn static_template_dirs_clear_stale_template_files_on_partial_fallback() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let stale_dir = root.join("stale_templates");
+        write_file(&stale_dir.join("stale.html"), "");
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        assert!(apply_template_dirs(&mut db, project, vec![stale_dir]));
+        refresh_template_files(&mut db, project);
+        assert_eq!(project.template_files(&db).len(), 1);
+
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["missing"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+
+        assert!(!apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_files(&mut db, project);
+
+        assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
+        assert!(project.template_files(&db).is_empty());
+    }
+
+    #[test]
+    fn static_template_dirs_apply_known_empty_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r"
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        );
+
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        assert_eq!(project.template_dirs(&db), &TemplateDirs::Known(Vec::new()));
     }
 
     #[test]
