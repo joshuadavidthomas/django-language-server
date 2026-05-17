@@ -7,6 +7,7 @@ mod resolve;
 mod static_django_environments;
 mod static_model;
 mod static_resolver;
+mod static_settings;
 mod symbols;
 mod sync;
 mod system;
