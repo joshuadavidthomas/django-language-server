@@ -1,0 +1,4 @@
+[tool.djls]
+# A single django_settings_module cannot represent this workspace.
+# Project model tests should discover both dev settings modules.
+django_settings_file_patterns = ["projects/*/settings/dev.py"]

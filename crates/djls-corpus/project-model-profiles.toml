@@ -1,4 +1,4 @@
-# Profiles for static Django project model validation.
+# Profiles for Django project model validation.
 #
 # These profiles turn real corpus projects, plus contributed regression shapes,
 # into explicit test inputs. They avoid guessing the active settings file in

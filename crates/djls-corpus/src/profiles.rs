@@ -7,9 +7,9 @@ use serde::Deserialize;
 
 use crate::Corpus;
 
-const STATIC_PROJECT_MODEL_PROFILES: &str = include_str!("../static-project-model-profiles.toml");
-const STATIC_PROJECT_MODEL_FIXTURES_DIR: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-project-model");
+const PROJECT_MODEL_PROFILES: &str = include_str!("../project-model-profiles.toml");
+const PROJECT_MODEL_FIXTURES_DIR: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/project-model");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProfileSet {
@@ -84,8 +84,8 @@ pub struct ExpectedFacts {
     pub templatetag_modules: Vec<String>,
 }
 
-pub fn static_project_model_profiles() -> anyhow::Result<ProfileSet> {
-    let profiles: ProfileSet = toml::from_str(STATIC_PROJECT_MODEL_PROFILES)?;
+pub fn project_model_profiles() -> anyhow::Result<ProfileSet> {
+    let profiles: ProfileSet = toml::from_str(PROJECT_MODEL_PROFILES)?;
     profiles.validate()?;
     Ok(profiles)
 }
@@ -119,7 +119,7 @@ impl Profile {
         match self.source.kind {
             SourceKind::Corpus => corpus.map(|corpus| corpus.root().join(&self.source.path)),
             SourceKind::Fixture => {
-                Some(Utf8Path::new(STATIC_PROJECT_MODEL_FIXTURES_DIR).join(&self.source.path))
+                Some(Utf8Path::new(PROJECT_MODEL_FIXTURES_DIR).join(&self.source.path))
             }
         }
     }
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn profiles_load_and_cover_required_shapes() {
-        let profiles = static_project_model_profiles().unwrap();
+        let profiles = project_model_profiles().unwrap();
 
         for id in [
             "archivebox",
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn fixture_profile_paths_exist() {
-        let profiles = static_project_model_profiles().unwrap();
+        let profiles = project_model_profiles().unwrap();
 
         for profile in profiles
             .profiles
@@ -313,7 +313,7 @@ mod tests {
         }
 
         let corpus = Corpus::require();
-        let profiles = static_project_model_profiles().unwrap();
+        let profiles = project_model_profiles().unwrap();
 
         for profile in profiles
             .profiles

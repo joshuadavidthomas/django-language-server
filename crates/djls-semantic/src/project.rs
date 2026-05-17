@@ -1,13 +1,13 @@
 mod db;
+mod django_environments;
+mod facts;
 mod input;
 mod introspector;
+mod module_resolver;
 mod names;
 mod python;
 mod resolve;
-mod static_django_environments;
-mod static_model;
-mod static_resolver;
-mod static_settings;
+mod settings_facts;
 mod symbols;
 mod sync;
 mod system;

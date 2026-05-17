@@ -1,13 +1,13 @@
-//! Django environment discovery for the static project model.
+//! Django environment discovery for project facts.
 //!
-//! This module is intentionally not wired into project validation yet. It turns
-//! Django-native settings-module configuration into path-scoped environments so
-//! later static settings extraction can choose the right settings for a file and
-//! still union results for completions.
+//! This module turns Django-native settings-module configuration into path-scoped
+//! environments. Environment discovery is intentionally separate from settings
+//! fact extraction: first find the settings module and file for each path scope,
+//! then extract facts from those settings files.
 
 #![allow(
     dead_code,
-    reason = "Milestone A3 adds Django environment discovery before wiring static settings extraction."
+    reason = "Milestone A3 adds Django environment discovery before project facts are assembled."
 )]
 
 use std::collections::BTreeSet;
@@ -18,31 +18,36 @@ use djls_conf::Settings;
 use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 
+use crate::project::facts::Fact;
+use crate::project::facts::Field;
+use crate::project::facts::ModuleSearchPathEntry;
+use crate::project::facts::Reason;
+use crate::project::facts::ReasonSource;
 use crate::project::input::resolve_django_settings;
+use crate::project::module_resolver::module_name_for_file;
+use crate::project::module_resolver::resolve_module;
 use crate::project::names::PyModuleName;
-use crate::project::static_model::Fact;
-use crate::project::static_model::Field;
-use crate::project::static_model::ImportRoot;
-use crate::project::static_model::Reason;
-use crate::project::static_model::ReasonSource;
-use crate::project::static_resolver::resolve_file_module;
-use crate::project::static_resolver::resolve_module;
 
 const DEFAULT_DJANGO_ENVIRONMENT_ROOT: &str = ".";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedDjangoEnvironment {
+pub(crate) struct DjangoEnvironmentResolution {
     pub(crate) root: Utf8PathBuf,
     pub(crate) django_settings_module: Fact<PyModuleName>,
     pub(crate) django_settings_file: Fact<Utf8PathBuf>,
 }
 
+/// Resolve Django environments from configuration.
+///
+/// Precedence is explicit `django_environments`, then discovered
+/// `django_settings_file_patterns`, then the legacy/global
+/// `django_settings_module` fallback.
 #[must_use]
 pub(crate) fn discover_django_environments(
     project_root: &Utf8Path,
     settings: &Settings,
-    import_roots: &[ImportRoot],
-) -> Vec<ResolvedDjangoEnvironment> {
+    search_paths: &[ModuleSearchPathEntry],
+) -> Vec<DjangoEnvironmentResolution> {
     if !settings.django_environments().is_empty() {
         return settings
             .django_environments()
@@ -50,7 +55,7 @@ pub(crate) fn discover_django_environments(
             .map(|environment| {
                 let root = normalize_environment_root(project_root, environment.root());
                 if let Some(module) = environment.django_settings_module() {
-                    environment_from_module(root, module, project_root, import_roots)
+                    environment_from_module(root, module, project_root, search_paths)
                 } else {
                     invalid_environment(root, "Django environment must set django_settings_module")
                 }
@@ -62,7 +67,7 @@ pub(crate) fn discover_django_environments(
         return environments_from_settings_file_patterns(
             project_root,
             settings.django_settings_file_patterns(),
-            import_roots,
+            search_paths,
         );
     }
 
@@ -72,7 +77,7 @@ pub(crate) fn discover_django_environments(
                 project_root.to_path_buf(),
                 &module,
                 project_root,
-                import_roots,
+                search_paths,
             )
         })
         .into_iter()
@@ -83,8 +88,8 @@ fn environment_from_module(
     root: Utf8PathBuf,
     module: &str,
     project_root: &Utf8Path,
-    import_roots: &[ImportRoot],
-) -> ResolvedDjangoEnvironment {
+    search_paths: &[ModuleSearchPathEntry],
+) -> DjangoEnvironmentResolution {
     let Ok(django_settings_module) = PyModuleName::parse(module) else {
         return invalid_environment(
             root,
@@ -92,8 +97,8 @@ fn environment_from_module(
         );
     };
 
-    let resolution = resolve_module(django_settings_module.clone(), import_roots, project_root);
-    ResolvedDjangoEnvironment {
+    let resolution = resolve_module(django_settings_module.clone(), search_paths, project_root);
+    DjangoEnvironmentResolution {
         root,
         django_settings_module: Fact::known(django_settings_module),
         django_settings_file: resolution.resolved.map(|resolved| resolved.file),
@@ -103,8 +108,8 @@ fn environment_from_module(
 fn environments_from_settings_file_patterns(
     project_root: &Utf8Path,
     patterns: &[String],
-    import_roots: &[ImportRoot],
-) -> Vec<ResolvedDjangoEnvironment> {
+    search_paths: &[ModuleSearchPathEntry],
+) -> Vec<DjangoEnvironmentResolution> {
     let mut builder = OverrideBuilder::new(project_root.as_std_path());
     for pattern in patterns {
         let pattern = pattern.trim();
@@ -138,7 +143,7 @@ fn environments_from_settings_file_patterns(
             continue;
         }
 
-        let Some(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()).ok() else {
+        let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
             continue;
         };
         if matcher.matched(path.as_std_path(), false).is_whitelist() {
@@ -148,49 +153,59 @@ fn environments_from_settings_file_patterns(
 
     settings_files
         .into_iter()
-        .map(|file| environment_from_settings_file(file, import_roots))
+        .map(|file| environment_from_settings_file(project_root, file, search_paths))
         .collect()
 }
 
 fn environment_from_settings_file(
+    project_root: &Utf8Path,
     file: Utf8PathBuf,
-    import_roots: &[ImportRoot],
-) -> ResolvedDjangoEnvironment {
-    let root = infer_environment_root_from_settings_file(&file);
-    let django_settings_module = resolve_file_module(&file, import_roots);
+    search_paths: &[ModuleSearchPathEntry],
+) -> DjangoEnvironmentResolution {
+    let root = infer_environment_root_from_settings_file(project_root, &file);
+    let django_settings_module = module_name_for_file(&file, search_paths);
 
-    ResolvedDjangoEnvironment {
+    DjangoEnvironmentResolution {
         root,
         django_settings_module,
         django_settings_file: Fact::known(file),
     }
 }
 
-fn infer_environment_root_from_settings_file(file: &Utf8Path) -> Utf8PathBuf {
+fn infer_environment_root_from_settings_file(
+    project_root: &Utf8Path,
+    file: &Utf8Path,
+) -> Utf8PathBuf {
     let Some(parent) = file.parent() else {
-        return file.to_path_buf();
+        return project_root.to_path_buf();
     };
 
     let mut current = parent;
     loop {
+        if current == project_root {
+            return project_root.to_path_buf();
+        }
         if current.file_name() == Some("settings") {
-            return current.parent().unwrap_or(current).to_path_buf();
+            return current.parent().unwrap_or(project_root).to_path_buf();
         }
         let Some(next) = current.parent() else {
-            return parent.to_path_buf();
+            return project_root.to_path_buf();
         };
         current = next;
     }
 }
 
-fn invalid_environment(root: Utf8PathBuf, message: impl Into<String>) -> ResolvedDjangoEnvironment {
+fn invalid_environment(
+    root: Utf8PathBuf,
+    message: impl Into<String>,
+) -> DjangoEnvironmentResolution {
     let reason = Reason::new(
-        Field::DjangoEnvironment,
-        ReasonSource::DjangoEnvironment(root.clone()),
+        Field::DjangoEnvironmentDiscovery,
+        ReasonSource::DjangoEnvironmentRoot(root.clone()),
         message,
     );
 
-    ResolvedDjangoEnvironment {
+    DjangoEnvironmentResolution {
         root,
         django_settings_module: Fact::unknown(vec![reason.clone()]),
         django_settings_file: Fact::unknown(vec![reason]),
@@ -216,15 +231,15 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::project::static_model::ImportRootKind;
-    use crate::project::static_resolver::discover_import_roots;
+    use crate::project::facts::ModuleSearchPathKind;
+    use crate::project::module_resolver::discover_module_search_paths;
 
     fn settings(root: &Utf8Path) -> Settings {
         Settings::new(root, None).unwrap()
     }
 
-    fn import_roots(root: &Utf8Path) -> Vec<ImportRoot> {
-        discover_import_roots(root, &[], &[])
+    fn search_paths(root: &Utf8Path) -> Vec<ModuleSearchPathEntry> {
+        discover_module_search_paths(root, &[], &[])
             .value()
             .cloned()
             .unwrap()
@@ -267,7 +282,7 @@ mod tests {
         );
 
         let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
+            discover_django_environments(&root, &settings(&root), &search_paths(&root));
 
         assert_eq!(environments.len(), 1);
         assert_eq!(environments[0].root, root);
@@ -282,33 +297,78 @@ mod tests {
     }
 
     #[test]
-    fn explicit_django_environments_take_precedence_over_settings_file_patterns() {
+    fn django_settings_file_patterns_keep_flat_settings_at_workspace_root() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("project/__init__.py"), "");
         write_file(&root.join("project/settings.py"), "");
-        write_file(&root.join("discovered/__init__.py"), "");
-        write_file(&root.join("discovered/settings.py"), "");
         write_file(
             &root.join("djls.toml"),
-            r#"
-django_settings_file_patterns = ["discovered/settings.py"]
-
-[[django_environments]]
-root = "project"
-django_settings_module = "project.settings"
-"#,
+            r#"django_settings_file_patterns = ["project/settings.py"]"#,
         );
 
         let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
+            discover_django_environments(&root, &settings(&root), &search_paths(&root));
 
         assert_eq!(environments.len(), 1);
-        assert_eq!(environments[0].root, root.join("project"));
+        assert_eq!(environments[0].root, root);
         assert_eq!(
             known_module(&environments[0].django_settings_module),
             module("project.settings")
         );
+        assert_eq!(
+            known_file(&environments[0].django_settings_file),
+            environments[0].root.join("project/settings.py")
+        );
+    }
+
+    #[test]
+    fn settings_file_patterns_without_settings_package_fall_back_to_workspace_root() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/conf.py"), "");
+        write_file(
+            &root.join("djls.toml"),
+            r#"django_settings_file_patterns = ["project/conf.py"]"#,
+        );
+
+        let environments =
+            discover_django_environments(&root, &settings(&root), &search_paths(&root));
+
+        assert_eq!(environments.len(), 1);
+        assert_eq!(environments[0].root, root);
+        assert_eq!(
+            known_module(&environments[0].django_settings_module),
+            module("project.conf")
+        );
+    }
+
+    #[test]
+    fn invalid_explicit_django_environment_module_is_unknown() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(
+            &root.join("djls.toml"),
+            r#"
+[[django_environments]]
+root = "."
+django_settings_module = "project..settings"
+"#,
+        );
+
+        let environments =
+            discover_django_environments(&root, &settings(&root), &search_paths(&root));
+
+        assert_eq!(environments.len(), 1);
+        assert!(matches!(
+            &environments[0].django_settings_module,
+            Fact::Unknown { .. }
+        ));
+        assert!(matches!(
+            &environments[0].django_settings_file,
+            Fact::Unknown { .. }
+        ));
     }
 
     #[test]
@@ -334,7 +394,7 @@ django_settings_module = "projects.site2.settings"
         );
 
         let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
+            discover_django_environments(&root, &settings(&root), &search_paths(&root));
 
         assert_eq!(environments.len(), 2);
         assert_eq!(environments[0].root, root.join("projects/site1"));
@@ -375,7 +435,7 @@ django_settings_module = "projects.site2.settings"
         );
 
         let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
+            discover_django_environments(&root, &settings(&root), &search_paths(&root));
 
         assert_eq!(environments.len(), 2);
         assert_eq!(environments[0].root, root.join("projects/site1"));
@@ -399,7 +459,7 @@ django_settings_module = "projects.site2.settings"
     }
 
     #[test]
-    fn django_settings_file_patterns_map_files_through_auto_src_import_root() {
+    fn django_settings_file_patterns_map_files_through_auto_src_search_path() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("src/project/__init__.py"), "");
@@ -410,10 +470,10 @@ django_settings_module = "projects.site2.settings"
             r#"django_settings_file_patterns = ["src/*/settings/dev.py"]"#,
         );
 
-        let roots = import_roots(&root);
+        let roots = search_paths(&root);
         assert!(roots
             .iter()
-            .any(|root| root.kind == ImportRootKind::AutoSrc));
+            .any(|root| root.kind == ModuleSearchPathKind::AutoSrc));
 
         let environments = discover_django_environments(&root, &settings(&root), &roots);
 

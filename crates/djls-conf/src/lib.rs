@@ -69,6 +69,8 @@ pub enum ConfigError {
     InvalidDjangoEnvironments(String),
     #[error("Invalid django_settings_file_patterns: {0}")]
     InvalidDjangoSettingsFilePatterns(String),
+    #[error("Invalid Django environment discovery configuration: {0}")]
+    InvalidDjangoEnvironmentDiscovery(String),
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone)]
@@ -126,11 +128,20 @@ impl Settings {
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
-            if !overrides.django_environments.is_empty() {
+            let overrides_django_environments = !overrides.django_environments.is_empty();
+            let overrides_django_settings_file_patterns =
+                !overrides.django_settings_file_patterns.is_empty();
+            if overrides_django_environments {
                 settings.django_environments = overrides.django_environments;
+                if !overrides_django_settings_file_patterns {
+                    settings.django_settings_file_patterns.clear();
+                }
             }
-            if !overrides.django_settings_file_patterns.is_empty() {
+            if overrides_django_settings_file_patterns {
                 settings.django_settings_file_patterns = overrides.django_settings_file_patterns;
+                if !overrides_django_environments {
+                    settings.django_environments.clear();
+                }
             }
             if !overrides.pythonpath.is_empty() {
                 settings.pythonpath = overrides.pythonpath;
@@ -153,6 +164,13 @@ impl Settings {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if !self.django_environments.is_empty() && !self.django_settings_file_patterns.is_empty() {
+            return Err(ConfigError::InvalidDjangoEnvironmentDiscovery(
+                "Use either django_environments or django_settings_file_patterns, not both"
+                    .to_string(),
+            ));
+        }
+
         let mut roots = BTreeSet::new();
         for environment in &self.django_environments {
             let root = environment.root();
@@ -521,6 +539,62 @@ django_settings_module = "project.settings"
         }
 
         #[test]
+        fn test_django_environment_override_clears_settings_file_patterns() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"django_settings_file_patterns = ["projects/*/settings/dev.py"]"#,
+            )
+            .unwrap();
+
+            let override_settings = Settings {
+                django_environments: vec![DjangoEnvironmentConfig {
+                    root: "override".to_string(),
+                    django_settings_module: Some("override.settings".to_string()),
+                }],
+                ..Default::default()
+            };
+            let settings = Settings::new(
+                Utf8Path::from_path(dir.path()).unwrap(),
+                Some(override_settings),
+            )
+            .unwrap();
+
+            assert_eq!(settings.django_environments().len(), 1);
+            assert!(settings.django_settings_file_patterns().is_empty());
+        }
+
+        #[test]
+        fn test_django_settings_file_patterns_override_clears_environments() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[django_environments]]
+root = "."
+django_settings_module = "project.settings"
+"#,
+            )
+            .unwrap();
+
+            let override_settings = Settings {
+                django_settings_file_patterns: vec!["sites/*/settings/dev.py".to_string()],
+                ..Default::default()
+            };
+            let settings = Settings::new(
+                Utf8Path::from_path(dir.path()).unwrap(),
+                Some(override_settings),
+            )
+            .unwrap();
+
+            assert!(settings.django_environments().is_empty());
+            assert_eq!(
+                settings.django_settings_file_patterns(),
+                &["sites/*/settings/dev.py"]
+            );
+        }
+
+        #[test]
         fn test_load_format_config() {
             let dir = tempdir().unwrap();
             fs::write(
@@ -844,6 +918,29 @@ root = "site"
             assert!(matches!(
                 result.unwrap_err(),
                 ConfigError::InvalidDjangoSettingsFilePatterns(_)
+            ));
+        }
+
+        #[test]
+        fn test_rejects_mixed_explicit_and_discovered_django_environments() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+django_settings_file_patterns = ["projects/*/settings/dev.py"]
+
+[[django_environments]]
+root = "projects/site1"
+django_settings_module = "projects.site1.settings.dev"
+"#,
+            )
+            .unwrap();
+
+            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+
+            assert!(matches!(
+                result.unwrap_err(),
+                ConfigError::InvalidDjangoEnvironmentDiscovery(_)
             ));
         }
 

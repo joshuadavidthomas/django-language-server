@@ -42,7 +42,7 @@ pub use lock::lock_corpus;
 pub use lock::LockFilter;
 pub use lock::Lockfile;
 pub use manifest::Manifest;
-pub use profiles::static_project_model_profiles;
+pub use profiles::project_model_profiles;
 pub use profiles::Confidence;
 pub use profiles::DjangoEnvironmentProfile;
 pub use profiles::ExpectedFacts;

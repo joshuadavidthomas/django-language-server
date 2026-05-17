@@ -1,8 +1,9 @@
-//! Static Django project model facts.
+//! Django project model facts.
 //!
-//! These types are the confidence-aware boundary for the static model work. They
+//! These types are the confidence-aware boundary for project model assembly. They
 //! intentionally do not feed validators yet; later milestones will populate them
-//! from the resolver, settings extractor, app registry, and template assembly.
+//! from module resolution, settings extraction, app registry discovery, and
+//! template assembly.
 
 #![allow(
     dead_code,
@@ -199,14 +200,14 @@ impl Reason {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Field {
-    #[serde(rename = "resolver.import_roots")]
-    ResolverImportRoots,
+    #[serde(rename = "resolver.module_search_paths")]
+    ResolverModuleSearchPaths,
     #[serde(rename = "resolver.module")]
     ResolverModule,
     #[serde(rename = "resolver.relative_import")]
     ResolverRelativeImport,
-    #[serde(rename = "django.environment")]
-    DjangoEnvironment,
+    #[serde(rename = "django.environment_discovery")]
+    DjangoEnvironmentDiscovery,
     #[serde(rename = "settings.installed_apps")]
     SettingsInstalledApps,
     #[serde(rename = "settings.templates")]
@@ -237,7 +238,7 @@ pub(crate) enum ReasonSource {
     File(Utf8PathBuf),
     Path(Utf8PathBuf),
     Module(PyModuleName),
-    DjangoEnvironment(Utf8PathBuf),
+    DjangoEnvironmentRoot(Utf8PathBuf),
     Workspace(Utf8PathBuf),
     Unknown,
 }
@@ -251,19 +252,19 @@ pub(crate) struct ProjectFacts {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ResolverFacts {
-    pub(crate) import_roots: Fact<Vec<ImportRoot>>,
+    pub(crate) module_search_paths: Fact<Vec<ModuleSearchPathEntry>>,
     pub(crate) modules: Vec<ModuleResolution>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ImportRoot {
-    pub(crate) kind: ImportRootKind,
+pub(crate) struct ModuleSearchPathEntry {
+    pub(crate) kind: ModuleSearchPathKind,
     pub(crate) path: Utf8PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ImportRootKind {
+pub(crate) enum ModuleSearchPathKind {
     Workspace,
     AutoSrc,
     ExplicitPythonPath,
@@ -281,7 +282,7 @@ pub(crate) struct ModuleResolution {
 pub(crate) struct ResolvedModule {
     pub(crate) module: PyModuleName,
     pub(crate) file: Utf8PathBuf,
-    pub(crate) import_root: Utf8PathBuf,
+    pub(crate) search_path: Utf8PathBuf,
     pub(crate) location: ModuleLocation,
 }
 
@@ -466,7 +467,7 @@ mod tests {
         let reason = Reason::module(
             Field::ResolverModule,
             module("clientname.app2"),
-            "module exists in more than one import root",
+            "module exists in more than one module search path",
         );
         let fact = Fact::ambiguous(
             vec![module("clientname.app2"), module("shared.clientname.app2")],
@@ -525,7 +526,7 @@ mod tests {
 
     #[test]
     fn gh401_profile_shape_keeps_django_environments_separate_from_union() {
-        let profiles = djls_corpus::static_project_model_profiles().unwrap();
+        let profiles = djls_corpus::project_model_profiles().unwrap();
         let profile = profiles.get("gh401-multisite-split-settings").unwrap();
         let django_environments = profile
             .django_environments
@@ -575,13 +576,13 @@ mod tests {
             .collect::<Vec<_>>();
         let project = ProjectFacts {
             resolver: ResolverFacts {
-                import_roots: Fact::known(vec![
-                    ImportRoot {
-                        kind: ImportRootKind::Workspace,
+                module_search_paths: Fact::known(vec![
+                    ModuleSearchPathEntry {
+                        kind: ModuleSearchPathKind::Workspace,
                         path: Utf8PathBuf::from("projects"),
                     },
-                    ImportRoot {
-                        kind: ImportRootKind::ExplicitPythonPath,
+                    ModuleSearchPathEntry {
+                        kind: ModuleSearchPathKind::ExplicitPythonPath,
                         path: Utf8PathBuf::from("apps"),
                     },
                 ]),

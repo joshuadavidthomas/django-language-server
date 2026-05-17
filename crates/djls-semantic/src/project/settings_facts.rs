@@ -1,13 +1,13 @@
-//! Static Django settings extraction for the static project model.
+//! Django settings fact extraction.
 //!
-//! This module is intentionally not wired into project validation yet. It
-//! extracts a narrow Tier 1 subset from a single settings file: literal
-//! `INSTALLED_APPS`, literal `TEMPLATES`, and simple template directory path
-//! expressions.
+//! This module extracts a narrow Tier 1 subset from a single settings file:
+//! literal `INSTALLED_APPS`, literal `TEMPLATES`, and simple template directory
+//! path expressions. It reports unsupported settings shapes as partial or
+//! unknown facts instead of importing the settings module.
 
 #![allow(
     dead_code,
-    reason = "Milestone A4 adds static settings facts before wiring static project assembly."
+    reason = "Milestone A4 adds settings facts before project facts are assembled."
 )]
 
 use std::collections::BTreeMap;
@@ -16,20 +16,21 @@ use std::fs;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use ruff_python_ast::Expr;
+use ruff_python_ast::Number;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 
+use crate::project::facts::Fact;
+use crate::project::facts::Field;
+use crate::project::facts::Reason;
+use crate::project::facts::SettingsFacts;
+use crate::project::facts::TemplateBackendFact;
+use crate::project::facts::TemplateDirFact;
+use crate::project::facts::TemplateDirSource;
+use crate::project::facts::TemplateLibraryFact;
+use crate::project::facts::TemplateLibrarySource;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
-use crate::project::static_model::Fact;
-use crate::project::static_model::Field;
-use crate::project::static_model::Reason;
-use crate::project::static_model::SettingsFacts;
-use crate::project::static_model::TemplateBackendFact;
-use crate::project::static_model::TemplateDirFact;
-use crate::project::static_model::TemplateDirSource;
-use crate::project::static_model::TemplateLibraryFact;
-use crate::project::static_model::TemplateLibrarySource;
 
 const INSTALLED_APPS: &str = "INSTALLED_APPS";
 const TEMPLATES: &str = "TEMPLATES";
@@ -39,38 +40,14 @@ pub(crate) fn extract_settings_facts(file: &Utf8Path) -> SettingsFacts {
     let source = match fs::read_to_string(file) {
         Ok(source) => source,
         Err(error) => {
-            return SettingsFacts {
-                file: file.to_path_buf(),
-                installed_apps: Fact::unknown(vec![reason(
-                    Field::SettingsInstalledApps,
-                    file,
-                    format!("failed to read settings file: {error}"),
-                )]),
-                template_backends: Fact::unknown(vec![reason(
-                    Field::SettingsTemplates,
-                    file,
-                    format!("failed to read settings file: {error}"),
-                )]),
-            };
+            return unknown_settings_facts(file, format!("failed to read settings file: {error}"));
         }
     };
 
     let module = match ruff_python_parser::parse_module(&source) {
         Ok(parsed) => parsed.into_syntax(),
         Err(error) => {
-            return SettingsFacts {
-                file: file.to_path_buf(),
-                installed_apps: Fact::unknown(vec![reason(
-                    Field::SettingsInstalledApps,
-                    file,
-                    format!("failed to parse settings file: {error}"),
-                )]),
-                template_backends: Fact::unknown(vec![reason(
-                    Field::SettingsTemplates,
-                    file,
-                    format!("failed to parse settings file: {error}"),
-                )]),
-            };
+            return unknown_settings_facts(file, format!("failed to parse settings file: {error}"));
         }
     };
 
@@ -505,24 +482,19 @@ fn evaluate_path(
         Expr::Name(name) => path_values.get(name.id.as_str()).cloned(),
         Expr::BinOp(binop) if binop.op == Operator::Div => {
             let left = evaluate_path(binop.left.as_ref(), path_values, settings_file)?;
-            let right = evaluate_path_part(binop.right.as_ref(), path_values, settings_file)?;
+            let right = evaluate_path(binop.right.as_ref(), path_values, settings_file)?;
             Some(left.join(right))
         }
         Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
             let value = evaluate_path(attribute.value.as_ref(), path_values, settings_file)?;
             value.parent().map(Utf8Path::to_path_buf)
         }
+        Expr::Subscript(subscript) => {
+            evaluate_path_parents_subscript(subscript, path_values, settings_file)
+        }
         Expr::Call(call) => evaluate_path_call(call, path_values, settings_file),
         _ => None,
     }
-}
-
-fn evaluate_path_part(
-    expr: &Expr,
-    path_values: &BTreeMap<String, Utf8PathBuf>,
-    settings_file: &Utf8Path,
-) -> Option<Utf8PathBuf> {
-    evaluate_path(expr, path_values, settings_file)
 }
 
 fn evaluate_path_call(
@@ -541,7 +513,7 @@ fn evaluate_path_call(
         Expr::Attribute(attribute) if attribute.attr.as_str() == "joinpath" => {
             let mut path = evaluate_path(attribute.value.as_ref(), path_values, settings_file)?;
             for arg in &call.arguments.args {
-                let part = evaluate_path_part(arg, path_values, settings_file)?;
+                let part = evaluate_path(arg, path_values, settings_file)?;
                 path = path.join(part);
             }
             Some(path)
@@ -550,13 +522,43 @@ fn evaluate_path_call(
             let mut args = call.arguments.args.iter();
             let mut path = evaluate_path(args.next()?, path_values, settings_file)?;
             for arg in args {
-                let part = evaluate_path_part(arg, path_values, settings_file)?;
+                let part = evaluate_path(arg, path_values, settings_file)?;
                 path = path.join(part);
             }
             Some(path)
         }
         _ => None,
     }
+}
+
+fn evaluate_path_parents_subscript(
+    subscript: &ruff_python_ast::ExprSubscript,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    settings_file: &Utf8Path,
+) -> Option<Utf8PathBuf> {
+    let Expr::Attribute(attribute) = subscript.value.as_ref() else {
+        return None;
+    };
+    if attribute.attr.as_str() != "parents" {
+        return None;
+    }
+
+    let mut path = evaluate_path(attribute.value.as_ref(), path_values, settings_file)?;
+    let parent_index = integer_literal(subscript.slice.as_ref())?;
+    for _ in 0..=parent_index {
+        path = path.parent()?.to_path_buf();
+    }
+    Some(path)
+}
+
+fn integer_literal(expr: &Expr) -> Option<usize> {
+    let Expr::NumberLiteral(number) = expr else {
+        return None;
+    };
+    let Number::Int(value) = &number.value else {
+        return None;
+    };
+    value.as_usize()
 }
 
 fn dotted_name(expr: &Expr) -> Option<String> {
@@ -586,6 +588,19 @@ fn add_reason_or_unknown<T>(fact: Option<Fact<T>>, reason: Reason) -> Fact<T> {
     }
 }
 
+fn unknown_settings_facts(file: &Utf8Path, message: impl Into<String>) -> SettingsFacts {
+    let message = message.into();
+    SettingsFacts {
+        file: file.to_path_buf(),
+        installed_apps: Fact::unknown(vec![reason(
+            Field::SettingsInstalledApps,
+            file,
+            message.clone(),
+        )]),
+        template_backends: Fact::unknown(vec![reason(Field::SettingsTemplates, file, message)]),
+    }
+}
+
 fn reason(field: Field, file: &Utf8Path, message: impl Into<String>) -> Reason {
     Reason::file(field, file, message)
 }
@@ -594,15 +609,24 @@ fn reason(field: Field, file: &Utf8Path, message: impl Into<String>) -> Reason {
 mod tests {
     use std::fs;
 
+    use djls_conf::Settings;
     use tempfile::tempdir;
 
     use super::*;
+    use crate::project::django_environments::discover_django_environments;
+    use crate::project::module_resolver::discover_module_search_paths;
     use crate::project::names::LibraryName;
+
+    fn write_file(path: &Utf8Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
+    }
 
     fn write_settings(root: &Utf8Path, source: &str) -> Utf8PathBuf {
         let path = root.join("project/settings.py");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, source).unwrap();
+        write_file(&path, source);
         path
     }
 
@@ -625,6 +649,13 @@ mod tests {
             panic!("expected known bool, got {fact:?}");
         };
         *value
+    }
+
+    fn unknown_reasons<T: std::fmt::Debug>(fact: &Fact<T>) -> Vec<Reason> {
+        let Fact::Unknown { reasons } = fact else {
+            panic!("expected unknown fact, got {fact:?}");
+        };
+        reasons.clone()
     }
 
     #[test]
@@ -685,6 +716,157 @@ TEMPLATES = [
             known_vec(&backends[0].option_builtins),
             [PyModuleName::parse("project.templatetags.builtins").unwrap()]
         );
+    }
+
+    #[test]
+    fn extracts_typed_settings_assignments() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS: list[str] = ["django.contrib.auth"]
+TEMPLATES: list[dict] = []
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        assert_eq!(known_vec(&facts.installed_apps), ["django.contrib.auth"]);
+        assert!(known_vec(&facts.template_backends).is_empty());
+    }
+
+    #[test]
+    fn extracts_pathlib_parents_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [BASE_DIR / "templates"]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
+    }
+
+    #[test]
+    fn extracts_pathlib_parents_zero_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parents[0]
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [PROJECT_DIR / "templates"]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            root.join("project/templates")
+        );
+    }
+
+    #[test]
+    fn marks_out_of_range_pathlib_parents_template_dirs_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[100]
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [BASE_DIR / "templates"]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+        let (dirs, reasons) = partial_vec(&backends[0].dirs);
+
+        assert!(dirs.is_empty());
+        assert!(reasons[0].message.contains("unsupported path expression"));
+    }
+
+    #[test]
+    fn marks_unreadable_settings_file_unknown() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let facts = extract_settings_facts(&root.join("project/missing.py"));
+
+        let reasons = unknown_reasons(&facts.installed_apps);
+        assert!(reasons[0].message.contains("failed to read settings file"));
+        let reasons = unknown_reasons(&facts.template_backends);
+        assert!(reasons[0].message.contains("failed to read settings file"));
+    }
+
+    #[test]
+    fn marks_parse_error_settings_file_unknown() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(&root, "INSTALLED_APPS = [\n");
+
+        let facts = extract_settings_facts(&settings);
+
+        let reasons = unknown_reasons(&facts.installed_apps);
+        assert!(reasons[0].message.contains("failed to parse settings file"));
+        let reasons = unknown_reasons(&facts.template_backends);
+        assert!(reasons[0].message.contains("failed to parse settings file"));
+    }
+
+    #[test]
+    fn extracts_settings_facts_from_discovered_settings_file() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["project.app"]
+TEMPLATES = [{"DIRS": ["templates"]}]
+"#,
+        );
+        write_file(
+            &root.join("djls.toml"),
+            r#"django_settings_file_patterns = ["project/settings.py"]"#,
+        );
+
+        let settings = Settings::new(&root, None).unwrap();
+        let search_paths = discover_module_search_paths(&root, &[], &[])
+            .value()
+            .cloned()
+            .unwrap();
+        let environments = discover_django_environments(&root, &settings, &search_paths);
+        let Fact::Known {
+            value: settings_file,
+        } = &environments[0].django_settings_file
+        else {
+            panic!(
+                "expected discovered settings file, got {:?}",
+                environments[0].django_settings_file
+            );
+        };
+
+        let facts = extract_settings_facts(settings_file);
+
+        assert_eq!(known_vec(&facts.installed_apps), ["project.app"]);
+        assert_eq!(known_vec(&facts.template_backends).len(), 1);
     }
 
     #[test]
