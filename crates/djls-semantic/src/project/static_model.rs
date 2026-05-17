@@ -280,6 +280,13 @@ pub(crate) enum ModuleLocation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SettingsFacts {
+    pub(crate) file: Utf8PathBuf,
+    pub(crate) installed_apps: Fact<Vec<String>>,
+    pub(crate) template_backends: Fact<Vec<TemplateBackendFact>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct InstalledAppFact {
     pub(crate) entry: String,
     pub(crate) module: Fact<PyModuleName>,
