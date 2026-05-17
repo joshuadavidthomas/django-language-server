@@ -1,16 +1,18 @@
 //! Django settings fact extraction.
 //!
-//! This module extracts a narrow Tier 1 subset from a single settings file:
-//! literal `INSTALLED_APPS`, literal `TEMPLATES`, and simple template directory
-//! path expressions. It reports unsupported settings shapes as partial or
-//! unknown facts instead of importing the settings module.
+//! This module extracts a narrow Tier 2 subset from settings files: literal
+//! `INSTALLED_APPS`, literal `TEMPLATES`, simple template directory path
+//! expressions, relative star imports, and simple list mutations. It reports
+//! unsupported settings shapes as partial or unknown facts instead of importing
+//! the settings module.
 
 #![allow(
     dead_code,
-    reason = "Milestone A4 adds settings facts before project facts are assembled."
+    reason = "Milestone A5 expands settings facts before project facts are assembled."
 )]
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 
 use camino::Utf8Path;
@@ -22,6 +24,7 @@ use ruff_python_ast::Stmt;
 
 use crate::project::facts::Fact;
 use crate::project::facts::Field;
+use crate::project::facts::ModuleSearchPathEntry;
 use crate::project::facts::Reason;
 use crate::project::facts::SettingsFacts;
 use crate::project::facts::TemplateBackendFact;
@@ -29,37 +32,201 @@ use crate::project::facts::TemplateDirFact;
 use crate::project::facts::TemplateDirSource;
 use crate::project::facts::TemplateLibraryFact;
 use crate::project::facts::TemplateLibrarySource;
+use crate::project::module_resolver::resolve_module;
+use crate::project::module_resolver::resolve_relative_import_module;
 use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
 
 const INSTALLED_APPS: &str = "INSTALLED_APPS";
 const TEMPLATES: &str = "TEMPLATES";
 
+struct SettingsImportScope<'a> {
+    project_root: &'a Utf8Path,
+    search_paths: &'a [ModuleSearchPathEntry],
+}
+
+struct SettingsExtractionState {
+    file: Utf8PathBuf,
+    path_values: BTreeMap<String, Utf8PathBuf>,
+    installed_apps: Option<Fact<Vec<String>>>,
+    template_backends: Option<Fact<Vec<TemplateBackendFact>>>,
+    installed_apps_import_reasons: Vec<Reason>,
+    template_backends_import_reasons: Vec<Reason>,
+    load_failed: bool,
+}
+
+impl SettingsExtractionState {
+    fn new(file: &Utf8Path) -> Self {
+        Self {
+            file: file.to_path_buf(),
+            path_values: BTreeMap::new(),
+            installed_apps: None,
+            template_backends: None,
+            installed_apps_import_reasons: Vec::new(),
+            template_backends_import_reasons: Vec::new(),
+            load_failed: false,
+        }
+    }
+
+    fn failed(file: &Utf8Path, message: impl Into<String>) -> Self {
+        let facts = unknown_settings_facts(file, message);
+        Self {
+            file: facts.file,
+            path_values: BTreeMap::new(),
+            installed_apps: Some(facts.installed_apps),
+            template_backends: Some(facts.template_backends),
+            installed_apps_import_reasons: Vec::new(),
+            template_backends_import_reasons: Vec::new(),
+            load_failed: true,
+        }
+    }
+
+    fn apply_star_import(&mut self, imported: Self) {
+        if imported.load_failed {
+            if let Some(installed_apps) = imported.installed_apps {
+                self.installed_apps_import_reasons
+                    .extend(installed_apps.reasons().iter().cloned());
+            }
+            if let Some(template_backends) = imported.template_backends {
+                self.template_backends_import_reasons
+                    .extend(template_backends.reasons().iter().cloned());
+            }
+            return;
+        }
+
+        self.installed_apps_import_reasons
+            .extend(imported.installed_apps_import_reasons);
+        self.template_backends_import_reasons
+            .extend(imported.template_backends_import_reasons);
+        self.path_values.extend(imported.path_values);
+        if let Some(installed_apps) = imported.installed_apps {
+            self.installed_apps = Some(installed_apps);
+        }
+        if let Some(template_backends) = imported.template_backends {
+            self.template_backends = Some(template_backends);
+        }
+    }
+
+    fn add_import_reasons(&mut self, reasons: Vec<Reason>) {
+        self.installed_apps_import_reasons.extend(reasons.clone());
+        self.template_backends_import_reasons.extend(reasons);
+    }
+
+    fn into_facts(self) -> SettingsFacts {
+        let file = self.file;
+        let installed_apps = finalize_setting_fact(
+            self.installed_apps,
+            self.installed_apps_import_reasons,
+            Field::SettingsInstalledApps,
+            &file,
+            "INSTALLED_APPS is not assigned in this settings file",
+        );
+        let template_backends = finalize_setting_fact(
+            self.template_backends,
+            self.template_backends_import_reasons,
+            Field::SettingsTemplates,
+            &file,
+            "TEMPLATES is not assigned in this settings file",
+        );
+
+        SettingsFacts {
+            file,
+            installed_apps,
+            template_backends,
+        }
+    }
+}
+
 #[must_use]
 pub(crate) fn extract_settings_facts(file: &Utf8Path) -> SettingsFacts {
+    let mut active_files = BTreeSet::new();
+    extract_settings_state(file, None, None, &mut active_files).into_facts()
+}
+
+#[must_use]
+pub(crate) fn extract_settings_facts_for_module(
+    file: &Utf8Path,
+    current_module: &PyModuleName,
+    project_root: &Utf8Path,
+    search_paths: &[ModuleSearchPathEntry],
+) -> SettingsFacts {
+    let imports = SettingsImportScope {
+        project_root,
+        search_paths,
+    };
+    let mut active_files = BTreeSet::new();
+    extract_settings_state(
+        file,
+        Some(current_module),
+        Some(&imports),
+        &mut active_files,
+    )
+    .into_facts()
+}
+
+fn extract_settings_state(
+    file: &Utf8Path,
+    current_module: Option<&PyModuleName>,
+    imports: Option<&SettingsImportScope>,
+    active_files: &mut BTreeSet<Utf8PathBuf>,
+) -> SettingsExtractionState {
+    let file = file.to_path_buf();
+    if !active_files.insert(file.clone()) {
+        return SettingsExtractionState::failed(
+            &file,
+            "cycle detected while following settings star imports",
+        );
+    }
+
+    let state = extract_settings_state_inner(&file, current_module, imports, active_files);
+    active_files.remove(&file);
+    state
+}
+
+fn extract_settings_state_inner(
+    file: &Utf8Path,
+    current_module: Option<&PyModuleName>,
+    imports: Option<&SettingsImportScope>,
+    active_files: &mut BTreeSet<Utf8PathBuf>,
+) -> SettingsExtractionState {
     let source = match fs::read_to_string(file) {
         Ok(source) => source,
         Err(error) => {
-            return unknown_settings_facts(file, format!("failed to read settings file: {error}"));
+            return SettingsExtractionState::failed(
+                file,
+                format!("failed to read settings file: {error}"),
+            );
         }
     };
 
     let module = match ruff_python_parser::parse_module(&source) {
         Ok(parsed) => parsed.into_syntax(),
         Err(error) => {
-            return unknown_settings_facts(file, format!("failed to parse settings file: {error}"));
+            return SettingsExtractionState::failed(
+                file,
+                format!("failed to parse settings file: {error}"),
+            );
         }
     };
 
-    let mut path_values = BTreeMap::new();
-    let mut installed_apps = None;
-    let mut template_backends = None;
+    let mut state = SettingsExtractionState::new(file);
 
     for stmt in &module.body {
-        record_path_assignment(stmt, &mut path_values, file);
+        if let Some(import_from) = star_import(stmt) {
+            follow_star_import(
+                &mut state,
+                import_from,
+                current_module,
+                imports,
+                active_files,
+            );
+            continue;
+        }
+
+        record_path_assignment(stmt, &mut state.path_values, file);
 
         if let Some(value) = assigned_value(stmt, INSTALLED_APPS) {
-            installed_apps = Some(extract_string_list(
+            state.installed_apps = Some(extract_string_list(
                 value,
                 Field::SettingsInstalledApps,
                 file,
@@ -69,46 +236,31 @@ pub(crate) fn extract_settings_facts(file: &Utf8Path) -> SettingsFacts {
         }
 
         if let Some(value) = assigned_value(stmt, TEMPLATES) {
-            template_backends = Some(extract_template_backends(value, &path_values, file));
+            state.template_backends =
+                Some(extract_template_backends(value, &state.path_values, file));
             continue;
         }
 
-        if is_unsupported_mutation(stmt, INSTALLED_APPS) {
-            let mutation_reason = reason(
-                Field::SettingsInstalledApps,
+        if let Some(mutation) = list_mutation(stmt, INSTALLED_APPS) {
+            state.installed_apps = Some(apply_installed_apps_mutation(
+                state.installed_apps.take(),
+                mutation,
                 file,
-                "unsupported dynamic mutation of INSTALLED_APPS",
-            );
-            installed_apps = Some(add_reason_or_unknown(installed_apps, mutation_reason));
+            ));
+            continue;
         }
 
-        if is_unsupported_mutation(stmt, TEMPLATES) {
-            let mutation_reason = reason(
-                Field::SettingsTemplates,
+        if let Some(mutation) = list_mutation(stmt, TEMPLATES) {
+            state.template_backends = Some(apply_template_backends_mutation(
+                state.template_backends.take(),
+                mutation,
+                &state.path_values,
                 file,
-                "unsupported dynamic mutation of TEMPLATES",
-            );
-            template_backends = Some(add_reason_or_unknown(template_backends, mutation_reason));
+            ));
         }
     }
 
-    SettingsFacts {
-        file: file.to_path_buf(),
-        installed_apps: installed_apps.unwrap_or_else(|| {
-            Fact::unknown(vec![reason(
-                Field::SettingsInstalledApps,
-                file,
-                "INSTALLED_APPS is not assigned in this settings file",
-            )])
-        }),
-        template_backends: template_backends.unwrap_or_else(|| {
-            Fact::unknown(vec![reason(
-                Field::SettingsTemplates,
-                file,
-                "TEMPLATES is not assigned in this settings file",
-            )])
-        }),
-    }
+    state
 }
 
 fn assigned_value<'a>(stmt: &'a Stmt, target_name: &str) -> Option<&'a Expr> {
@@ -158,22 +310,153 @@ fn simple_assignment(stmt: &Stmt) -> Option<(&str, &Expr)> {
     }
 }
 
-fn is_unsupported_mutation(stmt: &Stmt, target_name: &str) -> bool {
-    match stmt {
-        Stmt::AugAssign(assign) => is_name(assign.target.as_ref(), target_name),
-        Stmt::Expr(expr_stmt) => {
-            let Expr::Call(call) = expr_stmt.value.as_ref() else {
-                return false;
-            };
-            let Expr::Attribute(attribute) = call.func.as_ref() else {
-                return false;
-            };
-            matches!(
-                attribute.attr.as_str(),
-                "append" | "extend" | "insert" | "update"
-            ) && is_name(attribute.value.as_ref(), target_name)
+fn star_import(stmt: &Stmt) -> Option<&ruff_python_ast::StmtImportFrom> {
+    let Stmt::ImportFrom(import_from) = stmt else {
+        return None;
+    };
+    let [alias] = import_from.names.as_slice() else {
+        return None;
+    };
+    (alias.name.as_str() == "*" && alias.asname.is_none()).then_some(import_from)
+}
+
+fn follow_star_import(
+    state: &mut SettingsExtractionState,
+    import_from: &ruff_python_ast::StmtImportFrom,
+    current_module: Option<&PyModuleName>,
+    imports: Option<&SettingsImportScope>,
+    active_files: &mut BTreeSet<Utf8PathBuf>,
+) {
+    let Some(current_module) = current_module else {
+        return;
+    };
+    let Some(imports) = imports else {
+        return;
+    };
+
+    let target_module_fact = star_import_module(import_from, current_module);
+    let Some(target_module) = target_module_fact.value().cloned() else {
+        state.add_import_reasons(target_module_fact.reasons().to_vec());
+        return;
+    };
+    state.add_import_reasons(target_module_fact.reasons().to_vec());
+
+    let resolution = resolve_module(
+        target_module.clone(),
+        imports.search_paths,
+        imports.project_root,
+    );
+    let target_file = match resolution.resolved {
+        Fact::Known { value } => value.file,
+        Fact::Partial { value, reasons } => {
+            state.add_import_reasons(reasons);
+            value.file
         }
-        _ => false,
+        Fact::Unknown { reasons } | Fact::Ambiguous { reasons, .. } => {
+            state.add_import_reasons(reasons);
+            return;
+        }
+    };
+
+    let imported = extract_settings_state(
+        &target_file,
+        Some(&target_module),
+        Some(imports),
+        active_files,
+    );
+    state.apply_star_import(imported);
+}
+
+fn star_import_module(
+    import_from: &ruff_python_ast::StmtImportFrom,
+    current_module: &PyModuleName,
+) -> Fact<PyModuleName> {
+    let module = import_from
+        .module
+        .as_ref()
+        .map(ruff_python_ast::Identifier::as_str);
+    if import_from.level > 0 {
+        return resolve_relative_import_module(current_module, import_from.level as usize, module);
+    }
+
+    let Some(module) = module else {
+        return Fact::unknown(vec![Reason::module(
+            Field::ResolverModule,
+            current_module.clone(),
+            "absolute star import must name a module",
+        )]);
+    };
+
+    match PyModuleName::parse(module) {
+        Ok(module) => Fact::known(module),
+        Err(error) => Fact::unknown(vec![Reason::module(
+            Field::ResolverModule,
+            current_module.clone(),
+            format!("star import resolves to an invalid module path: {error}"),
+        )]),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ListMutation<'a> {
+    Append(&'a Expr),
+    Extend(&'a Expr),
+    Insert { index: usize, value: &'a Expr },
+    Unsupported,
+}
+
+fn list_mutation<'a>(stmt: &'a Stmt, target_name: &str) -> Option<ListMutation<'a>> {
+    match stmt {
+        Stmt::AugAssign(assign) if is_name(assign.target.as_ref(), target_name) => {
+            if assign.op == Operator::Add {
+                Some(ListMutation::Extend(assign.value.as_ref()))
+            } else {
+                Some(ListMutation::Unsupported)
+            }
+        }
+        Stmt::Expr(expr_stmt) => call_list_mutation(expr_stmt.value.as_ref(), target_name),
+        _ => None,
+    }
+}
+
+fn call_list_mutation<'a>(expr: &'a Expr, target_name: &str) -> Option<ListMutation<'a>> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Attribute(attribute) = call.func.as_ref() else {
+        return None;
+    };
+    if !is_name(attribute.value.as_ref(), target_name) {
+        return None;
+    }
+    if !call.arguments.keywords.is_empty() {
+        return Some(ListMutation::Unsupported);
+    }
+
+    match attribute.attr.as_str() {
+        "append" => {
+            let [value] = call.arguments.args.as_ref() else {
+                return Some(ListMutation::Unsupported);
+            };
+            Some(ListMutation::Append(value))
+        }
+        "extend" => {
+            let [value] = call.arguments.args.as_ref() else {
+                return Some(ListMutation::Unsupported);
+            };
+            Some(ListMutation::Extend(value))
+        }
+        "insert" => {
+            let [index, value] = call.arguments.args.as_ref() else {
+                return Some(ListMutation::Unsupported);
+            };
+            let Some(index) = integer_literal(index) else {
+                return Some(ListMutation::Unsupported);
+            };
+            Some(ListMutation::Insert { index, value })
+        }
+        "update" => Some(ListMutation::Unsupported),
+        _ => None,
     }
 }
 
@@ -191,7 +474,7 @@ fn extract_string_list(
         return Fact::unknown(vec![reason(
             field,
             file,
-            format!("{setting_name} must be assigned a literal list or tuple of strings"),
+            format!("{setting_name} must be a literal list or tuple of strings"),
         )]);
     };
 
@@ -210,6 +493,81 @@ fn extract_string_list(
     }
 
     known_or_partial(values, reasons)
+}
+
+fn apply_installed_apps_mutation(
+    current: Option<Fact<Vec<String>>>,
+    mutation: ListMutation,
+    file: &Utf8Path,
+) -> Fact<Vec<String>> {
+    let Some(current) = current else {
+        return mutation_before_assignment(
+            Field::SettingsInstalledApps,
+            file,
+            "INSTALLED_APPS mutation appears before assignment or import",
+        );
+    };
+
+    match mutation {
+        ListMutation::Append(value) => {
+            let Some(app) = string_literal(value) else {
+                return current.with_reason(reason(
+                    Field::SettingsInstalledApps,
+                    file,
+                    "INSTALLED_APPS append value must be a string literal",
+                ));
+            };
+            append_vec_fact(
+                current,
+                app,
+                Vec::new(),
+                reason(
+                    Field::SettingsInstalledApps,
+                    file,
+                    "cannot apply INSTALLED_APPS append because the current value is unknown or ambiguous",
+                ),
+            )
+        }
+        ListMutation::Extend(value) => extend_vec_fact(
+            current,
+            extract_string_list(
+                value,
+                Field::SettingsInstalledApps,
+                file,
+                "INSTALLED_APPS mutation",
+            ),
+            reason(
+                Field::SettingsInstalledApps,
+                file,
+                "cannot apply INSTALLED_APPS extend because the current value is unknown or ambiguous",
+            ),
+        ),
+        ListMutation::Insert { index, value } => {
+            let Some(app) = string_literal(value) else {
+                return current.with_reason(reason(
+                    Field::SettingsInstalledApps,
+                    file,
+                    "INSTALLED_APPS insert value must be a string literal",
+                ));
+            };
+            insert_vec_fact(
+                current,
+                index,
+                app,
+                Vec::new(),
+                reason(
+                    Field::SettingsInstalledApps,
+                    file,
+                    "cannot apply INSTALLED_APPS insert because the current value is unknown or ambiguous",
+                ),
+            )
+        }
+        ListMutation::Unsupported => current.with_reason(reason(
+            Field::SettingsInstalledApps,
+            file,
+            "unsupported dynamic mutation of INSTALLED_APPS",
+        )),
+    }
 }
 
 fn extract_template_backends(
@@ -245,6 +603,87 @@ fn extract_template_backends(
     }
 
     known_or_partial(backends, reasons)
+}
+
+fn apply_template_backends_mutation(
+    current: Option<Fact<Vec<TemplateBackendFact>>>,
+    mutation: ListMutation,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    file: &Utf8Path,
+) -> Fact<Vec<TemplateBackendFact>> {
+    let Some(current) = current else {
+        return mutation_before_assignment(
+            Field::SettingsTemplates,
+            file,
+            "TEMPLATES mutation appears before assignment or import",
+        );
+    };
+
+    match mutation {
+        ListMutation::Append(value) => extend_vec_fact(
+            current,
+            extract_template_backend_list_item(value, path_values, file),
+            reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES append because the current value is unknown or ambiguous",
+            ),
+        ),
+        ListMutation::Extend(value) => extend_vec_fact(
+            current,
+            extract_template_backends(value, path_values, file),
+            reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES extend because the current value is unknown or ambiguous",
+            ),
+        ),
+        ListMutation::Insert { index, value } => insert_vec_fact_from_fact(
+            current,
+            index,
+            extract_template_backend_item(value, path_values, file),
+            reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES insert because the current value is unknown or ambiguous",
+            ),
+        ),
+        ListMutation::Unsupported => current.with_reason(reason(
+            Field::SettingsTemplates,
+            file,
+            "unsupported dynamic mutation of TEMPLATES",
+        )),
+    }
+}
+
+fn extract_template_backend_list_item(
+    expr: &Expr,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    file: &Utf8Path,
+) -> Fact<Vec<TemplateBackendFact>> {
+    extract_template_backend_item(expr, path_values, file).map(|backend| vec![backend])
+}
+
+fn extract_template_backend_item(
+    expr: &Expr,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    file: &Utf8Path,
+) -> Fact<TemplateBackendFact> {
+    let Expr::Dict(dict) = expr else {
+        return Fact::unknown(vec![reason(
+            Field::SettingsTemplates,
+            file,
+            "TEMPLATES mutation value must be a dictionary literal",
+        )]);
+    };
+
+    let mut reasons = Vec::new();
+    let backend = extract_template_backend(dict, path_values, file, &mut reasons);
+    if reasons.is_empty() {
+        Fact::known(backend)
+    } else {
+        Fact::partial(backend, reasons)
+    }
 }
 
 fn extract_template_backend(
@@ -581,10 +1020,142 @@ fn known_or_partial<T>(values: Vec<T>, reasons: Vec<Reason>) -> Fact<Vec<T>> {
     }
 }
 
-fn add_reason_or_unknown<T>(fact: Option<Fact<T>>, reason: Reason) -> Fact<T> {
+fn finalize_setting_fact<T>(
+    fact: Option<Fact<T>>,
+    mut reasons: Vec<Reason>,
+    field: Field,
+    file: &Utf8Path,
+    missing_message: &'static str,
+) -> Fact<T> {
+    if let Some(fact) = fact {
+        add_reasons(fact, reasons)
+    } else {
+        reasons.push(reason(field, file, missing_message));
+        Fact::unknown(reasons)
+    }
+}
+
+fn add_reasons<T>(mut fact: Fact<T>, reasons: Vec<Reason>) -> Fact<T> {
+    for reason in reasons {
+        fact = fact.with_reason(reason);
+    }
+    fact
+}
+
+fn mutation_before_assignment<T>(
+    field: Field,
+    file: &Utf8Path,
+    message: &'static str,
+) -> Fact<Vec<T>> {
+    Fact::unknown(vec![reason(field, file, message)])
+}
+
+fn append_vec_fact<T>(
+    fact: Fact<Vec<T>>,
+    item: T,
+    reasons: Vec<Reason>,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
+    extend_vec_items(fact, vec![item], reasons, unavailable_reason)
+}
+
+fn extend_vec_fact<T>(
+    fact: Fact<Vec<T>>,
+    items: Fact<Vec<T>>,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
+    match items {
+        Fact::Known { value } => extend_vec_items(fact, value, Vec::new(), unavailable_reason),
+        Fact::Partial { value, reasons } => {
+            extend_vec_items(fact, value, reasons, unavailable_reason)
+        }
+        Fact::Unknown { reasons } | Fact::Ambiguous { reasons, .. } => add_reasons(fact, reasons),
+    }
+}
+
+fn insert_vec_fact_from_fact<T>(
+    fact: Fact<Vec<T>>,
+    index: usize,
+    item: Fact<T>,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
+    match item {
+        Fact::Known { value } => {
+            insert_vec_fact(fact, index, value, Vec::new(), unavailable_reason)
+        }
+        Fact::Partial { value, reasons } => {
+            insert_vec_fact(fact, index, value, reasons, unavailable_reason)
+        }
+        Fact::Unknown { reasons } | Fact::Ambiguous { reasons, .. } => add_reasons(fact, reasons),
+    }
+}
+
+fn insert_vec_fact<T>(
+    fact: Fact<Vec<T>>,
+    index: usize,
+    item: T,
+    reasons: Vec<Reason>,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
     match fact {
-        Some(fact) => fact.with_reason(reason),
-        None => Fact::unknown(vec![reason]),
+        Fact::Known { mut value } => {
+            let index = index.min(value.len());
+            value.insert(index, item);
+            known_or_partial(value, reasons)
+        }
+        Fact::Partial {
+            mut value,
+            reasons: mut existing_reasons,
+        } => {
+            let index = index.min(value.len());
+            value.insert(index, item);
+            existing_reasons.extend(reasons);
+            Fact::partial(value, existing_reasons)
+        }
+        Fact::Unknown { mut reasons } => {
+            reasons.push(unavailable_reason);
+            Fact::unknown(reasons)
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            reasons.push(unavailable_reason);
+            Fact::ambiguous(candidates, reasons)
+        }
+    }
+}
+
+fn extend_vec_items<T>(
+    fact: Fact<Vec<T>>,
+    items: Vec<T>,
+    item_reasons: Vec<Reason>,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
+    match fact {
+        Fact::Known { mut value } => {
+            value.extend(items);
+            known_or_partial(value, item_reasons)
+        }
+        Fact::Partial {
+            mut value,
+            mut reasons,
+        } => {
+            value.extend(items);
+            reasons.extend(item_reasons);
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { mut reasons } => {
+            reasons.push(unavailable_reason);
+            Fact::unknown(reasons)
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            reasons.push(unavailable_reason);
+            Fact::ambiguous(candidates, reasons)
+        }
     }
 }
 
@@ -628,6 +1199,23 @@ mod tests {
         let path = root.join("project/settings.py");
         write_file(&path, source);
         path
+    }
+
+    fn search_paths(root: &Utf8Path) -> Vec<ModuleSearchPathEntry> {
+        discover_module_search_paths(root, &[], &[])
+            .value()
+            .cloned()
+            .unwrap()
+    }
+
+    fn extract_project_settings_module(
+        root: &Utf8Path,
+        settings_file: &Utf8Path,
+        module: &str,
+    ) -> SettingsFacts {
+        let module = PyModuleName::parse(module).unwrap();
+        let search_paths = search_paths(root);
+        extract_settings_facts_for_module(settings_file, &module, root, &search_paths)
     }
 
     fn known_vec<T: Clone + std::fmt::Debug>(fact: &Fact<Vec<T>>) -> Vec<T> {
@@ -870,6 +1458,210 @@ TEMPLATES = [{"DIRS": ["templates"]}]
     }
 
     #[test]
+    fn extracts_split_settings_from_relative_star_import() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        write_file(
+            &root.join("project/settings/base.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+INSTALLED_APPS = ["project.base"]
+TEMPLATES = [{"DIRS": [BASE_DIR / "templates"]}]
+"#,
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(
+            &dev_settings,
+            r"
+from .base import *
+",
+        );
+
+        let facts = extract_project_settings_module(&root, &dev_settings, "project.settings.dev");
+
+        assert_eq!(known_vec(&facts.installed_apps), ["project.base"]);
+        let backends = known_vec(&facts.template_backends);
+        assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
+    }
+
+    #[test]
+    fn leaf_settings_override_star_imported_settings() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        write_file(
+            &root.join("project/settings/base.py"),
+            r#"
+INSTALLED_APPS = ["project.base"]
+TEMPLATES = [{"APP_DIRS": True}]
+"#,
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(
+            &dev_settings,
+            r#"
+from .base import *
+
+INSTALLED_APPS = ["project.dev"]
+"#,
+        );
+
+        let facts = extract_project_settings_module(&root, &dev_settings, "project.settings.dev");
+
+        assert_eq!(known_vec(&facts.installed_apps), ["project.dev"]);
+        assert!(known_bool(&known_vec(&facts.template_backends)[0].app_dirs));
+    }
+
+    #[test]
+    fn leaf_settings_mutate_star_imported_settings() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        write_file(
+            &root.join("project/settings/base.py"),
+            r#"
+INSTALLED_APPS = ["project.base"]
+TEMPLATES = []
+"#,
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(
+            &dev_settings,
+            r#"
+from .base import *
+
+INSTALLED_APPS += ["project.dev"]
+TEMPLATES.append({"APP_DIRS": True})
+"#,
+        );
+
+        let facts = extract_project_settings_module(&root, &dev_settings, "project.settings.dev");
+
+        assert_eq!(
+            known_vec(&facts.installed_apps),
+            ["project.base", "project.dev"]
+        );
+        assert!(known_bool(&known_vec(&facts.template_backends)[0].app_dirs));
+    }
+
+    #[test]
+    fn failed_star_import_preserves_leaf_values_as_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        write_file(
+            &root.join("project/settings/base.py"),
+            "INSTALLED_APPS = [\n",
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(
+            &dev_settings,
+            r#"
+INSTALLED_APPS = ["project.dev"]
+TEMPLATES = []
+from .base import *
+"#,
+        );
+
+        let facts = extract_project_settings_module(&root, &dev_settings, "project.settings.dev");
+        let (apps, reasons) = partial_vec(&facts.installed_apps);
+
+        assert_eq!(apps, ["project.dev"]);
+        assert_eq!(reasons[0].field, Field::SettingsInstalledApps);
+        assert!(reasons[0].message.contains("failed to parse settings file"));
+
+        let (templates, reasons) = partial_vec(&facts.template_backends);
+        assert!(templates.is_empty());
+        assert_eq!(reasons[0].field, Field::SettingsTemplates);
+        assert!(reasons[0].message.contains("failed to parse settings file"));
+    }
+
+    #[test]
+    fn star_imported_path_values_feed_leaf_settings() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        write_file(
+            &root.join("project/settings/base.py"),
+            r"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+INSTALLED_APPS = []
+",
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(
+            &dev_settings,
+            r#"
+from .base import *
+
+TEMPLATES = [{"DIRS": [BASE_DIR / "templates"]}]
+"#,
+        );
+
+        let facts = extract_project_settings_module(&root, &dev_settings, "project.settings.dev");
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
+    }
+
+    #[test]
+    fn extracts_settings_facts_from_discovered_split_settings_file() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        write_file(
+            &root.join("project/settings/base.py"),
+            r#"
+INSTALLED_APPS = ["project.base"]
+TEMPLATES = []
+"#,
+        );
+        write_file(
+            &root.join("project/settings/dev.py"),
+            r"
+from .base import *
+",
+        );
+        write_file(
+            &root.join("djls.toml"),
+            r#"django_settings_module = "project.settings.dev""#,
+        );
+
+        let settings = Settings::new(&root, None).unwrap();
+        let search_paths = search_paths(&root);
+        let environments = discover_django_environments(&root, &settings, &search_paths);
+        let Fact::Known {
+            value: django_settings,
+        } = &environments[0].django_settings
+        else {
+            panic!(
+                "expected resolved settings module, got {:?}",
+                environments[0].django_settings
+            );
+        };
+
+        let facts = extract_settings_facts_for_module(
+            &django_settings.file,
+            &django_settings.module,
+            &root,
+            &search_paths,
+        );
+
+        assert_eq!(known_vec(&facts.installed_apps), ["project.base"]);
+    }
+
+    #[test]
     fn marks_unsupported_installed_apps_entries_partial() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
@@ -891,16 +1683,77 @@ TEMPLATES = []
     }
 
     #[test]
-    fn marks_dynamic_settings_mutations_partial() {
+    fn applies_installed_apps_list_mutations() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         let settings = write_settings(
             &root,
             r#"
 INSTALLED_APPS = ["django.contrib.auth"]
-INSTALLED_APPS.append("project.dynamic")
+INSTALLED_APPS.append("project.appended")
+INSTALLED_APPS.extend(["project.extended"])
+INSTALLED_APPS += ["project.added"]
+INSTALLED_APPS.insert(1, "project.inserted")
 TEMPLATES = []
-TEMPLATES += [{"APP_DIRS": True}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        assert_eq!(
+            known_vec(&facts.installed_apps),
+            [
+                "django.contrib.auth",
+                "project.inserted",
+                "project.appended",
+                "project.extended",
+                "project.added",
+            ]
+        );
+    }
+
+    #[test]
+    fn applies_template_backend_list_mutations() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = []
+TEMPLATES.append({"APP_DIRS": True})
+TEMPLATES += [{"DIRS": ["templates"]}]
+TEMPLATES.insert(1, {"BACKEND": "django.template.backends.django.DjangoTemplates"})
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(backends.len(), 3);
+        assert!(known_bool(&backends[0].app_dirs));
+        assert_eq!(
+            backends[1].backend.as_deref(),
+            Some("django.template.backends.django.DjangoTemplates")
+        );
+        assert_eq!(
+            known_vec(&backends[2].dirs)[0].path,
+            Utf8PathBuf::from("templates")
+        );
+    }
+
+    #[test]
+    fn marks_unsupported_settings_mutations_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+LOCAL_APPS = ["project.dynamic"]
+INSTALLED_APPS = ["django.contrib.auth"]
+INSTALLED_APPS.extend(LOCAL_APPS)
+TEMPLATES = []
+TEMPLATES.update({"APP_DIRS": True})
 "#,
         );
 
@@ -908,9 +1761,7 @@ TEMPLATES += [{"APP_DIRS": True}]
 
         let (apps, app_reasons) = partial_vec(&facts.installed_apps);
         assert_eq!(apps, ["django.contrib.auth"]);
-        assert!(app_reasons[0]
-            .message
-            .contains("unsupported dynamic mutation"));
+        assert!(app_reasons[0].message.contains("literal list or tuple"));
 
         let (templates, template_reasons) = partial_vec(&facts.template_backends);
         assert!(templates.is_empty());
