@@ -377,7 +377,7 @@ pub fn load_env_file(root: &Utf8Path, settings: &Settings) -> Vec<(String, Strin
     }
 }
 
-fn resolve_django_settings(root: &Utf8Path, settings: &Settings) -> Option<String> {
+pub(crate) fn resolve_django_settings(root: &Utf8Path, settings: &Settings) -> Option<String> {
     settings
         .django_settings_module()
         .map(String::from)

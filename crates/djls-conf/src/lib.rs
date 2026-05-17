@@ -2,6 +2,7 @@ mod diagnostics;
 mod format;
 mod tagspecs;
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -64,6 +65,38 @@ pub enum ConfigError {
     PyprojectParse(#[from] toml::de::Error),
     #[error("Failed to serialize extracted pyproject.toml data")]
     PyprojectSerialize(#[from] toml::ser::Error),
+    #[error("Invalid settings_contexts: {0}")]
+    InvalidSettingsContexts(String),
+}
+
+#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone)]
+pub struct SettingsContextConfig {
+    label: String,
+    module: Option<String>,
+    file: Option<String>,
+}
+
+impl SettingsContextConfig {
+    #[must_use]
+    pub fn label(&self) -> &str {
+        self.label.trim()
+    }
+
+    #[must_use]
+    pub fn module(&self) -> Option<&str> {
+        self.module
+            .as_deref()
+            .map(str::trim)
+            .filter(|module| !module.is_empty())
+    }
+
+    #[must_use]
+    pub fn file(&self) -> Option<&str> {
+        self.file
+            .as_deref()
+            .map(str::trim)
+            .filter(|file| !file.is_empty())
+    }
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
@@ -72,6 +105,8 @@ pub struct Settings {
     debug: bool,
     venv_path: Option<String>,
     django_settings_module: Option<String>,
+    #[serde(default, rename = "settings_contexts")]
+    contexts: Vec<SettingsContextConfig>,
     #[serde(default)]
     pythonpath: Vec<String>,
     env_file: Option<String>,
@@ -96,6 +131,9 @@ impl Settings {
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
+            if !overrides.contexts.is_empty() {
+                settings.contexts = overrides.contexts;
+            }
             if !overrides.pythonpath.is_empty() {
                 settings.pythonpath = overrides.pythonpath;
             }
@@ -112,7 +150,43 @@ impl Settings {
             }
         }
 
+        settings.validate()?;
         Ok(settings)
+    }
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        let mut labels = BTreeSet::new();
+        for context in &self.contexts {
+            let label = context.label();
+            if label.is_empty() {
+                return Err(ConfigError::InvalidSettingsContexts(
+                    "context label cannot be empty".to_string(),
+                ));
+            }
+            if !labels.insert(label.to_string()) {
+                return Err(ConfigError::InvalidSettingsContexts(format!(
+                    "duplicate context label: {label}"
+                )));
+            }
+
+            let has_module = context.module().is_some();
+            let has_file = context.file().is_some();
+            match (has_module, has_file) {
+                (true, false) | (false, true) => {}
+                (true, true) => {
+                    return Err(ConfigError::InvalidSettingsContexts(format!(
+                        "context {label} must use either module or file, not both"
+                    )));
+                }
+                (false, false) => {
+                    return Err(ConfigError::InvalidSettingsContexts(format!(
+                        "context {label} must set module or file"
+                    )));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn load_from_paths(
@@ -154,7 +228,8 @@ impl Settings {
         );
 
         let config = builder.build()?;
-        let settings = config.try_deserialize()?;
+        let settings: Self = config.try_deserialize()?;
+        settings.validate()?;
         Ok(settings)
     }
 
@@ -171,6 +246,11 @@ impl Settings {
     #[must_use]
     pub fn django_settings_module(&self) -> Option<&str> {
         self.django_settings_module.as_deref()
+    }
+
+    #[must_use]
+    pub fn settings_contexts(&self) -> &[SettingsContextConfig] {
+        &self.contexts
     }
 
     #[must_use]
@@ -220,6 +300,7 @@ mod tests {
                     debug: false,
                     venv_path: None,
                     django_settings_module: None,
+                    contexts: vec![],
                     pythonpath: vec![],
                     env_file: None,
                     tagspecs: TagSpecDef::default(),
@@ -319,6 +400,70 @@ mod tests {
                     env_file: Some(".env.local".to_string()),
                     ..Default::default()
                 }
+            );
+        }
+
+        #[test]
+        fn test_load_settings_contexts_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[settings_contexts]]
+label = "site1"
+module = "projects.site1.settings.dev"
+
+[[settings_contexts]]
+label = "site2"
+file = "projects/site2/settings/dev.py"
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let contexts = settings.settings_contexts();
+
+            assert_eq!(contexts.len(), 2);
+            assert_eq!(contexts[0].label(), "site1");
+            assert_eq!(contexts[0].module(), Some("projects.site1.settings.dev"));
+            assert_eq!(contexts[0].file(), None);
+            assert_eq!(contexts[1].label(), "site2");
+            assert_eq!(contexts[1].module(), None);
+            assert_eq!(contexts[1].file(), Some("projects/site2/settings/dev.py"));
+        }
+
+        #[test]
+        fn test_overrides_replace_settings_contexts() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[settings_contexts]]
+label = "project"
+module = "project.settings"
+"#,
+            )
+            .unwrap();
+
+            let override_settings = Settings {
+                contexts: vec![SettingsContextConfig {
+                    label: "override".to_string(),
+                    module: Some("override.settings".to_string()),
+                    file: None,
+                }],
+                ..Default::default()
+            };
+            let settings = Settings::new(
+                Utf8Path::from_path(dir.path()).unwrap(),
+                Some(override_settings),
+            )
+            .unwrap();
+
+            assert_eq!(settings.settings_contexts().len(), 1);
+            assert_eq!(settings.settings_contexts()[0].label(), "override");
+            assert_eq!(
+                settings.settings_contexts()[0].module(),
+                Some("override.settings")
             );
         }
 
@@ -610,6 +755,53 @@ end_tag = { name = "endblock", optional = false }
             let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+        }
+
+        #[test]
+        fn test_rejects_settings_context_with_module_and_file() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[settings_contexts]]
+label = "site"
+module = "project.settings"
+file = "project/settings.py"
+"#,
+            )
+            .unwrap();
+
+            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+
+            assert!(matches!(
+                result.unwrap_err(),
+                ConfigError::InvalidSettingsContexts(_)
+            ));
+        }
+
+        #[test]
+        fn test_rejects_duplicate_settings_context_labels() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[settings_contexts]]
+label = "site"
+module = "project.settings"
+
+[[settings_contexts]]
+label = "site"
+module = "other.settings"
+"#,
+            )
+            .unwrap();
+
+            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+
+            assert!(matches!(
+                result.unwrap_err(),
+                ConfigError::InvalidSettingsContexts(_)
+            ));
         }
     }
 }
