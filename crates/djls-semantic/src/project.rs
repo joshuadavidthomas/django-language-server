@@ -12,6 +12,7 @@ mod settings_facts;
 mod symbols;
 mod sync;
 mod system;
+mod template_dirs;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::load_env_file;
