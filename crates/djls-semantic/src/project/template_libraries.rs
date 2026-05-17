@@ -335,24 +335,33 @@ fn stmt_defines_template_register(stmt: &Stmt) -> bool {
         return true;
     }
 
-    // Django's discovery accepts any module with a top-level `register`
-    // attribute. Keep the static filter at the same boundary instead of trying
-    // to prove that the value is specifically a `django.template.Library`.
-    assigned_value(stmt, "register").is_some()
+    match stmt {
+        Stmt::FunctionDef(function) if function.name.as_str() == "register" => true,
+        Stmt::ClassDef(class) if class.name.as_str() == "register" => true,
+        _ => {
+            // Django's discovery accepts any module with a top-level `register`
+            // attribute. Keep the static filter at the same boundary instead of
+            // trying to prove that the value is specifically a
+            // `django.template.Library`.
+            assigned_value(stmt, "register").is_some()
+        }
+    }
 }
 
 fn imported_as_register(stmt: &Stmt) -> bool {
-    let Stmt::ImportFrom(import_from) = stmt else {
-        return false;
-    };
+    match stmt {
+        Stmt::Import(import) => import.names.iter().any(alias_binds_register),
+        Stmt::ImportFrom(import_from) => import_from.names.iter().any(alias_binds_register),
+        _ => false,
+    }
+}
 
-    import_from.names.iter().any(|alias| {
-        alias
-            .asname
-            .as_ref()
-            .map_or(alias.name.as_str(), |asname| asname.as_str())
-            == "register"
-    })
+fn alias_binds_register(alias: &ruff_python_ast::Alias) -> bool {
+    alias
+        .asname
+        .as_ref()
+        .map_or(alias.name.as_str(), |asname| asname.as_str())
+        == "register"
 }
 
 fn assigned_value<'a>(stmt: &'a Stmt, target_name: &str) -> Option<&'a Expr> {
@@ -793,6 +802,18 @@ register = lib
             &root.join("blog/templatetags/reexported.py"),
             "from .aliased import register\n",
         );
+        write_file(
+            &root.join("blog/templatetags/imported.py"),
+            "import blog.templatetags.aliased as register\n",
+        );
+        write_file(
+            &root.join("blog/templatetags/function.py"),
+            "def register():\n    pass\n",
+        );
+        write_file(
+            &root.join("blog/templatetags/classy.py"),
+            "class register:\n    pass\n",
+        );
 
         let facts = assemble_template_libraries(
             &Fact::known(vec![backend(Fact::known(true))]),
@@ -811,6 +832,18 @@ register = lib
         assert_eq!(
             loadable.get("reexported").map(String::as_str),
             Some("blog.templatetags.reexported")
+        );
+        assert_eq!(
+            loadable.get("imported").map(String::as_str),
+            Some("blog.templatetags.imported")
+        );
+        assert_eq!(
+            loadable.get("function").map(String::as_str),
+            Some("blog.templatetags.function")
+        );
+        assert_eq!(
+            loadable.get("classy").map(String::as_str),
+            Some("blog.templatetags.classy")
         );
     }
 
@@ -1050,7 +1083,7 @@ register = template.Library()
                 "custom",
                 "project.templatetags.custom",
             )]),
-            Fact::known(Vec::new()),
+            Fact::known(vec![module("project.templatetags.custom_builtins")]),
         );
         unknown_backend.backend = None;
 
@@ -1060,9 +1093,15 @@ register = template.Library()
         );
 
         let (_libraries, reasons) = partial_vec(&facts);
+        let loadable = loadable_map(&facts);
         assert_eq!(
-            loadable_map(&facts).get("custom").map(String::as_str),
+            loadable.get("custom").map(String::as_str),
             Some("project.templatetags.custom")
+        );
+        assert!(!loadable.contains_key("cache"));
+        assert_eq!(
+            builtin_modules(&facts),
+            ["project.templatetags.custom_builtins"]
         );
         assert!(reasons
             .iter()
@@ -1088,6 +1127,28 @@ register = template.Library()
         assert_eq!(
             loadable_map(&facts).get("static").map(String::as_str),
             Some("project.templatetags.assets")
+        );
+    }
+
+    #[test]
+    fn later_backend_options_override_earlier_backend_options() {
+        let facts = assemble_template_libraries(
+            &Fact::known(vec![
+                backend_with_options(
+                    Fact::known(vec![settings_library("custom", "project.templatetags.one")]),
+                    Fact::known(Vec::new()),
+                ),
+                backend_with_options(
+                    Fact::known(vec![settings_library("custom", "project.templatetags.two")]),
+                    Fact::known(Vec::new()),
+                ),
+            ]),
+            &Fact::known(Vec::new()),
+        );
+
+        assert_eq!(
+            loadable_map(&facts).get("custom").map(String::as_str),
+            Some("project.templatetags.two")
         );
     }
 
