@@ -4,6 +4,7 @@ mod introspector;
 mod names;
 mod python;
 mod resolve;
+mod static_model;
 mod symbols;
 mod sync;
 mod system;
