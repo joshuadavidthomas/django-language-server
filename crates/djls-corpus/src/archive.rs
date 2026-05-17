@@ -4,43 +4,23 @@ use std::io::Read;
 
 use camino::Utf8Path;
 
-/// Whether a path is relevant for corpus download (broad filter).
+/// Whether a tarball path should be excluded from the local corpus checkout.
 ///
-/// Used during tarball extraction to decide what to keep. This is the
-/// union of all extraction-target and template predicates. Discovery
-/// methods in [`super::Corpus`] apply stricter filtering on top (e.g.
-/// excluding `__init__.py`, `docs/`, `tests/`).
-fn is_download_relevant(path: &str) -> bool {
-    if path.contains("__pycache__") {
-        return false;
-    }
-
-    let utf8 = Utf8Path::new(path);
-
-    if utf8.extension().is_some_and(|ext| ext == "py") {
-        return path.contains("/templatetags/")
-            || (path.contains("/template/")
-                && matches!(
-                    utf8.file_name(),
-                    Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
-                ))
-            || utf8.file_name() == Some("models.py");
-    }
-
-    if path.contains("/templates/") {
-        return true;
-    }
-
-    false
+/// The corpus stores full repository source so higher-level tests can discover
+/// real project structure: settings modules, AppConfig classes, package roots,
+/// templates, templatetags, and project metadata. Discovery methods in
+/// [`super::Corpus`] apply stricter filtering for specific test suites.
+fn is_download_excluded(path: &str) -> bool {
+    path.contains("__pycache__")
 }
 
-/// Extract relevant files from a gzipped tarball.
+/// Extract a full repository snapshot from a gzipped tarball.
 ///
 /// Strips the top-level directory from each entry, filters through
-/// [`is_download_relevant`], and rejects paths with `..` components
-/// to prevent directory traversal. Only regular files are extracted;
-/// directories are created implicitly via parent directory creation,
-/// and symlinks/hard links are silently skipped.
+/// [`is_download_excluded`], and rejects paths with `..` components to prevent
+/// directory traversal. Only regular files are extracted; directories are
+/// created implicitly via parent directory creation, and symlinks/hard links are
+/// silently skipped.
 pub(crate) fn extract_tarball<R: Read>(
     reader: R,
     out_dir: &Utf8Path,
@@ -89,7 +69,7 @@ pub(crate) fn extract_tarball<R: Read>(
             anyhow::bail!("Invalid tarball entry path (absolute or traversal): {entry_path}");
         }
 
-        if !is_download_relevant(relative) {
+        if is_download_excluded(relative) {
             continue;
         }
 
