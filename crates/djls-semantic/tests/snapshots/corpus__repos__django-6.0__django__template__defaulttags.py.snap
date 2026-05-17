@@ -131,7 +131,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    as_var: keep
+    as_var: strip
   "django.template.defaulttags::tag::partial":
     arg_constraints:
       - Exact: 2
@@ -294,7 +294,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    as_var: keep
+    as_var: strip
   "django.template.defaulttags::tag::widthratio":
     arg_constraints: []
     required_keywords:

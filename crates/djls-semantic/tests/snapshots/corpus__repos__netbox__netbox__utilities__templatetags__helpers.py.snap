@@ -18,7 +18,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    as_var: keep
+    as_var: strip
   "netbox.utilities.templatetags.helpers::tag::applied_filters":
     arg_constraints:
       - Min: 4
