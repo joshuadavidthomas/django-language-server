@@ -205,8 +205,8 @@ pub(crate) enum Field {
     ResolverModule,
     #[serde(rename = "resolver.relative_import")]
     ResolverRelativeImport,
-    #[serde(rename = "settings.context")]
-    SettingsContext,
+    #[serde(rename = "django.environment")]
+    DjangoEnvironment,
     #[serde(rename = "settings.installed_apps")]
     SettingsInstalledApps,
     #[serde(rename = "settings.templates")]
@@ -237,7 +237,7 @@ pub(crate) enum ReasonSource {
     File(Utf8PathBuf),
     Path(Utf8PathBuf),
     Module(PyModuleName),
-    SettingsContext(String),
+    DjangoEnvironment(Utf8PathBuf),
     Workspace(Utf8PathBuf),
     Unknown,
 }
@@ -245,7 +245,7 @@ pub(crate) enum ReasonSource {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ProjectFacts {
     pub(crate) resolver: ResolverFacts,
-    pub(crate) contexts: Vec<ContextFacts>,
+    pub(crate) django_environments: Vec<DjangoEnvironmentFacts>,
     pub(crate) completion_union: CompletionUnionFacts,
 }
 
@@ -293,10 +293,10 @@ pub(crate) enum ModuleLocation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ContextFacts {
-    pub(crate) label: String,
-    pub(crate) settings_module: Fact<PyModuleName>,
-    pub(crate) settings_file: Fact<Utf8PathBuf>,
+pub(crate) struct DjangoEnvironmentFacts {
+    pub(crate) root: Utf8PathBuf,
+    pub(crate) django_settings_module: Fact<PyModuleName>,
+    pub(crate) django_settings_file: Fact<Utf8PathBuf>,
     pub(crate) installed_apps: Fact<Vec<InstalledAppFact>>,
     pub(crate) template_backends: Fact<Vec<TemplateBackendFact>>,
     pub(crate) app_registry: Fact<Vec<AppFact>>,
@@ -517,14 +517,14 @@ mod tests {
     }
 
     #[test]
-    fn gh401_profile_shape_keeps_contexts_separate_from_union() {
+    fn gh401_profile_shape_keeps_django_environments_separate_from_union() {
         let profiles = djls_corpus::static_project_model_profiles().unwrap();
         let profile = profiles.get("gh401-multisite-split-settings").unwrap();
-        let contexts = profile
-            .contexts
+        let django_environments = profile
+            .django_environments
             .iter()
-            .map(|context| {
-                let apps = context
+            .map(|environment| {
+                let apps = environment
                     .expected
                     .local_apps
                     .iter()
@@ -535,11 +535,17 @@ mod tests {
                         config: None,
                     })
                     .collect();
+                let settings_file = Utf8PathBuf::from(&environment.settings_file);
+                let root = settings_file
+                    .parent()
+                    .and_then(|parent| parent.parent())
+                    .unwrap()
+                    .to_path_buf();
 
-                ContextFacts {
-                    label: context.label.clone(),
-                    settings_module: Fact::known(module(&context.settings_module)),
-                    settings_file: Fact::known(Utf8PathBuf::from(&context.settings_file)),
+                DjangoEnvironmentFacts {
+                    root,
+                    django_settings_module: Fact::known(module(&environment.settings_module)),
+                    django_settings_file: Fact::known(settings_file),
                     installed_apps: Fact::known(Vec::new()),
                     template_backends: Fact::known(Vec::new()),
                     app_registry: Fact::known(apps),
@@ -574,7 +580,7 @@ mod tests {
                 ]),
                 modules: Vec::new(),
             },
-            contexts,
+            django_environments,
             completion_union: CompletionUnionFacts {
                 apps: Fact::known(union_apps),
                 template_libraries: Fact::known(Vec::new()),
@@ -583,14 +589,14 @@ mod tests {
         };
 
         let site1 = project
-            .contexts
+            .django_environments
             .iter()
-            .find(|context| context.label == "site1-dev")
+            .find(|environment| environment.root == "projects/site1")
             .unwrap();
         let site2 = project
-            .contexts
+            .django_environments
             .iter()
-            .find(|context| context.label == "site2-dev")
+            .find(|environment| environment.root == "projects/site2")
             .unwrap();
 
         assert_eq!(site1.app_registry.value().unwrap().len(), 2);

@@ -65,34 +65,34 @@ pub enum ConfigError {
     PyprojectParse(#[from] toml::de::Error),
     #[error("Failed to serialize extracted pyproject.toml data")]
     PyprojectSerialize(#[from] toml::ser::Error),
-    #[error("Invalid settings_contexts: {0}")]
-    InvalidSettingsContexts(String),
+    #[error("Invalid django_environments: {0}")]
+    InvalidDjangoEnvironments(String),
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone)]
-pub struct SettingsContextConfig {
-    label: String,
-    module: Option<String>,
-    file: Option<String>,
+pub struct DjangoEnvironmentConfig {
+    root: String,
+    django_settings_module: Option<String>,
+    django_settings_file: Option<String>,
 }
 
-impl SettingsContextConfig {
+impl DjangoEnvironmentConfig {
     #[must_use]
-    pub fn label(&self) -> &str {
-        self.label.trim()
+    pub fn root(&self) -> &str {
+        self.root.trim()
     }
 
     #[must_use]
-    pub fn module(&self) -> Option<&str> {
-        self.module
+    pub fn django_settings_module(&self) -> Option<&str> {
+        self.django_settings_module
             .as_deref()
             .map(str::trim)
             .filter(|module| !module.is_empty())
     }
 
     #[must_use]
-    pub fn file(&self) -> Option<&str> {
-        self.file
+    pub fn django_settings_file(&self) -> Option<&str> {
+        self.django_settings_file
             .as_deref()
             .map(str::trim)
             .filter(|file| !file.is_empty())
@@ -105,8 +105,8 @@ pub struct Settings {
     debug: bool,
     venv_path: Option<String>,
     django_settings_module: Option<String>,
-    #[serde(default, rename = "settings_contexts")]
-    contexts: Vec<SettingsContextConfig>,
+    #[serde(default)]
+    django_environments: Vec<DjangoEnvironmentConfig>,
     #[serde(default)]
     pythonpath: Vec<String>,
     env_file: Option<String>,
@@ -131,8 +131,8 @@ impl Settings {
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
-            if !overrides.contexts.is_empty() {
-                settings.contexts = overrides.contexts;
+            if !overrides.django_environments.is_empty() {
+                settings.django_environments = overrides.django_environments;
             }
             if !overrides.pythonpath.is_empty() {
                 settings.pythonpath = overrides.pythonpath;
@@ -155,32 +155,32 @@ impl Settings {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        let mut labels = BTreeSet::new();
-        for context in &self.contexts {
-            let label = context.label();
-            if label.is_empty() {
-                return Err(ConfigError::InvalidSettingsContexts(
-                    "context label cannot be empty".to_string(),
+        let mut roots = BTreeSet::new();
+        for environment in &self.django_environments {
+            let root = environment.root();
+            if root.is_empty() {
+                return Err(ConfigError::InvalidDjangoEnvironments(
+                    "Django environment root cannot be empty".to_string(),
                 ));
             }
-            if !labels.insert(label.to_string()) {
-                return Err(ConfigError::InvalidSettingsContexts(format!(
-                    "duplicate context label: {label}"
+            if !roots.insert(root.to_string()) {
+                return Err(ConfigError::InvalidDjangoEnvironments(format!(
+                    "duplicate Django environment root: {root}"
                 )));
             }
 
-            let has_module = context.module().is_some();
-            let has_file = context.file().is_some();
+            let has_module = environment.django_settings_module().is_some();
+            let has_file = environment.django_settings_file().is_some();
             match (has_module, has_file) {
                 (true, false) | (false, true) => {}
                 (true, true) => {
-                    return Err(ConfigError::InvalidSettingsContexts(format!(
-                        "context {label} must use either module or file, not both"
+                    return Err(ConfigError::InvalidDjangoEnvironments(format!(
+                        "Django environment {root} must use either django_settings_module or django_settings_file, not both"
                     )));
                 }
                 (false, false) => {
-                    return Err(ConfigError::InvalidSettingsContexts(format!(
-                        "context {label} must set module or file"
+                    return Err(ConfigError::InvalidDjangoEnvironments(format!(
+                        "Django environment {root} must set django_settings_module or django_settings_file"
                     )));
                 }
             }
@@ -249,8 +249,8 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn settings_contexts(&self) -> &[SettingsContextConfig] {
-        &self.contexts
+    pub fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
+        &self.django_environments
     }
 
     #[must_use]
@@ -300,7 +300,7 @@ mod tests {
                     debug: false,
                     venv_path: None,
                     django_settings_module: None,
-                    contexts: vec![],
+                    django_environments: vec![],
                     pythonpath: vec![],
                     env_file: None,
                     tagspecs: TagSpecDef::default(),
@@ -404,52 +404,58 @@ mod tests {
         }
 
         #[test]
-        fn test_load_settings_contexts_config() {
+        fn test_load_django_environments_config() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
-[[settings_contexts]]
-label = "site1"
-module = "projects.site1.settings.dev"
+[[django_environments]]
+root = "projects/site1"
+django_settings_module = "projects.site1.settings.dev"
 
-[[settings_contexts]]
-label = "site2"
-file = "projects/site2/settings/dev.py"
+[[django_environments]]
+root = "projects/site2"
+django_settings_file = "projects/site2/settings/dev.py"
 "#,
             )
             .unwrap();
 
             let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            let contexts = settings.settings_contexts();
+            let environments = settings.django_environments();
 
-            assert_eq!(contexts.len(), 2);
-            assert_eq!(contexts[0].label(), "site1");
-            assert_eq!(contexts[0].module(), Some("projects.site1.settings.dev"));
-            assert_eq!(contexts[0].file(), None);
-            assert_eq!(contexts[1].label(), "site2");
-            assert_eq!(contexts[1].module(), None);
-            assert_eq!(contexts[1].file(), Some("projects/site2/settings/dev.py"));
+            assert_eq!(environments.len(), 2);
+            assert_eq!(environments[0].root(), "projects/site1");
+            assert_eq!(
+                environments[0].django_settings_module(),
+                Some("projects.site1.settings.dev")
+            );
+            assert_eq!(environments[0].django_settings_file(), None);
+            assert_eq!(environments[1].root(), "projects/site2");
+            assert_eq!(environments[1].django_settings_module(), None);
+            assert_eq!(
+                environments[1].django_settings_file(),
+                Some("projects/site2/settings/dev.py")
+            );
         }
 
         #[test]
-        fn test_overrides_replace_settings_contexts() {
+        fn test_overrides_replace_django_environments() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
-[[settings_contexts]]
-label = "project"
-module = "project.settings"
+[[django_environments]]
+root = "."
+django_settings_module = "project.settings"
 "#,
             )
             .unwrap();
 
             let override_settings = Settings {
-                contexts: vec![SettingsContextConfig {
-                    label: "override".to_string(),
-                    module: Some("override.settings".to_string()),
-                    file: None,
+                django_environments: vec![DjangoEnvironmentConfig {
+                    root: "override".to_string(),
+                    django_settings_module: Some("override.settings".to_string()),
+                    django_settings_file: None,
                 }],
                 ..Default::default()
             };
@@ -459,10 +465,10 @@ module = "project.settings"
             )
             .unwrap();
 
-            assert_eq!(settings.settings_contexts().len(), 1);
-            assert_eq!(settings.settings_contexts()[0].label(), "override");
+            assert_eq!(settings.django_environments().len(), 1);
+            assert_eq!(settings.django_environments()[0].root(), "override");
             assert_eq!(
-                settings.settings_contexts()[0].module(),
+                settings.django_environments()[0].django_settings_module(),
                 Some("override.settings")
             );
         }
@@ -758,15 +764,15 @@ end_tag = { name = "endblock", optional = false }
         }
 
         #[test]
-        fn test_rejects_settings_context_with_module_and_file() {
+        fn test_rejects_django_environment_with_module_and_file() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
-[[settings_contexts]]
-label = "site"
-module = "project.settings"
-file = "project/settings.py"
+[[django_environments]]
+root = "site"
+django_settings_module = "project.settings"
+django_settings_file = "project/settings.py"
 "#,
             )
             .unwrap();
@@ -775,23 +781,23 @@ file = "project/settings.py"
 
             assert!(matches!(
                 result.unwrap_err(),
-                ConfigError::InvalidSettingsContexts(_)
+                ConfigError::InvalidDjangoEnvironments(_)
             ));
         }
 
         #[test]
-        fn test_rejects_duplicate_settings_context_labels() {
+        fn test_rejects_duplicate_django_environment_roots() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
-[[settings_contexts]]
-label = "site"
-module = "project.settings"
+[[django_environments]]
+root = "site"
+django_settings_module = "project.settings"
 
-[[settings_contexts]]
-label = "site"
-module = "other.settings"
+[[django_environments]]
+root = "site"
+django_settings_module = "other.settings"
 "#,
             )
             .unwrap();
@@ -800,7 +806,7 @@ module = "other.settings"
 
             assert!(matches!(
                 result.unwrap_err(),
-                ConfigError::InvalidSettingsContexts(_)
+                ConfigError::InvalidDjangoEnvironments(_)
             ));
         }
     }

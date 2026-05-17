@@ -44,7 +44,7 @@ pub use lock::Lockfile;
 pub use manifest::Manifest;
 pub use profiles::static_project_model_profiles;
 pub use profiles::Confidence;
-pub use profiles::Context;
+pub use profiles::DjangoEnvironmentProfile;
 pub use profiles::ExpectedFacts;
 pub use profiles::Profile;
 pub use profiles::ProfileSet;

@@ -25,9 +25,9 @@ pub struct Profile {
     #[serde(default)]
     pub source_roots: Vec<String>,
     #[serde(default)]
-    pub context_discovery_globs: Vec<String>,
-    #[serde(default, rename = "context")]
-    pub contexts: Vec<Context>,
+    pub django_settings_file_patterns: Vec<String>,
+    #[serde(default, rename = "django_environment")]
+    pub django_environments: Vec<DjangoEnvironmentProfile>,
     #[serde(default)]
     pub expected_union: ExpectedFacts,
 }
@@ -46,8 +46,8 @@ pub enum SourceKind {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Context {
-    pub label: String,
+pub struct DjangoEnvironmentProfile {
+    pub root: String,
     pub settings_file: String,
     pub settings_module: String,
     #[serde(default)]
@@ -140,27 +140,27 @@ impl Profile {
         for source_root in &self.source_roots {
             ensure_relative_path(source_root, &format!("profile `{}` source root", self.id))?;
         }
-        for glob in &self.context_discovery_globs {
+        for pattern in &self.django_settings_file_patterns {
             ensure_relative_path(
-                glob,
-                &format!("profile `{}` context discovery glob", self.id),
+                pattern,
+                &format!("profile `{}` Django settings file pattern", self.id),
             )?;
         }
         anyhow::ensure!(
-            !self.contexts.is_empty(),
-            "profile `{}` must define at least one context",
+            !self.django_environments.is_empty(),
+            "profile `{}` must define at least one Django environment",
             self.id
         );
 
-        let mut labels = BTreeSet::new();
-        for context in &self.contexts {
+        let mut roots = BTreeSet::new();
+        for environment in &self.django_environments {
             anyhow::ensure!(
-                labels.insert(context.label.as_str()),
-                "profile `{}` has duplicate context label `{}`",
+                roots.insert(environment.root.as_str()),
+                "profile `{}` has duplicate Django environment root `{}`",
                 self.id,
-                context.label
+                environment.root
             );
-            context.validate(&self.id)?;
+            environment.validate(&self.id)?;
         }
 
         self.expected_union.validate(&self.id, "expected_union")?;
@@ -175,36 +175,40 @@ impl Source {
     }
 }
 
-impl Context {
+impl DjangoEnvironmentProfile {
     fn validate(&self, profile_id: &str) -> anyhow::Result<()> {
         anyhow::ensure!(
-            !self.label.trim().is_empty(),
-            "profile `{profile_id}` context label must not be empty"
+            !self.root.trim().is_empty(),
+            "profile `{profile_id}` Django environment root must not be empty"
         );
+        ensure_relative_path(
+            &self.root,
+            &format!("profile `{profile_id}` Django environment root"),
+        )?;
         anyhow::ensure!(
             !self.settings_module.trim().is_empty(),
-            "profile `{profile_id}` context `{}` must define a settings module",
-            self.label
+            "profile `{profile_id}` Django environment `{}` must define a settings module",
+            self.root
         );
         ensure_relative_path(
             &self.settings_file,
             &format!(
-                "profile `{profile_id}` context `{}` settings file",
-                self.label
+                "profile `{profile_id}` Django environment `{}` settings file",
+                self.root
             ),
         )?;
         for path in &self.extends_files {
             ensure_relative_path(
                 path,
                 &format!(
-                    "profile `{profile_id}` context `{}` extends file",
-                    self.label
+                    "profile `{profile_id}` Django environment `{}` extends file",
+                    self.root
                 ),
             )?;
         }
         self.expected.validate(
             profile_id,
-            &format!("context `{}` expected facts", self.label),
+            &format!("Django environment `{}` expected facts", self.root),
         )?;
         Ok(())
     }
@@ -259,20 +263,20 @@ mod tests {
         }
 
         let gh401 = profiles.get("gh401-multisite-split-settings").unwrap();
-        assert_eq!(gh401.contexts.len(), 2);
+        assert_eq!(gh401.django_environments.len(), 2);
         assert_eq!(
-            gh401.context_discovery_globs,
+            gh401.django_settings_file_patterns,
             vec!["projects/*/settings/dev.py"]
         );
         let site1 = gh401
-            .contexts
+            .django_environments
             .iter()
-            .find(|context| context.label == "site1-dev")
+            .find(|environment| environment.root == "projects/site1")
             .unwrap();
         let site2 = gh401
-            .contexts
+            .django_environments
             .iter()
-            .find(|context| context.label == "site2-dev")
+            .find(|environment| environment.root == "projects/site2")
             .unwrap();
         assert_eq!(
             site1.expected.local_apps,
@@ -333,24 +337,26 @@ mod tests {
             );
         }
 
-        for context in &profile.contexts {
+        for environment in &profile.django_environments {
             assert!(
-                root.join(&context.settings_file).as_std_path().is_file(),
-                "profile `{}` context `{}` settings file `{}` does not exist",
+                root.join(&environment.settings_file)
+                    .as_std_path()
+                    .is_file(),
+                "profile `{}` Django environment `{}` settings file `{}` does not exist",
                 profile.id,
-                context.label,
-                context.settings_file
+                environment.root,
+                environment.settings_file
             );
-            for extends_file in &context.extends_files {
+            for extends_file in &environment.extends_files {
                 assert!(
                     root.join(extends_file).as_std_path().is_file(),
-                    "profile `{}` context `{}` extends file `{}` does not exist",
+                    "profile `{}` Django environment `{}` extends file `{}` does not exist",
                     profile.id,
-                    context.label,
+                    environment.root,
                     extends_file
                 );
             }
-            assert_expected_paths_exist(profile, root, &context.expected);
+            assert_expected_paths_exist(profile, root, &environment.expected);
         }
 
         assert_expected_paths_exist(profile, root, &profile.expected_union);
