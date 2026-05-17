@@ -1,0 +1,4 @@
+[tool.djls]
+# A single django_settings_module cannot represent this workspace.
+# Static project model tests should discover both dev settings contexts.
+settings_contexts = ["projects/*/settings/dev.py"]
