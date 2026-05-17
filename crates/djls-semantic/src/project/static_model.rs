@@ -306,6 +306,13 @@ pub(crate) struct DjangoEnvironmentFacts {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SettingsFacts {
+    pub(crate) file: Utf8PathBuf,
+    pub(crate) installed_apps: Fact<Vec<String>>,
+    pub(crate) template_backends: Fact<Vec<TemplateBackendFact>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CompletionUnionFacts {
     pub(crate) apps: Fact<Vec<AppFact>>,
     pub(crate) template_libraries: Fact<Vec<TemplateLibraryFact>>,
