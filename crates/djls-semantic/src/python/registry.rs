@@ -198,9 +198,11 @@ fn collect_from_decorated_function(
 /// Returns `Some((name, kind))` if the decorator is a tag registration.
 fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, RegistrationKind)> {
     // Bare decorator: `@register.tag`
-    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr {
-        if let Some(kind) = tag_decorator_kind(attr.as_str()) {
-            return Some((func_name.to_string(), kind));
+    if let Expr::Attribute(ExprAttribute { attr, value, .. }) = expr {
+        if is_register_object(value) {
+            if let Some(kind) = tag_decorator_kind(attr.as_str()) {
+                return Some((func_name.to_string(), kind));
+            }
         }
     }
 
@@ -209,22 +211,24 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
         func, arguments, ..
     }) = expr
     {
-        if let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref() {
-            if let Some(kind) = tag_decorator_kind(attr.as_str()) {
-                // Priority: name= kwarg > first positional string (for @register.tag only) > func_name
-                let name_override = kw_name_from(&arguments.keywords);
+        if let Expr::Attribute(ExprAttribute { attr, value, .. }) = func.as_ref() {
+            if is_register_object(value) {
+                if let Some(kind) = tag_decorator_kind(attr.as_str()) {
+                    // Priority: name= kwarg > first positional string (for @register.tag only) > func_name
+                    let name_override = kw_name_from(&arguments.keywords);
 
-                let positional_name = if attr.as_str() == "tag" {
-                    first_string_arg(&arguments.args)
-                } else {
-                    None
-                };
+                    let positional_name = if attr.as_str() == "tag" {
+                        first_string_arg(&arguments.args)
+                    } else {
+                        None
+                    };
 
-                let name = name_override
-                    .or(positional_name)
-                    .unwrap_or_else(|| func_name.to_string());
+                    let name = name_override
+                        .or(positional_name)
+                        .unwrap_or_else(|| func_name.to_string());
 
-                return Some((name, kind));
+                    return Some((name, kind));
+                }
             }
         }
     }
@@ -237,8 +241,8 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
 /// Returns `Some(name)` if the decorator is a filter registration.
 fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
     // Bare decorator: `@register.filter`
-    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr {
-        if FILTER_DECORATORS.contains(&attr.as_str()) {
+    if let Expr::Attribute(ExprAttribute { attr, value, .. }) = expr {
+        if is_register_object(value) && FILTER_DECORATORS.contains(&attr.as_str()) {
             return Some(func_name.to_string());
         }
     }
@@ -248,8 +252,8 @@ fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
         func, arguments, ..
     }) = expr
     {
-        if let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref() {
-            if FILTER_DECORATORS.contains(&attr.as_str()) {
+        if let Expr::Attribute(ExprAttribute { attr, value, .. }) = func.as_ref() {
+            if is_register_object(value) && FILTER_DECORATORS.contains(&attr.as_str()) {
                 let name_override = kw_name_from(&arguments.keywords);
                 let positional_name = first_string_arg(&arguments.args);
                 let name = name_override
@@ -299,9 +303,12 @@ fn collect_from_call_statement(call: &ExprCall, registrations: &mut Vec<Registra
 fn tag_registration_from_call(
     call: &ExprCall,
 ) -> Option<(String, RegistrationKind, Option<String>)> {
-    let Expr::Attribute(ExprAttribute { attr, .. }) = call.func.as_ref() else {
+    let Expr::Attribute(ExprAttribute { attr, value, .. }) = call.func.as_ref() else {
         return None;
     };
+    if !is_register_object(value) {
+        return None;
+    }
     let kind = tag_decorator_kind(attr.as_str())?;
 
     let name_override = kw_name_from(&call.arguments.keywords);
@@ -344,10 +351,10 @@ fn tag_registration_from_call(
 /// - `register.filter("name", func)`
 /// - `register.filter(func, name="alias")`
 fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<String>)> {
-    let Expr::Attribute(ExprAttribute { attr, .. }) = call.func.as_ref() else {
+    let Expr::Attribute(ExprAttribute { attr, value, .. }) = call.func.as_ref() else {
         return None;
     };
-    if !FILTER_DECORATORS.contains(&attr.as_str()) {
+    if !is_register_object(value) || !FILTER_DECORATORS.contains(&attr.as_str()) {
         return None;
     }
 
@@ -381,6 +388,10 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
     }
 
     None
+}
+
+fn is_register_object(expr: &Expr) -> bool {
+    matches!(expr, Expr::Name(ExprName { id, .. }) if id.as_str() == "register")
 }
 
 /// Map decorator attr name to `RegistrationKind`.
@@ -667,6 +678,23 @@ register.simple_tag(my_func, name="alias")
         assert_eq!(regs[0].name, "alias");
         assert_eq!(regs[0].kind, RegistrationKind::SimpleTag);
         assert_eq!(regs[0].func_name.as_deref(), Some("my_func"));
+    }
+
+    #[test]
+    fn ignores_non_register_attribute_registrations() {
+        let source = r#"
+from django import template
+other = template.Library()
+register = template.Library()
+
+@other.tag
+def helper(parser, token):
+    pass
+
+other.filter("also_wrong", helper)
+"#;
+        let regs = collect_registrations(source);
+        assert!(regs.is_empty());
     }
 
     #[test]
