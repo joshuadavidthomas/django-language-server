@@ -1,27 +1,26 @@
-//! Static Python module resolver for the Django project model.
+//! Python module resolver for project facts.
 //!
-//! This module is intentionally not wired into validation yet. It provides the
-//! first native resolver slice behind confidence-aware facts so later static
-//! model milestones can compose settings, apps, and template discovery without
-//! depending on the runtime inspector.
+//! This module resolves dotted Python module names through module search paths.
+//! It models the import-resolution behavior that project fact assembly needs
+//! without importing project code through the runtime inspector.
 
 #![allow(
     dead_code,
-    reason = "Milestone A2 adds the native resolver before wiring it into project assembly."
+    reason = "Milestone A2 adds module resolution before project facts are assembled."
 )]
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
+use crate::project::facts::Fact;
+use crate::project::facts::Field;
+use crate::project::facts::ModuleLocation;
+use crate::project::facts::ModuleResolution;
+use crate::project::facts::ModuleSearchPathEntry;
+use crate::project::facts::ModuleSearchPathKind;
+use crate::project::facts::Reason;
+use crate::project::facts::ResolvedModule;
 use crate::project::names::PyModuleName;
-use crate::project::static_model::Fact;
-use crate::project::static_model::Field;
-use crate::project::static_model::ImportRoot;
-use crate::project::static_model::ImportRootKind;
-use crate::project::static_model::ModuleLocation;
-use crate::project::static_model::ModuleResolution;
-use crate::project::static_model::Reason;
-use crate::project::static_model::ResolvedModule;
 
 struct ModuleCandidate {
     module: ResolvedModule,
@@ -29,23 +28,23 @@ struct ModuleCandidate {
 }
 
 #[must_use]
-pub(crate) fn discover_import_roots(
+pub(crate) fn discover_module_search_paths(
     project_root: &Utf8Path,
-    explicit_roots: &[Utf8PathBuf],
-    site_packages_roots: &[Utf8PathBuf],
-) -> Fact<Vec<ImportRoot>> {
-    let mut roots = Vec::new();
+    explicit_python_paths: &[Utf8PathBuf],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Fact<Vec<ModuleSearchPathEntry>> {
+    let mut search_paths = Vec::new();
     let mut reasons = Vec::new();
 
     if project_root.is_dir() {
-        push_import_root(
-            &mut roots,
-            ImportRootKind::Workspace,
+        push_module_search_path(
+            &mut search_paths,
+            ModuleSearchPathKind::Workspace,
             project_root.to_path_buf(),
         );
     } else {
         reasons.push(Reason::path(
-            Field::ResolverImportRoots,
+            Field::ResolverModuleSearchPaths,
             project_root,
             "project root does not exist or is not a directory",
         ));
@@ -53,59 +52,63 @@ pub(crate) fn discover_import_roots(
 
     let src_root = project_root.join("src");
     if src_root.is_dir() {
-        push_import_root(&mut roots, ImportRootKind::AutoSrc, src_root);
+        push_module_search_path(&mut search_paths, ModuleSearchPathKind::AutoSrc, src_root);
     }
 
-    for explicit_root in explicit_roots {
-        let root = if explicit_root.is_absolute() {
-            explicit_root.clone()
+    for explicit_python_path in explicit_python_paths {
+        let path = if explicit_python_path.is_absolute() {
+            explicit_python_path.clone()
         } else {
-            project_root.join(explicit_root)
+            project_root.join(explicit_python_path)
         };
-        if root.is_dir() {
-            push_import_root(&mut roots, ImportRootKind::ExplicitPythonPath, root);
-        } else {
-            reasons.push(Reason::path(
-                Field::ResolverImportRoots,
-                root,
-                "explicit Python import root does not exist or is not a directory",
-            ));
-        }
-    }
-
-    for site_packages_root in site_packages_roots {
-        if site_packages_root.is_dir() {
-            push_import_root(
-                &mut roots,
-                ImportRootKind::SitePackages,
-                site_packages_root.clone(),
+        if path.is_dir() {
+            push_module_search_path(
+                &mut search_paths,
+                ModuleSearchPathKind::ExplicitPythonPath,
+                path,
             );
-            collect_pth_import_roots(site_packages_root, &mut roots, &mut reasons);
         } else {
             reasons.push(Reason::path(
-                Field::ResolverImportRoots,
-                site_packages_root,
-                "site-packages import root does not exist or is not a directory",
+                Field::ResolverModuleSearchPaths,
+                path,
+                "explicit Python module search path does not exist or is not a directory",
             ));
         }
     }
 
-    if roots.is_empty() {
+    for site_packages_path in site_packages_paths {
+        if site_packages_path.is_dir() {
+            push_module_search_path(
+                &mut search_paths,
+                ModuleSearchPathKind::SitePackages,
+                site_packages_path.clone(),
+            );
+            collect_pth_module_search_paths(site_packages_path, &mut search_paths, &mut reasons);
+        } else {
+            reasons.push(Reason::path(
+                Field::ResolverModuleSearchPaths,
+                site_packages_path,
+                "site-packages module search path does not exist or is not a directory",
+            ));
+        }
+    }
+
+    if search_paths.is_empty() {
         Fact::unknown(reasons)
     } else if reasons.is_empty() {
-        Fact::known(roots)
+        Fact::known(search_paths)
     } else {
-        Fact::partial(roots, reasons)
+        Fact::partial(search_paths, reasons)
     }
 }
 
 #[must_use]
 pub(crate) fn resolve_module(
     requested: PyModuleName,
-    import_roots: &[ImportRoot],
+    search_paths: &[ModuleSearchPathEntry],
     project_root: &Utf8Path,
 ) -> ModuleResolution {
-    let mut candidates = import_roots
+    let mut candidates = search_paths
         .iter()
         .filter_map(|root| module_candidate(&requested, root, project_root))
         .fold(Vec::new(), |mut candidates, candidate| {
@@ -122,7 +125,10 @@ pub(crate) fn resolve_module(
         0 => Fact::unknown(vec![Reason::module(
             Field::ResolverModule,
             requested.clone(),
-            "module was not found in import roots",
+            format!(
+                "module `{}` was not found in module search paths",
+                requested.as_str()
+            ),
         )]),
         1 => {
             let candidate = candidates.pop().unwrap();
@@ -140,7 +146,7 @@ pub(crate) fn resolve_module(
             vec![Reason::module(
                 Field::ResolverModule,
                 requested.clone(),
-                "module resolves to more than one import root",
+                "module resolves to more than one module search path",
             )],
         ),
     };
@@ -152,9 +158,9 @@ pub(crate) fn resolve_module(
 }
 
 #[must_use]
-pub(crate) fn resolve_file_module(
+pub(crate) fn module_name_for_file(
     file: &Utf8Path,
-    import_roots: &[ImportRoot],
+    search_paths: &[ModuleSearchPathEntry],
 ) -> Fact<PyModuleName> {
     if !file.is_file() {
         return Fact::unknown(vec![Reason::file(
@@ -172,17 +178,17 @@ pub(crate) fn resolve_file_module(
         )]);
     }
 
-    let candidates = module_names_for_file(file, import_roots);
+    let candidates = module_names_for_file(file, search_paths);
     match candidates.len() {
         0 => Fact::unknown(vec![Reason::file(
             Field::ResolverModule,
             file,
-            "module file is outside configured import roots",
+            "module file is outside configured module search paths",
         )]),
         1 => {
-            let (module, import_root) = candidates.into_iter().next().unwrap();
+            let (module, search_path) = candidates.into_iter().next().unwrap();
             let parts = module.as_str().split('.').collect::<Vec<_>>();
-            let reasons = namespace_package_reasons(&parts, &import_root);
+            let reasons = namespace_package_reasons(&parts, &search_path);
             if reasons.is_empty() {
                 Fact::known(module)
             } else {
@@ -252,33 +258,44 @@ pub(crate) fn resolve_relative_import_module(
     }
 }
 
-fn push_import_root(roots: &mut Vec<ImportRoot>, kind: ImportRootKind, path: Utf8PathBuf) {
-    if roots.iter().any(|root| root.path == path) {
+fn push_module_search_path(
+    search_paths: &mut Vec<ModuleSearchPathEntry>,
+    kind: ModuleSearchPathKind,
+    path: Utf8PathBuf,
+) {
+    if search_paths
+        .iter()
+        .any(|search_path| search_path.path == path)
+    {
         return;
     }
 
-    roots.push(ImportRoot { kind, path });
+    search_paths.push(ModuleSearchPathEntry { kind, path });
 }
 
 fn module_names_for_file(
     file: &Utf8Path,
-    import_roots: &[ImportRoot],
+    search_paths: &[ModuleSearchPathEntry],
 ) -> Vec<(PyModuleName, Utf8PathBuf)> {
-    let Some(longest_root_len) = import_roots
+    let Some(longest_path_len) = search_paths
         .iter()
-        .filter(|root| file.starts_with(&root.path))
-        .map(|root| root.path.as_str().len())
+        .filter(|search_path| file.starts_with(&search_path.path))
+        .map(|search_path| search_path.path.as_str().len())
         .max()
     else {
         return Vec::new();
     };
 
-    import_roots
+    search_paths
         .iter()
-        .filter(|root| file.starts_with(&root.path) && root.path.as_str().len() == longest_root_len)
-        .filter_map(|root| {
-            let relative = file.strip_prefix(&root.path).ok()?;
-            module_name_from_relative_file(relative).map(|module| (module, root.path.clone()))
+        .filter(|search_path| {
+            file.starts_with(&search_path.path)
+                && search_path.path.as_str().len() == longest_path_len
+        })
+        .filter_map(|search_path| {
+            let relative = file.strip_prefix(&search_path.path).ok()?;
+            module_name_from_relative_file(relative)
+                .map(|module| (module, search_path.path.clone()))
         })
         .fold(Vec::new(), |mut candidates, candidate| {
             if !candidates.iter().any(|(module, _)| module == &candidate.0) {
@@ -299,14 +316,14 @@ fn module_name_from_relative_file(relative: &Utf8Path) -> Option<PyModuleName> {
     PyModuleName::from_relative_python_module(relative).ok()
 }
 
-fn collect_pth_import_roots(
+fn collect_pth_module_search_paths(
     site_packages_root: &Utf8Path,
-    roots: &mut Vec<ImportRoot>,
+    search_paths: &mut Vec<ModuleSearchPathEntry>,
     reasons: &mut Vec<Reason>,
 ) {
     let Ok(entries) = std::fs::read_dir(site_packages_root.as_std_path()) else {
         reasons.push(Reason::path(
-            Field::ResolverImportRoots,
+            Field::ResolverModuleSearchPaths,
             site_packages_root,
             "could not read site-packages directory for .pth files",
         ));
@@ -323,9 +340,9 @@ fn collect_pth_import_roots(
     for pth_file in pth_files {
         let Ok(contents) = std::fs::read_to_string(pth_file.as_std_path()) else {
             reasons.push(Reason::file(
-                Field::ResolverImportRoots,
+                Field::ResolverModuleSearchPaths,
                 pth_file,
-                "could not read .pth import roots",
+                "could not read .pth module search paths",
             ));
             continue;
         };
@@ -346,10 +363,10 @@ fn collect_pth_import_roots(
             };
 
             if path.is_dir() {
-                push_import_root(roots, ImportRootKind::PthFile, path);
+                push_module_search_path(search_paths, ModuleSearchPathKind::PthFile, path);
             } else {
                 reasons.push(Reason::path(
-                    Field::ResolverImportRoots,
+                    Field::ResolverModuleSearchPaths,
                     path,
                     ".pth entry does not exist or is not a directory",
                 ));
@@ -361,13 +378,13 @@ fn collect_pth_import_roots(
 #[must_use]
 fn module_candidate(
     requested: &PyModuleName,
-    import_root: &ImportRoot,
+    search_path: &ModuleSearchPathEntry,
     project_root: &Utf8Path,
 ) -> Option<ModuleCandidate> {
     let parts = requested.as_str().split('.').collect::<Vec<_>>();
     let module_path = parts
         .iter()
-        .fold(import_root.path.clone(), |mut path, part| {
+        .fold(search_path.path.clone(), |mut path, part| {
             path.push(part);
             path
         });
@@ -382,12 +399,12 @@ fn module_candidate(
         return None;
     };
 
-    let reasons = namespace_package_reasons(&parts, &import_root.path);
+    let reasons = namespace_package_reasons(&parts, &search_path.path);
     Some(ModuleCandidate {
         module: ResolvedModule {
             module: requested.clone(),
             file: file.clone(),
-            import_root: import_root.path.clone(),
+            search_path: search_path.path.clone(),
             location: if file.starts_with(project_root) {
                 ModuleLocation::Workspace
             } else {
@@ -399,9 +416,9 @@ fn module_candidate(
 }
 
 #[must_use]
-fn namespace_package_reasons(parts: &[&str], import_root: &Utf8Path) -> Vec<Reason> {
+fn namespace_package_reasons(parts: &[&str], search_path: &Utf8Path) -> Vec<Reason> {
     let package_segment_count = parts.len().saturating_sub(1);
-    let mut dir = import_root.to_path_buf();
+    let mut dir = search_path.to_path_buf();
     let mut reasons = Vec::new();
 
     for part in parts.iter().take(package_segment_count) {
@@ -421,10 +438,10 @@ fn namespace_package_reasons(parts: &[&str], import_root: &Utf8Path) -> Vec<Reas
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::static_model::Field;
-    use crate::project::static_model::ImportRootKind;
-    use crate::project::static_model::ModuleLocation;
-    use crate::project::static_model::ResolvedModule;
+    use crate::project::facts::Field;
+    use crate::project::facts::ModuleLocation;
+    use crate::project::facts::ModuleSearchPathKind;
+    use crate::project::facts::ResolvedModule;
 
     fn module(name: &str) -> PyModuleName {
         PyModuleName::parse(name).unwrap()
@@ -437,25 +454,31 @@ mod tests {
         std::fs::write(path, contents).unwrap();
     }
 
-    fn roots_value(fact: &Fact<Vec<ImportRoot>>) -> &[ImportRoot] {
+    fn search_path_entries(fact: &Fact<Vec<ModuleSearchPathEntry>>) -> &[ModuleSearchPathEntry] {
         match fact {
             Fact::Known { value } | Fact::Partial { value, .. } => value,
-            Fact::Unknown { reasons } => panic!("expected roots, got unknown: {reasons:?}"),
+            Fact::Unknown { reasons } => {
+                panic!("expected module search paths, got unknown: {reasons:?}")
+            }
             Fact::Ambiguous {
                 candidates,
                 reasons,
             } => {
-                panic!("expected roots, got ambiguous: {candidates:?} {reasons:?}")
+                panic!("expected module search paths, got ambiguous: {candidates:?} {reasons:?}")
             }
         }
     }
 
-    fn assert_root(roots: &[ImportRoot], kind: ImportRootKind, path: &Utf8Path) {
+    fn assert_search_path(
+        search_paths: &[ModuleSearchPathEntry],
+        kind: ModuleSearchPathKind,
+        path: &Utf8Path,
+    ) {
         assert!(
-            roots
+            search_paths
                 .iter()
-                .any(|root| root.kind == kind && root.path == path),
-            "expected {kind:?} root at {path}, got {roots:?}"
+                .any(|search_path| search_path.kind == kind && search_path.path == path),
+            "expected {kind:?} module search path at {path}, got {search_paths:?}"
         );
     }
 
@@ -473,29 +496,29 @@ mod tests {
         write_file(&project_root.join("blog/__init__.py"), "");
         write_file(&project_root.join("blog/models.py"), "");
 
-        let import_roots = discover_import_roots(&project_root, &[], &[]);
-        let roots = roots_value(&import_roots);
-        assert_root(roots, ImportRootKind::Workspace, &project_root);
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
+        let roots = search_path_entries(&search_paths);
+        assert_search_path(roots, ModuleSearchPathKind::Workspace, &project_root);
 
         let resolved = known_module(resolve_module(module("blog.models"), roots, &project_root));
 
         assert_eq!(resolved.module, module("blog.models"));
         assert_eq!(resolved.file, project_root.join("blog/models.py"));
-        assert_eq!(resolved.import_root, project_root);
+        assert_eq!(resolved.search_path, project_root);
         assert_eq!(resolved.location, ModuleLocation::Workspace);
     }
 
     #[test]
-    fn discovers_top_level_src_import_root() {
+    fn discovers_top_level_src_search_path() {
         let tmp = tempfile::TempDir::new().unwrap();
         let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&project_root.join("src/config/__init__.py"), "");
         write_file(&project_root.join("src/config/settings.py"), "");
 
-        let import_roots = discover_import_roots(&project_root, &[], &[]);
-        let roots = roots_value(&import_roots);
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
+        let roots = search_path_entries(&search_paths);
         let src_root = project_root.join("src");
-        assert_root(roots, ImportRootKind::AutoSrc, &src_root);
+        assert_search_path(roots, ModuleSearchPathKind::AutoSrc, &src_root);
 
         let resolved = known_module(resolve_module(
             module("config.settings"),
@@ -504,20 +527,20 @@ mod tests {
         ));
 
         assert_eq!(resolved.file, src_root.join("config/settings.py"));
-        assert_eq!(resolved.import_root, src_root);
+        assert_eq!(resolved.search_path, src_root);
     }
 
     #[test]
-    fn resolves_file_module_from_longest_import_root() {
+    fn resolves_module_name_for_file_from_longest_search_path() {
         let tmp = tempfile::TempDir::new().unwrap();
         let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&project_root.join("src/config/__init__.py"), "");
         write_file(&project_root.join("src/config/settings.py"), "");
 
-        let import_roots = discover_import_roots(&project_root, &[], &[]);
-        let fact = resolve_file_module(
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
+        let fact = module_name_for_file(
             &project_root.join("src/config/settings.py"),
-            roots_value(&import_roots),
+            search_path_entries(&search_paths),
         );
 
         let Fact::Known { value } = fact else {
@@ -534,18 +557,22 @@ mod tests {
         write_file(&source_root.join("catalog/__init__.py"), "");
         write_file(&source_root.join("catalog/apps.py"), "");
 
-        let import_roots = discover_import_roots(
+        let search_paths = discover_module_search_paths(
             &project_root,
             &[Utf8PathBuf::from("backend/python/apps")],
             &[],
         );
-        let roots = roots_value(&import_roots);
-        assert_root(roots, ImportRootKind::ExplicitPythonPath, &source_root);
+        let roots = search_path_entries(&search_paths);
+        assert_search_path(
+            roots,
+            ModuleSearchPathKind::ExplicitPythonPath,
+            &source_root,
+        );
 
         let resolved = known_module(resolve_module(module("catalog.apps"), roots, &project_root));
 
         assert_eq!(resolved.file, source_root.join("catalog/apps.py"));
-        assert_eq!(resolved.import_root, source_root);
+        assert_eq!(resolved.search_path, source_root);
     }
 
     #[test]
@@ -557,10 +584,10 @@ mod tests {
         write_file(&project_root.join("src/shop/__init__.py"), "");
         write_file(&project_root.join("src/shop/apps.py"), "");
 
-        let import_roots = discover_import_roots(&project_root, &[], &[]);
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
         let resolution = resolve_module(
             module("shop.apps"),
-            roots_value(&import_roots),
+            search_path_entries(&search_paths),
             &project_root,
         );
 
@@ -590,10 +617,10 @@ mod tests {
         let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&project_root.join("src/acme/plugins/blog/apps.py"), "");
 
-        let import_roots = discover_import_roots(&project_root, &[], &[]);
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
         let resolution = resolve_module(
             module("acme.plugins.blog.apps"),
-            roots_value(&import_roots),
+            search_path_entries(&search_paths),
             &project_root,
         );
 
@@ -612,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn discovers_pth_import_roots() {
+    fn discovers_pth_search_paths() {
         let project_tmp = tempfile::TempDir::new().unwrap();
         let project_root = Utf8PathBuf::try_from(project_tmp.path().to_path_buf()).unwrap();
         let site_tmp = tempfile::TempDir::new().unwrap();
@@ -630,11 +657,11 @@ mod tests {
             &format!("{pth_root}\n"),
         );
 
-        let import_roots =
-            discover_import_roots(&project_root, &[], std::slice::from_ref(&site_packages));
-        let roots = roots_value(&import_roots);
-        assert_root(roots, ImportRootKind::SitePackages, &site_packages);
-        assert_root(roots, ImportRootKind::PthFile, &pth_root);
+        let search_paths =
+            discover_module_search_paths(&project_root, &[], std::slice::from_ref(&site_packages));
+        let roots = search_path_entries(&search_paths);
+        assert_search_path(roots, ModuleSearchPathKind::SitePackages, &site_packages);
+        assert_search_path(roots, ModuleSearchPathKind::PthFile, &pth_root);
 
         let resolved = known_module(resolve_module(
             module("vendored_app.apps"),
@@ -643,7 +670,7 @@ mod tests {
         ));
 
         assert_eq!(resolved.file, pth_root.join("vendored_app/apps.py"));
-        assert_eq!(resolved.import_root, pth_root);
+        assert_eq!(resolved.search_path, pth_root);
     }
 
     #[test]
@@ -669,10 +696,10 @@ mod tests {
         };
         assert_eq!(target, module("projects.site1.settings.base"));
 
-        let import_roots = discover_import_roots(&project_root, &[], &[]);
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
         let resolved = known_module(resolve_module(
             target,
-            roots_value(&import_roots),
+            search_path_entries(&search_paths),
             &project_root,
         ));
 
@@ -680,5 +707,15 @@ mod tests {
             resolved.file,
             project_root.join("projects/site1/settings/base.py")
         );
+    }
+
+    #[test]
+    fn rejects_invalid_relative_import_levels() {
+        let zero = resolve_relative_import_module(&module("project.settings.dev"), 0, Some("base"));
+        assert!(matches!(zero, Fact::Unknown { .. }));
+
+        let overflow =
+            resolve_relative_import_module(&module("project.settings.dev"), 4, Some("base"));
+        assert!(matches!(overflow, Fact::Unknown { .. }));
     }
 }

@@ -136,12 +136,9 @@ impl Settings {
         if pyproject_path.exists() {
             let content = fs::read_to_string(&pyproject_path)?;
             let toml_str: toml::Value = toml::from_str(&content)?;
-            let tool_djls_value: Option<&toml::Value> =
-                ["tool", "djls"].iter().try_fold(&toml_str, |val, &key| {
-                    // Attempt to get the next key. If it exists, return Some(value) to continue.
-                    // If get returns None, try_fold automatically stops and returns None overall.
-                    val.get(key)
-                });
+            let tool_djls_value: Option<&toml::Value> = ["tool", "djls"]
+                .iter()
+                .try_fold(&toml_str, |val, &key| val.get(key));
             if let Some(tool_djls_table) = tool_djls_value.and_then(|v| v.as_table()) {
                 let tool_djls_string = toml::to_string(tool_djls_table)?;
                 builder = builder.add_source(File::from_str(&tool_djls_string, FileFormat::Toml));
