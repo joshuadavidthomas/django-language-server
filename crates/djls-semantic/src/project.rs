@@ -13,6 +13,7 @@ mod symbols;
 mod sync;
 mod system;
 mod template_dirs;
+mod template_libraries;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::load_env_file;
