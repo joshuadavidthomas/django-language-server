@@ -894,6 +894,7 @@ fn split_extraction_results(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::process::Command;
     use std::sync::Arc;
 
     use djls_source::SourceFiles;
@@ -905,6 +906,7 @@ mod tests {
     use crate::project::symbols::Knowledge;
     use crate::project::symbols::TemplateLibraries;
     use crate::project::symbols::TemplateSymbolKind;
+    use crate::project::symbols::TemplateSymbolSnapshot;
 
     #[salsa::db]
     struct StaticSnapshotTestDb {
@@ -928,13 +930,27 @@ mod tests {
             root: Utf8PathBuf,
             django_settings_module: Option<String>,
         ) -> (Self, Project) {
-            let mut db = Self::new();
-            let project = Project::new(
-                &db,
+            Self::with_project_options(
                 root,
                 Interpreter::discover(None),
                 django_settings_module,
                 Vec::new(),
+            )
+        }
+
+        fn with_project_options(
+            root: Utf8PathBuf,
+            interpreter: Interpreter,
+            django_settings_module: Option<String>,
+            pythonpath: Vec<String>,
+        ) -> (Self, Project) {
+            let mut db = Self::new();
+            let project = Project::new(
+                &db,
+                root,
+                interpreter,
+                django_settings_module,
+                pythonpath,
                 Vec::new(),
                 TemplateDirs::Unknown,
                 djls_conf::TagSpecDef::default(),
@@ -1111,6 +1127,430 @@ TEMPLATES = [
         write_file(&root.join("blog/__init__.py"), "");
         write_file(&root.join("templates/base.html"), "");
         write_file(&root.join("blog/templates/blog/detail.html"), "");
+    }
+
+    fn write_multisite_runtime_template_fixture(root: &Utf8Path) {
+        for app in ["app1", "app2", "app3"] {
+            write_file(&root.join(format!("apps/clientname/{app}/__init__.py")), "");
+            write_file(&root.join(format!("apps/clientname/{app}/apps.py")), "");
+            write_file(
+                &root.join(format!("apps/clientname/{app}/templatetags/__init__.py")),
+                "",
+            );
+            write_file(
+                &root.join(format!("apps/clientname/{app}/templatetags/{app}_tags.py")),
+                &format!(
+                    r"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def {app}_marker():
+    return '{app}'
+"
+                ),
+            );
+        }
+        write_file(&root.join("apps/clientname/__init__.py"), "");
+
+        write_multisite_settings(root, "site1", &["clientname.app1", "clientname.app2"]);
+        write_multisite_settings(root, "site2", &["clientname.app2", "clientname.app3"]);
+    }
+
+    fn write_multisite_settings(root: &Utf8Path, site: &str, apps: &[&str]) {
+        write_file(&root.join(format!("projects/{site}/__init__.py")), "");
+        write_file(
+            &root.join(format!("projects/{site}/settings/__init__.py")),
+            "",
+        );
+        write_file(
+            &root.join(format!("projects/{site}/settings/base.py")),
+            &format!(
+                r#"
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+SECRET_KEY = "test"
+INSTALLED_APPS = {apps:?}
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+TEMPLATES = [
+    {{
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [PROJECT_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {{}},
+    }}
+]
+"#
+            ),
+        );
+        write_file(
+            &root.join(format!("projects/{site}/settings/dev.py")),
+            "from .base import *\n",
+        );
+        write_file(
+            &root.join(format!("projects/{site}/templates/{site}/base.html")),
+            "",
+        );
+    }
+
+    fn write_runtime_template_fixture(root: &Utf8Path) {
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+SECRET_KEY = "test"
+INSTALLED_APPS = ["blog"]
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        write_file(
+            &root.join("blog/templatetags/blog_tags.py"),
+            r"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def shout(value):
+    return value.upper()
+
+@register.filter
+def emph(value):
+    return value
+",
+        );
+        write_file(&root.join("templates/base.html"), "");
+        write_file(&root.join("blog/templates/blog/detail.html"), "");
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct SortedComparison<T> {
+        missing: Vec<T>,
+        extra: Vec<T>,
+    }
+
+    impl<T> SortedComparison<T> {
+        fn is_empty(&self) -> bool {
+            self.missing.is_empty() && self.extra.is_empty()
+        }
+    }
+
+    fn compare_sorted<T>(
+        expected: impl IntoIterator<Item = T>,
+        actual: impl IntoIterator<Item = T>,
+    ) -> SortedComparison<T>
+    where
+        T: Clone + Ord,
+    {
+        let mut expected = expected.into_iter().collect::<Vec<_>>();
+        let mut actual = actual.into_iter().collect::<Vec<_>>();
+        expected.sort();
+        actual.sort();
+
+        let mut missing = Vec::new();
+        let mut extra = Vec::new();
+        let mut expected_index = 0;
+        let mut actual_index = 0;
+
+        while expected_index < expected.len() || actual_index < actual.len() {
+            match (expected.get(expected_index), actual.get(actual_index)) {
+                (Some(expected_item), Some(actual_item)) if expected_item == actual_item => {
+                    expected_index += 1;
+                    actual_index += 1;
+                }
+                (Some(expected_item), Some(actual_item)) if expected_item < actual_item => {
+                    missing.push(expected_item.clone());
+                    expected_index += 1;
+                }
+                (Some(_) | None, Some(actual_item)) => {
+                    extra.push(actual_item.clone());
+                    actual_index += 1;
+                }
+                (Some(expected_item), None) => {
+                    missing.push(expected_item.clone());
+                    expected_index += 1;
+                }
+                (None, None) => break,
+            }
+        }
+
+        SortedComparison { missing, extra }
+    }
+
+    fn assert_sorted_match<T>(label: &str, comparison: &SortedComparison<T>)
+    where
+        T: std::fmt::Debug,
+    {
+        assert!(
+            comparison.is_empty(),
+            "{label} mismatch: missing={:?}, extra={:?}",
+            comparison.missing,
+            comparison.extra,
+        );
+    }
+
+    fn fact_value_or_panic<T>(fact: Fact<T>, label: &str) -> T {
+        match fact {
+            Fact::Known { value } => value,
+            Fact::Partial { reasons, .. } => {
+                panic!("expected known {label}, got partial: {reasons:?}")
+            }
+            Fact::Unknown { reasons } => panic!("expected known {label}, got unknown: {reasons:?}"),
+            Fact::Ambiguous {
+                candidates,
+                reasons,
+            } => panic!(
+                "expected known {label}, got ambiguous: {candidate_count} candidates: {reasons:?}",
+                candidate_count = candidates.len(),
+            ),
+        }
+    }
+
+    fn snapshot_loadable_symbol_keys(snapshot: &TemplateLibrarySnapshot) -> Vec<String> {
+        snapshot
+            .symbols
+            .iter()
+            .filter_map(|symbol| {
+                let load_name = symbol.load_name.as_deref()?;
+                Some(format!(
+                    "{load_name}:{}:{:?}:{}:{}",
+                    symbol.library_module, symbol.kind, symbol.name, symbol.module
+                ))
+            })
+            .collect()
+    }
+
+    fn snapshot_builtin_symbol_keys(snapshot: &TemplateLibrarySnapshot) -> Vec<String> {
+        snapshot
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.load_name.is_none())
+            .map(|symbol| {
+                format!(
+                    "{}:{:?}:{}:{}",
+                    symbol.library_module, symbol.kind, symbol.name, symbol.module
+                )
+            })
+            .collect()
+    }
+
+    struct PythonRuntimePaths {
+        executable: Utf8PathBuf,
+        django_site_packages: Utf8PathBuf,
+    }
+
+    fn current_python_runtime_paths() -> PythonRuntimePaths {
+        let output = Command::new("python")
+            .args([
+                "-c",
+                "from pathlib import Path; import django, sys; print(getattr(sys, '_base_executable', sys.executable)); print(Path(django.__file__).resolve().parent.parent)",
+            ])
+            .output()
+            .expect("failed to run python for runtime discovery");
+
+        assert!(
+            output.status.success(),
+            "python runtime discovery failed: {}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+
+        let output =
+            String::from_utf8(output.stdout).expect("python runtime paths should be UTF-8");
+        let mut lines = output.lines();
+        let executable = lines.next().unwrap_or_default().trim();
+        let django_site_packages = lines.next().unwrap_or_default().trim();
+        assert!(
+            !executable.is_empty() && !django_site_packages.is_empty(),
+            "python runtime discovery returned incomplete paths: {output:?}"
+        );
+
+        PythonRuntimePaths {
+            executable: Utf8PathBuf::from(executable),
+            django_site_packages: Utf8PathBuf::from(django_site_packages),
+        }
+    }
+
+    #[cfg(unix)]
+    fn create_runtime_venv(root: &Utf8Path) -> Utf8PathBuf {
+        let paths = current_python_runtime_paths();
+        let venv = root.join(".venv");
+        let bin = venv.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink(&paths.executable, bin.join("python")).unwrap();
+        write_file(
+            &venv.join("pyvenv.cfg"),
+            &format!(
+                "home = {}\ninclude-system-site-packages = false\n",
+                paths
+                    .executable
+                    .parent()
+                    .expect("Python executable should have a parent directory")
+            ),
+        );
+
+        let python_lib_dir = paths
+            .django_site_packages
+            .parent()
+            .expect("Django site-packages should have a Python lib parent");
+        let python_dir_name = python_lib_dir
+            .file_name()
+            .expect("Django site-packages parent should have a directory name");
+        let venv_python_lib_dir = venv.join("lib").join(python_dir_name);
+        fs::create_dir_all(&venv_python_lib_dir).unwrap();
+        std::os::unix::fs::symlink(
+            &paths.django_site_packages,
+            venv_python_lib_dir.join("site-packages"),
+        )
+        .unwrap();
+
+        venv
+    }
+
+    #[cfg(not(unix))]
+    fn create_runtime_venv(_root: &Utf8Path) -> Utf8PathBuf {
+        panic!("runtime comparison fixture currently requires Unix symlinks")
+    }
+
+    fn runtime_project(
+        root: Utf8PathBuf,
+        venv: &Utf8Path,
+        django_settings_module: &str,
+        pythonpath: &[&str],
+    ) -> (StaticSnapshotTestDb, Project) {
+        StaticSnapshotTestDb::with_project_options(
+            root,
+            Interpreter::VenvPath(venv.to_string()),
+            Some(django_settings_module.to_string()),
+            pythonpath
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        )
+    }
+
+    fn assert_static_runtime_match(db: &StaticSnapshotTestDb, project: Project) {
+        let inspector_dirs = fetch_template_dirs(db).expect("inspector template dirs");
+        let static_dirs = fact_value_or_panic(
+            assemble_project_static_template_dirs(db, project),
+            "template dirs",
+        );
+        assert_eq!(static_dirs, inspector_dirs);
+
+        let inspector_snapshot =
+            fetch_template_library_snapshot(db).expect("inspector template library snapshot");
+        let static_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(db, project),
+            "template library snapshot",
+        );
+
+        assert_sorted_match(
+            "loadable libraries",
+            &compare_sorted(
+                inspector_snapshot
+                    .libraries
+                    .iter()
+                    .map(|(name, module)| format!("{name}:{module}")),
+                static_snapshot
+                    .libraries
+                    .iter()
+                    .map(|(name, module)| format!("{name}:{module}")),
+            ),
+        );
+        assert_sorted_match(
+            "builtins",
+            &compare_sorted(
+                inspector_snapshot.builtins.iter().cloned(),
+                static_snapshot.builtins.iter().cloned(),
+            ),
+        );
+        assert_sorted_match(
+            "loadable symbols",
+            &compare_sorted(
+                snapshot_loadable_symbol_keys(&inspector_snapshot),
+                snapshot_loadable_symbol_keys(&static_snapshot),
+            ),
+        );
+        assert_sorted_match(
+            "builtin symbols",
+            &compare_sorted(
+                snapshot_builtin_symbol_keys(&inspector_snapshot),
+                snapshot_builtin_symbol_keys(&static_snapshot),
+            ),
+        );
+    }
+
+    #[test]
+    fn static_runtime_comparison_reports_missing_and_extra_items() {
+        let comparison = compare_sorted(["a", "b"], ["b", "c"]);
+
+        assert_eq!(
+            comparison,
+            SortedComparison {
+                missing: vec!["a"],
+                extra: vec!["c"],
+            }
+        );
+    }
+
+    #[test]
+    fn static_runtime_comparison_reports_duplicate_items() {
+        let comparison = compare_sorted(["a"], ["a", "a"]);
+
+        assert_eq!(
+            comparison,
+            SortedComparison {
+                missing: Vec::new(),
+                extra: vec!["a"],
+            }
+        );
+    }
+
+    #[test]
+    fn static_runtime_comparison_symbol_keys_include_modules_and_unknown_kind() {
+        let snapshot = TemplateLibrarySnapshot {
+            libraries: BTreeMap::new(),
+            builtins: vec!["django.template.defaulttags".to_string()],
+            symbols: vec![
+                TemplateSymbolSnapshot {
+                    kind: Some(TemplateSymbolKind::Tag),
+                    name: "shout".to_string(),
+                    load_name: Some("blog_tags".to_string()),
+                    library_module: "blog.templatetags.blog_tags".to_string(),
+                    module: "blog.templatetags.blog_tags".to_string(),
+                    doc: None,
+                },
+                TemplateSymbolSnapshot {
+                    kind: None,
+                    name: "lower".to_string(),
+                    load_name: None,
+                    library_module: "django.template.defaultfilters".to_string(),
+                    module: "django.template.defaultfilters".to_string(),
+                    doc: None,
+                },
+            ],
+        };
+
+        assert!(snapshot_loadable_symbol_keys(&snapshot).iter().any(|key| {
+            key
+            == "blog_tags:blog.templatetags.blog_tags:Some(Tag):shout:blog.templatetags.blog_tags"
+        }));
+        assert!(snapshot_builtin_symbol_keys(&snapshot)
+            .iter()
+            .any(|key| key
+                == "django.template.defaultfilters:None:lower:django.template.defaultfilters"));
     }
 
     #[test]
@@ -1306,6 +1746,85 @@ TEMPLATES = []
 
         assert!(apply_static_template_dirs(&mut db, project, dirs));
         assert_eq!(project.template_dirs(&db), &TemplateDirs::Known(Vec::new()));
+    }
+
+    #[test]
+    #[ignore = "requires Django on the active python; run with `uv run --with django==5.2 cargo test -p djls-semantic static_runtime_comparison_matches_minimal_django_project -- --ignored --nocapture`"]
+    fn static_runtime_comparison_matches_minimal_django_project() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_runtime_template_fixture(&root);
+        let venv = create_runtime_venv(&root);
+        let (db, project) = runtime_project(root, &venv, "project.settings", &[]);
+
+        assert_static_runtime_match(&db, project);
+
+        let static_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(&db, project),
+            "template library snapshot",
+        );
+        assert_eq!(
+            static_snapshot.libraries.get("blog_tags"),
+            Some(&"blog.templatetags.blog_tags".to_string())
+        );
+        assert!(static_snapshot
+            .builtins
+            .contains(&"django.template.defaulttags".to_string()));
+        assert!(snapshot_loadable_symbol_keys(&static_snapshot)
+            .iter()
+            .any(|key| {
+                key
+            == "blog_tags:blog.templatetags.blog_tags:Some(Tag):shout:blog.templatetags.blog_tags"
+            }));
+        assert!(snapshot_loadable_symbol_keys(&static_snapshot)
+            .iter()
+            .any(|key| {
+                key
+            == "blog_tags:blog.templatetags.blog_tags:Some(Filter):emph:blog.templatetags.blog_tags"
+            }));
+    }
+
+    #[test]
+    #[ignore = "requires Django on the active python; run with `uv run --with django==5.2 cargo test -p djls-semantic static_runtime_comparison_matches_split_settings_environments -- --ignored --nocapture`"]
+    fn static_runtime_comparison_matches_split_settings_environments() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_multisite_runtime_template_fixture(&root);
+        let venv = create_runtime_venv(&root);
+
+        let (site1_db, site1_project) = runtime_project(
+            root.clone(),
+            &venv,
+            "site1.settings.dev",
+            &["projects", "apps"],
+        );
+        assert_static_runtime_match(&site1_db, site1_project);
+        let site1_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(&site1_db, site1_project),
+            "site1 template library snapshot",
+        );
+
+        let (site2_db, site2_project) =
+            runtime_project(root, &venv, "site2.settings.dev", &["projects", "apps"]);
+        assert_static_runtime_match(&site2_db, site2_project);
+        let site2_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(&site2_db, site2_project),
+            "site2 template library snapshot",
+        );
+
+        assert!(site1_snapshot.libraries.contains_key("app1_tags"));
+        assert!(site1_snapshot.libraries.contains_key("app2_tags"));
+        assert!(!site1_snapshot.libraries.contains_key("app3_tags"));
+        assert!(!snapshot_loadable_symbol_keys(&site1_snapshot)
+            .iter()
+            .any(|symbol| symbol.contains("app3_marker")));
+
+        assert!(!site2_snapshot.libraries.contains_key("app1_tags"));
+        assert!(site2_snapshot.libraries.contains_key("app2_tags"));
+        assert!(site2_snapshot.libraries.contains_key("app3_tags"));
+        assert!(!snapshot_loadable_symbol_keys(&site2_snapshot)
+            .iter()
+            .any(|symbol| symbol.contains("app1_marker")));
     }
 
     #[test]
