@@ -21,7 +21,6 @@ use crate::project::static_model::Field;
 use crate::project::static_model::ImportRoot;
 use crate::project::static_model::Reason;
 use crate::project::static_model::ReasonSource;
-use crate::project::static_resolver::resolve_file_module;
 use crate::project::static_resolver::resolve_module;
 
 const DEFAULT_DJANGO_ENVIRONMENT_ROOT: &str = ".";
@@ -47,10 +46,8 @@ pub(crate) fn discover_django_environments(
                 let root = normalize_environment_root(project_root, environment.root());
                 if let Some(module) = environment.django_settings_module() {
                     environment_from_module(root, module, project_root, import_roots)
-                } else if let Some(file) = environment.django_settings_file() {
-                    environment_from_file(root, file, project_root, import_roots)
                 } else {
-                    invalid_environment(root, "Django environment must set django_settings_module or django_settings_file")
+                    invalid_environment(root, "Django environment must set django_settings_module")
                 }
             })
             .collect();
@@ -90,31 +87,6 @@ fn environment_from_module(
     }
 }
 
-fn environment_from_file(
-    root: Utf8PathBuf,
-    file: &str,
-    project_root: &Utf8Path,
-    import_roots: &[ImportRoot],
-) -> ResolvedDjangoEnvironment {
-    let file = normalize_settings_file(project_root, file);
-    let django_settings_file = if file.is_file() {
-        Fact::known(file.clone())
-    } else {
-        Fact::unknown(vec![Reason::file(
-            Field::DjangoEnvironment,
-            file.clone(),
-            "django_settings_file does not exist or is not a file",
-        )])
-    };
-    let django_settings_module = resolve_file_module(&file, import_roots);
-
-    ResolvedDjangoEnvironment {
-        root,
-        django_settings_module,
-        django_settings_file,
-    }
-}
-
 fn invalid_environment(root: Utf8PathBuf, message: impl Into<String>) -> ResolvedDjangoEnvironment {
     let reason = Reason::new(
         Field::DjangoEnvironment,
@@ -141,16 +113,6 @@ fn normalize_environment_root(project_root: &Utf8Path, root: &str) -> Utf8PathBu
     }
 }
 
-#[must_use]
-fn normalize_settings_file(project_root: &Utf8Path, file: &str) -> Utf8PathBuf {
-    let file = Utf8Path::new(file);
-    if file.is_absolute() {
-        file.to_path_buf()
-    } else {
-        project_root.join(file)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -158,7 +120,6 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::project::static_model::ImportRootKind;
     use crate::project::static_resolver::discover_import_roots;
 
     fn settings(root: &Utf8Path) -> Settings {
@@ -267,76 +228,5 @@ django_settings_module = "projects.site2.settings"
             known_file(&environments[1].django_settings_file),
             root.join("projects/site2/settings.py")
         );
-    }
-
-    #[test]
-    fn django_settings_file_resolves_module_through_import_roots() {
-        let tmp = tempdir().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        write_file(&root.join("src/project/__init__.py"), "");
-        write_file(&root.join("src/project/settings/__init__.py"), "");
-        write_file(&root.join("src/project/settings/dev.py"), "");
-        write_file(
-            &root.join("djls.toml"),
-            r#"
-[[django_environments]]
-root = "."
-django_settings_file = "src/project/settings/dev.py"
-"#,
-        );
-
-        let roots = import_roots(&root);
-        assert!(roots
-            .iter()
-            .any(|root| root.kind == ImportRootKind::AutoSrc));
-
-        let environments = discover_django_environments(&root, &settings(&root), &roots);
-
-        assert_eq!(environments.len(), 1);
-        assert_eq!(environments[0].root, root);
-        assert_eq!(
-            known_module(&environments[0].django_settings_module),
-            module("project.settings.dev")
-        );
-        assert_eq!(
-            known_file(&environments[0].django_settings_file),
-            root.join("src/project/settings/dev.py")
-        );
-    }
-
-    #[test]
-    fn django_settings_file_outside_import_roots_keeps_file_but_unknown_module() {
-        let tmp = tempdir().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        let external_tmp = tempdir().unwrap();
-        let external_root = Utf8PathBuf::try_from(external_tmp.path().to_path_buf()).unwrap();
-        let settings_file = external_root.join("project/settings.py");
-        write_file(&settings_file, "");
-        write_file(
-            &root.join("djls.toml"),
-            &format!(
-                r#"
-[[django_environments]]
-root = "."
-django_settings_file = "{settings_file}"
-"#,
-            ),
-        );
-
-        let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
-
-        assert_eq!(
-            known_file(&environments[0].django_settings_file),
-            settings_file
-        );
-        match &environments[0].django_settings_module {
-            Fact::Unknown { reasons } => {
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.field == Field::ResolverModule));
-            }
-            other => panic!("expected unknown module for file outside import roots, got {other:?}"),
-        }
     }
 }

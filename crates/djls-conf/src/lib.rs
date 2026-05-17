@@ -73,7 +73,6 @@ pub enum ConfigError {
 pub struct DjangoEnvironmentConfig {
     root: String,
     django_settings_module: Option<String>,
-    django_settings_file: Option<String>,
 }
 
 impl DjangoEnvironmentConfig {
@@ -88,14 +87,6 @@ impl DjangoEnvironmentConfig {
             .as_deref()
             .map(str::trim)
             .filter(|module| !module.is_empty())
-    }
-
-    #[must_use]
-    pub fn django_settings_file(&self) -> Option<&str> {
-        self.django_settings_file
-            .as_deref()
-            .map(str::trim)
-            .filter(|file| !file.is_empty())
     }
 }
 
@@ -169,20 +160,10 @@ impl Settings {
                 )));
             }
 
-            let has_module = environment.django_settings_module().is_some();
-            let has_file = environment.django_settings_file().is_some();
-            match (has_module, has_file) {
-                (true, false) | (false, true) => {}
-                (true, true) => {
-                    return Err(ConfigError::InvalidDjangoEnvironments(format!(
-                        "Django environment {root} must use either django_settings_module or django_settings_file, not both"
-                    )));
-                }
-                (false, false) => {
-                    return Err(ConfigError::InvalidDjangoEnvironments(format!(
-                        "Django environment {root} must set django_settings_module or django_settings_file"
-                    )));
-                }
+            if environment.django_settings_module().is_none() {
+                return Err(ConfigError::InvalidDjangoEnvironments(format!(
+                    "Django environment {root} must set django_settings_module"
+                )));
             }
         }
 
@@ -415,7 +396,7 @@ django_settings_module = "projects.site1.settings.dev"
 
 [[django_environments]]
 root = "projects/site2"
-django_settings_file = "projects/site2/settings/dev.py"
+django_settings_module = "projects.site2.settings.dev"
 "#,
             )
             .unwrap();
@@ -429,12 +410,10 @@ django_settings_file = "projects/site2/settings/dev.py"
                 environments[0].django_settings_module(),
                 Some("projects.site1.settings.dev")
             );
-            assert_eq!(environments[0].django_settings_file(), None);
             assert_eq!(environments[1].root(), "projects/site2");
-            assert_eq!(environments[1].django_settings_module(), None);
             assert_eq!(
-                environments[1].django_settings_file(),
-                Some("projects/site2/settings/dev.py")
+                environments[1].django_settings_module(),
+                Some("projects.site2.settings.dev")
             );
         }
 
@@ -455,7 +434,6 @@ django_settings_module = "project.settings"
                 django_environments: vec![DjangoEnvironmentConfig {
                     root: "override".to_string(),
                     django_settings_module: Some("override.settings".to_string()),
-                    django_settings_file: None,
                 }],
                 ..Default::default()
             };
@@ -764,15 +742,13 @@ end_tag = { name = "endblock", optional = false }
         }
 
         #[test]
-        fn test_rejects_django_environment_with_module_and_file() {
+        fn test_rejects_django_environment_without_settings_module() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
 [[django_environments]]
 root = "site"
-django_settings_module = "project.settings"
-django_settings_file = "project/settings.py"
 "#,
             )
             .unwrap();
