@@ -7,10 +7,11 @@
 //! Django's default builtins, and `OPTIONS.builtins`.
 //!
 //! A8 facts are flattened across Django template backends and do not carry
-//! backend identity yet. For duplicate load names, later flattened backend/app
-//! entries replace earlier entries; explicit `OPTIONS.libraries` entries replace
-//! discovered/default libraries for the same backend, matching Django's
-//! `libraries.update(custom_libraries)` behavior.
+//! backend identity yet. Django defaults and installed-app libraries are
+//! assembled once when a standard Django backend is present; explicit
+//! `OPTIONS.libraries` entries are then applied in settings order and replace
+//! discovered/default libraries, matching Django's `libraries.update(...)`
+//! behavior within the flattened model.
 
 #![allow(
     dead_code,
@@ -53,6 +54,13 @@ const DJANGO_DEFAULT_BUILTINS: &[&str] = &[
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BackendKind {
+    Django,
+    NonDjango,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DuplicatePolicy {
     Report,
     SilentOverride,
@@ -83,16 +91,28 @@ fn assemble_template_backend_libraries(
 ) -> Fact<Vec<TemplateLibraryFact>> {
     let mut loadable = BTreeMap::new();
     let mut builtins = Vec::new();
+    let mut has_django_backend = false;
+    let mut option_backends = Vec::new();
 
     for backend in backends {
-        if !is_django_template_backend(backend, &mut reasons) {
-            continue;
+        match classify_template_backend(backend, &mut reasons) {
+            BackendKind::Django => {
+                has_django_backend = true;
+                option_backends.push(backend);
+            }
+            BackendKind::Unknown => option_backends.push(backend),
+            BackendKind::NonDjango => {}
         }
+    }
 
-        append_default_loadable_libraries(&mut loadable, &mut reasons);
+    if has_django_backend {
+        append_default_loadable_libraries(&mut loadable);
         append_app_template_tag_libraries(&mut loadable, &mut reasons, app_registry);
-        append_option_libraries(&mut loadable, &mut reasons, &backend.option_libraries);
         append_default_builtins(&mut builtins);
+    }
+
+    for backend in option_backends {
+        append_option_libraries(&mut loadable, &mut reasons, &backend.option_libraries);
         append_option_builtins(&mut builtins, &mut reasons, &backend.option_builtins);
     }
 
@@ -101,30 +121,34 @@ fn assemble_template_backend_libraries(
     known_or_partial(libraries, reasons)
 }
 
-fn is_django_template_backend(backend: &TemplateBackendFact, reasons: &mut Vec<Reason>) -> bool {
+fn classify_template_backend(
+    backend: &TemplateBackendFact,
+    reasons: &mut Vec<Reason>,
+) -> BackendKind {
     let Some(backend) = backend.backend.as_deref() else {
         reasons.push(Reason::new(
             Field::TemplateLibraries,
             ReasonSource::Unknown,
-            "TEMPLATES BACKEND is not known; skipped template library assembly for this backend",
+            "TEMPLATES BACKEND is not known; only statically known template library options were assembled for this backend",
         ));
-        return false;
+        return BackendKind::Unknown;
     };
 
-    backend == DJANGO_TEMPLATES_BACKEND
+    if backend == DJANGO_TEMPLATES_BACKEND {
+        BackendKind::Django
+    } else {
+        BackendKind::NonDjango
+    }
 }
 
-fn append_default_loadable_libraries(
-    loadable: &mut BTreeMap<LibraryName, TemplateLibraryFact>,
-    reasons: &mut Vec<Reason>,
-) {
+fn append_default_loadable_libraries(loadable: &mut BTreeMap<LibraryName, TemplateLibraryFact>) {
     for (load_name, module) in DJANGO_DEFAULT_LOADABLE_LIBRARIES {
         let fact = TemplateLibraryFact {
             load_name: LibraryName::parse(load_name).expect("Django default library name is valid"),
             module: PyModuleName::parse(module).expect("Django default library module is valid"),
             source: TemplateLibrarySource::DjangoDefaultLibrary,
         };
-        upsert_loadable_library(loadable, reasons, fact, DuplicatePolicy::Report);
+        loadable.entry(fact.load_name.clone()).or_insert(fact);
     }
 }
 
@@ -307,10 +331,28 @@ fn defines_template_register(file: &Utf8Path, reasons: &mut Vec<Reason>) -> bool
 }
 
 fn stmt_defines_template_register(stmt: &Stmt) -> bool {
-    let Some(value) = assigned_value(stmt, "register") else {
+    if imported_as_register(stmt) {
+        return true;
+    }
+
+    // Django's discovery accepts any module with a top-level `register`
+    // attribute. Keep the static filter at the same boundary instead of trying
+    // to prove that the value is specifically a `django.template.Library`.
+    assigned_value(stmt, "register").is_some()
+}
+
+fn imported_as_register(stmt: &Stmt) -> bool {
+    let Stmt::ImportFrom(import_from) = stmt else {
         return false;
     };
-    is_template_library_call(value)
+
+    import_from.names.iter().any(|alias| {
+        alias
+            .asname
+            .as_ref()
+            .map_or(alias.name.as_str(), |asname| asname.as_str())
+            == "register"
+    })
 }
 
 fn assigned_value<'a>(stmt: &'a Stmt, target_name: &str) -> Option<&'a Expr> {
@@ -329,18 +371,6 @@ fn assigned_value<'a>(stmt: &'a Stmt, target_name: &str) -> Option<&'a Expr> {
 
 fn is_name(expr: &Expr, expected: &str) -> bool {
     matches!(expr, Expr::Name(name) if name.id.as_str() == expected)
-}
-
-fn is_template_library_call(expr: &Expr) -> bool {
-    let Expr::Call(call) = expr else {
-        return false;
-    };
-
-    match call.func.as_ref() {
-        Expr::Name(name) => name.id.as_str() == "Library",
-        Expr::Attribute(attribute) => attribute.attr.as_str() == "Library",
-        _ => false,
-    }
 }
 
 fn append_option_libraries(
@@ -739,6 +769,52 @@ register = template.Library()
     }
 
     #[test]
+    fn accepts_modules_with_top_level_register_attribute() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(
+            &root.join("blog/templatetags/aliased.py"),
+            r"
+from django.template import Library as L
+
+register = L()
+",
+        );
+        write_file(
+            &root.join("blog/templatetags/indirect.py"),
+            r"
+from django import template
+
+lib = template.Library()
+register = lib
+",
+        );
+        write_file(
+            &root.join("blog/templatetags/reexported.py"),
+            "from .aliased import register\n",
+        );
+
+        let facts = assemble_template_libraries(
+            &Fact::known(vec![backend(Fact::known(true))]),
+            &Fact::known(vec![app(&root, "blog")]),
+        );
+
+        let loadable = loadable_map(&facts);
+        assert_eq!(
+            loadable.get("aliased").map(String::as_str),
+            Some("blog.templatetags.aliased")
+        );
+        assert_eq!(
+            loadable.get("indirect").map(String::as_str),
+            Some("blog.templatetags.indirect")
+        );
+        assert_eq!(
+            loadable.get("reexported").map(String::as_str),
+            Some("blog.templatetags.reexported")
+        );
+    }
+
+    #[test]
     fn filters_templatetag_modules_without_register() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
@@ -968,7 +1044,7 @@ register = template.Library()
     }
 
     #[test]
-    fn missing_backend_skips_backend_as_partial() {
+    fn missing_backend_preserves_statically_known_options_as_partial() {
         let mut unknown_backend = backend_with_options(
             Fact::known(vec![settings_library(
                 "custom",
@@ -983,11 +1059,36 @@ register = template.Library()
             &Fact::known(Vec::new()),
         );
 
-        let (libraries, reasons) = partial_vec(&facts);
-        assert!(libraries.is_empty());
+        let (_libraries, reasons) = partial_vec(&facts);
+        assert_eq!(
+            loadable_map(&facts).get("custom").map(String::as_str),
+            Some("project.templatetags.custom")
+        );
         assert!(reasons
             .iter()
             .any(|reason| reason.message.contains("BACKEND is not known")));
+    }
+
+    #[test]
+    fn multiple_django_backends_do_not_let_later_defaults_override_settings_libraries() {
+        let facts = assemble_template_libraries(
+            &Fact::known(vec![
+                backend_with_options(
+                    Fact::known(vec![settings_library(
+                        "static",
+                        "project.templatetags.assets",
+                    )]),
+                    Fact::known(Vec::new()),
+                ),
+                backend(Fact::known(false)),
+            ]),
+            &Fact::known(Vec::new()),
+        );
+
+        assert_eq!(
+            loadable_map(&facts).get("static").map(String::as_str),
+            Some("project.templatetags.assets")
+        );
     }
 
     #[test]
