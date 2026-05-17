@@ -4,6 +4,7 @@ mod introspector;
 mod names;
 mod python;
 mod resolve;
+mod static_context;
 mod static_model;
 mod static_resolver;
 mod symbols;

@@ -109,6 +109,55 @@ pub(crate) fn resolve_module(
 }
 
 #[must_use]
+pub(crate) fn resolve_file_module(
+    file: &Utf8Path,
+    import_roots: &[ImportRoot],
+) -> Fact<PyModuleName> {
+    if !file.is_file() {
+        return Fact::unknown(vec![Reason::file(
+            Field::ResolverModule,
+            file,
+            "module file does not exist or is not a file",
+        )]);
+    }
+
+    if file.extension() != Some("py") {
+        return Fact::unknown(vec![Reason::file(
+            Field::ResolverModule,
+            file,
+            "module file is not a Python file",
+        )]);
+    }
+
+    let candidates = module_names_for_file(file, import_roots);
+    match candidates.len() {
+        0 => Fact::unknown(vec![Reason::file(
+            Field::ResolverModule,
+            file,
+            "module file is outside configured import roots",
+        )]),
+        1 => {
+            let (module, import_root) = candidates.into_iter().next().unwrap();
+            let parts = module.as_str().split('.').collect::<Vec<_>>();
+            let reasons = namespace_package_reasons(&parts, &import_root);
+            if reasons.is_empty() {
+                Fact::known(module)
+            } else {
+                Fact::partial(module, reasons)
+            }
+        }
+        _ => Fact::ambiguous(
+            candidates.into_iter().map(|(module, _)| module).collect(),
+            vec![Reason::file(
+                Field::ResolverModule,
+                file,
+                "module file maps to more than one module name",
+            )],
+        ),
+    }
+}
+
+#[must_use]
 pub(crate) fn resolve_relative_import_module(
     current_module: &PyModuleName,
     level: usize,
@@ -175,6 +224,45 @@ fn normalize_import_root(project_root: &Utf8Path, path: &Utf8Path) -> Utf8PathBu
     } else {
         project_root.join(path)
     }
+}
+
+fn module_names_for_file(
+    file: &Utf8Path,
+    import_roots: &[ImportRoot],
+) -> Vec<(PyModuleName, Utf8PathBuf)> {
+    let Some(longest_root_len) = import_roots
+        .iter()
+        .filter(|root| file.starts_with(&root.path))
+        .map(|root| root.path.as_str().len())
+        .max()
+    else {
+        return Vec::new();
+    };
+
+    import_roots
+        .iter()
+        .filter(|root| file.starts_with(&root.path) && root.path.as_str().len() == longest_root_len)
+        .filter_map(|root| {
+            let relative = file.strip_prefix(&root.path).ok()?;
+            module_name_from_relative_file(relative).map(|module| (module, root.path.clone()))
+        })
+        .fold(Vec::new(), |mut candidates, candidate| {
+            if !candidates.iter().any(|(module, _)| module == &candidate.0) {
+                candidates.push(candidate);
+            }
+            candidates
+        })
+}
+
+fn module_name_from_relative_file(relative: &Utf8Path) -> Option<PyModuleName> {
+    if relative.file_name() == Some("__init__.py") {
+        return relative
+            .parent()
+            .filter(|parent| !parent.as_str().is_empty())
+            .and_then(|parent| PyModuleName::from_relative_package(parent).ok());
+    }
+
+    PyModuleName::from_relative_python_module(relative).ok()
 }
 
 fn collect_pth_import_roots(
@@ -435,6 +523,25 @@ mod tests {
 
         assert_eq!(resolved.file, src_root.join("config/settings.py"));
         assert_eq!(resolved.import_root, src_root);
+    }
+
+    #[test]
+    fn resolves_file_module_from_longest_import_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&project_root.join("src/config/__init__.py"), "");
+        write_file(&project_root.join("src/config/settings.py"), "");
+
+        let import_roots = discover_import_roots(&project_root, &[], &[]);
+        let fact = resolve_file_module(
+            &project_root.join("src/config/settings.py"),
+            roots_value(&import_roots),
+        );
+
+        let Fact::Known { value } = fact else {
+            panic!("expected known module for settings file, got {fact:?}");
+        };
+        assert_eq!(value, module("config.settings"));
     }
 
     #[test]
