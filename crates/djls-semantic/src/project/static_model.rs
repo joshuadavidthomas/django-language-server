@@ -205,8 +205,8 @@ pub(crate) enum Field {
     ResolverModule,
     #[serde(rename = "resolver.relative_import")]
     ResolverRelativeImport,
-    #[serde(rename = "settings.context")]
-    SettingsContext,
+    #[serde(rename = "django.environment")]
+    DjangoEnvironment,
     #[serde(rename = "settings.installed_apps")]
     SettingsInstalledApps,
     #[serde(rename = "settings.templates")]
@@ -237,7 +237,7 @@ pub(crate) enum ReasonSource {
     File(Utf8PathBuf),
     Path(Utf8PathBuf),
     Module(PyModuleName),
-    SettingsContext(String),
+    DjangoEnvironment(Utf8PathBuf),
     Workspace(Utf8PathBuf),
     Unknown,
 }
@@ -245,7 +245,7 @@ pub(crate) enum ReasonSource {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ProjectFacts {
     pub(crate) resolver: ResolverFacts,
-    pub(crate) contexts: Vec<ContextFacts>,
+    pub(crate) django_environments: Vec<DjangoEnvironmentFacts>,
     pub(crate) completion_union: CompletionUnionFacts,
 }
 
@@ -293,10 +293,10 @@ pub(crate) enum ModuleLocation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ContextFacts {
-    pub(crate) label: String,
-    pub(crate) settings_module: Fact<PyModuleName>,
-    pub(crate) settings_file: Fact<Utf8PathBuf>,
+pub(crate) struct DjangoEnvironmentFacts {
+    pub(crate) root: Utf8PathBuf,
+    pub(crate) django_settings_module: Fact<PyModuleName>,
+    pub(crate) django_settings_file: Fact<Utf8PathBuf>,
     pub(crate) installed_apps: Fact<Vec<InstalledAppFact>>,
     pub(crate) template_backends: Fact<Vec<TemplateBackendFact>>,
     pub(crate) app_registry: Fact<Vec<AppFact>>,
@@ -517,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn gh401_manifest_selectors_keep_contexts_separate_from_union() {
+    fn gh401_manifest_selectors_keep_django_environments_separate_from_union() {
         let manifest = djls_corpus::Manifest::load_default().unwrap();
         let fixture = manifest
             .fixtures
@@ -532,22 +532,20 @@ mod tests {
             ["site1.settings.dev", "site2.settings.dev"]
         );
 
-        let contexts = [
+        let django_environments = [
             (
-                "site1-dev",
                 "site1.settings.dev",
                 "projects/site1/settings/dev.py",
                 ["clientname.app1", "clientname.app2"],
             ),
             (
-                "site2-dev",
                 "site2.settings.dev",
                 "projects/site2/settings/dev.py",
                 ["clientname.app2", "clientname.app3"],
             ),
         ]
         .into_iter()
-        .map(|(label, settings_module, settings_file, apps)| {
+        .map(|(settings_module, settings_file, apps)| {
             let apps = apps
                 .into_iter()
                 .map(|app| AppFact {
@@ -557,11 +555,17 @@ mod tests {
                     config: None,
                 })
                 .collect();
+            let settings_file = Utf8PathBuf::from(settings_file);
+            let root = settings_file
+                .parent()
+                .and_then(|parent| parent.parent())
+                .unwrap()
+                .to_path_buf();
 
-            ContextFacts {
-                label: label.to_string(),
-                settings_module: Fact::known(module(settings_module)),
-                settings_file: Fact::known(Utf8PathBuf::from(settings_file)),
+            DjangoEnvironmentFacts {
+                root,
+                django_settings_module: Fact::known(module(settings_module)),
+                django_settings_file: Fact::known(settings_file),
                 installed_apps: Fact::known(Vec::new()),
                 template_backends: Fact::known(Vec::new()),
                 app_registry: Fact::known(apps),
@@ -594,7 +598,7 @@ mod tests {
                 ]),
                 modules: Vec::new(),
             },
-            contexts,
+            django_environments,
             completion_union: CompletionUnionFacts {
                 apps: Fact::known(union_apps),
                 template_libraries: Fact::known(Vec::new()),
@@ -603,14 +607,14 @@ mod tests {
         };
 
         let site1 = project
-            .contexts
+            .django_environments
             .iter()
-            .find(|context| context.label == "site1-dev")
+            .find(|environment| environment.root == "projects/site1")
             .unwrap();
         let site2 = project
-            .contexts
+            .django_environments
             .iter()
-            .find(|context| context.label == "site2-dev")
+            .find(|environment| environment.root == "projects/site2")
             .unwrap();
 
         assert_eq!(site1.app_registry.value().unwrap().len(), 2);
