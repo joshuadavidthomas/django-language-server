@@ -381,6 +381,7 @@ pub(crate) enum TemplateLibrarySource {
     AppTemplateTags { app: PyModuleName },
     SettingsLibraries,
     SettingsBuiltins,
+    DjangoDefaultLibrary,
     DjangoDefaultBuiltin,
     Discovered,
     UserOverride,
