@@ -7,7 +7,7 @@ use camino::Utf8Path;
 /// Whether a tarball path should be excluded from the local corpus checkout.
 ///
 /// The corpus stores full repository source so higher-level tests can discover
-/// real project structure: settings modules, AppConfig classes, package roots,
+/// real project structure: settings modules, `AppConfig` classes, package roots,
 /// templates, templatetags, and project metadata. Discovery methods in
 /// [`super::Corpus`] apply stricter filtering for specific test suites.
 fn is_download_excluded(path: &str) -> bool {
