@@ -78,6 +78,12 @@ pub(crate) struct HelperCall<'db> {
     pub args: Vec<AbstractValueKey>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TemplateRegistration {
+    pub(crate) name: String,
+    pub(crate) kind: SymbolKind,
+}
+
 /// Parse a Python source file into a cached AST.
 ///
 /// Returns `None` for non-Python files or files that fail to parse.
@@ -309,6 +315,36 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     }
 
     result
+}
+
+pub(crate) fn extract_template_registrations(
+    source: &str,
+) -> Result<Vec<TemplateRegistration>, String> {
+    let parsed = ruff_python_parser::parse_module(source).map_err(|error| error.to_string())?;
+    let module = parsed.into_syntax();
+    let mut registrations = registry::collect_registrations_from_body(&module.body)
+        .into_iter()
+        .map(|registration| TemplateRegistration {
+            name: registration.name,
+            kind: registration.kind.symbol_kind(),
+        })
+        .collect::<Vec<_>>();
+
+    registrations.sort_by(|a, b| {
+        symbol_kind_rank(a.kind)
+            .cmp(&symbol_kind_rank(b.kind))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    registrations.dedup_by(|a, b| a.kind == b.kind && a.name == b.name);
+
+    Ok(registrations)
+}
+
+fn symbol_kind_rank(kind: SymbolKind) -> u8 {
+    match kind {
+        SymbolKind::Tag => 0,
+        SymbolKind::Filter => 1,
+    }
 }
 
 fn registered_functions<'a>(
