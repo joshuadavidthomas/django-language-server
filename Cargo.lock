@@ -950,6 +950,7 @@ dependencies = [
  "camino",
  "djangofmt",
  "djls-conf",
+ "djls-source",
  "thiserror 2.0.18",
 ]
 

@@ -3,7 +3,7 @@ use crate::Offset;
 use crate::PositionEncoding;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum LineEnding {
+pub enum LineEnding {
     #[default]
     Lf,
     Crlf,
@@ -12,8 +12,8 @@ pub(crate) enum LineEnding {
 
 impl LineEnding {
     #[inline]
-    #[allow(dead_code)]
-    pub(crate) const fn as_str(self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Lf => "\n",
             Self::Crlf => "\r\n",
@@ -22,30 +22,48 @@ impl LineEnding {
     }
 
     #[inline]
-    pub(crate) const fn len(self) -> usize {
+    #[must_use]
+    pub const fn byte_len(self) -> usize {
         match self {
             Self::Cr | Self::Lf => 1,
             Self::Crlf => 2,
         }
     }
 
-    #[allow(dead_code)]
-    pub(crate) const fn is_line_feed(self) -> bool {
-        matches!(self, Self::Lf)
+    #[must_use]
+    pub fn strip_suffix(text: &str) -> Option<(&str, Self)> {
+        if let Some(prefix) = text.strip_suffix(Self::Crlf.as_str()) {
+            Some((prefix, Self::Crlf))
+        } else if let Some(prefix) = text.strip_suffix(Self::Lf.as_str()) {
+            Some((prefix, Self::Lf))
+        } else if let Some(prefix) = text.strip_suffix(Self::Cr.as_str()) {
+            Some((prefix, Self::Cr))
+        } else {
+            None
+        }
     }
 
-    #[allow(dead_code)]
-    pub(crate) const fn is_carriage_return_line_feed(self) -> bool {
-        matches!(self, Self::Crlf)
-    }
+    #[must_use]
+    pub fn last_in(text: &str) -> Option<Self> {
+        let bytes = text.as_bytes();
+        let mut ending = None;
+        let mut index = 0;
 
-    #[allow(dead_code)]
-    pub(crate) const fn is_carriage_return(self) -> bool {
-        matches!(self, Self::Cr)
+        while index < bytes.len() {
+            if let Some(found) = Self::match_at(bytes, index) {
+                ending = Some(found);
+                index += found.byte_len();
+            } else {
+                index += 1;
+            }
+        }
+
+        ending
     }
 
     #[inline]
-    pub(crate) fn match_at(bytes: &[u8], i: usize) -> Option<Self> {
+    #[must_use]
+    pub fn match_at(bytes: &[u8], i: usize) -> Option<Self> {
         match bytes.get(i) {
             Some(b'\n') => Some(Self::Lf),
             Some(b'\r') if bytes.get(i + 1) == Some(&b'\n') => Some(Self::Crlf),
@@ -194,7 +212,7 @@ impl From<&[u8]> for LineIndex {
         let mut i = 0;
         while i < bytes.len() {
             if let Some(ending) = LineEnding::match_at(bytes, i) {
-                let len = ending.len();
+                let len = ending.byte_len();
                 starts.push(u32::try_from(i + len).unwrap_or(u32::MAX));
                 i += len;
             } else {
@@ -248,6 +266,33 @@ mod tests {
         let text = "";
         let index = LineIndex::from(text);
         assert_eq!(index.lines(), &[0]);
+    }
+
+    #[test]
+    fn test_line_ending_strip_suffix() {
+        assert_eq!(
+            LineEnding::strip_suffix("alpha\n"),
+            Some(("alpha", LineEnding::Lf))
+        );
+        assert_eq!(
+            LineEnding::strip_suffix("alpha\r\n"),
+            Some(("alpha", LineEnding::Crlf)),
+        );
+        assert_eq!(
+            LineEnding::strip_suffix("alpha\r"),
+            Some(("alpha", LineEnding::Cr))
+        );
+        assert_eq!(LineEnding::strip_suffix("alpha"), None);
+    }
+
+    #[test]
+    fn test_line_ending_last_in() {
+        assert_eq!(LineEnding::last_in("alpha\nbeta"), Some(LineEnding::Lf));
+        assert_eq!(
+            LineEnding::last_in("alpha\nbeta\r\ngamma"),
+            Some(LineEnding::Crlf),
+        );
+        assert_eq!(LineEnding::last_in("alpha"), None);
     }
 
     #[test]
