@@ -546,6 +546,7 @@ impl LanguageServer for DjangoLanguageServer {
                     file,
                     session.client_info().position_encoding(),
                     format_config.backend(),
+                    &params.options,
                 )
             })
             .await;

@@ -15,6 +15,7 @@ pub use file::FileKind;
 pub use file::SourceText;
 pub use files::FileRootKind;
 pub use files::SourceFiles;
+pub use line::LineEnding;
 pub use line::LineIndex;
 pub use path::safe_join;
 pub use path::SafeJoinError;
