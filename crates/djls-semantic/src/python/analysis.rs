@@ -11,11 +11,23 @@ pub(crate) mod statements;
 pub(crate) use calls::extract_return_value;
 pub(crate) use calls::AbstractValueKey;
 use djls_source::File;
+use ruff_python_ast::BoolOp;
+use ruff_python_ast::CmpOp;
+use ruff_python_ast::Expr;
+use ruff_python_ast::ExprBoolOp;
+use ruff_python_ast::ExprCompare;
+use ruff_python_ast::ExprName;
+use ruff_python_ast::ExprSlice;
+use ruff_python_ast::ExprSubscript;
+use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::UnaryOp;
 
 use crate::python::analysis::constraints::ExtractedTagConstraints;
 use crate::python::analysis::guards::ExtractedRuleFragment;
+use crate::python::ext::ExprExt;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::AsVar;
 use crate::python::types::ExtractedArg;
@@ -155,8 +167,103 @@ pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
             Some(result.diagnostic_messages)
         },
         extracted_args,
-        as_var: AsVar::Keep,
+        as_var: if supports_manual_as_var_strip(compile_fn.body) {
+            AsVar::Strip
+        } else {
+            AsVar::Keep
+        },
     }
+}
+
+fn supports_manual_as_var_strip(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|stmt| {
+        let Stmt::If(stmt_if) = stmt else {
+            return false;
+        };
+        let Some(name) = body_strips_trailing_as_var(&stmt_if.body) else {
+            return false;
+        };
+        condition_checks_trailing_as_var(stmt_if.test.as_ref(), &name)
+    })
+}
+
+fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
+    stmts.iter().find_map(|stmt| {
+        let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
+            return None;
+        };
+        if targets.len() != 1 {
+            return None;
+        }
+        let Expr::Name(ExprName { id: target, .. }) = &targets[0] else {
+            return None;
+        };
+        let Expr::Subscript(ExprSubscript { value, slice, .. }) = value.as_ref() else {
+            return None;
+        };
+        let Expr::Name(ExprName { id: source, .. }) = value.as_ref() else {
+            return None;
+        };
+        if target.as_str() != source.as_str() {
+            return None;
+        }
+        let Expr::Slice(ExprSlice {
+            lower: None,
+            upper: Some(upper),
+            step: None,
+            ..
+        }) = slice.as_ref()
+        else {
+            return None;
+        };
+        (negative_integer(upper) == Some(2)).then(|| target.to_string())
+    })
+}
+
+fn condition_checks_trailing_as_var(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::And,
+            values,
+            ..
+        }) => values
+            .iter()
+            .any(|value| condition_checks_trailing_as_var(value, name)),
+        Expr::Compare(compare) => compare_checks_trailing_as_var(compare, name),
+        _ => false,
+    }
+}
+
+fn compare_checks_trailing_as_var(compare: &ExprCompare, name: &str) -> bool {
+    compare.ops.len() == 1
+        && compare.comparators.len() == 1
+        && matches!(compare.ops[0], CmpOp::Eq)
+        && ((subscript_is_negative_index(compare.left.as_ref(), name, 2)
+            && compare.comparators[0].string_literal().as_deref() == Some("as"))
+            || (compare.left.string_literal().as_deref() == Some("as")
+                && subscript_is_negative_index(&compare.comparators[0], name, 2)))
+}
+
+fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {
+    let Expr::Subscript(ExprSubscript { value, slice, .. }) = expr else {
+        return false;
+    };
+    let Expr::Name(ExprName { id, .. }) = value.as_ref() else {
+        return false;
+    };
+    id == name && negative_integer(slice) == Some(index)
+}
+
+fn negative_integer(expr: &Expr) -> Option<usize> {
+    let Expr::UnaryOp(ExprUnaryOp {
+        op: UnaryOp::USub,
+        operand,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+    operand.non_negative_integer()
 }
 
 /// Extract argument names from the environment after analysis.
@@ -303,6 +410,29 @@ mod tests {
             })
             .expect("no function found");
         analyze_compile_function(&func)
+    }
+
+    #[test]
+    fn manual_as_var_suffix_pattern_strips_before_count_validation() {
+        let rule = analyze_source(
+            r#"
+def now(parser, token):
+    bits = token.split_contents()
+    asvar = None
+    if len(bits) == 4 and bits[-2] == "as":
+        asvar = bits[-1]
+        bits = bits[:-2]
+    if len(bits) != 2:
+        raise TemplateSyntaxError("'now' statement takes one argument")
+    format_string = bits[1][1:-1]
+"#,
+        );
+
+        assert_eq!(rule.as_var, AsVar::Strip);
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
     }
 
     #[test]

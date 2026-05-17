@@ -105,7 +105,9 @@ impl RegistrationKind {
             }
             Self::Tag | Self::SimpleBlockTag => {
                 let mut rule = analysis::analyze_compile_function(func);
-                rule.as_var = self.as_var();
+                if self.as_var().strips_suffix() {
+                    rule.as_var = self.as_var();
+                }
                 rule.has_content().then(|| Box::new(rule))
             }
         }
