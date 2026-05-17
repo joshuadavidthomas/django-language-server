@@ -22,6 +22,7 @@ use crate::lock::Lockfile;
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 
 const COMPLETE_MARKER: &str = ".complete.json";
+const EXTRACT_FORMAT_VERSION: u32 = 2;
 const MAX_TARBALL_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +31,7 @@ struct RepoMarker {
     url: String,
     git_ref: String,
     tag: String,
+    extract_format_version: u32,
 }
 
 fn write_marker(out_dir: &Utf8Path, value: &impl Serialize) -> anyhow::Result<()> {
@@ -46,6 +48,7 @@ impl From<&LockedRepo> for RepoMarker {
             url: repo.url.clone(),
             git_ref: repo.git_ref.clone(),
             tag: repo.tag.clone(),
+            extract_format_version: EXTRACT_FORMAT_VERSION,
         }
     }
 }
