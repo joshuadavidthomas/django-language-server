@@ -12,6 +12,7 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DjangoEnvironmentConfig;
 use djls_conf::Settings;
 
 use crate::project::input::resolve_django_settings;
@@ -21,95 +22,100 @@ use crate::project::static_model::Field;
 use crate::project::static_model::ImportRoot;
 use crate::project::static_model::Reason;
 use crate::project::static_model::ReasonSource;
+use crate::project::static_model::ResolvedModule;
 use crate::project::static_resolver::resolve_module;
-
-const DEFAULT_DJANGO_ENVIRONMENT_ROOT: &str = ".";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedDjangoEnvironment {
     pub(crate) root: Utf8PathBuf,
-    pub(crate) django_settings_module: Fact<PyModuleName>,
-    pub(crate) django_settings_file: Fact<Utf8PathBuf>,
+    pub(crate) django_settings: Fact<ResolvedModule>,
 }
 
 #[must_use]
 pub(crate) fn discover_django_environments(
-    project_root: &Utf8Path,
+    workspace_root: &Utf8Path,
     settings: &Settings,
-    import_roots: &[ImportRoot],
+    module_search_paths: &[ImportRoot],
 ) -> Vec<ResolvedDjangoEnvironment> {
     if !settings.django_environments().is_empty() {
         return settings
             .django_environments()
             .iter()
             .map(|environment| {
-                let root = normalize_environment_root(project_root, environment.root());
-                if let Some(module) = environment.django_settings_module() {
-                    environment_from_module(root, module, project_root, import_roots)
-                } else {
-                    invalid_environment(root, "Django environment must set django_settings_module")
-                }
+                ResolvedDjangoEnvironment::from_config(
+                    environment,
+                    workspace_root,
+                    module_search_paths,
+                )
             })
             .collect();
     }
 
-    resolve_django_settings(project_root, settings)
+    resolve_django_settings(workspace_root, settings)
         .map(|module| {
-            environment_from_module(
-                project_root.to_path_buf(),
+            ResolvedDjangoEnvironment::from_module(
+                workspace_root.to_path_buf(),
                 &module,
-                project_root,
-                import_roots,
+                workspace_root,
+                module_search_paths,
             )
         })
         .into_iter()
         .collect()
 }
 
-fn environment_from_module(
-    root: Utf8PathBuf,
-    module: &str,
-    project_root: &Utf8Path,
-    import_roots: &[ImportRoot],
-) -> ResolvedDjangoEnvironment {
-    let Ok(django_settings_module) = PyModuleName::parse(module) else {
-        return invalid_environment(
+impl ResolvedDjangoEnvironment {
+    fn from_config(
+        config: &DjangoEnvironmentConfig,
+        workspace_root: &Utf8Path,
+        module_search_paths: &[ImportRoot],
+    ) -> Self {
+        let root = Utf8Path::new(config.root());
+        let root = if root.is_absolute() {
+            root.to_path_buf()
+        } else if root.as_str() == "." {
+            workspace_root.to_path_buf()
+        } else {
+            workspace_root.join(root)
+        };
+        let Some(module) = config.django_settings_module() else {
+            return Self::unknown(root, "Django environment must set django_settings_module");
+        };
+
+        Self::from_module(root, module, workspace_root, module_search_paths)
+    }
+
+    fn from_module(
+        root: Utf8PathBuf,
+        module: &str,
+        workspace_root: &Utf8Path,
+        module_search_paths: &[ImportRoot],
+    ) -> Self {
+        let Ok(module) = PyModuleName::parse(module) else {
+            return Self::unknown(
+                root,
+                format!("django_settings_module is not a valid Python module path: {module}"),
+            );
+        };
+
+        let resolution = resolve_module(module, module_search_paths, workspace_root);
+        Self {
             root,
-            format!("django_settings_module is not a valid Python module path: {module}"),
+            django_settings: resolution.resolved,
+        }
+    }
+
+    fn unknown(root: Utf8PathBuf, message: impl Into<String>) -> Self {
+        let reason = Reason::new(
+            Field::DjangoEnvironment,
+            ReasonSource::DjangoEnvironment(root.clone()),
+            message,
         );
-    };
 
-    let resolution = resolve_module(django_settings_module.clone(), import_roots, project_root);
-    ResolvedDjangoEnvironment {
-        root,
-        django_settings_module: Fact::known(django_settings_module),
-        django_settings_file: resolution.resolved.map(|resolved| resolved.file),
-    }
-}
-
-fn invalid_environment(root: Utf8PathBuf, message: impl Into<String>) -> ResolvedDjangoEnvironment {
-    let reason = Reason::new(
-        Field::DjangoEnvironment,
-        ReasonSource::DjangoEnvironment(root.clone()),
-        message,
-    );
-
-    ResolvedDjangoEnvironment {
-        root,
-        django_settings_module: Fact::unknown(vec![reason.clone()]),
-        django_settings_file: Fact::unknown(vec![reason]),
-    }
-}
-
-#[must_use]
-fn normalize_environment_root(project_root: &Utf8Path, root: &str) -> Utf8PathBuf {
-    let root = Utf8Path::new(root);
-    if root.is_absolute() {
-        root.to_path_buf()
-    } else if root.as_str() == DEFAULT_DJANGO_ENVIRONMENT_ROOT {
-        project_root.to_path_buf()
-    } else {
-        project_root.join(root)
+        Self {
+            root,
+            django_settings: Fact::unknown(vec![reason]),
+        }
     }
 }
 
@@ -144,16 +150,9 @@ mod tests {
         PyModuleName::parse(name).unwrap()
     }
 
-    fn known_module(fact: &Fact<PyModuleName>) -> PyModuleName {
+    fn known_settings(fact: &Fact<ResolvedModule>) -> ResolvedModule {
         let Fact::Known { value } = fact else {
             panic!("expected known Django settings module, got {fact:?}");
-        };
-        value.clone()
-    }
-
-    fn known_file(fact: &Fact<Utf8PathBuf>) -> Utf8PathBuf {
-        let Fact::Known { value } = fact else {
-            panic!("expected known Django settings file, got {fact:?}");
         };
         value.clone()
     }
@@ -174,14 +173,9 @@ mod tests {
 
         assert_eq!(environments.len(), 1);
         assert_eq!(environments[0].root, root);
-        assert_eq!(
-            known_module(&environments[0].django_settings_module),
-            module("project.settings")
-        );
-        assert_eq!(
-            known_file(&environments[0].django_settings_file),
-            root.join("project/settings.py")
-        );
+        let settings = known_settings(&environments[0].django_settings);
+        assert_eq!(settings.module, module("project.settings"));
+        assert_eq!(settings.file, root.join("project/settings.py"));
     }
 
     #[test]
@@ -211,22 +205,12 @@ django_settings_module = "projects.site2.settings"
 
         assert_eq!(environments.len(), 2);
         assert_eq!(environments[0].root, root.join("projects/site1"));
-        assert_eq!(
-            known_module(&environments[0].django_settings_module),
-            module("projects.site1.settings")
-        );
-        assert_eq!(
-            known_file(&environments[0].django_settings_file),
-            root.join("projects/site1/settings.py")
-        );
+        let site1_settings = known_settings(&environments[0].django_settings);
+        assert_eq!(site1_settings.module, module("projects.site1.settings"));
+        assert_eq!(site1_settings.file, root.join("projects/site1/settings.py"));
         assert_eq!(environments[1].root, root.join("projects/site2"));
-        assert_eq!(
-            known_module(&environments[1].django_settings_module),
-            module("projects.site2.settings")
-        );
-        assert_eq!(
-            known_file(&environments[1].django_settings_file),
-            root.join("projects/site2/settings.py")
-        );
+        let site2_settings = known_settings(&environments[1].django_settings);
+        assert_eq!(site2_settings.module, module("projects.site2.settings"));
+        assert_eq!(site2_settings.file, root.join("projects/site2/settings.py"));
     }
 }

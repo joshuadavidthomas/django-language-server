@@ -57,7 +57,11 @@ pub(crate) fn discover_import_roots(
     }
 
     for explicit_root in explicit_roots {
-        let root = normalize_import_root(project_root, explicit_root);
+        let root = if explicit_root.is_absolute() {
+            explicit_root.clone()
+        } else {
+            project_root.join(explicit_root)
+        };
         if root.is_dir() {
             push_import_root(&mut roots, ImportRootKind::ExplicitPythonPath, root);
         } else {
@@ -101,7 +105,46 @@ pub(crate) fn resolve_module(
     import_roots: &[ImportRoot],
     project_root: &Utf8Path,
 ) -> ModuleResolution {
-    let resolved = resolve_module_fact(&requested, import_roots, project_root);
+    let mut candidates = import_roots
+        .iter()
+        .filter_map(|root| module_candidate(&requested, root, project_root))
+        .fold(Vec::new(), |mut candidates, candidate| {
+            if !candidates
+                .iter()
+                .any(|existing: &ModuleCandidate| existing.module.file == candidate.module.file)
+            {
+                candidates.push(candidate);
+            }
+            candidates
+        });
+
+    let resolved = match candidates.len() {
+        0 => Fact::unknown(vec![Reason::module(
+            Field::ResolverModule,
+            requested.clone(),
+            "module was not found in import roots",
+        )]),
+        1 => {
+            let candidate = candidates.pop().unwrap();
+            if candidate.reasons.is_empty() {
+                Fact::known(candidate.module)
+            } else {
+                Fact::partial(candidate.module, candidate.reasons)
+            }
+        }
+        _ => Fact::ambiguous(
+            candidates
+                .into_iter()
+                .map(|candidate| candidate.module)
+                .collect(),
+            vec![Reason::module(
+                Field::ResolverModule,
+                requested.clone(),
+                "module resolves to more than one import root",
+            )],
+        ),
+    };
+
     ModuleResolution {
         requested,
         resolved,
@@ -217,15 +260,6 @@ fn push_import_root(roots: &mut Vec<ImportRoot>, kind: ImportRootKind, path: Utf
     roots.push(ImportRoot { kind, path });
 }
 
-#[must_use]
-fn normalize_import_root(project_root: &Utf8Path, path: &Utf8Path) -> Utf8PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        project_root.join(path)
-    }
-}
-
 fn module_names_for_file(
     file: &Utf8Path,
     import_roots: &[ImportRoot],
@@ -325,53 +359,6 @@ fn collect_pth_import_roots(
 }
 
 #[must_use]
-fn resolve_module_fact(
-    requested: &PyModuleName,
-    import_roots: &[ImportRoot],
-    project_root: &Utf8Path,
-) -> Fact<ResolvedModule> {
-    let mut candidates = import_roots
-        .iter()
-        .filter_map(|root| module_candidate(requested, root, project_root))
-        .fold(Vec::new(), |mut candidates, candidate| {
-            if !candidates
-                .iter()
-                .any(|existing: &ModuleCandidate| existing.module.file == candidate.module.file)
-            {
-                candidates.push(candidate);
-            }
-            candidates
-        });
-
-    match candidates.len() {
-        0 => Fact::unknown(vec![Reason::module(
-            Field::ResolverModule,
-            requested.clone(),
-            "module was not found in import roots",
-        )]),
-        1 => {
-            let candidate = candidates.pop().unwrap();
-            if candidate.reasons.is_empty() {
-                Fact::known(candidate.module)
-            } else {
-                Fact::partial(candidate.module, candidate.reasons)
-            }
-        }
-        _ => Fact::ambiguous(
-            candidates
-                .into_iter()
-                .map(|candidate| candidate.module)
-                .collect(),
-            vec![Reason::module(
-                Field::ResolverModule,
-                requested.clone(),
-                "module resolves to more than one import root",
-            )],
-        ),
-    }
-}
-
-#[must_use]
 fn module_candidate(
     requested: &PyModuleName,
     import_root: &ImportRoot,
@@ -401,7 +388,11 @@ fn module_candidate(
             module: requested.clone(),
             file: file.clone(),
             import_root: import_root.path.clone(),
-            location: classify_module_location(&file, project_root),
+            location: if file.starts_with(project_root) {
+                ModuleLocation::Workspace
+            } else {
+                ModuleLocation::External
+            },
         },
         reasons,
     })
@@ -425,15 +416,6 @@ fn namespace_package_reasons(parts: &[&str], import_root: &Utf8Path) -> Vec<Reas
     }
 
     reasons
-}
-
-#[must_use]
-fn classify_module_location(file: &Utf8Path, project_root: &Utf8Path) -> ModuleLocation {
-    if file.starts_with(project_root) {
-        ModuleLocation::Workspace
-    } else {
-        ModuleLocation::External
-    }
 }
 
 #[cfg(test)]

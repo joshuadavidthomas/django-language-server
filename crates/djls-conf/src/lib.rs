@@ -1,8 +1,8 @@
 mod diagnostics;
+mod django_environments;
 mod format;
 mod tagspecs;
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -19,6 +19,7 @@ use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
 pub use crate::diagnostics::DiagnosticsConfig;
+pub use crate::django_environments::DjangoEnvironmentConfig;
 pub use crate::format::FormatBackend;
 pub use crate::format::FormatConfig;
 pub use crate::tagspecs::ArgKindDef;
@@ -65,29 +66,6 @@ pub enum ConfigError {
     PyprojectParse(#[from] toml::de::Error),
     #[error("Failed to serialize extracted pyproject.toml data")]
     PyprojectSerialize(#[from] toml::ser::Error),
-    #[error("Invalid django_environments: {0}")]
-    InvalidDjangoEnvironments(String),
-}
-
-#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone)]
-pub struct DjangoEnvironmentConfig {
-    root: String,
-    django_settings_module: Option<String>,
-}
-
-impl DjangoEnvironmentConfig {
-    #[must_use]
-    pub fn root(&self) -> &str {
-        self.root.trim()
-    }
-
-    #[must_use]
-    pub fn django_settings_module(&self) -> Option<&str> {
-        self.django_settings_module
-            .as_deref()
-            .map(str::trim)
-            .filter(|module| !module.is_empty())
-    }
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
@@ -141,33 +119,7 @@ impl Settings {
             }
         }
 
-        settings.validate()?;
         Ok(settings)
-    }
-
-    fn validate(&self) -> Result<(), ConfigError> {
-        let mut roots = BTreeSet::new();
-        for environment in &self.django_environments {
-            let root = environment.root();
-            if root.is_empty() {
-                return Err(ConfigError::InvalidDjangoEnvironments(
-                    "Django environment root cannot be empty".to_string(),
-                ));
-            }
-            if !roots.insert(root.to_string()) {
-                return Err(ConfigError::InvalidDjangoEnvironments(format!(
-                    "duplicate Django environment root: {root}"
-                )));
-            }
-
-            if environment.django_settings_module().is_none() {
-                return Err(ConfigError::InvalidDjangoEnvironments(format!(
-                    "Django environment {root} must set django_settings_module"
-                )));
-            }
-        }
-
-        Ok(())
     }
 
     fn load_from_paths(
@@ -210,7 +162,6 @@ impl Settings {
 
         let config = builder.build()?;
         let settings: Self = config.try_deserialize()?;
-        settings.validate()?;
         Ok(settings)
     }
 
@@ -431,10 +382,10 @@ django_settings_module = "project.settings"
             .unwrap();
 
             let override_settings = Settings {
-                django_environments: vec![DjangoEnvironmentConfig {
-                    root: "override".to_string(),
-                    django_settings_module: Some("override.settings".to_string()),
-                }],
+                django_environments: vec![DjangoEnvironmentConfig::new(
+                    "override",
+                    Some("override.settings".to_string()),
+                )],
                 ..Default::default()
             };
             let settings = Settings::new(
@@ -742,7 +693,7 @@ end_tag = { name = "endblock", optional = false }
         }
 
         #[test]
-        fn test_rejects_django_environment_without_settings_module() {
+        fn test_allows_incomplete_django_environment() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
@@ -753,37 +704,14 @@ root = "site"
             )
             .unwrap();
 
-            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
-            assert!(matches!(
-                result.unwrap_err(),
-                ConfigError::InvalidDjangoEnvironments(_)
-            ));
-        }
-
-        #[test]
-        fn test_rejects_duplicate_django_environment_roots() {
-            let dir = tempdir().unwrap();
-            fs::write(
-                dir.path().join("djls.toml"),
-                r#"
-[[django_environments]]
-root = "site"
-django_settings_module = "project.settings"
-
-[[django_environments]]
-root = "site"
-django_settings_module = "other.settings"
-"#,
-            )
-            .unwrap();
-
-            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
-
-            assert!(matches!(
-                result.unwrap_err(),
-                ConfigError::InvalidDjangoEnvironments(_)
-            ));
+            assert_eq!(settings.django_environments().len(), 1);
+            assert_eq!(settings.django_environments()[0].root(), "site");
+            assert_eq!(
+                settings.django_environments()[0].django_settings_module(),
+                None
+            );
         }
     }
 }
