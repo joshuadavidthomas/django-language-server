@@ -2,8 +2,8 @@
 //!
 //! This module resolves `INSTALLED_APPS` entries into app package facts without
 //! importing Django or project code. It supports direct app package entries and
-//! simple `AppConfig` classes with literal `name`, `label`, and `path`
-//! assignments.
+//! simple `AppConfig` classes with literal `name`, `label`, `path`, and
+//! `default` assignments.
 
 #![allow(
     dead_code,
@@ -41,6 +41,7 @@ struct AppConfigAssignments<'a> {
     name: Option<&'a Expr>,
     label: Option<&'a Expr>,
     path: Option<&'a Expr>,
+    default: Option<&'a Expr>,
 }
 
 #[must_use]
@@ -112,9 +113,13 @@ fn resolve_installed_app_entry(
     // Match Django's creation order: import the entry as a module first, then
     // fall back to treating the last segment as an AppConfig class.
     match &direct_resolution.resolved {
-        Fact::Known { .. } | Fact::Partial { .. } | Fact::Ambiguous { .. } => {
-            direct_installed_app(entry, entry_module, &direct_resolution)
-        }
+        Fact::Known { .. } | Fact::Partial { .. } | Fact::Ambiguous { .. } => direct_installed_app(
+            entry,
+            &entry_module,
+            &direct_resolution,
+            project_root,
+            search_paths,
+        ),
         Fact::Unknown {
             reasons: direct_reasons,
         } => resolve_app_config_entry(entry, direct_reasons.clone(), project_root, search_paths)
@@ -124,18 +129,33 @@ fn resolve_installed_app_entry(
 
 fn direct_installed_app(
     entry: &str,
-    module: PyModuleName,
+    module: &PyModuleName,
     resolution: &ModuleResolution,
+    project_root: &Utf8Path,
+    search_paths: &[ModuleSearchPathEntry],
 ) -> InstalledAppFact {
-    let module_fact = module_fact_from_resolution(module, &resolution.resolved);
+    let module_fact = module_fact_from_resolution(module.clone(), &resolution.resolved);
     let path = app_path_fact_from_resolution(&resolution.resolved);
-
-    InstalledAppFact {
+    let app = InstalledAppFact {
         entry: entry.to_string(),
         module: module_fact,
         path,
         config: None,
+    };
+
+    let Some(resolved) = resolution.resolved.value() else {
+        return app;
+    };
+    if resolved.file.file_name() != Some("__init__.py") {
+        return app;
     }
+    let app_path = app_path_from_resolved(resolved);
+    let config_file = app_path.join("apps.py");
+    if !config_file.is_file() {
+        return app;
+    }
+
+    resolve_default_app_config(entry, module, &config_file, app, project_root, search_paths)
 }
 
 fn resolve_app_config_entry(
@@ -211,9 +231,92 @@ fn resolve_app_config_entry(
         return Err(reasons);
     };
 
-    let default_app_module = default_app_module_from_config_module(&config_module);
+    Ok(app_config_installed_app(
+        entry,
+        config_module,
+        class,
+        &config_file,
+        config_resolution_reasons,
+        project_root,
+        search_paths,
+    ))
+}
+
+fn resolve_default_app_config(
+    entry: &str,
+    app_module: &PyModuleName,
+    config_file: &Utf8Path,
+    base_app: InstalledAppFact,
+    project_root: &Utf8Path,
+    search_paths: &[ModuleSearchPathEntry],
+) -> InstalledAppFact {
+    let config_module = match PyModuleName::parse(&format!("{}.apps", app_module.as_str())) {
+        Ok(module) => module,
+        Err(error) => {
+            return installed_app_with_reason(
+                base_app,
+                Reason::file(
+                    Field::AppsConfig,
+                    config_file,
+                    format!("default AppConfig module path is invalid: {error}"),
+                ),
+            );
+        }
+    };
+
+    let source = match fs::read_to_string(config_file) {
+        Ok(source) => source,
+        Err(error) => {
+            return installed_app_with_reason(
+                base_app,
+                Reason::file(
+                    Field::AppsConfig,
+                    config_file,
+                    format!("failed to read default AppConfig module: {error}"),
+                ),
+            );
+        }
+    };
+    let module = match ruff_python_parser::parse_module(&source) {
+        Ok(parsed) => parsed.into_syntax(),
+        Err(error) => {
+            return installed_app_with_reason(
+                base_app,
+                Reason::file(
+                    Field::AppsConfig,
+                    config_file,
+                    format!("failed to parse default AppConfig module: {error}"),
+                ),
+            );
+        }
+    };
+
+    match select_default_app_config(&module.body, config_file) {
+        DefaultAppConfigSelection::None => base_app,
+        DefaultAppConfigSelection::Selected(class) => app_config_installed_app(
+            entry,
+            config_module,
+            class,
+            config_file,
+            Vec::new(),
+            project_root,
+            search_paths,
+        ),
+        DefaultAppConfigSelection::Unclear(reason) => installed_app_with_reason(base_app, reason),
+    }
+}
+
+fn app_config_installed_app(
+    entry: &str,
+    config_module: PyModuleName,
+    class: &StmtClassDef,
+    config_file: &Utf8Path,
+    config_resolution_reasons: Vec<Reason>,
+    project_root: &Utf8Path,
+    search_paths: &[ModuleSearchPathEntry],
+) -> InstalledAppFact {
     let assignments = app_config_assignments(class);
-    let name = app_config_name(assignments.name, default_app_module, &config_file);
+    let name = app_config_name(assignments.name, config_file);
     let app_resolution = name
         .value()
         .map(|module| resolve_module(module.clone(), search_paths, project_root));
@@ -225,23 +328,84 @@ fn resolve_app_config_entry(
         || Fact::unknown(name.reasons().to_vec()),
         |resolution| app_path_fact_from_resolution(&resolution.resolved),
     );
-    let mut path = app_config_path(assignments.path, default_path, project_root, &config_file);
+    let mut path = app_config_path(assignments.path, default_path, project_root, config_file);
     path = add_reasons(path, config_resolution_reasons);
 
-    let label = app_config_label(assignments.label, &name, &config_file);
+    let label = app_config_label(assignments.label, &name, config_file);
     let config = AppConfigFact {
         module: config_module,
-        class_name: class_name.to_string(),
+        class_name: class.name.to_string(),
         name,
         label,
         path: path.clone(),
     };
 
-    Ok(InstalledAppFact {
+    InstalledAppFact {
         entry: entry.to_string(),
         module: app_module,
         path,
         config: Some(config),
+    }
+}
+
+enum DefaultAppConfigSelection<'a> {
+    None,
+    Selected(&'a StmtClassDef),
+    Unclear(Reason),
+}
+
+fn select_default_app_config<'a>(
+    body: &'a [Stmt],
+    config_file: &Utf8Path,
+) -> DefaultAppConfigSelection<'a> {
+    let mut candidates = Vec::new();
+    let mut explicit_default_candidates = Vec::new();
+
+    for class in body.iter().filter_map(app_config_class_from_stmt) {
+        let default = match app_config_default(class, config_file) {
+            Ok(default) => default,
+            Err(reason) => return DefaultAppConfigSelection::Unclear(reason),
+        };
+        if default == Some(false) {
+            continue;
+        }
+        if default == Some(true) {
+            explicit_default_candidates.push(class);
+        }
+        candidates.push(class);
+    }
+
+    match candidates.len() {
+        0 => DefaultAppConfigSelection::None,
+        1 => DefaultAppConfigSelection::Selected(candidates[0]),
+        _ if explicit_default_candidates.len() == 1 => {
+            DefaultAppConfigSelection::Selected(explicit_default_candidates[0])
+        }
+        _ => DefaultAppConfigSelection::Unclear(Reason::file(
+            Field::AppsConfig,
+            config_file,
+            "default AppConfig selection is ambiguous; set default = True on one AppConfig class",
+        )),
+    }
+}
+
+fn app_config_class_from_stmt(stmt: &Stmt) -> Option<&StmtClassDef> {
+    let Stmt::ClassDef(class) = stmt else {
+        return None;
+    };
+    is_app_config_class(class).then_some(class)
+}
+
+fn app_config_default(class: &StmtClassDef, file: &Utf8Path) -> Result<Option<bool>, Reason> {
+    let Some(default) = app_config_assignments(class).default else {
+        return Ok(None);
+    };
+    boolean_literal(default).map(Some).ok_or_else(|| {
+        Reason::file(
+            Field::AppsConfig,
+            file,
+            "AppConfig.default must be a boolean literal for static default selection",
+        )
     })
 }
 
@@ -262,12 +426,14 @@ fn app_config_class<'a>(stmt: &'a Stmt, class_name: &str) -> Option<&'a StmtClas
     if class.name.as_str() != class_name {
         return None;
     }
-    let arguments = class.arguments.as_ref()?;
-    arguments
-        .args
-        .iter()
-        .any(is_app_config_base)
-        .then_some(class)
+    is_app_config_class(class).then_some(class)
+}
+
+fn is_app_config_class(class: &StmtClassDef) -> bool {
+    class
+        .arguments
+        .as_ref()
+        .is_some_and(|arguments| arguments.args.iter().any(is_app_config_base))
 }
 
 fn is_app_config_base(expr: &Expr) -> bool {
@@ -287,6 +453,7 @@ fn app_config_assignments(class: &StmtClassDef) -> AppConfigAssignments<'_> {
         name: None,
         label: None,
         path: None,
+        default: None,
     };
 
     for stmt in &class.body {
@@ -298,6 +465,9 @@ fn app_config_assignments(class: &StmtClassDef) -> AppConfigAssignments<'_> {
         }
         if let Some(value) = assigned_value(stmt, "path") {
             assignments.path = Some(value);
+        }
+        if let Some(value) = assigned_value(stmt, "default") {
+            assignments.default = Some(value);
         }
     }
 
@@ -322,53 +492,21 @@ fn is_name(expr: &Expr, expected: &str) -> bool {
     matches!(expr, Expr::Name(name) if name.id.as_str() == expected)
 }
 
-fn app_config_name(
-    expr: Option<&Expr>,
-    default_app_module: Option<PyModuleName>,
-    file: &Utf8Path,
-) -> Fact<PyModuleName> {
+fn app_config_name(expr: Option<&Expr>, file: &Utf8Path) -> Fact<PyModuleName> {
     let Some(expr) = expr else {
-        return default_app_module.map_or_else(
-            || {
-                Fact::unknown(vec![Reason::file(
-                    Field::AppsConfig,
-                    file,
-                    "AppConfig.name is not assigned and no default app module can be inferred",
-                )])
-            },
-            |module| {
-                Fact::partial(
-                    module,
-                    vec![Reason::file(
-                        Field::AppsConfig,
-                        file,
-                        "AppConfig.name is not assigned; using the parent app module",
-                    )],
-                )
-            },
-        );
+        return Fact::unknown(vec![Reason::file(
+            Field::AppsConfig,
+            file,
+            "AppConfig.name is not assigned",
+        )]);
     };
 
     let Some(name) = string_literal(expr) else {
-        return default_app_module.map_or_else(
-            || {
-                Fact::unknown(vec![Reason::file(
-                    Field::AppsConfig,
-                    file,
-                    "AppConfig.name must be a string literal",
-                )])
-            },
-            |module| {
-                Fact::partial(
-                    module,
-                    vec![Reason::file(
-                        Field::AppsConfig,
-                        file,
-                        "AppConfig.name must be a string literal; using the parent app module",
-                    )],
-                )
-            },
-        );
+        return Fact::unknown(vec![Reason::file(
+            Field::AppsConfig,
+            file,
+            "AppConfig.name must be a string literal",
+        )]);
     };
 
     match PyModuleName::parse(&name) {
@@ -470,17 +608,6 @@ fn module_basename(module: &PyModuleName) -> &str {
         .unwrap_or(module.as_str())
 }
 
-fn default_app_module_from_config_module(module: &PyModuleName) -> Option<PyModuleName> {
-    let mut parts = module.as_str().split('.').collect::<Vec<_>>();
-    parts.pop();
-
-    if parts.is_empty() {
-        return None;
-    }
-
-    PyModuleName::parse(&parts.join(".")).ok()
-}
-
 fn app_module_fact_from_name(
     name: &Fact<PyModuleName>,
     resolution: Option<&ModuleResolution>,
@@ -542,6 +669,12 @@ fn unique_app_paths(paths: impl Iterator<Item = Utf8PathBuf>) -> Vec<Utf8PathBuf
         }
         unique
     })
+}
+
+fn installed_app_with_reason(mut app: InstalledAppFact, reason: Reason) -> InstalledAppFact {
+    app.module = app.module.with_reason(reason.clone());
+    app.path = app.path.with_reason(reason);
+    app
 }
 
 fn promote_installed_app(app: &InstalledAppFact) -> Option<AppFact> {
@@ -607,6 +740,13 @@ fn unknown_installed_app(entry: &str, reasons: Vec<Reason>) -> InstalledAppFact 
 fn string_literal(expr: &Expr) -> Option<String> {
     if let Expr::StringLiteral(string) = expr {
         return Some(string.value.to_str().to_string());
+    }
+    None
+}
+
+fn boolean_literal(expr: &Expr) -> Option<bool> {
+    if let Expr::BooleanLiteral(boolean) = expr {
+        return Some(boolean.value);
     }
     None
 }
@@ -682,6 +822,13 @@ mod tests {
         (value.clone(), reasons.clone())
     }
 
+    fn unknown_reasons<T: std::fmt::Debug>(fact: &Fact<T>) -> Vec<Reason> {
+        let Fact::Unknown { reasons } = fact else {
+            panic!("expected unknown fact, got {fact:?}");
+        };
+        reasons.clone()
+    }
+
     #[test]
     fn resolves_direct_app_package_entries() {
         let tmp = tempdir().unwrap();
@@ -705,6 +852,159 @@ mod tests {
         assert_eq!(app_registry.len(), 1);
         assert_eq!(app_registry[0].module, module("blog"));
         assert_eq!(app_registry[0].path, root.join("blog"));
+    }
+
+    #[test]
+    fn does_not_use_default_app_config_for_module_file_entries() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog.py"), "");
+        write_file(
+            &root.join("apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    name = "blog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let installed_apps = known_vec(&facts.installed_apps);
+        assert!(installed_apps[0].config.is_none());
+        assert_eq!(known_path(&installed_apps[0].path), root);
+    }
+
+    #[test]
+    fn uses_default_app_config_for_direct_package_entries() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    name = "blog"
+    label = "weblog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let installed_apps = known_vec(&facts.installed_apps);
+        let config = installed_apps[0].config.as_ref().unwrap();
+        assert_eq!(config.module, module("blog.apps"));
+        assert_eq!(config.class_name, "BlogConfig");
+        assert_eq!(known_module(&config.name), module("blog"));
+        assert_eq!(config.label.value().unwrap(), "weblog");
+
+        let app_registry = known_vec(&facts.app_registry);
+        assert_eq!(app_registry[0].module, module("blog"));
+        assert!(app_registry[0].config.is_some());
+    }
+
+    #[test]
+    fn ignores_default_false_app_config_for_direct_package_entries() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    default = False
+    name = "blog"
+    label = "weblog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let installed_apps = known_vec(&facts.installed_apps);
+        assert!(installed_apps[0].config.is_none());
+        assert_eq!(known_module(&installed_apps[0].module), module("blog"));
+    }
+
+    #[test]
+    fn uses_explicit_default_app_config_for_direct_package_entries() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    name = "blog"
+
+class BetterBlogConfig(AppConfig):
+    default = True
+    name = "blog"
+    label = "better_blog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let installed_apps = known_vec(&facts.installed_apps);
+        let config = installed_apps[0].config.as_ref().unwrap();
+        assert_eq!(config.class_name, "BetterBlogConfig");
+        assert_eq!(config.label.value().unwrap(), "better_blog");
+    }
+
+    #[test]
+    fn ambiguous_default_app_config_keeps_direct_package_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(
+            &root.join("blog/apps.py"),
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    name = "blog"
+
+class OtherBlogConfig(AppConfig):
+    name = "blog"
+"#,
+        );
+
+        let facts = resolve_app_registry(
+            &Fact::known(vec!["blog".to_string()]),
+            &root,
+            &search_paths(&root),
+        );
+
+        let (installed_apps, reasons) = partial_vec(&facts.installed_apps);
+        assert!(installed_apps[0].config.is_none());
+        let (app_module, _) = partial_module(&installed_apps[0].module);
+        assert_eq!(app_module, module("blog"));
+        assert!(reasons.iter().any(|reason| reason
+            .message
+            .contains("default AppConfig selection is ambiguous")));
     }
 
     #[test]
@@ -745,7 +1045,7 @@ class BlogConfig(AppConfig):
     }
 
     #[test]
-    fn defaults_missing_app_config_name_and_label_as_partial() {
+    fn explicit_app_config_missing_name_is_unknown() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("blog/__init__.py"), "");
@@ -767,23 +1067,23 @@ class BlogConfig(AppConfig):
 
         let (installed_apps, reasons) = partial_vec(&facts.installed_apps);
         assert_eq!(installed_apps.len(), 1);
-        let (app_module, module_reasons) = partial_module(&installed_apps[0].module);
-        assert_eq!(app_module, module("blog"));
+        let module_reasons = unknown_reasons(&installed_apps[0].module);
         assert!(module_reasons[0]
             .message
             .contains("AppConfig.name is not assigned"));
         let config = installed_apps[0].config.as_ref().unwrap();
-        assert_eq!(config.label.value().unwrap(), "blog");
+        assert!(matches!(config.name, Fact::Unknown { .. }));
+        assert!(matches!(config.label, Fact::Unknown { .. }));
         assert!(reasons
             .iter()
             .any(|reason| reason.message.contains("AppConfig.name is not assigned")));
 
         let (app_registry, _) = partial_vec(&facts.app_registry);
-        assert_eq!(app_registry[0].module, module("blog"));
+        assert!(app_registry.is_empty());
     }
 
     #[test]
-    fn falls_back_when_app_config_name_is_not_literal() {
+    fn explicit_app_config_nonliteral_name_is_unknown() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("blog/__init__.py"), "");
@@ -806,14 +1106,16 @@ class BlogConfig(AppConfig):
         );
 
         let (installed_apps, reasons) = partial_vec(&facts.installed_apps);
-        let (app_module, module_reasons) = partial_module(&installed_apps[0].module);
-        assert_eq!(app_module, module("blog"));
+        let module_reasons = unknown_reasons(&installed_apps[0].module);
         assert!(module_reasons[0]
             .message
             .contains("AppConfig.name must be a string literal"));
         assert!(reasons.iter().any(|reason| reason
             .message
             .contains("AppConfig.name must be a string literal")));
+
+        let (app_registry, _) = partial_vec(&facts.app_registry);
+        assert!(app_registry.is_empty());
     }
 
     #[test]
