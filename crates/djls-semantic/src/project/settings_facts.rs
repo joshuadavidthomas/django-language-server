@@ -261,6 +261,7 @@ fn extract_settings_state_inner(
     if module.body.iter().any(|stmt| {
         contains_nested_list_mutation(stmt, TEMPLATES)
             || contains_nested_template_dirs_mutation(stmt)
+            || contains_nested_template_options_assignment(stmt)
             || contains_unsupported_setting_update(stmt, TEMPLATES)
     }) {
         state.add_template_backends_reason(reason(
@@ -337,6 +338,15 @@ fn process_settings_stmt(
             mutation,
             &state.path_values,
             &state.path_list_values,
+            file,
+        ));
+        return;
+    }
+
+    if let Some(assignment) = template_options_assignment(stmt) {
+        state.template_backends = Some(apply_template_options_assignment(
+            state.template_backends.take(),
+            &assignment,
             file,
         ));
     }
@@ -880,11 +890,17 @@ fn body_contains_list_mutation(body: &[Stmt], target_name: &str) -> bool {
 
 fn contains_unsupported_setting_update(stmt: &Stmt, target_name: &str) -> bool {
     match stmt {
-        Stmt::Assign(assign) => assign
-            .targets
-            .iter()
-            .any(|target| is_indirect_setting_target(target, target_name)),
-        Stmt::AnnAssign(assign) => is_indirect_setting_target(assign.target.as_ref(), target_name),
+        Stmt::Assign(assign) => {
+            assign
+                .targets
+                .iter()
+                .any(|target| is_indirect_setting_target(target, target_name))
+                && !(target_name == TEMPLATES && template_options_assignment(stmt).is_some())
+        }
+        Stmt::AnnAssign(assign) => {
+            is_indirect_setting_target(assign.target.as_ref(), target_name)
+                && !(target_name == TEMPLATES && template_options_assignment(stmt).is_some())
+        }
         Stmt::AugAssign(assign) => {
             is_indirect_setting_target(assign.target.as_ref(), target_name)
                 && !(target_name == TEMPLATES && template_dirs_mutation(stmt).is_some())
@@ -1170,6 +1186,96 @@ fn contains_nested_template_dirs_mutation(stmt: &Stmt) -> bool {
 fn body_contains_template_dirs_mutation(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| {
         template_dirs_mutation(stmt).is_some() || contains_nested_template_dirs_mutation(stmt)
+    })
+}
+
+struct TemplateOptionsAssignment<'a> {
+    backend_index: usize,
+    key: String,
+    value: &'a Expr,
+}
+
+fn template_options_assignment(stmt: &Stmt) -> Option<TemplateOptionsAssignment<'_>> {
+    match stmt {
+        Stmt::Assign(assign) => {
+            let target = assign.targets.first()?;
+            let (backend_index, key) = template_options_target(target)?;
+            Some(TemplateOptionsAssignment {
+                backend_index,
+                key,
+                value: assign.value.as_ref(),
+            })
+        }
+        Stmt::AnnAssign(assign) => {
+            let (backend_index, key) = template_options_target(assign.target.as_ref())?;
+            Some(TemplateOptionsAssignment {
+                backend_index,
+                key,
+                value: assign.value.as_deref()?,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn template_options_target(expr: &Expr) -> Option<(usize, String)> {
+    let Expr::Subscript(option_key_subscript) = expr else {
+        return None;
+    };
+    let key = string_literal(option_key_subscript.slice.as_ref())?;
+
+    let Expr::Subscript(options_dict_subscript) = option_key_subscript.value.as_ref() else {
+        return None;
+    };
+    let options_key = string_literal(options_dict_subscript.slice.as_ref())?;
+    if options_key != "OPTIONS" {
+        return None;
+    }
+
+    let Expr::Subscript(backend_subscript) = options_dict_subscript.value.as_ref() else {
+        return None;
+    };
+    if !is_name(backend_subscript.value.as_ref(), TEMPLATES) {
+        return None;
+    }
+    Some((integer_literal(backend_subscript.slice.as_ref())?, key))
+}
+
+fn contains_nested_template_options_assignment(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::If(stmt_if) => {
+            body_contains_template_options_assignment(&stmt_if.body)
+                || stmt_if
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| body_contains_template_options_assignment(&clause.body))
+        }
+        Stmt::For(stmt_for) => {
+            body_contains_template_options_assignment(&stmt_for.body)
+                || body_contains_template_options_assignment(&stmt_for.orelse)
+        }
+        Stmt::While(stmt_while) => {
+            body_contains_template_options_assignment(&stmt_while.body)
+                || body_contains_template_options_assignment(&stmt_while.orelse)
+        }
+        Stmt::Try(stmt_try) => {
+            body_contains_template_options_assignment(&stmt_try.body)
+                || stmt_try.handlers.iter().any(|handler| {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    body_contains_template_options_assignment(&handler.body)
+                })
+                || body_contains_template_options_assignment(&stmt_try.orelse)
+                || body_contains_template_options_assignment(&stmt_try.finalbody)
+        }
+        Stmt::With(stmt_with) => body_contains_template_options_assignment(&stmt_with.body),
+        _ => false,
+    }
+}
+
+fn body_contains_template_options_assignment(body: &[Stmt]) -> bool {
+    body.iter().any(|stmt| {
+        template_options_assignment(stmt).is_some()
+            || contains_nested_template_options_assignment(stmt)
     })
 }
 
@@ -1598,6 +1704,86 @@ fn apply_template_dir_list_mutation(
     }
 }
 
+fn apply_template_options_assignment(
+    current: Option<Fact<Vec<TemplateBackendFact>>>,
+    assignment: &TemplateOptionsAssignment,
+    file: &Utf8Path,
+) -> Fact<Vec<TemplateBackendFact>> {
+    let Some(current) = current else {
+        return mutation_before_assignment(
+            Field::SettingsTemplates,
+            file,
+            "TEMPLATES OPTIONS assignment appears before TEMPLATES assignment or import",
+        );
+    };
+
+    match current {
+        Fact::Known { mut value } => {
+            let reasons =
+                apply_template_options_assignment_to_backends(&mut value, assignment, file);
+            known_or_partial(value, reasons)
+        }
+        Fact::Partial {
+            mut value,
+            mut reasons,
+        } => {
+            reasons.extend(apply_template_options_assignment_to_backends(
+                &mut value, assignment, file,
+            ));
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { mut reasons } => {
+            reasons.push(reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES OPTIONS assignment because TEMPLATES is unknown",
+            ));
+            Fact::unknown(reasons)
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            reasons.push(reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES OPTIONS assignment because TEMPLATES is ambiguous",
+            ));
+            Fact::ambiguous(candidates, reasons)
+        }
+    }
+}
+
+fn apply_template_options_assignment_to_backends(
+    backends: &mut [TemplateBackendFact],
+    assignment: &TemplateOptionsAssignment,
+    file: &Utf8Path,
+) -> Vec<Reason> {
+    let Some(backend) = backends.get_mut(assignment.backend_index) else {
+        return vec![reason(
+            Field::SettingsTemplateOptions,
+            file,
+            "cannot apply TEMPLATES OPTIONS assignment because the backend index is out of range",
+        )];
+    };
+
+    match assignment.key.as_str() {
+        "builtins" => {
+            backend.option_builtins = extract_option_builtins_value(assignment.value, file);
+            Vec::new()
+        }
+        "libraries" => {
+            backend.option_libraries = extract_option_libraries_value(assignment.value, file);
+            Vec::new()
+        }
+        key => vec![reason(
+            Field::SettingsTemplateOptions,
+            file,
+            format!("unsupported TEMPLATES OPTIONS assignment for `{key}`"),
+        )],
+    }
+}
+
 fn extract_template_backend_list_item(
     expr: &Expr,
     path_values: &BTreeMap<String, Utf8PathBuf>,
@@ -1765,6 +1951,10 @@ fn extract_option_libraries(
     let Some(value) = dict_value(options, "libraries") else {
         return Fact::known(Vec::new());
     };
+    extract_option_libraries_value(value, file)
+}
+
+fn extract_option_libraries_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<TemplateLibraryFact>> {
     let Expr::Dict(libraries) = value else {
         return Fact::unknown(vec![reason(
             Field::SettingsTemplateOptions,
@@ -1830,6 +2020,10 @@ fn extract_option_builtins(
     let Some(value) = dict_value(options, "builtins") else {
         return Fact::known(Vec::new());
     };
+    extract_option_builtins_value(value, file)
+}
+
+fn extract_option_builtins_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<PyModuleName>> {
     let Some(elements) = collection_elements(value) else {
         return Fact::unknown(vec![reason(
             Field::SettingsTemplateOptions,
@@ -3234,6 +3428,100 @@ if ENABLE_EXTRA_TEMPLATES:
             known_vec(&backends[0].dirs)[0].path,
             Utf8PathBuf::from("templates")
         );
+        assert!(reasons.iter().any(|reason| reason
+            .message
+            .contains("unsupported nested assignment or mutation of TEMPLATES")));
+    }
+
+    #[test]
+    fn applies_deterministic_template_options_assignments() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"OPTIONS": {}}]
+TEMPLATES[0]["OPTIONS"]["builtins"] = ["project.templatetags.builtins"]
+TEMPLATES[0]["OPTIONS"]["libraries"] = {
+    "custom_tags": "project.templatetags.custom_tags",
+}
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].option_builtins),
+            [PyModuleName::parse("project.templatetags.builtins").unwrap()]
+        );
+        assert_eq!(
+            known_vec(&backends[0].option_libraries)[0].load_name,
+            LibraryName::parse("custom_tags").unwrap()
+        );
+    }
+
+    #[test]
+    fn marks_out_of_range_template_options_assignment_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"OPTIONS": {}}]
+TEMPLATES[3]["OPTIONS"]["builtins"] = ["project.templatetags.builtins"]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let (backends, reasons) = partial_vec(&facts.template_backends);
+
+        assert!(known_vec(&backends[0].option_builtins).is_empty());
+        assert!(reasons[0].message.contains("backend index is out of range"));
+    }
+
+    #[test]
+    fn marks_unsupported_template_options_assignment_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"OPTIONS": {}}]
+TEMPLATES[0]["OPTIONS"]["context_processors"] = ["project.context_processors.extra"]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let (backends, reasons) = partial_vec(&facts.template_backends);
+
+        assert!(known_vec(&backends[0].option_builtins).is_empty());
+        assert!(reasons[0]
+            .message
+            .contains("unsupported TEMPLATES OPTIONS assignment"));
+    }
+
+    #[test]
+    fn marks_nested_template_options_assignments_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"OPTIONS": {}}]
+if ENABLE_EXTRA_BUILTINS:
+    TEMPLATES[0]["OPTIONS"]["builtins"] = ["project.templatetags.builtins"]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let (backends, reasons) = partial_vec(&facts.template_backends);
+
+        assert!(known_vec(&backends[0].option_builtins).is_empty());
         assert!(reasons.iter().any(|reason| reason
             .message
             .contains("unsupported nested assignment or mutation of TEMPLATES")));
