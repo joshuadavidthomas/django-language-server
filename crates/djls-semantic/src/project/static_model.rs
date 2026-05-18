@@ -517,44 +517,64 @@ mod tests {
     }
 
     #[test]
-    fn gh401_profile_shape_keeps_contexts_separate_from_union() {
-        let profiles = djls_corpus::static_project_model_profiles().unwrap();
-        let profile = profiles.get("gh401-multisite-split-settings").unwrap();
-        let contexts = profile
-            .contexts
+    fn gh401_manifest_selectors_keep_contexts_separate_from_union() {
+        let manifest = djls_corpus::Manifest::load_default().unwrap();
+        let fixture = manifest
+            .fixtures
             .iter()
-            .map(|context| {
-                let apps = context
-                    .expected
-                    .local_apps
-                    .iter()
-                    .map(|app| AppFact {
-                        entry: app.clone(),
-                        module: module(app),
-                        path: Utf8PathBuf::from(app.replace('.', "/")),
-                        config: None,
-                    })
-                    .collect();
+            .find(|fixture| fixture.name == "gh401-multisite")
+            .unwrap();
+        assert_eq!(
+            fixture
+                .django_settings_modules()
+                .collect::<Vec<_>>()
+                .as_slice(),
+            ["site1.settings.dev", "site2.settings.dev"]
+        );
 
-                ContextFacts {
-                    label: context.label.clone(),
-                    settings_module: Fact::known(module(&context.settings_module)),
-                    settings_file: Fact::known(Utf8PathBuf::from(&context.settings_file)),
-                    installed_apps: Fact::known(Vec::new()),
-                    template_backends: Fact::known(Vec::new()),
-                    app_registry: Fact::known(apps),
-                    template_dirs: Fact::known(Vec::new()),
-                    template_libraries: Fact::known(Vec::new()),
-                    template_symbols: Fact::known(Vec::new()),
-                }
-            })
-            .collect::<Vec<_>>();
-        let union_apps = profile
-            .expected_union
-            .local_apps
-            .iter()
+        let contexts = [
+            (
+                "site1-dev",
+                "site1.settings.dev",
+                "projects/site1/settings/dev.py",
+                ["clientname.app1", "clientname.app2"],
+            ),
+            (
+                "site2-dev",
+                "site2.settings.dev",
+                "projects/site2/settings/dev.py",
+                ["clientname.app2", "clientname.app3"],
+            ),
+        ]
+        .into_iter()
+        .map(|(label, settings_module, settings_file, apps)| {
+            let apps = apps
+                .into_iter()
+                .map(|app| AppFact {
+                    entry: app.to_string(),
+                    module: module(app),
+                    path: Utf8PathBuf::from(app.replace('.', "/")),
+                    config: None,
+                })
+                .collect();
+
+            ContextFacts {
+                label: label.to_string(),
+                settings_module: Fact::known(module(settings_module)),
+                settings_file: Fact::known(Utf8PathBuf::from(settings_file)),
+                installed_apps: Fact::known(Vec::new()),
+                template_backends: Fact::known(Vec::new()),
+                app_registry: Fact::known(apps),
+                template_dirs: Fact::known(Vec::new()),
+                template_libraries: Fact::known(Vec::new()),
+                template_symbols: Fact::known(Vec::new()),
+            }
+        })
+        .collect::<Vec<_>>();
+        let union_apps = ["clientname.app1", "clientname.app2", "clientname.app3"]
+            .into_iter()
             .map(|app| AppFact {
-                entry: app.clone(),
+                entry: app.to_string(),
                 module: module(app),
                 path: Utf8PathBuf::from(app.replace('.', "/")),
                 config: None,

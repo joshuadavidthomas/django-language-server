@@ -35,21 +35,14 @@ use ignore::WalkBuilder;
 pub(crate) mod archive;
 mod lock;
 mod manifest;
-mod profiles;
 mod sync;
 
 pub use lock::lock_corpus;
 pub use lock::LockFilter;
 pub use lock::Lockfile;
+pub use manifest::Fixture;
 pub use manifest::Manifest;
-pub use profiles::static_project_model_profiles;
-pub use profiles::Confidence;
-pub use profiles::Context;
-pub use profiles::ExpectedFacts;
-pub use profiles::Profile;
-pub use profiles::ProfileSet;
-pub use profiles::Source;
-pub use profiles::SourceKind;
+pub use manifest::Repo;
 pub use sync::clean_entries;
 pub use sync::sync_corpus;
 

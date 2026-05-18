@@ -5,6 +5,7 @@ root_dir = ".corpus"
 name = "archivebox"
 url = "https://github.com/ArchiveBox/ArchiveBox.git"
 ref = "dev"
+django_settings_module = "archivebox.core.settings"
 
 [[repo]]
 name = "babybuddy"
@@ -20,6 +21,7 @@ ref = "2.0.0"
 name = "django-allauth"
 url = "https://github.com/pennersr/django-allauth.git"
 ref = "65.14.1"
+django_settings_module = "tests.projects.account_only.settings"
 
 [[repo]]
 name = "django-avatar"
@@ -196,6 +198,7 @@ ref = "master"
 name = "healthchecks"
 url = "https://github.com/healthchecks/healthchecks.git"
 ref = "master"
+django_settings_module = "hc.settings"
 
 [[repo]]
 name = "horizon"
@@ -211,6 +214,7 @@ ref = "1.3.12"
 name = "inventree"
 url = "https://github.com/inventree/InvenTree.git"
 ref = "master"
+django_settings_module = "InvenTree.settings"
 
 [[repo]]
 name = "linkding"
@@ -226,6 +230,7 @@ ref = "main"
 name = "netbox"
 url = "https://github.com/netbox-community/netbox.git"
 ref = "main"
+django_settings_module = "netbox.settings"
 
 [[repo]]
 name = "nomnom"
@@ -236,6 +241,7 @@ ref = "main"
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 ref = "master"
+django_settings_module = "pretix.settings"
 
 [[repo]]
 name = "pythonic-news"
@@ -251,6 +257,7 @@ ref = "main"
 name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 ref = "26.1.0"
+django_settings_module = "sentry.conf.server"
 
 [[repo]]
 name = "simonwillison.net"
@@ -282,3 +289,11 @@ ref = "v7.2.2"
 name = "wagtail-7.3"
 url = "https://github.com/wagtail/wagtail.git"
 ref = "v7.3"
+
+[[fixture]]
+name = "gh401-multisite"
+path = "fixtures/django-projects/gh401-multisite"
+django_settings_modules = [
+  "site1.settings.dev",
+  "site2.settings.dev",
+]

@@ -4,7 +4,7 @@ Corpus of real-world Django projects for grounding tests in reality.
 
 This crate syncs pinned versions of Django, popular third-party libraries, and open-source Django projects as git archives, then provides helpers to enumerate and locate files within them.
 
-Static project model tests also use explicit profiles in `static-project-model-profiles.toml`. Profiles identify settings contexts, source roots, expected local/external apps, template directories, and template tag modules for representative corpus projects. The GH-401 multi-site monorepo shape lives under `fixtures/static-project-model/` because the public corpus does not currently contain that exact real-world layout.
+Django project fact tests use minimal `django_settings_module` / `django_settings_modules` selectors in `manifest.toml`. The manifest identifies which corpus entries or local fixtures should be analyzed; expected apps, template directories, template tag modules, confidence, and reasons stay in tests or snapshots so the manifest does not become hand-written project-model data. The GH-401 multi-site monorepo shape lives under `fixtures/django-projects/` because the public corpus does not currently contain that exact real-world layout.
 
 ## Commands
 
