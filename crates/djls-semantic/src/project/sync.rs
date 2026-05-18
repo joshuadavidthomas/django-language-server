@@ -3158,7 +3158,7 @@ TEMPLATES = []
             profile
                 .django_environments
                 .iter()
-                .flat_map(|environment| &environment.expected.external_apps)
+                .flat_map(|environment| &environment.expected.site_package_modules)
                 .cloned(),
         );
 

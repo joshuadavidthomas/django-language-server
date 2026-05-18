@@ -73,7 +73,7 @@ pub struct ExpectedFacts {
     #[serde(default)]
     pub local_apps: Vec<String>,
     #[serde(default)]
-    pub external_apps: Vec<String>,
+    pub site_package_modules: Vec<String>,
     #[serde(default)]
     pub unresolved_apps: Vec<String>,
     #[serde(default)]

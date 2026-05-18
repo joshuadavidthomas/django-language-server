@@ -35,7 +35,7 @@ local_apps = [
   "archivebox.crawls",
   "archivebox.api",
 ]
-external_apps = [
+site_package_modules = [
   "daphne",
   "django.contrib.admin",
   "django_extensions",
@@ -78,7 +78,7 @@ local_apps = [
   "hc.payments",
   "hc.integrations.slack",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.admin",
   "compressor",
 ]
@@ -126,7 +126,7 @@ local_apps = [
   "generic",
   "InvenTree",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.admin",
   "rest_framework",
   "allauth",
@@ -169,7 +169,7 @@ local_apps = [
   "users",
   "utilities",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.admin",
   "debug_toolbar",
   "django_filters",
@@ -218,7 +218,7 @@ local_apps = [
   "pretix.plugins.banktransfer",
   "pretix.plugins.stripe",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.admin",
   "rest_framework",
   "statici18n",
@@ -251,7 +251,7 @@ expected_partial_reasons = []
 
 [profile.django_environment.expected]
 local_apps = []
-external_apps = []
+site_package_modules = []
 template_dirs = ["src/sentry/templates"]
 templatetag_modules = [
   "sentry.templatetags.sentry_assets",
@@ -282,7 +282,7 @@ local_apps = [
   "allauth",
   "allauth.account",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.admin",
   "django.contrib.auth",
 ]
@@ -316,7 +316,7 @@ local_apps = [
   "clientname.app1",
   "clientname.app2",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.auth",
   "django.contrib.contenttypes",
 ]
@@ -340,7 +340,7 @@ local_apps = [
   "clientname.app2",
   "clientname.app3",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.auth",
   "django.contrib.contenttypes",
 ]
@@ -356,7 +356,7 @@ local_apps = [
   "clientname.app2",
   "clientname.app3",
 ]
-external_apps = [
+site_package_modules = [
   "django.contrib.auth",
   "django.contrib.contenttypes",
 ]
