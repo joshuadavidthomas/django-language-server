@@ -94,10 +94,20 @@ impl DjangoEnvironmentConfig {
     }
 }
 
+#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectModelMode {
+    #[default]
+    Auto,
+    Static,
+    Inspector,
+}
+
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
 pub struct Settings {
     #[serde(default)]
     debug: bool,
+    project_model: Option<ProjectModelMode>,
     venv_path: Option<String>,
     django_settings_module: Option<String>,
     #[serde(default)]
@@ -124,6 +134,7 @@ impl Settings {
 
         if let Some(overrides) = overrides {
             settings.debug = overrides.debug || settings.debug;
+            settings.project_model = overrides.project_model.or(settings.project_model);
             settings.venv_path = overrides.venv_path.or(settings.venv_path);
             settings.django_settings_module = overrides
                 .django_settings_module
@@ -259,6 +270,11 @@ impl Settings {
     }
 
     #[must_use]
+    pub fn project_model(&self) -> ProjectModelMode {
+        self.project_model.unwrap_or_default()
+    }
+
+    #[must_use]
     pub fn venv_path(&self) -> Option<&str> {
         self.venv_path.as_deref()
     }
@@ -323,6 +339,7 @@ mod tests {
                 settings,
                 Settings {
                     debug: false,
+                    project_model: None,
                     venv_path: None,
                     django_settings_module: None,
                     django_environments: vec![],
@@ -366,6 +383,45 @@ mod tests {
                     ..Default::default()
                 }
             );
+        }
+
+        #[test]
+        fn test_load_project_model_config() {
+            let dir = tempdir().unwrap();
+            fs::write(dir.path().join("djls.toml"), r#"project_model = "static""#).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+            assert_eq!(settings.project_model(), ProjectModelMode::Static);
+        }
+
+        #[test]
+        fn test_project_model_defaults_to_auto() {
+            let dir = tempdir().unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+            assert_eq!(settings.project_model(), ProjectModelMode::Auto);
+        }
+
+        #[test]
+        fn test_overrides_replace_project_model_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"project_model = "inspector""#,
+            )
+            .unwrap();
+
+            let override_settings = Settings {
+                project_model: Some(ProjectModelMode::Static),
+                ..Default::default()
+            };
+            let settings = Settings::new(
+                Utf8Path::from_path(dir.path()).unwrap(),
+                Some(override_settings),
+            )
+            .unwrap();
+
+            assert_eq!(settings.project_model(), ProjectModelMode::Static);
         }
 
         #[test]

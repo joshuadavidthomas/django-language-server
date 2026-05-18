@@ -72,6 +72,12 @@ impl DjangoDatabase {
             env_changed = true;
         }
 
+        let new_project_model = settings.project_model();
+        if project.project_model(self) != new_project_model {
+            project.set_project_model(self).to(new_project_model);
+            env_changed = true;
+        }
+
         let new_dsm = settings
             .django_settings_module()
             .map(String::from)
