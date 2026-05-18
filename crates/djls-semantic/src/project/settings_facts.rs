@@ -791,8 +791,13 @@ fn star_import_module(
 #[derive(Clone, Copy)]
 enum ListMutation<'a> {
     Append(&'a Expr),
+    Clear,
     Extend(&'a Expr),
     Insert { index: usize, value: &'a Expr },
+    Pop(Option<usize>),
+    Remove(&'a Expr),
+    Reverse,
+    Sort,
     Unsupported,
 }
 
@@ -952,9 +957,45 @@ fn call_list_mutation<'a>(expr: &'a Expr, target_name: &str) -> Option<ListMutat
             };
             Some(ListMutation::Insert { index, value })
         }
-        "clear" | "pop" | "remove" | "reverse" | "sort" | "update" => {
-            Some(ListMutation::Unsupported)
+        "clear" => {
+            if call.arguments.args.is_empty() {
+                Some(ListMutation::Clear)
+            } else {
+                Some(ListMutation::Unsupported)
+            }
         }
+        "pop" => match call.arguments.args.as_ref() {
+            [] => Some(ListMutation::Pop(None)),
+            [index] => {
+                if let Some(index) = integer_literal(index) {
+                    Some(ListMutation::Pop(Some(index)))
+                } else {
+                    Some(ListMutation::Unsupported)
+                }
+            }
+            _ => Some(ListMutation::Unsupported),
+        },
+        "remove" => {
+            let [value] = call.arguments.args.as_ref() else {
+                return Some(ListMutation::Unsupported);
+            };
+            Some(ListMutation::Remove(value))
+        }
+        "reverse" => {
+            if call.arguments.args.is_empty() {
+                Some(ListMutation::Reverse)
+            } else {
+                Some(ListMutation::Unsupported)
+            }
+        }
+        "sort" => {
+            if call.arguments.args.is_empty() {
+                Some(ListMutation::Sort)
+            } else {
+                Some(ListMutation::Unsupported)
+            }
+        }
+        "update" => Some(ListMutation::Unsupported),
         _ => None,
     }
 }
@@ -1027,6 +1068,7 @@ fn apply_installed_apps_mutation(
                 ),
             )
         }
+        ListMutation::Clear => clear_vec_fact(current),
         ListMutation::Extend(value) => extend_vec_fact(
             current,
             extract_string_list(
@@ -1061,12 +1103,65 @@ fn apply_installed_apps_mutation(
                 ),
             )
         }
+        ListMutation::Pop(index) => apply_installed_apps_pop(current, index, file),
+        ListMutation::Remove(value) => apply_installed_apps_remove(current, value, file),
+        ListMutation::Reverse => reverse_vec_fact(current),
+        ListMutation::Sort => sort_vec_fact(current),
         ListMutation::Unsupported => current.with_reason(reason(
             Field::SettingsInstalledApps,
             file,
             "unsupported dynamic mutation of INSTALLED_APPS",
         )),
     }
+}
+
+fn apply_installed_apps_pop(
+    current: Fact<Vec<String>>,
+    index: Option<usize>,
+    file: &Utf8Path,
+) -> Fact<Vec<String>> {
+    pop_vec_fact(
+        current,
+        index,
+        reason(
+            Field::SettingsInstalledApps,
+            file,
+            "cannot apply INSTALLED_APPS pop because the index is out of range",
+        ),
+        reason(
+            Field::SettingsInstalledApps,
+            file,
+            "cannot apply INSTALLED_APPS pop because the current value is unknown or ambiguous",
+        ),
+    )
+}
+
+fn apply_installed_apps_remove(
+    current: Fact<Vec<String>>,
+    value: &Expr,
+    file: &Utf8Path,
+) -> Fact<Vec<String>> {
+    let Some(app) = string_literal(value) else {
+        return current.with_reason(reason(
+            Field::SettingsInstalledApps,
+            file,
+            "INSTALLED_APPS remove value must be a string literal",
+        ));
+    };
+    remove_vec_item(
+        current,
+        &app,
+        reason(
+            Field::SettingsInstalledApps,
+            file,
+            "cannot apply INSTALLED_APPS remove because the value is not present",
+        ),
+        reason(
+            Field::SettingsInstalledApps,
+            file,
+            "cannot apply INSTALLED_APPS remove because the current value is unknown or ambiguous",
+        ),
+    )
 }
 
 fn extract_template_backends(
@@ -1150,11 +1245,28 @@ fn apply_template_backends_mutation(
                 "cannot apply TEMPLATES insert because the current value is unknown or ambiguous",
             ),
         ),
-        ListMutation::Unsupported => current.with_reason(reason(
-            Field::SettingsTemplates,
-            file,
-            "unsupported dynamic mutation of TEMPLATES",
-        )),
+        ListMutation::Clear => clear_vec_fact(current),
+        ListMutation::Pop(index) => pop_vec_fact(
+            current,
+            index,
+            reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES pop because the index is out of range",
+            ),
+            reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES pop because the current value is unknown or ambiguous",
+            ),
+        ),
+        ListMutation::Reverse => reverse_vec_fact(current),
+        ListMutation::Remove(_) | ListMutation::Sort | ListMutation::Unsupported => current
+            .with_reason(reason(
+                Field::SettingsTemplates,
+                file,
+                "unsupported dynamic mutation of TEMPLATES",
+            )),
     }
 }
 
@@ -1718,6 +1830,140 @@ fn insert_vec_fact<T>(
             reasons.push(unavailable_reason);
             Fact::ambiguous(candidates, reasons)
         }
+    }
+}
+
+fn clear_vec_fact<T>(fact: Fact<Vec<T>>) -> Fact<Vec<T>> {
+    match fact {
+        Fact::Known { value: _ } => Fact::known(Vec::new()),
+        Fact::Partial { value: _, reasons } => Fact::partial(Vec::new(), reasons),
+        Fact::Unknown { reasons } => Fact::unknown(reasons),
+        Fact::Ambiguous {
+            candidates,
+            reasons,
+        } => Fact::ambiguous(candidates, reasons),
+    }
+}
+
+fn pop_vec_fact<T>(
+    fact: Fact<Vec<T>>,
+    index: Option<usize>,
+    missing_reason: Reason,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
+    match fact {
+        Fact::Known { mut value } => {
+            let Some(index) = list_pop_index(value.len(), index) else {
+                return Fact::partial(value, vec![missing_reason]);
+            };
+            value.remove(index);
+            Fact::known(value)
+        }
+        Fact::Partial {
+            mut value,
+            mut reasons,
+        } => {
+            let Some(index) = list_pop_index(value.len(), index) else {
+                reasons.push(missing_reason);
+                return Fact::partial(value, reasons);
+            };
+            value.remove(index);
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { mut reasons } => {
+            reasons.push(unavailable_reason);
+            Fact::unknown(reasons)
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            reasons.push(unavailable_reason);
+            Fact::ambiguous(candidates, reasons)
+        }
+    }
+}
+
+fn list_pop_index(len: usize, index: Option<usize>) -> Option<usize> {
+    match index {
+        Some(index) if index < len => Some(index),
+        None if len > 0 => Some(len - 1),
+        Some(_) | None => None,
+    }
+}
+
+fn remove_vec_item<T: Eq>(
+    fact: Fact<Vec<T>>,
+    item: &T,
+    missing_reason: Reason,
+    unavailable_reason: Reason,
+) -> Fact<Vec<T>> {
+    match fact {
+        Fact::Known { mut value } => {
+            let Some(index) = value.iter().position(|candidate| candidate == item) else {
+                return Fact::partial(value, vec![missing_reason]);
+            };
+            value.remove(index);
+            Fact::known(value)
+        }
+        Fact::Partial {
+            mut value,
+            mut reasons,
+        } => {
+            let Some(index) = value.iter().position(|candidate| candidate == item) else {
+                reasons.push(missing_reason);
+                return Fact::partial(value, reasons);
+            };
+            value.remove(index);
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { mut reasons } => {
+            reasons.push(unavailable_reason);
+            Fact::unknown(reasons)
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            reasons.push(unavailable_reason);
+            Fact::ambiguous(candidates, reasons)
+        }
+    }
+}
+
+fn reverse_vec_fact<T>(fact: Fact<Vec<T>>) -> Fact<Vec<T>> {
+    match fact {
+        Fact::Known { mut value } => {
+            value.reverse();
+            Fact::known(value)
+        }
+        Fact::Partial { mut value, reasons } => {
+            value.reverse();
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { reasons } => Fact::unknown(reasons),
+        Fact::Ambiguous {
+            candidates,
+            reasons,
+        } => Fact::ambiguous(candidates, reasons),
+    }
+}
+
+fn sort_vec_fact<T: Ord>(fact: Fact<Vec<T>>) -> Fact<Vec<T>> {
+    match fact {
+        Fact::Known { mut value } => {
+            value.sort();
+            Fact::known(value)
+        }
+        Fact::Partial { mut value, reasons } => {
+            value.sort();
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { reasons } => Fact::unknown(reasons),
+        Fact::Ambiguous {
+            candidates,
+            reasons,
+        } => Fact::ambiguous(candidates, reasons),
     }
 }
 
@@ -2377,7 +2623,7 @@ INSTALLED_APPS = ["django.contrib.auth", "django.contrib.sites"]
 if not SITE_MULTI:
     INSTALLED_APPS.remove("django.contrib.sites")
 TEMPLATES = [{"DIRS": []}]
-TEMPLATES.pop()
+TEMPLATES.sort()
 "#,
         );
 
@@ -2394,6 +2640,122 @@ TEMPLATES.pop()
         assert!(template_reasons
             .iter()
             .any(|reason| reason.message.contains("unsupported dynamic mutation")));
+    }
+
+    #[test]
+    fn applies_deterministic_installed_apps_list_methods() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = ["project.b", "project.a", "project.c"]
+INSTALLED_APPS.remove("project.b")
+INSTALLED_APPS.pop(1)
+INSTALLED_APPS.extend(["project.d", "project.b"])
+INSTALLED_APPS.sort()
+INSTALLED_APPS.reverse()
+INSTALLED_APPS.pop()
+TEMPLATES = []
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        assert_eq!(known_vec(&facts.installed_apps), ["project.d", "project.b"]);
+    }
+
+    #[test]
+    fn applies_deterministic_installed_apps_clear() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = ["project.a", "project.b"]
+INSTALLED_APPS.clear()
+TEMPLATES = []
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        assert!(known_vec(&facts.installed_apps).is_empty());
+    }
+
+    #[test]
+    fn marks_out_of_range_installed_apps_pop_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = ["project.a"]
+INSTALLED_APPS.pop(3)
+TEMPLATES = []
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let (apps, reasons) = partial_vec(&facts.installed_apps);
+
+        assert_eq!(apps, ["project.a"]);
+        assert!(reasons[0].message.contains("index is out of range"));
+    }
+
+    #[test]
+    fn applies_deterministic_template_backend_list_methods() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [
+    {"DIRS": ["first"]},
+    {"DIRS": ["second"]},
+    {"DIRS": ["third"]},
+]
+TEMPLATES.pop(1)
+TEMPLATES.reverse()
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            Utf8PathBuf::from("third")
+        );
+        assert_eq!(
+            known_vec(&backends[1].dirs)[0].path,
+            Utf8PathBuf::from("first")
+        );
+    }
+
+    #[test]
+    fn applies_deterministic_template_backend_clear() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": ["first"]}]
+TEMPLATES.clear()
+TEMPLATES.append({"DIRS": ["second"]})
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(backends.len(), 1);
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            Utf8PathBuf::from("second")
+        );
     }
 
     #[test]
