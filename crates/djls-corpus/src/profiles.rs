@@ -210,7 +210,20 @@ impl DjangoEnvironmentProfile {
             profile_id,
             &format!("Django environment `{}` expected facts", self.root),
         )?;
+        if self.has_partial_confidence() {
+            anyhow::ensure!(
+                !self.expected_partial_reasons.is_empty(),
+                "profile `{profile_id}` Django environment `{}` has partial confidence but no expected partial reasons",
+                self.root
+            );
+        }
         Ok(())
+    }
+
+    fn has_partial_confidence(&self) -> bool {
+        self.installed_apps_confidence == Confidence::Partial
+            || self.templates_confidence == Confidence::Partial
+            || self.template_libraries_confidence == Some(Confidence::Partial)
     }
 }
 
@@ -290,6 +303,38 @@ mod tests {
             gh401.expected_union.local_apps,
             vec!["clientname.app1", "clientname.app2", "clientname.app3"]
         );
+    }
+
+    #[test]
+    fn partial_environment_requires_expected_partial_reasons() {
+        let profiles: ProfileSet = toml::from_str(
+            r#"
+[[profile]]
+id = "partial-without-reasons"
+description = "Partial confidence must explain why."
+source_roots = ["."]
+
+[profile.source]
+kind = "fixture"
+path = "gh401-multisite"
+
+[[profile.django_environment]]
+root = "."
+settings_file = "projects/site1/settings/dev.py"
+settings_module = "projects.site1.settings.dev"
+extends_files = []
+installed_apps_confidence = "partial"
+templates_confidence = "known"
+expected_partial_reasons = []
+"#,
+        )
+        .unwrap();
+
+        let error = profiles.validate().unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("has partial confidence but no expected partial reasons"));
     }
 
     #[test]
