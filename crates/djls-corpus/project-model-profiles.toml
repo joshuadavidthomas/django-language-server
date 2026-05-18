@@ -23,7 +23,6 @@ extends_files = []
 installed_apps_confidence = "partial"
 templates_confidence = "partial"
 expected_partial_reasons = [
-  "dynamic if condition controls settings mutation",
   "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
@@ -129,8 +128,6 @@ extends_files = []
 installed_apps_confidence = "partial"
 templates_confidence = "partial"
 expected_partial_reasons = [
-  "dynamic if condition controls settings mutation",
-  "dynamic for loop controls settings mutation",
   "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
@@ -197,10 +194,7 @@ settings_module = "netbox.settings"
 extends_files = []
 installed_apps_confidence = "partial"
 templates_confidence = "partial"
-expected_partial_reasons = [
-  "dynamic if condition controls settings mutation",
-  "dynamic for loop controls settings mutation",
-]
+expected_partial_reasons = []
 
 [profile.django_environment.expected]
 installed_apps = [
@@ -263,11 +257,7 @@ settings_module = "pretix.settings"
 extends_files = ["src/pretix/_base_settings.py"]
 installed_apps_confidence = "partial"
 templates_confidence = "known"
-expected_partial_reasons = [
-  "star import from ._base_settings",
-  "INSTALLED_APPS += ...",
-  "TEMPLATES.insert",
-]
+expected_partial_reasons = []
 
 [profile.django_environment.expected]
 installed_apps = [
@@ -322,9 +312,7 @@ settings_module = "sentry.conf.server"
 extends_files = []
 installed_apps_confidence = "partial"
 templates_confidence = "partial"
-expected_partial_reasons = [
-  "installed apps are assembled dynamically",
-]
+expected_partial_reasons = []
 
 [profile.django_environment.expected]
 installed_apps = []

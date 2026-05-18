@@ -2960,6 +2960,7 @@ TEMPLATES = []
             environment.settings_module,
             snapshot.reasons()
         );
+        assert_expected_profile_partial_reasons(profile_id, environment, &dirs, &snapshot);
 
         let Some(snapshot) = snapshot.value() else {
             assert!(
@@ -2985,6 +2986,30 @@ TEMPLATES = []
             "expected source-root-aware module names for profile `{profile_id}` environment `{}`, got {library_modules:?}",
             environment.settings_module,
         );
+    }
+
+    fn assert_expected_profile_partial_reasons(
+        profile_id: &str,
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+        dirs: &Fact<Vec<Utf8PathBuf>>,
+        snapshot: &Fact<TemplateLibrarySnapshot>,
+    ) {
+        let reason_messages = dirs
+            .reasons()
+            .iter()
+            .chain(snapshot.reasons())
+            .map(|reason| reason.message.as_str())
+            .collect::<Vec<_>>();
+
+        for expected_reason in &environment.expected_partial_reasons {
+            assert!(
+                reason_messages
+                    .iter()
+                    .any(|message| message.contains(expected_reason)),
+                "profile `{profile_id}` environment `{}` expected partial reason `{expected_reason}` in {reason_messages:?}",
+                environment.settings_module,
+            );
+        }
     }
 
     fn expected_profile_template_dirs(
