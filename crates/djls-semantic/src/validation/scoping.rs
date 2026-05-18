@@ -28,7 +28,7 @@ pub(crate) fn check_tag_scoping_rule(
     env_tags: Option<&HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
-    if active_knowledge != Knowledge::Known {
+    if !active_knowledge.has_positive_facts() {
         return;
     }
 
@@ -37,6 +37,9 @@ pub(crate) fn check_tag_scoping_rule(
     match symbols.check(name) {
         TagAvailability::Available => {}
         TagAvailability::Unknown => {
+            if !active_knowledge.is_fully_known() {
+                return;
+            }
             if let Some(env_tags) = env_tags {
                 if let Ok(key) = TemplateSymbolName::parse(name) {
                     if let Some(env_symbols) = env_tags.get(&key) {
@@ -86,13 +89,16 @@ pub(crate) fn check_filter_scoping_rule(
     env_filters: Option<&HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
-    if active_knowledge != Knowledge::Known {
+    if !active_knowledge.has_positive_facts() {
         return;
     }
 
     match symbols.check_filter(&filter.name) {
         FilterAvailability::Available => {}
         FilterAvailability::Unknown => {
+            if !active_knowledge.is_fully_known() {
+                return;
+            }
             if let Some(env_filters) = env_filters {
                 if let Ok(key) = TemplateSymbolName::parse(filter.name.as_str()) {
                     if let Some(env_symbols) = env_filters.get(&key) {
@@ -141,7 +147,7 @@ pub(crate) fn check_load_libraries_rule(
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
 ) {
-    if template_libraries.active_knowledge != Knowledge::Known {
+    if !template_libraries.active_knowledge.has_positive_facts() {
         return;
     }
 
@@ -156,11 +162,15 @@ pub(crate) fn check_load_libraries_rule(
 
     for lib in libs {
         if let Ok(name) = LibraryName::parse(lib.as_str()) {
-            if template_libraries.loadable.contains_key(&name) {
+            if template_libraries.is_enabled_library(&name) {
                 continue;
             }
         } else {
             // Invalid library name string (shouldn't happen given LoadKind parser, but safety first)
+            continue;
+        }
+
+        if !template_libraries.active_knowledge.is_fully_known() {
             continue;
         }
 
