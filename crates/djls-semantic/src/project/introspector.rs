@@ -4,6 +4,10 @@ use std::io::Write;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -38,6 +42,8 @@ pub(crate) struct IntrospectionResponse<T = serde_json::Value> {
 #[derive(Clone, Debug)]
 pub struct ProjectIntrospector {
     inspector: Inspector,
+    #[cfg(test)]
+    query_count: Arc<AtomicUsize>,
 }
 
 impl ProjectIntrospector {
@@ -45,7 +51,14 @@ impl ProjectIntrospector {
     pub fn new() -> Self {
         Self {
             inspector: Inspector::new(),
+            #[cfg(test)]
+            query_count: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn query_count(&self) -> usize {
+        self.query_count.load(Ordering::SeqCst)
     }
 
     pub(crate) fn query<Q: IntrospectionRequest>(
@@ -53,6 +66,9 @@ impl ProjectIntrospector {
         db: &dyn ProjectDb,
         request: &Q,
     ) -> Option<Q::Response> {
+        #[cfg(test)]
+        self.query_count.fetch_add(1, Ordering::SeqCst);
+
         let project = db.project()?;
         let interpreter = project.interpreter(db);
         let project_path = project.root(db);

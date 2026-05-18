@@ -2,6 +2,7 @@ use std::fmt;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::ProjectModelMode;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::File;
@@ -233,6 +234,8 @@ pub struct Project {
     /// Interpreter specification for Python environment discovery
     #[returns(ref)]
     pub interpreter: Interpreter,
+    /// Static project model rollout mode.
+    pub project_model: ProjectModelMode,
     /// Django settings module (e.g., "myproject.settings")
     #[returns(ref)]
     pub django_settings_module: Option<String>,
@@ -300,6 +303,7 @@ impl Project {
         Project::builder(
             root.to_path_buf(),
             interpreter,
+            settings.project_model(),
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
             env_vars,
