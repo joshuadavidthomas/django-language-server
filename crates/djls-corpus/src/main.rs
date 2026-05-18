@@ -80,7 +80,7 @@ fn main() -> anyhow::Result<()> {
                 )
             })?;
             let manifest = Manifest::load(&manifest_path)?;
-            let corpus_root = manifest.corpus_root(manifest_dir)?;
+            let corpus_root = manifest.corpus_root(manifest_dir);
 
             tracing::info!(%corpus_root, "syncing corpus");
             djls_corpus::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Clean { names } => {
             let manifest = Manifest::load(&manifest_path)?;
-            let corpus_root = manifest.corpus_root(manifest_dir)?;
+            let corpus_root = manifest.corpus_root(manifest_dir);
 
             if !corpus_root.as_std_path().exists() {
                 tracing::info!("no corpus to clean");

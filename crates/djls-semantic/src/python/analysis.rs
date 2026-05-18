@@ -183,7 +183,8 @@ fn supports_manual_as_var_strip(stmts: &[Stmt]) -> bool {
         let Some(name) = body_strips_trailing_as_var(&stmt_if.body) else {
             return false;
         };
-        condition_checks_trailing_as_var(stmt_if.test.as_ref(), &name)
+
+        condition_checks_manual_as_var(stmt_if.test.as_ref(), &name)
     })
 }
 
@@ -192,12 +193,13 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
             return None;
         };
-        if targets.len() != 1 {
-            return None;
-        }
-        let Expr::Name(ExprName { id: target, .. }) = &targets[0] else {
+        let [target] = targets.as_slice() else {
             return None;
         };
+        let Expr::Name(ExprName { id: target, .. }) = target else {
+            return None;
+        };
+
         let Expr::Subscript(ExprSubscript { value, slice, .. }) = value.as_ref() else {
             return None;
         };
@@ -207,6 +209,7 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         if target.as_str() != source.as_str() {
             return None;
         }
+
         let Expr::Slice(ExprSlice {
             lower: None,
             upper: Some(upper),
@@ -220,7 +223,7 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
     })
 }
 
-fn condition_checks_trailing_as_var(expr: &Expr, name: &str) -> bool {
+fn condition_checks_manual_as_var(expr: &Expr, name: &str) -> bool {
     match expr {
         Expr::BoolOp(ExprBoolOp {
             op: BoolOp::And,
@@ -228,20 +231,24 @@ fn condition_checks_trailing_as_var(expr: &Expr, name: &str) -> bool {
             ..
         }) => values
             .iter()
-            .any(|value| condition_checks_trailing_as_var(value, name)),
-        Expr::Compare(compare) => compare_checks_trailing_as_var(compare, name),
+            .any(|value| condition_checks_manual_as_var(value, name)),
+        Expr::Compare(compare) => comparison_is_as_keyword_check(compare, name),
         _ => false,
     }
 }
 
-fn compare_checks_trailing_as_var(compare: &ExprCompare, name: &str) -> bool {
-    compare.ops.len() == 1
-        && compare.comparators.len() == 1
-        && matches!(compare.ops[0], CmpOp::Eq)
-        && ((subscript_is_negative_index(compare.left.as_ref(), name, 2)
-            && compare.comparators[0].string_literal().as_deref() == Some("as"))
-            || (compare.left.string_literal().as_deref() == Some("as")
-                && subscript_is_negative_index(&compare.comparators[0], name, 2)))
+fn comparison_is_as_keyword_check(compare: &ExprCompare, name: &str) -> bool {
+    let [CmpOp::Eq] = &*compare.ops else {
+        return false;
+    };
+    let [right] = &*compare.comparators else {
+        return false;
+    };
+    let left = compare.left.as_ref();
+
+    (subscript_is_negative_index(left, name, 2) && right.string_literal().as_deref() == Some("as"))
+        || (left.string_literal().as_deref() == Some("as")
+            && subscript_is_negative_index(right, name, 2))
 }
 
 fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {

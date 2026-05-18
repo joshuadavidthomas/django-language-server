@@ -4,23 +4,12 @@ use std::io::Read;
 
 use camino::Utf8Path;
 
-/// Whether a tarball path should be excluded from the local corpus checkout.
-///
-/// The corpus stores full repository source so higher-level tests can discover
-/// real project structure: settings modules, `AppConfig` classes, package roots,
-/// templates, templatetags, and project metadata. Discovery methods in
-/// [`super::Corpus`] apply stricter filtering for specific test suites.
-fn is_download_excluded(path: &str) -> bool {
-    path.contains("__pycache__")
-}
-
 /// Extract a full repository snapshot from a gzipped tarball.
 ///
-/// Strips the top-level directory from each entry, filters through
-/// [`is_download_excluded`], and rejects paths with `..` components to prevent
-/// directory traversal. Only regular files are extracted; directories are
-/// created implicitly via parent directory creation, and symlinks/hard links are
-/// silently skipped.
+/// Strips the top-level directory from each entry and rejects paths with `..`
+/// components to prevent directory traversal. Only regular files are extracted;
+/// directories are created implicitly via parent directory creation, and
+/// symlinks/hard links are silently skipped.
 pub(crate) fn extract_tarball<R: Read>(
     reader: R,
     out_dir: &Utf8Path,
@@ -67,10 +56,6 @@ pub(crate) fn extract_tarball<R: Read>(
             )
         }) {
             anyhow::bail!("Invalid tarball entry path (absolute or traversal): {entry_path}");
-        }
-
-        if is_download_excluded(relative) {
-            continue;
         }
 
         let dest = out_dir.join(relative);
