@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
+- Added `project_model` configuration for choosing static-first, static-only, or inspector-first discovery of template directories, template libraries, and symbols.
 
 ## [6.0.3]
 

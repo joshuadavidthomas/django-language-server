@@ -50,18 +50,72 @@ If you prefer not to use an env file:
 
 ## Options
 
+### `project_model`
+
+**Default:** `"auto"`
+
+Selects how djls builds Django project facts for template directories, active template tag libraries, builtins, and symbols.
+
+Supported values:
+
+- `"auto"` — Build the static project model first. When static facts are known, djls uses them without starting the Python inspector. When static facts are partial or unknown, djls can fall back to the inspector during the transition period.
+- `"static"` — Use only the static project model. This avoids the Python inspector, `django.setup()`, and runtime imports. If settings are too dynamic to understand statically, djls degrades conservatively and suppresses diagnostics that would risk false positives.
+- `"inspector"` — Use the legacy Python/Django inspector path first. This keeps the runtime behavior used by older releases while the static model rollout continues.
+
+```toml
+[tool.djls]
+project_model = "auto"
+```
+
+Use `"static"` when you want editor behavior that does not run Django. Use `"inspector"` if a dynamic project still needs the runtime fallback while static support catches up.
+
 ### `django_settings_module`
 
 **Default:** `DJANGO_SETTINGS_MODULE` environment variable
 
 Your Django settings module path (e.g., `"myproject.settings"`).
 
-The server uses this to introspect your Django project and provide template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
+The server uses this to build Django project facts for template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
 **When to configure:**
 
 - Your editor doesn't pass environment variables to LSP servers (e.g., Sublime Text)
 - You need to override the environment variable for a specific workspace
+
+### `django_environments`
+
+**Default:** `[]` (empty list)
+
+Path-scoped Django settings modules for monorepos or workspaces with more than one Django project.
+
+```toml
+[tool.djls]
+pythonpath = ["projects", "apps"]
+
+[[tool.djls.django_environments]]
+root = "projects/site1"
+django_settings_module = "site1.settings.dev"
+
+[[tool.djls.django_environments]]
+root = "projects/site2"
+django_settings_module = "site2.settings.dev"
+```
+
+Use this when one workspace contains multiple Django settings modules and each applies to a different subtree. Static project model facts stay tied to their environment. Completions can use the union of known facts, while diagnostics only use facts that are safe for the template's environment and suppress unsafe absence claims.
+
+### `django_settings_file_patterns`
+
+**Default:** `[]` (empty list)
+
+Glob patterns for discovering Django settings files and mapping them back to module names through the configured module search paths.
+
+```toml
+[tool.djls]
+pythonpath = ["projects", "apps"]
+django_settings_file_patterns = ["projects/*/settings/dev.py"]
+```
+
+Use this for repetitive monorepo layouts where each project follows the same split-settings pattern. Do not configure this together with `django_environments`; explicit environments are clearer when roots do not follow a pattern.
 
 ### `venv_path`
 
@@ -80,7 +134,7 @@ The server needs access to your virtual environment to discover installed Django
 
 **Default:** `[]` (empty list)
 
-Additional directories to add to Python's import search path when the inspector process runs. These paths are added to `PYTHONPATH` alongside the project root and any existing `PYTHONPATH` environment variable.
+Additional directories to add to Python's import search path. Static project model discovery uses these paths as module search roots. The inspector also adds them to `PYTHONPATH` alongside the project root and any existing `PYTHONPATH` environment variable.
 
 **When to configure:**
 
@@ -103,6 +157,9 @@ If no `env_file` is configured, the server looks for a `.env` file in the projec
 
 - Your `.env` file has a non-standard name (e.g., `.env.local`, `.env.development`)
 - Your `.env` file lives in a subdirectory
+
+!!! note
+    `env_file` is only needed by runtime Django settings. In `project_model = "static"`, djls does not execute your settings module, but static extraction may still need `django_settings_module` and `pythonpath` to find the right files.
 
 ### `tagspecs`
 
@@ -171,13 +228,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
     S108 = "warning" # New
     ```
 
-*Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+*Tag Scoping (requires [project model facts](../template-validation.md#project-model-availability)):*
 
 - `S108` - Unknown tag (not found in any known library or in the Python environment)
 - `S109` - Unloaded tag (requires `{% load %}` for a specific library)
 - `S110` - Ambiguous unloaded tag (defined in multiple libraries)
 
-*Filter Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+*Filter Scoping (requires [project model facts](../template-validation.md#project-model-availability)):*
 
 - `S111` - Unknown filter (not found in any known library or in the Python environment)
 - `S112` - Unloaded filter (requires `{% load %}` for a specific library)
@@ -193,11 +250,11 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 - `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
 
-*Environment-Aware Resolution (requires [inspector](../template-validation.md#inspector-availability) and [environment scanner](../template-validation.md#environment-scanner)):*
+*Environment-Aware Resolution (requires [project model facts](../template-validation.md#project-model-availability) and [environment scanner](../template-validation.md#environment-scanner)):*
 
 - `S118` - Tag not in `INSTALLED_APPS` (installed package, but Django app not activated)
 - `S119` - Filter not in `INSTALLED_APPS` (installed package, but Django app not activated)
-- `S120` - Unknown template tag library (not found in inspector or environment)
+- `S120` - Unknown template tag library (not found in the project model or Python environment)
 - `S121` - Library not in `INSTALLED_APPS` (installed package, but Django app not activated)
 
 *Extends Validation:*
@@ -295,6 +352,7 @@ Pass configuration through your editor's LSP client using `initializationOptions
 
 ```json
 {
+  "project_model": "auto",
   "django_settings_module": "myproject.settings",
   "venv_path": "/path/to/venv",
   "pythonpath": ["/path/to/shared/libs"],
@@ -320,6 +378,7 @@ If you use `pyproject.toml`, add a `[tool.djls]` section:
 
 ```toml
 [tool.djls]
+project_model = "auto"
 django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
