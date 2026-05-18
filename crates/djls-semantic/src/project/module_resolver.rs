@@ -24,7 +24,6 @@ use crate::project::names::PyModuleName;
 
 struct ModuleCandidate {
     module: ResolvedModule,
-    reasons: Vec<Reason>,
 }
 
 #[must_use]
@@ -130,14 +129,7 @@ pub(crate) fn resolve_module(
                 requested.as_str()
             ),
         )]),
-        1 => {
-            let candidate = candidates.pop().unwrap();
-            if candidate.reasons.is_empty() {
-                Fact::known(candidate.module)
-            } else {
-                Fact::partial(candidate.module, candidate.reasons)
-            }
-        }
+        1 => Fact::known(candidates.pop().unwrap().module),
         _ => Fact::ambiguous(
             candidates
                 .into_iter()
@@ -186,14 +178,8 @@ pub(crate) fn module_name_for_file(
             "module file is outside configured module search paths",
         )]),
         1 => {
-            let (module, search_path) = candidates.into_iter().next().unwrap();
-            let parts = module.as_str().split('.').collect::<Vec<_>>();
-            let reasons = namespace_package_reasons(&parts, &search_path);
-            if reasons.is_empty() {
-                Fact::known(module)
-            } else {
-                Fact::partial(module, reasons)
-            }
+            let (module, _) = candidates.into_iter().next().unwrap();
+            Fact::known(module)
         }
         _ => Fact::ambiguous(
             candidates.into_iter().map(|(module, _)| module).collect(),
@@ -399,7 +385,6 @@ fn module_candidate(
         return None;
     };
 
-    let reasons = namespace_package_reasons(&parts, &search_path.path);
     Some(ModuleCandidate {
         module: ResolvedModule {
             module: requested.clone(),
@@ -411,7 +396,6 @@ fn module_candidate(
                 ModuleLocation::External
             },
         },
-        reasons,
     })
 }
 
@@ -550,6 +534,24 @@ mod tests {
     }
 
     #[test]
+    fn resolves_namespace_package_module_name_for_file_as_known() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&project_root.join("src/acme/plugins/blog/apps.py"), "");
+
+        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
+        let fact = module_name_for_file(
+            &project_root.join("src/acme/plugins/blog/apps.py"),
+            search_path_entries(&search_paths),
+        );
+
+        let Fact::Known { value } = fact else {
+            panic!("expected known module for namespace package file, got {fact:?}");
+        };
+        assert_eq!(value, module("acme.plugins.blog.apps"));
+    }
+
+    #[test]
     fn uses_explicit_nested_source_roots() {
         let tmp = tempfile::TempDir::new().unwrap();
         let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
@@ -612,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn namespace_package_resolution_is_partial() {
+    fn namespace_package_resolution_is_known_when_unique() {
         let tmp = tempfile::TempDir::new().unwrap();
         let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&project_root.join("src/acme/plugins/blog/apps.py"), "");
@@ -625,16 +627,13 @@ mod tests {
         );
 
         match resolution.resolved {
-            Fact::Partial { value, reasons } => {
+            Fact::Known { value } => {
                 assert_eq!(
                     value.file,
                     project_root.join("src/acme/plugins/blog/apps.py")
                 );
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.field == Field::ResolverModule));
             }
-            other => panic!("expected partial namespace package module, got {other:?}"),
+            other => panic!("expected known namespace package module, got {other:?}"),
         }
     }
 
