@@ -259,7 +259,7 @@ settings_file = "src/pretix/settings.py"
 settings_module = "pretix.settings"
 extends_files = ["src/pretix/_base_settings.py"]
 installed_apps_confidence = "partial"
-templates_confidence = "partial"
+templates_confidence = "known"
 expected_partial_reasons = [
   "star import from ._base_settings",
   "INSTALLED_APPS += ...",
