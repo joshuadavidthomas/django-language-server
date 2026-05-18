@@ -20,8 +20,9 @@ root = "."
 settings_file = "archivebox/core/settings.py"
 settings_module = "archivebox.core.settings"
 extends_files = []
-installed_apps_confidence = "partial"
+installed_apps_confidence = "known"
 templates_confidence = "partial"
+template_libraries_confidence = "known"
 expected_partial_reasons = [
   "TEMPLATES DIRS contains an unsupported path expression",
 ]
@@ -36,9 +37,12 @@ local_apps = [
   "archivebox.api",
 ]
 site_package_modules = [
+  "admin_data_views",
   "daphne",
   "django.contrib.admin",
   "django_extensions",
+  "django_object_actions",
+  "signal_webhooks",
 ]
 template_dirs = [
   "archivebox/templates/core",

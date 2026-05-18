@@ -3118,6 +3118,10 @@ TEMPLATES = []
     fn expected_profile_snapshot_confidence(
         environment: &djls_corpus::DjangoEnvironmentProfile,
     ) -> Confidence {
+        if let Some(confidence) = environment.template_libraries_confidence {
+            return expected_profile_confidence(confidence);
+        }
+
         if environment.installed_apps_confidence == djls_corpus::Confidence::Unknown
             || environment.templates_confidence == djls_corpus::Confidence::Unknown
         {

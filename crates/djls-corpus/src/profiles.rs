@@ -55,6 +55,8 @@ pub struct DjangoEnvironmentProfile {
     pub installed_apps_confidence: Confidence,
     pub templates_confidence: Confidence,
     #[serde(default)]
+    pub template_libraries_confidence: Option<Confidence>,
+    #[serde(default)]
     pub expected: ExpectedFacts,
     #[serde(default)]
     pub expected_partial_reasons: Vec<String>,
