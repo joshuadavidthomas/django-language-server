@@ -339,6 +339,7 @@ fn app_config_installed_app(
     let label = app_config_label(assignments.label, &name, config_file);
     let config = AppConfigFact {
         module: config_module,
+        file: config_file.to_path_buf(),
         class_name: class.name.to_string(),
         name,
         label,
