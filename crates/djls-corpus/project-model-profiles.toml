@@ -21,8 +21,11 @@ settings_file = "archivebox/core/settings.py"
 settings_module = "archivebox.core.settings"
 extends_files = []
 installed_apps_confidence = "partial"
-templates_confidence = "known"
-expected_partial_reasons = ["dynamic if condition controls settings mutation"]
+templates_confidence = "partial"
+expected_partial_reasons = [
+  "dynamic if condition controls settings mutation",
+  "TEMPLATES DIRS must be a literal list or tuple",
+]
 
 [profile.django_environment.expected]
 installed_apps = [
@@ -49,7 +52,7 @@ external_apps = [
   "django.contrib.admin",
   "django_extensions",
 ]
-template_dirs = ["archivebox/templates"]
+template_dirs = []
 templatetag_modules = [
   "archivebox.core.templatetags.config_tags",
   "archivebox.core.templatetags.core_tags",
@@ -120,10 +123,11 @@ settings_file = "src/backend/InvenTree/InvenTree/settings.py"
 settings_module = "InvenTree.settings"
 extends_files = []
 installed_apps_confidence = "partial"
-templates_confidence = "known"
+templates_confidence = "partial"
 expected_partial_reasons = [
   "dynamic if condition controls settings mutation",
   "dynamic for loop controls settings mutation",
+  "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
 [profile.django_environment.expected]
@@ -164,7 +168,7 @@ external_apps = [
   "rest_framework",
   "allauth",
 ]
-template_dirs = ["src/backend/InvenTree/templates"]
+template_dirs = []
 templatetag_modules = [
   "generic.templatetags.generic",
   "plugin.templatetags.plugin_extras",
@@ -188,10 +192,11 @@ settings_file = "netbox/netbox/settings.py"
 settings_module = "netbox.settings"
 extends_files = []
 installed_apps_confidence = "partial"
-templates_confidence = "known"
+templates_confidence = "partial"
 expected_partial_reasons = [
   "dynamic if condition controls settings mutation",
   "dynamic for loop controls settings mutation",
+  "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
 [profile.django_environment.expected]
@@ -230,7 +235,7 @@ unresolved_apps = [
   "django_prometheus",
   "strawberry_django",
 ]
-template_dirs = ["netbox/templates"]
+template_dirs = []
 templatetag_modules = [
   "extras.templatetags.dashboard",
   "extras.templatetags.log_levels",
@@ -290,10 +295,7 @@ external_apps = [
   "rest_framework",
   "statici18n",
 ]
-template_dirs = [
-  "src/pretix/base/templates",
-  "src/pretix/control/templates",
-]
+template_dirs = []
 templatetag_modules = [
   "pretix.base.templatetags.rich_text",
   "pretix.control.templatetags.order_overview",
@@ -302,7 +304,7 @@ templatetag_modules = [
 
 [[profile]]
 id = "sentry"
-description = "Large src-layout project where templates are statically visible but installed apps remain dynamic/unknown."
+description = "Large src-layout project where static assembly recovers partial app/template facts from dynamic settings."
 source_roots = ["src", "."]
 django_settings_file_patterns = []
 
@@ -315,15 +317,18 @@ root = "."
 settings_file = "src/sentry/conf/server.py"
 settings_module = "sentry.conf.server"
 extends_files = []
-installed_apps_confidence = "unknown"
-templates_confidence = "known"
-expected_partial_reasons = ["installed apps are assembled dynamically"]
+installed_apps_confidence = "partial"
+templates_confidence = "partial"
+expected_partial_reasons = [
+  "installed apps are assembled dynamically",
+  "TEMPLATES DIRS contains an unsupported path expression",
+]
 
 [profile.django_environment.expected]
 installed_apps = []
 local_apps = []
 external_apps = []
-template_dirs = ["src/sentry/templates"]
+template_dirs = []
 templatetag_modules = [
   "sentry.templatetags.sentry_assets",
   "sentry.templatetags.sentry_helpers",
@@ -344,9 +349,11 @@ root = "tests/projects/account_only"
 settings_file = "tests/projects/account_only/settings.py"
 settings_module = "tests.projects.account_only.settings"
 extends_files = []
-installed_apps_confidence = "known"
-templates_confidence = "known"
-expected_partial_reasons = []
+installed_apps_confidence = "partial"
+templates_confidence = "partial"
+expected_partial_reasons = [
+  "module resolves through a namespace package segment without __init__.py",
+]
 
 [profile.django_environment.expected]
 installed_apps = [

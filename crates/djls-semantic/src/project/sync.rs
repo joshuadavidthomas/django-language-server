@@ -2772,7 +2772,7 @@ TEMPLATES = []
         let site_packages = Utf8PathBuf::try_from(tmp.path().join("site-packages")).unwrap();
         write_minimal_django_site_packages(
             &site_packages,
-            &[
+            [
                 "django.contrib.auth",
                 "django.contrib.contenttypes",
                 "django.templatetags.cache",
@@ -2800,6 +2800,43 @@ TEMPLATES = []
                 environment,
                 &all_expected_templatetag_modules,
             );
+        }
+    }
+
+    #[test]
+    fn synced_corpus_profiles_static_assembly_matches_expected_facts() {
+        if !djls_corpus::Corpus::is_available() {
+            return;
+        }
+
+        let corpus = djls_corpus::Corpus::require();
+        let profiles = djls_corpus::project_model_profiles().unwrap();
+        let tmp = TempDir::new().unwrap();
+
+        for profile in profiles
+            .profiles
+            .iter()
+            .filter(|profile| profile.source.kind == djls_corpus::SourceKind::Corpus)
+        {
+            let root = profile.root_path(Some(&corpus)).unwrap();
+            let pythonpath = profile.source_roots.clone();
+            let site_packages =
+                Utf8PathBuf::try_from(tmp.path().join(&profile.id).join("site-packages")).unwrap();
+            let site_package_modules = minimal_profile_site_package_modules(profile);
+            write_minimal_django_site_packages(
+                &site_packages,
+                site_package_modules.iter().map(String::as_str),
+            );
+
+            for environment in &profile.django_environments {
+                assert_profile_environment_static_assembly_contains_expected_facts(
+                    profile.id.as_str(),
+                    &root,
+                    &pythonpath,
+                    &site_packages,
+                    environment,
+                );
+            }
         }
     }
 
@@ -2880,17 +2917,82 @@ TEMPLATES = []
         );
     }
 
+    fn assert_profile_environment_static_assembly_contains_expected_facts(
+        profile_id: &str,
+        root: &Utf8Path,
+        pythonpath: &[String],
+        site_packages: &Utf8PathBuf,
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+    ) {
+        let dirs = assemble_static_template_dirs(
+            root,
+            Some(&environment.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        );
+        assert_eq!(
+            dirs.confidence(),
+            expected_profile_confidence(environment.templates_confidence),
+            "unexpected template dir confidence for profile `{profile_id}` environment `{}`: {:?}",
+            environment.settings_module,
+            dirs.reasons()
+        );
+        if let Some(dirs) = dirs.value() {
+            for expected_dir in expected_profile_configured_template_dirs(root, environment) {
+                assert!(
+                    dirs.contains(&expected_dir),
+                    "profile `{profile_id}` environment `{}` did not include expected template dir `{expected_dir}` in {dirs:?}",
+                    environment.settings_module,
+                );
+            }
+        }
+
+        let snapshot = assemble_static_template_library_snapshot(
+            root,
+            Some(&environment.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        );
+        assert_eq!(
+            snapshot.confidence(),
+            expected_profile_snapshot_confidence(environment),
+            "unexpected template library confidence for profile `{profile_id}` environment `{}`: {:?}",
+            environment.settings_module,
+            snapshot.reasons()
+        );
+
+        let Some(snapshot) = snapshot.value() else {
+            assert!(
+                environment.expected.templatetag_modules.is_empty(),
+                "profile `{profile_id}` environment `{}` expected template tag modules but snapshot is unknown",
+                environment.settings_module,
+            );
+            return;
+        };
+
+        let library_modules = snapshot.libraries.values().collect::<BTreeSet<_>>();
+        for module in &environment.expected.templatetag_modules {
+            assert!(
+                library_modules.contains(module),
+                "profile `{profile_id}` environment `{}` did not include expected library module `{module}`",
+                environment.settings_module,
+            );
+        }
+        assert!(
+            library_modules
+                .iter()
+                .all(|module| !module.starts_with("src.") && !module.starts_with("repos.")),
+            "expected source-root-aware module names for profile `{profile_id}` environment `{}`, got {library_modules:?}",
+            environment.settings_module,
+        );
+    }
+
     fn expected_profile_template_dirs(
         root: &Utf8Path,
         pythonpath: &[String],
         environment: &djls_corpus::DjangoEnvironmentProfile,
     ) -> Vec<Utf8PathBuf> {
-        let mut dirs = environment
-            .expected
-            .template_dirs
-            .iter()
-            .map(|dir| root.join(dir))
-            .collect::<Vec<_>>();
+        let mut dirs = expected_profile_configured_template_dirs(root, environment);
         dirs.extend(
             environment
                 .expected
@@ -2901,6 +3003,18 @@ TEMPLATES = []
         dirs
     }
 
+    fn expected_profile_configured_template_dirs(
+        root: &Utf8Path,
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+    ) -> Vec<Utf8PathBuf> {
+        environment
+            .expected
+            .template_dirs
+            .iter()
+            .map(|dir| root.join(dir))
+            .collect()
+    }
+
     fn expected_profile_confidence(confidence: djls_corpus::Confidence) -> Confidence {
         match confidence {
             djls_corpus::Confidence::Known => Confidence::Known,
@@ -2909,9 +3023,64 @@ TEMPLATES = []
         }
     }
 
-    fn write_minimal_django_site_packages(site_packages: &Utf8Path, modules: &[&str]) {
+    fn expected_profile_snapshot_confidence(
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+    ) -> Confidence {
+        if environment.installed_apps_confidence == djls_corpus::Confidence::Unknown
+            || environment.templates_confidence == djls_corpus::Confidence::Unknown
+        {
+            Confidence::Unknown
+        } else if environment.installed_apps_confidence == djls_corpus::Confidence::Partial
+            || environment.templates_confidence == djls_corpus::Confidence::Partial
+        {
+            Confidence::Partial
+        } else {
+            Confidence::Known
+        }
+    }
+
+    fn minimal_profile_site_package_modules(profile: &djls_corpus::Profile) -> Vec<String> {
+        let mut modules = [
+            "django.contrib.admin",
+            "django.contrib.auth",
+            "django.contrib.contenttypes",
+            "django.contrib.humanize",
+            "django.contrib.messages",
+            "django.contrib.sites",
+            "django.contrib.sessions",
+            "django.contrib.staticfiles",
+            "django.templatetags.cache",
+            "django.templatetags.i18n",
+            "django.templatetags.l10n",
+            "django.templatetags.static",
+            "django.templatetags.tz",
+            "django.template.defaulttags",
+            "django.template.defaultfilters",
+            "django.template.loader_tags",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+
+        modules.extend(
+            profile
+                .django_environments
+                .iter()
+                .flat_map(|environment| &environment.expected.external_apps)
+                .cloned(),
+        );
+
+        modules.into_iter().collect()
+    }
+
+    fn write_minimal_django_site_packages<S>(
+        site_packages: &Utf8Path,
+        modules: impl IntoIterator<Item = S>,
+    ) where
+        S: AsRef<str>,
+    {
         for module in modules {
-            write_minimal_python_module(site_packages, module);
+            write_minimal_python_module(site_packages, module.as_ref());
         }
     }
 
@@ -2936,7 +3105,13 @@ TEMPLATES = []
         let module_path = module.replace('.', "/");
         source_roots
             .iter()
-            .map(|source_root| root.join(source_root).join(&module_path))
+            .map(|source_root| {
+                if source_root == "." {
+                    root.join(&module_path)
+                } else {
+                    root.join(source_root).join(&module_path)
+                }
+            })
             .find(|path| path.join("__init__.py").is_file())
             .map(|path| path.join("templates"))
             .filter(|path| path.is_dir())
