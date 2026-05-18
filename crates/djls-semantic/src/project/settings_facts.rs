@@ -952,7 +952,9 @@ fn call_list_mutation<'a>(expr: &'a Expr, target_name: &str) -> Option<ListMutat
             };
             Some(ListMutation::Insert { index, value })
         }
-        "update" => Some(ListMutation::Unsupported),
+        "clear" | "pop" | "remove" | "reverse" | "sort" | "update" => {
+            Some(ListMutation::Unsupported)
+        }
         _ => None,
     }
 }
@@ -2363,6 +2365,36 @@ TEMPLATES.update({"APP_DIRS": True})
         assert!(template_reasons[0]
             .message
             .contains("unsupported dynamic mutation"));
+    }
+
+    #[test]
+    fn marks_destructive_settings_list_methods_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = ["django.contrib.auth", "django.contrib.sites"]
+if not SITE_MULTI:
+    INSTALLED_APPS.remove("django.contrib.sites")
+TEMPLATES = [{"DIRS": []}]
+TEMPLATES.pop()
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        let (apps, app_reasons) = partial_vec(&facts.installed_apps);
+        assert_eq!(apps, ["django.contrib.auth", "django.contrib.sites"]);
+        assert!(app_reasons.iter().any(|reason| reason
+            .message
+            .contains("unsupported nested assignment or mutation of INSTALLED_APPS")));
+
+        let (templates, template_reasons) = partial_vec(&facts.template_backends);
+        assert_eq!(templates.len(), 1);
+        assert!(template_reasons
+            .iter()
+            .any(|reason| reason.message.contains("unsupported dynamic mutation")));
     }
 
     #[test]
