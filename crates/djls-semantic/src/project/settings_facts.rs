@@ -953,6 +953,10 @@ fn evaluate_path(
         Expr::StringLiteral(string) => Some(Utf8PathBuf::from(string.value.to_str())),
         Expr::Name(name) if name.id.as_str() == "__file__" => Some(settings_file.to_path_buf()),
         Expr::Name(name) => path_values.get(name.id.as_str()).cloned(),
+        Expr::BinOp(binop) if binop.op == Operator::Add => {
+            let value = evaluate_path_string(expr, path_values, settings_file)?;
+            Some(Utf8PathBuf::from(value))
+        }
         Expr::BinOp(binop) if binop.op == Operator::Div => {
             let left = evaluate_path(binop.left.as_ref(), path_values, settings_file)?;
             let right = evaluate_path(binop.right.as_ref(), path_values, settings_file)?;
@@ -967,6 +971,26 @@ fn evaluate_path(
         }
         Expr::Call(call) => evaluate_path_call(call, path_values, settings_file),
         _ => None,
+    }
+}
+
+fn evaluate_path_string(
+    expr: &Expr,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    settings_file: &Utf8Path,
+) -> Option<String> {
+    match expr {
+        Expr::StringLiteral(string) => Some(string.value.to_str().to_string()),
+        Expr::Name(name) if name.id.as_str() == "__file__" => Some(settings_file.to_string()),
+        Expr::Name(name) => path_values
+            .get(name.id.as_str())
+            .map(|path| path.as_str().to_string()),
+        Expr::BinOp(binop) if binop.op == Operator::Add => {
+            let left = evaluate_path_string(binop.left.as_ref(), path_values, settings_file)?;
+            let right = evaluate_path_string(binop.right.as_ref(), path_values, settings_file)?;
+            Some(format!("{left}{right}"))
+        }
+        _ => evaluate_path(expr, path_values, settings_file).map(|path| path.as_str().to_string()),
     }
 }
 
@@ -999,6 +1023,21 @@ fn evaluate_path_call(
                 path = path.join(part);
             }
             Some(path)
+        }
+        _ if matches!(
+            dotted_name(call.func.as_ref()).as_deref(),
+            Some("os.path.abspath" | "os.path.realpath")
+        ) =>
+        {
+            let path = evaluate_path(call.arguments.args.first()?, path_values, settings_file)?;
+            path.is_absolute().then_some(path)
+        }
+        _ if dotted_name(call.func.as_ref()).as_deref() == Some("os.path.normpath") => {
+            evaluate_path(call.arguments.args.first()?, path_values, settings_file)
+        }
+        _ if dotted_name(call.func.as_ref()).as_deref() == Some("os.path.dirname") => {
+            let path = evaluate_path(call.arguments.args.first()?, path_values, settings_file)?;
+            path.parent().map(Utf8Path::to_path_buf)
         }
         _ => None,
     }
@@ -1825,5 +1864,55 @@ TEMPLATES = [{"DIRS": [os.path.join(BASE_DIR, "templates")]}]
         let backends = known_vec(&facts.template_backends);
 
         assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
+    }
+
+    #[test]
+    fn extracts_os_path_dirname_and_concatenated_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATES_DIR = BASE_DIR + "/templates"
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [TEMPLATES_DIR, BASE_DIR + "/more_templates"]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)
+                .into_iter()
+                .map(|dir| dir.path)
+                .collect::<Vec<_>>(),
+            [root.join("templates"), root.join("more_templates")]
+        );
+    }
+
+    #[test]
+    fn marks_os_path_abspath_relative_template_dirs_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+import os
+
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [os.path.abspath("templates")]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+        let (dirs, reasons) = partial_vec(&backends[0].dirs);
+
+        assert!(dirs.is_empty());
+        assert!(reasons[0].message.contains("unsupported path expression"));
     }
 }
