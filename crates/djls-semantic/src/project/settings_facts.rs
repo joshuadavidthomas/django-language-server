@@ -47,6 +47,7 @@ struct SettingsImportScope<'a> {
 
 struct SettingsExtractionState {
     file: Utf8PathBuf,
+    files_read: Vec<Utf8PathBuf>,
     path_values: BTreeMap<String, Utf8PathBuf>,
     installed_apps: Option<Fact<Vec<String>>>,
     template_backends: Option<Fact<Vec<TemplateBackendFact>>>,
@@ -59,6 +60,7 @@ impl SettingsExtractionState {
     fn new(file: &Utf8Path) -> Self {
         Self {
             file: file.to_path_buf(),
+            files_read: vec![file.to_path_buf()],
             path_values: BTreeMap::new(),
             installed_apps: None,
             template_backends: None,
@@ -72,6 +74,7 @@ impl SettingsExtractionState {
         let facts = unknown_settings_facts(file, message);
         Self {
             file: facts.file,
+            files_read: facts.files_read,
             path_values: BTreeMap::new(),
             installed_apps: Some(facts.installed_apps),
             template_backends: Some(facts.template_backends),
@@ -82,6 +85,7 @@ impl SettingsExtractionState {
     }
 
     fn apply_star_import(&mut self, imported: Self) {
+        self.files_read.extend(imported.files_read);
         if imported.load_failed {
             if let Some(installed_apps) = imported.installed_apps {
                 self.installed_apps_import_reasons
@@ -112,8 +116,15 @@ impl SettingsExtractionState {
         self.template_backends_import_reasons.extend(reasons);
     }
 
+    fn add_files_read(&mut self, files: impl IntoIterator<Item = Utf8PathBuf>) {
+        self.files_read.extend(files);
+    }
+
     fn into_facts(self) -> SettingsFacts {
         let file = self.file;
+        let mut files_read = self.files_read;
+        files_read.sort();
+        files_read.dedup();
         let installed_apps = finalize_setting_fact(
             self.installed_apps,
             self.installed_apps_import_reasons,
@@ -131,6 +142,7 @@ impl SettingsExtractionState {
 
         SettingsFacts {
             file,
+            files_read,
             installed_apps,
             template_backends,
         }
@@ -354,6 +366,10 @@ fn follow_star_import(
         }
         Fact::Unknown { reasons } | Fact::Ambiguous { reasons, .. } => {
             state.add_import_reasons(reasons);
+            state.add_files_read(unresolved_module_candidate_files(
+                &target_module,
+                imports.search_paths,
+            ));
             return;
         }
     };
@@ -365,6 +381,24 @@ fn follow_star_import(
         active_files,
     );
     state.apply_star_import(imported);
+}
+
+fn unresolved_module_candidate_files(
+    module: &PyModuleName,
+    search_paths: &[ModuleSearchPathEntry],
+) -> Vec<Utf8PathBuf> {
+    let relative_module_path = module.as_str().replace('.', "/");
+    search_paths
+        .iter()
+        .flat_map(|search_path| {
+            let module_file = search_path.path.join(format!("{relative_module_path}.py"));
+            let package_file = search_path
+                .path
+                .join(&relative_module_path)
+                .join("__init__.py");
+            [module_file, package_file]
+        })
+        .collect()
 }
 
 fn star_import_module(
@@ -1163,6 +1197,7 @@ fn unknown_settings_facts(file: &Utf8Path, message: impl Into<String>) -> Settin
     let message = message.into();
     SettingsFacts {
         file: file.to_path_buf(),
+        files_read: vec![file.to_path_buf()],
         installed_apps: Fact::unknown(vec![reason(
             Field::SettingsInstalledApps,
             file,

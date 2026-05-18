@@ -6,6 +6,7 @@
 
 use std::fmt::Write;
 use std::fs;
+use std::time::UNIX_EPOCH;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -23,13 +24,16 @@ use sha2::Sha256;
 use super::app_registry::resolve_app_registry;
 use super::app_registry::AppRegistryFacts;
 use super::db::Db as ProjectDb;
+use super::facts::Confidence;
 use super::facts::Fact;
 use super::facts::Field;
 use super::facts::ModuleLocation;
 use super::facts::ModuleSearchPathEntry;
+use super::facts::ModuleSearchPathKind;
 use super::facts::Reason;
 use super::facts::ReasonSource;
 use super::facts::SettingsFacts;
+use super::facts::TemplateLibraryFact;
 use super::input::Project;
 use super::input::ProjectPythonIndex;
 use super::input::ProjectPythonModule;
@@ -61,6 +65,9 @@ use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
+
+const STATIC_TEMPLATE_LIBRARY_CACHE_VERSION: &str = "static-template-libraries-v1";
+const DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY: &str = "django-5.2-default-template-libraries-v1";
 
 /// Refresh all external project data.
 ///
@@ -115,6 +122,9 @@ fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
     let static_dirs = inspector_dirs
         .is_none()
         .then(|| assemble_project_static_template_dirs(db, project));
+    if let Some(static_dirs) = &static_dirs {
+        log_static_template_dirs_status(project.django_settings_module(db).as_deref(), static_dirs);
+    }
     apply_template_dirs_or_static_fallback(db, project, inspector_dirs, static_dirs);
 }
 
@@ -239,6 +249,21 @@ fn usable_static_template_dirs(dirs: Fact<Vec<Utf8PathBuf>>) -> Option<Vec<Utf8P
     }
 }
 
+fn log_static_template_dirs_status(
+    django_settings_module: Option<&str>,
+    dirs: &Fact<Vec<Utf8PathBuf>>,
+) {
+    tracing::info!(
+        event = "template_dirs",
+        django_settings_module = django_settings_module.unwrap_or("<unset>"),
+        confidence = ?dirs.confidence(),
+        template_dir_count = dirs.value().map(Vec::len).unwrap_or_default(),
+        reason_count = dirs.reasons().len(),
+        reasons = ?dirs.reasons(),
+        "Static project model status",
+    );
+}
+
 #[derive(Serialize)]
 struct TemplateLibrarySnapshotRequest;
 
@@ -249,7 +274,10 @@ impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
 
 fn load_project_template_library_cache(db: &mut dyn ProjectDb, project: Project) -> bool {
     let Some(snapshot) = load_template_library_snapshot_cache(db, project) else {
-        return false;
+        let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
+            return false;
+        };
+        return apply_static_template_library_cache_entry(db, project, entry);
     };
 
     if apply_template_library_snapshot(db, project, snapshot) {
@@ -266,8 +294,15 @@ fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
         return;
     }
 
-    let snapshot = assemble_project_static_template_library_snapshot(db, project);
-    apply_static_template_library_snapshot(db, project, snapshot);
+    let static_cache_entry = load_static_template_library_snapshot_cache(db, project);
+    if refresh_template_libraries_from_static_cache(db, project, static_cache_entry) {
+        return;
+    }
+
+    let assembly = assemble_project_static_template_library_snapshot_with_status(db, project);
+    log_static_project_model_status("assembled", &assembly.status);
+    save_static_template_library_snapshot_cache(db, project, &assembly);
+    apply_static_template_library_snapshot(db, project, assembly.snapshot);
 }
 
 fn apply_template_library_snapshot(
@@ -298,15 +333,40 @@ fn apply_template_library_snapshot_with_knowledge(
     true
 }
 
+fn refresh_template_libraries_from_static_cache(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    entry: Option<StaticTemplateLibraryCacheEntry>,
+) -> bool {
+    let Some(entry) = entry else {
+        return false;
+    };
+    if usable_static_template_library_snapshot(entry.snapshot.clone()).is_none() {
+        return false;
+    }
+
+    log_static_project_model_status("cache_load", &entry.status);
+    apply_static_template_library_snapshot(db, project, entry.snapshot);
+    true
+}
+
 fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
     db.project_introspector()
         .query(db, &TemplateLibrarySnapshotRequest)
 }
 
+#[cfg(test)]
 fn assemble_project_static_template_library_snapshot(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Fact<TemplateLibrarySnapshot> {
+    assemble_project_static_template_library_snapshot_with_status(db, project).snapshot
+}
+
+fn assemble_project_static_template_library_snapshot_with_status(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> StaticTemplateLibrarySnapshotAssembly {
     let root = project.root(db).clone();
     let interpreter = project.interpreter(db).clone();
     let django_settings_module = project.django_settings_module(db).clone();
@@ -315,12 +375,18 @@ fn assemble_project_static_template_library_snapshot(
         .into_iter()
         .collect::<Vec<_>>();
 
-    assemble_static_template_library_snapshot(
+    assemble_static_template_library_snapshot_with_status(
         &root,
         django_settings_module.as_deref(),
         &pythonpath,
         &site_packages_paths,
     )
+}
+
+struct StaticTemplateLibrarySnapshotAssembly {
+    snapshot: Fact<TemplateLibrarySnapshot>,
+    status: StaticProjectModelStatus,
+    dependencies: Vec<StaticCacheDependency>,
 }
 
 fn apply_static_template_library_snapshot(
@@ -335,12 +401,12 @@ fn apply_static_template_library_snapshot(
     apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge)
 }
 
-fn assemble_static_template_library_snapshot(
+fn assemble_static_template_library_snapshot_with_status(
     root: &Utf8Path,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
-) -> Fact<TemplateLibrarySnapshot> {
+) -> StaticTemplateLibrarySnapshotAssembly {
     let context = match assemble_static_project_context(
         root,
         django_settings_module,
@@ -348,25 +414,128 @@ fn assemble_static_template_library_snapshot(
         site_packages_paths,
     ) {
         Ok(context) => context,
-        Err(reasons) => return Fact::unknown(reasons),
+        Err(reasons) => {
+            let snapshot = Fact::unknown(reasons);
+            let status = StaticProjectModelStatus::from_snapshot(
+                django_settings_module,
+                &snapshot,
+                None,
+                None,
+                None,
+            );
+            return StaticTemplateLibrarySnapshotAssembly {
+                snapshot,
+                status,
+                dependencies: Vec::new(),
+            };
+        }
     };
 
+    let template_dirs = assemble_template_dirs(
+        &context.settings_facts.template_backends,
+        &context.app_registry.app_registry,
+    );
     let template_libraries = assemble_template_libraries(
         &context.settings_facts.template_backends,
         &context.app_registry.app_registry,
     );
     let template_symbols =
         assemble_template_symbols(&template_libraries, &context.module_search_paths, root);
-    let snapshot = assemble_template_library_snapshot(&template_libraries, &template_symbols);
+    let snapshot = add_static_reasons(
+        assemble_template_library_snapshot(&template_libraries, &template_symbols),
+        context.reasons.clone(),
+    );
+    let status = StaticProjectModelStatus::from_snapshot(
+        django_settings_module,
+        &snapshot,
+        fact_len(&context.app_registry.app_registry),
+        fact_len(&template_dirs),
+        context.module_search_paths.value().map(Vec::len),
+    );
+    let dependencies =
+        static_template_library_cache_dependencies(root, &context, &template_libraries, &snapshot);
 
-    add_static_reasons(snapshot, context.reasons)
+    StaticTemplateLibrarySnapshotAssembly {
+        snapshot,
+        status,
+        dependencies,
+    }
+}
+
+#[cfg(test)]
+fn assemble_static_template_library_snapshot(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Fact<TemplateLibrarySnapshot> {
+    assemble_static_template_library_snapshot_with_status(
+        root,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    )
+    .snapshot
 }
 
 struct StaticProjectContext {
     module_search_paths: Fact<Vec<ModuleSearchPathEntry>>,
+    site_packages_paths: Vec<Utf8PathBuf>,
     settings_facts: SettingsFacts,
     app_registry: AppRegistryFacts,
     reasons: Vec<Reason>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StaticProjectModelStatus {
+    django_settings_module: Option<String>,
+    confidence: Confidence,
+    module_search_path_count: Option<usize>,
+    app_count: Option<usize>,
+    template_dir_count: Option<usize>,
+    loadable_library_count: usize,
+    builtin_count: usize,
+    symbol_count: usize,
+    reasons: Vec<Reason>,
+}
+
+impl StaticProjectModelStatus {
+    fn from_snapshot(
+        django_settings_module: Option<&str>,
+        snapshot: &Fact<TemplateLibrarySnapshot>,
+        app_count: Option<usize>,
+        template_dir_count: Option<usize>,
+        module_search_path_count: Option<usize>,
+    ) -> Self {
+        let (loadable_library_count, builtin_count, symbol_count) =
+            snapshot.value().map_or((0, 0, 0), |snapshot| {
+                (
+                    snapshot.libraries.len(),
+                    snapshot.builtins.len(),
+                    snapshot.symbols.len(),
+                )
+            });
+
+        Self {
+            django_settings_module: django_settings_module.map(str::to_string),
+            confidence: snapshot.confidence(),
+            module_search_path_count,
+            app_count,
+            template_dir_count,
+            loadable_library_count,
+            builtin_count,
+            symbol_count,
+            reasons: snapshot.reasons().to_vec(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct StaticCacheDependency {
+    path: Utf8PathBuf,
+    exists: bool,
+    modified_unix_secs: Option<u64>,
+    modified_subsec_nanos: Option<u32>,
 }
 
 fn assemble_static_project_context(
@@ -420,10 +589,181 @@ fn assemble_static_project_context(
 
     Ok(StaticProjectContext {
         module_search_paths,
+        site_packages_paths: site_packages_paths.to_vec(),
         settings_facts,
         app_registry,
         reasons: static_reasons,
     })
+}
+
+fn fact_len<T>(fact: &Fact<Vec<T>>) -> Option<usize> {
+    fact.value().map(Vec::len)
+}
+
+fn log_static_project_model_status(event: &str, status: &StaticProjectModelStatus) {
+    tracing::info!(
+        event,
+        django_settings_module = status.django_settings_module.as_deref().unwrap_or("<unset>"),
+        confidence = ?status.confidence,
+        module_search_path_count = status.module_search_path_count,
+        app_count = status.app_count,
+        template_dir_count = status.template_dir_count,
+        loadable_library_count = status.loadable_library_count,
+        builtin_count = status.builtin_count,
+        symbol_count = status.symbol_count,
+        reason_count = status.reasons.len(),
+        reasons = ?status.reasons,
+        "Static project model status",
+    );
+}
+
+fn static_template_library_cache_dependencies(
+    root: &Utf8Path,
+    context: &StaticProjectContext,
+    template_libraries: &Fact<Vec<TemplateLibraryFact>>,
+    snapshot: &Fact<TemplateLibrarySnapshot>,
+) -> Vec<StaticCacheDependency> {
+    let mut paths = Vec::new();
+    paths.extend(context.settings_facts.files_read.iter().cloned());
+
+    if let Some(search_paths) = context.module_search_paths.value() {
+        paths.extend(search_paths.iter().map(|entry| entry.path.clone()));
+        for entry in search_paths {
+            if entry.kind == ModuleSearchPathKind::SitePackages {
+                push_pth_files(&entry.path, &mut paths);
+            }
+        }
+    }
+    for site_packages_path in &context.site_packages_paths {
+        paths.push(site_packages_path.clone());
+        push_pth_files(site_packages_path, &mut paths);
+    }
+
+    if let Some(apps) = context.app_registry.app_registry.value() {
+        for app in apps {
+            paths.push(app.path.clone());
+            let templatetags_dir = app.path.join("templatetags");
+            paths.push(templatetags_dir.clone());
+            push_templatetag_python_files(&templatetags_dir, &mut paths);
+            if let Some(config) = &app.config {
+                paths.push(config.file.clone());
+            }
+        }
+    }
+
+    let Some(search_paths) = context.module_search_paths.value() else {
+        return cache_dependencies(paths);
+    };
+
+    if let Some(libraries) = template_libraries.value() {
+        for library in libraries {
+            if let Some(file) = resolved_module_file(&library.module, search_paths, root) {
+                paths.push(file);
+            }
+        }
+    }
+
+    if let Some(snapshot) = snapshot.value() {
+        for module in snapshot
+            .libraries
+            .values()
+            .chain(snapshot.builtins.iter())
+            .chain(snapshot.symbols.iter().map(|symbol| &symbol.library_module))
+            .chain(snapshot.symbols.iter().map(|symbol| &symbol.module))
+        {
+            let Ok(module) = PyModuleName::parse(module) else {
+                continue;
+            };
+            if let Some(file) = resolved_module_file(&module, search_paths, root) {
+                paths.push(file);
+            }
+        }
+    }
+
+    cache_dependencies(paths)
+}
+
+fn push_pth_files(site_packages_path: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
+    let Ok(entries) = fs::read_dir(site_packages_path.as_std_path()) else {
+        return;
+    };
+
+    paths.extend(
+        entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+            .filter(|path| path.extension() == Some("pth") && path.is_file()),
+    );
+}
+
+fn push_templatetag_python_files(dir: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir.as_std_path()) else {
+        return;
+    };
+
+    let mut entries = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    for path in entries {
+        if path.is_dir() {
+            if path.join("__init__.py").is_file() {
+                paths.push(path.clone());
+                push_templatetag_python_files(&path, paths);
+            }
+        } else if path.extension() == Some("py") {
+            paths.push(path);
+        }
+    }
+}
+
+fn resolved_module_file(
+    module: &PyModuleName,
+    search_paths: &[ModuleSearchPathEntry],
+    root: &Utf8Path,
+) -> Option<Utf8PathBuf> {
+    let resolution = resolve_static_module(module.clone(), search_paths, root);
+    resolution
+        .resolved
+        .value()
+        .map(|resolved| resolved.file.clone())
+}
+
+fn cache_dependencies(paths: Vec<Utf8PathBuf>) -> Vec<StaticCacheDependency> {
+    let mut paths = paths;
+    paths.sort();
+    paths.dedup();
+    paths
+        .into_iter()
+        .map(StaticCacheDependency::from_path)
+        .collect()
+}
+
+impl StaticCacheDependency {
+    fn from_path(path: Utf8PathBuf) -> Self {
+        let timestamp = modified_timestamp(&path).ok();
+        Self {
+            path,
+            exists: timestamp.is_some(),
+            modified_unix_secs: timestamp.map(|(secs, _)| secs),
+            modified_subsec_nanos: timestamp.map(|(_, nanos)| nanos),
+        }
+    }
+
+    fn is_current(&self) -> bool {
+        let current = Self::from_path(self.path.clone());
+        current.exists == self.exists
+            && current.modified_unix_secs == self.modified_unix_secs
+            && current.modified_subsec_nanos == self.modified_subsec_nanos
+    }
+}
+
+fn modified_timestamp(path: &Utf8Path) -> std::io::Result<(u64, u32)> {
+    let modified = fs::metadata(path.as_std_path())?.modified()?;
+    let duration = modified.duration_since(UNIX_EPOCH).unwrap_or_default();
+    Ok((duration.as_secs(), duration.subsec_nanos()))
 }
 
 fn usable_static_template_library_snapshot(
@@ -526,6 +866,97 @@ fn save_template_library_snapshot_cache(
     );
 }
 
+fn load_static_template_library_snapshot_cache(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Option<StaticTemplateLibraryCacheEntry> {
+    let interpreter = project.interpreter(db).clone();
+    let root = project.root(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+    let site_packages_paths = find_site_packages(&interpreter, &root)
+        .into_iter()
+        .collect::<Vec<_>>();
+    load_static_template_library_snapshot(
+        &root,
+        &interpreter,
+        django_settings_module.as_deref(),
+        &pythonpath,
+        &site_packages_paths,
+    )
+}
+
+#[cfg(test)]
+fn load_static_template_library_snapshot_cache_from_dir(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    dir: &Utf8Path,
+) -> bool {
+    let Some(entry) = load_static_template_library_snapshot_from_dir(dir) else {
+        return false;
+    };
+
+    apply_static_template_library_cache_entry(db, project, entry)
+}
+
+fn apply_static_template_library_cache_entry(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    entry: StaticTemplateLibraryCacheEntry,
+) -> bool {
+    log_static_project_model_status("cache_load", &entry.status);
+    let usable = usable_static_template_library_snapshot(entry.snapshot.clone()).is_some();
+    if apply_static_template_library_snapshot(db, project, entry.snapshot) {
+        refresh_templatetag_modules(db, project);
+    }
+    usable
+}
+
+fn save_static_template_library_snapshot_cache(
+    db: &dyn ProjectDb,
+    project: Project,
+    assembly: &StaticTemplateLibrarySnapshotAssembly,
+) {
+    if assembly.dependencies.is_empty() {
+        tracing::debug!(
+            "Skipping static template library cache write because no dependency metadata was available"
+        );
+        return;
+    }
+
+    let interpreter = project.interpreter(db).clone();
+    let root = project.root(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+    let site_packages_paths = find_site_packages(&interpreter, &root)
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    save_static_template_library_snapshot(
+        &root,
+        &interpreter,
+        django_settings_module.as_deref(),
+        &pythonpath,
+        &site_packages_paths,
+        assembly,
+    );
+}
+
+#[derive(Serialize, Deserialize)]
+struct StaticTemplateLibraryCacheEnvelope {
+    cache_version: String,
+    djls_version: String,
+    django_default_policy: String,
+    snapshot: Fact<TemplateLibrarySnapshot>,
+    status: StaticProjectModelStatus,
+    dependencies: Vec<StaticCacheDependency>,
+}
+
+struct StaticTemplateLibraryCacheEntry {
+    snapshot: Fact<TemplateLibrarySnapshot>,
+    status: StaticProjectModelStatus,
+}
+
 fn cache_key(
     root: &Utf8Path,
     interpreter: &Interpreter,
@@ -551,6 +982,42 @@ fn cache_key(
     key
 }
 
+fn static_template_library_cache_key(
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(root.as_str().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(format!("{interpreter:?}").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(django_settings_module.unwrap_or("").as_bytes());
+    hasher.update(b"\0");
+    for path in pythonpath {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+    }
+    for path in site_packages_paths {
+        hasher.update(path.as_str().as_bytes());
+        hasher.update(b"\0");
+    }
+    let digest = hasher.finalize();
+    let mut key = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    key
+}
+
 fn cache_dir(
     root: &Utf8Path,
     interpreter: &Interpreter,
@@ -562,6 +1029,45 @@ fn cache_dir(
     let key = cache_key(root, interpreter, django_settings_module, pythonpath);
     // Keep the legacy `inspector` directory for on-disk cache compatibility.
     Some(base.join("inspector").join(&key[..16]))
+}
+
+fn static_template_library_cache_dir(
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Option<Utf8PathBuf> {
+    let base = djls_conf::project_dirs()
+        .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
+    Some(static_template_library_cache_dir_in(
+        &base,
+        root,
+        interpreter,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ))
+}
+
+fn static_template_library_cache_dir_in(
+    base: &Utf8Path,
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Utf8PathBuf {
+    let key = static_template_library_cache_key(
+        root,
+        interpreter,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    );
+    base.join("static-project-model")
+        .join("template-libraries")
+        .join(&key[..16])
 }
 
 fn load_cached_template_library_snapshot(
@@ -588,6 +1094,73 @@ fn load_cached_template_library_snapshot(
 
     tracing::info!("Loaded template library snapshot from cache: {}", path);
     Some(envelope.response)
+}
+
+fn load_static_template_library_snapshot(
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Option<StaticTemplateLibraryCacheEntry> {
+    let dir = static_template_library_cache_dir(
+        root,
+        interpreter,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    )?;
+    load_static_template_library_snapshot_from_dir(&dir)
+}
+
+fn load_static_template_library_snapshot_from_dir(
+    dir: &Utf8Path,
+) -> Option<StaticTemplateLibraryCacheEntry> {
+    let path = dir.join("snapshot.json");
+    let content = fs::read_to_string(path.as_std_path()).ok()?;
+    let envelope: StaticTemplateLibraryCacheEnvelope = serde_json::from_str(&content).ok()?;
+
+    if envelope.cache_version != STATIC_TEMPLATE_LIBRARY_CACHE_VERSION {
+        tracing::debug!(
+            "Static template library cache version mismatch: cached={}, current={}",
+            envelope.cache_version,
+            STATIC_TEMPLATE_LIBRARY_CACHE_VERSION,
+        );
+        return None;
+    }
+    if envelope.djls_version != env!("CARGO_PKG_VERSION") {
+        tracing::debug!(
+            "Static template library cache djls version mismatch: cached={}, current={}",
+            envelope.djls_version,
+            env!("CARGO_PKG_VERSION"),
+        );
+        return None;
+    }
+    if envelope.django_default_policy != DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY {
+        tracing::debug!(
+            "Static template library cache Django default policy mismatch: cached={}, current={}",
+            envelope.django_default_policy,
+            DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY,
+        );
+        return None;
+    }
+    if !envelope
+        .dependencies
+        .iter()
+        .all(StaticCacheDependency::is_current)
+    {
+        tracing::debug!("Static template library cache invalidated by dependency change");
+        return None;
+    }
+
+    tracing::info!(
+        "Loaded static template library snapshot from cache: {}",
+        path
+    );
+    Some(StaticTemplateLibraryCacheEntry {
+        snapshot: envelope.snapshot,
+        status: envelope.status,
+    })
 }
 
 fn save_template_library_snapshot(
@@ -630,6 +1203,67 @@ fn save_template_library_snapshot(
         }
         Err(e) => {
             tracing::warn!("Failed to serialize template library snapshot cache: {e}");
+        }
+    }
+}
+
+fn save_static_template_library_snapshot(
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+    assembly: &StaticTemplateLibrarySnapshotAssembly,
+) {
+    let Some(dir) = static_template_library_cache_dir(
+        root,
+        interpreter,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ) else {
+        return;
+    };
+
+    save_static_template_library_snapshot_to_dir(
+        &dir,
+        &assembly.snapshot,
+        &assembly.status,
+        &assembly.dependencies,
+    );
+}
+
+fn save_static_template_library_snapshot_to_dir(
+    dir: &Utf8Path,
+    snapshot: &Fact<TemplateLibrarySnapshot>,
+    status: &StaticProjectModelStatus,
+    dependencies: &[StaticCacheDependency],
+) {
+    let envelope = StaticTemplateLibraryCacheEnvelope {
+        cache_version: STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.to_string(),
+        djls_version: env!("CARGO_PKG_VERSION").to_string(),
+        django_default_policy: DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.to_string(),
+        snapshot: snapshot.clone(),
+        status: status.clone(),
+        dependencies: dependencies.to_vec(),
+    };
+
+    if let Err(e) = fs::create_dir_all(dir.as_std_path()) {
+        tracing::warn!("Failed to create static template library cache directory: {e}");
+        return;
+    }
+
+    let path = dir.join("snapshot.json");
+    match serde_json::to_string(&envelope) {
+        Ok(json) => {
+            if let Err(e) = fs::write(path.as_std_path(), json) {
+                tracing::warn!("Failed to write static template library cache: {e}");
+            } else {
+                tracing::debug!("Saved static template library snapshot to cache: {}", path);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to serialize static template library cache: {e}");
         }
     }
 }
@@ -2104,6 +2738,587 @@ TEMPLATES = []
         let key1 = cache_key(Utf8Path::new("/project-a"), &interpreter, None, &pythonpath);
         let key2 = cache_key(Utf8Path::new("/project-b"), &interpreter, None, &pythonpath);
         assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn static_template_library_cache_uses_separate_namespace_and_inputs() {
+        let base = Utf8Path::new("/cache");
+        let root = Utf8Path::new("/project");
+        let interpreter = Interpreter::VenvPath("/project/.venv".to_string());
+        let pythonpath = vec!["/extra".to_string()];
+        let site_packages = vec![Utf8PathBuf::from("/project/.venv/site-packages")];
+
+        let dir = static_template_library_cache_dir_in(
+            base,
+            root,
+            &interpreter,
+            Some("project.settings"),
+            &pythonpath,
+            &site_packages,
+        );
+        assert!(dir
+            .as_str()
+            .contains("static-project-model/template-libraries"));
+        assert!(!dir.as_str().contains("inspector"));
+
+        let other_dir = static_template_library_cache_dir_in(
+            base,
+            root,
+            &interpreter,
+            Some("project.settings"),
+            &pythonpath,
+            &[Utf8PathBuf::from("/other/site-packages")],
+        );
+        assert_ne!(dir, other_dir);
+    }
+
+    #[test]
+    fn static_template_library_cache_roundtrips_and_invalidates_dependencies() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let dependency = root.join("project/settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
+        let pythonpath: Vec<String> = vec![];
+        let snapshot = Fact::known(test_response());
+        let status = StaticProjectModelStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let dependencies = vec![StaticCacheDependency::from_path(dependency.clone())];
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &pythonpath,
+            &[],
+        );
+
+        save_static_template_library_snapshot_to_dir(&dir, &snapshot, &status, &dependencies);
+        let loaded = load_static_template_library_snapshot_from_dir(&dir)
+            .expect("static cache should load while dependencies are current");
+        let loaded_snapshot = loaded.snapshot.value().unwrap();
+        assert_eq!(loaded_snapshot.libraries.len(), 1);
+        assert_eq!(loaded_snapshot.builtins.len(), 1);
+        assert_eq!(loaded.status.confidence, Confidence::Known);
+        assert_eq!(loaded.status.app_count, Some(1));
+
+        fs::remove_file(dependency).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_rejects_version_and_policy_mismatches() {
+        let tmp = TempDir::new().unwrap();
+        let dir = Utf8PathBuf::try_from(tmp.path().join("cache-entry")).unwrap();
+        let dependency = dir.join("settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let snapshot = Fact::known(test_response());
+        let status = StaticProjectModelStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let dependencies = vec![StaticCacheDependency::from_path(dependency)];
+
+        let mut envelope = StaticTemplateLibraryCacheEnvelope {
+            cache_version: STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.to_string(),
+            djls_version: env!("CARGO_PKG_VERSION").to_string(),
+            django_default_policy: DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.to_string(),
+            snapshot: snapshot.clone(),
+            status: status.clone(),
+            dependencies: dependencies.clone(),
+        };
+
+        envelope.cache_version = "old-cache".to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+
+        envelope.cache_version = STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.to_string();
+        envelope.djls_version = "0.0.bad".to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+
+        envelope.djls_version = env!("CARGO_PKG_VERSION").to_string();
+        envelope.django_default_policy = "old-django-defaults".to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+
+        envelope.django_default_policy = DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+    }
+
+    fn write_static_template_library_cache_envelope(
+        dir: &Utf8Path,
+        envelope: &StaticTemplateLibraryCacheEnvelope,
+    ) {
+        fs::create_dir_all(dir.as_std_path()).unwrap();
+        fs::write(
+            dir.join("snapshot.json").as_std_path(),
+            serde_json::to_string(envelope).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_imported_settings_dependencies() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        let base_settings = root.join("project/settings/base.py");
+        write_file(
+            &base_settings,
+            r"
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(&dev_settings, "from .base import *\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == base_settings));
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == dev_settings));
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == root));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(base_settings).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_missing_imported_settings_candidates() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        let local_settings = root.join("project/settings/local.py");
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(&dev_settings, "from .local import *\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| { dependency.path == local_settings && !dependency.exists }));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        write_file(&local_settings, "INSTALLED_APPS = []\nTEMPLATES = []\n");
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_missing_imported_settings_package_candidates() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        let local_package_settings = root.join("project/settings/local/__init__.py");
+        write_file(
+            &root.join("project/settings/dev.py"),
+            "from .local import *\n",
+        );
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| { dependency.path == local_package_settings && !dependency.exists }));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        write_file(
+            &local_package_settings,
+            "INSTALLED_APPS = []\nTEMPLATES = []\n",
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_app_config_dependencies() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog.apps.BlogConfig"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        let apps_file = root.join("blog/apps.py");
+        write_file(
+            &apps_file,
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    name = "blog"
+"#,
+        );
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == apps_file));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(apps_file).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_pth_files() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let site_packages = Utf8PathBuf::try_from(tmp.path().join("site-packages")).unwrap();
+        let pth_root = Utf8PathBuf::try_from(tmp.path().join("editable")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            "INSTALLED_APPS = []\nTEMPLATES = []\n",
+        );
+        write_file(&pth_root.join("pkg/__init__.py"), "");
+        let pth_file = site_packages.join("editable.pth");
+        write_file(&pth_file, "../editable\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            std::slice::from_ref(&site_packages),
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == pth_file));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            std::slice::from_ref(&site_packages),
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(pth_file).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_filtered_templatetag_files() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        let helper_file = root.join("blog/templatetags/helper.py");
+        write_file(&helper_file, "HELPER = True\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == helper_file));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(helper_file).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_nested_templatetag_package_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        let nested_dir = root.join("blog/templatetags/nested");
+        write_file(&nested_dir.join("__init__.py"), "");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == nested_dir));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        write_file(
+            &nested_dir.join("new_tags.py"),
+            "from django import template\nregister = template.Library()\n",
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn startup_cache_can_load_static_template_library_snapshot() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let dependency = root.join("project/settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
+        let snapshot = Fact::known(test_response());
+        let status = StaticProjectModelStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
+            snapshot,
+            status,
+            dependencies: vec![StaticCacheDependency::from_path(dependency)],
+        };
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(dir.join("snapshot.json").is_file());
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options(
+            root,
+            interpreter,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        assert!(load_static_template_library_snapshot_cache_from_dir(
+            &mut db, project, &dir,
+        ));
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("i18n"));
+    }
+
+    #[test]
+    fn static_cache_refresh_short_circuits_when_snapshot_is_already_applied() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let snapshot = Fact::known(test_response());
+        let status = StaticProjectModelStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let entry = StaticTemplateLibraryCacheEntry {
+            snapshot: snapshot.clone(),
+            status,
+        };
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root, Some("project.settings".to_string()));
+
+        assert!(apply_static_template_library_snapshot(
+            &mut db, project, snapshot,
+        ));
+        assert!(refresh_template_libraries_from_static_cache(
+            &mut db,
+            project,
+            Some(entry),
+        ));
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("i18n"));
     }
 
     #[test]
