@@ -121,22 +121,11 @@ impl IntrospectionRequest for TemplateDirsRequest {
 
 fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
     match project.project_model(db) {
-        ProjectModelMode::Auto => refresh_template_dirs_auto(db, project),
-        ProjectModelMode::Static => refresh_template_dirs_static(db, project),
+        ProjectModelMode::Auto | ProjectModelMode::Static => {
+            refresh_template_dirs_static(db, project);
+        }
         ProjectModelMode::Inspector => refresh_template_dirs_inspector(db, project),
     }
-}
-
-fn refresh_template_dirs_auto(db: &mut dyn ProjectDb, project: Project) {
-    let static_dirs = assemble_project_static_template_dirs(db, project);
-    log_static_template_dirs_status(project.django_settings_module(db).as_deref(), &static_dirs);
-    if usable_static_template_dirs(static_dirs.clone()).is_some() {
-        apply_static_template_dirs(db, project, static_dirs);
-        return;
-    }
-
-    let inspector_dirs = fetch_template_dirs(db);
-    apply_template_dirs_or_static_fallback(db, project, inspector_dirs, Some(static_dirs));
 }
 
 fn refresh_template_dirs_static(db: &mut dyn ProjectDb, project: Project) {
@@ -302,46 +291,11 @@ impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
 
 fn load_project_template_library_cache(db: &mut dyn ProjectDb, project: Project) -> bool {
     match project.project_model(db) {
-        ProjectModelMode::Auto => load_project_template_library_cache_auto(db, project),
-        ProjectModelMode::Static => load_project_template_library_cache_static(db, project),
+        ProjectModelMode::Auto | ProjectModelMode::Static => {
+            load_project_template_library_cache_static(db, project)
+        }
         ProjectModelMode::Inspector => load_project_template_library_cache_inspector(db, project),
     }
-}
-
-fn load_project_template_library_cache_auto(db: &mut dyn ProjectDb, project: Project) -> bool {
-    let static_entry = load_static_template_library_snapshot_cache(db, project);
-    if static_entry
-        .as_ref()
-        .and_then(static_template_library_cache_entry_knowledge)
-        == Some(Knowledge::Known)
-    {
-        let entry = static_entry.expect("known static cache entry should exist");
-        return apply_static_template_library_cache_entry(db, project, entry);
-    }
-
-    let inspector_snapshot = load_template_library_snapshot_cache(db, project);
-    apply_auto_template_library_cache(db, project, static_entry, inspector_snapshot)
-}
-
-fn apply_auto_template_library_cache(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    static_entry: Option<StaticTemplateLibraryCacheEntry>,
-    inspector_snapshot: Option<TemplateLibrarySnapshot>,
-) -> bool {
-    if let Some(snapshot) = inspector_snapshot {
-        if apply_template_library_snapshot(db, project, snapshot) {
-            refresh_templatetag_modules(db, project);
-        }
-
-        return true;
-    }
-
-    let Some(entry) = static_entry else {
-        return false;
-    };
-
-    apply_static_template_library_cache_entry(db, project, entry)
 }
 
 fn load_project_template_library_cache_static(db: &mut dyn ProjectDb, project: Project) -> bool {
@@ -369,44 +323,11 @@ fn load_project_template_library_cache_inspector(db: &mut dyn ProjectDb, project
 
 fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
     match project.project_model(db) {
-        ProjectModelMode::Auto => refresh_template_libraries_auto(db, project),
-        ProjectModelMode::Static => refresh_template_libraries_static(db, project),
+        ProjectModelMode::Auto | ProjectModelMode::Static => {
+            refresh_template_libraries_static(db, project);
+        }
         ProjectModelMode::Inspector => refresh_template_libraries_inspector(db, project),
     }
-}
-
-fn refresh_template_libraries_auto(db: &mut dyn ProjectDb, project: Project) {
-    if let Some(entry) = load_static_template_library_snapshot_cache(db, project) {
-        if static_template_library_cache_entry_knowledge(&entry) == Some(Knowledge::Known) {
-            apply_static_template_library_cache_entry(db, project, entry);
-            return;
-        }
-
-        if let Some(snapshot) = fetch_template_library_snapshot(db) {
-            save_template_library_snapshot_cache(db, project, &snapshot);
-            apply_template_library_snapshot(db, project, snapshot);
-            return;
-        }
-
-        apply_static_template_library_cache_entry(db, project, entry);
-        return;
-    }
-
-    let assembly = assemble_project_static_template_library_snapshot_with_status(db, project);
-    log_static_project_model_status("assembled", &assembly.status);
-    save_static_template_library_snapshot_cache(db, project, &assembly);
-    if static_template_library_snapshot_knowledge(&assembly.snapshot) == Some(Knowledge::Known) {
-        apply_static_template_library_snapshot(db, project, assembly.snapshot);
-        return;
-    }
-
-    if let Some(snapshot) = fetch_template_library_snapshot(db) {
-        save_template_library_snapshot_cache(db, project, &snapshot);
-        apply_template_library_snapshot(db, project, snapshot);
-        return;
-    }
-
-    apply_static_template_library_snapshot(db, project, assembly.snapshot);
 }
 
 fn refresh_template_libraries_static(db: &mut dyn ProjectDb, project: Project) {
@@ -482,18 +403,6 @@ fn refresh_template_libraries_from_static_cache(
     log_static_project_model_status("cache_load", &entry.status);
     apply_static_template_library_snapshot(db, project, entry.snapshot);
     true
-}
-
-fn static_template_library_cache_entry_knowledge(
-    entry: &StaticTemplateLibraryCacheEntry,
-) -> Option<Knowledge> {
-    static_template_library_snapshot_knowledge(&entry.snapshot)
-}
-
-fn static_template_library_snapshot_knowledge(
-    snapshot: &Fact<TemplateLibrarySnapshot>,
-) -> Option<Knowledge> {
-    usable_static_template_library_snapshot(snapshot.clone()).map(|(_, knowledge)| knowledge)
 }
 
 fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
@@ -2471,7 +2380,7 @@ TEMPLATES = [
     }
 
     #[test]
-    fn auto_template_dirs_query_inspector_for_partial_static_data() {
+    fn auto_template_dirs_do_not_query_inspector_for_partial_static_data() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("project/__init__.py"), "");
@@ -2503,8 +2412,60 @@ TEMPLATES = [
 
         refresh_template_dirs(&mut db, project);
 
-        assert_eq!(db.introspector.query_count(), 1);
+        assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
+    }
+
+    #[test]
+    fn auto_project_external_data_refresh_does_not_query_inspector() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("templates/base.html"), "");
+        write_file(&root.join("blog/templates/blog/detail.html"), "");
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+            root.clone(),
+            missing_interpreter(&root),
+            ProjectModelMode::Auto,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_project_external_data(&mut db, project);
+
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates"), root.join("blog/templates")])
+        );
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("blog_tags"));
+        assert!(project
+            .template_files(&db)
+            .iter()
+            .any(|template| template.name() == "base.html"));
+        assert!(project
+            .python_index(&db)
+            .templatetags()
+            .any(|module| module.module_path().as_str() == "blog.templatetags.blog_tags"));
     }
 
     #[test]
@@ -3069,7 +3030,7 @@ TEMPLATES = []
     }
 
     #[test]
-    fn auto_template_libraries_query_inspector_for_partial_static_data() {
+    fn auto_template_libraries_do_not_query_inspector_for_partial_static_data() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root);
@@ -3085,7 +3046,7 @@ TEMPLATES = []
         refresh_template_libraries(&mut db, project);
 
         let libraries = project.template_libraries(&db);
-        assert_eq!(db.introspector.query_count(), 1);
+        assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(libraries.active_knowledge, Knowledge::Partial);
         assert!(libraries.is_enabled_library_str("blog_tags"));
     }
@@ -3846,16 +3807,13 @@ TEMPLATES = [
     }
 
     #[test]
-    fn auto_startup_cache_uses_inspector_cache_when_static_cache_is_partial() {
+    fn auto_startup_cache_ignores_inspector_cache_when_static_cache_is_partial() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
-            root.clone(),
-            missing_interpreter(&root),
-            ProjectModelMode::Auto,
-            Some("project.settings".to_string()),
-            Vec::new(),
-        );
+        let dependency = root.join("project/settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let interpreter = Interpreter::InterpreterPath("/missing/python".to_string());
         let static_snapshot = Fact::partial(
             test_response(),
             vec![Reason::path(
@@ -3871,10 +3829,20 @@ TEMPLATES = [
             Some(0),
             Some(1),
         );
-        let static_entry = StaticTemplateLibraryCacheEntry {
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
             snapshot: static_snapshot,
             status,
+            dependencies: vec![StaticCacheDependency::from_path(dependency)],
         };
+        save_static_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &[],
+            &assembly,
+        );
+
         let inspector_snapshot = TemplateLibrarySnapshot {
             symbols: Vec::new(),
             libraries: BTreeMap::from([(
@@ -3883,17 +3851,27 @@ TEMPLATES = [
             )]),
             builtins: Vec::new(),
         };
+        save_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &inspector_snapshot,
+        );
 
-        assert!(apply_auto_template_library_cache(
-            &mut db,
-            project,
-            Some(static_entry),
-            Some(inspector_snapshot),
-        ));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+            root,
+            interpreter,
+            ProjectModelMode::Auto,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
+        assert!(load_project_template_library_cache(&mut db, project));
         let libraries = project.template_libraries(&db);
-        assert!(libraries.is_enabled_library_str("inspector_only"));
-        assert!(!libraries.is_enabled_library_str("i18n"));
+        assert_eq!(libraries.active_knowledge, Knowledge::Partial);
+        assert!(libraries.is_enabled_library_str("i18n"));
+        assert!(!libraries.is_enabled_library_str("inspector_only"));
     }
 
     #[test]

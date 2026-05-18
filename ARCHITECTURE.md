@@ -152,7 +152,7 @@ Template parsing does not need its own database trait. `parse_template` depends 
 ### Static Project Model and Python Inspector
 
 > [!NOTE]
-> The inspector is being replaced by the static project model ([#401](https://github.com/joshuadavidthomas/django-language-server/issues/401)). The rollout keeps the inspector as a transitional fallback until the documented removal gates are met.
+> The inspector is being replaced by the static project model ([#401](https://github.com/joshuadavidthomas/django-language-server/issues/401)). The rollout keeps the inspector available as an explicit compatibility mode until the documented removal gates are met.
 
 The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, templatetag libraries, and the symbols they export. The preferred path is the static project model:
 
@@ -162,15 +162,15 @@ The server needs to know what Django has installed: `INSTALLED_APPS`, template d
 
 `project_model` controls rollout behavior:
 
-- `auto` builds static facts first and uses known static outputs without starting the inspector. Partial or unknown static facts can fall back to the inspector during the transition.
-- `static` uses only static facts and never starts the inspector. Partial or unknown facts degrade conservatively.
+- `auto` uses static facts without starting the inspector. Partial or unknown static facts degrade conservatively.
+- `static` uses the same static-only behavior as `auto`, for users who want to make that choice explicit.
 - `inspector` uses the legacy runtime path first.
 
 A small Python program from `crates/djls-semantic/inspector/` still ships embedded in the binary as a zipapp for fallback. Project introspection queries Django's template engine registry and returns JSON describing template directories, installed libraries, and their symbols.
 
 Startup uses two phases to avoid blocking the editor:
 
-1. A cache check during `initialized`. The server can load cached static template-library facts from `~/.cache/djls/static-project-model/template-libraries/` or legacy inspector responses from `~/.cache/djls/inspector/`, depending on `project_model` and fact confidence.
+1. A cache check during `initialized`. The server can load cached static template-library facts from `~/.cache/djls/static-project-model/template-libraries/` or, when `project_model = "inspector"`, legacy inspector responses from `~/.cache/djls/inspector/`.
 2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, template libraries, the first-party project file set, extracted validation rules from installed packages, and external model graphs. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
 
 This means that in the common case (you've opened this project before and the environment hasn't changed), startup is nearly instant — the server just reads a JSON file from disk.
