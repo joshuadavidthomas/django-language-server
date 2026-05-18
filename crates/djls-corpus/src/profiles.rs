@@ -210,20 +210,35 @@ impl DjangoEnvironmentProfile {
             profile_id,
             &format!("Django environment `{}` expected facts", self.root),
         )?;
-        if self.has_partial_confidence() {
+        for reason in &self.expected_partial_reasons {
+            anyhow::ensure!(
+                !reason.trim().is_empty(),
+                "profile `{profile_id}` Django environment `{}` has a blank expected partial reason",
+                self.root
+            );
+        }
+        if self.has_uncertain_confidence() {
             anyhow::ensure!(
                 !self.expected_partial_reasons.is_empty(),
-                "profile `{profile_id}` Django environment `{}` has partial confidence but no expected partial reasons",
+                "profile `{profile_id}` Django environment `{}` has non-known confidence but no expected partial reasons",
+                self.root
+            );
+        } else {
+            anyhow::ensure!(
+                self.expected_partial_reasons.is_empty(),
+                "profile `{profile_id}` Django environment `{}` has known confidence but expected partial reasons are set",
                 self.root
             );
         }
         Ok(())
     }
 
-    fn has_partial_confidence(&self) -> bool {
-        self.installed_apps_confidence == Confidence::Partial
-            || self.templates_confidence == Confidence::Partial
-            || self.template_libraries_confidence == Some(Confidence::Partial)
+    fn has_uncertain_confidence(&self) -> bool {
+        self.installed_apps_confidence != Confidence::Known
+            || self.templates_confidence != Confidence::Known
+            || self
+                .template_libraries_confidence
+                .is_some_and(|confidence| confidence != Confidence::Known)
     }
 }
 
@@ -305,13 +320,93 @@ mod tests {
         );
     }
 
+    fn profile_with_environment(
+        installed_apps_confidence: &str,
+        templates_confidence: &str,
+        template_libraries_confidence: Option<&str>,
+        expected_partial_reasons: &str,
+    ) -> ProfileSet {
+        let template_libraries_confidence = template_libraries_confidence
+            .map(|confidence| format!("template_libraries_confidence = \"{confidence}\"\n"))
+            .unwrap_or_default();
+        toml::from_str(&format!(
+            r#"
+[[profile]]
+id = "profile-reason-validation"
+description = "Reason validation fixture."
+source_roots = ["."]
+
+[profile.source]
+kind = "fixture"
+path = "gh401-multisite"
+
+[[profile.django_environment]]
+root = "."
+settings_file = "projects/site1/settings/dev.py"
+settings_module = "projects.site1.settings.dev"
+extends_files = []
+installed_apps_confidence = "{installed_apps_confidence}"
+templates_confidence = "{templates_confidence}"
+{template_libraries_confidence}expected_partial_reasons = [{expected_partial_reasons}]
+"#
+        ))
+        .unwrap()
+    }
+
     #[test]
-    fn partial_environment_requires_expected_partial_reasons() {
+    fn non_known_environment_requires_expected_partial_reasons() {
+        for (installed_apps_confidence, templates_confidence, template_libraries_confidence) in [
+            ("partial", "known", None),
+            ("unknown", "known", None),
+            ("known", "partial", None),
+            ("known", "unknown", None),
+            ("known", "known", Some("partial")),
+            ("known", "known", Some("unknown")),
+        ] {
+            let profiles = profile_with_environment(
+                installed_apps_confidence,
+                templates_confidence,
+                template_libraries_confidence,
+                "",
+            );
+
+            let error = profiles.validate().unwrap_err();
+
+            assert!(error
+                .to_string()
+                .contains("has non-known confidence but no expected partial reasons"));
+        }
+    }
+
+    #[test]
+    fn expected_partial_reasons_must_not_be_blank() {
+        let profiles = profile_with_environment("partial", "known", None, "\"\"");
+
+        let error = profiles.validate().unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("has a blank expected partial reason"));
+    }
+
+    #[test]
+    fn known_environment_rejects_stale_expected_partial_reasons() {
+        let profiles = profile_with_environment("known", "known", None, "\"stale reason\"");
+
+        let error = profiles.validate().unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("has known confidence but expected partial reasons are set"));
+    }
+
+    #[test]
+    fn non_known_environment_accepts_expected_partial_reasons() {
         let profiles: ProfileSet = toml::from_str(
             r#"
 [[profile]]
-id = "partial-without-reasons"
-description = "Partial confidence must explain why."
+id = "partial-with-reasons"
+description = "Partial confidence explains why."
 source_roots = ["."]
 
 [profile.source]
@@ -325,16 +420,12 @@ settings_module = "projects.site1.settings.dev"
 extends_files = []
 installed_apps_confidence = "partial"
 templates_confidence = "known"
-expected_partial_reasons = []
+expected_partial_reasons = ["reason"]
 "#,
         )
         .unwrap();
 
-        let error = profiles.validate().unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("has partial confidence but no expected partial reasons"));
+        profiles.validate().unwrap();
     }
 
     #[test]
