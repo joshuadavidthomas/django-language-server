@@ -354,7 +354,10 @@ fn resolve_module_fact(
         0 => Fact::unknown(vec![Reason::module(
             Field::ResolverModule,
             requested.clone(),
-            "module was not found in module search paths",
+            format!(
+                "module `{}` was not found in module search paths",
+                requested.as_str()
+            ),
         )]),
         1 => Fact::known(candidates.pop().unwrap().module),
         _ => Fact::ambiguous(

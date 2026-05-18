@@ -1714,6 +1714,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::project::facts::InstalledAppFact;
     use crate::project::introspector::ProjectIntrospector;
     use crate::project::names::LibraryName;
     use crate::project::names::PyModuleName;
@@ -2974,7 +2975,13 @@ TEMPLATES = []
             environment.settings_module,
             snapshot.reasons()
         );
-        assert_expected_profile_partial_reasons(profile_id, environment, &dirs, &snapshot);
+        assert_expected_profile_partial_reasons(
+            profile_id,
+            environment,
+            &context.app_registry.installed_apps,
+            &dirs,
+            &snapshot,
+        );
 
         let Some(snapshot) = snapshot.value() else {
             assert!(
@@ -3058,12 +3065,14 @@ TEMPLATES = []
     fn assert_expected_profile_partial_reasons(
         profile_id: &str,
         environment: &djls_corpus::DjangoEnvironmentProfile,
+        installed_apps: &Fact<Vec<InstalledAppFact>>,
         dirs: &Fact<Vec<Utf8PathBuf>>,
         snapshot: &Fact<TemplateLibrarySnapshot>,
     ) {
-        let reason_messages = dirs
+        let reason_messages = installed_apps
             .reasons()
             .iter()
+            .chain(dirs.reasons())
             .chain(snapshot.reasons())
             .map(|reason| reason.message.as_str())
             .collect::<Vec<_>>();

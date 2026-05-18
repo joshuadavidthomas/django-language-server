@@ -247,7 +247,9 @@ settings_module = "pretix.settings"
 extends_files = ["src/pretix/_base_settings.py"]
 installed_apps_confidence = "partial"
 templates_confidence = "known"
-expected_partial_reasons = []
+expected_partial_reasons = [
+  "module `djangoformsetjs` was not found in module search paths",
+]
 
 [profile.django_environment.expected]
 local_apps = [
