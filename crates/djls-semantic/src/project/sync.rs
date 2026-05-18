@@ -2924,6 +2924,20 @@ TEMPLATES = []
         site_packages: &Utf8PathBuf,
         environment: &djls_corpus::DjangoEnvironmentProfile,
     ) {
+        let context = assemble_static_project_context(
+            root,
+            Some(&environment.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        )
+        .unwrap_or_else(|reasons| {
+            panic!(
+                "profile `{profile_id}` environment `{}` failed to assemble static project context: {reasons:?}",
+                environment.settings_module,
+            )
+        });
+        assert_profile_installed_app_facts(profile_id, environment, &context);
+
         let dirs = assemble_static_template_dirs(
             root,
             Some(&environment.settings_module),
@@ -2986,6 +3000,59 @@ TEMPLATES = []
             "expected source-root-aware module names for profile `{profile_id}` environment `{}`, got {library_modules:?}",
             environment.settings_module,
         );
+    }
+
+    fn assert_profile_installed_app_facts(
+        profile_id: &str,
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+        context: &StaticProjectContext,
+    ) {
+        let installed_apps = &context.app_registry.installed_apps;
+        assert_eq!(
+            installed_apps.confidence(),
+            expected_profile_confidence(environment.installed_apps_confidence),
+            "unexpected installed app confidence for profile `{profile_id}` environment `{}`: {:?}",
+            environment.settings_module,
+            installed_apps.reasons()
+        );
+
+        let Some(installed_apps) = installed_apps.value() else {
+            assert!(
+                environment.expected.unresolved_apps.is_empty(),
+                "profile `{profile_id}` environment `{}` expected installed apps but installed app facts are unknown",
+                environment.settings_module,
+            );
+            return;
+        };
+
+        for expected_unresolved_app in &environment.expected.unresolved_apps {
+            let app = installed_apps
+                .iter()
+                .find(|app| app.entry == *expected_unresolved_app)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "profile `{profile_id}` environment `{}` did not include expected unresolved installed app entry `{expected_unresolved_app}`",
+                        environment.settings_module,
+                    )
+                });
+            assert!(
+                app.module.value().is_none() || app.path.value().is_none(),
+                "profile `{profile_id}` environment `{}` expected app `{expected_unresolved_app}` to remain unresolved",
+                environment.settings_module,
+            );
+        }
+
+        if let Some(app_registry) = context.app_registry.app_registry.value() {
+            for expected_unresolved_app in &environment.expected.unresolved_apps {
+                assert!(
+                    app_registry
+                        .iter()
+                        .all(|app| app.entry != *expected_unresolved_app),
+                    "profile `{profile_id}` environment `{}` unexpectedly promoted unresolved app `{expected_unresolved_app}` into the app registry",
+                    environment.settings_module,
+                );
+            }
+        }
     }
 
     fn assert_expected_profile_partial_reasons(
