@@ -6,15 +6,28 @@ Django Language Server validates your Django templates as you write them, catchi
 
 Template validation relies on three systems working together:
 
-### Inspector
+### Project Model
 
-The **inspector** is a Python process that introspects your running Django project to discover:
+The **project model** describes the Django facts djls needs for templates:
 
 - Which template tags and filters exist
 - Which libraries they belong to (builtins vs third-party)
 - Which library load-name maps to which module
+- Which template directories Django searches
 
-This gives djls an accurate picture of your project's template tag ecosystem — the same tags Django would see at runtime. The inspector reflects your `INSTALLED_APPS` configuration, so it only reports tags and filters from apps that are actually activated.
+By default, `project_model = "auto"` builds these facts statically from your workspace, `django_settings_module`, `pythonpath`, and available source files. When static facts are known, djls can provide scoped completions and diagnostics without spawning Python or calling `django.setup()`.
+
+During the transition, auto mode can still fall back to the Python inspector when static facts are partial or unknown. You can force one path with [`project_model`](configuration/index.md#project_model):
+
+- `"auto"` — static first, inspector fallback for partial/unknown facts
+- `"static"` — static only, no inspector subprocess
+- `"inspector"` — legacy runtime inspector first
+
+The static model tracks confidence. Known facts enable scoped availability diagnostics. Partial or unknown facts still allow diagnostics backed by positive facts, but suppress absence-based diagnostics unless inspector fallback supplies known facts.
+
+### Inspector
+
+The **inspector** is the legacy Python process that introspects your running Django project. It remains available as a fallback during the static project model rollout.
 
 ### Environment Scanner
 
@@ -34,7 +47,7 @@ The **extraction engine** analyzes Python source code (using static AST analysis
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
 - **Expression syntax** — valid operator usage in `{% if %}` / `{% elif %}` expressions
 
-Together, the inspector tells djls *what's active in your project*, the environment scanner tells djls *what's installed*, and extraction tells djls *how to validate usage*.
+Together, the project model tells djls *what's active in your project*, the environment scanner tells djls *what's installed*, and extraction tells djls *how to validate usage*.
 
 ## Three-Layer Resolution
 
@@ -96,7 +109,7 @@ Validates that template filters are available at their point of use, with the sa
 
 Validates that `{% load %}` library names refer to known template tag libraries:
 
-- **S120** — Unknown library (not found in the inspector inventory or the Python environment)
+- **S120** — Unknown library (not found in the project model or the Python environment)
 - **S121** — Library not in `INSTALLED_APPS` (the library exists in an installed package, but its Django app isn't activated)
 
 ### Extends Validation (S122–S123)
@@ -137,25 +150,29 @@ Django templates are deeply dynamic — many things can only be checked at runti
 - **Dynamic tag behavior** — Tags whose validation depends on runtime state
 - **Format strings** — Whether date/time format strings are valid
 
-## Inspector Availability
+## Project Model Availability
 
-The inspector requires a working Django environment (correct `DJANGO_SETTINGS_MODULE`, virtual environment with Django installed, no import errors during Django setup).
+The static project model needs enough source files and configuration to find your Django settings, installed apps, template directories, and templatetag modules. For typical literal or split settings, it can work without a configured Python runtime.
 
-When the inspector is **healthy**:
+When project model facts are **known**:
 
-- Full validation is active — all S108–S121 diagnostics are emitted
+- Scoped tag, filter, and library availability diagnostics can run from project facts
 - Completions are scoped to loaded libraries at cursor position
+- Argument and arity diagnostics run when extraction or built-in specs provide rules
 
-When the inspector is **unavailable** (Django init failed, Python not configured, etc.):
+When project model facts are **partial or unknown**:
 
-- **S108–S113, S118–S121 are suppressed** — Without knowing which tags/filters exist, djls cannot determine if something is unknown, unloaded, or not in `INSTALLED_APPS`
-- **S115–S116 are suppressed** — Filter arity rules come from extraction, which depends on knowing the source modules
-- **S117 is suppressed** — Tag argument rules come from extraction, which depends on the inspector discovering tag source modules
+- **Absence-based diagnostics are suppressed when unsafe** — Without complete project facts, djls avoids claiming that a tag, filter, or library is unknown or missing from `INSTALLED_APPS` (S108, S111, S118, S119, S120, S121)
+- **Positive-fact diagnostics can still run** — Known but unloaded or ambiguous tags and filters can still produce S109, S110, S112, and S113
+- **Known argument rules can still run** — Tag argument diagnostics (S117) run when extraction or built-in specs provide the needed rules
+- **Known arity rules can still run with positive project facts** — Filter arity diagnostics (S115–S116) run when active project facts include known filters and extraction or built-in specs provide the needed rules
 - **S100–S103 still work** — Block structure validation uses built-in tag specs
 - **S114 still works** — Expression syntax validation is purely structural
 - **Completions show all known tags** — Without library scoping, all tags are offered as a fallback
 
 This design avoids false positives when the Python environment isn't available.
+
+In `project_model = "auto"`, the inspector can still fill gaps for partial or unknown static facts. In `project_model = "static"`, djls does not fall back to the inspector.
 
 ## Configuring Diagnostic Severity
 
