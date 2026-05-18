@@ -196,7 +196,6 @@ templates_confidence = "partial"
 expected_partial_reasons = [
   "dynamic if condition controls settings mutation",
   "dynamic for loop controls settings mutation",
-  "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
 [profile.django_environment.expected]
@@ -235,7 +234,7 @@ unresolved_apps = [
   "django_prometheus",
   "strawberry_django",
 ]
-template_dirs = []
+template_dirs = ["netbox/templates"]
 templatetag_modules = [
   "extras.templatetags.dashboard",
   "extras.templatetags.log_levels",
@@ -321,14 +320,13 @@ installed_apps_confidence = "partial"
 templates_confidence = "partial"
 expected_partial_reasons = [
   "installed apps are assembled dynamically",
-  "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
 [profile.django_environment.expected]
 installed_apps = []
 local_apps = []
 external_apps = []
-template_dirs = []
+template_dirs = ["src/sentry/templates"]
 templatetag_modules = [
   "sentry.templatetags.sentry_assets",
   "sentry.templatetags.sentry_helpers",
