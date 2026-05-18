@@ -1274,9 +1274,15 @@ fn contains_nested_template_options_assignment(stmt: &Stmt) -> bool {
 
 fn body_contains_template_options_assignment(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| {
-        template_options_assignment(stmt).is_some()
+        template_options_assignment(stmt)
+            .as_ref()
+            .is_some_and(|assignment| template_option_affects_project_model(&assignment.key))
             || contains_nested_template_options_assignment(stmt)
     })
+}
+
+fn template_option_affects_project_model(key: &str) -> bool {
+    !matches!(key, "context_processors" | "debug" | "string_if_invalid")
 }
 
 fn is_name(expr: &Expr, expected: &str) -> bool {
@@ -1759,6 +1765,10 @@ fn apply_template_options_assignment_to_backends(
     assignment: &TemplateOptionsAssignment,
     file: &Utf8Path,
 ) -> Vec<Reason> {
+    if !template_option_affects_project_model(&assignment.key) {
+        return Vec::new();
+    }
+
     let Some(backend) = backends.get_mut(assignment.backend_index) else {
         return vec![reason(
             Field::SettingsTemplateOptions,
@@ -3483,7 +3493,7 @@ TEMPLATES[3]["OPTIONS"]["builtins"] = ["project.templatetags.builtins"]
     }
 
     #[test]
-    fn marks_unsupported_template_options_assignment_partial() {
+    fn ignores_irrelevant_template_options_assignment() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         let settings = write_settings(
@@ -3492,6 +3502,28 @@ TEMPLATES[3]["OPTIONS"]["builtins"] = ["project.templatetags.builtins"]
 INSTALLED_APPS = []
 TEMPLATES = [{"OPTIONS": {}}]
 TEMPLATES[0]["OPTIONS"]["context_processors"] = ["project.context_processors.extra"]
+TEMPLATES[0]["OPTIONS"]["debug"] = DEBUG
+TEMPLATES[0]["OPTIONS"]["string_if_invalid"] = "missing"
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert!(known_vec(&backends[0].option_builtins).is_empty());
+    }
+
+    #[test]
+    fn marks_project_model_affecting_template_options_assignment_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"OPTIONS": {}}]
+TEMPLATES[0]["OPTIONS"]["loaders"] = []
+TEMPLATES[0]["OPTIONS"]["unknown_option"] = "unknown"
 "#,
         );
 
@@ -3499,6 +3531,15 @@ TEMPLATES[0]["OPTIONS"]["context_processors"] = ["project.context_processors.ext
         let (backends, reasons) = partial_vec(&facts.template_backends);
 
         assert!(known_vec(&backends[0].option_builtins).is_empty());
+        assert_eq!(
+            reasons
+                .iter()
+                .filter(|reason| reason
+                    .message
+                    .contains("unsupported TEMPLATES OPTIONS assignment"))
+                .count(),
+            2
+        );
         assert!(reasons[0]
             .message
             .contains("unsupported TEMPLATES OPTIONS assignment"));
@@ -3525,6 +3566,26 @@ if ENABLE_EXTRA_BUILTINS:
         assert!(reasons.iter().any(|reason| reason
             .message
             .contains("unsupported nested assignment or mutation of TEMPLATES")));
+    }
+
+    #[test]
+    fn ignores_nested_irrelevant_template_options_assignments() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"OPTIONS": {}}]
+if DEBUG:
+    TEMPLATES[0]["OPTIONS"]["context_processors"] = ["project.context_processors.extra"]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert!(known_vec(&backends[0].option_builtins).is_empty());
     }
 
     #[test]
