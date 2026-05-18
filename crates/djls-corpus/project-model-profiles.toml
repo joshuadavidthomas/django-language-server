@@ -158,8 +158,8 @@ root = "."
 settings_file = "netbox/netbox/settings.py"
 settings_module = "netbox.settings"
 extends_files = []
-installed_apps_confidence = "partial"
-templates_confidence = "partial"
+installed_apps_confidence = "known"
+templates_confidence = "known"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
@@ -174,15 +174,23 @@ local_apps = [
   "utilities",
 ]
 site_package_modules = [
+  "corsheaders",
   "django.contrib.admin",
   "debug_toolbar",
+  "django_htmx",
   "django_filters",
-  "django_tables2",
-]
-unresolved_apps = [
-  "corsheaders",
   "django_prometheus",
+  "django_rq",
+  "django_tables2",
+  "drf_spectacular",
+  "drf_spectacular_sidecar",
+  "mptt",
+  "rest_framework",
+  "social_django",
+  "sorl.thumbnail",
   "strawberry_django",
+  "taggit",
+  "timezone_field",
 ]
 template_dirs = ["netbox/templates"]
 templatetag_modules = [

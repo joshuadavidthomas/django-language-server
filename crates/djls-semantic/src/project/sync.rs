@@ -3145,6 +3145,7 @@ TEMPLATES = []
             "django.contrib.sites",
             "django.contrib.sessions",
             "django.contrib.staticfiles",
+            "django.forms",
             "django.templatetags.cache",
             "django.templatetags.i18n",
             "django.templatetags.l10n",
