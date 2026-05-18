@@ -493,6 +493,20 @@ impl TemplateLibraries {
         let Some(response) = response else {
             self.active_knowledge = Knowledge::Unknown;
             self.builtins.clear();
+            for libraries in self.loadable.values_mut() {
+                for library in libraries.iter_mut() {
+                    if let LibraryStatus::Active {
+                        origin: Some(origin),
+                        ..
+                    } = &library.status
+                    {
+                        library.status = LibraryStatus::Discovered(origin.clone());
+                    }
+                }
+                libraries.retain(|library| {
+                    !matches!(library.status, LibraryStatus::Active { origin: None, .. })
+                });
+            }
             return self;
         };
 
