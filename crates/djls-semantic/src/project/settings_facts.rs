@@ -237,60 +237,14 @@ fn extract_settings_state_inner(
     let mut state = SettingsExtractionState::new(file);
 
     for stmt in &module.body {
-        if let Some(import_from) = star_import(stmt) {
-            follow_star_import(
-                &mut state,
-                import_from,
-                current_module,
-                imports,
-                active_files,
-            );
-            continue;
-        }
-
-        record_imported_module_path_values(stmt, &mut state, current_module, imports);
-        record_imported_module_path_functions(stmt, &mut state, current_module, imports);
-        record_path_assignment(stmt, &mut state.path_values, file);
-        record_path_list_assignment(stmt, &mut state.path_list_values, &state.path_values, file);
-
-        if let Some(value) = assigned_value(stmt, INSTALLED_APPS) {
-            state.installed_apps = Some(extract_string_list(
-                value,
-                Field::SettingsInstalledApps,
-                file,
-                "INSTALLED_APPS",
-            ));
-            continue;
-        }
-
-        if let Some(value) = assigned_value(stmt, TEMPLATES) {
-            state.template_backends = Some(extract_template_backends(
-                value,
-                &state.path_values,
-                &state.path_list_values,
-                file,
-            ));
-            continue;
-        }
-
-        if let Some(mutation) = list_mutation(stmt, INSTALLED_APPS) {
-            state.installed_apps = Some(apply_installed_apps_mutation(
-                state.installed_apps.take(),
-                mutation,
-                file,
-            ));
-            continue;
-        }
-
-        if let Some(mutation) = list_mutation(stmt, TEMPLATES) {
-            state.template_backends = Some(apply_template_backends_mutation(
-                state.template_backends.take(),
-                mutation,
-                &state.path_values,
-                &state.path_list_values,
-                file,
-            ));
-        }
+        process_settings_stmt(
+            stmt,
+            &mut state,
+            current_module,
+            imports,
+            active_files,
+            file,
+        );
     }
 
     if module
@@ -306,6 +260,7 @@ fn extract_settings_state_inner(
     }
     if module.body.iter().any(|stmt| {
         contains_nested_list_mutation(stmt, TEMPLATES)
+            || contains_nested_template_dirs_mutation(stmt)
             || contains_unsupported_setting_update(stmt, TEMPLATES)
     }) {
         state.add_template_backends_reason(reason(
@@ -316,6 +271,75 @@ fn extract_settings_state_inner(
     }
 
     state
+}
+
+fn process_settings_stmt(
+    stmt: &Stmt,
+    state: &mut SettingsExtractionState,
+    current_module: Option<&PyModuleName>,
+    imports: Option<&SettingsImportScope>,
+    active_files: &mut BTreeSet<Utf8PathBuf>,
+    file: &Utf8Path,
+) {
+    if let Some(import_from) = star_import(stmt) {
+        follow_star_import(state, import_from, current_module, imports, active_files);
+        return;
+    }
+
+    record_imported_module_path_values(stmt, state, current_module, imports);
+    record_imported_module_path_functions(stmt, state, current_module, imports);
+    record_path_assignment(stmt, &mut state.path_values, file);
+    record_path_list_assignment(stmt, &mut state.path_list_values, &state.path_values, file);
+
+    if let Some(value) = assigned_value(stmt, INSTALLED_APPS) {
+        state.installed_apps = Some(extract_string_list(
+            value,
+            Field::SettingsInstalledApps,
+            file,
+            "INSTALLED_APPS",
+        ));
+        return;
+    }
+
+    if let Some(value) = assigned_value(stmt, TEMPLATES) {
+        state.template_backends = Some(extract_template_backends(
+            value,
+            &state.path_values,
+            &state.path_list_values,
+            file,
+        ));
+        return;
+    }
+
+    if let Some(mutation) = list_mutation(stmt, INSTALLED_APPS) {
+        state.installed_apps = Some(apply_installed_apps_mutation(
+            state.installed_apps.take(),
+            mutation,
+            file,
+        ));
+        return;
+    }
+
+    if let Some(mutation) = list_mutation(stmt, TEMPLATES) {
+        state.template_backends = Some(apply_template_backends_mutation(
+            state.template_backends.take(),
+            mutation,
+            &state.path_values,
+            &state.path_list_values,
+            file,
+        ));
+        return;
+    }
+
+    if let Some(mutation) = template_dirs_mutation(stmt) {
+        state.template_backends = Some(apply_template_dirs_mutation(
+            state.template_backends.take(),
+            mutation,
+            &state.path_values,
+            &state.path_list_values,
+            file,
+        ));
+    }
 }
 
 fn assigned_value<'a>(stmt: &'a Stmt, target_name: &str) -> Option<&'a Expr> {
@@ -861,7 +885,10 @@ fn contains_unsupported_setting_update(stmt: &Stmt, target_name: &str) -> bool {
             .iter()
             .any(|target| is_indirect_setting_target(target, target_name)),
         Stmt::AnnAssign(assign) => is_indirect_setting_target(assign.target.as_ref(), target_name),
-        Stmt::AugAssign(assign) => is_indirect_setting_target(assign.target.as_ref(), target_name),
+        Stmt::AugAssign(assign) => {
+            is_indirect_setting_target(assign.target.as_ref(), target_name)
+                && !(target_name == TEMPLATES && template_dirs_mutation(stmt).is_some())
+        }
         Stmt::Expr(expr_stmt) => unsupported_setting_call(expr_stmt.value.as_ref(), target_name),
         Stmt::If(stmt_if) => {
             body_contains_unsupported_setting_update(&stmt_if.body, target_name)
@@ -909,6 +936,9 @@ fn unsupported_setting_call(expr: &Expr, target_name: &str) -> bool {
     let Expr::Attribute(attribute) = call.func.as_ref() else {
         return false;
     };
+    if target_name == TEMPLATES && call_template_dirs_mutation(call).is_some() {
+        return false;
+    }
     is_indirect_setting_target(attribute.value.as_ref(), target_name)
 }
 
@@ -998,6 +1028,149 @@ fn call_list_mutation<'a>(expr: &'a Expr, target_name: &str) -> Option<ListMutat
         "update" => Some(ListMutation::Unsupported),
         _ => None,
     }
+}
+
+#[derive(Clone, Copy)]
+struct TemplateDirsMutation<'a> {
+    backend_index: usize,
+    mutation: ListMutation<'a>,
+}
+
+fn template_dirs_mutation(stmt: &Stmt) -> Option<TemplateDirsMutation<'_>> {
+    match stmt {
+        Stmt::AugAssign(assign) => {
+            let backend_index = template_dirs_target(assign.target.as_ref())?;
+            let mutation = if assign.op == Operator::Add {
+                ListMutation::Extend(assign.value.as_ref())
+            } else {
+                ListMutation::Unsupported
+            };
+            Some(TemplateDirsMutation {
+                backend_index,
+                mutation,
+            })
+        }
+        Stmt::Expr(expr_stmt) => {
+            let Expr::Call(call) = expr_stmt.value.as_ref() else {
+                return None;
+            };
+            call_template_dirs_mutation(call)
+        }
+        _ => None,
+    }
+}
+
+fn call_template_dirs_mutation(
+    call: &ruff_python_ast::ExprCall,
+) -> Option<TemplateDirsMutation<'_>> {
+    let Expr::Attribute(attribute) = call.func.as_ref() else {
+        return None;
+    };
+    let backend_index = template_dirs_target(attribute.value.as_ref())?;
+    if !call.arguments.keywords.is_empty() {
+        return Some(TemplateDirsMutation {
+            backend_index,
+            mutation: ListMutation::Unsupported,
+        });
+    }
+
+    let mutation = match attribute.attr.as_str() {
+        "append" => {
+            let [value] = call.arguments.args.as_ref() else {
+                return Some(TemplateDirsMutation {
+                    backend_index,
+                    mutation: ListMutation::Unsupported,
+                });
+            };
+            ListMutation::Append(value)
+        }
+        "extend" => {
+            let [value] = call.arguments.args.as_ref() else {
+                return Some(TemplateDirsMutation {
+                    backend_index,
+                    mutation: ListMutation::Unsupported,
+                });
+            };
+            ListMutation::Extend(value)
+        }
+        "insert" => {
+            let [index, value] = call.arguments.args.as_ref() else {
+                return Some(TemplateDirsMutation {
+                    backend_index,
+                    mutation: ListMutation::Unsupported,
+                });
+            };
+            let Some(index) = integer_literal(index) else {
+                return Some(TemplateDirsMutation {
+                    backend_index,
+                    mutation: ListMutation::Unsupported,
+                });
+            };
+            ListMutation::Insert { index, value }
+        }
+        "clear" | "pop" | "remove" | "reverse" | "sort" | "update" => ListMutation::Unsupported,
+        _ => return None,
+    };
+
+    Some(TemplateDirsMutation {
+        backend_index,
+        mutation,
+    })
+}
+
+fn template_dirs_target(expr: &Expr) -> Option<usize> {
+    let Expr::Subscript(dirs_subscript) = expr else {
+        return None;
+    };
+    let key = string_literal(dirs_subscript.slice.as_ref())?;
+    if key != "DIRS" {
+        return None;
+    }
+
+    let Expr::Subscript(backend_subscript) = dirs_subscript.value.as_ref() else {
+        return None;
+    };
+    if !is_name(backend_subscript.value.as_ref(), TEMPLATES) {
+        return None;
+    }
+    integer_literal(backend_subscript.slice.as_ref())
+}
+
+fn contains_nested_template_dirs_mutation(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::If(stmt_if) => {
+            body_contains_template_dirs_mutation(&stmt_if.body)
+                || stmt_if
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| body_contains_template_dirs_mutation(&clause.body))
+        }
+        Stmt::For(stmt_for) => {
+            body_contains_template_dirs_mutation(&stmt_for.body)
+                || body_contains_template_dirs_mutation(&stmt_for.orelse)
+        }
+        Stmt::While(stmt_while) => {
+            body_contains_template_dirs_mutation(&stmt_while.body)
+                || body_contains_template_dirs_mutation(&stmt_while.orelse)
+        }
+        Stmt::Try(stmt_try) => {
+            body_contains_template_dirs_mutation(&stmt_try.body)
+                || stmt_try.handlers.iter().any(|handler| {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    body_contains_template_dirs_mutation(&handler.body)
+                })
+                || body_contains_template_dirs_mutation(&stmt_try.orelse)
+                || body_contains_template_dirs_mutation(&stmt_try.finalbody)
+        }
+        Stmt::With(stmt_with) => body_contains_template_dirs_mutation(&stmt_with.body),
+        _ => false,
+    }
+}
+
+fn body_contains_template_dirs_mutation(body: &[Stmt]) -> bool {
+    body.iter().any(|stmt| {
+        template_dirs_mutation(stmt).is_some() || contains_nested_template_dirs_mutation(stmt)
+    })
 }
 
 fn is_name(expr: &Expr, expected: &str) -> bool {
@@ -1270,6 +1443,161 @@ fn apply_template_backends_mutation(
     }
 }
 
+fn apply_template_dirs_mutation(
+    current: Option<Fact<Vec<TemplateBackendFact>>>,
+    mutation: TemplateDirsMutation,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
+    file: &Utf8Path,
+) -> Fact<Vec<TemplateBackendFact>> {
+    let Some(current) = current else {
+        return mutation_before_assignment(
+            Field::SettingsTemplates,
+            file,
+            "TEMPLATES DIRS mutation appears before TEMPLATES assignment or import",
+        );
+    };
+
+    match current {
+        Fact::Known { mut value } => {
+            let reasons = apply_template_dirs_mutation_to_backends(
+                &mut value,
+                mutation,
+                path_values,
+                path_list_values,
+                file,
+            );
+            known_or_partial(value, reasons)
+        }
+        Fact::Partial {
+            mut value,
+            mut reasons,
+        } => {
+            reasons.extend(apply_template_dirs_mutation_to_backends(
+                &mut value,
+                mutation,
+                path_values,
+                path_list_values,
+                file,
+            ));
+            Fact::partial(value, reasons)
+        }
+        Fact::Unknown { mut reasons } => {
+            reasons.push(reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES DIRS mutation because TEMPLATES is unknown",
+            ));
+            Fact::unknown(reasons)
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            reasons.push(reason(
+                Field::SettingsTemplates,
+                file,
+                "cannot apply TEMPLATES DIRS mutation because TEMPLATES is ambiguous",
+            ));
+            Fact::ambiguous(candidates, reasons)
+        }
+    }
+}
+
+fn apply_template_dirs_mutation_to_backends(
+    backends: &mut [TemplateBackendFact],
+    mutation: TemplateDirsMutation,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
+    file: &Utf8Path,
+) -> Vec<Reason> {
+    let Some(backend) = backends.get_mut(mutation.backend_index) else {
+        return vec![reason(
+            Field::SettingsTemplateDirs,
+            file,
+            "cannot apply TEMPLATES DIRS mutation because the backend index is out of range",
+        )];
+    };
+
+    backend.dirs = apply_template_dir_list_mutation(
+        std::mem::replace(&mut backend.dirs, Fact::known(Vec::new())),
+        mutation.mutation,
+        path_values,
+        path_list_values,
+        file,
+    );
+    Vec::new()
+}
+
+fn apply_template_dir_list_mutation(
+    current: Fact<Vec<TemplateDirFact>>,
+    mutation: ListMutation,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
+    file: &Utf8Path,
+) -> Fact<Vec<TemplateDirFact>> {
+    match mutation {
+        ListMutation::Append(value) => {
+            let Some(dir) = evaluate_template_dir(value, path_values, file) else {
+                return current.with_reason(reason(
+                    Field::SettingsTemplateDirs,
+                    file,
+                    "TEMPLATES DIRS append value contains an unsupported path expression",
+                ));
+            };
+            append_vec_fact(
+                current,
+                dir,
+                Vec::new(),
+                reason(
+                    Field::SettingsTemplateDirs,
+                    file,
+                    "cannot apply TEMPLATES DIRS append because the current value is unknown or ambiguous",
+                ),
+            )
+        }
+        ListMutation::Extend(value) => extend_vec_fact(
+            current,
+            extract_template_dirs(value, path_values, path_list_values, file),
+            reason(
+                Field::SettingsTemplateDirs,
+                file,
+                "cannot apply TEMPLATES DIRS extend because the current value is unknown or ambiguous",
+            ),
+        ),
+        ListMutation::Insert { index, value } => {
+            let Some(dir) = evaluate_template_dir(value, path_values, file) else {
+                return current.with_reason(reason(
+                    Field::SettingsTemplateDirs,
+                    file,
+                    "TEMPLATES DIRS insert value contains an unsupported path expression",
+                ));
+            };
+            insert_vec_fact(
+                current,
+                index,
+                dir,
+                Vec::new(),
+                reason(
+                    Field::SettingsTemplateDirs,
+                    file,
+                    "cannot apply TEMPLATES DIRS insert because the current value is unknown or ambiguous",
+                ),
+            )
+        }
+        ListMutation::Clear
+        | ListMutation::Pop(_)
+        | ListMutation::Remove(_)
+        | ListMutation::Reverse
+        | ListMutation::Sort
+        | ListMutation::Unsupported => current.with_reason(reason(
+            Field::SettingsTemplateDirs,
+            file,
+            "unsupported dynamic mutation of TEMPLATES DIRS",
+        )),
+    }
+}
+
 fn extract_template_backend_list_item(
     expr: &Expr,
     path_values: &BTreeMap<String, Utf8PathBuf>,
@@ -1417,6 +1745,17 @@ fn template_dir_facts(paths: Vec<Utf8PathBuf>) -> Vec<TemplateDirFact> {
             source: TemplateDirSource::SettingsDir,
         })
         .collect()
+}
+
+fn evaluate_template_dir(
+    expr: &Expr,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    file: &Utf8Path,
+) -> Option<TemplateDirFact> {
+    evaluate_path(expr, path_values, file).map(|path| TemplateDirFact {
+        path,
+        source: TemplateDirSource::SettingsDir,
+    })
 }
 
 fn extract_option_libraries(
@@ -2799,7 +3138,97 @@ TEMPLATES[0]["DIRS"].insert(0, DATA_DIR / "templates")
         let facts = extract_settings_facts(&settings);
 
         let (backends, reasons) = partial_vec(&facts.template_backends);
-        assert!(known_vec(&backends[0].dirs).is_empty());
+        let (dirs, dir_reasons) = partial_vec(&backends[0].dirs);
+        assert!(dirs.is_empty());
+        assert!(dir_reasons[0]
+            .message
+            .contains("unsupported path expression"));
+        assert!(reasons.iter().any(|reason| reason
+            .message
+            .contains("unsupported nested assignment or mutation of TEMPLATES")));
+    }
+
+    #[test]
+    fn applies_deterministic_template_dirs_mutations() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [BASE_DIR / "templates"]}]
+TEMPLATES[0]["DIRS"].append(BASE_DIR / "append")
+TEMPLATES[0]["DIRS"].extend([BASE_DIR / "extend"])
+TEMPLATES[0]["DIRS"].insert(1, BASE_DIR / "insert")
+TEMPLATES[0]["DIRS"] += [BASE_DIR / "added"]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)
+                .into_iter()
+                .map(|dir| dir.path)
+                .collect::<Vec<_>>(),
+            [
+                root.join("templates"),
+                root.join("insert"),
+                root.join("append"),
+                root.join("extend"),
+                root.join("added"),
+            ]
+        );
+    }
+
+    #[test]
+    fn marks_out_of_range_template_dirs_mutation_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": ["templates"]}]
+TEMPLATES[3]["DIRS"].append("missing")
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let (backends, reasons) = partial_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            Utf8PathBuf::from("templates")
+        );
+        assert!(reasons[0].message.contains("backend index is out of range"));
+    }
+
+    #[test]
+    fn marks_nested_template_dirs_mutations_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": ["templates"]}]
+if ENABLE_EXTRA_TEMPLATES:
+    TEMPLATES[0]["DIRS"].append("extra")
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let (backends, reasons) = partial_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            Utf8PathBuf::from("templates")
+        );
         assert!(reasons.iter().any(|reason| reason
             .message
             .contains("unsupported nested assignment or mutation of TEMPLATES")));
