@@ -14,7 +14,7 @@ pub(crate) fn check_filter_arity_rule(
     arity_specs: &FilterAritySpecs,
     active_knowledge: Knowledge,
 ) {
-    if active_knowledge != Knowledge::Known {
+    if !active_knowledge.has_positive_facts() {
         return;
     }
 

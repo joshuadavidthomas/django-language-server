@@ -169,10 +169,23 @@ impl TemplateLibrary {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Knowledge {
     Known,
+    Partial,
     Unknown,
 }
 
-#[derive(Serialize, Deserialize)]
+impl Knowledge {
+    #[must_use]
+    pub(crate) fn has_positive_facts(self) -> bool {
+        matches!(self, Self::Known | Self::Partial)
+    }
+
+    #[must_use]
+    pub(crate) fn is_fully_known(self) -> bool {
+        matches!(self, Self::Known)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TemplateLibrarySnapshot {
     pub symbols: Vec<TemplateSymbolSnapshot>,
     pub libraries: BTreeMap<String, String>,
@@ -226,7 +239,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn registration_modules(&self) -> FxHashSet<PyModuleName> {
-        if self.active_knowledge != Knowledge::Known {
+        if !self.active_knowledge.has_positive_facts() {
             return FxHashSet::default();
         }
 
@@ -460,14 +473,30 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn apply_active_snapshot(mut self, response: Option<TemplateLibrarySnapshot>) -> Self {
+    pub fn apply_active_snapshot(self, response: Option<TemplateLibrarySnapshot>) -> Self {
+        self.apply_active_snapshot_with_knowledge(response, Knowledge::Known)
+    }
+
+    #[must_use]
+    pub(crate) fn apply_partial_active_snapshot(
+        self,
+        response: Option<TemplateLibrarySnapshot>,
+    ) -> Self {
+        self.apply_active_snapshot_with_knowledge(response, Knowledge::Partial)
+    }
+
+    fn apply_active_snapshot_with_knowledge(
+        mut self,
+        response: Option<TemplateLibrarySnapshot>,
+        knowledge: Knowledge,
+    ) -> Self {
         let Some(response) = response else {
             self.active_knowledge = Knowledge::Unknown;
             self.builtins.clear();
             return self;
         };
 
-        self.active_knowledge = Knowledge::Known;
+        self.active_knowledge = knowledge;
 
         let mut enabled: BTreeMap<LibraryName, PyModuleName> = BTreeMap::new();
         for (name, module) in response.libraries {

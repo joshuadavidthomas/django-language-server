@@ -131,12 +131,22 @@ mod tests {
     use crate::testing::builtin_filter_json;
     use crate::testing::builtin_tag_json;
     use crate::testing::collect_errors;
+    use crate::testing::library_filter_json;
     use crate::testing::library_tag_json;
     use crate::testing::make_template_libraries;
     use crate::testing::TestDatabase;
     use crate::FilterArity;
+    use crate::Knowledge;
+    use crate::LibraryName;
+    use crate::LibraryOrigin;
+    use crate::PyModuleName;
+    use crate::SymbolDefinition;
     use crate::SymbolKey;
     use crate::TemplateLibraries;
+    use crate::TemplateLibrary;
+    use crate::TemplateSymbol;
+    use crate::TemplateSymbolKind;
+    use crate::TemplateSymbolName;
     use crate::ValidationError;
 
     fn default_builtins_module() -> &'static str {
@@ -165,6 +175,7 @@ mod tests {
             builtin_filter_json("default", default_filters_module()),
             builtin_filter_json("truncatewords", default_filters_module()),
             builtin_filter_json("date", default_filters_module()),
+            library_filter_json("translate", "i18n", "django.templatetags.i18n"),
         ];
         let mut libraries = HashMap::new();
         libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
@@ -219,6 +230,84 @@ mod tests {
         TestDatabase::new()
             .with_template_libraries(standard_inventory())
             .with_arity_specs(standard_arities())
+    }
+
+    fn partial_active_db() -> TestDatabase {
+        let mut libraries = standard_inventory();
+        libraries.active_knowledge = Knowledge::Partial;
+        TestDatabase::new()
+            .with_template_libraries(libraries)
+            .with_arity_specs(standard_arities())
+    }
+
+    fn discovered_widgets_inventory(active_knowledge: Knowledge) -> TemplateLibraries {
+        let mut libraries = standard_inventory();
+        libraries.active_knowledge = active_knowledge;
+        libraries.discovery_knowledge = Knowledge::Known;
+
+        let name = LibraryName::parse("widgets").unwrap();
+        let app = PyModuleName::parse("example.widgets").unwrap();
+        let module = PyModuleName::parse("example.widgets.templatetags.widgets").unwrap();
+        let origin = LibraryOrigin {
+            app,
+            module: module.clone(),
+            path: Utf8PathBuf::from("/example/widgets/templatetags/widgets.py"),
+        };
+        let mut library = TemplateLibrary::new_discovered(name.clone(), origin);
+        library.merge_symbol(discovered_widget_symbol(
+            TemplateSymbolKind::Tag,
+            "widget_tag",
+            module.as_str(),
+        ));
+        library.merge_symbol(discovered_widget_symbol(
+            TemplateSymbolKind::Filter,
+            "widget_filter",
+            module.as_str(),
+        ));
+
+        libraries.loadable.entry(name).or_default().push(library);
+        libraries
+    }
+
+    fn discovered_widget_symbol(
+        kind: TemplateSymbolKind,
+        name: &str,
+        module: &str,
+    ) -> TemplateSymbol {
+        TemplateSymbol {
+            kind,
+            name: TemplateSymbolName::parse(name).unwrap(),
+            definition: SymbolDefinition::Module(PyModuleName::parse(module).unwrap()),
+            doc: None,
+        }
+    }
+
+    fn ambiguous_filter_inventory() -> TemplateLibraries {
+        let tags = vec![
+            builtin_tag_json("load", default_builtins_module()),
+            library_tag_json("trans", "i18n", "django.templatetags.i18n"),
+        ];
+        let filters = vec![
+            builtin_filter_json("lower", default_filters_module()),
+            library_filter_json("shared", "alpha", "example.alpha.templatetags.alpha"),
+            library_filter_json("shared", "beta", "example.beta.templatetags.beta"),
+        ];
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "alpha".to_string(),
+            "example.alpha.templatetags.alpha".to_string(),
+        );
+        libraries.insert(
+            "beta".to_string(),
+            "example.beta.templatetags.beta".to_string(),
+        );
+        let builtins = vec![
+            default_builtins_module().to_string(),
+            default_filters_module().to_string(),
+        ];
+        let mut libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
+        libraries.active_knowledge = Knowledge::Partial;
+        libraries
     }
 
     fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
@@ -409,6 +498,153 @@ mod tests {
                 if tag == "trans" && library == "i18n"),
             "Expected UnloadedTag for trans/i18n, got: {:?}",
             scoping_errors[0]
+        );
+    }
+
+    #[test]
+    fn partial_active_knowledge_keeps_known_unloaded_tag_diagnostic() {
+        let db = partial_active_db();
+        let errors = collect_all_errors(&db, "{% trans \"hello\" %}\n");
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedTag { tag, library, .. }
+                    if tag == "trans" && library == "i18n"
+            )),
+            "Expected partial known active facts to keep S109 for known unloaded tags, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_active_knowledge_keeps_known_unloaded_filter_diagnostic() {
+        let db = partial_active_db();
+        let errors = collect_all_errors(&db, "{{ value|translate }}\n");
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedFilter { filter, library, .. }
+                    if filter == "translate" && library == "i18n"
+            )),
+            "Expected partial known active facts to keep S112 for known unloaded filters, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_active_knowledge_keeps_known_ambiguous_unloaded_filter_diagnostic() {
+        let db = TestDatabase::new()
+            .with_template_libraries(ambiguous_filter_inventory())
+            .with_arity_specs(standard_arities());
+        let errors = collect_all_errors(&db, "{{ value|shared }}\n");
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::AmbiguousUnloadedFilter { filter, libraries, .. }
+                    if filter == "shared"
+                        && libraries == &vec!["alpha".to_string(), "beta".to_string()]
+            )),
+            "Expected partial known active facts to keep S113 for ambiguous unloaded filters, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_active_knowledge_suppresses_unknown_tag_and_library() {
+        let db = partial_active_db();
+        let errors = collect_all_errors(
+            &db,
+            concat!(
+                "{% definitely_unknown_tag %}\n",
+                "{{ value|definitely_unknown_filter }}\n",
+                "{% load definitely_unknown_library %}\n",
+            ),
+        );
+
+        assert!(
+            errors.iter().all(|error| !matches!(
+                error,
+                ValidationError::UnknownTag { .. }
+                    | ValidationError::UnknownFilter { .. }
+                    | ValidationError::UnknownLibrary { .. }
+            )),
+            "Expected partial active facts to suppress unsafe unknown diagnostics, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn known_active_knowledge_keeps_not_in_installed_apps_diagnostics() {
+        let db = TestDatabase::new()
+            .with_template_libraries(discovered_widgets_inventory(Knowledge::Known))
+            .with_arity_specs(standard_arities());
+        let errors = collect_all_errors(
+            &db,
+            concat!(
+                "{% widget_tag %}\n",
+                "{{ value|widget_filter }}\n",
+                "{% load widgets %}\n",
+            ),
+        );
+
+        assert!(
+            errors.iter().any(
+                |error| matches!(error, ValidationError::TagNotInInstalledApps { tag, .. }
+                    if tag == "widget_tag")
+            ),
+            "Expected known active facts to keep S118, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().any(
+                |error| matches!(error, ValidationError::FilterNotInInstalledApps { filter, .. }
+                    if filter == "widget_filter")
+            ),
+            "Expected known active facts to keep S119, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().any(
+                |error| matches!(error, ValidationError::LibraryNotInInstalledApps { name, .. }
+                    if name == "widgets")
+            ),
+            "Expected known active facts to keep S121, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_active_knowledge_suppresses_not_in_installed_apps_diagnostics() {
+        let db = TestDatabase::new()
+            .with_template_libraries(discovered_widgets_inventory(Knowledge::Partial))
+            .with_arity_specs(standard_arities());
+        let errors = collect_all_errors(
+            &db,
+            concat!(
+                "{% widget_tag %}\n",
+                "{{ value|widget_filter }}\n",
+                "{% load widgets %}\n",
+            ),
+        );
+
+        assert!(
+            errors.iter().all(|error| !matches!(
+                error,
+                ValidationError::TagNotInInstalledApps { .. }
+                    | ValidationError::FilterNotInInstalledApps { .. }
+                    | ValidationError::LibraryNotInInstalledApps { .. }
+            )),
+            "Expected partial active facts to suppress unsafe not-in-installed-apps diagnostics, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_active_knowledge_keeps_known_filter_arity_diagnostic() {
+        let db = partial_active_db();
+        let errors = collect_all_errors(&db, "{{ value|truncatewords }}\n");
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| matches!(error, ValidationError::FilterMissingArgument { filter, .. }
+                    if filter == "truncatewords")),
+            "Expected partial known active facts to keep S115 for known filter arity, got: {errors:?}"
         );
     }
 

@@ -20,8 +20,8 @@ use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
 
-use crate::project::app_registry::AppRegistryFacts;
 use crate::project::app_registry::resolve_app_registry;
+use crate::project::app_registry::AppRegistryFacts;
 use crate::project::db::Db as ProjectDb;
 use crate::project::facts::Fact;
 use crate::project::facts::Field;
@@ -47,6 +47,7 @@ use crate::project::resolve::find_site_packages;
 use crate::project::resolve::resolve_modules;
 use crate::project::resolve::ResolvedModule;
 use crate::project::settings_facts::extract_settings_facts_for_module;
+use crate::project::symbols::Knowledge;
 use crate::project::symbols::TemplateLibrarySnapshot;
 use crate::project::template_dirs::assemble_template_dirs;
 use crate::project::template_libraries::assemble_template_libraries;
@@ -274,8 +275,21 @@ fn apply_template_library_snapshot(
     project: Project,
     snapshot: TemplateLibrarySnapshot,
 ) -> bool {
+    apply_template_library_snapshot_with_knowledge(db, project, snapshot, Knowledge::Known)
+}
+
+fn apply_template_library_snapshot_with_knowledge(
+    db: &mut dyn ProjectDb,
+    project: Project,
+    snapshot: TemplateLibrarySnapshot,
+    knowledge: Knowledge,
+) -> bool {
     let current = project.template_libraries(db).clone();
-    let next = current.apply_active_snapshot(Some(snapshot));
+    let next = match knowledge {
+        Knowledge::Known => current.apply_active_snapshot(Some(snapshot)),
+        Knowledge::Partial => current.apply_partial_active_snapshot(Some(snapshot)),
+        Knowledge::Unknown => current.apply_active_snapshot(None),
+    };
     if project.template_libraries(db) == &next {
         return false;
     }
@@ -314,11 +328,11 @@ fn apply_static_template_library_snapshot(
     project: Project,
     snapshot: Fact<TemplateLibrarySnapshot>,
 ) -> bool {
-    let Some(snapshot) = usable_static_template_library_snapshot(snapshot) else {
+    let Some((snapshot, knowledge)) = usable_static_template_library_snapshot(snapshot) else {
         return false;
     };
 
-    apply_template_library_snapshot(db, project, snapshot)
+    apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge)
 }
 
 fn assemble_static_template_library_snapshot(
@@ -414,10 +428,15 @@ fn assemble_static_project_context(
 
 fn usable_static_template_library_snapshot(
     snapshot: Fact<TemplateLibrarySnapshot>,
-) -> Option<TemplateLibrarySnapshot> {
+) -> Option<(TemplateLibrarySnapshot, Knowledge)> {
     match snapshot {
-        Fact::Known { value } => has_static_template_libraries(&value).then_some(value),
-        Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
+        Fact::Known { value } => {
+            has_static_template_libraries(&value).then_some((value, Knowledge::Known))
+        }
+        Fact::Partial { value, .. } => {
+            has_static_template_libraries(&value).then_some((value, Knowledge::Partial))
+        }
+        Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
     }
 }
 
@@ -902,11 +921,16 @@ mod tests {
 
     use super::*;
     use crate::project::introspector::ProjectIntrospector;
+    use crate::project::names::LibraryName;
+    use crate::project::names::PyModuleName;
     use crate::project::symbols::InstalledSymbolOrigin;
     use crate::project::symbols::Knowledge;
     use crate::project::symbols::TemplateLibraries;
     use crate::project::symbols::TemplateSymbolKind;
     use crate::project::symbols::TemplateSymbolSnapshot;
+    use crate::testing::collect_errors;
+    use crate::testing::TestDatabase;
+    use crate::ValidationError;
 
     #[salsa::db]
     struct StaticSnapshotTestDb {
@@ -1959,7 +1983,62 @@ TEMPLATES = []
         assert!(!reasons.is_empty());
         assert!(value.libraries.contains_key("blog_tags"));
         assert!(value.symbols.iter().any(|symbol| symbol.name == "shout"));
-        assert!(usable_static_template_library_snapshot(snapshot).is_none());
+        assert!(matches!(
+            usable_static_template_library_snapshot(snapshot.clone()),
+            Some((_, Knowledge::Partial))
+        ));
+
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        assert!(apply_static_template_library_snapshot(
+            &mut db, project, snapshot,
+        ));
+        let libraries = project.template_libraries(&db);
+        assert_eq!(libraries.active_knowledge, Knowledge::Partial);
+        assert!(libraries
+            .loadable
+            .contains_key(&LibraryName::parse("blog_tags").unwrap()));
+        assert!(libraries
+            .registration_modules()
+            .contains(&PyModuleName::parse("blog.templatetags.blog_tags").unwrap()));
+
+        let validation_db = TestDatabase::new().with_template_libraries(libraries.clone());
+        let errors = collect_errors(
+            &validation_db,
+            "test.html",
+            concat!(
+                "{% shout \"hello\" %}\n",
+                "{{ value|emph }}\n",
+                "{% definitely_unknown_tag %}\n",
+                "{{ value|definitely_unknown_filter }}\n",
+                "{% load definitely_unknown_library %}\n",
+            ),
+        );
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedTag { tag, library, .. }
+                    if tag == "shout" && library == "blog_tags"
+            )),
+            "Expected static partial active facts to keep known unloaded tag diagnostics, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedFilter { filter, library, .. }
+                    if filter == "emph" && library == "blog_tags"
+            )),
+            "Expected static partial active facts to keep known unloaded filter diagnostics, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().all(|error| !matches!(
+                error,
+                ValidationError::UnknownTag { .. }
+                    | ValidationError::UnknownFilter { .. }
+                    | ValidationError::UnknownLibrary { .. }
+            )),
+            "Expected static partial active facts to suppress unsafe unknown diagnostics, got: {errors:?}"
+        );
     }
 
     #[test]
