@@ -296,7 +296,9 @@ settings_module = "sentry.conf.server"
 extends_files = []
 installed_apps_confidence = "partial"
 templates_confidence = "partial"
-expected_partial_reasons = []
+expected_partial_reasons = [
+  "module `drf_spectacular` was not found in module search paths",
+]
 
 [profile.django_environment.expected]
 local_apps = []

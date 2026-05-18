@@ -3152,6 +3152,7 @@ TEMPLATES = []
             "django.contrib.contenttypes",
             "django.contrib.humanize",
             "django.contrib.messages",
+            "django.contrib.postgres",
             "django.contrib.sites",
             "django.contrib.sessions",
             "django.contrib.staticfiles",
