@@ -236,6 +236,7 @@ fn extract_settings_state_inner(
             continue;
         }
 
+        record_imported_module_path_functions(stmt, &mut state, current_module, imports);
         record_path_assignment(stmt, &mut state.path_values, file);
 
         if let Some(value) = assigned_value(stmt, INSTALLED_APPS) {
@@ -382,6 +383,111 @@ fn follow_star_import(
         active_files,
     );
     state.apply_star_import(imported);
+}
+
+fn record_imported_module_path_functions(
+    stmt: &Stmt,
+    state: &mut SettingsExtractionState,
+    current_module: Option<&PyModuleName>,
+    imports: Option<&SettingsImportScope>,
+) {
+    let Stmt::ImportFrom(import_from) = stmt else {
+        return;
+    };
+    if import_from.level == 0 || import_from.module.is_some() {
+        return;
+    }
+    let Some(current_module) = current_module else {
+        return;
+    };
+    let Some(imports) = imports else {
+        return;
+    };
+
+    for alias in &import_from.names {
+        if alias.name.as_str() == "*" {
+            continue;
+        }
+        let local_name = alias
+            .asname
+            .as_ref()
+            .map_or(alias.name.as_str(), |asname| asname.as_str());
+        let target_module = resolve_relative_import_module(
+            current_module,
+            import_from.level as usize,
+            Some(alias.name.as_str()),
+        );
+        let Some(target_module) = target_module.value().cloned() else {
+            continue;
+        };
+        let resolution = resolve_module(target_module, imports.search_paths, imports.project_root);
+        let Some(target_file) = resolution.resolved.value().map(|resolved| &resolved.file) else {
+            continue;
+        };
+
+        let function_paths = extract_path_return_functions(target_file);
+        if function_paths.is_empty() {
+            continue;
+        }
+        state.add_files_read([target_file.clone()]);
+        for (function_name, path) in function_paths {
+            state
+                .path_values
+                .insert(format!("{local_name}.{function_name}"), path);
+        }
+    }
+}
+
+fn extract_path_return_functions(file: &Utf8Path) -> BTreeMap<String, Utf8PathBuf> {
+    let Ok(source) = fs::read_to_string(file) else {
+        return BTreeMap::new();
+    };
+    let Ok(parsed) = ruff_python_parser::parse_module(&source) else {
+        return BTreeMap::new();
+    };
+    let module = parsed.into_syntax();
+
+    let mut path_values = BTreeMap::new();
+    for stmt in &module.body {
+        record_path_assignment(stmt, &mut path_values, file);
+    }
+
+    module
+        .body
+        .iter()
+        .filter_map(|stmt| path_return_function(stmt, &path_values, file))
+        .collect()
+}
+
+fn path_return_function(
+    stmt: &Stmt,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    file: &Utf8Path,
+) -> Option<(String, Utf8PathBuf)> {
+    let Stmt::FunctionDef(function) = stmt else {
+        return None;
+    };
+    if !function.parameters.posonlyargs.is_empty()
+        || !function.parameters.args.is_empty()
+        || !function.parameters.kwonlyargs.is_empty()
+        || function.parameters.vararg.is_some()
+        || function.parameters.kwarg.is_some()
+    {
+        return None;
+    }
+    let return_stmt = only_return_after_optional_docstring(&function.body)?;
+    let path = evaluate_path(return_stmt.value.as_deref()?, path_values, file)?;
+    Some((function.name.to_string(), path))
+}
+
+fn only_return_after_optional_docstring(body: &[Stmt]) -> Option<&ruff_python_ast::StmtReturn> {
+    match body {
+        [Stmt::Return(return_stmt)] => Some(return_stmt),
+        [Stmt::Expr(expr), Stmt::Return(return_stmt)] if string_literal(&expr.value).is_some() => {
+            Some(return_stmt)
+        }
+        _ => None,
+    }
 }
 
 fn unresolved_module_candidate_files(
@@ -1006,6 +1112,13 @@ fn evaluate_path_call(
     path_values: &BTreeMap<String, Utf8PathBuf>,
     settings_file: &Utf8Path,
 ) -> Option<Utf8PathBuf> {
+    if call.arguments.args.is_empty() && call.arguments.keywords.is_empty() {
+        if let Some(path) = dotted_name(call.func.as_ref()).and_then(|name| path_values.get(&name))
+        {
+            return Some(path.clone());
+        }
+    }
+
     match call.func.as_ref() {
         Expr::Name(name) if name.id.as_str() == "Path" => {
             let first = call.arguments.args.first()?;
@@ -1984,5 +2097,39 @@ TEMPLATES = [{"DIRS": [os.path.join(PROJECT_ROOT, "templates")]}]
             known_vec(&backends[0].dirs)[0].path,
             root.join("project/templates")
         );
+    }
+
+    #[test]
+    fn extracts_imported_module_path_helper_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/config.py"),
+            r#"
+from pathlib import Path
+
+def get_base_dir():
+    """Return project root."""
+    return Path(__file__).parent.parent.resolve()
+"#,
+        );
+        let settings = root.join("project/settings.py");
+        write_file(
+            &settings,
+            r#"
+from . import config
+
+BASE_DIR = config.get_base_dir()
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [BASE_DIR.joinpath("templates")]}]
+"#,
+        );
+
+        let facts = extract_project_settings_module(&root, &settings, "project.settings");
+        let backends = known_vec(&facts.template_backends);
+
+        assert!(facts.files_read.contains(&root.join("project/config.py")));
+        assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
     }
 }

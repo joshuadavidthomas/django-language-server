@@ -168,7 +168,7 @@ external_apps = [
   "rest_framework",
   "allauth",
 ]
-template_dirs = []
+template_dirs = ["src/backend/InvenTree/templates"]
 templatetag_modules = [
   "generic.templatetags.generic",
   "plugin.templatetags.plugin_extras",
