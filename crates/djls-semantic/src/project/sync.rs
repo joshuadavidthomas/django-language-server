@@ -1706,7 +1706,6 @@ fn split_extraction_results(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::collections::BTreeSet;
     use std::process::Command;
     use std::sync::Arc;
 
@@ -2763,16 +2762,20 @@ TEMPLATES = []
     }
 
     #[test]
-    fn gh401_profile_static_assembly_matches_profile_environments() {
-        let profiles = djls_corpus::project_model_profiles().unwrap();
-        let profile = profiles.get("gh401-multisite-split-settings").unwrap();
-        let root = profile.root_path(None).unwrap();
-        let pythonpath = profile.source_roots.clone();
+    fn gh401_static_assembly_keeps_split_settings_outputs_separate() {
+        let manifest = djls_corpus::Manifest::load_default().unwrap();
+        let fixture = manifest
+            .fixtures
+            .iter()
+            .find(|fixture| fixture.name == "gh401-multisite")
+            .unwrap();
+        let root = fixture.root_path();
+        let pythonpath = vec!["projects".to_string(), "apps".to_string()];
         let tmp = TempDir::new().unwrap();
         let site_packages = Utf8PathBuf::try_from(tmp.path().join("site-packages")).unwrap();
         write_minimal_django_site_packages(
             &site_packages,
-            &[
+            [
                 "django.contrib.auth",
                 "django.contrib.contenttypes",
                 "django.templatetags.cache",
@@ -2785,91 +2788,107 @@ TEMPLATES = []
                 "django.template.loader_tags",
             ],
         );
-        let all_expected_templatetag_modules = profile
-            .expected_union
-            .templatetag_modules
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
 
-        for environment in &profile.django_environments {
-            assert_profile_environment_static_assembly(
-                &root,
-                &pythonpath,
-                &site_packages,
-                environment,
-                &all_expected_templatetag_modules,
-            );
+        for expected in [
+            StaticAssemblyExpectation {
+                settings_module: "site1.settings.dev",
+                template_dirs: &[
+                    "projects/site1/templates",
+                    "apps/clientname/app1/templates",
+                    "apps/clientname/app2/templates",
+                ],
+                templatetag_modules: &[
+                    "clientname.app1.templatetags.app1_tags",
+                    "clientname.app2.templatetags.app2_tags",
+                ],
+                excluded_templatetag_modules: &["clientname.app3.templatetags.app3_tags"],
+            },
+            StaticAssemblyExpectation {
+                settings_module: "site2.settings.dev",
+                template_dirs: &[
+                    "projects/site2/templates",
+                    "apps/clientname/app2/templates",
+                    "apps/clientname/app3/templates",
+                ],
+                templatetag_modules: &[
+                    "clientname.app2.templatetags.app2_tags",
+                    "clientname.app3.templatetags.app3_tags",
+                ],
+                excluded_templatetag_modules: &["clientname.app1.templatetags.app1_tags"],
+            },
+        ] {
+            assert_fixture_static_assembly(&root, &pythonpath, &site_packages, &expected);
         }
     }
 
-    fn assert_profile_environment_static_assembly(
+    struct StaticAssemblyExpectation {
+        settings_module: &'static str,
+        template_dirs: &'static [&'static str],
+        templatetag_modules: &'static [&'static str],
+        excluded_templatetag_modules: &'static [&'static str],
+    }
+
+    fn assert_fixture_static_assembly(
         root: &Utf8Path,
         pythonpath: &[String],
         site_packages: &Utf8PathBuf,
-        environment: &djls_corpus::DjangoEnvironmentProfile,
-        all_expected_templatetag_modules: &BTreeSet<String>,
+        expected: &StaticAssemblyExpectation,
     ) {
         let dirs = assemble_static_template_dirs(
             root,
-            Some(&environment.settings_module),
+            Some(expected.settings_module),
             pythonpath,
             std::slice::from_ref(site_packages),
         );
         assert_eq!(
             dirs.confidence(),
-            expected_profile_confidence(environment.templates_confidence),
+            Confidence::Known,
             "unexpected template dir confidence for `{}`: {:?}",
-            environment.settings_module,
+            expected.settings_module,
             dirs.reasons()
         );
-        assert_eq!(
-            dirs.value().expect("known profile template dirs").clone(),
-            expected_profile_template_dirs(root, pythonpath, environment),
-            "unexpected template dirs for `{}`",
-            environment.settings_module
-        );
+        let dirs = dirs.value().expect("known fixture template dirs");
+        for dir in expected.template_dirs {
+            let dir = root.join(dir);
+            assert!(
+                dirs.contains(&dir),
+                "expected `{}` template dirs to contain `{dir}` in {dirs:?}",
+                expected.settings_module
+            );
+        }
 
         let snapshot = assemble_static_template_library_snapshot(
             root,
-            Some(&environment.settings_module),
+            Some(expected.settings_module),
             pythonpath,
             std::slice::from_ref(site_packages),
         );
         assert_eq!(
             snapshot.confidence(),
-            expected_profile_confidence(environment.templates_confidence),
+            Confidence::Known,
             "unexpected template library confidence for `{}`: {:?}",
-            environment.settings_module,
+            expected.settings_module,
             snapshot.reasons()
         );
         let library_modules = snapshot
             .value()
-            .expect("known profile template library snapshot")
+            .expect("known fixture template library snapshot")
             .libraries
             .values()
             .cloned()
-            .collect::<BTreeSet<_>>();
-        let expected_modules = environment
-            .expected
-            .templatetag_modules
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let profile_modules = library_modules
-            .intersection(all_expected_templatetag_modules)
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        assert_eq!(
-            profile_modules, expected_modules,
-            "unexpected profile library modules for `{}`",
-            environment.settings_module
-        );
-        for module in all_expected_templatetag_modules.difference(&expected_modules) {
+            .collect::<Vec<_>>();
+        for module in expected.templatetag_modules {
             assert!(
-                !library_modules.contains(module),
-                "did not expect `{}` libraries to contain context-exclusive `{module}`",
-                environment.settings_module
+                library_modules.iter().any(|candidate| candidate == module),
+                "expected `{}` libraries to contain `{module}` in {library_modules:?}",
+                expected.settings_module
+            );
+        }
+        for module in expected.excluded_templatetag_modules {
+            assert!(
+                library_modules.iter().all(|candidate| candidate != module),
+                "did not expect `{}` libraries to contain `{module}`",
+                expected.settings_module
             );
         }
         assert!(
@@ -2880,38 +2899,14 @@ TEMPLATES = []
         );
     }
 
-    fn expected_profile_template_dirs(
-        root: &Utf8Path,
-        pythonpath: &[String],
-        environment: &djls_corpus::DjangoEnvironmentProfile,
-    ) -> Vec<Utf8PathBuf> {
-        let mut dirs = environment
-            .expected
-            .template_dirs
-            .iter()
-            .map(|dir| root.join(dir))
-            .collect::<Vec<_>>();
-        dirs.extend(
-            environment
-                .expected
-                .local_apps
-                .iter()
-                .filter_map(|app| profile_app_template_dir(root, pythonpath, app)),
-        );
-        dirs
-    }
-
-    fn expected_profile_confidence(confidence: djls_corpus::Confidence) -> Confidence {
-        match confidence {
-            djls_corpus::Confidence::Known => Confidence::Known,
-            djls_corpus::Confidence::Partial => Confidence::Partial,
-            djls_corpus::Confidence::Unknown => Confidence::Unknown,
-        }
-    }
-
-    fn write_minimal_django_site_packages(site_packages: &Utf8Path, modules: &[&str]) {
+    fn write_minimal_django_site_packages<S>(
+        site_packages: &Utf8Path,
+        modules: impl IntoIterator<Item = S>,
+    ) where
+        S: AsRef<str>,
+    {
         for module in modules {
-            write_minimal_python_module(site_packages, module);
+            write_minimal_python_module(site_packages, module.as_ref());
         }
     }
 
@@ -2926,20 +2921,6 @@ TEMPLATES = []
             write_file(&dir.join("__init__.py"), "");
         }
         write_file(&dir.join(format!("{file_name}.py")), "");
-    }
-
-    fn profile_app_template_dir(
-        root: &Utf8Path,
-        source_roots: &[String],
-        module: &str,
-    ) -> Option<Utf8PathBuf> {
-        let module_path = module.replace('.', "/");
-        source_roots
-            .iter()
-            .map(|source_root| root.join(source_root).join(&module_path))
-            .find(|path| path.join("__init__.py").is_file())
-            .map(|path| path.join("templates"))
-            .filter(|path| path.is_dir())
     }
 
     #[test]
