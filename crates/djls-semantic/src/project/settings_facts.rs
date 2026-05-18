@@ -125,6 +125,10 @@ impl SettingsExtractionState {
         self.installed_apps_import_reasons.push(reason);
     }
 
+    fn add_template_backends_reason(&mut self, reason: Reason) {
+        self.template_backends_import_reasons.push(reason);
+    }
+
     fn add_files_read(&mut self, files: impl IntoIterator<Item = Utf8PathBuf>) {
         self.files_read.extend(files);
     }
@@ -298,6 +302,16 @@ fn extract_settings_state_inner(
             Field::SettingsInstalledApps,
             file,
             "unsupported nested assignment or mutation of INSTALLED_APPS",
+        ));
+    }
+    if module.body.iter().any(|stmt| {
+        contains_nested_list_mutation(stmt, TEMPLATES)
+            || contains_unsupported_setting_update(stmt, TEMPLATES)
+    }) {
+        state.add_template_backends_reason(reason(
+            Field::SettingsTemplates,
+            file,
+            "unsupported nested assignment or mutation of TEMPLATES",
         ));
     }
 
@@ -833,6 +847,73 @@ fn body_contains_list_mutation(body: &[Stmt], target_name: &str) -> bool {
             || list_mutation(stmt, target_name).is_some()
             || contains_nested_list_mutation(stmt, target_name)
     })
+}
+
+fn contains_unsupported_setting_update(stmt: &Stmt, target_name: &str) -> bool {
+    match stmt {
+        Stmt::Assign(assign) => assign
+            .targets
+            .iter()
+            .any(|target| is_indirect_setting_target(target, target_name)),
+        Stmt::AnnAssign(assign) => is_indirect_setting_target(assign.target.as_ref(), target_name),
+        Stmt::AugAssign(assign) => is_indirect_setting_target(assign.target.as_ref(), target_name),
+        Stmt::Expr(expr_stmt) => unsupported_setting_call(expr_stmt.value.as_ref(), target_name),
+        Stmt::If(stmt_if) => {
+            body_contains_unsupported_setting_update(&stmt_if.body, target_name)
+                || stmt_if.elif_else_clauses.iter().any(|clause| {
+                    body_contains_unsupported_setting_update(&clause.body, target_name)
+                })
+        }
+        Stmt::For(stmt_for) => {
+            body_contains_unsupported_setting_update(&stmt_for.body, target_name)
+                || body_contains_unsupported_setting_update(&stmt_for.orelse, target_name)
+        }
+        Stmt::While(stmt_while) => {
+            body_contains_unsupported_setting_update(&stmt_while.body, target_name)
+                || body_contains_unsupported_setting_update(&stmt_while.orelse, target_name)
+        }
+        Stmt::Try(stmt_try) => {
+            body_contains_unsupported_setting_update(&stmt_try.body, target_name)
+                || stmt_try.handlers.iter().any(|handler| {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    body_contains_unsupported_setting_update(&handler.body, target_name)
+                })
+                || body_contains_unsupported_setting_update(&stmt_try.orelse, target_name)
+                || body_contains_unsupported_setting_update(&stmt_try.finalbody, target_name)
+        }
+        Stmt::With(stmt_with) => {
+            body_contains_unsupported_setting_update(&stmt_with.body, target_name)
+        }
+        _ => false,
+    }
+}
+
+fn body_contains_unsupported_setting_update(body: &[Stmt], target_name: &str) -> bool {
+    body.iter()
+        .any(|stmt| contains_unsupported_setting_update(stmt, target_name))
+}
+
+fn is_indirect_setting_target(expr: &Expr, target_name: &str) -> bool {
+    !is_name(expr, target_name) && expr_has_root_name(expr, target_name)
+}
+
+fn unsupported_setting_call(expr: &Expr, target_name: &str) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    let Expr::Attribute(attribute) = call.func.as_ref() else {
+        return false;
+    };
+    is_indirect_setting_target(attribute.value.as_ref(), target_name)
+}
+
+fn expr_has_root_name(expr: &Expr, target_name: &str) -> bool {
+    match expr {
+        Expr::Name(_) => is_name(expr, target_name),
+        Expr::Attribute(attribute) => expr_has_root_name(attribute.value.as_ref(), target_name),
+        Expr::Subscript(subscript) => expr_has_root_name(subscript.value.as_ref(), target_name),
+        _ => false,
+    }
 }
 
 fn call_list_mutation<'a>(expr: &'a Expr, target_name: &str) -> Option<ListMutation<'a>> {
@@ -2306,6 +2387,29 @@ for plugin in plugins:
         assert!(reasons.iter().any(|reason| reason
             .message
             .contains("unsupported nested assignment or mutation of INSTALLED_APPS")));
+    }
+
+    #[test]
+    fn marks_template_backend_internal_updates_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+TEMPLATES = [{"DIRS": []}]
+if not DEBUG:
+    TEMPLATES[0]["OPTIONS"] = {"loaders": []}
+TEMPLATES[0]["DIRS"].insert(0, DATA_DIR / "templates")
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        let (backends, reasons) = partial_vec(&facts.template_backends);
+        assert!(known_vec(&backends[0].dirs).is_empty());
+        assert!(reasons.iter().any(|reason| reason
+            .message
+            .contains("unsupported nested assignment or mutation of TEMPLATES")));
     }
 
     #[test]
