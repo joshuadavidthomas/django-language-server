@@ -50,6 +50,7 @@ struct SettingsExtractionState {
     file: Utf8PathBuf,
     files_read: Vec<Utf8PathBuf>,
     path_values: BTreeMap<String, Utf8PathBuf>,
+    path_list_values: BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     installed_apps: Option<Fact<Vec<String>>>,
     template_backends: Option<Fact<Vec<TemplateBackendFact>>>,
     installed_apps_import_reasons: Vec<Reason>,
@@ -63,6 +64,7 @@ impl SettingsExtractionState {
             file: file.to_path_buf(),
             files_read: vec![file.to_path_buf()],
             path_values: BTreeMap::new(),
+            path_list_values: BTreeMap::new(),
             installed_apps: None,
             template_backends: None,
             installed_apps_import_reasons: Vec::new(),
@@ -77,6 +79,7 @@ impl SettingsExtractionState {
             file: facts.file,
             files_read: facts.files_read,
             path_values: BTreeMap::new(),
+            path_list_values: BTreeMap::new(),
             installed_apps: Some(facts.installed_apps),
             template_backends: Some(facts.template_backends),
             installed_apps_import_reasons: Vec::new(),
@@ -104,6 +107,7 @@ impl SettingsExtractionState {
         self.template_backends_import_reasons
             .extend(imported.template_backends_import_reasons);
         self.path_values.extend(imported.path_values);
+        self.path_list_values.extend(imported.path_list_values);
         if let Some(installed_apps) = imported.installed_apps {
             self.installed_apps = Some(installed_apps);
         }
@@ -236,8 +240,10 @@ fn extract_settings_state_inner(
             continue;
         }
 
+        record_imported_module_path_values(stmt, &mut state, current_module, imports);
         record_imported_module_path_functions(stmt, &mut state, current_module, imports);
         record_path_assignment(stmt, &mut state.path_values, file);
+        record_path_list_assignment(stmt, &mut state.path_list_values, &state.path_values, file);
 
         if let Some(value) = assigned_value(stmt, INSTALLED_APPS) {
             state.installed_apps = Some(extract_string_list(
@@ -250,8 +256,12 @@ fn extract_settings_state_inner(
         }
 
         if let Some(value) = assigned_value(stmt, TEMPLATES) {
-            state.template_backends =
-                Some(extract_template_backends(value, &state.path_values, file));
+            state.template_backends = Some(extract_template_backends(
+                value,
+                &state.path_values,
+                &state.path_list_values,
+                file,
+            ));
             continue;
         }
 
@@ -269,6 +279,7 @@ fn extract_settings_state_inner(
                 state.template_backends.take(),
                 mutation,
                 &state.path_values,
+                &state.path_list_values,
                 file,
             ));
         }
@@ -303,6 +314,45 @@ fn record_path_assignment(
         return;
     };
     path_values.insert(name.to_string(), path);
+}
+
+fn record_path_list_assignment(
+    stmt: &Stmt,
+    path_list_values: &mut BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    settings_file: &Utf8Path,
+) {
+    let Some((name, value)) = simple_assignment(stmt) else {
+        return;
+    };
+    let Some(elements) = collection_elements(value) else {
+        return;
+    };
+    let paths = extract_path_list(elements, path_values, settings_file);
+    if paths.value().is_some_and(|values| !values.is_empty()) {
+        path_list_values.insert(name.to_string(), paths);
+    }
+}
+
+fn extract_path_list(
+    elements: &[Expr],
+    path_values: &BTreeMap<String, Utf8PathBuf>,
+    file: &Utf8Path,
+) -> Fact<Vec<Utf8PathBuf>> {
+    let mut paths = Vec::new();
+    let mut reasons = Vec::new();
+    for element in elements {
+        if let Some(path) = evaluate_path(element, path_values, file) {
+            paths.push(path);
+        } else {
+            reasons.push(reason(
+                Field::SettingsTemplateDirs,
+                file,
+                "TEMPLATES DIRS contains an unsupported path expression",
+            ));
+        }
+    }
+    known_or_partial(paths, reasons)
 }
 
 fn simple_assignment(stmt: &Stmt) -> Option<(&str, &Expr)> {
@@ -383,6 +433,176 @@ fn follow_star_import(
         active_files,
     );
     state.apply_star_import(imported);
+}
+
+fn record_imported_module_path_values(
+    stmt: &Stmt,
+    state: &mut SettingsExtractionState,
+    current_module: Option<&PyModuleName>,
+    imports: Option<&SettingsImportScope>,
+) {
+    let Stmt::ImportFrom(import_from) = stmt else {
+        return;
+    };
+    let Some(current_module) = current_module else {
+        return;
+    };
+    let Some(imports) = imports else {
+        return;
+    };
+    let Some(target_module) = import_from_target_module(import_from, current_module) else {
+        return;
+    };
+    let resolution = resolve_module(
+        target_module.clone(),
+        imports.search_paths,
+        imports.project_root,
+    );
+    let Some(target_file) = resolution.resolved.value().map(|resolved| &resolved.file) else {
+        return;
+    };
+
+    let mut active_files = BTreeSet::new();
+    let imported =
+        extract_module_path_values(target_file, &target_module, imports, &mut active_files);
+    if imported.path_values.is_empty() {
+        return;
+    }
+    state.add_files_read(imported.files_read);
+    for alias in &import_from.names {
+        if alias.name.as_str() == "*" {
+            continue;
+        }
+        let Some(path) = imported.path_values.get(alias.name.as_str()) else {
+            continue;
+        };
+        let local_name = alias
+            .asname
+            .as_ref()
+            .map_or(alias.name.as_str(), |asname| asname.as_str());
+        state
+            .path_values
+            .insert(local_name.to_string(), path.clone());
+    }
+}
+
+struct ImportedPathValues {
+    path_values: BTreeMap<String, Utf8PathBuf>,
+    files_read: Vec<Utf8PathBuf>,
+}
+
+fn extract_module_path_values(
+    file: &Utf8Path,
+    current_module: &PyModuleName,
+    imports: &SettingsImportScope,
+    active_files: &mut BTreeSet<Utf8PathBuf>,
+) -> ImportedPathValues {
+    let file = file.to_path_buf();
+    if !active_files.insert(file.clone()) {
+        return ImportedPathValues {
+            path_values: BTreeMap::new(),
+            files_read: Vec::new(),
+        };
+    }
+
+    let mut imported = ImportedPathValues {
+        path_values: BTreeMap::new(),
+        files_read: vec![file.clone()],
+    };
+    let Ok(source) = fs::read_to_string(&file) else {
+        active_files.remove(&file);
+        return imported;
+    };
+    let Ok(parsed) = ruff_python_parser::parse_module(&source) else {
+        active_files.remove(&file);
+        return imported;
+    };
+    let module = parsed.into_syntax();
+
+    for stmt in &module.body {
+        record_path_assignment(stmt, &mut imported.path_values, &file);
+        let Stmt::ImportFrom(import_from) = stmt else {
+            continue;
+        };
+        let Some(target_module) =
+            import_from_target_module_for_file(import_from, current_module, &file)
+        else {
+            continue;
+        };
+        let resolution = resolve_module(
+            target_module.clone(),
+            imports.search_paths,
+            imports.project_root,
+        );
+        let Some(target_file) = resolution.resolved.value().map(|resolved| &resolved.file) else {
+            continue;
+        };
+        let nested = extract_module_path_values(target_file, &target_module, imports, active_files);
+        imported.files_read.extend(nested.files_read);
+        for alias in &import_from.names {
+            if alias.name.as_str() == "*" {
+                continue;
+            }
+            let Some(path) = nested.path_values.get(alias.name.as_str()) else {
+                continue;
+            };
+            let local_name = alias
+                .asname
+                .as_ref()
+                .map_or(alias.name.as_str(), |asname| asname.as_str());
+            imported
+                .path_values
+                .insert(local_name.to_string(), path.clone());
+        }
+    }
+
+    active_files.remove(&file);
+    imported
+}
+
+fn import_from_target_module(
+    import_from: &ruff_python_ast::StmtImportFrom,
+    current_module: &PyModuleName,
+) -> Option<PyModuleName> {
+    let module = import_from
+        .module
+        .as_ref()
+        .map(ruff_python_ast::Identifier::as_str);
+    if import_from.level > 0 {
+        return resolve_relative_import_module(current_module, import_from.level as usize, module)
+            .value()
+            .cloned();
+    }
+
+    PyModuleName::parse(module?).ok()
+}
+
+fn import_from_target_module_for_file(
+    import_from: &ruff_python_ast::StmtImportFrom,
+    current_module: &PyModuleName,
+    current_file: &Utf8Path,
+) -> Option<PyModuleName> {
+    if import_from.level == 0 || current_file.file_name() != Some("__init__.py") {
+        return import_from_target_module(import_from, current_module);
+    }
+
+    let mut parts = current_module.as_str().split('.').collect::<Vec<_>>();
+    if import_from.level as usize > parts.len() {
+        return None;
+    }
+    for _ in 1..import_from.level {
+        parts.pop();
+    }
+    if let Some(module) = import_from
+        .module
+        .as_ref()
+        .map(ruff_python_ast::Identifier::as_str)
+        .map(str::trim)
+        .filter(|module| !module.is_empty())
+    {
+        parts.extend(module.split('.'));
+    }
+    PyModuleName::parse(&parts.join(".")).ok()
 }
 
 fn record_imported_module_path_functions(
@@ -714,6 +934,7 @@ fn apply_installed_apps_mutation(
 fn extract_template_backends(
     expr: &Expr,
     path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     file: &Utf8Path,
 ) -> Fact<Vec<TemplateBackendFact>> {
     let Some(elements) = collection_elements(expr) else {
@@ -738,6 +959,7 @@ fn extract_template_backends(
         backends.push(extract_template_backend(
             dict,
             path_values,
+            path_list_values,
             file,
             &mut reasons,
         ));
@@ -750,6 +972,7 @@ fn apply_template_backends_mutation(
     current: Option<Fact<Vec<TemplateBackendFact>>>,
     mutation: ListMutation,
     path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     file: &Utf8Path,
 ) -> Fact<Vec<TemplateBackendFact>> {
     let Some(current) = current else {
@@ -763,7 +986,7 @@ fn apply_template_backends_mutation(
     match mutation {
         ListMutation::Append(value) => extend_vec_fact(
             current,
-            extract_template_backend_list_item(value, path_values, file),
+            extract_template_backend_list_item(value, path_values, path_list_values, file),
             reason(
                 Field::SettingsTemplates,
                 file,
@@ -772,7 +995,7 @@ fn apply_template_backends_mutation(
         ),
         ListMutation::Extend(value) => extend_vec_fact(
             current,
-            extract_template_backends(value, path_values, file),
+            extract_template_backends(value, path_values, path_list_values, file),
             reason(
                 Field::SettingsTemplates,
                 file,
@@ -782,7 +1005,7 @@ fn apply_template_backends_mutation(
         ListMutation::Insert { index, value } => insert_vec_fact_from_fact(
             current,
             index,
-            extract_template_backend_item(value, path_values, file),
+            extract_template_backend_item(value, path_values, path_list_values, file),
             reason(
                 Field::SettingsTemplates,
                 file,
@@ -800,14 +1023,17 @@ fn apply_template_backends_mutation(
 fn extract_template_backend_list_item(
     expr: &Expr,
     path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     file: &Utf8Path,
 ) -> Fact<Vec<TemplateBackendFact>> {
-    extract_template_backend_item(expr, path_values, file).map(|backend| vec![backend])
+    extract_template_backend_item(expr, path_values, path_list_values, file)
+        .map(|backend| vec![backend])
 }
 
 fn extract_template_backend_item(
     expr: &Expr,
     path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     file: &Utf8Path,
 ) -> Fact<TemplateBackendFact> {
     let Expr::Dict(dict) = expr else {
@@ -819,7 +1045,7 @@ fn extract_template_backend_item(
     };
 
     let mut reasons = Vec::new();
-    let backend = extract_template_backend(dict, path_values, file, &mut reasons);
+    let backend = extract_template_backend(dict, path_values, path_list_values, file, &mut reasons);
     if reasons.is_empty() {
         Fact::known(backend)
     } else {
@@ -830,6 +1056,7 @@ fn extract_template_backend_item(
 fn extract_template_backend(
     dict: &ruff_python_ast::ExprDict,
     path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     file: &Utf8Path,
     reasons: &mut Vec<Reason>,
 ) -> TemplateBackendFact {
@@ -850,7 +1077,7 @@ fn extract_template_backend(
     };
 
     let dirs = match dict_value(dict, "DIRS") {
-        Some(value) => extract_template_dirs(value, path_values, file),
+        Some(value) => extract_template_dirs(value, path_values, path_list_values, file),
         None => Fact::known(Vec::new()),
     };
 
@@ -895,8 +1122,15 @@ fn extract_template_backend(
 fn extract_template_dirs(
     expr: &Expr,
     path_values: &BTreeMap<String, Utf8PathBuf>,
+    path_list_values: &BTreeMap<String, Fact<Vec<Utf8PathBuf>>>,
     file: &Utf8Path,
 ) -> Fact<Vec<TemplateDirFact>> {
+    if let Expr::Name(name) = expr {
+        if let Some(paths) = path_list_values.get(name.id.as_str()) {
+            return paths.clone().map(template_dir_facts);
+        }
+    }
+
     let Some(elements) = collection_elements(expr) else {
         return Fact::unknown(vec![reason(
             Field::SettingsTemplateDirs,
@@ -923,6 +1157,16 @@ fn extract_template_dirs(
     }
 
     known_or_partial(dirs, reasons)
+}
+
+fn template_dir_facts(paths: Vec<Utf8PathBuf>) -> Vec<TemplateDirFact> {
+    paths
+        .into_iter()
+        .map(|path| TemplateDirFact {
+            path,
+            source: TemplateDirSource::SettingsDir,
+        })
+        .collect()
 }
 
 fn extract_option_libraries(
@@ -1123,6 +1367,14 @@ fn evaluate_path_call(
         Expr::Name(name) if name.id.as_str() == "Path" => {
             let first = call.arguments.args.first()?;
             evaluate_path(first, path_values, settings_file)
+        }
+        Expr::Name(name) if name.id.as_str() == "str" => {
+            let first = call.arguments.args.first()?;
+            if call.arguments.args.len() == 1 && call.arguments.keywords.is_empty() {
+                evaluate_path(first, path_values, settings_file)
+            } else {
+                None
+            }
         }
         Expr::Attribute(attribute) if attribute.attr.as_str() == "resolve" => {
             evaluate_path(attribute.value.as_ref(), path_values, settings_file)
@@ -2131,5 +2383,58 @@ TEMPLATES = [{"DIRS": [BASE_DIR.joinpath("templates")]}]
 
         assert!(facts.files_read.contains(&root.join("project/config.py")));
         assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
+    }
+
+    #[test]
+    fn extracts_static_entries_from_imported_path_list_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/config/__init__.py"),
+            "from .paths import PACKAGE_DIR\n",
+        );
+        write_file(
+            &root.join("project/config/paths.py"),
+            r"
+from pathlib import Path
+
+PACKAGE_DIR = Path(__file__).resolve().parent.parent
+",
+        );
+        let settings = root.join("project/settings.py");
+        write_file(
+            &settings,
+            r#"
+from project.config import PACKAGE_DIR
+
+TEMPLATE_DIRS = [
+    *DYNAMIC_DIRS,
+    str(PACKAGE_DIR / "templates" / "core"),
+    str(PACKAGE_DIR / "templates"),
+]
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": TEMPLATE_DIRS}]
+"#,
+        );
+
+        let facts = extract_project_settings_module(&root, &settings, "project.settings");
+        let backends = known_vec(&facts.template_backends);
+        let (dirs, reasons) = partial_vec(&backends[0].dirs);
+
+        assert!(facts
+            .files_read
+            .contains(&root.join("project/config/__init__.py")));
+        assert!(facts
+            .files_read
+            .contains(&root.join("project/config/paths.py")));
+        assert_eq!(
+            dirs.into_iter().map(|dir| dir.path).collect::<Vec<_>>(),
+            [
+                root.join("project/templates/core"),
+                root.join("project/templates"),
+            ]
+        );
+        assert!(reasons[0].message.contains("unsupported path expression"));
     }
 }

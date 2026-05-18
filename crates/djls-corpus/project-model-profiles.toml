@@ -24,7 +24,7 @@ installed_apps_confidence = "partial"
 templates_confidence = "partial"
 expected_partial_reasons = [
   "dynamic if condition controls settings mutation",
-  "TEMPLATES DIRS must be a literal list or tuple",
+  "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
 [profile.django_environment.expected]
@@ -52,7 +52,11 @@ external_apps = [
   "django.contrib.admin",
   "django_extensions",
 ]
-template_dirs = []
+template_dirs = [
+  "archivebox/templates/core",
+  "archivebox/templates/admin",
+  "archivebox/templates",
+]
 templatetag_modules = [
   "archivebox.core.templatetags.config_tags",
   "archivebox.core.templatetags.core_tags",
