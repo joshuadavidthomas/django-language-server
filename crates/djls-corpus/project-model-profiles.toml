@@ -108,8 +108,9 @@ root = "."
 settings_file = "src/backend/InvenTree/InvenTree/settings.py"
 settings_module = "InvenTree.settings"
 extends_files = []
-installed_apps_confidence = "partial"
+installed_apps_confidence = "known"
 templates_confidence = "partial"
+template_libraries_confidence = "known"
 expected_partial_reasons = [
   "TEMPLATES DIRS contains an unsupported path expression",
 ]
@@ -131,9 +132,38 @@ local_apps = [
   "InvenTree",
 ]
 site_package_modules = [
-  "django.contrib.admin",
-  "rest_framework",
   "allauth",
+  "allauth.account",
+  "allauth.headless",
+  "allauth.mfa",
+  "allauth.socialaccount",
+  "allauth.usersessions",
+  "anymail",
+  "corsheaders",
+  "dbbackup",
+  "django.contrib.admin",
+  "django_cleanup.apps.CleanupConfig",
+  "django_filters",
+  "django_ical",
+  "django_mailbox",
+  "django_otp",
+  "django_otp.plugins.otp_static",
+  "django_otp.plugins.otp_totp",
+  "django_q",
+  "django_structlog",
+  "djmoney",
+  "djmoney.contrib.exchange",
+  "drf_spectacular",
+  "error_report",
+  "flags",
+  "maintenance_mode",
+  "markdownify",
+  "mptt",
+  "oauth2_provider",
+  "rest_framework",
+  "storages",
+  "taggit",
+  "whitenoise.runserver_nostatic",
 ]
 template_dirs = ["src/backend/InvenTree/templates"]
 templatetag_modules = [

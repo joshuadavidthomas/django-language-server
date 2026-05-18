@@ -3138,6 +3138,7 @@ TEMPLATES = []
     fn minimal_profile_site_package_modules(profile: &djls_corpus::Profile) -> Vec<String> {
         let mut modules = [
             "django.contrib.admin",
+            "django.contrib.admindocs",
             "django.contrib.auth",
             "django.contrib.contenttypes",
             "django.contrib.humanize",
@@ -3182,6 +3183,11 @@ TEMPLATES = []
     }
 
     fn write_minimal_python_module(root: &Utf8Path, module: &str) {
+        if let Some((config_module, class_name)) = app_config_module(module) {
+            write_minimal_app_config_module(root, config_module, class_name);
+            return;
+        }
+
         let mut parts = module.split('.').collect::<Vec<_>>();
         let Some(file_name) = parts.pop() else {
             return;
@@ -3192,6 +3198,37 @@ TEMPLATES = []
             write_file(&dir.join("__init__.py"), "");
         }
         write_file(&dir.join(format!("{file_name}.py")), "");
+    }
+
+    fn app_config_module(module: &str) -> Option<(&str, &str)> {
+        let (config_module, class_name) = module.rsplit_once('.')?;
+        class_name
+            .ends_with("Config")
+            .then_some((config_module, class_name))
+    }
+
+    fn write_minimal_app_config_module(root: &Utf8Path, module: &str, class_name: &str) {
+        let app_name = module.strip_suffix(".apps").unwrap_or(module);
+        let mut parts = module.split('.').collect::<Vec<_>>();
+        let Some(file_name) = parts.pop() else {
+            return;
+        };
+        let mut dir = root.to_path_buf();
+        for part in parts {
+            dir = dir.join(part);
+            write_file(&dir.join("__init__.py"), "");
+        }
+        write_file(
+            &dir.join(format!("{file_name}.py")),
+            &format!(
+                r#"
+from django.apps import AppConfig
+
+class {class_name}(AppConfig):
+    name = "{app_name}"
+"#
+            ),
+        );
     }
 
     fn profile_app_template_dir(
