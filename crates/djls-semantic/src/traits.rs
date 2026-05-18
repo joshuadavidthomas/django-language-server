@@ -1,7 +1,7 @@
 use djls_templates::NodeList;
 use djls_templates::Visitor;
 
-use crate::Db;
+use crate::db::Db;
 
 // TODO: Consider removing this Visitor-based abstraction once TemplateTree
 // needs source-node links. Directly iterating `NodeList` with indices would let

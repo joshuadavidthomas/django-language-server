@@ -6,6 +6,9 @@ use djls_templates::TagDelimiter;
 use djls_templates::Visitor;
 use salsa::Accumulator;
 
+use crate::db::Db;
+use crate::db::ValidationErrorAccumulator;
+use crate::errors::ValidationError;
 use crate::structure::grammar::CloseValidation;
 use crate::structure::grammar::TagClass;
 use crate::structure::grammar::TagIndex;
@@ -15,9 +18,6 @@ use crate::structure::tree::Regions;
 use crate::structure::tree::TemplateNode;
 use crate::structure::tree::TemplateTree;
 use crate::traits::SemanticModel;
-use crate::Db;
-use crate::ValidationError;
-use crate::ValidationErrorAccumulator;
 
 #[derive(Debug, Clone)]
 enum TreeOp {

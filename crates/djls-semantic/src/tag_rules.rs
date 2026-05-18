@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use djls_source::Span;
 
+use crate::errors::ValidationError;
 use crate::python::ArgumentCountConstraint;
 use crate::python::ChoiceAt;
 use crate::python::ExtractedDiagnosticConstraint;
@@ -11,8 +12,7 @@ use crate::python::ExtractedMessageTemplate;
 use crate::python::KnownOptions;
 use crate::python::RequiredKeyword;
 use crate::python::SplitPosition;
-use crate::TagRule;
-use crate::ValidationError;
+use crate::python::TagRule;
 
 trait Constraint {
     fn validate(

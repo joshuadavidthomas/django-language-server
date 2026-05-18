@@ -5,9 +5,9 @@ use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtRaise;
 
-use super::expressions::eval_expr;
-use super::state::AbstractValue;
-use super::state::Env;
+use crate::python::analysis::expressions::eval_expr;
+use crate::python::analysis::state::AbstractValue;
+use crate::python::analysis::state::Env;
 use crate::python::ext::ExprExt;
 use crate::python::types::ExtractedMessageArg;
 use crate::python::types::ExtractedMessageTemplate;

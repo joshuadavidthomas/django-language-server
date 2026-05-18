@@ -10,8 +10,8 @@ use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
 
-use super::expressions::eval_expr;
 use crate::python::analysis::constraints::ExtractedTagConstraints;
+use crate::python::analysis::expressions::eval_expr;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::types::ArgumentCountConstraint;

@@ -4,8 +4,8 @@ use djls_templates::TagDelimiter;
 use salsa::Accumulator;
 
 use crate::db::Db;
-use crate::ValidationError;
-use crate::ValidationErrorAccumulator;
+use crate::db::ValidationErrorAccumulator;
+use crate::errors::ValidationError;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[TagBit], span: Span) {

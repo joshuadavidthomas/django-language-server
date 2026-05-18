@@ -8,8 +8,6 @@ pub(crate) mod mutations;
 pub(crate) mod state;
 pub(crate) mod statements;
 
-pub(crate) use calls::extract_return_value;
-pub(crate) use calls::AbstractValueKey;
 use djls_source::File;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;

@@ -3,12 +3,12 @@ use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use super::LoadKind;
-use super::LoadState;
-use super::LoadStatement;
-use super::LoadedLibraries;
-use crate::TemplateLibraries;
-use crate::TemplateSymbolKind;
+use crate::project::TemplateLibraries;
+use crate::project::TemplateSymbolKind;
+use crate::scoping::LoadKind;
+use crate::scoping::LoadState;
+use crate::scoping::LoadStatement;
+use crate::scoping::LoadedLibraries;
 
 /// The result of checking a tag name against the available symbols at a position.
 #[derive(Clone, Debug, PartialEq, Eq)]

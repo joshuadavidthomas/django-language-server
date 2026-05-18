@@ -1,7 +1,7 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
-use super::system;
+use crate::project::system;
 
 /// Interpreter specification for Python environment discovery.
 ///

@@ -6,7 +6,7 @@ use djls_source::Span;
 use crate::db::Db as SemanticDb;
 use crate::primitives::Template;
 use crate::primitives::TemplateName;
-use crate::Project;
+use crate::project::Project;
 
 #[salsa::tracked]
 pub(crate) fn discover_templates(db: &dyn SemanticDb, project: Project) -> Vec<Template<'_>> {

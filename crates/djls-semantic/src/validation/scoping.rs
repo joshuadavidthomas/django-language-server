@@ -7,15 +7,17 @@ use djls_templates::TagDelimiter;
 use salsa::Accumulator;
 
 use crate::db::Db;
+use crate::db::ValidationErrorAccumulator;
+use crate::errors::ValidationError;
 use crate::project::DiscoveredSymbolCandidate;
+use crate::project::Knowledge;
+use crate::project::LibraryName;
+use crate::project::TemplateLibraries;
+use crate::project::TemplateSymbolName;
 use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;
 use crate::specs::tags::TagSpecs;
-use crate::Knowledge;
-use crate::LibraryName;
-use crate::ValidationError;
-use crate::ValidationErrorAccumulator;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_tag_scoping_rule(
@@ -23,7 +25,7 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    env_tags: Option<&HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
+    env_tags: Option<&HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
     if active_knowledge != Knowledge::Known {
@@ -36,7 +38,7 @@ pub(crate) fn check_tag_scoping_rule(
         TagAvailability::Available => {}
         TagAvailability::Unknown => {
             if let Some(env_tags) = env_tags {
-                if let Ok(key) = crate::TemplateSymbolName::parse(name) {
+                if let Ok(key) = TemplateSymbolName::parse(name) {
                     if let Some(env_symbols) = env_tags.get(&key) {
                         if let Some(sym) = env_symbols.first() {
                             ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
@@ -81,7 +83,7 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    env_filters: Option<&HashMap<crate::TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
+    env_filters: Option<&HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
     if active_knowledge != Knowledge::Known {
@@ -92,7 +94,7 @@ pub(crate) fn check_filter_scoping_rule(
         FilterAvailability::Available => {}
         FilterAvailability::Unknown => {
             if let Some(env_filters) = env_filters {
-                if let Ok(key) = crate::TemplateSymbolName::parse(filter.name.as_str()) {
+                if let Ok(key) = TemplateSymbolName::parse(filter.name.as_str()) {
                     if let Some(env_symbols) = env_filters.get(&key) {
                         if let Some(sym) = env_symbols.first() {
                             ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
@@ -137,7 +139,7 @@ pub(crate) fn check_load_libraries_rule(
     db: &dyn Db,
     name: &str,
     bits: &[TagBit],
-    template_libraries: &crate::TemplateLibraries,
+    template_libraries: &TemplateLibraries,
 ) {
     if template_libraries.active_knowledge != Knowledge::Known {
         return;

@@ -1,8 +1,8 @@
 use rustc_hash::FxHashMap;
 
-use crate::FilterArity;
-use crate::FilterArityMap;
-use crate::SymbolKey;
+use crate::python::FilterArity;
+use crate::python::FilterArityMap;
+use crate::python::SymbolKey;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
 ///
@@ -65,7 +65,7 @@ impl FilterAritySpecs {
     ///
     /// Prefer [`Self::merge_filter_arities`] in Salsa query code so callers
     /// depend only on the extraction domain they read.
-    pub fn merge_extraction_result(&mut self, result: &crate::ExtractionResult) {
+    pub fn merge_extraction_result(&mut self, result: &crate::python::ExtractionResult) {
         self.merge_filter_arities(&result.filter_arities);
     }
 }

@@ -5,16 +5,16 @@ use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
-use super::expressions::eval_expr;
-use super::expressions::eval_expr_with_ctx;
-use super::match_arms::extract_match_constraints;
-use super::mutations::apply_pop_mutation;
-use super::mutations::try_extract_option_loop;
-use super::mutations::try_extract_pop_call;
-use super::AnalysisResult;
-use super::CallContext;
+use crate::python::analysis::expressions::eval_expr;
+use crate::python::analysis::expressions::eval_expr_with_ctx;
+use crate::python::analysis::match_arms::extract_match_constraints;
+use crate::python::analysis::mutations::apply_pop_mutation;
+use crate::python::analysis::mutations::try_extract_option_loop;
+use crate::python::analysis::mutations::try_extract_pop_call;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
+use crate::python::analysis::AnalysisResult;
+use crate::python::analysis::CallContext;
 use crate::python::types::SplitPosition;
 
 /// Process a list of statements, updating the environment and returning

@@ -4,10 +4,10 @@ use ruff_python_ast::statement_visitor::walk_stmt;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Stmt;
 
-use super::state::AbstractValue;
-use super::state::Env;
-use super::state::TokenSplit;
-use super::CallContext;
+use crate::python::analysis::state::AbstractValue;
+use crate::python::analysis::state::Env;
+use crate::python::analysis::state::TokenSplit;
+use crate::python::analysis::CallContext;
 use crate::python::analyze_helper;
 use crate::python::HelperCall;
 
@@ -142,7 +142,7 @@ impl StatementVisitor<'_> for ReturnVisitor<'_> {
         match stmt {
             Stmt::Return(ret) => {
                 let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
-                    super::expressions::eval_expr(expr, self.env)
+                    crate::python::analysis::expressions::eval_expr(expr, self.env)
                 });
                 self.returns.push(value);
             }
