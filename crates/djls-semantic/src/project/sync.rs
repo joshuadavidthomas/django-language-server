@@ -1706,6 +1706,7 @@ fn split_extraction_results(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
     use std::process::Command;
     use std::sync::Arc;
 
@@ -2759,6 +2760,186 @@ TEMPLATES = []
         assert!(!snapshot_loadable_symbol_keys(&site2_snapshot)
             .iter()
             .any(|symbol| symbol.contains("app1_marker")));
+    }
+
+    #[test]
+    fn gh401_profile_static_assembly_matches_profile_environments() {
+        let profiles = djls_corpus::project_model_profiles().unwrap();
+        let profile = profiles.get("gh401-multisite-split-settings").unwrap();
+        let root = profile.root_path(None).unwrap();
+        let pythonpath = profile.source_roots.clone();
+        let tmp = TempDir::new().unwrap();
+        let site_packages = Utf8PathBuf::try_from(tmp.path().join("site-packages")).unwrap();
+        write_minimal_django_site_packages(
+            &site_packages,
+            &[
+                "django.contrib.auth",
+                "django.contrib.contenttypes",
+                "django.templatetags.cache",
+                "django.templatetags.i18n",
+                "django.templatetags.l10n",
+                "django.templatetags.static",
+                "django.templatetags.tz",
+                "django.template.defaulttags",
+                "django.template.defaultfilters",
+                "django.template.loader_tags",
+            ],
+        );
+        let all_expected_templatetag_modules = profile
+            .expected_union
+            .templatetag_modules
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        for environment in &profile.django_environments {
+            assert_profile_environment_static_assembly(
+                &root,
+                &pythonpath,
+                &site_packages,
+                environment,
+                &all_expected_templatetag_modules,
+            );
+        }
+    }
+
+    fn assert_profile_environment_static_assembly(
+        root: &Utf8Path,
+        pythonpath: &[String],
+        site_packages: &Utf8PathBuf,
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+        all_expected_templatetag_modules: &BTreeSet<String>,
+    ) {
+        let dirs = assemble_static_template_dirs(
+            root,
+            Some(&environment.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        );
+        assert_eq!(
+            dirs.confidence(),
+            expected_profile_confidence(environment.templates_confidence),
+            "unexpected template dir confidence for `{}`: {:?}",
+            environment.settings_module,
+            dirs.reasons()
+        );
+        assert_eq!(
+            dirs.value().expect("known profile template dirs").clone(),
+            expected_profile_template_dirs(root, pythonpath, environment),
+            "unexpected template dirs for `{}`",
+            environment.settings_module
+        );
+
+        let snapshot = assemble_static_template_library_snapshot(
+            root,
+            Some(&environment.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        );
+        assert_eq!(
+            snapshot.confidence(),
+            expected_profile_confidence(environment.templates_confidence),
+            "unexpected template library confidence for `{}`: {:?}",
+            environment.settings_module,
+            snapshot.reasons()
+        );
+        let library_modules = snapshot
+            .value()
+            .expect("known profile template library snapshot")
+            .libraries
+            .values()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let expected_modules = environment
+            .expected
+            .templatetag_modules
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let profile_modules = library_modules
+            .intersection(all_expected_templatetag_modules)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            profile_modules, expected_modules,
+            "unexpected profile library modules for `{}`",
+            environment.settings_module
+        );
+        for module in all_expected_templatetag_modules.difference(&expected_modules) {
+            assert!(
+                !library_modules.contains(module),
+                "did not expect `{}` libraries to contain context-exclusive `{module}`",
+                environment.settings_module
+            );
+        }
+        assert!(
+            library_modules
+                .iter()
+                .all(|module| !module.starts_with("apps.") && !module.starts_with("projects.")),
+            "expected source-root-aware module names, got {library_modules:?}",
+        );
+    }
+
+    fn expected_profile_template_dirs(
+        root: &Utf8Path,
+        pythonpath: &[String],
+        environment: &djls_corpus::DjangoEnvironmentProfile,
+    ) -> Vec<Utf8PathBuf> {
+        let mut dirs = environment
+            .expected
+            .template_dirs
+            .iter()
+            .map(|dir| root.join(dir))
+            .collect::<Vec<_>>();
+        dirs.extend(
+            environment
+                .expected
+                .local_apps
+                .iter()
+                .filter_map(|app| profile_app_template_dir(root, pythonpath, app)),
+        );
+        dirs
+    }
+
+    fn expected_profile_confidence(confidence: djls_corpus::Confidence) -> Confidence {
+        match confidence {
+            djls_corpus::Confidence::Known => Confidence::Known,
+            djls_corpus::Confidence::Partial => Confidence::Partial,
+            djls_corpus::Confidence::Unknown => Confidence::Unknown,
+        }
+    }
+
+    fn write_minimal_django_site_packages(site_packages: &Utf8Path, modules: &[&str]) {
+        for module in modules {
+            write_minimal_python_module(site_packages, module);
+        }
+    }
+
+    fn write_minimal_python_module(root: &Utf8Path, module: &str) {
+        let mut parts = module.split('.').collect::<Vec<_>>();
+        let Some(file_name) = parts.pop() else {
+            return;
+        };
+        let mut dir = root.to_path_buf();
+        for part in parts {
+            dir = dir.join(part);
+            write_file(&dir.join("__init__.py"), "");
+        }
+        write_file(&dir.join(format!("{file_name}.py")), "");
+    }
+
+    fn profile_app_template_dir(
+        root: &Utf8Path,
+        source_roots: &[String],
+        module: &str,
+    ) -> Option<Utf8PathBuf> {
+        let module_path = module.replace('.', "/");
+        source_roots
+            .iter()
+            .map(|source_root| root.join(source_root).join(&module_path))
+            .find(|path| path.join("__init__.py").is_file())
+            .map(|path| path.join("templates"))
+            .filter(|path| path.is_dir())
     }
 
     #[test]
