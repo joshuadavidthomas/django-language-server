@@ -71,8 +71,6 @@ pub enum Confidence {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExpectedFacts {
     #[serde(default)]
-    pub installed_apps: Vec<String>,
-    #[serde(default)]
     pub local_apps: Vec<String>,
     #[serde(default)]
     pub external_apps: Vec<String>,

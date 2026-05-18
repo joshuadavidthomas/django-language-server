@@ -27,17 +27,6 @@ expected_partial_reasons = [
 ]
 
 [profile.django_environment.expected]
-installed_apps = [
-  "daphne",
-  "django.contrib.admin",
-  "archivebox.machine",
-  "archivebox.workers",
-  "archivebox.personas",
-  "archivebox.core",
-  "archivebox.crawls",
-  "archivebox.api",
-  "django_extensions",
-]
 local_apps = [
   "archivebox.machine",
   "archivebox.workers",
@@ -81,16 +70,6 @@ templates_confidence = "known"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = [
-  "hc.accounts",
-  "django.contrib.admin",
-  "compressor",
-  "hc.api",
-  "hc.front",
-  "hc.logs",
-  "hc.payments",
-  "hc.integrations.slack",
-]
 local_apps = [
   "hc.accounts",
   "hc.api",
@@ -132,23 +111,6 @@ expected_partial_reasons = [
 ]
 
 [profile.django_environment.expected]
-installed_apps = [
-  "build.apps.BuildConfig",
-  "common.apps.CommonConfig",
-  "plugin.apps.PluginAppConfig",
-  "company.apps.CompanyConfig",
-  "order.apps.OrderConfig",
-  "part.apps.PartConfig",
-  "report.apps.ReportConfig",
-  "stock.apps.StockConfig",
-  "users.apps.UsersConfig",
-  "machine.apps.MachineConfig",
-  "web",
-  "generic",
-  "InvenTree.apps.InvenTreeConfig",
-  "rest_framework",
-  "allauth",
-]
 local_apps = [
   "build",
   "common",
@@ -197,20 +159,6 @@ templates_confidence = "partial"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = [
-  "django.contrib.admin",
-  "debug_toolbar",
-  "django_filters",
-  "django_tables2",
-  "core",
-  "account",
-  "circuits",
-  "dcim",
-  "extras",
-  "tenancy",
-  "users",
-  "utilities",
-]
 local_apps = [
   "core",
   "account",
@@ -260,19 +208,6 @@ templates_confidence = "known"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = [
-  "django.contrib.admin",
-  "pretix.base",
-  "pretix.control",
-  "pretix.presale",
-  "pretix.multidomain",
-  "pretix.api",
-  "pretix.helpers",
-  "pretix.plugins.banktransfer",
-  "pretix.plugins.stripe",
-  "rest_framework",
-  "statici18n",
-]
 local_apps = [
   "pretix.base",
   "pretix.control",
@@ -315,7 +250,6 @@ templates_confidence = "partial"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = []
 local_apps = []
 external_apps = []
 template_dirs = ["src/sentry/templates"]
@@ -344,12 +278,6 @@ templates_confidence = "known"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = [
-  "django.contrib.admin",
-  "django.contrib.auth",
-  "allauth",
-  "allauth.account",
-]
 local_apps = [
   "allauth",
   "allauth.account",
@@ -384,12 +312,6 @@ templates_confidence = "known"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = [
-  "django.contrib.auth",
-  "django.contrib.contenttypes",
-  "clientname.app1",
-  "clientname.app2",
-]
 local_apps = [
   "clientname.app1",
   "clientname.app2",
@@ -414,12 +336,6 @@ templates_confidence = "known"
 expected_partial_reasons = []
 
 [profile.django_environment.expected]
-installed_apps = [
-  "django.contrib.auth",
-  "django.contrib.contenttypes",
-  "clientname.app2",
-  "clientname.app3",
-]
 local_apps = [
   "clientname.app2",
   "clientname.app3",
@@ -435,13 +351,6 @@ templatetag_modules = [
 ]
 
 [profile.expected_union]
-installed_apps = [
-  "django.contrib.auth",
-  "django.contrib.contenttypes",
-  "clientname.app1",
-  "clientname.app2",
-  "clientname.app3",
-]
 local_apps = [
   "clientname.app1",
   "clientname.app2",
