@@ -17,6 +17,7 @@ use std::fs;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::Utf8PathClean;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Number;
 use ruff_python_ast::Operator;
@@ -953,6 +954,9 @@ fn evaluate_path(
         Expr::StringLiteral(string) => Some(Utf8PathBuf::from(string.value.to_str())),
         Expr::Name(name) if name.id.as_str() == "__file__" => Some(settings_file.to_path_buf()),
         Expr::Name(name) => path_values.get(name.id.as_str()).cloned(),
+        Expr::Attribute(_) if path_constant(expr).is_some() => {
+            path_constant(expr).map(Utf8PathBuf::from)
+        }
         Expr::BinOp(binop) if binop.op == Operator::Add => {
             let value = evaluate_path_string(expr, path_values, settings_file)?;
             Some(Utf8PathBuf::from(value))
@@ -985,6 +989,9 @@ fn evaluate_path_string(
         Expr::Name(name) => path_values
             .get(name.id.as_str())
             .map(|path| path.as_str().to_string()),
+        Expr::Attribute(_) if path_constant(expr).is_some() => {
+            path_constant(expr).map(str::to_string)
+        }
         Expr::BinOp(binop) if binop.op == Operator::Add => {
             let left = evaluate_path_string(binop.left.as_ref(), path_values, settings_file)?;
             let right = evaluate_path_string(binop.right.as_ref(), path_values, settings_file)?;
@@ -1033,12 +1040,20 @@ fn evaluate_path_call(
             path.is_absolute().then_some(path)
         }
         _ if dotted_name(call.func.as_ref()).as_deref() == Some("os.path.normpath") => {
-            evaluate_path(call.arguments.args.first()?, path_values, settings_file)
+            Some(evaluate_path(call.arguments.args.first()?, path_values, settings_file)?.clean())
         }
         _ if dotted_name(call.func.as_ref()).as_deref() == Some("os.path.dirname") => {
             let path = evaluate_path(call.arguments.args.first()?, path_values, settings_file)?;
             path.parent().map(Utf8Path::to_path_buf)
         }
+        _ => None,
+    }
+}
+
+fn path_constant(expr: &Expr) -> Option<&'static str> {
+    match dotted_name(expr).as_deref()? {
+        "os.pardir" | "os.path.pardir" => Some(".."),
+        "os.curdir" | "os.path.curdir" => Some("."),
         _ => None,
     }
 }
@@ -1914,5 +1929,55 @@ TEMPLATES = [{"DIRS": [os.path.abspath("templates")]}]
 
         assert!(dirs.is_empty());
         assert!(reasons[0].message.contains("unsupported path expression"));
+    }
+
+    #[test]
+    fn extracts_os_pardir_normpath_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = root.join("project/conf/settings.py");
+        write_file(
+            &settings,
+            r#"
+import os
+
+PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), os.pardir))
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [os.path.join(PROJECT_ROOT, "templates")]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            root.join("project/templates")
+        );
+    }
+
+    #[test]
+    fn extracts_os_path_pardir_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = root.join("project/conf/settings.py");
+        write_file(
+            &settings,
+            r#"
+import os
+
+PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [os.path.join(PROJECT_ROOT, "templates")]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(
+            known_vec(&backends[0].dirs)[0].path,
+            root.join("project/templates")
+        );
     }
 }
