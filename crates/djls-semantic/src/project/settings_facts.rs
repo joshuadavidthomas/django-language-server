@@ -1364,7 +1364,11 @@ fn evaluate_path_call(
     }
 
     match call.func.as_ref() {
-        Expr::Name(name) if name.id.as_str() == "Path" => {
+        _ if matches!(
+            dotted_name(call.func.as_ref()).as_deref(),
+            Some("Path" | "pathlib.Path")
+        ) =>
+        {
             let first = call.arguments.args.first()?;
             evaluate_path(first, path_values, settings_file)
         }
@@ -2237,6 +2241,27 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 INSTALLED_APPS = []
 TEMPLATES = [{"DIRS": [os.path.join(BASE_DIR, "templates")]}]
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+        let backends = known_vec(&facts.template_backends);
+
+        assert_eq!(known_vec(&backends[0].dirs)[0].path, root.join("templates"));
+    }
+
+    #[test]
+    fn extracts_pathlib_path_template_dirs() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+import pathlib
+
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+INSTALLED_APPS = []
+TEMPLATES = [{"DIRS": [BASE_DIR / "templates"]}]
 "#,
         );
 
