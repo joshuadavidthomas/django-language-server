@@ -15,19 +15,19 @@ The **project model** describes the Django facts djls needs for templates:
 - Which library load-name maps to which module
 - Which template directories Django searches
 
-By default, `project_model = "auto"` builds these facts statically from your workspace, `django_settings_module`, `pythonpath`, and available source files. When static facts are known, djls can provide scoped completions and diagnostics without spawning Python or calling `django.setup()`.
+By default, `project_model = "auto"` builds these facts statically from your workspace, `django_settings_module`, `pythonpath`, and available source files. When static facts are available, djls can provide scoped completions and diagnostics without spawning Python or calling `django.setup()`.
 
-During the transition, auto mode can still fall back to the Python inspector when static facts are partial or unknown. You can force one path with [`project_model`](configuration/index.md#project_model):
+You can choose the project model path with [`project_model`](configuration/index.md#project_model):
 
-- `"auto"` — static first, inspector fallback for partial/unknown facts
-- `"static"` — static only, no inspector subprocess
+- `"auto"` — static project model, no inspector subprocess
+- `"static"` — same static-only project model behavior, useful when you want to make that choice explicit
 - `"inspector"` — legacy runtime inspector first
 
-The static model tracks confidence. Known facts enable scoped availability diagnostics. Partial or unknown facts still allow diagnostics backed by positive facts, but suppress absence-based diagnostics unless inspector fallback supplies known facts.
+The static model tracks confidence. Known facts enable scoped availability diagnostics. Partial or unknown facts still allow diagnostics backed by positive facts, but suppress absence-based diagnostics.
 
 ### Inspector
 
-The **inspector** is the legacy Python process that introspects your running Django project. It remains available as a fallback during the static project model rollout.
+The **inspector** is the legacy Python process that introspects your running Django project. It remains available through `project_model = "inspector"` during the static project model rollout.
 
 ### Environment Scanner
 
@@ -172,7 +172,7 @@ When project model facts are **partial or unknown**:
 
 This design avoids false positives when the Python environment isn't available.
 
-In `project_model = "auto"`, the inspector can still fill gaps for partial or unknown static facts. In `project_model = "static"`, djls does not fall back to the inspector.
+In `project_model = "auto"` or `"static"`, djls does not fall back to the inspector for partial or unknown static facts. Use `project_model = "inspector"` when you need the legacy runtime path for a dynamic project.
 
 ## Configuring Diagnostic Severity
 
