@@ -121,6 +121,10 @@ impl SettingsExtractionState {
         self.template_backends_import_reasons.extend(reasons);
     }
 
+    fn add_installed_apps_reason(&mut self, reason: Reason) {
+        self.installed_apps_import_reasons.push(reason);
+    }
+
     fn add_files_read(&mut self, files: impl IntoIterator<Item = Utf8PathBuf>) {
         self.files_read.extend(files);
     }
@@ -283,6 +287,18 @@ fn extract_settings_state_inner(
                 file,
             ));
         }
+    }
+
+    if module
+        .body
+        .iter()
+        .any(|stmt| contains_nested_list_mutation(stmt, INSTALLED_APPS))
+    {
+        state.add_installed_apps_reason(reason(
+            Field::SettingsInstalledApps,
+            file,
+            "unsupported nested assignment or mutation of INSTALLED_APPS",
+        ));
     }
 
     state
@@ -778,6 +794,45 @@ fn list_mutation<'a>(stmt: &'a Stmt, target_name: &str) -> Option<ListMutation<'
         Stmt::Expr(expr_stmt) => call_list_mutation(expr_stmt.value.as_ref(), target_name),
         _ => None,
     }
+}
+
+fn contains_nested_list_mutation(stmt: &Stmt, target_name: &str) -> bool {
+    match stmt {
+        Stmt::If(stmt_if) => {
+            body_contains_list_mutation(&stmt_if.body, target_name)
+                || stmt_if
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| body_contains_list_mutation(&clause.body, target_name))
+        }
+        Stmt::For(stmt_for) => {
+            body_contains_list_mutation(&stmt_for.body, target_name)
+                || body_contains_list_mutation(&stmt_for.orelse, target_name)
+        }
+        Stmt::While(stmt_while) => {
+            body_contains_list_mutation(&stmt_while.body, target_name)
+                || body_contains_list_mutation(&stmt_while.orelse, target_name)
+        }
+        Stmt::Try(stmt_try) => {
+            body_contains_list_mutation(&stmt_try.body, target_name)
+                || stmt_try.handlers.iter().any(|handler| {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    body_contains_list_mutation(&handler.body, target_name)
+                })
+                || body_contains_list_mutation(&stmt_try.orelse, target_name)
+                || body_contains_list_mutation(&stmt_try.finalbody, target_name)
+        }
+        Stmt::With(stmt_with) => body_contains_list_mutation(&stmt_with.body, target_name),
+        _ => false,
+    }
+}
+
+fn body_contains_list_mutation(body: &[Stmt], target_name: &str) -> bool {
+    body.iter().any(|stmt| {
+        assigned_value(stmt, target_name).is_some()
+            || list_mutation(stmt, target_name).is_some()
+            || contains_nested_list_mutation(stmt, target_name)
+    })
 }
 
 fn call_list_mutation<'a>(expr: &'a Expr, target_name: &str) -> Option<ListMutation<'a>> {
@@ -2227,6 +2282,30 @@ TEMPLATES.update({"APP_DIRS": True})
         assert!(template_reasons[0]
             .message
             .contains("unsupported dynamic mutation"));
+    }
+
+    #[test]
+    fn marks_nested_installed_apps_updates_partial() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let settings = write_settings(
+            &root,
+            r#"
+INSTALLED_APPS = ["django.contrib.auth"]
+if ENABLE_DEBUG_TOOLBAR:
+    INSTALLED_APPS = [*INSTALLED_APPS, "debug_toolbar"]
+for plugin in plugins:
+    INSTALLED_APPS.append(plugin)
+"#,
+        );
+
+        let facts = extract_settings_facts(&settings);
+
+        let (apps, reasons) = partial_vec(&facts.installed_apps);
+        assert_eq!(apps, ["django.contrib.auth"]);
+        assert!(reasons.iter().any(|reason| reason
+            .message
+            .contains("unsupported nested assignment or mutation of INSTALLED_APPS")));
     }
 
     #[test]

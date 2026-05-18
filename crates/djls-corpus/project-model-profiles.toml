@@ -20,10 +20,11 @@ root = "."
 settings_file = "archivebox/core/settings.py"
 settings_module = "archivebox.core.settings"
 extends_files = []
-installed_apps_confidence = "known"
+installed_apps_confidence = "partial"
 templates_confidence = "partial"
-template_libraries_confidence = "known"
+template_libraries_confidence = "partial"
 expected_partial_reasons = [
+  "unsupported nested assignment or mutation of INSTALLED_APPS",
   "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
@@ -108,10 +109,11 @@ root = "."
 settings_file = "src/backend/InvenTree/InvenTree/settings.py"
 settings_module = "InvenTree.settings"
 extends_files = []
-installed_apps_confidence = "known"
+installed_apps_confidence = "partial"
 templates_confidence = "partial"
-template_libraries_confidence = "known"
+template_libraries_confidence = "partial"
 expected_partial_reasons = [
+  "unsupported nested assignment or mutation of INSTALLED_APPS",
   "TEMPLATES DIRS contains an unsupported path expression",
 ]
 
@@ -188,9 +190,11 @@ root = "."
 settings_file = "netbox/netbox/settings.py"
 settings_module = "netbox.settings"
 extends_files = []
-installed_apps_confidence = "known"
-templates_confidence = "known"
-expected_partial_reasons = []
+installed_apps_confidence = "partial"
+templates_confidence = "partial"
+expected_partial_reasons = [
+  "unsupported nested assignment or mutation of INSTALLED_APPS",
+]
 
 [profile.django_environment.expected]
 local_apps = [
@@ -249,6 +253,7 @@ installed_apps_confidence = "partial"
 templates_confidence = "known"
 expected_partial_reasons = [
   "module `djangoformsetjs` was not found in module search paths",
+  "unsupported nested assignment or mutation of INSTALLED_APPS",
 ]
 
 [profile.django_environment.expected]
