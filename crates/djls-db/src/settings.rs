@@ -72,9 +72,9 @@ impl DjangoDatabase {
             env_changed = true;
         }
 
-        let new_project_model = settings.project_model();
-        if project.project_model(self) != new_project_model {
-            project.set_project_model(self).to(new_project_model);
+        let new_django_discovery = settings.django_discovery();
+        if project.django_discovery(self) != new_django_discovery {
+            project.set_django_discovery(self).to(new_django_discovery);
             env_changed = true;
         }
 

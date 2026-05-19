@@ -18,7 +18,7 @@ mod template_symbols;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::load_env_file;
-pub(crate) use crate::project::input::project_model_modules;
+pub(crate) use crate::project::input::project_django_model_modules;
 pub(crate) use crate::project::input::project_templatetag_modules;
 pub use crate::project::input::Project;
 pub use crate::project::input::ProjectPythonIndex;

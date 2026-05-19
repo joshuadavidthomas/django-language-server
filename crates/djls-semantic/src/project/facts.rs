@@ -1,6 +1,6 @@
-//! Django project model facts.
+//! Django project facts.
 //!
-//! These types are the confidence-aware boundary for project model assembly. They
+//! These types are the confidence-aware boundary for project facts assembly. They
 //! intentionally do not feed validators yet; later milestones will populate them
 //! from module resolution, settings extraction, app registry discovery, and
 //! template assembly.

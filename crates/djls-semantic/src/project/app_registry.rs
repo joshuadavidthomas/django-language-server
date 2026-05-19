@@ -1,4 +1,4 @@
-//! Static Django app registry facts.
+//! Source-derived Django app registry facts.
 //!
 //! This module resolves `INSTALLED_APPS` entries into app package facts without
 //! importing Django or project code. It supports direct app package entries and

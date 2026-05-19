@@ -1,4 +1,4 @@
-//! Static Django template library facts.
+//! Source-derived Django template library facts.
 //!
 //! This module assembles loadable template libraries and builtin libraries from
 //! extracted template backend settings plus the static app registry. It models

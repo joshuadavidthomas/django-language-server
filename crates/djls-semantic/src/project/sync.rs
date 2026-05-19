@@ -11,7 +11,7 @@ use std::time::UNIX_EPOCH;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_conf::ProjectModelMode;
+use djls_conf::DjangoDiscoveryMode;
 use djls_source::FileRootKind;
 use djls_source::Utf8PathClean;
 use ignore::WalkBuilder;
@@ -67,7 +67,7 @@ use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
 
-const STATIC_TEMPLATE_LIBRARY_CACHE_VERSION: &str = "static-template-libraries-v2";
+const STATIC_TEMPLATE_LIBRARY_CACHE_VERSION: &str = "project-facts-template-libraries-v1";
 const DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY: &str = "django-5.2-default-template-libraries-v1";
 
 /// Refresh all external project data.
@@ -119,11 +119,11 @@ impl IntrospectionRequest for TemplateDirsRequest {
 }
 
 fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
-    match project.project_model(db) {
-        ProjectModelMode::Auto | ProjectModelMode::Static => {
+    match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => {
             refresh_template_dirs_static(db, project);
         }
-        ProjectModelMode::Inspector => refresh_template_dirs_inspector(db, project),
+        DjangoDiscoveryMode::Runtime => refresh_template_dirs_inspector(db, project),
     }
 }
 
@@ -239,7 +239,7 @@ fn assemble_static_template_dirs(
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
 ) -> Fact<Vec<Utf8PathBuf>> {
-    let context = match assemble_static_project_context(
+    let context = match assemble_project_facts_context(
         root,
         django_settings_module,
         pythonpath,
@@ -276,7 +276,7 @@ fn log_static_template_dirs_status(
         template_dir_count = dirs.value().map(Vec::len).unwrap_or_default(),
         reason_count = dirs.reasons().len(),
         reasons = ?dirs.reasons(),
-        "Static project model status",
+        "Project facts status",
     );
 }
 
@@ -289,11 +289,9 @@ impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
 }
 
 fn load_project_template_library_cache(db: &mut dyn ProjectDb, project: Project) -> bool {
-    match project.project_model(db) {
-        ProjectModelMode::Auto | ProjectModelMode::Static => {
-            load_project_template_library_cache_static(db, project)
-        }
-        ProjectModelMode::Inspector => load_project_template_library_cache_inspector(db, project),
+    match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => load_project_template_library_cache_static(db, project),
+        DjangoDiscoveryMode::Runtime => load_project_template_library_cache_inspector(db, project),
     }
 }
 
@@ -321,11 +319,11 @@ fn load_project_template_library_cache_inspector(db: &mut dyn ProjectDb, project
 }
 
 fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
-    match project.project_model(db) {
-        ProjectModelMode::Auto | ProjectModelMode::Static => {
+    match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => {
             refresh_template_libraries_static(db, project);
         }
-        ProjectModelMode::Inspector => refresh_template_libraries_inspector(db, project),
+        DjangoDiscoveryMode::Runtime => refresh_template_libraries_inspector(db, project),
     }
 }
 
@@ -336,7 +334,7 @@ fn refresh_template_libraries_static(db: &mut dyn ProjectDb, project: Project) {
     }
 
     let assembly = assemble_project_static_template_library_snapshot_with_status(db, project);
-    log_static_project_model_status("assembled", &assembly.status);
+    log_project_facts_status("assembled", &assembly.status);
     save_static_template_library_snapshot_cache(db, project, &assembly);
     apply_static_template_library_snapshot(db, project, assembly.snapshot);
 }
@@ -354,7 +352,7 @@ fn refresh_template_libraries_inspector(db: &mut dyn ProjectDb, project: Project
     }
 
     let assembly = assemble_project_static_template_library_snapshot_with_status(db, project);
-    log_static_project_model_status("assembled", &assembly.status);
+    log_project_facts_status("assembled", &assembly.status);
     save_static_template_library_snapshot_cache(db, project, &assembly);
     apply_static_template_library_snapshot(db, project, assembly.snapshot);
 }
@@ -399,7 +397,7 @@ fn refresh_template_libraries_from_static_cache(
         return false;
     }
 
-    log_static_project_model_status("cache_load", &entry.status);
+    log_project_facts_status("cache_load", &entry.status);
     apply_static_template_library_snapshot(db, project, entry.snapshot);
     true
 }
@@ -439,7 +437,7 @@ fn assemble_project_static_template_library_snapshot_with_status(
 
 struct StaticTemplateLibrarySnapshotAssembly {
     snapshot: Fact<TemplateLibrarySnapshot>,
-    status: StaticProjectModelStatus,
+    status: ProjectFactsStatus,
     dependencies: Vec<StaticCacheDependency>,
 }
 
@@ -474,7 +472,7 @@ fn assemble_static_template_library_snapshot_with_status(
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
 ) -> StaticTemplateLibrarySnapshotAssembly {
-    let context = match assemble_static_project_context(
+    let context = match assemble_project_facts_context(
         root,
         django_settings_module,
         pythonpath,
@@ -483,7 +481,7 @@ fn assemble_static_template_library_snapshot_with_status(
         Ok(context) => context,
         Err(reasons) => {
             let snapshot = Fact::unknown(reasons);
-            let status = StaticProjectModelStatus::from_snapshot(
+            let status = ProjectFactsStatus::from_snapshot(
                 django_settings_module,
                 &snapshot,
                 None,
@@ -512,7 +510,7 @@ fn assemble_static_template_library_snapshot_with_status(
         assemble_template_library_snapshot(&template_libraries, &template_symbols),
         context.reasons.clone(),
     );
-    let status = StaticProjectModelStatus::from_snapshot(
+    let status = ProjectFactsStatus::from_snapshot(
         django_settings_module,
         &snapshot,
         fact_len(&context.app_registry.app_registry),
@@ -545,7 +543,7 @@ fn assemble_static_template_library_snapshot(
     .snapshot
 }
 
-struct StaticProjectContext {
+struct ProjectFactsContext {
     module_search_paths: Fact<Vec<ModuleSearchPathEntry>>,
     site_packages_paths: Vec<Utf8PathBuf>,
     settings_facts: SettingsFacts,
@@ -554,7 +552,7 @@ struct StaticProjectContext {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct StaticProjectModelStatus {
+struct ProjectFactsStatus {
     django_settings_module: Option<String>,
     confidence: Confidence,
     module_search_path_count: Option<usize>,
@@ -566,7 +564,7 @@ struct StaticProjectModelStatus {
     reasons: Vec<Reason>,
 }
 
-impl StaticProjectModelStatus {
+impl ProjectFactsStatus {
     fn from_snapshot(
         django_settings_module: Option<&str>,
         snapshot: &Fact<TemplateLibrarySnapshot>,
@@ -605,16 +603,16 @@ struct StaticCacheDependency {
     modified_subsec_nanos: Option<u32>,
 }
 
-fn assemble_static_project_context(
+fn assemble_project_facts_context(
     root: &Utf8Path,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
-) -> Result<StaticProjectContext, Vec<Reason>> {
+) -> Result<ProjectFactsContext, Vec<Reason>> {
     let Some(django_settings_module) = django_settings_module else {
         return Err(vec![Reason::new(
             ReasonSource::Workspace(root.to_path_buf()),
-            "django_settings_module is not configured; skipped static project model assembly",
+            "django_settings_module is not configured; skipped source-based Django discovery assembly",
         )]);
     };
 
@@ -652,7 +650,7 @@ fn assemble_static_project_context(
     );
     let app_registry = resolve_app_registry(&settings_facts.installed_apps, root, search_paths);
 
-    Ok(StaticProjectContext {
+    Ok(ProjectFactsContext {
         module_search_paths,
         site_packages_paths: site_packages_paths.to_vec(),
         settings_facts,
@@ -665,7 +663,7 @@ fn fact_len<T>(fact: &Fact<Vec<T>>) -> Option<usize> {
     fact.value().map(Vec::len)
 }
 
-fn log_static_project_model_status(event: &str, status: &StaticProjectModelStatus) {
+fn log_project_facts_status(event: &str, status: &ProjectFactsStatus) {
     tracing::info!(
         event,
         django_settings_module = status.django_settings_module.as_deref().unwrap_or("<unset>"),
@@ -678,13 +676,13 @@ fn log_static_project_model_status(event: &str, status: &StaticProjectModelStatu
         symbol_count = status.symbol_count,
         reason_count = status.reasons.len(),
         reasons = ?status.reasons,
-        "Static project model status",
+        "Project facts status",
     );
 }
 
 fn static_template_library_cache_dependencies(
     root: &Utf8Path,
-    context: &StaticProjectContext,
+    context: &ProjectFactsContext,
     template_libraries: &Fact<Vec<TemplateLibraryFact>>,
     snapshot: &Fact<TemplateLibrarySnapshot>,
 ) -> Vec<StaticCacheDependency> {
@@ -969,7 +967,7 @@ fn apply_static_template_library_cache_entry(
     project: Project,
     entry: StaticTemplateLibraryCacheEntry,
 ) -> bool {
-    log_static_project_model_status("cache_load", &entry.status);
+    log_project_facts_status("cache_load", &entry.status);
     let usable = usable_static_template_library_snapshot(entry.snapshot.clone()).is_some();
     if apply_static_template_library_snapshot(db, project, entry.snapshot) {
         refresh_templatetag_modules(db, project);
@@ -984,7 +982,7 @@ fn save_static_template_library_snapshot_cache(
 ) {
     if assembly.dependencies.is_empty() {
         tracing::debug!(
-            "Skipping static template library cache write because no dependency metadata was available"
+            "Skipping project facts template library cache write because no dependency metadata was available"
         );
         return;
     }
@@ -1013,13 +1011,13 @@ struct StaticTemplateLibraryCacheEnvelope {
     djls_version: String,
     django_default_policy: String,
     snapshot: Fact<TemplateLibrarySnapshot>,
-    status: StaticProjectModelStatus,
+    status: ProjectFactsStatus,
     dependencies: Vec<StaticCacheDependency>,
 }
 
 struct StaticTemplateLibraryCacheEntry {
     snapshot: Fact<TemplateLibrarySnapshot>,
-    status: StaticProjectModelStatus,
+    status: ProjectFactsStatus,
 }
 
 fn cache_key(
@@ -1130,7 +1128,7 @@ fn static_template_library_cache_dir_in(
         pythonpath,
         site_packages_paths,
     );
-    base.join("static-project-model")
+    base.join("project-facts")
         .join("template-libraries")
         .join(&key[..16])
 }
@@ -1187,7 +1185,7 @@ fn load_static_template_library_snapshot_from_dir(
 
     if envelope.cache_version != STATIC_TEMPLATE_LIBRARY_CACHE_VERSION {
         tracing::debug!(
-            "Static template library cache version mismatch: cached={}, current={}",
+            "Project facts template library cache version mismatch: cached={}, current={}",
             envelope.cache_version,
             STATIC_TEMPLATE_LIBRARY_CACHE_VERSION,
         );
@@ -1195,7 +1193,7 @@ fn load_static_template_library_snapshot_from_dir(
     }
     if envelope.djls_version != env!("CARGO_PKG_VERSION") {
         tracing::debug!(
-            "Static template library cache djls version mismatch: cached={}, current={}",
+            "Project facts template library cache djls version mismatch: cached={}, current={}",
             envelope.djls_version,
             env!("CARGO_PKG_VERSION"),
         );
@@ -1203,7 +1201,7 @@ fn load_static_template_library_snapshot_from_dir(
     }
     if envelope.django_default_policy != DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY {
         tracing::debug!(
-            "Static template library cache Django default policy mismatch: cached={}, current={}",
+            "Project facts template library cache Django default policy mismatch: cached={}, current={}",
             envelope.django_default_policy,
             DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY,
         );
@@ -1214,12 +1212,12 @@ fn load_static_template_library_snapshot_from_dir(
         .iter()
         .all(StaticCacheDependency::is_current)
     {
-        tracing::debug!("Static template library cache invalidated by dependency change");
+        tracing::debug!("Project facts template library cache invalidated by dependency change");
         return None;
     }
 
     tracing::info!(
-        "Loaded static template library snapshot from cache: {}",
+        "Loaded project facts template library snapshot from cache: {}",
         path
     );
     Some(StaticTemplateLibraryCacheEntry {
@@ -1301,7 +1299,7 @@ fn save_static_template_library_snapshot(
 fn save_static_template_library_snapshot_to_dir(
     dir: &Utf8Path,
     snapshot: &Fact<TemplateLibrarySnapshot>,
-    status: &StaticProjectModelStatus,
+    status: &ProjectFactsStatus,
     dependencies: &[StaticCacheDependency],
 ) {
     let envelope = StaticTemplateLibraryCacheEnvelope {
@@ -1314,7 +1312,7 @@ fn save_static_template_library_snapshot_to_dir(
     };
 
     if let Err(e) = fs::create_dir_all(dir.as_std_path()) {
-        tracing::warn!("Failed to create static template library cache directory: {e}");
+        tracing::warn!("Failed to create project facts template library cache directory: {e}");
         return;
     }
 
@@ -1322,13 +1320,16 @@ fn save_static_template_library_snapshot_to_dir(
     match serde_json::to_string(&envelope) {
         Ok(json) => {
             if let Err(e) = fs::write(path.as_std_path(), json) {
-                tracing::warn!("Failed to write static template library cache: {e}");
+                tracing::warn!("Failed to write project facts template library cache: {e}");
             } else {
-                tracing::debug!("Saved static template library snapshot to cache: {}", path);
+                tracing::debug!(
+                    "Saved project facts template library snapshot to cache: {}",
+                    path
+                );
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to serialize static template library cache: {e}");
+            tracing::warn!("Failed to serialize project facts template library cache: {e}");
         }
     }
 }
@@ -1667,19 +1668,19 @@ mod tests {
             django_settings_module: Option<String>,
             pythonpath: Vec<String>,
         ) -> (Self, Project) {
-            Self::with_project_options_and_model(
+            Self::with_project_options_and_discovery(
                 root,
                 interpreter,
-                ProjectModelMode::Inspector,
+                DjangoDiscoveryMode::Runtime,
                 django_settings_module,
                 pythonpath,
             )
         }
 
-        fn with_project_options_and_model(
+        fn with_project_options_and_discovery(
             root: Utf8PathBuf,
             interpreter: Interpreter,
-            project_model: ProjectModelMode,
+            django_discovery: DjangoDiscoveryMode,
             django_settings_module: Option<String>,
             pythonpath: Vec<String>,
         ) -> (Self, Project) {
@@ -1688,7 +1689,7 @@ mod tests {
                 &db,
                 root,
                 interpreter,
-                project_model,
+                django_discovery,
                 django_settings_module,
                 pythonpath,
                 Vec::new(),
@@ -2322,10 +2323,10 @@ def emph(value):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_dirs_fixture(&root);
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Auto,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -2362,10 +2363,10 @@ TEMPLATES = [
 "#,
         );
         write_file(&root.join("templates/base.html"), "");
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Static,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -2399,10 +2400,10 @@ TEMPLATES = [
 "#,
         );
         write_file(&root.join("templates/base.html"), "");
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Auto,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -2437,10 +2438,10 @@ TEMPLATES = [
         );
         write_file(&root.join("templates/base.html"), "");
         write_file(&root.join("blog/templates/blog/detail.html"), "");
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Auto,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -2978,10 +2979,10 @@ TEMPLATES = []
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root);
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Auto,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -2998,10 +2999,10 @@ TEMPLATES = []
     fn static_template_libraries_clear_stale_active_libraries_when_static_is_unusable() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Static,
+            DjangoDiscoveryMode::Source,
             None,
             Vec::new(),
         );
@@ -3032,10 +3033,10 @@ TEMPLATES = []
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root);
         fs::remove_file(root.join("django/templatetags/i18n.py")).unwrap();
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Auto,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -3054,10 +3055,10 @@ TEMPLATES = []
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root);
         fs::remove_file(root.join("django/templatetags/i18n.py")).unwrap();
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Static,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -3075,10 +3076,10 @@ TEMPLATES = []
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root);
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
             missing_interpreter(&root),
-            ProjectModelMode::Inspector,
+            DjangoDiscoveryMode::Runtime,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -3270,9 +3271,7 @@ TEMPLATES = []
             &pythonpath,
             &site_packages,
         );
-        assert!(dir
-            .as_str()
-            .contains("static-project-model/template-libraries"));
+        assert!(dir.as_str().contains("project-facts/template-libraries"));
         assert!(!dir.as_str().contains("inspector"));
 
         let other_dir = static_template_library_cache_dir_in(
@@ -3297,7 +3296,7 @@ TEMPLATES = []
         let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
         let pythonpath: Vec<String> = vec![];
         let snapshot = Fact::known(test_response());
-        let status = StaticProjectModelStatus::from_snapshot(
+        let status = ProjectFactsStatus::from_snapshot(
             Some("project.settings"),
             &snapshot,
             Some(1),
@@ -3335,7 +3334,7 @@ TEMPLATES = []
         write_file(&dependency, "INSTALLED_APPS = []\n");
 
         let snapshot = Fact::known(test_response());
-        let status = StaticProjectModelStatus::from_snapshot(
+        let status = ProjectFactsStatus::from_snapshot(
             Some("project.settings"),
             &snapshot,
             Some(1),
@@ -3759,7 +3758,7 @@ TEMPLATES = [
 
         let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
         let snapshot = Fact::known(test_response());
-        let status = StaticProjectModelStatus::from_snapshot(
+        let status = ProjectFactsStatus::from_snapshot(
             Some("project.settings"),
             &snapshot,
             Some(1),
@@ -3815,7 +3814,7 @@ TEMPLATES = [
             test_response(),
             vec![Reason::path(root.clone(), "partial static cache entry")],
         );
-        let status = StaticProjectModelStatus::from_snapshot(
+        let status = ProjectFactsStatus::from_snapshot(
             Some("project.settings"),
             &static_snapshot,
             Some(1),
@@ -3852,10 +3851,10 @@ TEMPLATES = [
             &inspector_snapshot,
         );
 
-        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_model(
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root,
             interpreter,
-            ProjectModelMode::Auto,
+            DjangoDiscoveryMode::Source,
             Some("project.settings".to_string()),
             Vec::new(),
         );
@@ -3872,7 +3871,7 @@ TEMPLATES = [
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
         let snapshot = Fact::known(test_response());
-        let status = StaticProjectModelStatus::from_snapshot(
+        let status = ProjectFactsStatus::from_snapshot(
             Some("project.settings"),
             &snapshot,
             Some(1),

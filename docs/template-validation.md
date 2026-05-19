@@ -6,28 +6,27 @@ Django Language Server validates your Django templates as you write them, catchi
 
 Template validation relies on three systems working together:
 
-### Project Model
+### Project Facts
 
-The **project model** describes the Django facts djls needs for templates:
+**Project facts** describe the Django facts djls needs for templates:
 
 - Which template tags and filters exist
 - Which libraries they belong to (builtins vs third-party)
 - Which library load-name maps to which module
 - Which template directories Django searches
 
-By default, `project_model = "auto"` builds these facts statically from your workspace, `django_settings_module`, `pythonpath`, and available source files. When static facts are available, djls can provide scoped completions and diagnostics without spawning Python or calling `django.setup()`.
+By default, `django_discovery = "source"` builds these facts from your workspace, `django_settings_module`, `pythonpath`, and available source files. When source-derived facts are available, djls can provide scoped completions and diagnostics without spawning Python or calling `django.setup()`.
 
-You can choose the project model path with [`project_model`](configuration/index.md#project_model):
+You can choose the discovery path with [`django_discovery`](configuration/index.md#django_discovery):
 
-- `"auto"` — static project model, no inspector subprocess
-- `"static"` — same static-only project model behavior, useful when you want to make that choice explicit
-- `"inspector"` — legacy runtime inspector first
+- `"source"` — source-based Django discovery, no inspector subprocess
+- `"runtime"` — legacy runtime inspector
 
-The static model tracks confidence. Known facts enable scoped availability diagnostics. Partial or unknown facts still allow diagnostics backed by positive facts, but suppress absence-based diagnostics.
+Project facts track confidence. Known facts enable scoped availability diagnostics. Partial or unknown facts still allow diagnostics backed by positive facts, but suppress absence-based diagnostics.
 
 ### Inspector
 
-The **inspector** is the legacy Python process that introspects your running Django project. It remains available through `project_model = "inspector"` during the static project model rollout.
+The **inspector** is the legacy Python process that introspects your running Django project. It remains available through `django_discovery = "runtime"` during the source-based Django discovery rollout.
 
 ### Environment Scanner
 
@@ -47,7 +46,7 @@ The **extraction engine** analyzes Python source code (using static AST analysis
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
 - **Expression syntax** — valid operator usage in `{% if %}` / `{% elif %}` expressions
 
-Together, the project model tells djls *what's active in your project*, the environment scanner tells djls *what's installed*, and extraction tells djls *how to validate usage*.
+Together, project facts tell djls *what's active in your project*, the environment scanner tells djls *what's installed*, and extraction tells djls *how to validate usage*.
 
 ## Three-Layer Resolution
 
@@ -109,7 +108,7 @@ Validates that template filters are available at their point of use, with the sa
 
 Validates that `{% load %}` library names refer to known template tag libraries:
 
-- **S120** — Unknown library (not found in the project model or the Python environment)
+- **S120** — Unknown library (not found in the project facts or the Python environment)
 - **S121** — Library not in `INSTALLED_APPS` (the library exists in an installed package, but its Django app isn't activated)
 
 ### Extends Validation (S122–S123)
@@ -150,17 +149,17 @@ Django templates are deeply dynamic — many things can only be checked at runti
 - **Dynamic tag behavior** — Tags whose validation depends on runtime state
 - **Format strings** — Whether date/time format strings are valid
 
-## Project Model Availability
+## Project Facts Availability
 
-The static project model needs enough source files and configuration to find your Django settings, installed apps, template directories, and templatetag modules. For typical literal or split settings, it can work without a configured Python runtime.
+The source-based Django discovery needs enough source files and configuration to find your Django settings, installed apps, template directories, and templatetag modules. For typical literal or split settings, it can work without a configured Python runtime.
 
-When project model facts are **known**:
+When project facts are **known**:
 
 - Scoped tag, filter, and library availability diagnostics can run from project facts
 - Completions are scoped to loaded libraries at cursor position
 - Argument and arity diagnostics run when extraction or built-in specs provide rules
 
-When project model facts are **partial or unknown**:
+When project facts are **partial or unknown**:
 
 - **Absence-based diagnostics are suppressed when unsafe** — Without complete project facts, djls avoids claiming that a tag, filter, or library is unknown or missing from `INSTALLED_APPS` (S108, S111, S118, S119, S120, S121)
 - **Positive-fact diagnostics can still run** — Known but unloaded or ambiguous tags and filters can still produce S109, S110, S112, and S113
@@ -172,7 +171,7 @@ When project model facts are **partial or unknown**:
 
 This design avoids false positives when the Python environment isn't available.
 
-In `project_model = "auto"` or `"static"`, djls does not fall back to the inspector for partial or unknown static facts. Use `project_model = "inspector"` when you need the legacy runtime path for a dynamic project.
+In `django_discovery = "source"`, djls does not fall back to the inspector for partial or unknown source-derived facts. Use `django_discovery = "runtime"` when you need the legacy runtime path for a dynamic project.
 
 ## Configuring Diagnostic Severity
 

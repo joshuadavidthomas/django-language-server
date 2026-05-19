@@ -284,7 +284,7 @@ mod invalidation_tests {
             &db,
             "/test/project".into(),
             interpreter,
-            settings.project_model(),
+            settings.django_discovery(),
             dsm,
             settings.pythonpath().to_vec(),
             Vec::new(),

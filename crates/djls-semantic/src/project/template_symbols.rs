@@ -1,4 +1,4 @@
-//! Static Django template symbol facts.
+//! Source-derived Django template symbol facts.
 //!
 //! This module resolves assembled template libraries to Python files and uses
 //! the existing Ruff-based registration extraction to produce static tag/filter

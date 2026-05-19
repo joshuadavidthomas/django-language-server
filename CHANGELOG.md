@@ -21,11 +21,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
-- Added `project_model` configuration for choosing static-first, static-only, or inspector-first discovery of template directories, template libraries, and symbols.
+- Added `django_discovery` configuration for choosing source-based or runtime discovery of template directories, template tag libraries, and symbols.
 
 ### Changed
 
-- Changed `project_model = "auto"` to use the static project model without falling back to the Python inspector for partial or unknown static facts. Use `project_model = "inspector"` to opt into the legacy runtime path.
+- Changed default Django discovery to source-based discovery. Use `django_discovery = "runtime"` to opt into the legacy Python inspector path.
 
 ## [6.0.3]
 

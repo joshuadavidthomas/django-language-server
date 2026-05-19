@@ -2,7 +2,7 @@ use std::fmt;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_conf::ProjectModelMode;
+use djls_conf::DjangoDiscoveryMode;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::File;
@@ -202,7 +202,7 @@ impl fmt::Debug for ProjectPythonModule {
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn project_model_modules(
+pub(crate) fn project_django_model_modules(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Vec<ProjectPythonModule> {
@@ -234,8 +234,8 @@ pub struct Project {
     /// Interpreter specification for Python environment discovery
     #[returns(ref)]
     pub interpreter: Interpreter,
-    /// Static project model rollout mode.
-    pub project_model: ProjectModelMode,
+    /// Strategy for collecting Django project facts.
+    pub django_discovery: DjangoDiscoveryMode,
     /// Django settings module (e.g., "myproject.settings")
     #[returns(ref)]
     pub django_settings_module: Option<String>,
@@ -303,7 +303,7 @@ impl Project {
         Project::builder(
             root.to_path_buf(),
             interpreter,
-            settings.project_model(),
+            settings.django_discovery(),
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
             env_vars,

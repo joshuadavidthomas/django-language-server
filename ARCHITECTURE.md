@@ -149,28 +149,27 @@ Template parsing does not need its own database trait. `parse_template` depends 
 
 ## How Knowledge Gets In
 
-### Static Project Model and Python Inspector
+### Django Discovery and Python Inspector
 
 > [!NOTE]
-> The inspector is being replaced by the static project model ([#401](https://github.com/joshuadavidthomas/django-language-server/issues/401)). The rollout keeps the inspector available as an explicit compatibility mode until the documented removal gates are met.
+> The inspector is being replaced by the source-based Django discovery ([#401](https://github.com/joshuadavidthomas/django-language-server/issues/401)). The rollout keeps the inspector available as an explicit compatibility mode until the documented removal gates are met.
 
-The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, templatetag libraries, and the symbols they export. The preferred path is the static project model:
+The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, templatetag libraries, and the symbols they export. The preferred path is the source-based Django discovery:
 
 - Resolve Python modules from workspace roots, configured `pythonpath`, auto `src/` roots, and site-packages.
 - Parse Django settings with the Ruff AST.
 - Assemble app registry, template dirs, template libraries, builtins, and symbol snapshots without importing Django.
 
-`project_model` controls rollout behavior:
+`django_discovery` controls how project facts are collected:
 
-- `auto` uses static facts without starting the inspector. Partial or unknown static facts degrade conservatively.
-- `static` uses the same static-only behavior as `auto`, for users who want to make that choice explicit.
-- `inspector` uses the legacy runtime path first.
+- `source` reads source files and import roots without starting the inspector. Partial or unknown source-derived facts degrade conservatively.
+- `runtime` uses the legacy Python/Django inspector path.
 
 A small Python program from `crates/djls-semantic/inspector/` still ships embedded in the binary as a zipapp for fallback. Project introspection queries Django's template engine registry and returns JSON describing template directories, installed libraries, and their symbols.
 
 Startup uses two phases to avoid blocking the editor:
 
-1. A cache check during `initialized`. The server can load cached static template-library facts from `~/.cache/djls/static-project-model/template-libraries/` or, when `project_model = "inspector"`, legacy inspector responses from `~/.cache/djls/inspector/`.
+1. A cache check during `initialized`. The server can load cached source-derived template-library facts from `~/.cache/djls/project-facts/template-libraries/` or, when `django_discovery = "runtime"`, legacy inspector responses from `~/.cache/djls/inspector/`.
 2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, template libraries, the first-party project file set, extracted validation rules from installed packages, and external model graphs. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
 
 This means that in the common case (you've opened this project before and the environment hasn't changed), startup is nearly instant — the server just reads a JSON file from disk.

@@ -1263,12 +1263,12 @@ fn body_contains_template_options_assignment(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| {
         template_options_assignment(stmt)
             .as_ref()
-            .is_some_and(|assignment| template_option_affects_project_model(&assignment.key))
+            .is_some_and(|assignment| template_option_affects_project_facts(&assignment.key))
             || contains_nested_template_options_assignment(stmt)
     })
 }
 
-fn template_option_affects_project_model(key: &str) -> bool {
+fn template_option_affects_project_facts(key: &str) -> bool {
     !matches!(key, "context_processors" | "debug" | "string_if_invalid")
 }
 
@@ -1708,7 +1708,7 @@ fn apply_template_options_assignment_to_backends(
     assignment: &TemplateOptionsAssignment,
     file: &Utf8Path,
 ) -> Vec<Reason> {
-    if !template_option_affects_project_model(&assignment.key) {
+    if !template_option_affects_project_facts(&assignment.key) {
         return Vec::new();
     }
 
@@ -3417,7 +3417,7 @@ TEMPLATES[0]["OPTIONS"]["string_if_invalid"] = "missing"
     }
 
     #[test]
-    fn marks_project_model_affecting_template_options_assignment_partial() {
+    fn marks_project_facts_affecting_template_options_assignment_partial() {
         let tmp = tempdir().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         let settings = write_settings(

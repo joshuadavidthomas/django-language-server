@@ -1,7 +1,7 @@
 use djls_source::File;
 
 use crate::db::Db;
-use crate::project::project_model_modules;
+use crate::project::project_django_model_modules;
 use crate::project::project_templatetag_modules;
 use crate::project::Project;
 use crate::python::extract_block_specs;
@@ -94,7 +94,7 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
     let mut results = Vec::new();
 
-    for module in project_model_modules(db, project) {
+    for module in project_django_model_modules(db, project) {
         let graph = extract_workspace_model_graph(db, module.file(), module.module_path().clone());
         if !graph.is_empty() {
             results.push((module.module_path().clone(), graph));

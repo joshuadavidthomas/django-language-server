@@ -1,4 +1,4 @@
-//! Static Django template directory facts.
+//! Source-derived Django template directory facts.
 //!
 //! This module assembles Django template search directories from extracted
 //! settings facts and static app registry facts. It follows Django's loader
@@ -157,7 +157,7 @@ fn push_existing_app_template_dirs(dirs: &mut Vec<TemplateDirFact>, apps: &[AppF
     for app in apps {
         let path = app.path.join("templates");
         // Django's get_app_template_dirs() only returns app template directories
-        // that exist. Keep that filter here so static facts match runtime dirs.
+        // that exist. Keep that filter here so source-derived facts match runtime dirs.
         if path.is_dir() {
             push_unique_app_template_dir(
                 dirs,
