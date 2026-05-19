@@ -243,19 +243,6 @@ pub(crate) enum ReasonSource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ProjectFacts {
-    pub(crate) resolver: ResolverFacts,
-    pub(crate) django_environments: Vec<DjangoEnvironmentFacts>,
-    pub(crate) completion_union: CompletionUnionFacts,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ResolverFacts {
-    pub(crate) import_roots: Fact<Vec<ImportRoot>>,
-    pub(crate) modules: Vec<ModuleResolution>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ImportRoot {
     pub(crate) kind: ImportRootKind,
     pub(crate) path: Utf8PathBuf,
@@ -290,26 +277,6 @@ pub(crate) struct ResolvedModule {
 pub(crate) enum ModuleLocation {
     Workspace,
     External,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DjangoEnvironmentFacts {
-    pub(crate) root: Utf8PathBuf,
-    pub(crate) django_settings_module: Fact<PyModuleName>,
-    pub(crate) django_settings_file: Fact<Utf8PathBuf>,
-    pub(crate) installed_apps: Fact<Vec<InstalledAppFact>>,
-    pub(crate) template_backends: Fact<Vec<TemplateBackendFact>>,
-    pub(crate) app_registry: Fact<Vec<AppFact>>,
-    pub(crate) template_dirs: Fact<Vec<TemplateDirFact>>,
-    pub(crate) template_libraries: Fact<Vec<TemplateLibraryFact>>,
-    pub(crate) template_symbols: Fact<Vec<TemplateSymbolFact>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct CompletionUnionFacts {
-    pub(crate) apps: Fact<Vec<AppFact>>,
-    pub(crate) template_libraries: Fact<Vec<TemplateLibraryFact>>,
-    pub(crate) template_symbols: Fact<Vec<TemplateSymbolFact>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -514,112 +481,5 @@ mod tests {
 
         assert_eq!(libraries.value().unwrap(), &[library_fact]);
         assert_eq!(symbols.value().unwrap(), &[symbol_fact]);
-    }
-
-    #[test]
-    fn gh401_manifest_selectors_keep_django_environments_separate_from_union() {
-        let manifest = djls_corpus::Manifest::load_default().unwrap();
-        let fixture = manifest
-            .fixtures
-            .iter()
-            .find(|fixture| fixture.name == "gh401-multisite")
-            .unwrap();
-        assert_eq!(
-            fixture
-                .django_settings_modules()
-                .collect::<Vec<_>>()
-                .as_slice(),
-            ["site1.settings.dev", "site2.settings.dev"]
-        );
-
-        let django_environments = [
-            (
-                "site1.settings.dev",
-                "projects/site1/settings/dev.py",
-                ["clientname.app1", "clientname.app2"],
-            ),
-            (
-                "site2.settings.dev",
-                "projects/site2/settings/dev.py",
-                ["clientname.app2", "clientname.app3"],
-            ),
-        ]
-        .into_iter()
-        .map(|(settings_module, settings_file, apps)| {
-            let apps = apps
-                .into_iter()
-                .map(|app| AppFact {
-                    entry: app.to_string(),
-                    module: module(app),
-                    path: Utf8PathBuf::from(app.replace('.', "/")),
-                    config: None,
-                })
-                .collect();
-            let settings_file = Utf8PathBuf::from(settings_file);
-            let root = settings_file
-                .parent()
-                .and_then(|parent| parent.parent())
-                .unwrap()
-                .to_path_buf();
-
-            DjangoEnvironmentFacts {
-                root,
-                django_settings_module: Fact::known(module(settings_module)),
-                django_settings_file: Fact::known(settings_file),
-                installed_apps: Fact::known(Vec::new()),
-                template_backends: Fact::known(Vec::new()),
-                app_registry: Fact::known(apps),
-                template_dirs: Fact::known(Vec::new()),
-                template_libraries: Fact::known(Vec::new()),
-                template_symbols: Fact::known(Vec::new()),
-            }
-        })
-        .collect::<Vec<_>>();
-        let union_apps = ["clientname.app1", "clientname.app2", "clientname.app3"]
-            .into_iter()
-            .map(|app| AppFact {
-                entry: app.to_string(),
-                module: module(app),
-                path: Utf8PathBuf::from(app.replace('.', "/")),
-                config: None,
-            })
-            .collect::<Vec<_>>();
-        let project = ProjectFacts {
-            resolver: ResolverFacts {
-                import_roots: Fact::known(vec![
-                    ImportRoot {
-                        kind: ImportRootKind::Workspace,
-                        path: Utf8PathBuf::from("projects"),
-                    },
-                    ImportRoot {
-                        kind: ImportRootKind::ExplicitPythonPath,
-                        path: Utf8PathBuf::from("apps"),
-                    },
-                ]),
-                modules: Vec::new(),
-            },
-            django_environments,
-            completion_union: CompletionUnionFacts {
-                apps: Fact::known(union_apps),
-                template_libraries: Fact::known(Vec::new()),
-                template_symbols: Fact::known(Vec::new()),
-            },
-        };
-
-        let site1 = project
-            .django_environments
-            .iter()
-            .find(|environment| environment.root == "projects/site1")
-            .unwrap();
-        let site2 = project
-            .django_environments
-            .iter()
-            .find(|environment| environment.root == "projects/site2")
-            .unwrap();
-
-        assert_eq!(site1.app_registry.value().unwrap().len(), 2);
-        assert_eq!(site2.app_registry.value().unwrap().len(), 2);
-        assert_eq!(project.completion_union.apps.value().unwrap().len(), 3);
-        assert_ne!(site1.app_registry, site2.app_registry);
     }
 }
