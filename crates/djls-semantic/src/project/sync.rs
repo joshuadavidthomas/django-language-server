@@ -107,12 +107,132 @@ fn refresh_project_external_data(db: &mut dyn ProjectDb, project: Project) {
 fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
     match project.django_discovery(db) {
         DjangoDiscoveryMode::Source => {
-            refresh_template_dirs_from_source(db, project);
-            refresh_template_libraries_from_source(db, project);
+            let root = project.root(db).clone();
+            let interpreter = project.interpreter(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            let static_dirs = assemble_static_template_dirs(
+                &root,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            log_static_template_dirs_status(django_settings_module.as_deref(), &static_dirs);
+            apply_static_template_dirs(db, project, static_dirs);
+
+            let static_cache_entry = load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            if let Some(entry) = static_cache_entry {
+                if usable_static_template_library_snapshot(entry.snapshot.clone()).is_some() {
+                    log_project_facts_status("cache_load", &entry.status);
+                    apply_static_template_library_snapshot(db, project, entry.snapshot);
+                    return;
+                }
+            }
+
+            let assembly = assemble_static_template_library_snapshot_with_status(
+                &root,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            log_project_facts_status("assembled", &assembly.status);
+            if assembly.dependencies.is_empty() {
+                tracing::debug!(
+                    "Skipping project facts template library cache write because no dependency metadata was available"
+                );
+            } else {
+                save_static_template_library_snapshot(
+                    &root,
+                    &interpreter,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &site_packages_paths,
+                    &assembly,
+                );
+            }
+            apply_static_template_library_snapshot(db, project, assembly.snapshot);
         }
         DjangoDiscoveryMode::Runtime => {
-            refresh_template_dirs_from_runtime(db, project);
-            refresh_template_libraries_from_runtime(db, project);
+            if let Some(dirs) = fetch_template_dirs(db) {
+                apply_template_dirs(db, project, dirs);
+            } else {
+                let root = project.root(db).clone();
+                let interpreter = project.interpreter(db).clone();
+                let django_settings_module = project.django_settings_module(db).clone();
+                let pythonpath = project.pythonpath(db).clone();
+                let site_packages_paths = find_site_packages(&interpreter, &root)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let static_dirs = assemble_static_template_dirs(
+                    &root,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &site_packages_paths,
+                );
+                log_static_template_dirs_status(django_settings_module.as_deref(), &static_dirs);
+                apply_static_template_dirs(db, project, static_dirs);
+            }
+
+            if let Some(snapshot) = fetch_template_library_snapshot(db) {
+                save_template_library_snapshot_cache(db, project, &snapshot);
+                apply_template_library_snapshot(db, project, snapshot);
+                return;
+            }
+
+            let root = project.root(db).clone();
+            let interpreter = project.interpreter(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let static_cache_entry = load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            if let Some(entry) = static_cache_entry {
+                if usable_static_template_library_snapshot(entry.snapshot.clone()).is_some() {
+                    log_project_facts_status("cache_load", &entry.status);
+                    apply_static_template_library_snapshot(db, project, entry.snapshot);
+                    return;
+                }
+            }
+
+            let assembly = assemble_static_template_library_snapshot_with_status(
+                &root,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            log_project_facts_status("assembled", &assembly.status);
+            if assembly.dependencies.is_empty() {
+                tracing::debug!(
+                    "Skipping project facts template library cache write because no dependency metadata was available"
+                );
+            } else {
+                save_static_template_library_snapshot(
+                    &root,
+                    &interpreter,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &site_packages_paths,
+                    &assembly,
+                );
+            }
+            apply_static_template_library_snapshot(db, project, assembly.snapshot);
         }
     }
 }
@@ -130,23 +250,6 @@ impl IntrospectionRequest for TemplateDirsRequest {
     type Response = TemplateDirsResponse;
 }
 
-fn refresh_template_dirs_from_source(db: &mut dyn ProjectDb, project: Project) {
-    let static_dirs = assemble_project_static_template_dirs(db, project);
-    log_static_template_dirs_status(project.django_settings_module(db).as_deref(), &static_dirs);
-    apply_static_template_dirs(db, project, static_dirs);
-}
-
-fn refresh_template_dirs_from_runtime(db: &mut dyn ProjectDb, project: Project) {
-    let inspector_dirs = fetch_template_dirs(db);
-    let static_dirs = inspector_dirs
-        .is_none()
-        .then(|| assemble_project_static_template_dirs(db, project));
-    if let Some(static_dirs) = &static_dirs {
-        log_static_template_dirs_status(project.django_settings_module(db).as_deref(), static_dirs);
-    }
-    apply_template_dirs_or_static_fallback(db, project, inspector_dirs, static_dirs);
-}
-
 fn apply_template_dirs(db: &mut dyn ProjectDb, project: Project, dirs: Vec<Utf8PathBuf>) -> bool {
     let next = TemplateDirs::Known(dirs);
     if project.template_dirs(db) != &next {
@@ -155,22 +258,6 @@ fn apply_template_dirs(db: &mut dyn ProjectDb, project: Project, dirs: Vec<Utf8P
     }
 
     false
-}
-
-fn apply_template_dirs_or_static_fallback(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    inspector_dirs: Option<Vec<Utf8PathBuf>>,
-    static_dirs: Option<Fact<Vec<Utf8PathBuf>>>,
-) -> bool {
-    if let Some(dirs) = inspector_dirs {
-        return apply_template_dirs(db, project, dirs);
-    }
-
-    let Some(dirs) = static_dirs else {
-        return false;
-    };
-    apply_static_template_dirs(db, project, dirs)
 }
 
 fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
@@ -201,6 +288,7 @@ fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
     Some(response.dirs)
 }
 
+#[cfg(test)]
 fn assemble_project_static_template_dirs(
     db: &dyn ProjectDb,
     project: Project,
@@ -322,36 +410,6 @@ fn load_project_template_library_cache_inspector(db: &mut dyn ProjectDb, project
     true
 }
 
-fn refresh_template_libraries_from_source(db: &mut dyn ProjectDb, project: Project) {
-    let static_cache_entry = load_static_template_library_snapshot_cache(db, project);
-    if refresh_template_libraries_from_static_cache(db, project, static_cache_entry) {
-        return;
-    }
-
-    let assembly = assemble_project_static_template_library_snapshot_with_status(db, project);
-    log_project_facts_status("assembled", &assembly.status);
-    save_static_template_library_snapshot_cache(db, project, &assembly);
-    apply_static_template_library_snapshot(db, project, assembly.snapshot);
-}
-
-fn refresh_template_libraries_from_runtime(db: &mut dyn ProjectDb, project: Project) {
-    if let Some(snapshot) = fetch_template_library_snapshot(db) {
-        save_template_library_snapshot_cache(db, project, &snapshot);
-        apply_template_library_snapshot(db, project, snapshot);
-        return;
-    }
-
-    let static_cache_entry = load_static_template_library_snapshot_cache(db, project);
-    if refresh_template_libraries_from_static_cache(db, project, static_cache_entry) {
-        return;
-    }
-
-    let assembly = assemble_project_static_template_library_snapshot_with_status(db, project);
-    log_project_facts_status("assembled", &assembly.status);
-    save_static_template_library_snapshot_cache(db, project, &assembly);
-    apply_static_template_library_snapshot(db, project, assembly.snapshot);
-}
-
 fn apply_template_library_snapshot(
     db: &mut dyn ProjectDb,
     project: Project,
@@ -380,23 +438,6 @@ fn apply_template_library_snapshot_with_knowledge(
     true
 }
 
-fn refresh_template_libraries_from_static_cache(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    entry: Option<StaticTemplateLibraryCacheEntry>,
-) -> bool {
-    let Some(entry) = entry else {
-        return false;
-    };
-    if usable_static_template_library_snapshot(entry.snapshot.clone()).is_none() {
-        return false;
-    }
-
-    log_project_facts_status("cache_load", &entry.status);
-    apply_static_template_library_snapshot(db, project, entry.snapshot);
-    true
-}
-
 fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
     db.project_introspector()
         .query(db, &TemplateLibrarySnapshotRequest)
@@ -410,6 +451,7 @@ fn assemble_project_static_template_library_snapshot(
     assemble_project_static_template_library_snapshot_with_status(db, project).snapshot
 }
 
+#[cfg(test)]
 fn assemble_project_static_template_library_snapshot_with_status(
     db: &dyn ProjectDb,
     project: Project,
@@ -968,36 +1010,6 @@ fn apply_static_template_library_cache_entry(
         refresh_templatetag_modules(db, project);
     }
     usable
-}
-
-fn save_static_template_library_snapshot_cache(
-    db: &dyn ProjectDb,
-    project: Project,
-    assembly: &StaticTemplateLibrarySnapshotAssembly,
-) {
-    if assembly.dependencies.is_empty() {
-        tracing::debug!(
-            "Skipping project facts template library cache write because no dependency metadata was available"
-        );
-        return;
-    }
-
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-    let site_packages_paths = find_site_packages(&interpreter, &root)
-        .into_iter()
-        .collect::<Vec<_>>();
-
-    save_static_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-        &site_packages_paths,
-        assembly,
-    );
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2326,7 +2338,7 @@ def emph(value):
             Vec::new(),
         );
 
-        refresh_template_dirs_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
@@ -2366,7 +2378,7 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        refresh_template_dirs_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
@@ -2406,7 +2418,7 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        refresh_template_dirs_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
@@ -2465,27 +2477,6 @@ TEMPLATES = [
             .python_index(&db)
             .templatetags()
             .any(|module| module.module_path().as_str() == "blog.templatetags.blog_tags"));
-    }
-
-    #[test]
-    fn template_dirs_routing_does_not_assemble_static_when_inspector_dirs_exist() {
-        let tmp = TempDir::new().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        write_static_template_dirs_fixture(&root);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
-
-        assert!(apply_template_dirs_or_static_fallback(
-            &mut db,
-            project,
-            Some(vec![root.join("inspector_templates")]),
-            None,
-        ));
-
-        assert_eq!(
-            project.template_dirs(&db),
-            &TemplateDirs::Known(vec![root.join("inspector_templates")])
-        );
     }
 
     #[test]
@@ -2994,7 +2985,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert!(project
@@ -3026,7 +3017,7 @@ TEMPLATES = []
             },
         ));
 
-        refresh_template_libraries_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(db.introspector.query_count(), 0);
@@ -3048,7 +3039,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(db.introspector.query_count(), 0);
@@ -3070,7 +3061,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries_from_source(&mut db, project);
+        refresh_template_state(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(db.introspector.query_count(), 0);
@@ -3091,9 +3082,9 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries_from_runtime(&mut db, project);
+        refresh_template_state(&mut db, project);
 
-        assert_eq!(db.introspector.query_count(), 1);
+        assert_eq!(db.introspector.query_count(), 2);
         assert!(project
             .template_libraries(&db)
             .is_enabled_library_str("blog_tags"));
@@ -3895,10 +3886,8 @@ TEMPLATES = [
         assert!(apply_static_template_library_snapshot(
             &mut db, project, snapshot,
         ));
-        assert!(refresh_template_libraries_from_static_cache(
-            &mut db,
-            project,
-            Some(entry),
+        assert!(apply_static_template_library_cache_entry(
+            &mut db, project, entry,
         ));
         assert!(project
             .template_libraries(&db)
