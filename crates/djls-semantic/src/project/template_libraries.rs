@@ -28,7 +28,6 @@ use ruff_python_ast::Stmt;
 
 use crate::project::facts::AppFact;
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::Reason;
 use crate::project::facts::ReasonSource;
 use crate::project::facts::TemplateBackendFact;
@@ -127,7 +126,6 @@ fn classify_template_backend(
 ) -> BackendKind {
     let Some(backend) = backend.backend.as_deref() else {
         reasons.push(Reason::new(
-            Field::TemplateLibraries,
             ReasonSource::Unknown,
             "TEMPLATES BACKEND is not known; only statically known template library options were assembled for this backend",
         ));
@@ -212,7 +210,6 @@ fn discover_app_template_tag_libraries(
 fn collect_python_files(dir: &Utf8Path, files: &mut Vec<Utf8PathBuf>, reasons: &mut Vec<Reason>) {
     let Ok(entries) = fs::read_dir(dir.as_std_path()) else {
         reasons.push(Reason::path(
-            Field::TemplateLibraries,
             dir,
             "failed to read templatetags package directory",
         ));
@@ -286,7 +283,6 @@ fn template_tag_load_name(
         Ok(load_name) => Some(load_name),
         Err(error) => {
             reasons.push(Reason::file(
-                Field::TemplateLibraries,
                 file,
                 format!("template tag module has an invalid load name: {error}"),
             ));
@@ -307,7 +303,6 @@ fn defines_template_register(file: &Utf8Path, reasons: &mut Vec<Reason>) -> bool
         Ok(source) => source,
         Err(error) => {
             reasons.push(Reason::file(
-                Field::TemplateLibraries,
                 file,
                 format!("failed to read template tag module: {error}"),
             ));
@@ -319,7 +314,6 @@ fn defines_template_register(file: &Utf8Path, reasons: &mut Vec<Reason>) -> bool
         Ok(parsed) => parsed.into_syntax(),
         Err(error) => {
             reasons.push(Reason::file(
-                Field::TemplateLibraries,
                 file,
                 format!("failed to parse template tag module: {error}"),
             ));
@@ -504,7 +498,6 @@ fn upsert_loadable_library(
         if let Some(existing) = loadable.get(&library.load_name) {
             if existing.module != library.module {
                 let reason = Reason::module(
-                    Field::TemplateLibraries,
                     library.module.clone(),
                     format!(
                         "template library load name `{}` is provided by both `{}` and `{}`; the later Django discovery entry wins",
@@ -687,7 +680,6 @@ register = template.Library()
 
     fn app_registry_reason() -> Reason {
         Reason::new(
-            Field::AppsInstalled,
             ReasonSource::Unknown,
             "INSTALLED_APPS has an unsupported dynamic entry",
         )
@@ -695,7 +687,6 @@ register = template.Library()
 
     fn option_reason() -> Reason {
         Reason::new(
-            Field::SettingsTemplateOptions,
             ReasonSource::Unknown,
             "TEMPLATES OPTIONS.libraries contains an unsupported value",
         )
@@ -1038,7 +1029,6 @@ register = template.Library()
     #[test]
     fn unknown_template_backends_are_unknown_template_libraries() {
         let reason = Reason::new(
-            Field::SettingsTemplates,
             ReasonSource::Unknown,
             "TEMPLATES is not assigned in this settings file",
         );
@@ -1306,13 +1296,11 @@ register = template.Library()
                         source: TemplateDirSource::SettingsDir,
                     }],
                     vec![Reason::path(
-                        Field::TemplateDirs,
                         "templates",
                         "template dir uncertainty should not affect libraries",
                     )],
                 ),
                 app_dirs: Fact::unknown(vec![Reason::new(
-                    Field::SettingsTemplates,
                     ReasonSource::Unknown,
                     "APP_DIRS is dynamic but irrelevant for libraries",
                 )]),

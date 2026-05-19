@@ -28,7 +28,6 @@ use crate::project::app_registry::AppRegistryFacts;
 use crate::project::db::Db as ProjectDb;
 use crate::project::facts::Confidence;
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::ModuleLocation;
 use crate::project::facts::ModuleSearchPathEntry;
 use crate::project::facts::ModuleSearchPathKind;
@@ -68,7 +67,7 @@ use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
 
-const STATIC_TEMPLATE_LIBRARY_CACHE_VERSION: &str = "static-template-libraries-v1";
+const STATIC_TEMPLATE_LIBRARY_CACHE_VERSION: &str = "static-template-libraries-v2";
 const DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY: &str = "django-5.2-default-template-libraries-v1";
 
 /// Refresh all external project data.
@@ -614,7 +613,6 @@ fn assemble_static_project_context(
 ) -> Result<StaticProjectContext, Vec<Reason>> {
     let Some(django_settings_module) = django_settings_module else {
         return Err(vec![Reason::new(
-            Field::DjangoEnvironmentDiscovery,
             ReasonSource::Workspace(root.to_path_buf()),
             "django_settings_module is not configured; skipped static project model assembly",
         )]);
@@ -622,7 +620,6 @@ fn assemble_static_project_context(
 
     let django_settings_module = PyModuleName::parse(django_settings_module).map_err(|error| {
         vec![Reason::new(
-            Field::DjangoEnvironmentDiscovery,
             ReasonSource::Workspace(root.to_path_buf()),
             format!("django_settings_module is not a valid Python module path: {error}"),
         )]
@@ -3816,11 +3813,7 @@ TEMPLATES = [
         let interpreter = Interpreter::InterpreterPath("/missing/python".to_string());
         let static_snapshot = Fact::partial(
             test_response(),
-            vec![Reason::path(
-                Field::TemplateLibraries,
-                root.clone(),
-                "partial static cache entry",
-            )],
+            vec![Reason::path(root.clone(), "partial static cache entry")],
         );
         let status = StaticProjectModelStatus::from_snapshot(
             Some("project.settings"),

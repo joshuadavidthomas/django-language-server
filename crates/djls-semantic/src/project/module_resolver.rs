@@ -13,7 +13,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::ModuleLocation;
 use crate::project::facts::ModuleResolution;
 use crate::project::facts::ModuleSearchPathEntry;
@@ -43,7 +42,6 @@ pub(crate) fn discover_module_search_paths(
         );
     } else {
         reasons.push(Reason::path(
-            Field::ResolverModuleSearchPaths,
             project_root,
             "project root does not exist or is not a directory",
         ));
@@ -68,7 +66,6 @@ pub(crate) fn discover_module_search_paths(
             );
         } else {
             reasons.push(Reason::path(
-                Field::ResolverModuleSearchPaths,
                 path,
                 "explicit Python module search path does not exist or is not a directory",
             ));
@@ -85,7 +82,6 @@ pub(crate) fn discover_module_search_paths(
             collect_pth_module_search_paths(site_packages_path, &mut search_paths, &mut reasons);
         } else {
             reasons.push(Reason::path(
-                Field::ResolverModuleSearchPaths,
                 site_packages_path,
                 "site-packages module search path does not exist or is not a directory",
             ));
@@ -122,7 +118,6 @@ pub(crate) fn resolve_module(
 
     let resolved = match candidates.len() {
         0 => Fact::unknown(vec![Reason::module(
-            Field::ResolverModule,
             requested.clone(),
             format!(
                 "module `{}` was not found in module search paths",
@@ -136,7 +131,6 @@ pub(crate) fn resolve_module(
                 .map(|candidate| candidate.module)
                 .collect(),
             vec![Reason::module(
-                Field::ResolverModule,
                 requested.clone(),
                 "module resolves to more than one module search path",
             )],
@@ -156,24 +150,18 @@ pub(crate) fn module_name_for_file(
 ) -> Fact<PyModuleName> {
     if !file.is_file() {
         return Fact::unknown(vec![Reason::file(
-            Field::ResolverModule,
             file,
             "module file does not exist or is not a file",
         )]);
     }
 
     if file.extension() != Some("py") {
-        return Fact::unknown(vec![Reason::file(
-            Field::ResolverModule,
-            file,
-            "module file is not a Python file",
-        )]);
+        return Fact::unknown(vec![Reason::file(file, "module file is not a Python file")]);
     }
 
     let candidates = module_names_for_file(file, search_paths);
     match candidates.len() {
         0 => Fact::unknown(vec![Reason::file(
-            Field::ResolverModule,
             file,
             "module file is outside configured module search paths",
         )]),
@@ -184,7 +172,6 @@ pub(crate) fn module_name_for_file(
         _ => Fact::ambiguous(
             candidates.into_iter().map(|(module, _)| module).collect(),
             vec![Reason::file(
-                Field::ResolverModule,
                 file,
                 "module file maps to more than one module name",
             )],
@@ -200,7 +187,6 @@ pub(crate) fn resolve_relative_import_module(
 ) -> Fact<PyModuleName> {
     if level == 0 {
         return Fact::unknown(vec![Reason::module(
-            Field::ResolverRelativeImport,
             current_module.clone(),
             "relative import level must be greater than zero",
         )]);
@@ -211,7 +197,6 @@ pub(crate) fn resolve_relative_import_module(
 
     if level > parts.len() + 1 {
         return Fact::unknown(vec![Reason::module(
-            Field::ResolverRelativeImport,
             current_module.clone(),
             "relative import escapes the top-level package",
         )]);
@@ -227,7 +212,6 @@ pub(crate) fn resolve_relative_import_module(
 
     if parts.is_empty() {
         return Fact::unknown(vec![Reason::module(
-            Field::ResolverRelativeImport,
             current_module.clone(),
             "relative import does not resolve to a module path",
         )]);
@@ -237,7 +221,6 @@ pub(crate) fn resolve_relative_import_module(
     match PyModuleName::parse(&target) {
         Ok(target) => Fact::known(target),
         Err(error) => Fact::unknown(vec![Reason::module(
-            Field::ResolverRelativeImport,
             current_module.clone(),
             format!("relative import resolves to an invalid module path: {error}"),
         )]),
@@ -309,7 +292,6 @@ fn collect_pth_module_search_paths(
 ) {
     let Ok(entries) = std::fs::read_dir(site_packages_root.as_std_path()) else {
         reasons.push(Reason::path(
-            Field::ResolverModuleSearchPaths,
             site_packages_root,
             "could not read site-packages directory for .pth files",
         ));
@@ -326,7 +308,6 @@ fn collect_pth_module_search_paths(
     for pth_file in pth_files {
         let Ok(contents) = std::fs::read_to_string(pth_file.as_std_path()) else {
             reasons.push(Reason::file(
-                Field::ResolverModuleSearchPaths,
                 pth_file,
                 "could not read .pth module search paths",
             ));
@@ -352,7 +333,6 @@ fn collect_pth_module_search_paths(
                 push_module_search_path(search_paths, ModuleSearchPathKind::PthFile, path);
             } else {
                 reasons.push(Reason::path(
-                    Field::ResolverModuleSearchPaths,
                     path,
                     ".pth entry does not exist or is not a directory",
                 ));
@@ -409,7 +389,6 @@ fn namespace_package_reasons(parts: &[&str], search_path: &Utf8Path) -> Vec<Reas
         dir.push(part);
         if dir.is_dir() && !dir.join("__init__.py").is_file() {
             reasons.push(Reason::path(
-                Field::ResolverModule,
                 dir.clone(),
                 "module resolves through a namespace package segment without __init__.py",
             ));
@@ -422,9 +401,9 @@ fn namespace_package_reasons(parts: &[&str], search_path: &Utf8Path) -> Vec<Reas
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::facts::Field;
     use crate::project::facts::ModuleLocation;
     use crate::project::facts::ModuleSearchPathKind;
+    use crate::project::facts::ReasonSource;
     use crate::project::facts::ResolvedModule;
 
     fn module(name: &str) -> PyModuleName {
@@ -607,7 +586,7 @@ mod tests {
                     .any(|candidate| candidate.file == project_root.join("src/shop/apps.py")));
                 assert!(reasons
                     .iter()
-                    .any(|reason| reason.field == Field::ResolverModule));
+                    .any(|reason| matches!(&reason.source, ReasonSource::Module(_))));
             }
             other => panic!("expected ambiguous duplicate module, got {other:?}"),
         }
