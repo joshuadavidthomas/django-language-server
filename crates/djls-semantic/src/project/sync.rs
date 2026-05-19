@@ -261,6 +261,7 @@ fn assemble_static_template_dirs(
 fn usable_static_template_dirs(dirs: Fact<Vec<Utf8PathBuf>>) -> Option<Vec<Utf8PathBuf>> {
     match dirs {
         Fact::Known { value } => Some(value),
+        Fact::Partial { value, .. } if !value.is_empty() => Some(value),
         Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
     }
 }
@@ -2374,7 +2375,10 @@ TEMPLATES = [
         refresh_template_dirs(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
-        assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
     }
 
     #[test]
@@ -2411,7 +2415,10 @@ TEMPLATES = [
         refresh_template_dirs(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
-        assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
     }
 
     #[test]
@@ -2540,7 +2547,7 @@ TEMPLATES = [
     }
 
     #[test]
-    fn static_template_dirs_decline_partial_known_data() {
+    fn static_template_dirs_apply_partial_positive_data() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_file(&root.join("project/__init__.py"), "");
@@ -2577,12 +2584,15 @@ TEMPLATES = [
             project,
             vec![root.join("stale_templates")],
         ));
-        assert!(!apply_static_template_dirs(&mut db, project, dirs));
-        assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
+        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
     }
 
     #[test]
-    fn static_template_dirs_clear_stale_template_files_on_partial_fallback() {
+    fn static_template_dirs_replace_stale_template_files_with_partial_positive_data() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_dirs_fixture(&root);
@@ -2613,11 +2623,14 @@ TEMPLATES = [
         );
         let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
 
-        assert!(!apply_static_template_dirs(&mut db, project, dirs));
+        assert!(apply_static_template_dirs(&mut db, project, dirs));
         refresh_template_files(&mut db, project);
 
-        assert_eq!(project.template_dirs(&db), &TemplateDirs::Unknown);
-        assert!(project.template_files(&db).is_empty());
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
+        assert_eq!(project.template_files(&db).len(), 1);
     }
 
     #[test]
