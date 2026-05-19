@@ -98,11 +98,23 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
 }
 
 fn refresh_project_external_data(db: &mut dyn ProjectDb, project: Project) {
-    refresh_template_dirs(db, project);
-    refresh_template_libraries(db, project);
+    refresh_template_state(db, project);
     refresh_template_files(db, project);
     refresh_python_index(db, project);
     refresh_external_semantic_data(db, project);
+}
+
+fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
+    match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => {
+            refresh_template_dirs_from_source(db, project);
+            refresh_template_libraries_from_source(db, project);
+        }
+        DjangoDiscoveryMode::Runtime => {
+            refresh_template_dirs_from_runtime(db, project);
+            refresh_template_libraries_from_runtime(db, project);
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -118,22 +130,13 @@ impl IntrospectionRequest for TemplateDirsRequest {
     type Response = TemplateDirsResponse;
 }
 
-fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
-    match project.django_discovery(db) {
-        DjangoDiscoveryMode::Source => {
-            refresh_template_dirs_static(db, project);
-        }
-        DjangoDiscoveryMode::Runtime => refresh_template_dirs_inspector(db, project),
-    }
-}
-
-fn refresh_template_dirs_static(db: &mut dyn ProjectDb, project: Project) {
+fn refresh_template_dirs_from_source(db: &mut dyn ProjectDb, project: Project) {
     let static_dirs = assemble_project_static_template_dirs(db, project);
     log_static_template_dirs_status(project.django_settings_module(db).as_deref(), &static_dirs);
     apply_static_template_dirs(db, project, static_dirs);
 }
 
-fn refresh_template_dirs_inspector(db: &mut dyn ProjectDb, project: Project) {
+fn refresh_template_dirs_from_runtime(db: &mut dyn ProjectDb, project: Project) {
     let inspector_dirs = fetch_template_dirs(db);
     let static_dirs = inspector_dirs
         .is_none()
@@ -319,16 +322,7 @@ fn load_project_template_library_cache_inspector(db: &mut dyn ProjectDb, project
     true
 }
 
-fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
-    match project.django_discovery(db) {
-        DjangoDiscoveryMode::Source => {
-            refresh_template_libraries_static(db, project);
-        }
-        DjangoDiscoveryMode::Runtime => refresh_template_libraries_inspector(db, project),
-    }
-}
-
-fn refresh_template_libraries_static(db: &mut dyn ProjectDb, project: Project) {
+fn refresh_template_libraries_from_source(db: &mut dyn ProjectDb, project: Project) {
     let static_cache_entry = load_static_template_library_snapshot_cache(db, project);
     if refresh_template_libraries_from_static_cache(db, project, static_cache_entry) {
         return;
@@ -340,7 +334,7 @@ fn refresh_template_libraries_static(db: &mut dyn ProjectDb, project: Project) {
     apply_static_template_library_snapshot(db, project, assembly.snapshot);
 }
 
-fn refresh_template_libraries_inspector(db: &mut dyn ProjectDb, project: Project) {
+fn refresh_template_libraries_from_runtime(db: &mut dyn ProjectDb, project: Project) {
     if let Some(snapshot) = fetch_template_library_snapshot(db) {
         save_template_library_snapshot_cache(db, project, &snapshot);
         apply_template_library_snapshot(db, project, snapshot);
@@ -2332,7 +2326,7 @@ def emph(value):
             Vec::new(),
         );
 
-        refresh_template_dirs(&mut db, project);
+        refresh_template_dirs_from_source(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
@@ -2372,7 +2366,7 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        refresh_template_dirs(&mut db, project);
+        refresh_template_dirs_from_source(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
@@ -2412,7 +2406,7 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        refresh_template_dirs(&mut db, project);
+        refresh_template_dirs_from_source(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
@@ -3000,7 +2994,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries(&mut db, project);
+        refresh_template_libraries_from_source(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert!(project
@@ -3032,7 +3026,7 @@ TEMPLATES = []
             },
         ));
 
-        refresh_template_libraries(&mut db, project);
+        refresh_template_libraries_from_source(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(db.introspector.query_count(), 0);
@@ -3054,7 +3048,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries(&mut db, project);
+        refresh_template_libraries_from_source(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(db.introspector.query_count(), 0);
@@ -3076,7 +3070,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries(&mut db, project);
+        refresh_template_libraries_from_source(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(db.introspector.query_count(), 0);
@@ -3097,7 +3091,7 @@ TEMPLATES = []
             Vec::new(),
         );
 
-        refresh_template_libraries(&mut db, project);
+        refresh_template_libraries_from_runtime(&mut db, project);
 
         assert_eq!(db.introspector.query_count(), 1);
         assert!(project
