@@ -1,4 +1,5 @@
 mod diagnostics;
+mod django_environments;
 mod format;
 mod tagspecs;
 
@@ -18,6 +19,7 @@ use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
 pub use crate::diagnostics::DiagnosticsConfig;
+pub use crate::django_environments::DjangoEnvironmentConfig;
 pub use crate::format::FormatBackend;
 pub use crate::format::FormatConfig;
 pub use crate::tagspecs::ArgKindDef;
@@ -73,6 +75,8 @@ pub struct Settings {
     venv_path: Option<String>,
     django_settings_module: Option<String>,
     #[serde(default)]
+    django_environments: Vec<DjangoEnvironmentConfig>,
+    #[serde(default)]
     pythonpath: Vec<String>,
     env_file: Option<String>,
     #[serde(default)]
@@ -96,6 +100,9 @@ impl Settings {
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
+            if !overrides.django_environments.is_empty() {
+                settings.django_environments = overrides.django_environments;
+            }
             if !overrides.pythonpath.is_empty() {
                 settings.pythonpath = overrides.pythonpath;
             }
@@ -154,7 +161,7 @@ impl Settings {
         );
 
         let config = builder.build()?;
-        let settings = config.try_deserialize()?;
+        let settings: Self = config.try_deserialize()?;
         Ok(settings)
     }
 
@@ -171,6 +178,11 @@ impl Settings {
     #[must_use]
     pub fn django_settings_module(&self) -> Option<&str> {
         self.django_settings_module.as_deref()
+    }
+
+    #[must_use]
+    pub fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
+        &self.django_environments
     }
 
     #[must_use]
@@ -220,6 +232,7 @@ mod tests {
                     debug: false,
                     venv_path: None,
                     django_settings_module: None,
+                    django_environments: vec![],
                     pythonpath: vec![],
                     env_file: None,
                     tagspecs: TagSpecDef::default(),
@@ -319,6 +332,73 @@ mod tests {
                     env_file: Some(".env.local".to_string()),
                     ..Default::default()
                 }
+            );
+        }
+
+        #[test]
+        fn test_load_django_environments_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[django_environments]]
+root = "projects/site1"
+django_settings_module = "projects.site1.settings.dev"
+
+[[django_environments]]
+root = "projects/site2"
+django_settings_module = "projects.site2.settings.dev"
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let environments = settings.django_environments();
+
+            assert_eq!(environments.len(), 2);
+            assert_eq!(environments[0].root(), "projects/site1");
+            assert_eq!(
+                environments[0].django_settings_module(),
+                Some("projects.site1.settings.dev")
+            );
+            assert_eq!(environments[1].root(), "projects/site2");
+            assert_eq!(
+                environments[1].django_settings_module(),
+                Some("projects.site2.settings.dev")
+            );
+        }
+
+        #[test]
+        fn test_overrides_replace_django_environments() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[django_environments]]
+root = "."
+django_settings_module = "project.settings"
+"#,
+            )
+            .unwrap();
+
+            let override_settings = Settings {
+                django_environments: vec![DjangoEnvironmentConfig::new(
+                    "override",
+                    Some("override.settings".to_string()),
+                )],
+                ..Default::default()
+            };
+            let settings = Settings::new(
+                Utf8Path::from_path(dir.path()).unwrap(),
+                Some(override_settings),
+            )
+            .unwrap();
+
+            assert_eq!(settings.django_environments().len(), 1);
+            assert_eq!(settings.django_environments()[0].root(), "override");
+            assert_eq!(
+                settings.django_environments()[0].django_settings_module(),
+                Some("override.settings")
             );
         }
 
@@ -610,6 +690,28 @@ end_tag = { name = "endblock", optional = false }
             let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+        }
+
+        #[test]
+        fn test_allows_incomplete_django_environment() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[django_environments]]
+root = "site"
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+            assert_eq!(settings.django_environments().len(), 1);
+            assert_eq!(settings.django_environments()[0].root(), "site");
+            assert_eq!(
+                settings.django_environments()[0].django_settings_module(),
+                None
+            );
         }
     }
 }
