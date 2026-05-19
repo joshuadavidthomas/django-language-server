@@ -13,24 +13,24 @@ pub(crate) mod builder;
 pub(crate) mod grammar;
 pub(crate) mod opaque;
 pub(crate) mod outline;
-#[cfg(test)]
-pub(crate) mod snapshot;
 pub(crate) mod tree;
 
-pub(crate) use builder::TemplateTreeBuilder;
-pub(crate) use grammar::TagIndex;
-pub use opaque::compute_opaque_regions;
-pub(crate) use opaque::OpaqueRegions;
-pub use outline::build_template_outline;
-pub use outline::OutlineItem;
-pub use outline::OutlineKind;
-pub(crate) use tree::BlockRole;
-pub(crate) use tree::RegionId;
-pub(crate) use tree::Regions;
-pub(crate) use tree::TemplateNode;
-pub(crate) use tree::TemplateTree;
+#[cfg(test)]
+pub(crate) mod snapshot;
 
 use crate::db::Db;
+pub(crate) use crate::structure::builder::TemplateTreeBuilder;
+pub(crate) use crate::structure::grammar::TagIndex;
+pub use crate::structure::opaque::compute_opaque_regions;
+pub(crate) use crate::structure::opaque::OpaqueRegions;
+pub use crate::structure::outline::build_template_outline;
+pub use crate::structure::outline::OutlineItem;
+pub use crate::structure::outline::OutlineKind;
+pub(crate) use crate::structure::tree::BlockRole;
+pub(crate) use crate::structure::tree::RegionId;
+pub(crate) use crate::structure::tree::Regions;
+pub(crate) use crate::structure::tree::TemplateNode;
+pub(crate) use crate::structure::tree::TemplateTree;
 use crate::traits::SemanticModel;
 
 #[salsa::tracked]

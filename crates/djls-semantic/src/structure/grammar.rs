@@ -1,6 +1,9 @@
 use djls_templates::TagBit;
 use rustc_hash::FxHashMap;
 
+use crate::db::Db;
+use crate::specs::tags::TagSpecs;
+
 /// Role a tag plays in Django's block structure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TagRole {
@@ -27,7 +30,7 @@ pub(crate) struct EndMeta {
 }
 
 impl<'db> TagIndex<'db> {
-    pub(crate) fn classify(self, db: &'db dyn crate::Db, tag_name: &str) -> TagClass<'db> {
+    pub(crate) fn classify(self, db: &'db dyn Db, tag_name: &str) -> TagClass<'db> {
         match self.roles(db).get(tag_name) {
             Some(TagRole::Opener(_)) => TagClass::Opener,
             Some(TagRole::Closer { opener }) => TagClass::Closer {
@@ -40,7 +43,7 @@ impl<'db> TagIndex<'db> {
         }
     }
 
-    pub(crate) fn is_end_required(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
+    pub(crate) fn is_end_required(self, db: &'db dyn Db, opener_name: &str) -> bool {
         matches!(
             self.roles(db).get(opener_name),
             Some(TagRole::Opener(EndMeta { required: true }))
@@ -49,7 +52,7 @@ impl<'db> TagIndex<'db> {
 
     pub(crate) fn validate_close(
         self,
-        db: &'db dyn crate::Db,
+        db: &'db dyn Db,
         opener_name: &str,
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
@@ -75,7 +78,7 @@ impl<'db> TagIndex<'db> {
     }
 
     #[must_use]
-    pub(crate) fn from_specs(db: &'db dyn crate::Db) -> Self {
+    pub(crate) fn from_specs(db: &'db dyn Db) -> Self {
         Self::from_tag_specs(db, db.tag_specs())
     }
 
@@ -84,7 +87,7 @@ impl<'db> TagIndex<'db> {
     /// This is used by tracked queries that compute `TagSpecs` first and then
     /// need to build the index without going through `db.tag_specs()`.
     #[must_use]
-    fn from_tag_specs(db: &'db dyn crate::Db, specs: &crate::TagSpecs) -> Self {
+    fn from_tag_specs(db: &'db dyn Db, specs: &TagSpecs) -> Self {
         let mut roles: FxHashMap<String, TagRole> = FxHashMap::default();
 
         for (name, spec) in specs {

@@ -1,15 +1,15 @@
 use djls_source::Span;
 use djls_templates::TagBit;
 
+use crate::db::Db;
+use crate::scoping::LoadKind;
 use crate::specs::tags::TagSemanticRole;
+use crate::specs::tags::TagSpecs;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
-use crate::Db;
-use crate::LoadKind;
-use crate::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {

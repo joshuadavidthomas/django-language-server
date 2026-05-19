@@ -39,6 +39,9 @@ This is the quick routing guide. For the full crate-by-crate architecture, depen
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
 - Use `camino::Utf8Path`/`Utf8PathBuf` as canonical path types. Convert from `std::path` only at API boundaries.
 - Imports are one per line, grouped std/external/crate, formatted by `.rustfmt.toml`.
+- Treat `lib.rs` as the external crate API. Internal code should import from the owning module path, not from crate-root re-exports.
+- Module façade files may re-export their intended boundary API, but avoid re-exporting items through multiple layers unless that layer is a real domain boundary.
+- Prefer `crate::<owning_module>::...` for internal imports. Use `super::...` only inside local test modules or when reaching private siblings is clearer than exposing a broader module API.
 - Formatting uses `cargo +nightly fmt` through `just fmt` because `.rustfmt.toml` enables nightly-only import formatting features. Do not run `cargo fmt --check` directly; use `just fmt --check`.
 - Use `anyhow::Result` in binaries and `thiserror` in libraries.
 - Prefer comments that explain why; do not write obvious doc comments.

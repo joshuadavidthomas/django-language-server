@@ -10,11 +10,11 @@ use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Number;
 
-use super::CallContext;
 use crate::python::analysis::calls::resolve_call;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::state::TokenSplit;
+use crate::python::analysis::CallContext;
 use crate::python::ext::ExprExt;
 use crate::python::types::SplitPosition;
 

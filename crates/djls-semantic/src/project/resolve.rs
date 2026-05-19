@@ -5,7 +5,7 @@ use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 
 use crate::project::Interpreter;
-use crate::ModulePath;
+use crate::python::ModulePath;
 
 /// Derive a dotted module path from a relative filesystem path.
 ///

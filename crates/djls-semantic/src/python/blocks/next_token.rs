@@ -7,8 +7,8 @@ use ruff_python_ast::ExprName;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
-use super::dynamic_end;
-use super::is_token_contents_expr;
+use crate::python::blocks::dynamic_end;
+use crate::python::blocks::is_token_contents_expr;
 use crate::python::ext::ExprExt;
 use crate::python::types::BlockSpec;
 

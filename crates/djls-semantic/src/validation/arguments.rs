@@ -4,8 +4,9 @@ use djls_templates::TagDelimiter;
 use salsa::Accumulator;
 
 use crate::db::Db;
+use crate::db::ValidationErrorAccumulator;
+use crate::python::TagRule;
 use crate::tag_rules::evaluate_tag_rules;
-use crate::ValidationErrorAccumulator;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_tag_arguments_rule(
@@ -13,7 +14,7 @@ pub(crate) fn check_tag_arguments_rule(
     name: &str,
     bits: &[TagBit],
     span: Span,
-    rules: &crate::TagRule,
+    rules: &TagRule,
 ) {
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
     let bits = bits

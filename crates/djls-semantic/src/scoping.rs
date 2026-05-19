@@ -3,14 +3,14 @@ pub(crate) mod symbols;
 
 use djls_templates::Node;
 use djls_templates::NodeList;
-pub use loads::LoadKind;
-pub(crate) use loads::LoadState;
-pub(crate) use loads::LoadStatement;
-pub(crate) use loads::LoadedLibraries;
-pub use symbols::AvailableSymbols;
-pub(crate) use symbols::SymbolIndex;
 
 use crate::db::Db;
+pub use crate::scoping::loads::LoadKind;
+pub(crate) use crate::scoping::loads::LoadState;
+pub(crate) use crate::scoping::loads::LoadStatement;
+pub(crate) use crate::scoping::loads::LoadedLibraries;
+pub use crate::scoping::symbols::AvailableSymbols;
+pub(crate) use crate::scoping::symbols::SymbolIndex;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
 #[salsa::tracked(returns(ref))]

@@ -3,7 +3,7 @@ use djls_templates::Node;
 use djls_templates::NodeList;
 use djls_templates::TagDelimiter;
 
-use crate::Db;
+use crate::db::Db;
 
 /// Sorted, non-overlapping byte-offset spans where validation should be skipped.
 ///

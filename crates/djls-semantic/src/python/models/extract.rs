@@ -4,13 +4,13 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 use rustc_hash::FxHashSet;
 
-use super::graph::FieldName;
-use super::graph::ModelDef;
-use super::graph::ModelGraph;
-use super::graph::ModelKind;
-use super::graph::ModelName;
-use super::graph::Relation;
-use super::graph::RelationType;
+use crate::python::models::graph::FieldName;
+use crate::python::models::graph::ModelDef;
+use crate::python::models::graph::ModelGraph;
+use crate::python::models::graph::ModelKind;
+use crate::python::models::graph::ModelName;
+use crate::python::models::graph::Relation;
+use crate::python::models::graph::RelationType;
 
 /// Extract a model graph from Python source text.
 ///

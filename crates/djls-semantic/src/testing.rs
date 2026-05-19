@@ -1,3 +1,5 @@
+mod mdtest;
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -18,36 +20,39 @@ use djls_templates::parse_template;
 use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
+use crate::db::Db as SemanticDb;
+use crate::db::ValidationErrorAccumulator;
+use crate::errors::ValidationError;
+use crate::project::Db as ProjectDb;
+use crate::project::Knowledge;
+use crate::project::LibraryName;
+use crate::project::LibraryOrigin;
+use crate::project::Project;
+use crate::project::ProjectIntrospector;
+use crate::project::PyModuleName;
+use crate::project::SymbolDefinition;
+use crate::project::TemplateLibraries;
+use crate::project::TemplateLibrary;
+use crate::project::TemplateLibrarySnapshot;
+use crate::project::TemplateSymbol;
+use crate::project::TemplateSymbolKind;
+use crate::project::TemplateSymbolName;
+use crate::project::TemplateSymbolSnapshot;
 use crate::python::ArgumentCountConstraint;
 use crate::python::ChoiceAt;
 use crate::python::ExtractedDiagnosticConstraint;
 use crate::python::ExtractedDiagnosticMessage;
 use crate::python::ExtractedMessageTemplate;
+use crate::python::FilterArity;
+use crate::python::ModelGraph;
 use crate::python::RequiredKeyword;
 use crate::python::SplitPosition;
+use crate::python::SymbolKey;
+use crate::python::TagRule;
+use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::builtin_tag_specs;
-use crate::FilterArity;
-use crate::FilterAritySpecs;
-use crate::Knowledge;
-use crate::LibraryName;
-use crate::LibraryOrigin;
-use crate::PyModuleName;
-use crate::SymbolDefinition;
-use crate::SymbolKey;
-use crate::TagRule;
-use crate::TagSpec;
-use crate::TagSpecs;
-use crate::TemplateLibraries;
-use crate::TemplateLibrary;
-use crate::TemplateLibrarySnapshot;
-use crate::TemplateSymbol;
-use crate::TemplateSymbolKind;
-use crate::TemplateSymbolName;
-use crate::TemplateSymbolSnapshot;
-use crate::ValidationError;
-use crate::ValidationErrorAccumulator;
-
-mod mdtest;
+use crate::specs::tags::TagSpec;
+use crate::specs::tags::TagSpecs;
 
 pub(crate) fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
@@ -213,18 +218,18 @@ impl djls_source::Db for TestDatabase {
 }
 
 #[salsa::db]
-impl crate::ProjectDb for TestDatabase {
-    fn project(&self) -> Option<crate::Project> {
+impl ProjectDb for TestDatabase {
+    fn project(&self) -> Option<Project> {
         None
     }
 
-    fn project_introspector(&self) -> Arc<crate::ProjectIntrospector> {
-        Arc::new(crate::ProjectIntrospector::new())
+    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
+        Arc::new(ProjectIntrospector::new())
     }
 }
 
 #[salsa::db]
-impl crate::Db for TestDatabase {
+impl SemanticDb for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
     }
@@ -245,8 +250,8 @@ impl crate::Db for TestDatabase {
         &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> &crate::ModelGraph {
-        crate::ModelGraph::empty_ref()
+    fn model_graph(&self) -> &ModelGraph {
+        ModelGraph::empty_ref()
     }
 }
 

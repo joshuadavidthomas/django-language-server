@@ -1,8 +1,3 @@
-mod types;
-
-#[cfg(test)]
-mod testing;
-
 mod analysis;
 mod blocks;
 mod ext;
@@ -10,48 +5,52 @@ mod filters;
 mod models;
 mod registry;
 mod signature;
+mod types;
+
+#[cfg(test)]
+mod testing;
 
 use djls_source::File;
 use djls_source::FileKind;
-pub use models::extract_model_graph;
-pub use models::ModelDef;
-pub use models::ModelGraph;
-pub use models::ModulePath;
-use registry::RegistrationInfo;
 use ruff_python_ast::statement_visitor::walk_stmt;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
-pub(crate) use types::ArgumentCountConstraint;
-#[cfg(test)]
-pub(crate) use types::AsVar;
-pub(crate) use types::BlockSpec;
-pub use types::BlockSpecs;
-pub(crate) use types::ChoiceAt;
-pub(crate) use types::ExtractedArg;
-pub(crate) use types::ExtractedArgKind;
-pub(crate) use types::ExtractedDiagnosticConstraint;
-pub(crate) use types::ExtractedDiagnosticMessage;
-pub(crate) use types::ExtractedMessageArg;
-pub(crate) use types::ExtractedMessageTemplate;
-pub use types::ExtractionResult;
-pub use types::FilterArity;
-pub use types::FilterArityMap;
-pub(crate) use types::KnownOptions;
-pub(crate) use types::RequiredKeyword;
-pub(crate) use types::SplitPosition;
-pub use types::SymbolKey;
-pub use types::SymbolKind;
-pub use types::TagRule;
-pub use types::TagRuleMap;
 
-use crate::python::analysis::extract_return_value;
+use crate::python::analysis::calls::extract_return_value;
+use crate::python::analysis::calls::AbstractValueKey;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::statements::process_statements;
-use crate::python::analysis::AbstractValueKey;
 use crate::python::analysis::CallContext;
+pub use crate::python::models::extract::extract_model_graph;
+pub use crate::python::models::graph::ModelDef;
+pub use crate::python::models::graph::ModelGraph;
+pub use crate::python::models::graph::ModulePath;
 use crate::python::registry::ExtractionOutput;
+use crate::python::registry::RegistrationInfo;
+pub(crate) use crate::python::types::ArgumentCountConstraint;
+#[cfg(test)]
+pub(crate) use crate::python::types::AsVar;
+pub(crate) use crate::python::types::BlockSpec;
+pub use crate::python::types::BlockSpecs;
+pub(crate) use crate::python::types::ChoiceAt;
+pub(crate) use crate::python::types::ExtractedArg;
+pub(crate) use crate::python::types::ExtractedArgKind;
+pub(crate) use crate::python::types::ExtractedDiagnosticConstraint;
+pub(crate) use crate::python::types::ExtractedDiagnosticMessage;
+pub(crate) use crate::python::types::ExtractedMessageArg;
+pub(crate) use crate::python::types::ExtractedMessageTemplate;
+pub use crate::python::types::ExtractionResult;
+pub use crate::python::types::FilterArity;
+pub use crate::python::types::FilterArityMap;
+pub(crate) use crate::python::types::KnownOptions;
+pub(crate) use crate::python::types::RequiredKeyword;
+pub(crate) use crate::python::types::SplitPosition;
+pub use crate::python::types::SymbolKey;
+pub use crate::python::types::SymbolKind;
+pub use crate::python::types::TagRule;
+pub use crate::python::types::TagRuleMap;
 
 /// Parsed Python module AST, cached by Salsa.
 ///

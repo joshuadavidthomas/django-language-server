@@ -6,7 +6,7 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
-use super::is_parser_receiver;
+use crate::python::blocks::is_parser_receiver;
 use crate::python::ext::ExprExt;
 use crate::python::types::BlockSpec;
 

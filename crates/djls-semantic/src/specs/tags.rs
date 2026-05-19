@@ -9,7 +9,9 @@ use rustc_hash::FxHashMap;
 use crate::python::BlockSpecs;
 use crate::python::ExtractedArg;
 use crate::python::ExtractedArgKind;
+use crate::python::ExtractionResult;
 use crate::python::SymbolKind;
+use crate::python::TagRule;
 use crate::python::TagRuleMap;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
@@ -202,7 +204,7 @@ impl TagSpecs {
     ///
     /// Salsa query code should merge only the extraction domains it reads so
     /// unrelated extraction changes do not invalidate cached tag specs.
-    pub fn merge_extraction_results(&mut self, extraction: &crate::ExtractionResult) -> &mut Self {
+    pub fn merge_extraction_results(&mut self, extraction: &ExtractionResult) -> &mut Self {
         self.merge_block_specs(&extraction.block_specs)
             .merge_tag_rules(&extraction.tag_rules)
     }
@@ -284,11 +286,8 @@ impl TagSpecs {
                 } else {
                     use crate::python::ArgumentCountConstraint;
                     use crate::python::ChoiceAt;
-                    use crate::python::ExtractedArg;
-                    use crate::python::ExtractedArgKind;
                     use crate::python::RequiredKeyword;
                     use crate::python::SplitPosition;
-                    use crate::TagRule;
 
                     let mut rule = TagRule::default();
 
@@ -432,7 +431,7 @@ pub struct TagSpec {
     ///
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `extracted_args`.
-    pub extracted_rules: Option<std::sync::Arc<crate::TagRule>>,
+    pub extracted_rules: Option<std::sync::Arc<TagRule>>,
 }
 
 /// Durable Django template meaning for a tag.
