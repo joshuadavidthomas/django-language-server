@@ -4,11 +4,6 @@
 //! It models the import-resolution behavior that project fact assembly needs
 //! without importing project code through the runtime inspector.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A2 adds module resolution before project facts are assembled."
-)]
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
@@ -144,42 +139,6 @@ pub(crate) fn resolve_module(
 }
 
 #[must_use]
-pub(crate) fn module_name_for_file(
-    file: &Utf8Path,
-    search_paths: &[ModuleSearchPathEntry],
-) -> Fact<PyModuleName> {
-    if !file.is_file() {
-        return Fact::unknown(vec![Reason::file(
-            file,
-            "module file does not exist or is not a file",
-        )]);
-    }
-
-    if file.extension() != Some("py") {
-        return Fact::unknown(vec![Reason::file(file, "module file is not a Python file")]);
-    }
-
-    let candidates = module_names_for_file(file, search_paths);
-    match candidates.len() {
-        0 => Fact::unknown(vec![Reason::file(
-            file,
-            "module file is outside configured module search paths",
-        )]),
-        1 => {
-            let (module, _) = candidates.into_iter().next().unwrap();
-            Fact::known(module)
-        }
-        _ => Fact::ambiguous(
-            candidates.into_iter().map(|(module, _)| module).collect(),
-            vec![Reason::file(
-                file,
-                "module file maps to more than one module name",
-            )],
-        ),
-    }
-}
-
-#[must_use]
 pub(crate) fn resolve_relative_import_module(
     current_module: &PyModuleName,
     level: usize,
@@ -240,49 +199,6 @@ fn push_module_search_path(
     }
 
     search_paths.push(ModuleSearchPathEntry { kind, path });
-}
-
-fn module_names_for_file(
-    file: &Utf8Path,
-    search_paths: &[ModuleSearchPathEntry],
-) -> Vec<(PyModuleName, Utf8PathBuf)> {
-    let Some(longest_path_len) = search_paths
-        .iter()
-        .filter(|search_path| file.starts_with(&search_path.path))
-        .map(|search_path| search_path.path.as_str().len())
-        .max()
-    else {
-        return Vec::new();
-    };
-
-    search_paths
-        .iter()
-        .filter(|search_path| {
-            file.starts_with(&search_path.path)
-                && search_path.path.as_str().len() == longest_path_len
-        })
-        .filter_map(|search_path| {
-            let relative = file.strip_prefix(&search_path.path).ok()?;
-            module_name_from_relative_file(relative)
-                .map(|module| (module, search_path.path.clone()))
-        })
-        .fold(Vec::new(), |mut candidates, candidate| {
-            if !candidates.iter().any(|(module, _)| module == &candidate.0) {
-                candidates.push(candidate);
-            }
-            candidates
-        })
-}
-
-fn module_name_from_relative_file(relative: &Utf8Path) -> Option<PyModuleName> {
-    if relative.file_name() == Some("__init__.py") {
-        return relative
-            .parent()
-            .filter(|parent| !parent.as_str().is_empty())
-            .and_then(|parent| PyModuleName::from_relative_package(parent).ok());
-    }
-
-    PyModuleName::from_relative_python_module(relative).ok()
 }
 
 fn collect_pth_module_search_paths(
@@ -379,25 +295,6 @@ fn module_candidate(
     })
 }
 
-#[must_use]
-fn namespace_package_reasons(parts: &[&str], search_path: &Utf8Path) -> Vec<Reason> {
-    let package_segment_count = parts.len().saturating_sub(1);
-    let mut dir = search_path.to_path_buf();
-    let mut reasons = Vec::new();
-
-    for part in parts.iter().take(package_segment_count) {
-        dir.push(part);
-        if dir.is_dir() && !dir.join("__init__.py").is_file() {
-            reasons.push(Reason::path(
-                dir.clone(),
-                "module resolves through a namespace package segment without __init__.py",
-            ));
-        }
-    }
-
-    reasons
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,43 +388,6 @@ mod tests {
 
         assert_eq!(resolved.file, src_root.join("config/settings.py"));
         assert_eq!(resolved.search_path, src_root);
-    }
-
-    #[test]
-    fn resolves_module_name_for_file_from_longest_search_path() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        write_file(&project_root.join("src/config/__init__.py"), "");
-        write_file(&project_root.join("src/config/settings.py"), "");
-
-        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
-        let fact = module_name_for_file(
-            &project_root.join("src/config/settings.py"),
-            search_path_entries(&search_paths),
-        );
-
-        let Fact::Known { value } = fact else {
-            panic!("expected known module for settings file, got {fact:?}");
-        };
-        assert_eq!(value, module("config.settings"));
-    }
-
-    #[test]
-    fn resolves_namespace_package_module_name_for_file_as_known() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let project_root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        write_file(&project_root.join("src/acme/plugins/blog/apps.py"), "");
-
-        let search_paths = discover_module_search_paths(&project_root, &[], &[]);
-        let fact = module_name_for_file(
-            &project_root.join("src/acme/plugins/blog/apps.py"),
-            search_path_entries(&search_paths),
-        );
-
-        let Fact::Known { value } = fact else {
-            panic!("expected known module for namespace package file, got {fact:?}");
-        };
-        assert_eq!(value, module("acme.plugins.blog.apps"));
     }
 
     #[test]

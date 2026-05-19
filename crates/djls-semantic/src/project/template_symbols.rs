@@ -9,11 +9,6 @@
 //! registrations against the module-level `register` object; runtime-only
 //! conditional registration remains a partial-static-model limitation.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A9 adds template symbol facts before project facts are assembled."
-)]
-
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fs;

@@ -1,6 +1,5 @@
 mod app_registry;
 mod db;
-mod django_environments;
 mod facts;
 mod input;
 mod introspector;

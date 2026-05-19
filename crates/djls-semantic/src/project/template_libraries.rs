@@ -13,11 +13,6 @@
 //! discovered/default libraries, matching Django's `libraries.update(...)`
 //! behavior within the flattened model.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A8 adds template library facts before project facts are assembled."
-)]
-
 use std::collections::BTreeMap;
 use std::fs;
 

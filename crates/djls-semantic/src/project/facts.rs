@@ -5,11 +5,6 @@
 //! from module resolution, settings extraction, app registry discovery, and
 //! template assembly.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A1 defines fact types before later milestones populate them."
-)]
-
 use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
@@ -86,14 +81,6 @@ impl<T> Fact<T> {
         match self {
             Self::Known { value } | Self::Partial { value, .. } => Some(value),
             Self::Unknown { .. } | Self::Ambiguous { .. } => None,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn candidates(&self) -> &[T] {
-        match self {
-            Self::Ambiguous { candidates, .. } => candidates,
-            Self::Known { .. } | Self::Partial { .. } | Self::Unknown { .. } => &[],
         }
     }
 
@@ -194,7 +181,6 @@ pub(crate) enum ReasonSource {
     File(Utf8PathBuf),
     Path(Utf8PathBuf),
     Module(PyModuleName),
-    DjangoEnvironmentRoot(Utf8PathBuf),
     Workspace(Utf8PathBuf),
     Unknown,
 }
@@ -369,8 +355,15 @@ mod tests {
             vec![reason.clone()],
         );
         assert_eq!(ambiguous.confidence(), Confidence::Ambiguous);
-        assert_eq!(ambiguous.candidates().len(), 2);
-        assert_eq!(ambiguous.reasons(), &[reason]);
+        let Fact::Ambiguous {
+            candidates,
+            reasons,
+        } = ambiguous
+        else {
+            panic!("expected ambiguous fact");
+        };
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(reasons, &[reason]);
     }
 
     #[test]
@@ -399,14 +392,21 @@ mod tests {
         let mapped = fact.map(|candidate| candidate.as_str().to_string());
 
         assert_eq!(mapped.confidence(), Confidence::Ambiguous);
+        let Fact::Ambiguous {
+            candidates,
+            reasons,
+        } = mapped
+        else {
+            panic!("expected ambiguous fact");
+        };
         assert_eq!(
-            mapped.candidates(),
-            &[
+            candidates,
+            [
                 "clientname.app2".to_string(),
                 "shared.clientname.app2".to_string()
             ]
         );
-        assert_eq!(mapped.reasons(), &[reason]);
+        assert_eq!(reasons, &[reason]);
     }
 
     #[test]

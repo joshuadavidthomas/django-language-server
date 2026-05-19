@@ -5,11 +5,6 @@
 //! simple `AppConfig` classes with literal `name`, `label`, `path`, and
 //! `default` assignments.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A6 adds app registry facts before project facts are assembled."
-)]
-
 use std::collections::BTreeSet;
 use std::fs;
 

@@ -7,11 +7,6 @@
 //! Exact duplicate app-template facts are emitted once at their first flattened
 //! backend occurrence because these facts do not carry backend identity yet.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A7 adds template directory facts before project facts are assembled."
-)]
-
 use crate::project::facts::AppFact;
 use crate::project::facts::Fact;
 use crate::project::facts::Reason;

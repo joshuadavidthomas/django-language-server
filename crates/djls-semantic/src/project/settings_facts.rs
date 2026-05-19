@@ -6,11 +6,6 @@
 //! unsupported settings shapes as partial or unknown facts instead of importing
 //! the settings module.
 
-#![allow(
-    dead_code,
-    reason = "Milestone A5 expands settings facts before project facts are assembled."
-)]
-
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fs;
@@ -159,6 +154,7 @@ impl SettingsExtractionState {
     }
 }
 
+#[cfg(test)]
 #[must_use]
 pub(crate) fn extract_settings_facts(file: &Utf8Path) -> SettingsFacts {
     let mut active_files = BTreeSet::new();
@@ -2476,12 +2472,11 @@ fn reason(file: &Utf8Path, message: impl Into<String>) -> Reason {
 mod tests {
     use std::fs;
 
-    use djls_conf::Settings;
     use tempfile::tempdir;
 
     use super::*;
-    use crate::project::django_environments::discover_django_environments;
     use crate::project::module_resolver::discover_module_search_paths;
+    use crate::project::module_resolver::resolve_module;
     use crate::project::names::LibraryName;
 
     fn write_file(path: &Utf8Path, contents: &str) {
@@ -2726,28 +2721,27 @@ INSTALLED_APPS = ["project.app"]
 TEMPLATES = [{"DIRS": ["templates"]}]
 "#,
         );
-        write_file(
-            &root.join("djls.toml"),
-            r#"django_settings_module = "project.settings""#,
-        );
 
-        let settings = Settings::new(&root, None).unwrap();
         let search_paths = discover_module_search_paths(&root, &[], &[])
             .value()
             .cloned()
             .unwrap();
-        let environments = discover_django_environments(&root, &settings, &search_paths);
-        let Fact::Known {
-            value: django_settings,
-        } = &environments[0].django_settings
-        else {
-            panic!(
-                "expected resolved settings module, got {:?}",
-                environments[0].django_settings
-            );
+        let resolution = resolve_module(
+            PyModuleName::parse("project.settings").unwrap(),
+            &search_paths,
+            &root,
+        );
+        let django_settings = match resolution.resolved {
+            Fact::Known { value } => value,
+            other => panic!("expected resolved settings module, got {other:?}"),
         };
 
-        let facts = extract_settings_facts(&django_settings.file);
+        let facts = extract_settings_facts_for_module(
+            &django_settings.file,
+            &django_settings.module,
+            &root,
+            &search_paths,
+        );
 
         assert_eq!(known_vec(&facts.installed_apps), ["project.app"]);
         assert_eq!(known_vec(&facts.template_backends).len(), 1);
@@ -2927,22 +2921,16 @@ TEMPLATES = []
 from .base import *
 ",
         );
-        write_file(
-            &root.join("djls.toml"),
-            r#"django_settings_module = "project.settings.dev""#,
-        );
 
-        let settings = Settings::new(&root, None).unwrap();
         let search_paths = search_paths(&root);
-        let environments = discover_django_environments(&root, &settings, &search_paths);
-        let Fact::Known {
-            value: django_settings,
-        } = &environments[0].django_settings
-        else {
-            panic!(
-                "expected resolved settings module, got {:?}",
-                environments[0].django_settings
-            );
+        let resolution = resolve_module(
+            PyModuleName::parse("project.settings.dev").unwrap(),
+            &search_paths,
+            &root,
+        );
+        let django_settings = match resolution.resolved {
+            Fact::Known { value } => value,
+            other => panic!("expected resolved settings module, got {other:?}"),
         };
 
         let facts = extract_settings_facts_for_module(
