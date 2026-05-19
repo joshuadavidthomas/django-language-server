@@ -1,5 +1,7 @@
 # Agent Guidelines
 
+Read `CONTEXT.md` for the domain glossary and canonical terminology. Read `ARCHITECTURE.md` for the deeper system design, crate boundaries, and request/data flow.
+
 ## Commands
 ```bash
 cargo build -q                   # Build all crates
@@ -32,8 +34,6 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 - `djls-source`: files, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
 - `djls-workspace`: VFS, open buffers, file discovery.
-
-This is the quick routing guide. For the full crate-by-crate architecture, dependency direction, and examples, read `ARCHITECTURE.md`.
 
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
