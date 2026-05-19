@@ -16,7 +16,6 @@ use djls_conf::DjangoEnvironmentConfig;
 use djls_conf::Settings;
 
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::ModuleSearchPathEntry;
 use crate::project::facts::Reason;
 use crate::project::facts::ReasonSource;
@@ -110,11 +109,7 @@ impl DjangoEnvironmentResolution {
     }
 
     fn unknown(root: Utf8PathBuf, message: impl Into<String>) -> Self {
-        let reason = Reason::new(
-            Field::DjangoEnvironmentDiscovery,
-            ReasonSource::DjangoEnvironmentRoot(root.clone()),
-            message,
-        );
+        let reason = Reason::new(ReasonSource::DjangoEnvironmentRoot(root.clone()), message);
 
         Self {
             root,

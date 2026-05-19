@@ -24,7 +24,6 @@ use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::ModuleSearchPathEntry;
 use crate::project::facts::Reason;
 use crate::project::facts::SettingsFacts;
@@ -141,14 +140,12 @@ impl SettingsExtractionState {
         let installed_apps = finalize_setting_fact(
             self.installed_apps,
             self.installed_apps_import_reasons,
-            Field::SettingsInstalledApps,
             &file,
             "INSTALLED_APPS is not assigned in this settings file",
         );
         let template_backends = finalize_setting_fact(
             self.template_backends,
             self.template_backends_import_reasons,
-            Field::SettingsTemplates,
             &file,
             "TEMPLATES is not assigned in this settings file",
         );
@@ -253,7 +250,6 @@ fn extract_settings_state_inner(
         .any(|stmt| contains_nested_list_mutation(stmt, INSTALLED_APPS))
     {
         state.add_installed_apps_reason(reason(
-            Field::SettingsInstalledApps,
             file,
             "unsupported nested assignment or mutation of INSTALLED_APPS",
         ));
@@ -265,7 +261,6 @@ fn extract_settings_state_inner(
             || contains_unsupported_setting_update(stmt, TEMPLATES)
     }) {
         state.add_template_backends_reason(reason(
-            Field::SettingsTemplates,
             file,
             "unsupported nested assignment or mutation of TEMPLATES",
         ));
@@ -293,12 +288,7 @@ fn process_settings_stmt(
     record_path_list_assignment(stmt, &mut state.path_list_values, &state.path_values, file);
 
     if let Some(value) = assigned_value(stmt, INSTALLED_APPS) {
-        state.installed_apps = Some(extract_string_list(
-            value,
-            Field::SettingsInstalledApps,
-            file,
-            "INSTALLED_APPS",
-        ));
+        state.installed_apps = Some(extract_string_list(value, file, "INSTALLED_APPS"));
         return;
     }
 
@@ -410,7 +400,6 @@ fn extract_path_list(
             paths.push(path);
         } else {
             reasons.push(reason(
-                Field::SettingsTemplateDirs,
                 file,
                 "TEMPLATES DIRS contains an unsupported path expression",
             ));
@@ -806,7 +795,6 @@ fn star_import_module(
 
     let Some(module) = module else {
         return Fact::unknown(vec![Reason::module(
-            Field::ResolverModule,
             current_module.clone(),
             "absolute star import must name a module",
         )]);
@@ -815,7 +803,6 @@ fn star_import_module(
     match PyModuleName::parse(module) {
         Ok(module) => Fact::known(module),
         Err(error) => Fact::unknown(vec![Reason::module(
-            Field::ResolverModule,
             current_module.clone(),
             format!("star import resolves to an invalid module path: {error}"),
         )]),
@@ -1289,15 +1276,9 @@ fn is_name(expr: &Expr, expected: &str) -> bool {
     matches!(expr, Expr::Name(name) if name.id.as_str() == expected)
 }
 
-fn extract_string_list(
-    expr: &Expr,
-    field: Field,
-    file: &Utf8Path,
-    setting_name: &str,
-) -> Fact<Vec<String>> {
+fn extract_string_list(expr: &Expr, file: &Utf8Path, setting_name: &str) -> Fact<Vec<String>> {
     let Some(elements) = collection_elements(expr) else {
         return Fact::unknown(vec![reason(
-            field,
             file,
             format!("{setting_name} must be a literal list or tuple of strings"),
         )]);
@@ -1310,7 +1291,6 @@ fn extract_string_list(
             values.push(value);
         } else {
             reasons.push(reason(
-                field,
                 file,
                 format!("{setting_name} contains a non-string entry"),
             ));
@@ -1327,7 +1307,6 @@ fn apply_installed_apps_mutation(
 ) -> Fact<Vec<String>> {
     let Some(current) = current else {
         return mutation_before_assignment(
-            Field::SettingsInstalledApps,
             file,
             "INSTALLED_APPS mutation appears before assignment or import",
         );
@@ -1337,7 +1316,6 @@ fn apply_installed_apps_mutation(
         ListMutation::Append(value) => {
             let Some(app) = string_literal(value) else {
                 return current.with_reason(reason(
-                    Field::SettingsInstalledApps,
                     file,
                     "INSTALLED_APPS append value must be a string literal",
                 ));
@@ -1347,7 +1325,6 @@ fn apply_installed_apps_mutation(
                 app,
                 Vec::new(),
                 reason(
-                    Field::SettingsInstalledApps,
                     file,
                     "cannot apply INSTALLED_APPS append because the current value is unknown or ambiguous",
                 ),
@@ -1358,12 +1335,10 @@ fn apply_installed_apps_mutation(
             current,
             extract_string_list(
                 value,
-                Field::SettingsInstalledApps,
                 file,
                 "INSTALLED_APPS mutation",
             ),
             reason(
-                Field::SettingsInstalledApps,
                 file,
                 "cannot apply INSTALLED_APPS extend because the current value is unknown or ambiguous",
             ),
@@ -1371,7 +1346,6 @@ fn apply_installed_apps_mutation(
         ListMutation::Insert { index, value } => {
             let Some(app) = string_literal(value) else {
                 return current.with_reason(reason(
-                    Field::SettingsInstalledApps,
                     file,
                     "INSTALLED_APPS insert value must be a string literal",
                 ));
@@ -1382,7 +1356,6 @@ fn apply_installed_apps_mutation(
                 app,
                 Vec::new(),
                 reason(
-                    Field::SettingsInstalledApps,
                     file,
                     "cannot apply INSTALLED_APPS insert because the current value is unknown or ambiguous",
                 ),
@@ -1393,7 +1366,6 @@ fn apply_installed_apps_mutation(
         ListMutation::Reverse => reverse_vec_fact(current),
         ListMutation::Sort => sort_vec_fact(current),
         ListMutation::Unsupported => current.with_reason(reason(
-            Field::SettingsInstalledApps,
             file,
             "unsupported dynamic mutation of INSTALLED_APPS",
         )),
@@ -1409,12 +1381,10 @@ fn apply_installed_apps_pop(
         current,
         index,
         reason(
-            Field::SettingsInstalledApps,
             file,
             "cannot apply INSTALLED_APPS pop because the index is out of range",
         ),
         reason(
-            Field::SettingsInstalledApps,
             file,
             "cannot apply INSTALLED_APPS pop because the current value is unknown or ambiguous",
         ),
@@ -1428,7 +1398,6 @@ fn apply_installed_apps_remove(
 ) -> Fact<Vec<String>> {
     let Some(app) = string_literal(value) else {
         return current.with_reason(reason(
-            Field::SettingsInstalledApps,
             file,
             "INSTALLED_APPS remove value must be a string literal",
         ));
@@ -1437,12 +1406,10 @@ fn apply_installed_apps_remove(
         current,
         &app,
         reason(
-            Field::SettingsInstalledApps,
             file,
             "cannot apply INSTALLED_APPS remove because the value is not present",
         ),
         reason(
-            Field::SettingsInstalledApps,
             file,
             "cannot apply INSTALLED_APPS remove because the current value is unknown or ambiguous",
         ),
@@ -1457,7 +1424,6 @@ fn extract_template_backends(
 ) -> Fact<Vec<TemplateBackendFact>> {
     let Some(elements) = collection_elements(expr) else {
         return Fact::unknown(vec![reason(
-            Field::SettingsTemplates,
             file,
             "TEMPLATES must be assigned a literal list or tuple of dictionaries",
         )]);
@@ -1468,7 +1434,6 @@ fn extract_template_backends(
     for element in elements {
         let Expr::Dict(dict) = element else {
             reasons.push(reason(
-                Field::SettingsTemplates,
                 file,
                 "TEMPLATES contains a non-dictionary backend entry",
             ));
@@ -1495,7 +1460,6 @@ fn apply_template_backends_mutation(
 ) -> Fact<Vec<TemplateBackendFact>> {
     let Some(current) = current else {
         return mutation_before_assignment(
-            Field::SettingsTemplates,
             file,
             "TEMPLATES mutation appears before assignment or import",
         );
@@ -1506,7 +1470,6 @@ fn apply_template_backends_mutation(
             current,
             extract_template_backend_list_item(value, path_values, path_list_values, file),
             reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES append because the current value is unknown or ambiguous",
             ),
@@ -1515,7 +1478,6 @@ fn apply_template_backends_mutation(
             current,
             extract_template_backends(value, path_values, path_list_values, file),
             reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES extend because the current value is unknown or ambiguous",
             ),
@@ -1525,7 +1487,6 @@ fn apply_template_backends_mutation(
             index,
             extract_template_backend_item(value, path_values, path_list_values, file),
             reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES insert because the current value is unknown or ambiguous",
             ),
@@ -1535,23 +1496,18 @@ fn apply_template_backends_mutation(
             current,
             index,
             reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES pop because the index is out of range",
             ),
             reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES pop because the current value is unknown or ambiguous",
             ),
         ),
         ListMutation::Reverse => reverse_vec_fact(current),
-        ListMutation::Remove(_) | ListMutation::Sort | ListMutation::Unsupported => current
-            .with_reason(reason(
-                Field::SettingsTemplates,
-                file,
-                "unsupported dynamic mutation of TEMPLATES",
-            )),
+        ListMutation::Remove(_) | ListMutation::Sort | ListMutation::Unsupported => {
+            current.with_reason(reason(file, "unsupported dynamic mutation of TEMPLATES"))
+        }
     }
 }
 
@@ -1564,7 +1520,6 @@ fn apply_template_dirs_mutation(
 ) -> Fact<Vec<TemplateBackendFact>> {
     let Some(current) = current else {
         return mutation_before_assignment(
-            Field::SettingsTemplates,
             file,
             "TEMPLATES DIRS mutation appears before TEMPLATES assignment or import",
         );
@@ -1596,7 +1551,6 @@ fn apply_template_dirs_mutation(
         }
         Fact::Unknown { mut reasons } => {
             reasons.push(reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES DIRS mutation because TEMPLATES is unknown",
             ));
@@ -1607,7 +1561,6 @@ fn apply_template_dirs_mutation(
             mut reasons,
         } => {
             reasons.push(reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES DIRS mutation because TEMPLATES is ambiguous",
             ));
@@ -1625,7 +1578,6 @@ fn apply_template_dirs_mutation_to_backends(
 ) -> Vec<Reason> {
     let Some(backend) = backends.get_mut(mutation.backend_index) else {
         return vec![reason(
-            Field::SettingsTemplateDirs,
             file,
             "cannot apply TEMPLATES DIRS mutation because the backend index is out of range",
         )];
@@ -1652,7 +1604,6 @@ fn apply_template_dir_list_mutation(
         ListMutation::Append(value) => {
             let Some(dir) = evaluate_template_dir(value, path_values, file) else {
                 return current.with_reason(reason(
-                    Field::SettingsTemplateDirs,
                     file,
                     "TEMPLATES DIRS append value contains an unsupported path expression",
                 ));
@@ -1662,7 +1613,6 @@ fn apply_template_dir_list_mutation(
                 dir,
                 Vec::new(),
                 reason(
-                    Field::SettingsTemplateDirs,
                     file,
                     "cannot apply TEMPLATES DIRS append because the current value is unknown or ambiguous",
                 ),
@@ -1672,7 +1622,6 @@ fn apply_template_dir_list_mutation(
             current,
             extract_template_dirs(value, path_values, path_list_values, file),
             reason(
-                Field::SettingsTemplateDirs,
                 file,
                 "cannot apply TEMPLATES DIRS extend because the current value is unknown or ambiguous",
             ),
@@ -1680,7 +1629,6 @@ fn apply_template_dir_list_mutation(
         ListMutation::Insert { index, value } => {
             let Some(dir) = evaluate_template_dir(value, path_values, file) else {
                 return current.with_reason(reason(
-                    Field::SettingsTemplateDirs,
                     file,
                     "TEMPLATES DIRS insert value contains an unsupported path expression",
                 ));
@@ -1691,7 +1639,6 @@ fn apply_template_dir_list_mutation(
                 dir,
                 Vec::new(),
                 reason(
-                    Field::SettingsTemplateDirs,
                     file,
                     "cannot apply TEMPLATES DIRS insert because the current value is unknown or ambiguous",
                 ),
@@ -1703,7 +1650,6 @@ fn apply_template_dir_list_mutation(
         | ListMutation::Reverse
         | ListMutation::Sort
         | ListMutation::Unsupported => current.with_reason(reason(
-            Field::SettingsTemplateDirs,
             file,
             "unsupported dynamic mutation of TEMPLATES DIRS",
         )),
@@ -1717,7 +1663,6 @@ fn apply_template_options_assignment(
 ) -> Fact<Vec<TemplateBackendFact>> {
     let Some(current) = current else {
         return mutation_before_assignment(
-            Field::SettingsTemplates,
             file,
             "TEMPLATES OPTIONS assignment appears before TEMPLATES assignment or import",
         );
@@ -1740,7 +1685,6 @@ fn apply_template_options_assignment(
         }
         Fact::Unknown { mut reasons } => {
             reasons.push(reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES OPTIONS assignment because TEMPLATES is unknown",
             ));
@@ -1751,7 +1695,6 @@ fn apply_template_options_assignment(
             mut reasons,
         } => {
             reasons.push(reason(
-                Field::SettingsTemplates,
                 file,
                 "cannot apply TEMPLATES OPTIONS assignment because TEMPLATES is ambiguous",
             ));
@@ -1771,7 +1714,6 @@ fn apply_template_options_assignment_to_backends(
 
     let Some(backend) = backends.get_mut(assignment.backend_index) else {
         return vec![reason(
-            Field::SettingsTemplateOptions,
             file,
             "cannot apply TEMPLATES OPTIONS assignment because the backend index is out of range",
         )];
@@ -1787,7 +1729,6 @@ fn apply_template_options_assignment_to_backends(
             Vec::new()
         }
         key => vec![reason(
-            Field::SettingsTemplateOptions,
             file,
             format!("unsupported TEMPLATES OPTIONS assignment for `{key}`"),
         )],
@@ -1812,7 +1753,6 @@ fn extract_template_backend_item(
 ) -> Fact<TemplateBackendFact> {
     let Expr::Dict(dict) = expr else {
         return Fact::unknown(vec![reason(
-            Field::SettingsTemplates,
             file,
             "TEMPLATES mutation value must be a dictionary literal",
         )]);
@@ -1839,11 +1779,7 @@ fn extract_template_backend(
             if let Some(backend) = string_literal(value) {
                 Some(backend)
             } else {
-                reasons.push(reason(
-                    Field::SettingsTemplates,
-                    file,
-                    "TEMPLATES BACKEND must be a string literal",
-                ));
+                reasons.push(reason(file, "TEMPLATES BACKEND must be a string literal"));
                 None
             }
         }
@@ -1858,7 +1794,6 @@ fn extract_template_backend(
     let app_dirs = match dict_value(dict, "APP_DIRS") {
         Some(Expr::BooleanLiteral(boolean)) => Fact::known(boolean.value),
         Some(_) => Fact::unknown(vec![reason(
-            Field::SettingsTemplates,
             file,
             "TEMPLATES APP_DIRS must be a boolean literal",
         )]),
@@ -1871,11 +1806,7 @@ fn extract_template_backend(
             extract_option_builtins(options, file),
         ),
         Some(_) => {
-            let option_reason = reason(
-                Field::SettingsTemplateOptions,
-                file,
-                "TEMPLATES OPTIONS must be a dictionary literal",
-            );
+            let option_reason = reason(file, "TEMPLATES OPTIONS must be a dictionary literal");
             (
                 Fact::unknown(vec![option_reason.clone()]),
                 Fact::unknown(vec![option_reason]),
@@ -1907,7 +1838,6 @@ fn extract_template_dirs(
 
     let Some(elements) = collection_elements(expr) else {
         return Fact::unknown(vec![reason(
-            Field::SettingsTemplateDirs,
             file,
             "TEMPLATES DIRS must be a literal list or tuple",
         )]);
@@ -1923,7 +1853,6 @@ fn extract_template_dirs(
             });
         } else {
             reasons.push(reason(
-                Field::SettingsTemplateDirs,
                 file,
                 "TEMPLATES DIRS contains an unsupported path expression",
             ));
@@ -1967,7 +1896,6 @@ fn extract_option_libraries(
 fn extract_option_libraries_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<TemplateLibraryFact>> {
     let Expr::Dict(libraries) = value else {
         return Fact::unknown(vec![reason(
-            Field::SettingsTemplateOptions,
             file,
             "TEMPLATES OPTIONS.libraries must be a dictionary literal",
         )]);
@@ -1978,7 +1906,6 @@ fn extract_option_libraries_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<Tem
     for item in &libraries.items {
         let Some(key) = item.key.as_ref() else {
             reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 "TEMPLATES OPTIONS.libraries contains dictionary unpacking",
             ));
@@ -1986,7 +1913,6 @@ fn extract_option_libraries_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<Tem
         };
         let Some(load_name) = string_literal(key) else {
             reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 "TEMPLATES OPTIONS.libraries contains a non-string load name",
             ));
@@ -1994,7 +1920,6 @@ fn extract_option_libraries_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<Tem
         };
         let Some(module) = string_literal(&item.value) else {
             reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 "TEMPLATES OPTIONS.libraries contains a non-string module path",
             ));
@@ -2008,12 +1933,10 @@ fn extract_option_libraries_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<Tem
                 source: TemplateLibrarySource::SettingsLibraries,
             }),
             (Err(error), _) => reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 format!("invalid TEMPLATES OPTIONS.libraries load name: {error}"),
             )),
             (_, Err(error)) => reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 format!("invalid TEMPLATES OPTIONS.libraries module path: {error}"),
             )),
@@ -2036,7 +1959,6 @@ fn extract_option_builtins(
 fn extract_option_builtins_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<PyModuleName>> {
     let Some(elements) = collection_elements(value) else {
         return Fact::unknown(vec![reason(
-            Field::SettingsTemplateOptions,
             file,
             "TEMPLATES OPTIONS.builtins must be a literal list or tuple",
         )]);
@@ -2047,7 +1969,6 @@ fn extract_option_builtins_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<PyMo
     for element in elements {
         let Some(module) = string_literal(element) else {
             reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 "TEMPLATES OPTIONS.builtins contains a non-string module path",
             ));
@@ -2056,7 +1977,6 @@ fn extract_option_builtins_value(value: &Expr, file: &Utf8Path) -> Fact<Vec<PyMo
         match PyModuleName::parse(&module) {
             Ok(module) => builtins.push(module),
             Err(error) => reasons.push(reason(
-                Field::SettingsTemplateOptions,
                 file,
                 format!("invalid TEMPLATES OPTIONS.builtins module path: {error}"),
             )),
@@ -2273,14 +2193,13 @@ fn known_or_partial<T>(values: Vec<T>, reasons: Vec<Reason>) -> Fact<Vec<T>> {
 fn finalize_setting_fact<T>(
     fact: Option<Fact<T>>,
     mut reasons: Vec<Reason>,
-    field: Field,
     file: &Utf8Path,
     missing_message: &'static str,
 ) -> Fact<T> {
     if let Some(fact) = fact {
         add_reasons(fact, reasons)
     } else {
-        reasons.push(reason(field, file, missing_message));
+        reasons.push(reason(file, missing_message));
         Fact::unknown(reasons)
     }
 }
@@ -2292,12 +2211,8 @@ fn add_reasons<T>(mut fact: Fact<T>, reasons: Vec<Reason>) -> Fact<T> {
     fact
 }
 
-fn mutation_before_assignment<T>(
-    field: Field,
-    file: &Utf8Path,
-    message: &'static str,
-) -> Fact<Vec<T>> {
-    Fact::unknown(vec![reason(field, file, message)])
+fn mutation_before_assignment<T>(file: &Utf8Path, message: &'static str) -> Fact<Vec<T>> {
+    Fact::unknown(vec![reason(file, message)])
 }
 
 fn append_vec_fact<T>(
@@ -2548,17 +2463,13 @@ fn unknown_settings_facts(file: &Utf8Path, message: impl Into<String>) -> Settin
     SettingsFacts {
         file: file.to_path_buf(),
         files_read: vec![file.to_path_buf()],
-        installed_apps: Fact::unknown(vec![reason(
-            Field::SettingsInstalledApps,
-            file,
-            message.clone(),
-        )]),
-        template_backends: Fact::unknown(vec![reason(Field::SettingsTemplates, file, message)]),
+        installed_apps: Fact::unknown(vec![reason(file, message.clone())]),
+        template_backends: Fact::unknown(vec![reason(file, message)]),
     }
 }
 
-fn reason(field: Field, file: &Utf8Path, message: impl Into<String>) -> Reason {
-    Reason::file(field, file, message)
+fn reason(file: &Utf8Path, message: impl Into<String>) -> Reason {
+    Reason::file(file, message)
 }
 
 #[cfg(test)]
@@ -2959,12 +2870,10 @@ from .base import *
         let (apps, reasons) = partial_vec(&facts.installed_apps);
 
         assert_eq!(apps, ["project.dev"]);
-        assert_eq!(reasons[0].field, Field::SettingsInstalledApps);
         assert!(reasons[0].message.contains("failed to parse settings file"));
 
         let (templates, reasons) = partial_vec(&facts.template_backends);
         assert!(templates.is_empty());
-        assert_eq!(reasons[0].field, Field::SettingsTemplates);
         assert!(reasons[0].message.contains("failed to parse settings file"));
     }
 
@@ -3063,7 +2972,6 @@ TEMPLATES = []
 
         let (apps, reasons) = partial_vec(&facts.installed_apps);
         assert_eq!(apps, ["django.contrib.auth"]);
-        assert_eq!(reasons[0].field, Field::SettingsInstalledApps);
         assert!(reasons[0].message.contains("non-string"));
     }
 

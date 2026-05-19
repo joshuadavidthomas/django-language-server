@@ -22,7 +22,6 @@ use ruff_python_ast::StmtClassDef;
 use crate::project::facts::AppConfigFact;
 use crate::project::facts::AppFact;
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::InstalledAppFact;
 use crate::project::facts::ModuleResolution;
 use crate::project::facts::ModuleSearchPathEntry;
@@ -102,7 +101,6 @@ fn resolve_installed_app_entry(
             return unknown_installed_app(
                 entry,
                 vec![Reason::new(
-                    Field::AppsInstalled,
                     ReasonSource::Unknown,
                     format!("installed app entry is not a valid Python module path: {error}"),
                 )],
@@ -177,7 +175,6 @@ fn resolve_app_config_entry(
         Err(error) => {
             let mut reasons = direct_reasons;
             reasons.push(Reason::new(
-                Field::AppsConfig,
                 ReasonSource::Unknown,
                 format!("AppConfig module path is invalid: {error}"),
             ));
@@ -198,7 +195,6 @@ fn resolve_app_config_entry(
     let source = fs::read_to_string(&config_file).map_err(|error| {
         let mut reasons = direct_reasons.clone();
         reasons.push(Reason::file(
-            Field::AppsConfig,
             config_file.clone(),
             format!("failed to read AppConfig module: {error}"),
         ));
@@ -208,7 +204,6 @@ fn resolve_app_config_entry(
         .map_err(|error| {
             let mut reasons = direct_reasons.clone();
             reasons.push(Reason::file(
-                Field::AppsConfig,
                 config_file.clone(),
                 format!("failed to parse AppConfig module: {error}"),
             ));
@@ -227,7 +222,6 @@ fn resolve_app_config_entry(
     }) else {
         let mut reasons = direct_reasons;
         reasons.push(Reason::file(
-            Field::AppsConfig,
             config_file,
             format!(
                 "AppConfig class `{class_name}` was not found or does not inherit from AppConfig"
@@ -261,7 +255,6 @@ fn resolve_default_app_config(
             return installed_app_with_reason(
                 base_app,
                 Reason::file(
-                    Field::AppsConfig,
                     config_file,
                     format!("default AppConfig module path is invalid: {error}"),
                 ),
@@ -275,7 +268,6 @@ fn resolve_default_app_config(
             return installed_app_with_reason(
                 base_app,
                 Reason::file(
-                    Field::AppsConfig,
                     config_file,
                     format!("failed to read default AppConfig module: {error}"),
                 ),
@@ -288,7 +280,6 @@ fn resolve_default_app_config(
             return installed_app_with_reason(
                 base_app,
                 Reason::file(
-                    Field::AppsConfig,
                     config_file,
                     format!("failed to parse default AppConfig module: {error}"),
                 ),
@@ -395,7 +386,6 @@ fn select_default_app_config<'a>(
         }
         _ if explicit_default_candidates.len() > 1 => {
             DefaultAppConfigSelection::Unclear(Reason::file(
-                Field::AppsConfig,
                 config_file,
                 "more than one AppConfig class sets default = True",
             ))
@@ -451,7 +441,6 @@ fn app_config_default_inner<'a>(
         active_classes.remove(class.name.as_str());
         return boolean_literal(default).map(Some).ok_or_else(|| {
             Reason::file(
-                Field::AppsConfig,
                 file,
                 format!(
                     "AppConfig.default on `{}` must be a boolean literal for static default selection",
@@ -557,16 +546,11 @@ fn is_name(expr: &Expr, expected: &str) -> bool {
 
 fn app_config_name(expr: Option<&Expr>, file: &Utf8Path) -> Fact<PyModuleName> {
     let Some(expr) = expr else {
-        return Fact::unknown(vec![Reason::file(
-            Field::AppsConfig,
-            file,
-            "AppConfig.name is not assigned",
-        )]);
+        return Fact::unknown(vec![Reason::file(file, "AppConfig.name is not assigned")]);
     };
 
     let Some(name) = string_literal(expr) else {
         return Fact::unknown(vec![Reason::file(
-            Field::AppsConfig,
             file,
             "AppConfig.name must be a string literal",
         )]);
@@ -575,7 +559,6 @@ fn app_config_name(expr: Option<&Expr>, file: &Utf8Path) -> Fact<PyModuleName> {
     match PyModuleName::parse(&name) {
         Ok(module) => Fact::known(module),
         Err(error) => Fact::unknown(vec![Reason::file(
-            Field::AppsConfig,
             file,
             format!("AppConfig.name is not a valid Python module path: {error}"),
         )]),
@@ -595,7 +578,6 @@ fn app_config_label(
         return add_reasons(
             default_label_from_name(name),
             vec![Reason::file(
-                Field::AppsConfig,
                 file,
                 "AppConfig.label must be a string literal; using the app module basename",
             )],
@@ -617,7 +599,6 @@ fn app_config_path(
 
     let Some(path) = string_literal(expr) else {
         return default_path.with_reason(Reason::file(
-            Field::AppsPath,
             file,
             "AppConfig.path must be a string literal; using the resolved app package path",
         ));
@@ -628,7 +609,6 @@ fn app_config_path(
         Fact::known(path)
     } else {
         default_path.with_reason(Reason::path(
-            Field::AppsPath,
             path,
             "AppConfig.path does not exist or is not a directory; using the resolved app package path",
         ))
@@ -1385,14 +1365,14 @@ class BlogConfig(AppConfig):
         assert!(matches!(installed_apps[1].module, Fact::Unknown { .. }));
         assert!(reasons
             .iter()
-            .any(|reason| reason.field == Field::ResolverModule));
+            .any(|reason| matches!(&reason.source, ReasonSource::Module(_))));
 
         let (app_registry, reasons) = partial_vec(&facts.app_registry);
         assert_eq!(app_registry.len(), 1);
         assert_eq!(app_registry[0].module, module("blog"));
         assert!(reasons
             .iter()
-            .any(|reason| reason.field == Field::ResolverModule));
+            .any(|reason| matches!(&reason.source, ReasonSource::Module(_))));
     }
 
     #[test]

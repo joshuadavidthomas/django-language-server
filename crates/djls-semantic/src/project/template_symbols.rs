@@ -21,7 +21,6 @@ use std::fs;
 use camino::Utf8Path;
 
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::ModuleSearchPathEntry;
 use crate::project::facts::Reason;
 use crate::project::facts::ResolvedModule;
@@ -175,7 +174,6 @@ fn read_and_extract_library_symbols(
         Ok(source) => source,
         Err(error) => {
             reasons.push(Reason::file(
-                Field::TemplateSymbols,
                 &resolved.file,
                 format!("failed to read template library module: {error}"),
             ));
@@ -187,7 +185,6 @@ fn read_and_extract_library_symbols(
         Ok(registrations) => registrations,
         Err(error) => {
             reasons.push(Reason::file(
-                Field::TemplateSymbols,
                 &resolved.file,
                 format!("failed to parse template library module: {error}"),
             ));
@@ -200,7 +197,6 @@ fn read_and_extract_library_symbols(
             Ok(name) => name,
             Err(error) => {
                 reasons.push(Reason::file(
-                    Field::TemplateSymbols,
                     &resolved.file,
                     format!(
                         "template symbol `{}` has an invalid name: {error}",
@@ -499,7 +495,7 @@ register.filter("shout", shout)
         assert!(known_symbols(&facts).is_empty());
         assert!(partial_reasons(&facts)
             .iter()
-            .any(|reason| reason.field == Field::ResolverModule));
+            .any(|reason| matches!(&reason.source, ReasonSource::Module(_))));
     }
 
     #[test]
@@ -530,13 +526,12 @@ def bad(parser, token):
         assert!(known_symbols(&facts).is_empty());
         assert!(partial_reasons(&facts)
             .iter()
-            .any(|reason| reason.field == Field::TemplateSymbols));
+            .any(|reason| reason.message.contains("invalid name")));
     }
 
     #[test]
     fn unknown_module_search_paths_make_symbols_unknown_when_libraries_exist() {
         let reason = Reason::new(
-            Field::ResolverModuleSearchPaths,
             ReasonSource::Unknown,
             "module search paths were not discovered",
         );
@@ -645,7 +640,6 @@ def bad(parser, token):
     #[test]
     fn snapshot_preserves_symbol_reasons_as_partial() {
         let reason = Reason::file(
-            Field::TemplateSymbols,
             "blog/templatetags/blog_tags.py",
             "failed to parse template library module",
         );

@@ -159,77 +159,33 @@ impl<T> Fact<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Reason {
-    pub(crate) field: Field,
     pub(crate) source: ReasonSource,
     pub(crate) message: String,
 }
 
 impl Reason {
     #[must_use]
-    pub(crate) fn new(field: Field, source: ReasonSource, message: impl Into<String>) -> Self {
+    pub(crate) fn new(source: ReasonSource, message: impl Into<String>) -> Self {
         Self {
-            field,
             source,
             message: message.into(),
         }
     }
 
     #[must_use]
-    pub(crate) fn file(
-        field: Field,
-        file: impl Into<Utf8PathBuf>,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(field, ReasonSource::File(file.into()), message)
+    pub(crate) fn file(file: impl Into<Utf8PathBuf>, message: impl Into<String>) -> Self {
+        Self::new(ReasonSource::File(file.into()), message)
     }
 
     #[must_use]
-    pub(crate) fn path(
-        field: Field,
-        path: impl Into<Utf8PathBuf>,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(field, ReasonSource::Path(path.into()), message)
+    pub(crate) fn path(path: impl Into<Utf8PathBuf>, message: impl Into<String>) -> Self {
+        Self::new(ReasonSource::Path(path.into()), message)
     }
 
     #[must_use]
-    pub(crate) fn module(field: Field, module: PyModuleName, message: impl Into<String>) -> Self {
-        Self::new(field, ReasonSource::Module(module), message)
+    pub(crate) fn module(module: PyModuleName, message: impl Into<String>) -> Self {
+        Self::new(ReasonSource::Module(module), message)
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) enum Field {
-    #[serde(rename = "resolver.module_search_paths")]
-    ResolverModuleSearchPaths,
-    #[serde(rename = "resolver.module")]
-    ResolverModule,
-    #[serde(rename = "resolver.relative_import")]
-    ResolverRelativeImport,
-    #[serde(rename = "django.environment_discovery")]
-    DjangoEnvironmentDiscovery,
-    #[serde(rename = "settings.installed_apps")]
-    SettingsInstalledApps,
-    #[serde(rename = "settings.templates")]
-    SettingsTemplates,
-    #[serde(rename = "settings.template_dirs")]
-    SettingsTemplateDirs,
-    #[serde(rename = "settings.template_options")]
-    SettingsTemplateOptions,
-    #[serde(rename = "apps.installed")]
-    AppsInstalled,
-    #[serde(rename = "apps.config")]
-    AppsConfig,
-    #[serde(rename = "apps.path")]
-    AppsPath,
-    #[serde(rename = "templates.dirs")]
-    TemplateDirs,
-    #[serde(rename = "templates.libraries")]
-    TemplateLibraries,
-    #[serde(rename = "templates.builtins")]
-    TemplateBuiltins,
-    #[serde(rename = "templates.symbols")]
-    TemplateSymbols,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -382,7 +338,6 @@ mod tests {
 
     fn unsupported_settings_reason() -> Reason {
         Reason::file(
-            Field::SettingsInstalledApps,
             "project/settings.py",
             "unsupported list comprehension in INSTALLED_APPS",
         )
@@ -421,7 +376,6 @@ mod tests {
     #[test]
     fn with_reason_preserves_value_while_downgrading_known_to_partial() {
         let reason = Reason::path(
-            Field::TemplateDirs,
             "templates",
             "template directory expression depends on runtime state",
         );
@@ -435,7 +389,6 @@ mod tests {
     #[test]
     fn map_preserves_confidence_and_reasons() {
         let reason = Reason::module(
-            Field::ResolverModule,
             module("clientname.app2"),
             "module exists in more than one module search path",
         );
@@ -459,7 +412,6 @@ mod tests {
     #[test]
     fn facts_are_cache_serializable() {
         let reason = Reason::file(
-            Field::SettingsTemplates,
             "project/settings.py",
             "TEMPLATES includes an unsupported call expression",
         );

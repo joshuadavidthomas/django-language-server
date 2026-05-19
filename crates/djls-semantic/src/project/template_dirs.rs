@@ -14,7 +14,6 @@
 
 use crate::project::facts::AppFact;
 use crate::project::facts::Fact;
-use crate::project::facts::Field;
 use crate::project::facts::Reason;
 use crate::project::facts::ReasonSource;
 use crate::project::facts::TemplateBackendFact;
@@ -61,7 +60,6 @@ fn assemble_template_backend_dirs(
 fn is_django_template_backend(backend: &TemplateBackendFact, reasons: &mut Vec<Reason>) -> bool {
     let Some(backend) = backend.backend.as_deref() else {
         reasons.push(Reason::new(
-            Field::TemplateDirs,
             ReasonSource::Unknown,
             "TEMPLATES BACKEND is not known; skipped template directory assembly for this backend",
         ));
@@ -283,7 +281,6 @@ mod tests {
 
     fn app_registry_reason() -> Reason {
         Reason::new(
-            Field::AppsInstalled,
             ReasonSource::Unknown,
             "some installed apps could not be resolved",
         )
@@ -291,7 +288,6 @@ mod tests {
 
     fn dirs_reason() -> Reason {
         Reason::path(
-            Field::SettingsTemplateDirs,
             "project/settings.py",
             "TEMPLATES DIRS contains an unsupported path expression",
         )
@@ -299,7 +295,6 @@ mod tests {
 
     fn app_dirs_reason() -> Reason {
         Reason::new(
-            Field::SettingsTemplates,
             ReasonSource::Unknown,
             "TEMPLATES APP_DIRS must be a boolean literal",
         )
@@ -468,7 +463,6 @@ mod tests {
     #[test]
     fn unknown_template_backends_are_unknown_template_dirs() {
         let reason = Reason::new(
-            Field::SettingsTemplates,
             ReasonSource::Unknown,
             "TEMPLATES is not assigned in this settings file",
         );
