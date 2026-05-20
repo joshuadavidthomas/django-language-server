@@ -1,19 +1,23 @@
+mod app_registry;
 mod db;
+mod facts;
 mod input;
 mod introspector;
+mod module_resolver;
 mod names;
 mod python;
 mod resolve;
-mod static_django_environments;
-mod static_model;
-mod static_resolver;
+mod settings_facts;
 mod symbols;
 mod sync;
 mod system;
+mod template_dirs;
+mod template_libraries;
+mod template_symbols;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::load_env_file;
-pub(crate) use crate::project::input::project_model_modules;
+pub(crate) use crate::project::input::project_django_model_modules;
 pub(crate) use crate::project::input::project_templatetag_modules;
 pub use crate::project::input::Project;
 pub use crate::project::input::ProjectPythonIndex;

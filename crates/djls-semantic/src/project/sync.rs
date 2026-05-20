@@ -6,9 +6,11 @@
 
 use std::fmt::Write;
 use std::fs;
+use std::time::UNIX_EPOCH;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DjangoDiscoveryMode;
 use djls_source::FileRootKind;
 use djls_source::Utf8PathClean;
 use ignore::WalkBuilder;
@@ -20,7 +22,18 @@ use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
 
+use crate::project::app_registry::resolve_app_registry;
+use crate::project::app_registry::AppRegistryFacts;
 use crate::project::db::Db as ProjectDb;
+use crate::project::facts::Confidence;
+use crate::project::facts::Fact;
+use crate::project::facts::ModuleLocation;
+use crate::project::facts::ModuleSearchPathEntry;
+use crate::project::facts::ModuleSearchPathKind;
+use crate::project::facts::Reason;
+use crate::project::facts::ReasonSource;
+use crate::project::facts::SettingsFacts;
+use crate::project::facts::TemplateLibraryFact;
 use crate::project::input::Project;
 use crate::project::input::ProjectPythonIndex;
 use crate::project::input::ProjectPythonModule;
@@ -28,21 +41,31 @@ use crate::project::input::ProjectTemplateFile;
 use crate::project::input::ProjectTemplateFiles;
 use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
+use crate::project::module_resolver::discover_module_search_paths as discover_static_module_search_paths;
+use crate::project::module_resolver::resolve_module as resolve_static_module;
+use crate::project::names::PyModuleName;
 use crate::project::python::Interpreter;
 use crate::project::resolve::build_search_paths;
 use crate::project::resolve::discover_model_files;
 use crate::project::resolve::find_site_packages;
 use crate::project::resolve::resolve_modules;
-use crate::project::resolve::ResolvedModule;
+use crate::project::settings_facts::extract_settings_facts_for_module;
 use crate::project::symbols::TemplateLibrarySnapshot;
+use crate::project::template_dirs::assemble_template_dirs;
+use crate::project::template_libraries::assemble_template_libraries;
+use crate::project::template_symbols::assemble_template_library_snapshot;
+use crate::project::template_symbols::assemble_template_symbols;
 use crate::python::extract_model_graph;
 use crate::python::extract_rules;
 use crate::python::BlockSpecs;
-use crate::python::ExtractionResult;
 use crate::python::FilterArityMap;
+#[cfg(test)]
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
+
+const STATIC_TEMPLATE_LIBRARY_CACHE_VERSION: &str = "project-facts-template-libraries-v1";
+const DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY: &str = "django-5.2-default-template-libraries-v1";
 
 /// Refresh all external project data.
 ///
@@ -55,7 +78,11 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
         return;
     };
 
-    refresh_project_external_data(db, project);
+    refresh_template_state(db, project);
+    refresh_template_files(db, project);
+    refresh_python_index(db, project);
+    scan_external_rules(db, project);
+    scan_external_models(db, project);
 }
 
 /// Populate template libraries from the filesystem cache, if available.
@@ -63,20 +90,488 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
 /// This is a fast, synchronous startup path. It gives completions and
 /// diagnostics previously discovered library data while fresh project
 /// introspection runs in the background.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Phase 1 keeps startup cache policy inline until the next seam is clear."
+)]
 pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
     let Some(project) = db.project() else {
         return false;
     };
 
-    load_project_template_library_cache(db, project)
+    let static_cache_entry = match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => {
+            let interpreter = project.interpreter(db).clone();
+            let root = project.root(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+            load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            )
+        }
+        DjangoDiscoveryMode::Runtime => {
+            let interpreter = project.interpreter(db).clone();
+            let root = project.root(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+
+            if let Some(snapshot) = load_cached_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+            ) {
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(Some(snapshot));
+                if project.template_libraries(db) != &next {
+                    project.set_template_libraries(db).to(next);
+                    refresh_templatetag_modules(db, project);
+                }
+                return true;
+            }
+
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+            load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            )
+        }
+    };
+
+    let Some(entry) = static_cache_entry else {
+        return false;
+    };
+    log_project_facts_status("cache_load", &entry.status);
+    let (changed, usable) = match entry.snapshot {
+        Fact::Known { value }
+            if !value.libraries.is_empty()
+                || !value.builtins.is_empty()
+                || !value.symbols.is_empty() =>
+        {
+            (
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) == &next {
+                        false
+                    } else {
+                        project.set_template_libraries(db).to(next);
+                        true
+                    }
+                },
+                true,
+            )
+        }
+        Fact::Partial { value, .. }
+            if !value.libraries.is_empty()
+                || !value.builtins.is_empty()
+                || !value.symbols.is_empty() =>
+        {
+            (
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) == &next {
+                        false
+                    } else {
+                        project.set_template_libraries(db).to(next);
+                        true
+                    }
+                },
+                true,
+            )
+        }
+        Fact::Known { .. }
+        | Fact::Partial { .. }
+        | Fact::Unknown { .. }
+        | Fact::Ambiguous { .. } => (
+            {
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(None);
+                if project.template_libraries(db) == &next {
+                    false
+                } else {
+                    project.set_template_libraries(db).to(next);
+                    true
+                }
+            },
+            false,
+        ),
+    };
+    if changed {
+        refresh_templatetag_modules(db, project);
+    }
+    usable
 }
 
-fn refresh_project_external_data(db: &mut dyn ProjectDb, project: Project) {
-    refresh_template_dirs(db, project);
-    refresh_template_libraries(db, project);
-    refresh_template_files(db, project);
-    refresh_python_index(db, project);
-    refresh_external_semantic_data(db, project);
+#[expect(
+    clippy::too_many_lines,
+    reason = "Phase 1 keeps source/runtime template refresh policy inline until the next seam is clear."
+)]
+fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
+    match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => {
+            let root = project.root(db).clone();
+            let interpreter = project.interpreter(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            let static_dirs = assemble_static_template_dirs(
+                &root,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            tracing::info!(
+                event = "template_dirs",
+                django_settings_module = django_settings_module.as_deref().unwrap_or("<unset>"),
+                confidence = ?static_dirs.confidence(),
+                template_dir_count = static_dirs.value().map(Vec::len).unwrap_or_default(),
+                reason_count = static_dirs.reasons().len(),
+                reasons = ?static_dirs.reasons(),
+                "Project facts status",
+            );
+            let next = match static_dirs {
+                Fact::Known { value } => TemplateDirs::Known(value),
+                Fact::Partial { value, .. } if !value.is_empty() => TemplateDirs::Known(value),
+                Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => {
+                    TemplateDirs::Unknown
+                }
+            };
+            if project.template_dirs(db) != &next {
+                project.set_template_dirs(db).to(next);
+            }
+
+            let static_cache_entry = load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            if let Some(entry) = static_cache_entry {
+                match entry.snapshot {
+                    Fact::Known { value }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
+                        return;
+                    }
+                    Fact::Partial { value, .. }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_partial_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
+                        return;
+                    }
+                    Fact::Known { .. }
+                    | Fact::Partial { .. }
+                    | Fact::Unknown { .. }
+                    | Fact::Ambiguous { .. } => {}
+                }
+            }
+
+            let assembly = assemble_static_template_library_snapshot_with_status(
+                &root,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            log_project_facts_status("assembled", &assembly.status);
+            if assembly.dependencies.is_empty() {
+                tracing::debug!(
+                    "Skipping project facts template library cache write because no dependency metadata was available"
+                );
+            } else {
+                save_static_template_library_snapshot(
+                    &root,
+                    &interpreter,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &site_packages_paths,
+                    &assembly,
+                );
+            }
+            match assembly.snapshot {
+                Fact::Known { value }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
+                }
+                Fact::Partial { value, .. }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
+                }
+                Fact::Known { .. }
+                | Fact::Partial { .. }
+                | Fact::Unknown { .. }
+                | Fact::Ambiguous { .. } => {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(None);
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
+                }
+            }
+        }
+        DjangoDiscoveryMode::Runtime => {
+            tracing::debug!("Requesting template directories from project introspection");
+            if let Some(response) = db.project_introspector().query(db, &TemplateDirsRequest) {
+                let dirs = response.dirs;
+                tracing::info!(
+                    "Retrieved {} template directories from project introspection",
+                    dirs.len(),
+                );
+                for (i, dir) in dirs.iter().enumerate() {
+                    tracing::debug!("  Template dir [{}]: {}", i, dir);
+                }
+                let missing_dirs: Vec<_> = dirs.iter().filter(|dir| !dir.exists()).collect();
+                if !missing_dirs.is_empty() {
+                    tracing::warn!(
+                        "Found {} non-existent template directories: {:?}",
+                        missing_dirs.len(),
+                        missing_dirs,
+                    );
+                }
+                let next = TemplateDirs::Known(dirs);
+                if project.template_dirs(db) != &next {
+                    project.set_template_dirs(db).to(next);
+                }
+            } else {
+                let root = project.root(db).clone();
+                let interpreter = project.interpreter(db).clone();
+                let django_settings_module = project.django_settings_module(db).clone();
+                let pythonpath = project.pythonpath(db).clone();
+                let site_packages_paths = find_site_packages(&interpreter, &root)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let static_dirs = assemble_static_template_dirs(
+                    &root,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &site_packages_paths,
+                );
+                tracing::info!(
+                    event = "template_dirs",
+                    django_settings_module = django_settings_module.as_deref().unwrap_or("<unset>"),
+                    confidence = ?static_dirs.confidence(),
+                    template_dir_count = static_dirs.value().map(Vec::len).unwrap_or_default(),
+                    reason_count = static_dirs.reasons().len(),
+                    reasons = ?static_dirs.reasons(),
+                    "Project facts status",
+                );
+                let next = match static_dirs {
+                    Fact::Known { value } => TemplateDirs::Known(value),
+                    Fact::Partial { value, .. } if !value.is_empty() => TemplateDirs::Known(value),
+                    Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => {
+                        TemplateDirs::Unknown
+                    }
+                };
+                if project.template_dirs(db) != &next {
+                    project.set_template_dirs(db).to(next);
+                }
+            }
+
+            if let Some(snapshot) = db
+                .project_introspector()
+                .query(db, &TemplateLibrarySnapshotRequest)
+            {
+                let root = project.root(db).clone();
+                let interpreter = project.interpreter(db).clone();
+                let django_settings_module = project.django_settings_module(db).clone();
+                let pythonpath = project.pythonpath(db).clone();
+                save_template_library_snapshot(
+                    &root,
+                    &interpreter,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &snapshot,
+                );
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(Some(snapshot));
+                if project.template_libraries(db) != &next {
+                    project.set_template_libraries(db).to(next);
+                }
+                return;
+            }
+
+            let root = project.root(db).clone();
+            let interpreter = project.interpreter(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let static_cache_entry = load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            if let Some(entry) = static_cache_entry {
+                match entry.snapshot {
+                    Fact::Known { value }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
+                        return;
+                    }
+                    Fact::Partial { value, .. }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_partial_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
+                        return;
+                    }
+                    Fact::Known { .. }
+                    | Fact::Partial { .. }
+                    | Fact::Unknown { .. }
+                    | Fact::Ambiguous { .. } => {}
+                }
+            }
+
+            let assembly = assemble_static_template_library_snapshot_with_status(
+                &root,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            );
+            log_project_facts_status("assembled", &assembly.status);
+            if assembly.dependencies.is_empty() {
+                tracing::debug!(
+                    "Skipping project facts template library cache write because no dependency metadata was available"
+                );
+            } else {
+                save_static_template_library_snapshot(
+                    &root,
+                    &interpreter,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &site_packages_paths,
+                    &assembly,
+                );
+            }
+            match assembly.snapshot {
+                Fact::Known { value }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
+                }
+                Fact::Partial { value, .. }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
+                }
+                Fact::Known { .. }
+                | Fact::Partial { .. }
+                | Fact::Unknown { .. }
+                | Fact::Ambiguous { .. } => {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(None);
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -92,43 +587,50 @@ impl IntrospectionRequest for TemplateDirsRequest {
     type Response = TemplateDirsResponse;
 }
 
-fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
-    let Some(dirs) = fetch_template_dirs(db) else {
-        return;
-    };
+#[cfg(test)]
+fn assemble_project_static_template_dirs(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Fact<Vec<Utf8PathBuf>> {
+    let root = project.root(db).clone();
+    let interpreter = project.interpreter(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+    let site_packages_paths = find_site_packages(&interpreter, &root)
+        .into_iter()
+        .collect::<Vec<_>>();
 
-    let next = TemplateDirs::Known(dirs);
-    if project.template_dirs(db) != &next {
-        project.set_template_dirs(db).to(next);
-    }
+    assemble_static_template_dirs(
+        &root,
+        django_settings_module.as_deref(),
+        &pythonpath,
+        &site_packages_paths,
+    )
 }
 
-fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
-    tracing::debug!("Requesting template directories from project introspection");
+fn assemble_static_template_dirs(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Fact<Vec<Utf8PathBuf>> {
+    let context = match assemble_project_facts_context(
+        root,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ) {
+        Ok(context) => context,
+        Err(reasons) => return Fact::unknown(reasons),
+    };
 
-    let response = db.project_introspector().query(db, &TemplateDirsRequest)?;
+    let dirs = assemble_template_dirs(
+        &context.settings_facts.template_backends,
+        &context.app_registry.app_registry,
+    )
+    .map(|dirs| dirs.into_iter().map(|dir| dir.path).collect::<Vec<_>>());
 
-    let dir_count = response.dirs.len();
-    tracing::info!(
-        "Retrieved {} template directories from project introspection",
-        dir_count
-    );
-
-    for (i, dir) in response.dirs.iter().enumerate() {
-        tracing::debug!("  Template dir [{}]: {}", i, dir);
-    }
-
-    let missing_dirs: Vec<_> = response.dirs.iter().filter(|dir| !dir.exists()).collect();
-
-    if !missing_dirs.is_empty() {
-        tracing::warn!(
-            "Found {} non-existent template directories: {:?}",
-            missing_dirs.len(),
-            missing_dirs
-        );
-    }
-
-    Some(response.dirs)
+    add_static_reasons(dirs, context.reasons)
 }
 
 #[derive(Serialize)]
@@ -139,45 +641,426 @@ impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
     type Response = TemplateLibrarySnapshot;
 }
 
-fn load_project_template_library_cache(db: &mut dyn ProjectDb, project: Project) -> bool {
-    let Some(snapshot) = load_template_library_snapshot_cache(db, project) else {
-        return false;
-    };
-
-    if apply_template_library_snapshot(db, project, snapshot) {
-        refresh_templatetag_modules(db, project);
-    }
-
-    true
+#[cfg(test)]
+fn assemble_project_static_template_library_snapshot(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Fact<TemplateLibrarySnapshot> {
+    assemble_project_static_template_library_snapshot_with_status(db, project).snapshot
 }
 
-fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
-    let Some(snapshot) = fetch_template_library_snapshot(db) else {
+#[cfg(test)]
+fn assemble_project_static_template_library_snapshot_with_status(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> StaticTemplateLibrarySnapshotAssembly {
+    let root = project.root(db).clone();
+    let interpreter = project.interpreter(db).clone();
+    let django_settings_module = project.django_settings_module(db).clone();
+    let pythonpath = project.pythonpath(db).clone();
+    let site_packages_paths = find_site_packages(&interpreter, &root)
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    assemble_static_template_library_snapshot_with_status(
+        &root,
+        django_settings_module.as_deref(),
+        &pythonpath,
+        &site_packages_paths,
+    )
+}
+
+struct StaticTemplateLibrarySnapshotAssembly {
+    snapshot: Fact<TemplateLibrarySnapshot>,
+    status: ProjectFactsStatus,
+    dependencies: Vec<StaticCacheDependency>,
+}
+
+fn assemble_static_template_library_snapshot_with_status(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> StaticTemplateLibrarySnapshotAssembly {
+    let context = match assemble_project_facts_context(
+        root,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ) {
+        Ok(context) => context,
+        Err(reasons) => {
+            let snapshot = Fact::unknown(reasons);
+            let status = ProjectFactsStatus::from_snapshot(
+                django_settings_module,
+                &snapshot,
+                None,
+                None,
+                None,
+            );
+            return StaticTemplateLibrarySnapshotAssembly {
+                snapshot,
+                status,
+                dependencies: Vec::new(),
+            };
+        }
+    };
+
+    let template_dirs = assemble_template_dirs(
+        &context.settings_facts.template_backends,
+        &context.app_registry.app_registry,
+    );
+    let template_libraries = assemble_template_libraries(
+        &context.settings_facts.template_backends,
+        &context.app_registry.app_registry,
+    );
+    let template_symbols =
+        assemble_template_symbols(&template_libraries, &context.module_search_paths, root);
+    let snapshot = add_static_reasons(
+        assemble_template_library_snapshot(&template_libraries, &template_symbols),
+        context.reasons.clone(),
+    );
+    let status = ProjectFactsStatus::from_snapshot(
+        django_settings_module,
+        &snapshot,
+        context.app_registry.app_registry.value().map(Vec::len),
+        template_dirs.value().map(Vec::len),
+        context.module_search_paths.value().map(Vec::len),
+    );
+    let dependencies =
+        static_template_library_cache_dependencies(root, &context, &template_libraries, &snapshot);
+
+    StaticTemplateLibrarySnapshotAssembly {
+        snapshot,
+        status,
+        dependencies,
+    }
+}
+
+#[cfg(test)]
+fn assemble_static_template_library_snapshot(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Fact<TemplateLibrarySnapshot> {
+    assemble_static_template_library_snapshot_with_status(
+        root,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    )
+    .snapshot
+}
+
+struct ProjectFactsContext {
+    module_search_paths: Fact<Vec<ModuleSearchPathEntry>>,
+    site_packages_paths: Vec<Utf8PathBuf>,
+    settings_facts: SettingsFacts,
+    app_registry: AppRegistryFacts,
+    reasons: Vec<Reason>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ProjectFactsStatus {
+    django_settings_module: Option<String>,
+    confidence: Confidence,
+    module_search_path_count: Option<usize>,
+    app_count: Option<usize>,
+    template_dir_count: Option<usize>,
+    loadable_library_count: usize,
+    builtin_count: usize,
+    symbol_count: usize,
+    reasons: Vec<Reason>,
+}
+
+impl ProjectFactsStatus {
+    fn from_snapshot(
+        django_settings_module: Option<&str>,
+        snapshot: &Fact<TemplateLibrarySnapshot>,
+        app_count: Option<usize>,
+        template_dir_count: Option<usize>,
+        module_search_path_count: Option<usize>,
+    ) -> Self {
+        let (loadable_library_count, builtin_count, symbol_count) =
+            snapshot.value().map_or((0, 0, 0), |snapshot| {
+                (
+                    snapshot.libraries.len(),
+                    snapshot.builtins.len(),
+                    snapshot.symbols.len(),
+                )
+            });
+
+        Self {
+            django_settings_module: django_settings_module.map(str::to_string),
+            confidence: snapshot.confidence(),
+            module_search_path_count,
+            app_count,
+            template_dir_count,
+            loadable_library_count,
+            builtin_count,
+            symbol_count,
+            reasons: snapshot.reasons().to_vec(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct StaticCacheDependency {
+    path: Utf8PathBuf,
+    exists: bool,
+    modified_unix_secs: Option<u64>,
+    modified_subsec_nanos: Option<u32>,
+}
+
+fn assemble_project_facts_context(
+    root: &Utf8Path,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Result<ProjectFactsContext, Vec<Reason>> {
+    let Some(django_settings_module) = django_settings_module else {
+        return Err(vec![Reason::new(
+            ReasonSource::Workspace(root.to_path_buf()),
+            "django_settings_module is not configured; skipped source-based Django discovery assembly",
+        )]);
+    };
+
+    let django_settings_module = PyModuleName::parse(django_settings_module).map_err(|error| {
+        vec![Reason::new(
+            ReasonSource::Workspace(root.to_path_buf()),
+            format!("django_settings_module is not a valid Python module path: {error}"),
+        )]
+    })?;
+
+    let explicit_python_paths = pythonpath.iter().map(Utf8PathBuf::from).collect::<Vec<_>>();
+    let module_search_paths =
+        discover_static_module_search_paths(root, &explicit_python_paths, site_packages_paths);
+    let mut static_reasons = module_search_paths.reasons().to_vec();
+    let Some(search_paths) = module_search_paths.value() else {
+        return Err(module_search_paths.reasons().to_vec());
+    };
+
+    let settings_resolution =
+        resolve_static_module(django_settings_module.clone(), search_paths, root);
+    for reason in settings_resolution.resolved.reasons() {
+        if !static_reasons.contains(reason) {
+            static_reasons.push(reason.clone());
+        }
+    }
+    let settings_file = match settings_resolution.resolved.value() {
+        Some(resolved) => resolved.file.clone(),
+        None => return Err(settings_resolution.resolved.reasons().to_vec()),
+    };
+
+    let settings_facts = extract_settings_facts_for_module(
+        &settings_file,
+        &django_settings_module,
+        root,
+        search_paths,
+    );
+    let app_registry = resolve_app_registry(&settings_facts.installed_apps, root, search_paths);
+
+    Ok(ProjectFactsContext {
+        module_search_paths,
+        site_packages_paths: site_packages_paths.to_vec(),
+        settings_facts,
+        app_registry,
+        reasons: static_reasons,
+    })
+}
+
+fn log_project_facts_status(event: &str, status: &ProjectFactsStatus) {
+    tracing::info!(
+        event,
+        django_settings_module = status.django_settings_module.as_deref().unwrap_or("<unset>"),
+        confidence = ?status.confidence,
+        module_search_path_count = status.module_search_path_count,
+        app_count = status.app_count,
+        template_dir_count = status.template_dir_count,
+        loadable_library_count = status.loadable_library_count,
+        builtin_count = status.builtin_count,
+        symbol_count = status.symbol_count,
+        reason_count = status.reasons.len(),
+        reasons = ?status.reasons,
+        "Project facts status",
+    );
+}
+
+fn static_template_library_cache_dependencies(
+    root: &Utf8Path,
+    context: &ProjectFactsContext,
+    template_libraries: &Fact<Vec<TemplateLibraryFact>>,
+    snapshot: &Fact<TemplateLibrarySnapshot>,
+) -> Vec<StaticCacheDependency> {
+    let mut paths = Vec::new();
+    paths.extend(context.settings_facts.files_read.iter().cloned());
+
+    if let Some(search_paths) = context.module_search_paths.value() {
+        paths.extend(search_paths.iter().map(|entry| entry.path.clone()));
+        for entry in search_paths {
+            if entry.kind == ModuleSearchPathKind::SitePackages {
+                let Ok(entries) = fs::read_dir(entry.path.as_std_path()) else {
+                    continue;
+                };
+                paths.extend(
+                    entries
+                        .filter_map(Result::ok)
+                        .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+                        .filter(|path| path.extension() == Some("pth") && path.is_file()),
+                );
+            }
+        }
+    }
+    for site_packages_path in &context.site_packages_paths {
+        paths.push(site_packages_path.clone());
+        let Ok(entries) = fs::read_dir(site_packages_path.as_std_path()) else {
+            continue;
+        };
+        paths.extend(
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+                .filter(|path| path.extension() == Some("pth") && path.is_file()),
+        );
+    }
+
+    if let Some(apps) = context.app_registry.app_registry.value() {
+        for app in apps {
+            paths.push(app.path.clone());
+            let templatetags_dir = app.path.join("templatetags");
+            paths.push(templatetags_dir.clone());
+            push_templatetag_python_files(&templatetags_dir, &mut paths);
+            if let Some(config) = &app.config {
+                paths.push(config.file.clone());
+            }
+        }
+    }
+
+    if let Some(search_paths) = context.module_search_paths.value() {
+        if let Some(libraries) = template_libraries.value() {
+            for library in libraries {
+                let resolution = resolve_static_module(library.module.clone(), search_paths, root);
+                if let Some(resolved) = resolution.resolved.value() {
+                    paths.push(resolved.file.clone());
+                }
+            }
+        }
+
+        if let Some(snapshot) = snapshot.value() {
+            for module in snapshot
+                .libraries
+                .values()
+                .chain(snapshot.builtins.iter())
+                .chain(snapshot.symbols.iter().map(|symbol| &symbol.library_module))
+                .chain(snapshot.symbols.iter().map(|symbol| &symbol.module))
+            {
+                let Ok(module) = PyModuleName::parse(module) else {
+                    continue;
+                };
+                let resolution = resolve_static_module(module, search_paths, root);
+                if let Some(resolved) = resolution.resolved.value() {
+                    paths.push(resolved.file.clone());
+                }
+            }
+        }
+    }
+
+    paths.sort();
+    paths.dedup();
+    paths
+        .into_iter()
+        .map(StaticCacheDependency::from_path)
+        .collect()
+}
+
+fn push_templatetag_python_files(dir: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir.as_std_path()) else {
         return;
     };
 
-    save_template_library_snapshot_cache(db, project, &snapshot);
-    apply_template_library_snapshot(db, project, snapshot);
+    let mut entries = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    for path in entries {
+        if path.is_dir() {
+            if path.join("__init__.py").is_file() {
+                paths.push(path.clone());
+                push_templatetag_python_files(&path, paths);
+            }
+        } else if path.extension() == Some("py") {
+            paths.push(path);
+        }
+    }
 }
 
-fn apply_template_library_snapshot(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    snapshot: TemplateLibrarySnapshot,
-) -> bool {
-    let current = project.template_libraries(db).clone();
-    let next = current.apply_active_snapshot(Some(snapshot));
-    if project.template_libraries(db) == &next {
-        return false;
+impl StaticCacheDependency {
+    fn from_path(path: Utf8PathBuf) -> Self {
+        let timestamp = fs::metadata(path.as_std_path())
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .map(|modified| modified.duration_since(UNIX_EPOCH).unwrap_or_default());
+        Self {
+            path,
+            exists: timestamp.is_some(),
+            modified_unix_secs: timestamp.map(|duration| duration.as_secs()),
+            modified_subsec_nanos: timestamp.map(|duration| duration.subsec_nanos()),
+        }
     }
 
-    project.set_template_libraries(db).to(next);
-    true
+    fn is_current(&self) -> bool {
+        let current = Self::from_path(self.path.clone());
+        current.exists == self.exists
+            && current.modified_unix_secs == self.modified_unix_secs
+            && current.modified_subsec_nanos == self.modified_subsec_nanos
+    }
 }
 
-fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
-    db.project_introspector()
-        .query(db, &TemplateLibrarySnapshotRequest)
+fn add_static_reasons<T>(fact: Fact<T>, new_reasons: impl IntoIterator<Item = Reason>) -> Fact<T> {
+    let new_reasons = new_reasons.into_iter().collect::<Vec<_>>();
+    if new_reasons.is_empty() {
+        return fact;
+    }
+
+    match fact {
+        Fact::Known { value } => Fact::Partial {
+            value,
+            reasons: new_reasons,
+        },
+        Fact::Partial { value, mut reasons } => {
+            for reason in new_reasons {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
+            Fact::Partial { value, reasons }
+        }
+        Fact::Unknown { mut reasons } => {
+            for reason in new_reasons {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
+            Fact::Unknown { reasons }
+        }
+        Fact::Ambiguous {
+            candidates,
+            mut reasons,
+        } => {
+            for reason in new_reasons {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
+            Fact::Ambiguous {
+                candidates,
+                reasons,
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -186,48 +1069,29 @@ struct CacheEnvelope {
     response: TemplateLibrarySnapshot,
 }
 
-fn load_template_library_snapshot_cache(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Option<TemplateLibrarySnapshot> {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-
-    load_cached_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-    )
+#[derive(Serialize, Deserialize)]
+struct StaticTemplateLibraryCacheEnvelope {
+    cache_version: String,
+    djls_version: String,
+    django_default_policy: String,
+    snapshot: Fact<TemplateLibrarySnapshot>,
+    status: ProjectFactsStatus,
+    dependencies: Vec<StaticCacheDependency>,
 }
 
-fn save_template_library_snapshot_cache(
-    db: &dyn ProjectDb,
-    project: Project,
-    response: &TemplateLibrarySnapshot,
-) {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-
-    save_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-        response,
-    );
+struct StaticTemplateLibraryCacheEntry {
+    snapshot: Fact<TemplateLibrarySnapshot>,
+    status: ProjectFactsStatus,
 }
 
-fn cache_key(
+fn cache_dir(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
-) -> String {
+) -> Option<Utf8PathBuf> {
+    let base = djls_conf::project_dirs()
+        .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
     let mut hasher = Sha256::new();
     hasher.update(root.as_str().as_bytes());
     hasher.update(b"\0");
@@ -244,20 +1108,90 @@ fn cache_key(
     for byte in digest {
         write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
     }
-    key
+    // Keep the legacy `inspector` directory for on-disk cache compatibility.
+    Some(base.join("inspector").join(&key[..16]))
 }
 
-fn cache_dir(
+fn static_template_library_cache_dir(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
 ) -> Option<Utf8PathBuf> {
     let base = djls_conf::project_dirs()
         .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
-    let key = cache_key(root, interpreter, django_settings_module, pythonpath);
-    // Keep the legacy `inspector` directory for on-disk cache compatibility.
-    Some(base.join("inspector").join(&key[..16]))
+    let mut hasher = Sha256::new();
+    hasher.update(STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(root.as_str().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(format!("{interpreter:?}").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(django_settings_module.unwrap_or("").as_bytes());
+    hasher.update(b"\0");
+    for path in pythonpath {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+    }
+    for path in site_packages_paths {
+        hasher.update(path.as_str().as_bytes());
+        hasher.update(b"\0");
+    }
+    let digest = hasher.finalize();
+    let mut key = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    Some(
+        base.join("project-facts")
+            .join("template-libraries")
+            .join(&key[..16]),
+    )
+}
+
+#[cfg(test)]
+fn static_template_library_cache_dir_in(
+    base: &Utf8Path,
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Utf8PathBuf {
+    let mut hasher = Sha256::new();
+    hasher.update(STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(root.as_str().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(format!("{interpreter:?}").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(django_settings_module.unwrap_or("").as_bytes());
+    hasher.update(b"\0");
+    for path in pythonpath {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+    }
+    for path in site_packages_paths {
+        hasher.update(path.as_str().as_bytes());
+        hasher.update(b"\0");
+    }
+    let digest = hasher.finalize();
+    let mut key = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    base.join("project-facts")
+        .join("template-libraries")
+        .join(&key[..16])
 }
 
 fn load_cached_template_library_snapshot(
@@ -284,6 +1218,73 @@ fn load_cached_template_library_snapshot(
 
     tracing::info!("Loaded template library snapshot from cache: {}", path);
     Some(envelope.response)
+}
+
+fn load_static_template_library_snapshot(
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+) -> Option<StaticTemplateLibraryCacheEntry> {
+    let dir = static_template_library_cache_dir(
+        root,
+        interpreter,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    )?;
+    load_static_template_library_snapshot_from_dir(&dir)
+}
+
+fn load_static_template_library_snapshot_from_dir(
+    dir: &Utf8Path,
+) -> Option<StaticTemplateLibraryCacheEntry> {
+    let path = dir.join("snapshot.json");
+    let content = fs::read_to_string(path.as_std_path()).ok()?;
+    let envelope: StaticTemplateLibraryCacheEnvelope = serde_json::from_str(&content).ok()?;
+
+    if envelope.cache_version != STATIC_TEMPLATE_LIBRARY_CACHE_VERSION {
+        tracing::debug!(
+            "Project facts template library cache version mismatch: cached={}, current={}",
+            envelope.cache_version,
+            STATIC_TEMPLATE_LIBRARY_CACHE_VERSION,
+        );
+        return None;
+    }
+    if envelope.djls_version != env!("CARGO_PKG_VERSION") {
+        tracing::debug!(
+            "Project facts template library cache djls version mismatch: cached={}, current={}",
+            envelope.djls_version,
+            env!("CARGO_PKG_VERSION"),
+        );
+        return None;
+    }
+    if envelope.django_default_policy != DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY {
+        tracing::debug!(
+            "Project facts template library cache Django default policy mismatch: cached={}, current={}",
+            envelope.django_default_policy,
+            DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY,
+        );
+        return None;
+    }
+    if !envelope
+        .dependencies
+        .iter()
+        .all(StaticCacheDependency::is_current)
+    {
+        tracing::debug!("Project facts template library cache invalidated by dependency change");
+        return None;
+    }
+
+    tracing::info!(
+        "Loaded project facts template library snapshot from cache: {}",
+        path
+    );
+    Some(StaticTemplateLibraryCacheEntry {
+        snapshot: envelope.snapshot,
+        status: envelope.status,
+    })
 }
 
 fn save_template_library_snapshot(
@@ -326,6 +1327,70 @@ fn save_template_library_snapshot(
         }
         Err(e) => {
             tracing::warn!("Failed to serialize template library snapshot cache: {e}");
+        }
+    }
+}
+
+fn save_static_template_library_snapshot(
+    root: &Utf8Path,
+    interpreter: &Interpreter,
+    django_settings_module: Option<&str>,
+    pythonpath: &[String],
+    site_packages_paths: &[Utf8PathBuf],
+    assembly: &StaticTemplateLibrarySnapshotAssembly,
+) {
+    let Some(dir) = static_template_library_cache_dir(
+        root,
+        interpreter,
+        django_settings_module,
+        pythonpath,
+        site_packages_paths,
+    ) else {
+        return;
+    };
+
+    save_static_template_library_snapshot_to_dir(
+        &dir,
+        &assembly.snapshot,
+        &assembly.status,
+        &assembly.dependencies,
+    );
+}
+
+fn save_static_template_library_snapshot_to_dir(
+    dir: &Utf8Path,
+    snapshot: &Fact<TemplateLibrarySnapshot>,
+    status: &ProjectFactsStatus,
+    dependencies: &[StaticCacheDependency],
+) {
+    let envelope = StaticTemplateLibraryCacheEnvelope {
+        cache_version: STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.to_string(),
+        djls_version: env!("CARGO_PKG_VERSION").to_string(),
+        django_default_policy: DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.to_string(),
+        snapshot: snapshot.clone(),
+        status: status.clone(),
+        dependencies: dependencies.to_vec(),
+    };
+
+    if let Err(e) = fs::create_dir_all(dir.as_std_path()) {
+        tracing::warn!("Failed to create project facts template library cache directory: {e}");
+        return;
+    }
+
+    let path = dir.join("snapshot.json");
+    match serde_json::to_string(&envelope) {
+        Ok(json) => {
+            if let Err(e) = fs::write(path.as_std_path(), json) {
+                tracing::warn!("Failed to write project facts template library cache: {e}");
+            } else {
+                tracing::debug!(
+                    "Saved project facts template library snapshot to cache: {}",
+                    path
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to serialize project facts template library cache: {e}");
         }
     }
 }
@@ -423,54 +1488,68 @@ fn refresh_templatetag_modules(db: &mut dyn ProjectDb, project: Project) {
 
 fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<ProjectPythonModule> {
     let root = project.root(db).clone();
-    let module_paths: Vec<String> = project
+    let modules = project
         .template_libraries(db)
         .registration_modules()
         .into_iter()
-        .map(|module| module.as_str().to_string())
-        .collect();
+        .collect::<Vec<_>>();
 
-    if module_paths.is_empty() {
+    if modules.is_empty() {
         return Vec::new();
     }
 
     let interpreter = project.interpreter(db).clone();
     let pythonpath = project.pythonpath(db).clone();
-    let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
-    let (workspace_modules, _external) = resolve_modules(
-        module_paths.iter().map(String::as_str),
-        &search_paths,
-        &root,
-    );
-
-    workspace_modules
+    let explicit_python_paths = pythonpath.iter().map(Utf8PathBuf::from).collect::<Vec<_>>();
+    let site_packages_paths = find_site_packages(&interpreter, &root)
         .into_iter()
-        .map(|module| {
-            ProjectPythonModule::templatetag(
-                ModulePath::new(module.module_path),
-                module.file_path.clone(),
-                db.get_or_create_file(&module.file_path),
-            )
+        .collect::<Vec<_>>();
+    let module_search_paths =
+        discover_static_module_search_paths(&root, &explicit_python_paths, &site_packages_paths);
+    let Some(search_paths) = module_search_paths.value() else {
+        return Vec::new();
+    };
+
+    modules
+        .into_iter()
+        .filter_map(|module| {
+            let resolution = resolve_static_module(module, search_paths, &root);
+            let resolved = resolution.resolved.value()?;
+            if resolved.location != ModuleLocation::Workspace {
+                return None;
+            }
+
+            Some(ProjectPythonModule::templatetag(
+                ModulePath::new(resolved.module.as_str()),
+                resolved.file.clone(),
+                db.get_or_create_file(&resolved.file),
+            ))
         })
         .collect()
-}
-
-fn refresh_external_semantic_data(db: &mut dyn ProjectDb, project: Project) {
-    scan_external_rules(db, project);
-    scan_external_models(db, project);
 }
 
 fn scan_external_models(db: &mut dyn ProjectDb, project: Project) {
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
+    let mut new_models = FxHashMap::default();
 
-    let new_models = match find_site_packages(&interpreter, &root) {
-        Some(site_packages) => {
-            let files = discover_model_files(&site_packages, FileRootKind::LibrarySearchPath);
-            extract_models_from_files(&files)
+    if let Some(site_packages) = find_site_packages(&interpreter, &root) {
+        let files = discover_model_files(&site_packages, FileRootKind::LibrarySearchPath);
+        for (module_path, file_path) in files {
+            let source = match fs::read_to_string(file_path.as_std_path()) {
+                Ok(source) => source,
+                Err(error) => {
+                    tracing::debug!("Failed to read model file {}: {}", file_path, error);
+                    continue;
+                }
+            };
+
+            let graph = extract_model_graph(&source, module_path.as_str());
+            if !graph.is_empty() {
+                new_models.insert(module_path, graph);
+            }
         }
-        None => FxHashMap::default(),
-    };
+    }
 
     if project.extracted_external_models(db) != &new_models {
         project.set_extracted_external_models(db).to(new_models);
@@ -489,14 +1568,48 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
         .map(|m| m.as_str().to_string())
         .collect();
 
-    let new_extraction = if modules.is_empty() {
-        SplitExtractionResults::empty()
-    } else {
+    let mut new_extraction = SplitExtractionResults {
+        tag_rules: FxHashMap::default(),
+        filter_arities: FxHashMap::default(),
+        block_specs: FxHashMap::default(),
+    };
+
+    if !modules.is_empty() {
         let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
         let (_workspace, external_modules) =
             resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
-        split_extraction_results(extract_rules_from_modules(external_modules))
-    };
+
+        for resolved in external_modules {
+            match fs::read_to_string(resolved.file_path.as_std_path()) {
+                Ok(source) => {
+                    let module_path = resolved.module_path;
+                    let module_result = extract_rules(&source, &module_path);
+                    if !module_result.tag_rules.is_empty() {
+                        new_extraction
+                            .tag_rules
+                            .insert(module_path.clone(), module_result.tag_rules);
+                    }
+                    if !module_result.filter_arities.is_empty() {
+                        new_extraction
+                            .filter_arities
+                            .insert(module_path.clone(), module_result.filter_arities);
+                    }
+                    if !module_result.block_specs.is_empty() {
+                        new_extraction
+                            .block_specs
+                            .insert(module_path, module_result.block_specs);
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        "Failed to read module file {}: {}",
+                        resolved.file_path,
+                        error,
+                    );
+                }
+            }
+        }
+    }
 
     if project.extracted_external_tag_rules(db) != &new_extraction.tag_rules {
         project
@@ -515,96 +1628,134 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
     }
 }
 
-fn extract_models_from_files(
-    files: &[(ModulePath, Utf8PathBuf)],
-) -> FxHashMap<ModulePath, ModelGraph> {
-    let mut results = FxHashMap::default();
-
-    for (module_path, file_path) in files {
-        let source = match fs::read_to_string(file_path.as_std_path()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::debug!("Failed to read model file {}: {}", file_path, e);
-                continue;
-            }
-        };
-
-        let graph = extract_model_graph(&source, module_path.as_str());
-        if !graph.is_empty() {
-            results.insert(module_path.clone(), graph);
-        }
-    }
-
-    results
-}
-
-fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String, ExtractionResult> {
-    let mut results = FxHashMap::default();
-
-    for resolved in modules {
-        match fs::read_to_string(resolved.file_path.as_std_path()) {
-            Ok(source) => {
-                let module_result = extract_rules(&source, &resolved.module_path);
-                if !module_result.is_empty() {
-                    results.insert(resolved.module_path, module_result);
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to read module file {}: {}", resolved.file_path, e);
-            }
-        }
-    }
-
-    results
-}
-
 struct SplitExtractionResults {
     tag_rules: FxHashMap<String, TagRuleMap>,
     filter_arities: FxHashMap<String, FilterArityMap>,
     block_specs: FxHashMap<String, BlockSpecs>,
 }
 
-impl SplitExtractionResults {
-    fn empty() -> Self {
-        Self {
-            tag_rules: FxHashMap::default(),
-            filter_arities: FxHashMap::default(),
-            block_specs: FxHashMap::default(),
-        }
-    }
-}
-
-fn split_extraction_results(
-    results: FxHashMap<String, ExtractionResult>,
-) -> SplitExtractionResults {
-    let mut split = SplitExtractionResults::empty();
-
-    for (module_path, result) in results {
-        if !result.tag_rules.is_empty() {
-            split
-                .tag_rules
-                .insert(module_path.clone(), result.tag_rules);
-        }
-        if !result.filter_arities.is_empty() {
-            split
-                .filter_arities
-                .insert(module_path.clone(), result.filter_arities);
-        }
-        if !result.block_specs.is_empty() {
-            split.block_specs.insert(module_path, result.block_specs);
-        }
-    }
-
-    split
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::process::Command;
+    use std::sync::Arc;
 
+    use djls_source::SourceFiles;
     use tempfile::TempDir;
 
     use super::*;
+    use crate::project::introspector::ProjectIntrospector;
+    use crate::project::names::LibraryName;
+    use crate::project::names::PyModuleName;
+    use crate::project::symbols::InstalledSymbolOrigin;
+    use crate::project::symbols::Knowledge;
+    use crate::project::symbols::TemplateLibraries;
+    use crate::project::symbols::TemplateSymbolKind;
+    use crate::project::symbols::TemplateSymbolSnapshot;
+    use crate::testing::collect_errors;
+    use crate::testing::TestDatabase;
+    use crate::ValidationError;
+
+    #[salsa::db]
+    struct StaticSnapshotTestDb {
+        storage: salsa::Storage<Self>,
+        files: SourceFiles,
+        project: Option<Project>,
+        introspector: Arc<ProjectIntrospector>,
+    }
+
+    impl StaticSnapshotTestDb {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                files: SourceFiles::default(),
+                project: None,
+                introspector: Arc::new(ProjectIntrospector::new()),
+            }
+        }
+
+        fn with_project(
+            root: Utf8PathBuf,
+            django_settings_module: Option<String>,
+        ) -> (Self, Project) {
+            Self::with_project_options(
+                root,
+                Interpreter::discover(None),
+                django_settings_module,
+                Vec::new(),
+            )
+        }
+
+        fn with_project_options(
+            root: Utf8PathBuf,
+            interpreter: Interpreter,
+            django_settings_module: Option<String>,
+            pythonpath: Vec<String>,
+        ) -> (Self, Project) {
+            Self::with_project_options_and_discovery(
+                root,
+                interpreter,
+                DjangoDiscoveryMode::Runtime,
+                django_settings_module,
+                pythonpath,
+            )
+        }
+
+        fn with_project_options_and_discovery(
+            root: Utf8PathBuf,
+            interpreter: Interpreter,
+            django_discovery: DjangoDiscoveryMode,
+            django_settings_module: Option<String>,
+            pythonpath: Vec<String>,
+        ) -> (Self, Project) {
+            let mut db = Self::new();
+            let project = Project::new(
+                &db,
+                root,
+                interpreter,
+                django_discovery,
+                django_settings_module,
+                pythonpath,
+                Vec::new(),
+                TemplateDirs::Unknown,
+                djls_conf::TagSpecDef::default(),
+                TemplateLibraries::default(),
+                ProjectTemplateFiles::default(),
+                ProjectPythonIndex::default(),
+                FxHashMap::default(),
+                FxHashMap::default(),
+                FxHashMap::default(),
+                FxHashMap::default(),
+            );
+            db.project = Some(project);
+            (db, project)
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for StaticSnapshotTestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for StaticSnapshotTestDb {
+        fn files(&self) -> &SourceFiles {
+            &self.files
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+            fs::read_to_string(path.as_std_path())
+        }
+    }
+
+    #[salsa::db]
+    impl ProjectDb for StaticSnapshotTestDb {
+        fn project(&self) -> Option<Project> {
+            self.project
+        }
+
+        fn project_introspector(&self) -> Arc<ProjectIntrospector> {
+            self.introspector.clone()
+        }
+    }
 
     fn test_response() -> TemplateLibrarySnapshot {
         TemplateLibrarySnapshot {
@@ -617,26 +1768,2169 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cache_key_deterministic() {
-        let root = Utf8Path::new("/project");
-        let interpreter = Interpreter::VenvPath("/project/.venv".to_string());
-        let dsm = Some("myproject.settings");
-        let pythonpath = vec!["/extra".to_string()];
+    fn missing_interpreter(root: &Utf8Path) -> Interpreter {
+        Interpreter::InterpreterPath(root.join("missing-python").to_string())
+    }
 
-        let key1 = cache_key(root, &interpreter, dsm, &pythonpath);
-        let key2 = cache_key(root, &interpreter, dsm, &pythonpath);
-        assert_eq!(key1, key2);
+    fn external_site_packages(root: &Utf8Path) -> Utf8PathBuf {
+        let site_packages = root.join(".venv/lib/python3.12/site-packages");
+        fs::create_dir_all(&site_packages).unwrap();
+        site_packages
+    }
+
+    fn scan_external_model_graphs(root: &Utf8Path) -> FxHashMap<ModulePath, ModelGraph> {
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.to_path_buf(),
+            Interpreter::VenvPath(root.join(".venv").to_string()),
+            DjangoDiscoveryMode::Source,
+            None,
+            Vec::new(),
+        );
+        scan_external_models(&mut db, project);
+        project.extracted_external_models(&db).clone()
+    }
+
+    fn write_file(path: &Utf8Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
+    }
+
+    fn write_static_template_fixture(root: &Utf8Path) {
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        write_file(
+            &root.join("blog/templatetags/blog_tags.py"),
+            r"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def shout(value):
+    return value.upper()
+
+@register.filter
+def emph(value):
+    return value
+",
+        );
+        write_file(&root.join("django/__init__.py"), "");
+        write_file(&root.join("django/template/__init__.py"), "");
+        write_file(&root.join("django/templatetags/__init__.py"), "");
+        write_file(
+            &root.join("django/template/defaulttags.py"),
+            r#"
+from django import template
+register = template.Library()
+
+@register.tag("if")
+def do_if(parser, token):
+    pass
+"#,
+        );
+        write_file(
+            &root.join("django/template/defaultfilters.py"),
+            r"
+from django import template
+register = template.Library()
+
+@register.filter
+def lower(value):
+    return value
+",
+        );
+        write_file(
+            &root.join("django/template/loader_tags.py"),
+            r"
+from django import template
+register = template.Library()
+
+@register.tag
+def block(parser, token):
+    pass
+",
+        );
+        write_file(
+            &root.join("django/templatetags/i18n.py"),
+            r#"
+from django import template
+register = template.Library()
+
+@register.simple_tag(name="trans")
+def do_translate(value):
+    return value
+"#,
+        );
+        for library in ["cache", "l10n", "static", "tz"] {
+            write_file(
+                &root.join(format!("django/templatetags/{library}.py")),
+                r"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def default_tag(value):
+    return value
+",
+            );
+        }
+    }
+
+    fn write_static_template_dirs_fixture(root: &Utf8Path) {
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("templates/base.html"), "");
+        write_file(&root.join("blog/templates/blog/detail.html"), "");
+    }
+
+    fn write_multisite_runtime_template_fixture(root: &Utf8Path) {
+        for app in ["app1", "app2", "app3"] {
+            write_file(&root.join(format!("apps/clientname/{app}/__init__.py")), "");
+            write_file(&root.join(format!("apps/clientname/{app}/apps.py")), "");
+            write_file(
+                &root.join(format!("apps/clientname/{app}/templatetags/__init__.py")),
+                "",
+            );
+            write_file(
+                &root.join(format!("apps/clientname/{app}/templatetags/{app}_tags.py")),
+                &format!(
+                    r"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def {app}_marker():
+    return '{app}'
+"
+                ),
+            );
+        }
+        write_file(&root.join("apps/clientname/__init__.py"), "");
+
+        write_multisite_settings(root, "site1", &["clientname.app1", "clientname.app2"]);
+        write_multisite_settings(root, "site2", &["clientname.app2", "clientname.app3"]);
+    }
+
+    fn write_multisite_settings(root: &Utf8Path, site: &str, apps: &[&str]) {
+        write_file(&root.join(format!("projects/{site}/__init__.py")), "");
+        write_file(
+            &root.join(format!("projects/{site}/settings/__init__.py")),
+            "",
+        );
+        write_file(
+            &root.join(format!("projects/{site}/settings/base.py")),
+            &format!(
+                r#"
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+SECRET_KEY = "test"
+INSTALLED_APPS = {apps:?}
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+TEMPLATES = [
+    {{
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [PROJECT_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {{}},
+    }}
+]
+"#
+            ),
+        );
+        write_file(
+            &root.join(format!("projects/{site}/settings/dev.py")),
+            "from .base import *\n",
+        );
+        write_file(
+            &root.join(format!("projects/{site}/templates/{site}/base.html")),
+            "",
+        );
+    }
+
+    fn write_runtime_template_fixture(root: &Utf8Path) {
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+SECRET_KEY = "test"
+INSTALLED_APPS = ["blog"]
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        write_file(
+            &root.join("blog/templatetags/blog_tags.py"),
+            r"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def shout(value):
+    return value.upper()
+
+@register.filter
+def emph(value):
+    return value
+",
+        );
+        write_file(&root.join("templates/base.html"), "");
+        write_file(&root.join("blog/templates/blog/detail.html"), "");
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct SortedComparison<T> {
+        missing: Vec<T>,
+        extra: Vec<T>,
+    }
+
+    impl<T> SortedComparison<T> {
+        fn is_empty(&self) -> bool {
+            self.missing.is_empty() && self.extra.is_empty()
+        }
+    }
+
+    fn compare_sorted<T>(
+        expected: impl IntoIterator<Item = T>,
+        actual: impl IntoIterator<Item = T>,
+    ) -> SortedComparison<T>
+    where
+        T: Clone + Ord,
+    {
+        let mut expected = expected.into_iter().collect::<Vec<_>>();
+        let mut actual = actual.into_iter().collect::<Vec<_>>();
+        expected.sort();
+        actual.sort();
+
+        let mut missing = Vec::new();
+        let mut extra = Vec::new();
+        let mut expected_index = 0;
+        let mut actual_index = 0;
+
+        while expected_index < expected.len() || actual_index < actual.len() {
+            match (expected.get(expected_index), actual.get(actual_index)) {
+                (Some(expected_item), Some(actual_item)) if expected_item == actual_item => {
+                    expected_index += 1;
+                    actual_index += 1;
+                }
+                (Some(expected_item), Some(actual_item)) if expected_item < actual_item => {
+                    missing.push(expected_item.clone());
+                    expected_index += 1;
+                }
+                (Some(_) | None, Some(actual_item)) => {
+                    extra.push(actual_item.clone());
+                    actual_index += 1;
+                }
+                (Some(expected_item), None) => {
+                    missing.push(expected_item.clone());
+                    expected_index += 1;
+                }
+                (None, None) => break,
+            }
+        }
+
+        SortedComparison { missing, extra }
+    }
+
+    fn assert_sorted_match<T>(label: &str, comparison: &SortedComparison<T>)
+    where
+        T: std::fmt::Debug,
+    {
+        assert!(
+            comparison.is_empty(),
+            "{label} mismatch: missing={:?}, extra={:?}",
+            comparison.missing,
+            comparison.extra,
+        );
+    }
+
+    fn fact_value_or_panic<T>(fact: Fact<T>, label: &str) -> T {
+        match fact {
+            Fact::Known { value } => value,
+            Fact::Partial { reasons, .. } => {
+                panic!("expected known {label}, got partial: {reasons:?}")
+            }
+            Fact::Unknown { reasons } => panic!("expected known {label}, got unknown: {reasons:?}"),
+            Fact::Ambiguous {
+                candidates,
+                reasons,
+            } => panic!(
+                "expected known {label}, got ambiguous: {candidate_count} candidates: {reasons:?}",
+                candidate_count = candidates.len(),
+            ),
+        }
+    }
+
+    fn snapshot_loadable_symbol_keys(snapshot: &TemplateLibrarySnapshot) -> Vec<String> {
+        snapshot
+            .symbols
+            .iter()
+            .filter_map(|symbol| {
+                let load_name = symbol.load_name.as_deref()?;
+                Some(format!(
+                    "{load_name}:{}:{:?}:{}:{}",
+                    symbol.library_module, symbol.kind, symbol.name, symbol.module
+                ))
+            })
+            .collect()
+    }
+
+    fn snapshot_builtin_symbol_keys(snapshot: &TemplateLibrarySnapshot) -> Vec<String> {
+        snapshot
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.load_name.is_none())
+            .map(|symbol| {
+                format!(
+                    "{}:{:?}:{}:{}",
+                    symbol.library_module, symbol.kind, symbol.name, symbol.module
+                )
+            })
+            .collect()
+    }
+
+    struct PythonRuntimePaths {
+        executable: Utf8PathBuf,
+        django_site_packages: Utf8PathBuf,
+    }
+
+    fn current_python_runtime_paths() -> PythonRuntimePaths {
+        let output = Command::new("python")
+            .args([
+                "-c",
+                "from pathlib import Path; import django, sys; print(getattr(sys, '_base_executable', sys.executable)); print(Path(django.__file__).resolve().parent.parent)",
+            ])
+            .output()
+            .expect("failed to run python for runtime discovery");
+
+        assert!(
+            output.status.success(),
+            "python runtime discovery failed: {}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+
+        let output =
+            String::from_utf8(output.stdout).expect("python runtime paths should be UTF-8");
+        let mut lines = output.lines();
+        let executable = lines.next().unwrap_or_default().trim();
+        let django_site_packages = lines.next().unwrap_or_default().trim();
+        assert!(
+            !executable.is_empty() && !django_site_packages.is_empty(),
+            "python runtime discovery returned incomplete paths: {output:?}"
+        );
+
+        PythonRuntimePaths {
+            executable: Utf8PathBuf::from(executable),
+            django_site_packages: Utf8PathBuf::from(django_site_packages),
+        }
+    }
+
+    #[cfg(unix)]
+    fn create_runtime_venv(root: &Utf8Path) -> Utf8PathBuf {
+        let paths = current_python_runtime_paths();
+        let venv = root.join(".venv");
+        let bin = venv.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink(&paths.executable, bin.join("python")).unwrap();
+        write_file(
+            &venv.join("pyvenv.cfg"),
+            &format!(
+                "home = {}\ninclude-system-site-packages = false\n",
+                paths
+                    .executable
+                    .parent()
+                    .expect("Python executable should have a parent directory")
+            ),
+        );
+
+        let python_lib_dir = paths
+            .django_site_packages
+            .parent()
+            .expect("Django site-packages should have a Python lib parent");
+        let python_dir_name = python_lib_dir
+            .file_name()
+            .expect("Django site-packages parent should have a directory name");
+        let venv_python_lib_dir = venv.join("lib").join(python_dir_name);
+        fs::create_dir_all(&venv_python_lib_dir).unwrap();
+        std::os::unix::fs::symlink(
+            &paths.django_site_packages,
+            venv_python_lib_dir.join("site-packages"),
+        )
+        .unwrap();
+
+        venv
+    }
+
+    #[cfg(not(unix))]
+    fn create_runtime_venv(_root: &Utf8Path) -> Utf8PathBuf {
+        panic!("runtime comparison fixture currently requires Unix symlinks")
+    }
+
+    fn runtime_project(
+        root: Utf8PathBuf,
+        venv: &Utf8Path,
+        django_settings_module: &str,
+        pythonpath: &[&str],
+    ) -> (StaticSnapshotTestDb, Project) {
+        StaticSnapshotTestDb::with_project_options(
+            root,
+            Interpreter::VenvPath(venv.to_string()),
+            Some(django_settings_module.to_string()),
+            pythonpath
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        )
+    }
+
+    fn assert_static_runtime_match(db: &StaticSnapshotTestDb, project: Project) {
+        let inspector_dirs = db
+            .project_introspector()
+            .query(db, &TemplateDirsRequest)
+            .expect("inspector template dirs")
+            .dirs;
+        let static_dirs = fact_value_or_panic(
+            assemble_project_static_template_dirs(db, project),
+            "template dirs",
+        );
+        assert_eq!(static_dirs, inspector_dirs);
+
+        let inspector_snapshot = db
+            .project_introspector()
+            .query(db, &TemplateLibrarySnapshotRequest)
+            .expect("inspector template library snapshot");
+        let static_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(db, project),
+            "template library snapshot",
+        );
+
+        assert_sorted_match(
+            "loadable libraries",
+            &compare_sorted(
+                inspector_snapshot
+                    .libraries
+                    .iter()
+                    .map(|(name, module)| format!("{name}:{module}")),
+                static_snapshot
+                    .libraries
+                    .iter()
+                    .map(|(name, module)| format!("{name}:{module}")),
+            ),
+        );
+        assert_sorted_match(
+            "builtins",
+            &compare_sorted(
+                inspector_snapshot.builtins.iter().cloned(),
+                static_snapshot.builtins.iter().cloned(),
+            ),
+        );
+        assert_sorted_match(
+            "loadable symbols",
+            &compare_sorted(
+                snapshot_loadable_symbol_keys(&inspector_snapshot),
+                snapshot_loadable_symbol_keys(&static_snapshot),
+            ),
+        );
+        assert_sorted_match(
+            "builtin symbols",
+            &compare_sorted(
+                snapshot_builtin_symbol_keys(&inspector_snapshot),
+                snapshot_builtin_symbol_keys(&static_snapshot),
+            ),
+        );
     }
 
     #[test]
-    fn cache_key_varies_with_inputs() {
-        let interpreter = Interpreter::VenvPath("/project/.venv".to_string());
-        let pythonpath: Vec<String> = vec![];
+    fn static_runtime_comparison_reports_missing_and_extra_items() {
+        let comparison = compare_sorted(["a", "b"], ["b", "c"]);
 
-        let key1 = cache_key(Utf8Path::new("/project-a"), &interpreter, None, &pythonpath);
-        let key2 = cache_key(Utf8Path::new("/project-b"), &interpreter, None, &pythonpath);
-        assert_ne!(key1, key2);
+        assert_eq!(
+            comparison,
+            SortedComparison {
+                missing: vec!["a"],
+                extra: vec!["c"],
+            }
+        );
+    }
+
+    #[test]
+    fn static_runtime_comparison_reports_duplicate_items() {
+        let comparison = compare_sorted(["a"], ["a", "a"]);
+
+        assert_eq!(
+            comparison,
+            SortedComparison {
+                missing: Vec::new(),
+                extra: vec!["a"],
+            }
+        );
+    }
+
+    #[test]
+    fn static_runtime_comparison_symbol_keys_include_modules_and_unknown_kind() {
+        let snapshot = TemplateLibrarySnapshot {
+            libraries: BTreeMap::new(),
+            builtins: vec!["django.template.defaulttags".to_string()],
+            symbols: vec![
+                TemplateSymbolSnapshot {
+                    kind: Some(TemplateSymbolKind::Tag),
+                    name: "shout".to_string(),
+                    load_name: Some("blog_tags".to_string()),
+                    library_module: "blog.templatetags.blog_tags".to_string(),
+                    module: "blog.templatetags.blog_tags".to_string(),
+                    doc: None,
+                },
+                TemplateSymbolSnapshot {
+                    kind: None,
+                    name: "lower".to_string(),
+                    load_name: None,
+                    library_module: "django.template.defaultfilters".to_string(),
+                    module: "django.template.defaultfilters".to_string(),
+                    doc: None,
+                },
+            ],
+        };
+
+        assert!(snapshot_loadable_symbol_keys(&snapshot).iter().any(|key| {
+            key
+            == "blog_tags:blog.templatetags.blog_tags:Some(Tag):shout:blog.templatetags.blog_tags"
+        }));
+        assert!(snapshot_builtin_symbol_keys(&snapshot)
+            .iter()
+            .any(|key| key
+                == "django.template.defaultfilters:None:lower:django.template.defaultfilters"));
+    }
+
+    #[test]
+    fn auto_template_dirs_use_known_static_without_inspector_query() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates"), root.join("blog/templates")])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_do_not_query_inspector_for_partial_static_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["missing"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("templates/base.html"), "");
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
+    }
+
+    #[test]
+    fn auto_template_dirs_do_not_query_inspector_for_partial_static_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["missing"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("templates/base.html"), "");
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
+    }
+
+    #[test]
+    fn auto_project_external_data_refresh_does_not_query_inspector() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("templates/base.html"), "");
+        write_file(&root.join("blog/templates/blog/detail.html"), "");
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_external_data(&mut db);
+
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates"), root.join("blog/templates")])
+        );
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("blog_tags"));
+        assert!(project
+            .template_files(&db)
+            .iter()
+            .any(|template| template.name() == "base.html"));
+        assert!(project
+            .python_index(&db)
+            .templatetags()
+            .any(|module| module.module_path().as_str() == "blog.templatetags.blog_tags"));
+    }
+
+    #[test]
+    fn static_template_dirs_populate_project_template_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates"), root.join("blog/templates")])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_drive_template_file_discovery() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+        refresh_template_files(&mut db, project);
+
+        assert_eq!(project.template_files(&db).len(), 2);
+    }
+
+    #[test]
+    fn static_template_dirs_use_static_resolver_src_root() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root.join("src"));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![
+                root.join("src/templates"),
+                root.join("src/blog/templates"),
+            ])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_apply_partial_positive_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["missing"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        write_file(&root.join("templates/base.html"), "");
+
+        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
+        let Fact::Partial { value, reasons } = &dirs else {
+            panic!("expected partial dirs when an installed app is unresolved");
+        };
+        assert_eq!(value, &[root.join("templates")]);
+        assert!(!reasons.is_empty());
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        project
+            .set_template_dirs(&mut db)
+            .to(TemplateDirs::Known(vec![root.join("stale_templates")]));
+        refresh_template_state(&mut db, project);
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
+    }
+
+    #[test]
+    fn static_template_dirs_replace_stale_template_files_with_partial_positive_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_dirs_fixture(&root);
+        let stale_dir = root.join("stale_templates");
+        write_file(&stale_dir.join("stale.html"), "");
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        project
+            .set_template_dirs(&mut db)
+            .to(TemplateDirs::Known(vec![stale_dir]));
+        refresh_template_files(&mut db, project);
+        assert_eq!(project.template_files(&db).len(), 1);
+
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTALLED_APPS = ["missing"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+"#,
+        );
+        refresh_template_state(&mut db, project);
+        refresh_template_files(&mut db, project);
+
+        assert_eq!(
+            project.template_dirs(&db),
+            &TemplateDirs::Known(vec![root.join("templates")])
+        );
+        assert_eq!(project.template_files(&db).len(), 1);
+    }
+
+    #[test]
+    fn static_template_dirs_apply_known_empty_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r"
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        );
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+        assert_eq!(project.template_dirs(&db), &TemplateDirs::Known(Vec::new()));
+    }
+
+    #[test]
+    #[ignore = "requires Django on the active python; run with `uv run --with django==5.2 cargo test -p djls-semantic static_runtime_comparison_matches_minimal_django_project -- --ignored --nocapture`"]
+    fn static_runtime_comparison_matches_minimal_django_project() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_runtime_template_fixture(&root);
+        let venv = create_runtime_venv(&root);
+        let (db, project) = runtime_project(root, &venv, "project.settings", &[]);
+
+        assert_static_runtime_match(&db, project);
+
+        let static_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(&db, project),
+            "template library snapshot",
+        );
+        assert_eq!(
+            static_snapshot.libraries.get("blog_tags"),
+            Some(&"blog.templatetags.blog_tags".to_string())
+        );
+        assert!(static_snapshot
+            .builtins
+            .contains(&"django.template.defaulttags".to_string()));
+        assert!(snapshot_loadable_symbol_keys(&static_snapshot)
+            .iter()
+            .any(|key| {
+                key
+            == "blog_tags:blog.templatetags.blog_tags:Some(Tag):shout:blog.templatetags.blog_tags"
+            }));
+        assert!(snapshot_loadable_symbol_keys(&static_snapshot)
+            .iter()
+            .any(|key| {
+                key
+            == "blog_tags:blog.templatetags.blog_tags:Some(Filter):emph:blog.templatetags.blog_tags"
+            }));
+    }
+
+    #[test]
+    #[ignore = "requires Django on the active python; run with `uv run --with django==5.2 cargo test -p djls-semantic static_runtime_comparison_matches_split_settings_environments -- --ignored --nocapture`"]
+    fn static_runtime_comparison_matches_split_settings_environments() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_multisite_runtime_template_fixture(&root);
+        let venv = create_runtime_venv(&root);
+
+        let (site1_db, site1_project) = runtime_project(
+            root.clone(),
+            &venv,
+            "site1.settings.dev",
+            &["projects", "apps"],
+        );
+        assert_static_runtime_match(&site1_db, site1_project);
+        let site1_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(&site1_db, site1_project),
+            "site1 template library snapshot",
+        );
+
+        let (site2_db, site2_project) =
+            runtime_project(root, &venv, "site2.settings.dev", &["projects", "apps"]);
+        assert_static_runtime_match(&site2_db, site2_project);
+        let site2_snapshot = fact_value_or_panic(
+            assemble_project_static_template_library_snapshot(&site2_db, site2_project),
+            "site2 template library snapshot",
+        );
+
+        assert!(site1_snapshot.libraries.contains_key("app1_tags"));
+        assert!(site1_snapshot.libraries.contains_key("app2_tags"));
+        assert!(!site1_snapshot.libraries.contains_key("app3_tags"));
+        assert!(!snapshot_loadable_symbol_keys(&site1_snapshot)
+            .iter()
+            .any(|symbol| symbol.contains("app3_marker")));
+
+        assert!(!site2_snapshot.libraries.contains_key("app1_tags"));
+        assert!(site2_snapshot.libraries.contains_key("app2_tags"));
+        assert!(site2_snapshot.libraries.contains_key("app3_tags"));
+        assert!(!snapshot_loadable_symbol_keys(&site2_snapshot)
+            .iter()
+            .any(|symbol| symbol.contains("app1_marker")));
+    }
+
+    #[test]
+    fn gh401_static_assembly_keeps_split_settings_outputs_separate() {
+        let manifest = djls_corpus::Manifest::load_default().unwrap();
+        let fixture = manifest
+            .fixtures
+            .iter()
+            .find(|fixture| fixture.name == "gh401-multisite")
+            .unwrap();
+        let root = fixture.root_path();
+        let pythonpath = vec!["projects".to_string(), "apps".to_string()];
+        let tmp = TempDir::new().unwrap();
+        let site_packages = Utf8PathBuf::try_from(tmp.path().join("site-packages")).unwrap();
+        write_minimal_django_site_packages(
+            &site_packages,
+            [
+                "django.contrib.auth",
+                "django.contrib.contenttypes",
+                "django.templatetags.cache",
+                "django.templatetags.i18n",
+                "django.templatetags.l10n",
+                "django.templatetags.static",
+                "django.templatetags.tz",
+                "django.template.defaulttags",
+                "django.template.defaultfilters",
+                "django.template.loader_tags",
+            ],
+        );
+
+        for expected in [
+            StaticAssemblyExpectation {
+                settings_module: "site1.settings.dev",
+                template_dirs: &[
+                    "projects/site1/templates",
+                    "apps/clientname/app1/templates",
+                    "apps/clientname/app2/templates",
+                ],
+                templatetag_modules: &[
+                    "clientname.app1.templatetags.app1_tags",
+                    "clientname.app2.templatetags.app2_tags",
+                ],
+                excluded_templatetag_modules: &["clientname.app3.templatetags.app3_tags"],
+            },
+            StaticAssemblyExpectation {
+                settings_module: "site2.settings.dev",
+                template_dirs: &[
+                    "projects/site2/templates",
+                    "apps/clientname/app2/templates",
+                    "apps/clientname/app3/templates",
+                ],
+                templatetag_modules: &[
+                    "clientname.app2.templatetags.app2_tags",
+                    "clientname.app3.templatetags.app3_tags",
+                ],
+                excluded_templatetag_modules: &["clientname.app1.templatetags.app1_tags"],
+            },
+        ] {
+            assert_fixture_static_assembly(&root, &pythonpath, &site_packages, &expected);
+        }
+    }
+
+    struct StaticAssemblyExpectation {
+        settings_module: &'static str,
+        template_dirs: &'static [&'static str],
+        templatetag_modules: &'static [&'static str],
+        excluded_templatetag_modules: &'static [&'static str],
+    }
+
+    fn assert_fixture_static_assembly(
+        root: &Utf8Path,
+        pythonpath: &[String],
+        site_packages: &Utf8PathBuf,
+        expected: &StaticAssemblyExpectation,
+    ) {
+        let dirs = assemble_static_template_dirs(
+            root,
+            Some(expected.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        );
+        assert_eq!(
+            dirs.confidence(),
+            Confidence::Known,
+            "unexpected template dir confidence for `{}`: {:?}",
+            expected.settings_module,
+            dirs.reasons()
+        );
+        let dirs = dirs.value().expect("known fixture template dirs");
+        for dir in expected.template_dirs {
+            let dir = root.join(dir);
+            assert!(
+                dirs.contains(&dir),
+                "expected `{}` template dirs to contain `{dir}` in {dirs:?}",
+                expected.settings_module
+            );
+        }
+
+        let snapshot = assemble_static_template_library_snapshot(
+            root,
+            Some(expected.settings_module),
+            pythonpath,
+            std::slice::from_ref(site_packages),
+        );
+        assert_eq!(
+            snapshot.confidence(),
+            Confidence::Known,
+            "unexpected template library confidence for `{}`: {:?}",
+            expected.settings_module,
+            snapshot.reasons()
+        );
+        let library_modules = snapshot
+            .value()
+            .expect("known fixture template library snapshot")
+            .libraries
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for module in expected.templatetag_modules {
+            assert!(
+                library_modules.iter().any(|candidate| candidate == module),
+                "expected `{}` libraries to contain `{module}` in {library_modules:?}",
+                expected.settings_module
+            );
+        }
+        for module in expected.excluded_templatetag_modules {
+            assert!(
+                library_modules.iter().all(|candidate| candidate != module),
+                "did not expect `{}` libraries to contain `{module}`",
+                expected.settings_module
+            );
+        }
+        assert!(
+            library_modules
+                .iter()
+                .all(|module| !module.starts_with("apps.") && !module.starts_with("projects.")),
+            "expected source-root-aware module names, got {library_modules:?}",
+        );
+    }
+
+    fn write_minimal_django_site_packages<S>(
+        site_packages: &Utf8Path,
+        modules: impl IntoIterator<Item = S>,
+    ) where
+        S: AsRef<str>,
+    {
+        for module in modules {
+            write_minimal_python_module(site_packages, module.as_ref());
+        }
+    }
+
+    fn write_minimal_python_module(root: &Utf8Path, module: &str) {
+        let mut parts = module.split('.').collect::<Vec<_>>();
+        let Some(file_name) = parts.pop() else {
+            return;
+        };
+        let mut dir = root.to_path_buf();
+        for part in parts {
+            dir = dir.join(part);
+            write_file(&dir.join("__init__.py"), "");
+        }
+        write_file(&dir.join(format!("{file_name}.py")), "");
+    }
+
+    #[test]
+    fn static_template_snapshot_populates_project_template_libraries() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        let libraries = project.template_libraries(&db);
+        assert_eq!(libraries.active_knowledge, Knowledge::Known);
+        assert!(libraries
+            .builtins
+            .contains_key(&PyModuleName::parse("django.template.defaulttags").unwrap()));
+
+        let builtin_tags = libraries.installed_symbol_candidates(TemplateSymbolKind::Tag);
+        assert!(builtin_tags.iter().any(|candidate| {
+            candidate.symbol.name() == "if"
+                && matches!(candidate.origin, InstalledSymbolOrigin::Builtin { .. })
+        }));
+
+        let blog_tags = libraries
+            .best_loadable_library_str("blog_tags")
+            .expect("blog_tags should be loadable");
+        assert!(blog_tags.is_active());
+        assert_eq!(blog_tags.module().as_str(), "blog.templatetags.blog_tags");
+        assert!(blog_tags
+            .symbols
+            .iter()
+            .any(|symbol| { symbol.kind == TemplateSymbolKind::Tag && symbol.name() == "shout" }));
+        assert!(blog_tags.symbols.iter().any(|symbol| {
+            symbol.kind == TemplateSymbolKind::Filter && symbol.name() == "emph"
+        }));
+
+        let modules = libraries.registration_modules();
+        assert!(modules.contains(&PyModuleName::parse("django.template.defaulttags").unwrap()));
+        assert!(modules.contains(&PyModuleName::parse("blog.templatetags.blog_tags").unwrap()));
+    }
+
+    #[test]
+    fn template_library_snapshot_routing_prefers_inspector_snapshot() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        let inspector_snapshot = TemplateLibrarySnapshot {
+            symbols: Vec::new(),
+            libraries: BTreeMap::from([(
+                "inspector_only".to_string(),
+                "inspector.templatetags.only".to_string(),
+            )]),
+            builtins: Vec::new(),
+        };
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(Some(inspector_snapshot));
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
+
+        let libraries = project.template_libraries(&db);
+        assert!(libraries.is_enabled_library_str("inspector_only"));
+        assert!(!libraries.is_enabled_library_str("blog_tags"));
+    }
+
+    #[test]
+    fn auto_template_libraries_use_known_static_without_inspector_query() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(db.introspector.query_count(), 0);
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("blog_tags"));
+    }
+
+    #[test]
+    fn static_template_libraries_clear_stale_active_libraries_when_static_is_unusable() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            None,
+            Vec::new(),
+        );
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(Some(TemplateLibrarySnapshot {
+                symbols: Vec::new(),
+                libraries: BTreeMap::from([(
+                    "inspector_only".to_string(),
+                    "inspector.templatetags.only".to_string(),
+                )]),
+                builtins: Vec::new(),
+            }));
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
+
+        refresh_template_state(&mut db, project);
+
+        let libraries = project.template_libraries(&db);
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(libraries.active_knowledge, Knowledge::Unknown);
+        assert!(!libraries.is_enabled_library_str("inspector_only"));
+    }
+
+    #[test]
+    fn auto_template_libraries_do_not_query_inspector_for_partial_static_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        fs::remove_file(root.join("django/templatetags/i18n.py")).unwrap();
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        let libraries = project.template_libraries(&db);
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(libraries.active_knowledge, Knowledge::Partial);
+        assert!(libraries.is_enabled_library_str("blog_tags"));
+    }
+
+    #[test]
+    fn static_template_libraries_do_not_query_inspector_for_partial_static_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        fs::remove_file(root.join("django/templatetags/i18n.py")).unwrap();
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        let libraries = project.template_libraries(&db);
+        assert_eq!(db.introspector.query_count(), 0);
+        assert_eq!(libraries.active_knowledge, Knowledge::Partial);
+        assert!(libraries.is_enabled_library_str("blog_tags"));
+    }
+
+    #[test]
+    fn inspector_template_libraries_query_inspector_before_static_fallback() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Runtime,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+
+        assert_eq!(db.introspector.query_count(), 2);
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("blog_tags"));
+    }
+
+    #[test]
+    fn static_templatetag_modules_use_static_resolver_src_root() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root.join("src"));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        refresh_template_state(&mut db, project);
+        refresh_python_index(&mut db, project);
+
+        let module_paths = project
+            .python_index(&db)
+            .templatetags()
+            .map(|module| module.module_path().as_str().to_string())
+            .collect::<Vec<_>>();
+        assert!(module_paths.contains(&"blog.templatetags.blog_tags".to_string()));
+    }
+
+    #[test]
+    fn static_template_snapshot_preserves_partial_known_data() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_static_template_fixture(&root);
+        fs::remove_file(root.join("django/templatetags/i18n.py")).unwrap();
+
+        let snapshot =
+            assemble_static_template_library_snapshot(&root, Some("project.settings"), &[], &[]);
+        let Fact::Partial { value, reasons } = &snapshot else {
+            panic!("expected partial snapshot when a default library is unresolved");
+        };
+        assert!(!reasons.is_empty());
+        assert!(value.libraries.contains_key("blog_tags"));
+        assert!(value.symbols.iter().any(|symbol| symbol.name == "shout"));
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        refresh_template_state(&mut db, project);
+        let libraries = project.template_libraries(&db);
+        assert_eq!(libraries.active_knowledge, Knowledge::Partial);
+        assert!(libraries
+            .loadable
+            .contains_key(&LibraryName::parse("blog_tags").unwrap()));
+        assert!(libraries
+            .registration_modules()
+            .contains(&PyModuleName::parse("blog.templatetags.blog_tags").unwrap()));
+
+        let validation_db = TestDatabase::new().with_template_libraries(libraries.clone());
+        let errors = collect_errors(
+            &validation_db,
+            "test.html",
+            concat!(
+                "{% shout \"hello\" %}\n",
+                "{{ value|emph }}\n",
+                "{% definitely_unknown_tag %}\n",
+                "{{ value|definitely_unknown_filter }}\n",
+                "{% load definitely_unknown_library %}\n",
+            ),
+        );
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedTag { tag, library, .. }
+                    if tag == "shout" && library == "blog_tags"
+            )),
+            "Expected static partial active facts to keep known unloaded tag diagnostics, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedFilter { filter, library, .. }
+                    if filter == "emph" && library == "blog_tags"
+            )),
+            "Expected static partial active facts to keep known unloaded filter diagnostics, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().all(|error| !matches!(
+                error,
+                ValidationError::UnknownTag { .. }
+                    | ValidationError::UnknownFilter { .. }
+                    | ValidationError::UnknownLibrary { .. }
+            )),
+            "Expected static partial active facts to suppress unsafe unknown diagnostics, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn static_template_snapshot_declines_empty_templates() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r"
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        );
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(Some(test_response()));
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
+
+        refresh_template_state(&mut db, project);
+
+        let libraries = project.template_libraries(&db);
+        assert_eq!(libraries.active_knowledge, Knowledge::Unknown);
+        assert!(!libraries.is_enabled_library_str("i18n"));
+        assert!(libraries.registration_modules().is_empty());
+    }
+
+    #[test]
+    fn static_template_snapshot_accepts_libraries_without_symbols() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
+        let snapshot = Fact::known(TemplateLibrarySnapshot {
+            symbols: Vec::new(),
+            libraries: BTreeMap::from([(
+                "custom".to_string(),
+                "project.templatetags.custom".to_string(),
+            )]),
+            builtins: Vec::new(),
+        });
+        let status = ProjectFactsStatus::from_snapshot(None, &snapshot, None, None, None);
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
+            snapshot,
+            status,
+            dependencies: Vec::new(),
+        };
+        save_static_template_library_snapshot(&root, &interpreter, None, &[], &[], &assembly);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project_options(root, interpreter, None, Vec::new());
+
+        assert!(load_template_library_cache(&mut db));
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("custom"));
+    }
+
+    #[test]
+    fn static_template_snapshot_declines_missing_django_settings_module() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+        let snapshot = assemble_static_template_library_snapshot(&root, None, &[], &[]);
+
+        assert!(matches!(snapshot, Fact::Unknown { .. }));
+    }
+
+    #[test]
+    fn static_template_library_cache_uses_separate_namespace_and_inputs() {
+        let base = Utf8Path::new("/cache");
+        let root = Utf8Path::new("/project");
+        let interpreter = Interpreter::VenvPath("/project/.venv".to_string());
+        let pythonpath = vec!["/extra".to_string()];
+        let site_packages = vec![Utf8PathBuf::from("/project/.venv/site-packages")];
+
+        let dir = static_template_library_cache_dir_in(
+            base,
+            root,
+            &interpreter,
+            Some("project.settings"),
+            &pythonpath,
+            &site_packages,
+        );
+        assert!(dir.as_str().contains("project-facts/template-libraries"));
+        assert!(!dir.as_str().contains("inspector"));
+
+        let other_dir = static_template_library_cache_dir_in(
+            base,
+            root,
+            &interpreter,
+            Some("project.settings"),
+            &pythonpath,
+            &[Utf8PathBuf::from("/other/site-packages")],
+        );
+        assert_ne!(dir, other_dir);
+    }
+
+    #[test]
+    fn static_template_library_cache_roundtrips_and_invalidates_dependencies() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let dependency = root.join("project/settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
+        let pythonpath: Vec<String> = vec![];
+        let snapshot = Fact::known(test_response());
+        let status = ProjectFactsStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let dependencies = vec![StaticCacheDependency::from_path(dependency.clone())];
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &pythonpath,
+            &[],
+        );
+
+        save_static_template_library_snapshot_to_dir(&dir, &snapshot, &status, &dependencies);
+        let loaded = load_static_template_library_snapshot_from_dir(&dir)
+            .expect("static cache should load while dependencies are current");
+        let loaded_snapshot = loaded.snapshot.value().unwrap();
+        assert_eq!(loaded_snapshot.libraries.len(), 1);
+        assert_eq!(loaded_snapshot.builtins.len(), 1);
+        assert_eq!(loaded.status.confidence, Confidence::Known);
+        assert_eq!(loaded.status.app_count, Some(1));
+
+        fs::remove_file(dependency).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_rejects_version_and_policy_mismatches() {
+        let tmp = TempDir::new().unwrap();
+        let dir = Utf8PathBuf::try_from(tmp.path().join("cache-entry")).unwrap();
+        let dependency = dir.join("settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let snapshot = Fact::known(test_response());
+        let status = ProjectFactsStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let dependencies = vec![StaticCacheDependency::from_path(dependency)];
+
+        let mut envelope = StaticTemplateLibraryCacheEnvelope {
+            cache_version: STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.to_string(),
+            djls_version: env!("CARGO_PKG_VERSION").to_string(),
+            django_default_policy: DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.to_string(),
+            snapshot: snapshot.clone(),
+            status: status.clone(),
+            dependencies: dependencies.clone(),
+        };
+
+        envelope.cache_version = "old-cache".to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+
+        envelope.cache_version = STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.to_string();
+        envelope.djls_version = "0.0.bad".to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+
+        envelope.djls_version = env!("CARGO_PKG_VERSION").to_string();
+        envelope.django_default_policy = "old-django-defaults".to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+
+        envelope.django_default_policy = DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.to_string();
+        write_static_template_library_cache_envelope(&dir, &envelope);
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+    }
+
+    fn write_static_template_library_cache_envelope(
+        dir: &Utf8Path,
+        envelope: &StaticTemplateLibraryCacheEnvelope,
+    ) {
+        fs::create_dir_all(dir.as_std_path()).unwrap();
+        fs::write(
+            dir.join("snapshot.json").as_std_path(),
+            serde_json::to_string(envelope).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_imported_settings_dependencies() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        let base_settings = root.join("project/settings/base.py");
+        write_file(
+            &base_settings,
+            r"
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        );
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(&dev_settings, "from .base import *\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == base_settings));
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == dev_settings));
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == root));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(base_settings).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_missing_imported_settings_candidates() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        let local_settings = root.join("project/settings/local.py");
+        let dev_settings = root.join("project/settings/dev.py");
+        write_file(&dev_settings, "from .local import *\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| { dependency.path == local_settings && !dependency.exists }));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        write_file(&local_settings, "INSTALLED_APPS = []\nTEMPLATES = []\n");
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_missing_imported_settings_package_candidates() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(&root.join("project/settings/__init__.py"), "");
+        let local_package_settings = root.join("project/settings/local/__init__.py");
+        write_file(
+            &root.join("project/settings/dev.py"),
+            "from .local import *\n",
+        );
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| { dependency.path == local_package_settings && !dependency.exists }));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings.dev"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        write_file(
+            &local_package_settings,
+            "INSTALLED_APPS = []\nTEMPLATES = []\n",
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_app_config_dependencies() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog.apps.BlogConfig"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        let apps_file = root.join("blog/apps.py");
+        write_file(
+            &apps_file,
+            r#"
+from django.apps import AppConfig
+
+class BlogConfig(AppConfig):
+    name = "blog"
+"#,
+        );
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == apps_file));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(apps_file).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_pth_files() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let site_packages = Utf8PathBuf::try_from(tmp.path().join("site-packages")).unwrap();
+        let pth_root = Utf8PathBuf::try_from(tmp.path().join("editable")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            "INSTALLED_APPS = []\nTEMPLATES = []\n",
+        );
+        write_file(&pth_root.join("pkg/__init__.py"), "");
+        let pth_file = site_packages.join("editable.pth");
+        write_file(&pth_file, "../editable\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            std::slice::from_ref(&site_packages),
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == pth_file));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            std::slice::from_ref(&site_packages),
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(pth_file).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_filtered_templatetag_files() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        let helper_file = root.join("blog/templatetags/helper.py");
+        write_file(&helper_file, "HELPER = True\n");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == helper_file));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        fs::remove_file(helper_file).unwrap();
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn static_template_library_cache_tracks_nested_templatetag_package_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        write_file(&root.join("project/__init__.py"), "");
+        write_file(
+            &root.join("project/settings.py"),
+            r#"
+INSTALLED_APPS = ["blog"]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+    }
+]
+"#,
+        );
+        write_file(&root.join("blog/__init__.py"), "");
+        write_file(&root.join("blog/templatetags/__init__.py"), "");
+        let nested_dir = root.join("blog/templatetags/nested");
+        write_file(&nested_dir.join("__init__.py"), "");
+
+        let assembly = assemble_static_template_library_snapshot_with_status(
+            &root,
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        assert!(assembly
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.path == nested_dir));
+
+        let dir = static_template_library_cache_dir_in(
+            &base,
+            &root,
+            &Interpreter::VenvPath("/test/.venv".to_string()),
+            Some("project.settings"),
+            &[],
+            &[],
+        );
+        save_static_template_library_snapshot_to_dir(
+            &dir,
+            &assembly.snapshot,
+            &assembly.status,
+            &assembly.dependencies,
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_some());
+
+        write_file(
+            &nested_dir.join("new_tags.py"),
+            "from django import template\nregister = template.Library()\n",
+        );
+        assert!(load_static_template_library_snapshot_from_dir(&dir).is_none());
+    }
+
+    #[test]
+    fn startup_cache_can_load_static_template_library_snapshot() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let dependency = root.join("project/settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
+        let snapshot = Fact::known(test_response());
+        let status = ProjectFactsStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
+            snapshot,
+            status,
+            dependencies: vec![StaticCacheDependency::from_path(dependency)],
+        };
+        save_static_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &[],
+            &assembly,
+        );
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options(
+            root,
+            interpreter,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        assert!(load_template_library_cache(&mut db));
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("i18n"));
+    }
+
+    #[test]
+    fn auto_startup_cache_ignores_inspector_cache_when_static_cache_is_partial() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let dependency = root.join("project/settings.py");
+        write_file(&dependency, "INSTALLED_APPS = []\n");
+
+        let interpreter = Interpreter::InterpreterPath("/missing/python".to_string());
+        let static_snapshot = Fact::partial(
+            test_response(),
+            vec![Reason::path(root.clone(), "partial static cache entry")],
+        );
+        let status = ProjectFactsStatus::from_snapshot(
+            Some("project.settings"),
+            &static_snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
+            snapshot: static_snapshot,
+            status,
+            dependencies: vec![StaticCacheDependency::from_path(dependency)],
+        };
+        save_static_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &[],
+            &assembly,
+        );
+
+        let inspector_snapshot = TemplateLibrarySnapshot {
+            symbols: Vec::new(),
+            libraries: BTreeMap::from([(
+                "inspector_only".to_string(),
+                "inspector.templatetags.only".to_string(),
+            )]),
+            builtins: Vec::new(),
+        };
+        save_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &inspector_snapshot,
+        );
+
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root,
+            interpreter,
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        assert_eq!(db.project(), Some(project));
+        assert!(load_template_library_cache(&mut db));
+        let libraries = project.template_libraries(&db);
+        assert_eq!(libraries.active_knowledge, Knowledge::Partial);
+        assert!(libraries.is_enabled_library_str("i18n"));
+        assert!(!libraries.is_enabled_library_str("inspector_only"));
+    }
+
+    #[test]
+    fn static_cache_refresh_short_circuits_when_snapshot_is_already_applied() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
+        let snapshot = Fact::known(test_response());
+        let status = ProjectFactsStatus::from_snapshot(
+            Some("project.settings"),
+            &snapshot,
+            Some(1),
+            Some(0),
+            Some(1),
+        );
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
+            snapshot: snapshot.clone(),
+            status,
+            dependencies: Vec::new(),
+        };
+        save_static_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &[],
+            &assembly,
+        );
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options(
+            root,
+            interpreter,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(snapshot.value().cloned());
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
+        assert!(load_template_library_cache(&mut db));
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("i18n"));
     }
 
     #[test]
@@ -648,16 +3942,23 @@ mod tests {
         let response = test_response();
 
         save_template_library_snapshot(&root, &interpreter, None, &[], &response);
+        let Some(cache_file) =
+            cache_dir(&root, &interpreter, None, &[]).map(|dir| dir.join("inspector.json"))
+        else {
+            return;
+        };
+        if !cache_file.is_file() {
+            return;
+        }
+
         let loaded = load_cached_template_library_snapshot(&root, &interpreter, None, &[]);
 
         // Cache reads from the XDG dir, not from the project root — so this
-        // only works if project_dirs() resolves. If it doesn't (CI), the
-        // save is a no-op and load returns None.
-        if djls_conf::project_dirs().is_some() {
-            let loaded = loaded.expect("should load cached response");
-            assert_eq!(loaded.libraries.len(), 1);
-            assert_eq!(loaded.builtins.len(), 1);
-        }
+        // only works if the cache file can be written. If it can't (CI or
+        // sandboxed tests), the save is a no-op and load returns None.
+        let loaded = loaded.expect("should load cached response");
+        assert_eq!(loaded.libraries.len(), 1);
+        assert_eq!(loaded.builtins.len(), 1);
     }
 
     #[test]
@@ -665,7 +3966,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let app_dir = root.join("myapp");
+        let site_packages = external_site_packages(&root);
+        let app_dir = site_packages.join("myapp");
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(
             app_dir.join("models.py"),
@@ -679,8 +3981,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(&root);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
         assert!(results["myapp.models"].get("Article").is_some());
@@ -691,12 +3992,12 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let app_dir = root.join("emptyapp");
+        let site_packages = external_site_packages(&root);
+        let app_dir = site_packages.join("emptyapp");
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(&root);
         assert!(results.is_empty());
     }
 
@@ -705,8 +4006,9 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
+        let site_packages = external_site_packages(&root);
         for app in &["blog", "accounts"] {
-            let app_dir = root.join(app);
+            let app_dir = site_packages.join(app);
             fs::create_dir_all(&app_dir).unwrap();
             fs::write(
                 app_dir.join("models.py"),
@@ -718,8 +4020,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(&root);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
         assert!(results.contains_key("accounts.models"));
@@ -730,7 +4031,8 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let models_dir = root.join("myapp/models");
+        let site_packages = external_site_packages(&root);
+        let models_dir = site_packages.join("myapp/models");
         fs::create_dir_all(&models_dir).unwrap();
         fs::write(
             models_dir.join("__init__.py"),
@@ -748,8 +4050,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(&root);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("myapp.models.user"));
@@ -763,9 +4064,10 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let base_dir = root.join("myapp/models/base");
+        let site_packages = external_site_packages(&root);
+        let base_dir = site_packages.join("myapp/models/base");
         fs::create_dir_all(&base_dir).unwrap();
-        fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
+        fs::write(site_packages.join("myapp/models/__init__.py"), "").unwrap();
         fs::write(base_dir.join("__init__.py"), "").unwrap();
         fs::write(
             base_dir.join("abstract.py"),
@@ -773,8 +4075,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(&root);
         assert!(
             results.contains_key("myapp.models.base.abstract"),
             "should extract from nested model files: got {:?}",

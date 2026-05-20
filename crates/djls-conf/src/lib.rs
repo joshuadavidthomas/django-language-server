@@ -68,10 +68,19 @@ pub enum ConfigError {
     PyprojectSerialize(#[from] toml::ser::Error),
 }
 
+#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum DjangoDiscoveryMode {
+    #[default]
+    Source,
+    Runtime,
+}
+
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
 pub struct Settings {
     #[serde(default)]
     debug: bool,
+    django_discovery: Option<DjangoDiscoveryMode>,
     venv_path: Option<String>,
     django_settings_module: Option<String>,
     #[serde(default)]
@@ -96,6 +105,7 @@ impl Settings {
 
         if let Some(overrides) = overrides {
             settings.debug = overrides.debug || settings.debug;
+            settings.django_discovery = overrides.django_discovery.or(settings.django_discovery);
             settings.venv_path = overrides.venv_path.or(settings.venv_path);
             settings.django_settings_module = overrides
                 .django_settings_module
@@ -136,12 +146,9 @@ impl Settings {
         if pyproject_path.exists() {
             let content = fs::read_to_string(&pyproject_path)?;
             let toml_str: toml::Value = toml::from_str(&content)?;
-            let tool_djls_value: Option<&toml::Value> =
-                ["tool", "djls"].iter().try_fold(&toml_str, |val, &key| {
-                    // Attempt to get the next key. If it exists, return Some(value) to continue.
-                    // If get returns None, try_fold automatically stops and returns None overall.
-                    val.get(key)
-                });
+            let tool_djls_value: Option<&toml::Value> = ["tool", "djls"]
+                .iter()
+                .try_fold(&toml_str, |val, &key| val.get(key));
             if let Some(tool_djls_table) = tool_djls_value.and_then(|v| v.as_table()) {
                 let tool_djls_string = toml::to_string(tool_djls_table)?;
                 builder = builder.add_source(File::from_str(&tool_djls_string, FileFormat::Toml));
@@ -168,6 +175,11 @@ impl Settings {
     #[must_use]
     pub fn debug(&self) -> bool {
         self.debug
+    }
+
+    #[must_use]
+    pub fn django_discovery(&self) -> DjangoDiscoveryMode {
+        self.django_discovery.unwrap_or_default()
     }
 
     #[must_use]
@@ -230,6 +242,7 @@ mod tests {
                 settings,
                 Settings {
                     debug: false,
+                    django_discovery: None,
                     venv_path: None,
                     django_settings_module: None,
                     django_environments: vec![],
@@ -272,6 +285,49 @@ mod tests {
                     ..Default::default()
                 }
             );
+        }
+
+        #[test]
+        fn test_load_django_discovery_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"django_discovery = "source""#,
+            )
+            .unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+            assert_eq!(settings.django_discovery(), DjangoDiscoveryMode::Source);
+        }
+
+        #[test]
+        fn test_django_discovery_defaults_to_source() {
+            let dir = tempdir().unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+            assert_eq!(settings.django_discovery(), DjangoDiscoveryMode::Source);
+        }
+
+        #[test]
+        fn test_overrides_replace_django_discovery_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"django_discovery = "runtime""#,
+            )
+            .unwrap();
+
+            let override_settings = Settings {
+                django_discovery: Some(DjangoDiscoveryMode::Source),
+                ..Default::default()
+            };
+            let settings = Settings::new(
+                Utf8Path::from_path(dir.path()).unwrap(),
+                Some(override_settings),
+            )
+            .unwrap();
+
+            assert_eq!(settings.django_discovery(), DjangoDiscoveryMode::Source);
         }
 
         #[test]

@@ -1,54 +1,28 @@
 # Configuration
 
-Django Language Server auto-detects your project configuration in most cases. It reads the `DJANGO_SETTINGS_MODULE` environment variable and searches for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`).
+Django Language Server auto-detects your project configuration in most cases. By default, `django_discovery = "source"` builds Django template facts from your workspace, configured settings module, import roots, and available source files. It does not run Django or start the Python inspector.
 
-**Most users don't need any configuration.** The settings below are for edge cases like non-standard virtual environment locations, editors that don't pass environment variables, or custom template tag definitions.
+**Most users don't need any configuration.** The settings below are for edge cases like multiple Django settings modules, non-standard import roots, non-standard virtual environment locations, runtime inspector compatibility, or custom template tag definitions.
 
-## Handling environment variables
+## Options
 
-Django projects commonly read secrets and configuration from environment variables — whether through `os.environ`, `django-environ`, `environs`, `python-decouple`, or similar libraries.
+### `django_discovery`
 
-When a required variable is missing, the language server's inspector process fails to initialize Django and you'll see an error like:
+**Default:** `"source"`
 
-> Missing required environment variable: DJANGO_SECRET_KEY. Django settings failed to load because 'DJANGO_SECRET_KEY' is not set in the editor's environment.
+Selects how djls builds Django project facts for template directories, active template tag libraries, builtins, and symbols.
 
-This happens because editors launched from desktop environments (app launchers, dock icons) don't inherit shell variables set in `.bashrc`, `.zshrc`, or similar.
+Supported values:
 
-### How environment variables reach the inspector
-
-The inspector subprocess inherits the full environment of its parent process (the language server, which inherits from the editor). Variables set in your shell are available automatically **if the editor was launched from that shell**. The [`env_file`](#env_file) option exists for cases where that inheritance doesn't work.
-
-### Recommended setup
-
-If your Django settings depend on environment variables, create a `.env` file in your project root:
-
-```shell
-# .env
-DJANGO_SECRET_KEY=not-a-real-secret
-DATABASE_URL=postgres://localhost/mydb
-```
-
-The server automatically detects `.env` in the project root and loads its variables into the inspector process — no configuration needed. This is the same format used by `python-dotenv` and similar tools.
-
-!!! tip
-    The values only need to be valid enough for Django to initialize. For a language server, a placeholder `SECRET_KEY` works fine.
-
-If your env file has a different name or location, point to it explicitly:
+- `"source"` — Read Django settings, app configuration, and template tag modules from source files without starting the Python inspector. If settings are too dynamic to understand from source, djls degrades conservatively and suppresses diagnostics that would risk false positives.
+- `"runtime"` — Use the legacy Python/Django inspector path. This keeps the runtime behavior used by older releases for dynamic projects that need Django setup.
 
 ```toml
 [tool.djls]
-env_file = ".env.local"
+django_discovery = "source"
 ```
 
-### Other approaches
-
-If you prefer not to use an env file:
-
-- **Launch your editor from the terminal** where the variables are already set. Most editors inherit the shell's environment when started this way.
-- **Configure your editor** to set environment variables before starting language servers. See your editor's documentation for details.
-- **Set `django_settings_module`** in your djls config if the only missing variable is `DJANGO_SETTINGS_MODULE`.
-
-## Options
+Use `"source"` when you want editor behavior that does not run Django. Use `"runtime"` if a dynamic project still needs the legacy runtime project facts while source-based discovery catches up.
 
 ### `django_settings_module`
 
@@ -56,12 +30,33 @@ If you prefer not to use an env file:
 
 Your Django settings module path (e.g., `"myproject.settings"`).
 
-The server uses this to introspect your Django project and provide template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
+The server uses this to build Django project facts for template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
 **When to configure:**
 
 - Your editor doesn't pass environment variables to LSP servers (e.g., Sublime Text)
 - You need to override the environment variable for a specific workspace
+
+### `django_environments`
+
+**Default:** `[]` (empty list)
+
+Path-scoped Django settings modules for monorepos or workspaces with more than one Django project.
+
+```toml
+[tool.djls]
+pythonpath = ["projects", "apps"]
+
+[[tool.djls.django_environments]]
+root = "projects/site1"
+django_settings_module = "site1.settings.dev"
+
+[[tool.djls.django_environments]]
+root = "projects/site2"
+django_settings_module = "site2.settings.dev"
+```
+
+Use this when one workspace contains multiple Django settings modules and each applies to a different subtree. Source-based Django discovery facts stay tied to their environment. Completions can use the union of known facts, while diagnostics only use facts that are safe for the template's environment and suppress unsafe absence claims.
 
 ### `venv_path`
 
@@ -69,7 +64,7 @@ The server uses this to introspect your Django project and provide template tag 
 
 Absolute path to your project's virtual environment directory.
 
-The server needs access to your virtual environment to discover installed Django apps and their template tags.
+Source-based Django discovery can read source files from a virtual environment's `site-packages` directory when one is available. The legacy inspector also uses the virtual environment's Python executable when `django_discovery = "runtime"`.
 
 **When to configure:**
 
@@ -80,14 +75,14 @@ The server needs access to your virtual environment to discover installed Django
 
 **Default:** `[]` (empty list)
 
-Additional directories to add to Python's import search path when the inspector process runs. These paths are added to `PYTHONPATH` alongside the project root and any existing `PYTHONPATH` environment variable.
+Additional directories to add to Python's import search path. Source-based Django discovery uses these paths as module search roots. The inspector also adds them to `PYTHONPATH` alongside the project root and any existing `PYTHONPATH` environment variable.
 
 **When to configure:**
 
 - Your project has a non-standard structure where Django code imports from directories outside the project root
 - You're working in a monorepo where Django imports shared packages from other directories
 - Your project depends on internal libraries in non-standard locations
-- You need to make additional packages importable for Django introspection
+- You need to make additional packages importable for source-based discovery or legacy Django introspection
 
 ### `env_file`
 
@@ -95,7 +90,7 @@ Additional directories to add to Python's import search path when the inspector 
 
 Path to an environment file (relative to the project root) whose variables are injected into the inspector subprocess.
 
-Many Django projects read secrets and configuration from environment variables at settings load time. When the editor is launched from a desktop environment rather than a terminal, those variables aren't available and the inspector fails. This option tells the server to read a `.env` file and forward the variables to the inspector process, so Django settings load correctly without duplicating secrets into config files.
+This option only matters for `django_discovery = "runtime"`. Source-based Django discovery reads settings source code without executing Django settings, so missing runtime environment variables do not prevent project discovery.
 
 If no `env_file` is configured, the server looks for a `.env` file in the project root automatically. If the file doesn't exist, nothing happens. When `env_file` is set explicitly and the file is missing, a warning is logged.
 
@@ -103,6 +98,35 @@ If no `env_file` is configured, the server looks for a `.env` file in the projec
 
 - Your `.env` file has a non-standard name (e.g., `.env.local`, `.env.development`)
 - Your `.env` file lives in a subdirectory
+- You use `django_discovery = "runtime"` and your Django settings need environment variables that your editor does not pass to language servers
+
+!!! note
+    `env_file` is only needed by runtime Django settings. In `django_discovery = "source"`, djls does not execute your settings module, but source-based discovery may still need `django_settings_module` and `pythonpath` to find the right files.
+
+#### Inspector environment variables
+
+Django projects commonly read secrets and configuration from environment variables through `os.environ`, `django-environ`, `environs`, `python-decouple`, or similar libraries. When a required variable is missing in runtime discovery, Django setup can fail before the language server can inspect template facts.
+
+The inspector subprocess inherits the full environment of its parent process. Variables set in your shell are available automatically if the editor was launched from that shell. Editors launched from desktop environments, app launchers, or dock icons often do not inherit shell variables set in `.bashrc`, `.zshrc`, or similar files.
+
+If your runtime Django settings depend on environment variables, create a `.env` file in your project root:
+
+```shell
+# .env
+DJANGO_SECRET_KEY=not-a-real-secret
+DATABASE_URL=postgres://localhost/mydb
+```
+
+The values only need to be valid enough for Django to initialize. For a language server, a placeholder `SECRET_KEY` works fine.
+
+If your env file has a different name or location, point to it explicitly:
+
+```toml
+[tool.djls]
+env_file = ".env.local"
+```
+
+Other options are to launch your editor from a terminal where the variables are already set, configure your editor to set environment variables before starting language servers, or set `django_settings_module` in djls config if the only missing variable is `DJANGO_SETTINGS_MODULE`.
 
 ### `tagspecs`
 
@@ -171,13 +195,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
     S108 = "warning" # New
     ```
 
-*Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+*Tag Scoping (requires [project facts](../template-validation.md#project-facts-availability)):*
 
 - `S108` - Unknown tag (not found in any known library or in the Python environment)
 - `S109` - Unloaded tag (requires `{% load %}` for a specific library)
 - `S110` - Ambiguous unloaded tag (defined in multiple libraries)
 
-*Filter Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+*Filter Scoping (requires [project facts](../template-validation.md#project-facts-availability)):*
 
 - `S111` - Unknown filter (not found in any known library or in the Python environment)
 - `S112` - Unloaded filter (requires `{% load %}` for a specific library)
@@ -193,11 +217,11 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 - `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
 
-*Environment-Aware Resolution (requires [inspector](../template-validation.md#inspector-availability) and [environment scanner](../template-validation.md#environment-scanner)):*
+*Environment-Aware Resolution (requires [project facts](../template-validation.md#project-facts-availability) and [environment scanner](../template-validation.md#environment-scanner)):*
 
 - `S118` - Tag not in `INSTALLED_APPS` (installed package, but Django app not activated)
 - `S119` - Filter not in `INSTALLED_APPS` (installed package, but Django app not activated)
-- `S120` - Unknown template tag library (not found in inspector or environment)
+- `S120` - Unknown template tag library (not found in the project facts or Python environment)
 - `S121` - Library not in `INSTALLED_APPS` (installed package, but Django app not activated)
 
 *Extends Validation:*
@@ -295,6 +319,7 @@ Pass configuration through your editor's LSP client using `initializationOptions
 
 ```json
 {
+  "django_discovery": "source",
   "django_settings_module": "myproject.settings",
   "venv_path": "/path/to/venv",
   "pythonpath": ["/path/to/shared/libs"],
@@ -320,10 +345,11 @@ If you use `pyproject.toml`, add a `[tool.djls]` section:
 
 ```toml
 [tool.djls]
+django_discovery = "source"
 django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
-env_file = ".env"  # Optional: path to env file (auto-detects .env by default)
+env_file = ".env"  # Optional: runtime discovery env file
 
 [tool.djls.diagnostics.severity]
 S100 = "off"
@@ -355,4 +381,4 @@ Django Language Server reads standard Python and Django environment variables:
 
 If you're already running Django with these environment variables set, the language server will automatically use them.
 
-If your editor doesn't pass these environment variables to the language server, configure them explicitly using one of the methods above. See [Handling environment variables](#handling-environment-variables) for details on `.env` file support.
+If your editor doesn't pass these environment variables to the language server, configure them explicitly using one of the methods above. See [`env_file`](#env_file) for runtime discovery `.env` file support.
