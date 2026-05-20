@@ -936,12 +936,15 @@ fn resolved_module_file(
 
 impl StaticCacheDependency {
     fn from_path(path: Utf8PathBuf) -> Self {
-        let timestamp = modified_timestamp(&path).ok();
+        let timestamp = fs::metadata(path.as_std_path())
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .map(|modified| modified.duration_since(UNIX_EPOCH).unwrap_or_default());
         Self {
             path,
             exists: timestamp.is_some(),
-            modified_unix_secs: timestamp.map(|(secs, _)| secs),
-            modified_subsec_nanos: timestamp.map(|(_, nanos)| nanos),
+            modified_unix_secs: timestamp.map(|duration| duration.as_secs()),
+            modified_subsec_nanos: timestamp.map(|duration| duration.subsec_nanos()),
         }
     }
 
@@ -951,12 +954,6 @@ impl StaticCacheDependency {
             && current.modified_unix_secs == self.modified_unix_secs
             && current.modified_subsec_nanos == self.modified_subsec_nanos
     }
-}
-
-fn modified_timestamp(path: &Utf8Path) -> std::io::Result<(u64, u32)> {
-    let modified = fs::metadata(path.as_std_path())?.modified()?;
-    let duration = modified.duration_since(UNIX_EPOCH).unwrap_or_default();
-    Ok((duration.as_secs(), duration.subsec_nanos()))
 }
 
 fn add_static_reasons<T>(fact: Fact<T>, new_reasons: impl IntoIterator<Item = Reason>) -> Fact<T> {
