@@ -842,36 +842,39 @@ fn static_template_library_cache_dependencies(
         }
     }
 
-    let Some(search_paths) = context.module_search_paths.value() else {
-        return cache_dependencies(paths);
-    };
+    if let Some(search_paths) = context.module_search_paths.value() {
+        if let Some(libraries) = template_libraries.value() {
+            for library in libraries {
+                if let Some(file) = resolved_module_file(&library.module, search_paths, root) {
+                    paths.push(file);
+                }
+            }
+        }
 
-    if let Some(libraries) = template_libraries.value() {
-        for library in libraries {
-            if let Some(file) = resolved_module_file(&library.module, search_paths, root) {
-                paths.push(file);
+        if let Some(snapshot) = snapshot.value() {
+            for module in snapshot
+                .libraries
+                .values()
+                .chain(snapshot.builtins.iter())
+                .chain(snapshot.symbols.iter().map(|symbol| &symbol.library_module))
+                .chain(snapshot.symbols.iter().map(|symbol| &symbol.module))
+            {
+                let Ok(module) = PyModuleName::parse(module) else {
+                    continue;
+                };
+                if let Some(file) = resolved_module_file(&module, search_paths, root) {
+                    paths.push(file);
+                }
             }
         }
     }
 
-    if let Some(snapshot) = snapshot.value() {
-        for module in snapshot
-            .libraries
-            .values()
-            .chain(snapshot.builtins.iter())
-            .chain(snapshot.symbols.iter().map(|symbol| &symbol.library_module))
-            .chain(snapshot.symbols.iter().map(|symbol| &symbol.module))
-        {
-            let Ok(module) = PyModuleName::parse(module) else {
-                continue;
-            };
-            if let Some(file) = resolved_module_file(&module, search_paths, root) {
-                paths.push(file);
-            }
-        }
-    }
-
-    cache_dependencies(paths)
+    paths.sort();
+    paths.dedup();
+    paths
+        .into_iter()
+        .map(StaticCacheDependency::from_path)
+        .collect()
 }
 
 fn push_pth_files(site_packages_path: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
@@ -920,16 +923,6 @@ fn resolved_module_file(
         .resolved
         .value()
         .map(|resolved| resolved.file.clone())
-}
-
-fn cache_dependencies(paths: Vec<Utf8PathBuf>) -> Vec<StaticCacheDependency> {
-    let mut paths = paths;
-    paths.sort();
-    paths.dedup();
-    paths
-        .into_iter()
-        .map(StaticCacheDependency::from_path)
-        .collect()
 }
 
 impl StaticCacheDependency {
@@ -1211,16 +1204,21 @@ fn static_template_library_cache_dir(
 ) -> Option<Utf8PathBuf> {
     let base = djls_conf::project_dirs()
         .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
-    Some(static_template_library_cache_dir_in(
-        &base,
+    let key = static_template_library_cache_key(
         root,
         interpreter,
         django_settings_module,
         pythonpath,
         site_packages_paths,
-    ))
+    );
+    Some(
+        base.join("project-facts")
+            .join("template-libraries")
+            .join(&key[..16]),
+    )
 }
 
+#[cfg(test)]
 fn static_template_library_cache_dir_in(
     base: &Utf8Path,
     root: &Utf8Path,
