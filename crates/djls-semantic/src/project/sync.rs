@@ -50,7 +50,6 @@ use crate::project::resolve::build_search_paths;
 use crate::project::resolve::discover_model_files;
 use crate::project::resolve::find_site_packages;
 use crate::project::resolve::resolve_modules;
-use crate::project::resolve::ResolvedModule;
 use crate::project::settings_facts::extract_settings_facts_for_module;
 use crate::project::symbols::Knowledge;
 use crate::project::symbols::TemplateLibrarySnapshot;
@@ -61,7 +60,6 @@ use crate::project::template_symbols::assemble_template_symbols;
 use crate::python::extract_model_graph;
 use crate::python::extract_rules;
 use crate::python::BlockSpecs;
-use crate::python::ExtractionResult;
 use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
@@ -1495,18 +1493,48 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
         .map(|m| m.as_str().to_string())
         .collect();
 
-    let new_extraction = if modules.is_empty() {
-        SplitExtractionResults {
-            tag_rules: FxHashMap::default(),
-            filter_arities: FxHashMap::default(),
-            block_specs: FxHashMap::default(),
-        }
-    } else {
+    let mut new_extraction = SplitExtractionResults {
+        tag_rules: FxHashMap::default(),
+        filter_arities: FxHashMap::default(),
+        block_specs: FxHashMap::default(),
+    };
+
+    if !modules.is_empty() {
         let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
         let (_workspace, external_modules) =
             resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
-        split_extraction_results(extract_rules_from_modules(external_modules))
-    };
+
+        for resolved in external_modules {
+            match fs::read_to_string(resolved.file_path.as_std_path()) {
+                Ok(source) => {
+                    let module_path = resolved.module_path;
+                    let module_result = extract_rules(&source, &module_path);
+                    if !module_result.tag_rules.is_empty() {
+                        new_extraction
+                            .tag_rules
+                            .insert(module_path.clone(), module_result.tag_rules);
+                    }
+                    if !module_result.filter_arities.is_empty() {
+                        new_extraction
+                            .filter_arities
+                            .insert(module_path.clone(), module_result.filter_arities);
+                    }
+                    if !module_result.block_specs.is_empty() {
+                        new_extraction
+                            .block_specs
+                            .insert(module_path, module_result.block_specs);
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        "Failed to read module file {}: {}",
+                        resolved.file_path,
+                        error,
+                    );
+                }
+            }
+        }
+    }
 
     if project.extracted_external_tag_rules(db) != &new_extraction.tag_rules {
         project
@@ -1548,58 +1576,10 @@ fn extract_models_from_files(
     results
 }
 
-fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String, ExtractionResult> {
-    let mut results = FxHashMap::default();
-
-    for resolved in modules {
-        match fs::read_to_string(resolved.file_path.as_std_path()) {
-            Ok(source) => {
-                let module_result = extract_rules(&source, &resolved.module_path);
-                if !module_result.is_empty() {
-                    results.insert(resolved.module_path, module_result);
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to read module file {}: {}", resolved.file_path, e);
-            }
-        }
-    }
-
-    results
-}
-
 struct SplitExtractionResults {
     tag_rules: FxHashMap<String, TagRuleMap>,
     filter_arities: FxHashMap<String, FilterArityMap>,
     block_specs: FxHashMap<String, BlockSpecs>,
-}
-
-fn split_extraction_results(
-    results: FxHashMap<String, ExtractionResult>,
-) -> SplitExtractionResults {
-    let mut split = SplitExtractionResults {
-        tag_rules: FxHashMap::default(),
-        filter_arities: FxHashMap::default(),
-        block_specs: FxHashMap::default(),
-    };
-
-    for (module_path, result) in results {
-        if !result.tag_rules.is_empty() {
-            split
-                .tag_rules
-                .insert(module_path.clone(), result.tag_rules);
-        }
-        if !result.filter_arities.is_empty() {
-            split
-                .filter_arities
-                .insert(module_path.clone(), result.filter_arities);
-        }
-        if !result.block_specs.is_empty() {
-            split.block_specs.insert(module_path, result.block_specs);
-        }
-    }
-
-    split
 }
 
 #[cfg(test)]
