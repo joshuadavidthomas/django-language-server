@@ -80,7 +80,11 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
         return;
     };
 
-    refresh_project_external_data(db, project);
+    refresh_template_state(db, project);
+    refresh_template_files(db, project);
+    refresh_python_index(db, project);
+    scan_external_rules(db, project);
+    scan_external_models(db, project);
 }
 
 /// Populate template libraries from the filesystem cache, if available.
@@ -94,13 +98,6 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
     };
 
     load_project_template_library_cache(db, project)
-}
-
-fn refresh_project_external_data(db: &mut dyn ProjectDb, project: Project) {
-    refresh_template_state(db, project);
-    refresh_template_files(db, project);
-    refresh_python_index(db, project);
-    refresh_external_semantic_data(db, project);
 }
 
 fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
@@ -1438,11 +1435,6 @@ fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<ProjectPytho
         .collect()
 }
 
-fn refresh_external_semantic_data(db: &mut dyn ProjectDb, project: Project) {
-    scan_external_rules(db, project);
-    scan_external_models(db, project);
-}
-
 fn scan_external_models(db: &mut dyn ProjectDb, project: Project) {
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
@@ -2415,7 +2407,7 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        refresh_project_external_data(&mut db, project);
+        refresh_external_data(&mut db);
 
         assert_eq!(db.introspector.query_count(), 0);
         assert_eq!(
