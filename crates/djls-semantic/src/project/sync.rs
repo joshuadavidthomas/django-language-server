@@ -100,6 +100,10 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
     load_project_template_library_cache(db, project)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Phase 1 keeps source/runtime template refresh policy inline until the next seam is clear."
+)]
 fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
     match project.django_discovery(db) {
         DjangoDiscoveryMode::Source => {
@@ -1685,9 +1689,9 @@ mod tests {
         site_packages
     }
 
-    fn scan_external_model_graphs(root: Utf8PathBuf) -> FxHashMap<ModulePath, ModelGraph> {
+    fn scan_external_model_graphs(root: &Utf8Path) -> FxHashMap<ModulePath, ModelGraph> {
         let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
-            root.clone(),
+            root.to_path_buf(),
             Interpreter::VenvPath(root.join(".venv").to_string()),
             DjangoDiscoveryMode::Source,
             None,
@@ -3892,7 +3896,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = scan_external_model_graphs(root);
+        let results = scan_external_model_graphs(&root);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
         assert!(results["myapp.models"].get("Article").is_some());
@@ -3908,7 +3912,7 @@ class Article(models.Model):
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let results = scan_external_model_graphs(root);
+        let results = scan_external_model_graphs(&root);
         assert!(results.is_empty());
     }
 
@@ -3931,7 +3935,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let results = scan_external_model_graphs(root);
+        let results = scan_external_model_graphs(&root);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
         assert!(results.contains_key("accounts.models"));
@@ -3961,7 +3965,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = scan_external_model_graphs(root);
+        let results = scan_external_model_graphs(&root);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("myapp.models.user"));
@@ -3986,7 +3990,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = scan_external_model_graphs(root);
+        let results = scan_external_model_graphs(&root);
         assert!(
             results.contains_key("myapp.models.base.abstract"),
             "should extract from nested model files: got {:?}",
