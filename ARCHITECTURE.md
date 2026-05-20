@@ -8,13 +8,13 @@ For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Overview
 
-Django Language Server is an LSP server written in Rust that provides IDE features for Django templates. The editor sends template source code; the server combines it with knowledge about the Django project — installed apps, template libraries, tag and filter definitions — and returns diagnostics, completions, folding ranges, and navigation results.
+Django Language Server is an LSP server written in Rust that provides IDE features for Django templates. The editor sends template source code; the server combines it with Project Facts — installed apps, Template Tag Libraries, Tag Definitions, and Filter Definitions — and returns diagnostics, completions, folding ranges, and navigation results.
 
 [Salsa](https://github.com/salsa-rs/salsa) drives incremental computation: when a file changes, only the affected queries recompute. The architecture borrows from [Ruff/ty](https://github.com/astral-sh/ruff/tree/main/crates/ty): layered database traits, a single concrete database type that owns all state, and a session model for LSP operations.
 
 The server depends on two distinct kinds of knowledge:
 
-1. What tags and filters exist — which template libraries are installed, what symbols they export, what arguments they accept. This comes from the Python side of the Django project.
+1. What tags and filters exist — which Template Tag Libraries are installed, what symbols they export, what arguments they accept. This comes from the Python side of the Django project.
 2. What the template says — its syntax, its structure, and whether it uses those tags and filters correctly. This comes from parsing the template source.
 
 Separate subsystems produce each kind of knowledge. Both feed into the same Salsa database, where they meet during semantic analysis.
@@ -29,7 +29,7 @@ If you want to understand how templates get parsed, start in `crates/djls-templa
 
 If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-semantic/src/python/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact because I've never come across one (and who says I'll make it out with mine?). It's early and rough, but it's one of the more interesting parts of the project.
 
-If you're interested in how parsing, extraction, and project knowledge come together to give templates *meaning*, start with `crates/djls-semantic/src/lib.rs` — that's where "is this tag valid here?" actually gets answered.
+If you're interested in how parsing, extraction, and Project Facts come together to give templates *meaning*, start with `crates/djls-semantic/src/lib.rs` — that's where "is this tag valid here?" actually gets answered.
 
 ## Code Map
 
@@ -68,7 +68,7 @@ It lexes and parses template source into a flat `NodeList` — the same represen
 
 **Architecture Invariant:** the parser never fails. It produces `(Vec<Node>, Vec<ParseError>)` rather than `Result<NodeList, Error>`. This is critical for an IDE: users are *always* in the middle of typing something invalid, and the rest of the pipeline needs to keep working around the errors.
 
-**Architecture Invariant:** this crate knows nothing about Django semantics. It can't tell whether `{% load i18n %}` refers to a real library, whether `{% if %}` has the right number of arguments, or whether a filter exists. It handles only template *syntax*: delimiters, tag structure, filter chains, token boundaries. This separation matters because it means you can use the parser for syntax highlighting or other syntax-only tooling without needing any Django project context at all.
+**Architecture Invariant:** this crate knows nothing about Django semantics. It can't tell whether `{% load i18n %}` refers to a real Template Tag Library, whether `{% if %}` has the right number of arguments, or whether a filter exists. It handles only template *syntax*: delimiters, tag structure, filter chains, token boundaries. This separation matters because it means you can use the parser for syntax highlighting or other syntax-only tooling without needing Project Facts at all.
 
 ### `crates/djls-semantic`
 
@@ -84,7 +84,7 @@ It takes the flat node list from `djls-templates` and does two things:
 All errors go through a `ValidationErrorAccumulator` — the validator never returns errors directly. Callers retrieve them with `validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)`.
 
 This crate also owns:
-- **Project context** — `Project`, interpreter discovery, Django settings, template libraries, module resolution, inspector cache data, and external extraction results
+- **Project Facts and discovery inputs** — `Project`, interpreter discovery, Django settings, Template Tag Libraries, module resolution, inspector cache data, and external extraction results
 - **Python static extraction** — Ruff-based analysis of templatetag and model Python source
 - **Load scoping** — tracking which tags and filters are available at each position based on preceding `{% load %}` tags
 - **Template name resolution** — resolving template names to files on disk
@@ -96,7 +96,7 @@ This crate also owns:
 
 **Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
 
-`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template directories, template libraries, separate first-party template and Python indexes, and extraction results. This module also owns project introspection, module resolution, and the `TemplateLibraries` type that holds the combined knowledge from introspection results and environment scanning. Imperative refresh functions in this module synchronize external project state into Salsa inputs; tracked semantic queries then derive validation data from those inputs.
+`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template directories, Template Tag Libraries, separate first-party template and Python indexes, and extraction results. This module also owns Project Introspection, module resolution, and the `TemplateLibraries` type that holds the combined facts from introspection results and environment scanning. Imperative refresh functions in this module synchronize external project state into Salsa inputs; tracked semantic queries then derive validation data from those inputs.
 
 ### `crates/djls-ide`
 
@@ -137,7 +137,7 @@ salsa::Database
 
 Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. `djls-workspace` also has no database trait; it owns document buffers, the overlay filesystem, and file discovery helpers, while `DjangoDatabase` observes that state through `SourceDb::read_file`.
 
-`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` can still implement the same traits with fixture-backed semantic data, but the trait hierarchy now makes project context and source-file access explicit semantic dependencies.
+`DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` can still implement the same traits with fixture-backed semantic data, but the trait hierarchy now makes Project Facts and source-file access explicit semantic dependencies.
 
 ### Salsa boundary rules
 
@@ -154,14 +154,14 @@ Template parsing does not need its own database trait. `parse_template` depends 
 > [!NOTE]
 > The inspector is planned for replacement with static settings extraction ([#401](https://github.com/joshuadavidthomas/django-language-server/issues/401)). The goal: parse `settings.py` with the Ruff AST — the same approach used for templatetag extraction — and eliminate the Python subprocess and calling `django.setup()` entirely.
 
-The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, templatetag libraries, and the symbols they export. A Python subprocess currently provides this.
+The server needs to know what Django has installed: `INSTALLED_APPS`, template directories, Template Tag Libraries, and the symbols they export. A Python subprocess currently provides this.
 
 A small Python program from `crates/djls-semantic/inspector/` ships embedded in the binary as a zipapp. At startup the server writes it to a temp file and runs it against the project's Python interpreter with Django configured. Project introspection queries Django's template engine registry and returns JSON describing template directories, installed libraries, and their symbols.
 
 Startup uses two phases to avoid blocking the editor:
 
 1. A cache check during `initialized`. The server loads a cached inspector response from `~/.cache/djls/inspector/`. The cache key is a SHA-256 hash of the project root, interpreter path, settings module, and PYTHONPATH. If the cache exists (and its `djls_version` matches), the server becomes functional immediately with the cached data.
-2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, template libraries, the first-party project file set, extracted validation rules from installed packages, and external model graphs. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
+2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, Template Tag Libraries, the first-party project file set, extracted validation rules from installed packages, and external model graphs. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
 
 This means that in the common case (you've opened this project before and the environment hasn't changed), startup is nearly instant — the server just reads a JSON file from disk.
 
@@ -245,7 +245,7 @@ In general, we prefer snapshot tests over hand-written assertions. Nobody wants 
 
 ### Semantic Validation Tests
 
-Validation tests use test databases that implement only the Salsa traits they need. A `TestDatabase` carries an in-memory file system, tag specs, and template libraries — no Python, no Django, no disk I/O.
+Validation tests use test databases that implement only the Salsa traits they need. A `TestDatabase` carries an in-memory file system, tag specs, and Template Tag Libraries — no Python, no Django, no disk I/O.
 
 The typical pattern is: build a database with the specs you care about, parse a template, validate it, and check the accumulated errors:
 
@@ -270,7 +270,7 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-**Architecture Invariant:** tests never require a Django installation or a Python interpreter. Test databases supply tag specs, template libraries, and filter arities directly. If a test needs Python knowledge, it builds it from JSON fixtures, not by running Django.
+**Architecture Invariant:** tests never require a Django installation or a Python interpreter. Test databases supply tag specs, Template Tag Libraries, and filter arities directly. If a test needs Python knowledge, it builds it from JSON fixtures, not by running Django.
 
 ### Corpus Tests
 
