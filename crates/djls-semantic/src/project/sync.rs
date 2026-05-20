@@ -182,7 +182,17 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
             }
 
             if let Some(snapshot) = fetch_template_library_snapshot(db) {
-                save_template_library_snapshot_cache(db, project, &snapshot);
+                let root = project.root(db).clone();
+                let interpreter = project.interpreter(db).clone();
+                let django_settings_module = project.django_settings_module(db).clone();
+                let pythonpath = project.pythonpath(db).clone();
+                save_template_library_snapshot(
+                    &root,
+                    &interpreter,
+                    django_settings_module.as_deref(),
+                    &pythonpath,
+                    &snapshot,
+                );
                 apply_template_library_snapshot_with_knowledge(
                     db,
                     project,
@@ -930,25 +940,6 @@ fn load_template_library_snapshot_cache(
         django_settings_module.as_deref(),
         &pythonpath,
     )
-}
-
-fn save_template_library_snapshot_cache(
-    db: &dyn ProjectDb,
-    project: Project,
-    response: &TemplateLibrarySnapshot,
-) {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-
-    save_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-        response,
-    );
 }
 
 fn load_static_template_library_snapshot_cache(
