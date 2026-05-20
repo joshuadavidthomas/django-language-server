@@ -141,9 +141,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 &site_packages_paths,
             );
             if let Some(entry) = static_cache_entry {
-                if usable_static_template_library_snapshot(entry.snapshot.clone()).is_some() {
+                if let Some((snapshot, knowledge)) =
+                    usable_static_template_library_snapshot(entry.snapshot)
+                {
                     log_project_facts_status("cache_load", &entry.status);
-                    apply_static_template_library_snapshot(db, project, entry.snapshot);
+                    apply_template_library_snapshot_with_knowledge(
+                        db, project, snapshot, knowledge,
+                    );
                     return;
                 }
             }
@@ -169,7 +173,22 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &assembly,
                 );
             }
-            apply_static_template_library_snapshot(db, project, assembly.snapshot);
+            if let Some((snapshot, knowledge)) =
+                usable_static_template_library_snapshot(assembly.snapshot)
+            {
+                apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge);
+            } else {
+                apply_template_library_snapshot_with_knowledge(
+                    db,
+                    project,
+                    TemplateLibrarySnapshot {
+                        symbols: Vec::new(),
+                        libraries: BTreeMap::default(),
+                        builtins: Vec::new(),
+                    },
+                    Knowledge::Unknown,
+                );
+            }
         }
         DjangoDiscoveryMode::Runtime => {
             tracing::debug!("Requesting template directories from project introspection");
@@ -260,9 +279,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 &site_packages_paths,
             );
             if let Some(entry) = static_cache_entry {
-                if usable_static_template_library_snapshot(entry.snapshot.clone()).is_some() {
+                if let Some((snapshot, knowledge)) =
+                    usable_static_template_library_snapshot(entry.snapshot)
+                {
                     log_project_facts_status("cache_load", &entry.status);
-                    apply_static_template_library_snapshot(db, project, entry.snapshot);
+                    apply_template_library_snapshot_with_knowledge(
+                        db, project, snapshot, knowledge,
+                    );
                     return;
                 }
             }
@@ -288,7 +311,22 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &assembly,
                 );
             }
-            apply_static_template_library_snapshot(db, project, assembly.snapshot);
+            if let Some((snapshot, knowledge)) =
+                usable_static_template_library_snapshot(assembly.snapshot)
+            {
+                apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge);
+            } else {
+                apply_template_library_snapshot_with_knowledge(
+                    db,
+                    project,
+                    TemplateLibrarySnapshot {
+                        symbols: Vec::new(),
+                        libraries: BTreeMap::default(),
+                        builtins: Vec::new(),
+                    },
+                    Knowledge::Unknown,
+                );
+            }
         }
     }
 }
@@ -458,27 +496,6 @@ struct StaticTemplateLibrarySnapshotAssembly {
     snapshot: Fact<TemplateLibrarySnapshot>,
     status: ProjectFactsStatus,
     dependencies: Vec<StaticCacheDependency>,
-}
-
-fn apply_static_template_library_snapshot(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    snapshot: Fact<TemplateLibrarySnapshot>,
-) -> bool {
-    let Some((snapshot, knowledge)) = usable_static_template_library_snapshot(snapshot) else {
-        return apply_template_library_snapshot_with_knowledge(
-            db,
-            project,
-            TemplateLibrarySnapshot {
-                symbols: Vec::new(),
-                libraries: BTreeMap::default(),
-                builtins: Vec::new(),
-            },
-            Knowledge::Unknown,
-        );
-    };
-
-    apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge)
 }
 
 fn assemble_static_template_library_snapshot_with_status(
@@ -958,8 +975,29 @@ fn apply_static_template_library_cache_entry(
     entry: StaticTemplateLibraryCacheEntry,
 ) -> bool {
     log_project_facts_status("cache_load", &entry.status);
-    let usable = usable_static_template_library_snapshot(entry.snapshot.clone()).is_some();
-    if apply_static_template_library_snapshot(db, project, entry.snapshot) {
+    let (changed, usable) = if let Some((snapshot, knowledge)) =
+        usable_static_template_library_snapshot(entry.snapshot)
+    {
+        (
+            apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge),
+            true,
+        )
+    } else {
+        (
+            apply_template_library_snapshot_with_knowledge(
+                db,
+                project,
+                TemplateLibrarySnapshot {
+                    symbols: Vec::new(),
+                    libraries: BTreeMap::default(),
+                    builtins: Vec::new(),
+                },
+                Knowledge::Unknown,
+            ),
+            false,
+        )
+    };
+    if changed {
         refresh_templatetag_modules(db, project);
     }
     usable
@@ -2830,14 +2868,15 @@ TEMPLATES = []
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root);
 
-        let snapshot =
-            assemble_static_template_library_snapshot(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
-        assert!(apply_static_template_library_snapshot(
-            &mut db, project, snapshot
-        ));
+        refresh_template_state(&mut db, project);
 
         let libraries = project.template_libraries(&db);
         assert_eq!(libraries.active_knowledge, Knowledge::Known);
@@ -2895,26 +2934,6 @@ TEMPLATES = []
         let libraries = project.template_libraries(&db);
         assert!(libraries.is_enabled_library_str("inspector_only"));
         assert!(!libraries.is_enabled_library_str("blog_tags"));
-    }
-
-    #[test]
-    fn template_library_snapshot_routing_uses_static_when_inspector_is_missing() {
-        let tmp = TempDir::new().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        write_static_template_fixture(&root);
-        let static_snapshot =
-            assemble_static_template_library_snapshot(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
-
-        assert!(apply_static_template_library_snapshot(
-            &mut db,
-            project,
-            static_snapshot,
-        ));
-
-        let libraries = project.template_libraries(&db);
-        assert!(libraries.is_enabled_library_str("blog_tags"));
     }
 
     #[test]
@@ -3041,16 +3060,15 @@ TEMPLATES = []
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_fixture(&root.join("src"));
-        let static_snapshot =
-            assemble_static_template_library_snapshot(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
-        assert!(apply_static_template_library_snapshot(
-            &mut db,
-            project,
-            static_snapshot,
-        ));
+        refresh_template_state(&mut db, project);
         refresh_python_index(&mut db, project);
 
         let module_paths = project
@@ -3081,11 +3099,14 @@ TEMPLATES = []
             Some((_, Knowledge::Partial))
         ));
 
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
-        assert!(apply_static_template_library_snapshot(
-            &mut db, project, snapshot,
-        ));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        refresh_template_state(&mut db, project);
         let libraries = project.template_libraries(&db);
         assert_eq!(libraries.active_knowledge, Knowledge::Partial);
         assert!(libraries
@@ -3829,8 +3850,11 @@ TEMPLATES = [
         let (mut db, project) =
             StaticSnapshotTestDb::with_project(root, Some("project.settings".to_string()));
 
-        assert!(apply_static_template_library_snapshot(
-            &mut db, project, snapshot,
+        assert!(apply_template_library_snapshot_with_knowledge(
+            &mut db,
+            project,
+            snapshot.value().cloned().unwrap(),
+            Knowledge::Known,
         ));
         assert!(apply_static_template_library_cache_entry(
             &mut db, project, entry,
