@@ -1104,12 +1104,14 @@ struct StaticTemplateLibraryCacheEntry {
     status: ProjectFactsStatus,
 }
 
-fn cache_key(
+fn cache_dir(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
-) -> String {
+) -> Option<Utf8PathBuf> {
+    let base = djls_conf::project_dirs()
+        .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
     let mut hasher = Sha256::new();
     hasher.update(root.as_str().as_bytes());
     hasher.update(b"\0");
@@ -1126,16 +1128,19 @@ fn cache_key(
     for byte in digest {
         write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
     }
-    key
+    // Keep the legacy `inspector` directory for on-disk cache compatibility.
+    Some(base.join("inspector").join(&key[..16]))
 }
 
-fn static_template_library_cache_key(
+fn static_template_library_cache_dir(
     root: &Utf8Path,
     interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
-) -> String {
+) -> Option<Utf8PathBuf> {
+    let base = djls_conf::project_dirs()
+        .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
     let mut hasher = Sha256::new();
     hasher.update(STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.as_bytes());
     hasher.update(b"\0");
@@ -1162,38 +1167,6 @@ fn static_template_library_cache_key(
     for byte in digest {
         write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
     }
-    key
-}
-
-fn cache_dir(
-    root: &Utf8Path,
-    interpreter: &Interpreter,
-    django_settings_module: Option<&str>,
-    pythonpath: &[String],
-) -> Option<Utf8PathBuf> {
-    let base = djls_conf::project_dirs()
-        .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
-    let key = cache_key(root, interpreter, django_settings_module, pythonpath);
-    // Keep the legacy `inspector` directory for on-disk cache compatibility.
-    Some(base.join("inspector").join(&key[..16]))
-}
-
-fn static_template_library_cache_dir(
-    root: &Utf8Path,
-    interpreter: &Interpreter,
-    django_settings_module: Option<&str>,
-    pythonpath: &[String],
-    site_packages_paths: &[Utf8PathBuf],
-) -> Option<Utf8PathBuf> {
-    let base = djls_conf::project_dirs()
-        .and_then(|dirs| Utf8PathBuf::from_path_buf(dirs.cache_dir().to_path_buf()).ok())?;
-    let key = static_template_library_cache_key(
-        root,
-        interpreter,
-        django_settings_module,
-        pythonpath,
-        site_packages_paths,
-    );
     Some(
         base.join("project-facts")
             .join("template-libraries")
@@ -1210,13 +1183,32 @@ fn static_template_library_cache_dir_in(
     pythonpath: &[String],
     site_packages_paths: &[Utf8PathBuf],
 ) -> Utf8PathBuf {
-    let key = static_template_library_cache_key(
-        root,
-        interpreter,
-        django_settings_module,
-        pythonpath,
-        site_packages_paths,
-    );
+    let mut hasher = Sha256::new();
+    hasher.update(STATIC_TEMPLATE_LIBRARY_CACHE_VERSION.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(DJANGO_DEFAULT_TEMPLATE_LIBRARY_POLICY.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(root.as_str().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(format!("{interpreter:?}").as_bytes());
+    hasher.update(b"\0");
+    hasher.update(django_settings_module.unwrap_or("").as_bytes());
+    hasher.update(b"\0");
+    for path in pythonpath {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+    }
+    for path in site_packages_paths {
+        hasher.update(path.as_str().as_bytes());
+        hasher.update(b"\0");
+    }
+    let digest = hasher.finalize();
+    let mut key = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut key, "{byte:02x}").expect("writing to String cannot fail");
+    }
     base.join("project-facts")
         .join("template-libraries")
         .join(&key[..16])
@@ -3309,28 +3301,6 @@ TEMPLATES = []
         let snapshot = assemble_static_template_library_snapshot(&root, None, &[], &[]);
 
         assert!(matches!(snapshot, Fact::Unknown { .. }));
-    }
-
-    #[test]
-    fn cache_key_deterministic() {
-        let root = Utf8Path::new("/project");
-        let interpreter = Interpreter::VenvPath("/project/.venv".to_string());
-        let dsm = Some("myproject.settings");
-        let pythonpath = vec!["/extra".to_string()];
-
-        let key1 = cache_key(root, &interpreter, dsm, &pythonpath);
-        let key2 = cache_key(root, &interpreter, dsm, &pythonpath);
-        assert_eq!(key1, key2);
-    }
-
-    #[test]
-    fn cache_key_varies_with_inputs() {
-        let interpreter = Interpreter::VenvPath("/project/.venv".to_string());
-        let pythonpath: Vec<String> = vec![];
-
-        let key1 = cache_key(Utf8Path::new("/project-a"), &interpreter, None, &pythonpath);
-        let key2 = cache_key(Utf8Path::new("/project-b"), &interpreter, None, &pythonpath);
-        assert_ne!(key1, key2);
     }
 
     #[test]
