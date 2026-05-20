@@ -95,7 +95,7 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
         return false;
     };
 
-    match project.django_discovery(db) {
+    let static_cache_entry = match project.django_discovery(db) {
         DjangoDiscoveryMode::Source => {
             let interpreter = project.interpreter(db).clone();
             let root = project.root(db).clone();
@@ -104,16 +104,13 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
             let site_packages_paths = find_site_packages(&interpreter, &root)
                 .into_iter()
                 .collect::<Vec<_>>();
-            let Some(entry) = load_static_template_library_snapshot(
+            load_static_template_library_snapshot(
                 &root,
                 &interpreter,
                 django_settings_module.as_deref(),
                 &pythonpath,
                 &site_packages_paths,
-            ) else {
-                return false;
-            };
-            apply_static_template_library_cache_entry(db, project, entry)
+            )
         }
         DjangoDiscoveryMode::Runtime => {
             let interpreter = project.interpreter(db).clone();
@@ -141,18 +138,86 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
             let site_packages_paths = find_site_packages(&interpreter, &root)
                 .into_iter()
                 .collect::<Vec<_>>();
-            let Some(entry) = load_static_template_library_snapshot(
+            load_static_template_library_snapshot(
                 &root,
                 &interpreter,
                 django_settings_module.as_deref(),
                 &pythonpath,
                 &site_packages_paths,
-            ) else {
-                return false;
-            };
-            apply_static_template_library_cache_entry(db, project, entry)
+            )
         }
+    };
+
+    let Some(entry) = static_cache_entry else {
+        return false;
+    };
+    log_project_facts_status("cache_load", &entry.status);
+    let (changed, usable) = match entry.snapshot {
+        Fact::Known { value }
+            if !value.libraries.is_empty()
+                || !value.builtins.is_empty()
+                || !value.symbols.is_empty() =>
+        {
+            (
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) == &next {
+                        false
+                    } else {
+                        project.set_template_libraries(db).to(next);
+                        true
+                    }
+                },
+                true,
+            )
+        }
+        Fact::Partial { value, .. }
+            if !value.libraries.is_empty()
+                || !value.builtins.is_empty()
+                || !value.symbols.is_empty() =>
+        {
+            (
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) == &next {
+                        false
+                    } else {
+                        project.set_template_libraries(db).to(next);
+                        true
+                    }
+                },
+                true,
+            )
+        }
+        Fact::Known { .. }
+        | Fact::Partial { .. }
+        | Fact::Unknown { .. }
+        | Fact::Ambiguous { .. } => (
+            {
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(None);
+                if project.template_libraries(db) == &next {
+                    false
+                } else {
+                    project.set_template_libraries(db).to(next);
+                    true
+                }
+            },
+            false,
+        ),
+    };
+    if changed {
+        refresh_templatetag_modules(db, project);
     }
+    usable
 }
 
 #[expect(
@@ -1000,93 +1065,6 @@ fn extend_unique_static_reasons(reasons: &mut Vec<Reason>, new_reasons: Vec<Reas
 struct CacheEnvelope {
     djls_version: String,
     response: TemplateLibrarySnapshot,
-}
-
-#[cfg(test)]
-fn load_static_template_library_snapshot_cache_from_dir(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    dir: &Utf8Path,
-) -> bool {
-    let Some(entry) = load_static_template_library_snapshot_from_dir(dir) else {
-        return false;
-    };
-
-    apply_static_template_library_cache_entry(db, project, entry)
-}
-
-fn apply_static_template_library_cache_entry(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    entry: StaticTemplateLibraryCacheEntry,
-) -> bool {
-    log_project_facts_status("cache_load", &entry.status);
-    let (changed, usable) = match entry.snapshot {
-        Fact::Known { value }
-            if !value.libraries.is_empty()
-                || !value.builtins.is_empty()
-                || !value.symbols.is_empty() =>
-        {
-            (
-                {
-                    let next = project
-                        .template_libraries(db)
-                        .clone()
-                        .apply_active_snapshot(Some(value));
-                    if project.template_libraries(db) == &next {
-                        false
-                    } else {
-                        project.set_template_libraries(db).to(next);
-                        true
-                    }
-                },
-                true,
-            )
-        }
-        Fact::Partial { value, .. }
-            if !value.libraries.is_empty()
-                || !value.builtins.is_empty()
-                || !value.symbols.is_empty() =>
-        {
-            (
-                {
-                    let next = project
-                        .template_libraries(db)
-                        .clone()
-                        .apply_partial_active_snapshot(Some(value));
-                    if project.template_libraries(db) == &next {
-                        false
-                    } else {
-                        project.set_template_libraries(db).to(next);
-                        true
-                    }
-                },
-                true,
-            )
-        }
-        Fact::Known { .. }
-        | Fact::Partial { .. }
-        | Fact::Unknown { .. }
-        | Fact::Ambiguous { .. } => (
-            {
-                let next = project
-                    .template_libraries(db)
-                    .clone()
-                    .apply_active_snapshot(None);
-                if project.template_libraries(db) == &next {
-                    false
-                } else {
-                    project.set_template_libraries(db).to(next);
-                    true
-                }
-            },
-            false,
-        ),
-    };
-    if changed {
-        refresh_templatetag_modules(db, project);
-    }
-    usable
 }
 
 #[derive(Serialize, Deserialize)]
@@ -3271,6 +3249,9 @@ TEMPLATES = []
 
     #[test]
     fn static_template_snapshot_accepts_libraries_without_symbols() {
+        let tmp = TempDir::new().unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
         let snapshot = Fact::known(TemplateLibrarySnapshot {
             symbols: Vec::new(),
             libraries: BTreeMap::from([(
@@ -3280,15 +3261,16 @@ TEMPLATES = []
             builtins: Vec::new(),
         });
         let status = ProjectFactsStatus::from_snapshot(None, &snapshot, None, None, None);
-        let entry = StaticTemplateLibraryCacheEntry { snapshot, status };
-        let (mut db, project) = StaticSnapshotTestDb::with_project(
-            Utf8PathBuf::from("/project"),
-            Some("project.settings".to_string()),
-        );
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
+            snapshot,
+            status,
+            dependencies: Vec::new(),
+        };
+        save_static_template_library_snapshot(&root, &interpreter, None, &[], &[], &assembly);
+        let (mut db, project) =
+            StaticSnapshotTestDb::with_project_options(root, interpreter, None, Vec::new());
 
-        assert!(apply_static_template_library_cache_entry(
-            &mut db, project, entry,
-        ));
+        assert!(load_template_library_cache(&mut db));
         assert!(project
             .template_libraries(&db)
             .is_enabled_library_str("custom"));
@@ -3799,7 +3781,6 @@ TEMPLATES = [
     #[test]
     fn startup_cache_can_load_static_template_library_snapshot() {
         let tmp = TempDir::new().unwrap();
-        let base = Utf8PathBuf::try_from(tmp.path().join("cache")).unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
         let dependency = root.join("project/settings.py");
         write_file(&dependency, "INSTALLED_APPS = []\n");
@@ -3818,22 +3799,14 @@ TEMPLATES = [
             status,
             dependencies: vec![StaticCacheDependency::from_path(dependency)],
         };
-
-        let dir = static_template_library_cache_dir_in(
-            &base,
+        save_static_template_library_snapshot(
             &root,
             &interpreter,
             Some("project.settings"),
             &[],
             &[],
+            &assembly,
         );
-        save_static_template_library_snapshot_to_dir(
-            &dir,
-            &assembly.snapshot,
-            &assembly.status,
-            &assembly.dependencies,
-        );
-        assert!(dir.join("snapshot.json").is_file());
 
         let (mut db, project) = StaticSnapshotTestDb::with_project_options(
             root,
@@ -3842,9 +3815,7 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        assert!(load_static_template_library_snapshot_cache_from_dir(
-            &mut db, project, &dir,
-        ));
+        assert!(load_template_library_cache(&mut db));
         assert!(project
             .template_libraries(&db)
             .is_enabled_library_str("i18n"));
@@ -3919,6 +3890,7 @@ TEMPLATES = [
     fn static_cache_refresh_short_circuits_when_snapshot_is_already_applied() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().join("project")).unwrap();
+        let interpreter = Interpreter::VenvPath("/test/.venv".to_string());
         let snapshot = Fact::known(test_response());
         let status = ProjectFactsStatus::from_snapshot(
             Some("project.settings"),
@@ -3927,12 +3899,25 @@ TEMPLATES = [
             Some(0),
             Some(1),
         );
-        let entry = StaticTemplateLibraryCacheEntry {
+        let assembly = StaticTemplateLibrarySnapshotAssembly {
             snapshot: snapshot.clone(),
             status,
+            dependencies: Vec::new(),
         };
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root, Some("project.settings".to_string()));
+        save_static_template_library_snapshot(
+            &root,
+            &interpreter,
+            Some("project.settings"),
+            &[],
+            &[],
+            &assembly,
+        );
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options(
+            root,
+            interpreter,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
         let next = project
             .template_libraries(&db)
@@ -3940,9 +3925,7 @@ TEMPLATES = [
             .apply_active_snapshot(snapshot.value().cloned());
         assert_ne!(project.template_libraries(&db), &next);
         project.set_template_libraries(&mut db).to(next);
-        assert!(apply_static_template_library_cache_entry(
-            &mut db, project, entry,
-        ));
+        assert!(load_template_library_cache(&mut db));
         assert!(project
             .template_libraries(&db)
             .is_enabled_library_str("i18n"));
