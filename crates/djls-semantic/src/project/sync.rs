@@ -162,7 +162,24 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
             apply_static_template_library_snapshot(db, project, assembly.snapshot);
         }
         DjangoDiscoveryMode::Runtime => {
-            if let Some(dirs) = fetch_template_dirs(db) {
+            tracing::debug!("Requesting template directories from project introspection");
+            if let Some(response) = db.project_introspector().query(db, &TemplateDirsRequest) {
+                let dirs = response.dirs;
+                tracing::info!(
+                    "Retrieved {} template directories from project introspection",
+                    dirs.len(),
+                );
+                for (i, dir) in dirs.iter().enumerate() {
+                    tracing::debug!("  Template dir [{}]: {}", i, dir);
+                }
+                let missing_dirs: Vec<_> = dirs.iter().filter(|dir| !dir.exists()).collect();
+                if !missing_dirs.is_empty() {
+                    tracing::warn!(
+                        "Found {} non-existent template directories: {:?}",
+                        missing_dirs.len(),
+                        missing_dirs,
+                    );
+                }
                 apply_template_dirs(db, project, dirs);
             } else {
                 let root = project.root(db).clone();
@@ -182,7 +199,10 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 apply_static_template_dirs(db, project, static_dirs);
             }
 
-            if let Some(snapshot) = fetch_template_library_snapshot(db) {
+            if let Some(snapshot) = db
+                .project_introspector()
+                .query(db, &TemplateLibrarySnapshotRequest)
+            {
                 let root = project.root(db).clone();
                 let interpreter = project.interpreter(db).clone();
                 let django_settings_module = project.django_settings_module(db).clone();
@@ -272,34 +292,6 @@ fn apply_template_dirs(db: &mut dyn ProjectDb, project: Project, dirs: Vec<Utf8P
     }
 
     false
-}
-
-fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
-    tracing::debug!("Requesting template directories from project introspection");
-
-    let response = db.project_introspector().query(db, &TemplateDirsRequest)?;
-
-    let dir_count = response.dirs.len();
-    tracing::info!(
-        "Retrieved {} template directories from project introspection",
-        dir_count
-    );
-
-    for (i, dir) in response.dirs.iter().enumerate() {
-        tracing::debug!("  Template dir [{}]: {}", i, dir);
-    }
-
-    let missing_dirs: Vec<_> = response.dirs.iter().filter(|dir| !dir.exists()).collect();
-
-    if !missing_dirs.is_empty() {
-        tracing::warn!(
-            "Found {} non-existent template directories: {:?}",
-            missing_dirs.len(),
-            missing_dirs
-        );
-    }
-
-    Some(response.dirs)
 }
 
 #[cfg(test)]
@@ -442,11 +434,6 @@ fn apply_template_library_snapshot_with_knowledge(
 
     project.set_template_libraries(db).to(next);
     true
-}
-
-fn fetch_template_library_snapshot(db: &dyn ProjectDb) -> Option<TemplateLibrarySnapshot> {
-    db.project_introspector()
-        .query(db, &TemplateLibrarySnapshotRequest)
 }
 
 #[cfg(test)]
@@ -2157,15 +2144,21 @@ def emph(value):
     }
 
     fn assert_static_runtime_match(db: &StaticSnapshotTestDb, project: Project) {
-        let inspector_dirs = fetch_template_dirs(db).expect("inspector template dirs");
+        let inspector_dirs = db
+            .project_introspector()
+            .query(db, &TemplateDirsRequest)
+            .expect("inspector template dirs")
+            .dirs;
         let static_dirs = fact_value_or_panic(
             assemble_project_static_template_dirs(db, project),
             "template dirs",
         );
         assert_eq!(static_dirs, inspector_dirs);
 
-        let inspector_snapshot =
-            fetch_template_library_snapshot(db).expect("inspector template library snapshot");
+        let inspector_snapshot = db
+            .project_introspector()
+            .query(db, &TemplateLibrarySnapshotRequest)
+            .expect("inspector template library snapshot");
         let static_snapshot = fact_value_or_panic(
             assemble_project_static_template_library_snapshot(db, project),
             "template library snapshot",
