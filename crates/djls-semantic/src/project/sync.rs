@@ -141,14 +141,39 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 &site_packages_paths,
             );
             if let Some(entry) = static_cache_entry {
-                if let Some((snapshot, knowledge)) =
-                    usable_static_template_library_snapshot(entry.snapshot)
-                {
-                    log_project_facts_status("cache_load", &entry.status);
-                    apply_template_library_snapshot_with_knowledge(
-                        db, project, snapshot, knowledge,
-                    );
-                    return;
+                match entry.snapshot {
+                    Fact::Known { value }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        apply_template_library_snapshot_with_knowledge(
+                            db,
+                            project,
+                            value,
+                            Knowledge::Known,
+                        );
+                        return;
+                    }
+                    Fact::Partial { value, .. }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        apply_template_library_snapshot_with_knowledge(
+                            db,
+                            project,
+                            value,
+                            Knowledge::Partial,
+                        );
+                        return;
+                    }
+                    Fact::Known { .. }
+                    | Fact::Partial { .. }
+                    | Fact::Unknown { .. }
+                    | Fact::Ambiguous { .. } => {}
                 }
             }
 
@@ -173,21 +198,46 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &assembly,
                 );
             }
-            if let Some((snapshot, knowledge)) =
-                usable_static_template_library_snapshot(assembly.snapshot)
-            {
-                apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge);
-            } else {
-                apply_template_library_snapshot_with_knowledge(
-                    db,
-                    project,
-                    TemplateLibrarySnapshot {
-                        symbols: Vec::new(),
-                        libraries: BTreeMap::default(),
-                        builtins: Vec::new(),
-                    },
-                    Knowledge::Unknown,
-                );
+            match assembly.snapshot {
+                Fact::Known { value }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    apply_template_library_snapshot_with_knowledge(
+                        db,
+                        project,
+                        value,
+                        Knowledge::Known,
+                    );
+                }
+                Fact::Partial { value, .. }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    apply_template_library_snapshot_with_knowledge(
+                        db,
+                        project,
+                        value,
+                        Knowledge::Partial,
+                    );
+                }
+                Fact::Known { .. }
+                | Fact::Partial { .. }
+                | Fact::Unknown { .. }
+                | Fact::Ambiguous { .. } => {
+                    apply_template_library_snapshot_with_knowledge(
+                        db,
+                        project,
+                        TemplateLibrarySnapshot {
+                            symbols: Vec::new(),
+                            libraries: BTreeMap::default(),
+                            builtins: Vec::new(),
+                        },
+                        Knowledge::Unknown,
+                    );
+                }
             }
         }
         DjangoDiscoveryMode::Runtime => {
@@ -279,14 +329,39 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 &site_packages_paths,
             );
             if let Some(entry) = static_cache_entry {
-                if let Some((snapshot, knowledge)) =
-                    usable_static_template_library_snapshot(entry.snapshot)
-                {
-                    log_project_facts_status("cache_load", &entry.status);
-                    apply_template_library_snapshot_with_knowledge(
-                        db, project, snapshot, knowledge,
-                    );
-                    return;
+                match entry.snapshot {
+                    Fact::Known { value }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        apply_template_library_snapshot_with_knowledge(
+                            db,
+                            project,
+                            value,
+                            Knowledge::Known,
+                        );
+                        return;
+                    }
+                    Fact::Partial { value, .. }
+                        if !value.libraries.is_empty()
+                            || !value.builtins.is_empty()
+                            || !value.symbols.is_empty() =>
+                    {
+                        log_project_facts_status("cache_load", &entry.status);
+                        apply_template_library_snapshot_with_knowledge(
+                            db,
+                            project,
+                            value,
+                            Knowledge::Partial,
+                        );
+                        return;
+                    }
+                    Fact::Known { .. }
+                    | Fact::Partial { .. }
+                    | Fact::Unknown { .. }
+                    | Fact::Ambiguous { .. } => {}
                 }
             }
 
@@ -311,21 +386,46 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &assembly,
                 );
             }
-            if let Some((snapshot, knowledge)) =
-                usable_static_template_library_snapshot(assembly.snapshot)
-            {
-                apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge);
-            } else {
-                apply_template_library_snapshot_with_knowledge(
-                    db,
-                    project,
-                    TemplateLibrarySnapshot {
-                        symbols: Vec::new(),
-                        libraries: BTreeMap::default(),
-                        builtins: Vec::new(),
-                    },
-                    Knowledge::Unknown,
-                );
+            match assembly.snapshot {
+                Fact::Known { value }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    apply_template_library_snapshot_with_knowledge(
+                        db,
+                        project,
+                        value,
+                        Knowledge::Known,
+                    );
+                }
+                Fact::Partial { value, .. }
+                    if !value.libraries.is_empty()
+                        || !value.builtins.is_empty()
+                        || !value.symbols.is_empty() =>
+                {
+                    apply_template_library_snapshot_with_knowledge(
+                        db,
+                        project,
+                        value,
+                        Knowledge::Partial,
+                    );
+                }
+                Fact::Known { .. }
+                | Fact::Partial { .. }
+                | Fact::Unknown { .. }
+                | Fact::Ambiguous { .. } => {
+                    apply_template_library_snapshot_with_knowledge(
+                        db,
+                        project,
+                        TemplateLibrarySnapshot {
+                            symbols: Vec::new(),
+                            libraries: BTreeMap::default(),
+                            builtins: Vec::new(),
+                        },
+                        Knowledge::Unknown,
+                    );
+                }
             }
         }
     }
@@ -857,22 +957,6 @@ fn modified_timestamp(path: &Utf8Path) -> std::io::Result<(u64, u32)> {
     Ok((duration.as_secs(), duration.subsec_nanos()))
 }
 
-fn usable_static_template_library_snapshot(
-    snapshot: Fact<TemplateLibrarySnapshot>,
-) -> Option<(TemplateLibrarySnapshot, Knowledge)> {
-    match snapshot {
-        Fact::Known { value } => {
-            (!value.libraries.is_empty() || !value.builtins.is_empty() || !value.symbols.is_empty())
-                .then_some((value, Knowledge::Known))
-        }
-        Fact::Partial { value, .. } => {
-            (!value.libraries.is_empty() || !value.builtins.is_empty() || !value.symbols.is_empty())
-                .then_some((value, Knowledge::Partial))
-        }
-        Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
-    }
-}
-
 fn add_static_reasons<T>(fact: Fact<T>, new_reasons: impl IntoIterator<Item = Reason>) -> Fact<T> {
     let new_reasons = new_reasons.into_iter().collect::<Vec<_>>();
     if new_reasons.is_empty() {
@@ -975,15 +1059,41 @@ fn apply_static_template_library_cache_entry(
     entry: StaticTemplateLibraryCacheEntry,
 ) -> bool {
     log_project_facts_status("cache_load", &entry.status);
-    let (changed, usable) = if let Some((snapshot, knowledge)) =
-        usable_static_template_library_snapshot(entry.snapshot)
-    {
-        (
-            apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge),
-            true,
-        )
-    } else {
-        (
+    let (changed, usable) = match entry.snapshot {
+        Fact::Known { value }
+            if !value.libraries.is_empty()
+                || !value.builtins.is_empty()
+                || !value.symbols.is_empty() =>
+        {
+            (
+                apply_template_library_snapshot_with_knowledge(
+                    db,
+                    project,
+                    value,
+                    Knowledge::Known,
+                ),
+                true,
+            )
+        }
+        Fact::Partial { value, .. }
+            if !value.libraries.is_empty()
+                || !value.builtins.is_empty()
+                || !value.symbols.is_empty() =>
+        {
+            (
+                apply_template_library_snapshot_with_knowledge(
+                    db,
+                    project,
+                    value,
+                    Knowledge::Partial,
+                ),
+                true,
+            )
+        }
+        Fact::Known { .. }
+        | Fact::Partial { .. }
+        | Fact::Unknown { .. }
+        | Fact::Ambiguous { .. } => (
             apply_template_library_snapshot_with_knowledge(
                 db,
                 project,
@@ -995,7 +1105,7 @@ fn apply_static_template_library_cache_entry(
                 Knowledge::Unknown,
             ),
             false,
-        )
+        ),
     };
     if changed {
         refresh_templatetag_modules(db, project);
@@ -3094,10 +3204,6 @@ TEMPLATES = []
         assert!(!reasons.is_empty());
         assert!(value.libraries.contains_key("blog_tags"));
         assert!(value.symbols.iter().any(|symbol| symbol.name == "shout"));
-        assert!(matches!(
-            usable_static_template_library_snapshot(snapshot.clone()),
-            Some((_, Knowledge::Partial))
-        ));
 
         let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
             root.clone(),
@@ -3168,10 +3274,26 @@ TEMPLATES = []
 ",
         );
 
-        let snapshot =
-            assemble_static_template_library_snapshot(&root, Some("project.settings"), &[], &[]);
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        assert!(apply_template_library_snapshot_with_knowledge(
+            &mut db,
+            project,
+            test_response(),
+            Knowledge::Known,
+        ));
 
-        assert!(usable_static_template_library_snapshot(snapshot).is_none());
+        refresh_template_state(&mut db, project);
+
+        let libraries = project.template_libraries(&db);
+        assert_eq!(libraries.active_knowledge, Knowledge::Unknown);
+        assert!(!libraries.is_enabled_library_str("i18n"));
+        assert!(libraries.registration_modules().is_empty());
     }
 
     #[test]
@@ -3184,8 +3306,19 @@ TEMPLATES = []
             )]),
             builtins: Vec::new(),
         });
+        let status = ProjectFactsStatus::from_snapshot(None, &snapshot, None, None, None);
+        let entry = StaticTemplateLibraryCacheEntry { snapshot, status };
+        let (mut db, project) = StaticSnapshotTestDb::with_project(
+            Utf8PathBuf::from("/project"),
+            Some("project.settings".to_string()),
+        );
 
-        assert!(usable_static_template_library_snapshot(snapshot).is_some());
+        assert!(apply_static_template_library_cache_entry(
+            &mut db, project, entry,
+        ));
+        assert!(project
+            .template_libraries(&db)
+            .is_enabled_library_str("custom"));
     }
 
     #[test]
@@ -3195,7 +3328,6 @@ TEMPLATES = []
         let snapshot = assemble_static_template_library_snapshot(&root, None, &[], &[]);
 
         assert!(matches!(snapshot, Fact::Unknown { .. }));
-        assert!(usable_static_template_library_snapshot(snapshot).is_none());
     }
 
     #[test]
