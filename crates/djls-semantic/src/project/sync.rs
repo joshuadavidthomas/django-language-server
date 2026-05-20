@@ -839,10 +839,11 @@ fn assemble_project_facts_context(
 
     let settings_resolution =
         resolve_static_module(django_settings_module.clone(), search_paths, root);
-    extend_unique_static_reasons(
-        &mut static_reasons,
-        settings_resolution.resolved.reasons().to_vec(),
-    );
+    for reason in settings_resolution.resolved.reasons() {
+        if !static_reasons.contains(reason) {
+            static_reasons.push(reason.clone());
+        }
+    }
     let settings_file = match settings_resolution.resolved.value() {
         Some(resolved) => resolved.file.clone(),
         None => return Err(settings_resolution.resolved.reasons().to_vec()),
@@ -1026,30 +1027,34 @@ fn add_static_reasons<T>(fact: Fact<T>, new_reasons: impl IntoIterator<Item = Re
             reasons: new_reasons,
         },
         Fact::Partial { value, mut reasons } => {
-            extend_unique_static_reasons(&mut reasons, new_reasons);
+            for reason in new_reasons {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
             Fact::Partial { value, reasons }
         }
         Fact::Unknown { mut reasons } => {
-            extend_unique_static_reasons(&mut reasons, new_reasons);
+            for reason in new_reasons {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
             Fact::Unknown { reasons }
         }
         Fact::Ambiguous {
             candidates,
             mut reasons,
         } => {
-            extend_unique_static_reasons(&mut reasons, new_reasons);
+            for reason in new_reasons {
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
             Fact::Ambiguous {
                 candidates,
                 reasons,
             }
-        }
-    }
-}
-
-fn extend_unique_static_reasons(reasons: &mut Vec<Reason>, new_reasons: Vec<Reason>) {
-    for reason in new_reasons {
-        if !reasons.contains(&reason) {
-            reasons.push(reason);
         }
     }
 }
