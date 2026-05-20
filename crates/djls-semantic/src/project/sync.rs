@@ -185,7 +185,12 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
 
             if let Some(snapshot) = fetch_template_library_snapshot(db) {
                 save_template_library_snapshot_cache(db, project, &snapshot);
-                apply_template_library_snapshot(db, project, snapshot);
+                apply_template_library_snapshot_with_knowledge(
+                    db,
+                    project,
+                    snapshot,
+                    Knowledge::Known,
+                );
                 return;
             }
 
@@ -403,19 +408,11 @@ fn load_project_template_library_cache_inspector(db: &mut dyn ProjectDb, project
         return apply_static_template_library_cache_entry(db, project, entry);
     };
 
-    if apply_template_library_snapshot(db, project, snapshot) {
+    if apply_template_library_snapshot_with_knowledge(db, project, snapshot, Knowledge::Known) {
         refresh_templatetag_modules(db, project);
     }
 
     true
-}
-
-fn apply_template_library_snapshot(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    snapshot: TemplateLibrarySnapshot,
-) -> bool {
-    apply_template_library_snapshot_with_knowledge(db, project, snapshot, Knowledge::Known)
 }
 
 fn apply_template_library_snapshot_with_knowledge(
@@ -487,20 +484,16 @@ fn apply_static_template_library_snapshot(
         return apply_template_library_snapshot_with_knowledge(
             db,
             project,
-            empty_template_library_snapshot(),
+            TemplateLibrarySnapshot {
+                symbols: Vec::new(),
+                libraries: BTreeMap::default(),
+                builtins: Vec::new(),
+            },
             Knowledge::Unknown,
         );
     };
 
     apply_template_library_snapshot_with_knowledge(db, project, snapshot, knowledge)
-}
-
-fn empty_template_library_snapshot() -> TemplateLibrarySnapshot {
-    TemplateLibrarySnapshot {
-        symbols: Vec::new(),
-        libraries: BTreeMap::default(),
-        builtins: Vec::new(),
-    }
 }
 
 fn assemble_static_template_library_snapshot_with_status(
@@ -550,8 +543,8 @@ fn assemble_static_template_library_snapshot_with_status(
     let status = ProjectFactsStatus::from_snapshot(
         django_settings_module,
         &snapshot,
-        fact_len(&context.app_registry.app_registry),
-        fact_len(&template_dirs),
+        context.app_registry.app_registry.value().map(Vec::len),
+        template_dirs.value().map(Vec::len),
         context.module_search_paths.value().map(Vec::len),
     );
     let dependencies =
@@ -694,10 +687,6 @@ fn assemble_project_facts_context(
         app_registry,
         reasons: static_reasons,
     })
-}
-
-fn fact_len<T>(fact: &Fact<Vec<T>>) -> Option<usize> {
-    fact.value().map(Vec::len)
 }
 
 fn log_project_facts_status(event: &str, status: &ProjectFactsStatus) {
@@ -871,17 +860,15 @@ fn usable_static_template_library_snapshot(
 ) -> Option<(TemplateLibrarySnapshot, Knowledge)> {
     match snapshot {
         Fact::Known { value } => {
-            has_static_template_libraries(&value).then_some((value, Knowledge::Known))
+            (!value.libraries.is_empty() || !value.builtins.is_empty() || !value.symbols.is_empty())
+                .then_some((value, Knowledge::Known))
         }
         Fact::Partial { value, .. } => {
-            has_static_template_libraries(&value).then_some((value, Knowledge::Partial))
+            (!value.libraries.is_empty() || !value.builtins.is_empty() || !value.symbols.is_empty())
+                .then_some((value, Knowledge::Partial))
         }
         Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
     }
-}
-
-fn has_static_template_libraries(snapshot: &TemplateLibrarySnapshot) -> bool {
-    !snapshot.libraries.is_empty() || !snapshot.builtins.is_empty() || !snapshot.symbols.is_empty()
 }
 
 fn add_static_reasons<T>(fact: Fact<T>, new_reasons: impl IntoIterator<Item = Reason>) -> Fact<T> {
@@ -1509,7 +1496,11 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
         .collect();
 
     let new_extraction = if modules.is_empty() {
-        SplitExtractionResults::empty()
+        SplitExtractionResults {
+            tag_rules: FxHashMap::default(),
+            filter_arities: FxHashMap::default(),
+            block_specs: FxHashMap::default(),
+        }
     } else {
         let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
         let (_workspace, external_modules) =
@@ -1583,20 +1574,14 @@ struct SplitExtractionResults {
     block_specs: FxHashMap<String, BlockSpecs>,
 }
 
-impl SplitExtractionResults {
-    fn empty() -> Self {
-        Self {
-            tag_rules: FxHashMap::default(),
-            filter_arities: FxHashMap::default(),
-            block_specs: FxHashMap::default(),
-        }
-    }
-}
-
 fn split_extraction_results(
     results: FxHashMap<String, ExtractionResult>,
 ) -> SplitExtractionResults {
-    let mut split = SplitExtractionResults::empty();
+    let mut split = SplitExtractionResults {
+        tag_rules: FxHashMap::default(),
+        filter_arities: FxHashMap::default(),
+        block_specs: FxHashMap::default(),
+    };
 
     for (module_path, result) in results {
         if !result.tag_rules.is_empty() {
@@ -2941,10 +2926,11 @@ TEMPLATES = []
         let (mut db, project) =
             StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
 
-        assert!(apply_template_library_snapshot(
+        assert!(apply_template_library_snapshot_with_knowledge(
             &mut db,
             project,
             inspector_snapshot,
+            Knowledge::Known,
         ));
 
         let libraries = project.template_libraries(&db);
@@ -3004,7 +2990,7 @@ TEMPLATES = []
             None,
             Vec::new(),
         );
-        assert!(apply_template_library_snapshot(
+        assert!(apply_template_library_snapshot_with_knowledge(
             &mut db,
             project,
             TemplateLibrarySnapshot {
@@ -3015,6 +3001,7 @@ TEMPLATES = []
                 )]),
                 builtins: Vec::new(),
             },
+            Knowledge::Known,
         ));
 
         refresh_template_state(&mut db, project);
