@@ -4,7 +4,6 @@
 //! Django, Python, and the filesystem for facts, then writes changed facts to
 //! the `Project` input. Pure semantic derivation stays in tracked queries.
 
-use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::fs;
 use std::time::UNIX_EPOCH;
@@ -51,7 +50,6 @@ use crate::project::resolve::discover_model_files;
 use crate::project::resolve::find_site_packages;
 use crate::project::resolve::resolve_modules;
 use crate::project::settings_facts::extract_settings_facts_for_module;
-use crate::project::symbols::Knowledge;
 use crate::project::symbols::TemplateLibrarySnapshot;
 use crate::project::template_dirs::assemble_template_dirs;
 use crate::project::template_libraries::assemble_template_libraries;
@@ -116,12 +114,12 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
                 django_settings_module.as_deref(),
                 &pythonpath,
             ) {
-                if apply_template_library_snapshot_with_knowledge(
-                    db,
-                    project,
-                    snapshot,
-                    Knowledge::Known,
-                ) {
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(Some(snapshot));
+                if project.template_libraries(db) != &next {
+                    project.set_template_libraries(db).to(next);
                     refresh_templatetag_modules(db, project);
                 }
                 return true;
@@ -191,12 +189,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                             || !value.symbols.is_empty() =>
                     {
                         log_project_facts_status("cache_load", &entry.status);
-                        apply_template_library_snapshot_with_knowledge(
-                            db,
-                            project,
-                            value,
-                            Knowledge::Known,
-                        );
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
                         return;
                     }
                     Fact::Partial { value, .. }
@@ -205,12 +204,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                             || !value.symbols.is_empty() =>
                     {
                         log_project_facts_status("cache_load", &entry.status);
-                        apply_template_library_snapshot_with_knowledge(
-                            db,
-                            project,
-                            value,
-                            Knowledge::Partial,
-                        );
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_partial_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
                         return;
                     }
                     Fact::Known { .. }
@@ -247,39 +247,38 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                         || !value.builtins.is_empty()
                         || !value.symbols.is_empty() =>
                 {
-                    apply_template_library_snapshot_with_knowledge(
-                        db,
-                        project,
-                        value,
-                        Knowledge::Known,
-                    );
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
                 }
                 Fact::Partial { value, .. }
                     if !value.libraries.is_empty()
                         || !value.builtins.is_empty()
                         || !value.symbols.is_empty() =>
                 {
-                    apply_template_library_snapshot_with_knowledge(
-                        db,
-                        project,
-                        value,
-                        Knowledge::Partial,
-                    );
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
                 }
                 Fact::Known { .. }
                 | Fact::Partial { .. }
                 | Fact::Unknown { .. }
                 | Fact::Ambiguous { .. } => {
-                    apply_template_library_snapshot_with_knowledge(
-                        db,
-                        project,
-                        TemplateLibrarySnapshot {
-                            symbols: Vec::new(),
-                            libraries: BTreeMap::default(),
-                            builtins: Vec::new(),
-                        },
-                        Knowledge::Unknown,
-                    );
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(None);
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
                 }
             }
         }
@@ -356,12 +355,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &pythonpath,
                     &snapshot,
                 );
-                apply_template_library_snapshot_with_knowledge(
-                    db,
-                    project,
-                    snapshot,
-                    Knowledge::Known,
-                );
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(Some(snapshot));
+                if project.template_libraries(db) != &next {
+                    project.set_template_libraries(db).to(next);
+                }
                 return;
             }
 
@@ -387,12 +387,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                             || !value.symbols.is_empty() =>
                     {
                         log_project_facts_status("cache_load", &entry.status);
-                        apply_template_library_snapshot_with_knowledge(
-                            db,
-                            project,
-                            value,
-                            Knowledge::Known,
-                        );
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
                         return;
                     }
                     Fact::Partial { value, .. }
@@ -401,12 +402,13 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                             || !value.symbols.is_empty() =>
                     {
                         log_project_facts_status("cache_load", &entry.status);
-                        apply_template_library_snapshot_with_knowledge(
-                            db,
-                            project,
-                            value,
-                            Knowledge::Partial,
-                        );
+                        let next = project
+                            .template_libraries(db)
+                            .clone()
+                            .apply_partial_active_snapshot(Some(value));
+                        if project.template_libraries(db) != &next {
+                            project.set_template_libraries(db).to(next);
+                        }
                         return;
                     }
                     Fact::Known { .. }
@@ -443,39 +445,38 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                         || !value.builtins.is_empty()
                         || !value.symbols.is_empty() =>
                 {
-                    apply_template_library_snapshot_with_knowledge(
-                        db,
-                        project,
-                        value,
-                        Knowledge::Known,
-                    );
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
                 }
                 Fact::Partial { value, .. }
                     if !value.libraries.is_empty()
                         || !value.builtins.is_empty()
                         || !value.symbols.is_empty() =>
                 {
-                    apply_template_library_snapshot_with_knowledge(
-                        db,
-                        project,
-                        value,
-                        Knowledge::Partial,
-                    );
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
                 }
                 Fact::Known { .. }
                 | Fact::Partial { .. }
                 | Fact::Unknown { .. }
                 | Fact::Ambiguous { .. } => {
-                    apply_template_library_snapshot_with_knowledge(
-                        db,
-                        project,
-                        TemplateLibrarySnapshot {
-                            symbols: Vec::new(),
-                            libraries: BTreeMap::default(),
-                            builtins: Vec::new(),
-                        },
-                        Knowledge::Unknown,
-                    );
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(None);
+                    if project.template_libraries(db) != &next {
+                        project.set_template_libraries(db).to(next);
+                    }
                 }
             }
         }
@@ -547,26 +548,6 @@ struct TemplateLibrarySnapshotRequest;
 impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
     const NAME: &'static str = "template_libraries";
     type Response = TemplateLibrarySnapshot;
-}
-
-fn apply_template_library_snapshot_with_knowledge(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    snapshot: TemplateLibrarySnapshot,
-    knowledge: Knowledge,
-) -> bool {
-    let current = project.template_libraries(db).clone();
-    let next = match knowledge {
-        Knowledge::Known => current.apply_active_snapshot(Some(snapshot)),
-        Knowledge::Partial => current.apply_partial_active_snapshot(Some(snapshot)),
-        Knowledge::Unknown => current.apply_active_snapshot(None),
-    };
-    if project.template_libraries(db) == &next {
-        return false;
-    }
-
-    project.set_template_libraries(db).to(next);
-    true
 }
 
 #[cfg(test)]
@@ -1048,12 +1029,18 @@ fn apply_static_template_library_cache_entry(
                 || !value.symbols.is_empty() =>
         {
             (
-                apply_template_library_snapshot_with_knowledge(
-                    db,
-                    project,
-                    value,
-                    Knowledge::Known,
-                ),
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_active_snapshot(Some(value));
+                    if project.template_libraries(db) == &next {
+                        false
+                    } else {
+                        project.set_template_libraries(db).to(next);
+                        true
+                    }
+                },
                 true,
             )
         }
@@ -1063,12 +1050,18 @@ fn apply_static_template_library_cache_entry(
                 || !value.symbols.is_empty() =>
         {
             (
-                apply_template_library_snapshot_with_knowledge(
-                    db,
-                    project,
-                    value,
-                    Knowledge::Partial,
-                ),
+                {
+                    let next = project
+                        .template_libraries(db)
+                        .clone()
+                        .apply_partial_active_snapshot(Some(value));
+                    if project.template_libraries(db) == &next {
+                        false
+                    } else {
+                        project.set_template_libraries(db).to(next);
+                        true
+                    }
+                },
                 true,
             )
         }
@@ -1076,16 +1069,18 @@ fn apply_static_template_library_cache_entry(
         | Fact::Partial { .. }
         | Fact::Unknown { .. }
         | Fact::Ambiguous { .. } => (
-            apply_template_library_snapshot_with_knowledge(
-                db,
-                project,
-                TemplateLibrarySnapshot {
-                    symbols: Vec::new(),
-                    libraries: BTreeMap::default(),
-                    builtins: Vec::new(),
-                },
-                Knowledge::Unknown,
-            ),
+            {
+                let next = project
+                    .template_libraries(db)
+                    .clone()
+                    .apply_active_snapshot(None);
+                if project.template_libraries(db) == &next {
+                    false
+                } else {
+                    project.set_template_libraries(db).to(next);
+                    true
+                }
+            },
             false,
         ),
     };
@@ -3021,12 +3016,12 @@ TEMPLATES = []
         let (mut db, project) =
             StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
 
-        assert!(apply_template_library_snapshot_with_knowledge(
-            &mut db,
-            project,
-            inspector_snapshot,
-            Knowledge::Known,
-        ));
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(Some(inspector_snapshot));
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
 
         let libraries = project.template_libraries(&db);
         assert!(libraries.is_enabled_library_str("inspector_only"));
@@ -3065,19 +3060,19 @@ TEMPLATES = []
             None,
             Vec::new(),
         );
-        assert!(apply_template_library_snapshot_with_knowledge(
-            &mut db,
-            project,
-            TemplateLibrarySnapshot {
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(Some(TemplateLibrarySnapshot {
                 symbols: Vec::new(),
                 libraries: BTreeMap::from([(
                     "inspector_only".to_string(),
                     "inspector.templatetags.only".to_string(),
                 )]),
                 builtins: Vec::new(),
-            },
-            Knowledge::Known,
-        ));
+            }));
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
 
         refresh_template_state(&mut db, project);
 
@@ -3268,12 +3263,12 @@ TEMPLATES = []
             Some("project.settings".to_string()),
             Vec::new(),
         );
-        assert!(apply_template_library_snapshot_with_knowledge(
-            &mut db,
-            project,
-            test_response(),
-            Knowledge::Known,
-        ));
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(Some(test_response()));
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
 
         refresh_template_state(&mut db, project);
 
@@ -3970,12 +3965,12 @@ TEMPLATES = [
         let (mut db, project) =
             StaticSnapshotTestDb::with_project(root, Some("project.settings".to_string()));
 
-        assert!(apply_template_library_snapshot_with_knowledge(
-            &mut db,
-            project,
-            snapshot.value().cloned().unwrap(),
-            Knowledge::Known,
-        ));
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_active_snapshot(snapshot.value().cloned());
+        assert_ne!(project.template_libraries(&db), &next);
+        project.set_template_libraries(&mut db).to(next);
         assert!(apply_static_template_library_cache_entry(
             &mut db, project, entry,
         ));
