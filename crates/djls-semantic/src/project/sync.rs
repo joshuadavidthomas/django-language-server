@@ -919,8 +919,9 @@ fn static_template_library_cache_dependencies(
     if let Some(search_paths) = context.module_search_paths.value() {
         if let Some(libraries) = template_libraries.value() {
             for library in libraries {
-                if let Some(file) = resolved_module_file(&library.module, search_paths, root) {
-                    paths.push(file);
+                let resolution = resolve_static_module(library.module.clone(), search_paths, root);
+                if let Some(resolved) = resolution.resolved.value() {
+                    paths.push(resolved.file.clone());
                 }
             }
         }
@@ -936,8 +937,9 @@ fn static_template_library_cache_dependencies(
                 let Ok(module) = PyModuleName::parse(module) else {
                     continue;
                 };
-                if let Some(file) = resolved_module_file(&module, search_paths, root) {
-                    paths.push(file);
+                let resolution = resolve_static_module(module, search_paths, root);
+                if let Some(resolved) = resolution.resolved.value() {
+                    paths.push(resolved.file.clone());
                 }
             }
         }
@@ -985,18 +987,6 @@ fn push_templatetag_python_files(dir: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
             paths.push(path);
         }
     }
-}
-
-fn resolved_module_file(
-    module: &PyModuleName,
-    search_paths: &[ModuleSearchPathEntry],
-    root: &Utf8Path,
-) -> Option<Utf8PathBuf> {
-    let resolution = resolve_static_module(module.clone(), search_paths, root);
-    resolution
-        .resolved
-        .value()
-        .map(|resolved| resolved.file.clone())
 }
 
 impl StaticCacheDependency {
