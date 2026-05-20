@@ -121,7 +121,15 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 &pythonpath,
                 &site_packages_paths,
             );
-            log_static_template_dirs_status(django_settings_module.as_deref(), &static_dirs);
+            tracing::info!(
+                event = "template_dirs",
+                django_settings_module = django_settings_module.as_deref().unwrap_or("<unset>"),
+                confidence = ?static_dirs.confidence(),
+                template_dir_count = static_dirs.value().map(Vec::len).unwrap_or_default(),
+                reason_count = static_dirs.reasons().len(),
+                reasons = ?static_dirs.reasons(),
+                "Project facts status",
+            );
             let next = match static_dirs {
                 Fact::Known { value } => TemplateDirs::Known(value),
                 Fact::Partial { value, .. } if !value.is_empty() => TemplateDirs::Known(value),
@@ -277,7 +285,15 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &pythonpath,
                     &site_packages_paths,
                 );
-                log_static_template_dirs_status(django_settings_module.as_deref(), &static_dirs);
+                tracing::info!(
+                    event = "template_dirs",
+                    django_settings_module = django_settings_module.as_deref().unwrap_or("<unset>"),
+                    confidence = ?static_dirs.confidence(),
+                    template_dir_count = static_dirs.value().map(Vec::len).unwrap_or_default(),
+                    reason_count = static_dirs.reasons().len(),
+                    reasons = ?static_dirs.reasons(),
+                    "Project facts status",
+                );
                 let next = match static_dirs {
                     Fact::Known { value } => TemplateDirs::Known(value),
                     Fact::Partial { value, .. } if !value.is_empty() => TemplateDirs::Known(value),
@@ -488,21 +504,6 @@ fn assemble_static_template_dirs(
     .map(|dirs| dirs.into_iter().map(|dir| dir.path).collect::<Vec<_>>());
 
     add_static_reasons(dirs, context.reasons)
-}
-
-fn log_static_template_dirs_status(
-    django_settings_module: Option<&str>,
-    dirs: &Fact<Vec<Utf8PathBuf>>,
-) {
-    tracing::info!(
-        event = "template_dirs",
-        django_settings_module = django_settings_module.unwrap_or("<unset>"),
-        confidence = ?dirs.confidence(),
-        template_dir_count = dirs.value().map(Vec::len).unwrap_or_default(),
-        reason_count = dirs.reasons().len(),
-        reasons = ?dirs.reasons(),
-        "Project facts status",
-    );
 }
 
 #[derive(Serialize)]
