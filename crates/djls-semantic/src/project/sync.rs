@@ -895,13 +895,29 @@ fn static_template_library_cache_dependencies(
         paths.extend(search_paths.iter().map(|entry| entry.path.clone()));
         for entry in search_paths {
             if entry.kind == ModuleSearchPathKind::SitePackages {
-                push_pth_files(&entry.path, &mut paths);
+                let Ok(entries) = fs::read_dir(entry.path.as_std_path()) else {
+                    continue;
+                };
+                paths.extend(
+                    entries
+                        .filter_map(Result::ok)
+                        .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+                        .filter(|path| path.extension() == Some("pth") && path.is_file()),
+                );
             }
         }
     }
     for site_packages_path in &context.site_packages_paths {
         paths.push(site_packages_path.clone());
-        push_pth_files(site_packages_path, &mut paths);
+        let Ok(entries) = fs::read_dir(site_packages_path.as_std_path()) else {
+            continue;
+        };
+        paths.extend(
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
+                .filter(|path| path.extension() == Some("pth") && path.is_file()),
+        );
     }
 
     if let Some(apps) = context.app_registry.app_registry.value() {
@@ -951,19 +967,6 @@ fn static_template_library_cache_dependencies(
         .into_iter()
         .map(StaticCacheDependency::from_path)
         .collect()
-}
-
-fn push_pth_files(site_packages_path: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
-    let Ok(entries) = fs::read_dir(site_packages_path.as_std_path()) else {
-        return;
-    };
-
-    paths.extend(
-        entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| Utf8PathBuf::try_from(entry.path()).ok())
-            .filter(|path| path.extension() == Some("pth") && path.is_file()),
-    );
 }
 
 fn push_templatetag_python_files(dir: &Utf8Path, paths: &mut Vec<Utf8PathBuf>) {
