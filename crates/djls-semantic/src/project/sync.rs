@@ -61,6 +61,7 @@ use crate::python::extract_model_graph;
 use crate::python::extract_rules;
 use crate::python::BlockSpecs;
 use crate::python::FilterArityMap;
+#[cfg(test)]
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
@@ -1458,14 +1459,25 @@ fn refresh_external_semantic_data(db: &mut dyn ProjectDb, project: Project) {
 fn scan_external_models(db: &mut dyn ProjectDb, project: Project) {
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
+    let mut new_models = FxHashMap::default();
 
-    let new_models = match find_site_packages(&interpreter, &root) {
-        Some(site_packages) => {
-            let files = discover_model_files(&site_packages, FileRootKind::LibrarySearchPath);
-            extract_models_from_files(&files)
+    if let Some(site_packages) = find_site_packages(&interpreter, &root) {
+        let files = discover_model_files(&site_packages, FileRootKind::LibrarySearchPath);
+        for (module_path, file_path) in files {
+            let source = match fs::read_to_string(file_path.as_std_path()) {
+                Ok(source) => source,
+                Err(error) => {
+                    tracing::debug!("Failed to read model file {}: {}", file_path, error);
+                    continue;
+                }
+            };
+
+            let graph = extract_model_graph(&source, module_path.as_str());
+            if !graph.is_empty() {
+                new_models.insert(module_path, graph);
+            }
         }
-        None => FxHashMap::default(),
-    };
+    }
 
     if project.extracted_external_models(db) != &new_models {
         project.set_extracted_external_models(db).to(new_models);
@@ -1542,29 +1554,6 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
             .set_extracted_external_block_specs(db)
             .to(new_extraction.block_specs);
     }
-}
-
-fn extract_models_from_files(
-    files: &[(ModulePath, Utf8PathBuf)],
-) -> FxHashMap<ModulePath, ModelGraph> {
-    let mut results = FxHashMap::default();
-
-    for (module_path, file_path) in files {
-        let source = match fs::read_to_string(file_path.as_std_path()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::debug!("Failed to read model file {}: {}", file_path, e);
-                continue;
-            }
-        };
-
-        let graph = extract_model_graph(&source, module_path.as_str());
-        if !graph.is_empty() {
-            results.insert(module_path.clone(), graph);
-        }
-    }
-
-    results
 }
 
 struct SplitExtractionResults {
@@ -1709,6 +1698,24 @@ mod tests {
 
     fn missing_interpreter(root: &Utf8Path) -> Interpreter {
         Interpreter::InterpreterPath(root.join("missing-python").to_string())
+    }
+
+    fn external_site_packages(root: &Utf8Path) -> Utf8PathBuf {
+        let site_packages = root.join(".venv/lib/python3.12/site-packages");
+        fs::create_dir_all(&site_packages).unwrap();
+        site_packages
+    }
+
+    fn scan_external_model_graphs(root: Utf8PathBuf) -> FxHashMap<ModulePath, ModelGraph> {
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            Interpreter::VenvPath(root.join(".venv").to_string()),
+            DjangoDiscoveryMode::Source,
+            None,
+            Vec::new(),
+        );
+        scan_external_models(&mut db, project);
+        project.extracted_external_models(&db).clone()
     }
 
     fn write_file(path: &Utf8Path, contents: &str) {
@@ -3885,7 +3892,8 @@ TEMPLATES = [
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let app_dir = root.join("myapp");
+        let site_packages = external_site_packages(&root);
+        let app_dir = site_packages.join("myapp");
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(
             app_dir.join("models.py"),
@@ -3899,8 +3907,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(root);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
         assert!(results["myapp.models"].get("Article").is_some());
@@ -3911,12 +3918,12 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let app_dir = root.join("emptyapp");
+        let site_packages = external_site_packages(&root);
+        let app_dir = site_packages.join("emptyapp");
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(root);
         assert!(results.is_empty());
     }
 
@@ -3925,8 +3932,9 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
+        let site_packages = external_site_packages(&root);
         for app in &["blog", "accounts"] {
-            let app_dir = root.join(app);
+            let app_dir = site_packages.join(app);
             fs::create_dir_all(&app_dir).unwrap();
             fs::write(
                 app_dir.join("models.py"),
@@ -3938,8 +3946,7 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(root);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
         assert!(results.contains_key("accounts.models"));
@@ -3950,7 +3957,8 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let models_dir = root.join("myapp/models");
+        let site_packages = external_site_packages(&root);
+        let models_dir = site_packages.join("myapp/models");
         fs::create_dir_all(&models_dir).unwrap();
         fs::write(
             models_dir.join("__init__.py"),
@@ -3968,8 +3976,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(root);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("myapp.models.user"));
@@ -3983,9 +3990,10 @@ class Article(models.Model):
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let base_dir = root.join("myapp/models/base");
+        let site_packages = external_site_packages(&root);
+        let base_dir = site_packages.join("myapp/models/base");
         fs::create_dir_all(&base_dir).unwrap();
-        fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
+        fs::write(site_packages.join("myapp/models/__init__.py"), "").unwrap();
         fs::write(base_dir.join("__init__.py"), "").unwrap();
         fs::write(
             base_dir.join("abstract.py"),
@@ -3993,8 +4001,7 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let results = scan_external_model_graphs(root);
         assert!(
             results.contains_key("myapp.models.base.abstract"),
             "should extract from nested model files: got {:?}",
