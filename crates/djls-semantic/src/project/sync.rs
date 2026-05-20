@@ -122,7 +122,16 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                 &site_packages_paths,
             );
             log_static_template_dirs_status(django_settings_module.as_deref(), &static_dirs);
-            apply_static_template_dirs(db, project, static_dirs);
+            let next = match static_dirs {
+                Fact::Known { value } => TemplateDirs::Known(value),
+                Fact::Partial { value, .. } if !value.is_empty() => TemplateDirs::Known(value),
+                Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => {
+                    TemplateDirs::Unknown
+                }
+            };
+            if project.template_dirs(db) != &next {
+                project.set_template_dirs(db).to(next);
+            }
 
             let static_cache_entry = load_static_template_library_snapshot(
                 &root,
@@ -181,7 +190,10 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                         missing_dirs,
                     );
                 }
-                apply_template_dirs(db, project, dirs);
+                let next = TemplateDirs::Known(dirs);
+                if project.template_dirs(db) != &next {
+                    project.set_template_dirs(db).to(next);
+                }
             } else {
                 let root = project.root(db).clone();
                 let interpreter = project.interpreter(db).clone();
@@ -197,7 +209,16 @@ fn refresh_template_state(db: &mut dyn ProjectDb, project: Project) {
                     &site_packages_paths,
                 );
                 log_static_template_dirs_status(django_settings_module.as_deref(), &static_dirs);
-                apply_static_template_dirs(db, project, static_dirs);
+                let next = match static_dirs {
+                    Fact::Known { value } => TemplateDirs::Known(value),
+                    Fact::Partial { value, .. } if !value.is_empty() => TemplateDirs::Known(value),
+                    Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => {
+                        TemplateDirs::Unknown
+                    }
+                };
+                if project.template_dirs(db) != &next {
+                    project.set_template_dirs(db).to(next);
+                }
             }
 
             if let Some(snapshot) = db
@@ -285,16 +306,6 @@ impl IntrospectionRequest for TemplateDirsRequest {
     type Response = TemplateDirsResponse;
 }
 
-fn apply_template_dirs(db: &mut dyn ProjectDb, project: Project, dirs: Vec<Utf8PathBuf>) -> bool {
-    let next = TemplateDirs::Known(dirs);
-    if project.template_dirs(db) != &next {
-        project.set_template_dirs(db).to(next);
-        return true;
-    }
-
-    false
-}
-
 #[cfg(test)]
 fn assemble_project_static_template_dirs(
     db: &dyn ProjectDb,
@@ -314,21 +325,6 @@ fn assemble_project_static_template_dirs(
         &pythonpath,
         &site_packages_paths,
     )
-}
-
-fn apply_static_template_dirs(
-    db: &mut dyn ProjectDb,
-    project: Project,
-    dirs: Fact<Vec<Utf8PathBuf>>,
-) -> bool {
-    let Some(dirs) = usable_static_template_dirs(dirs) else {
-        if project.template_dirs(db) != &TemplateDirs::Unknown {
-            project.set_template_dirs(db).to(TemplateDirs::Unknown);
-        }
-        return false;
-    };
-
-    apply_template_dirs(db, project, dirs)
 }
 
 fn assemble_static_template_dirs(
@@ -354,14 +350,6 @@ fn assemble_static_template_dirs(
     .map(|dirs| dirs.into_iter().map(|dir| dir.path).collect::<Vec<_>>());
 
     add_static_reasons(dirs, context.reasons)
-}
-
-fn usable_static_template_dirs(dirs: Fact<Vec<Utf8PathBuf>>) -> Option<Vec<Utf8PathBuf>> {
-    match dirs {
-        Fact::Known { value } => Some(value),
-        Fact::Partial { value, .. } if !value.is_empty() => Some(value),
-        Fact::Partial { .. } | Fact::Unknown { .. } | Fact::Ambiguous { .. } => None,
-    }
 }
 
 fn log_static_template_dirs_status(
@@ -2258,26 +2246,6 @@ def emph(value):
     }
 
     #[test]
-    fn template_dirs_routing_prefers_inspector_dirs() {
-        let tmp = TempDir::new().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-        write_static_template_dirs_fixture(&root);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
-
-        assert!(apply_template_dirs(
-            &mut db,
-            project,
-            vec![root.join("inspector_templates")],
-        ));
-
-        assert_eq!(
-            project.template_dirs(&db),
-            &TemplateDirs::Known(vec![root.join("inspector_templates")])
-        );
-    }
-
-    #[test]
     fn auto_template_dirs_use_known_static_without_inspector_query() {
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
@@ -2436,11 +2404,15 @@ TEMPLATES = [
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_dirs_fixture(&root);
-        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
-        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_state(&mut db, project);
 
         assert_eq!(
             project.template_dirs(&db),
@@ -2453,11 +2425,15 @@ TEMPLATES = [
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_dirs_fixture(&root);
-        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
-        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_state(&mut db, project);
         refresh_template_files(&mut db, project);
 
         assert_eq!(project.template_files(&db).len(), 2);
@@ -2468,11 +2444,15 @@ TEMPLATES = [
         let tmp = TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         write_static_template_dirs_fixture(&root.join("src"));
-        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
-        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_state(&mut db, project);
 
         assert_eq!(
             project.template_dirs(&db),
@@ -2514,14 +2494,17 @@ TEMPLATES = [
         assert_eq!(value, &[root.join("templates")]);
         assert!(!reasons.is_empty());
 
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
-        assert!(apply_template_dirs(
-            &mut db,
-            project,
-            vec![root.join("stale_templates")],
-        ));
-        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        project
+            .set_template_dirs(&mut db)
+            .to(TemplateDirs::Known(vec![root.join("stale_templates")]));
+        refresh_template_state(&mut db, project);
         assert_eq!(
             project.template_dirs(&db),
             &TemplateDirs::Known(vec![root.join("templates")])
@@ -2535,9 +2518,16 @@ TEMPLATES = [
         write_static_template_dirs_fixture(&root);
         let stale_dir = root.join("stale_templates");
         write_file(&stale_dir.join("stale.html"), "");
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
-        assert!(apply_template_dirs(&mut db, project, vec![stale_dir]));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
+        project
+            .set_template_dirs(&mut db)
+            .to(TemplateDirs::Known(vec![stale_dir]));
         refresh_template_files(&mut db, project);
         assert_eq!(project.template_files(&db).len(), 1);
 
@@ -2558,9 +2548,7 @@ TEMPLATES = [
 ]
 "#,
         );
-        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
-
-        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_state(&mut db, project);
         refresh_template_files(&mut db, project);
 
         assert_eq!(
@@ -2583,11 +2571,15 @@ TEMPLATES = []
 ",
         );
 
-        let dirs = assemble_static_template_dirs(&root, Some("project.settings"), &[], &[]);
-        let (mut db, project) =
-            StaticSnapshotTestDb::with_project(root.clone(), Some("project.settings".to_string()));
+        let (mut db, project) = StaticSnapshotTestDb::with_project_options_and_discovery(
+            root.clone(),
+            missing_interpreter(&root),
+            DjangoDiscoveryMode::Source,
+            Some("project.settings".to_string()),
+            Vec::new(),
+        );
 
-        assert!(apply_static_template_dirs(&mut db, project, dirs));
+        refresh_template_state(&mut db, project);
         assert_eq!(project.template_dirs(&db), &TemplateDirs::Known(Vec::new()));
     }
 
