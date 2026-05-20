@@ -97,7 +97,42 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
         return false;
     };
 
-    load_project_template_library_cache(db, project)
+    match project.django_discovery(db) {
+        DjangoDiscoveryMode::Source => {
+            let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
+                return false;
+            };
+            apply_static_template_library_cache_entry(db, project, entry)
+        }
+        DjangoDiscoveryMode::Runtime => {
+            let interpreter = project.interpreter(db).clone();
+            let root = project.root(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+
+            if let Some(snapshot) = load_cached_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+            ) {
+                if apply_template_library_snapshot_with_knowledge(
+                    db,
+                    project,
+                    snapshot,
+                    Knowledge::Known,
+                ) {
+                    refresh_templatetag_modules(db, project);
+                }
+                return true;
+            }
+
+            let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
+                return false;
+            };
+            apply_static_template_library_cache_entry(db, project, entry)
+        }
+    }
 }
 
 #[expect(
@@ -512,36 +547,6 @@ struct TemplateLibrarySnapshotRequest;
 impl IntrospectionRequest for TemplateLibrarySnapshotRequest {
     const NAME: &'static str = "template_libraries";
     type Response = TemplateLibrarySnapshot;
-}
-
-fn load_project_template_library_cache(db: &mut dyn ProjectDb, project: Project) -> bool {
-    match project.django_discovery(db) {
-        DjangoDiscoveryMode::Source => load_project_template_library_cache_static(db, project),
-        DjangoDiscoveryMode::Runtime => load_project_template_library_cache_inspector(db, project),
-    }
-}
-
-fn load_project_template_library_cache_static(db: &mut dyn ProjectDb, project: Project) -> bool {
-    let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
-        return false;
-    };
-
-    apply_static_template_library_cache_entry(db, project, entry)
-}
-
-fn load_project_template_library_cache_inspector(db: &mut dyn ProjectDb, project: Project) -> bool {
-    let Some(snapshot) = load_template_library_snapshot_cache(db, project) else {
-        let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
-            return false;
-        };
-        return apply_static_template_library_cache_entry(db, project, entry);
-    };
-
-    if apply_template_library_snapshot_with_knowledge(db, project, snapshot, Knowledge::Known) {
-        refresh_templatetag_modules(db, project);
-    }
-
-    true
 }
 
 fn apply_template_library_snapshot_with_knowledge(
@@ -995,23 +1000,6 @@ fn extend_unique_static_reasons(reasons: &mut Vec<Reason>, new_reasons: Vec<Reas
 struct CacheEnvelope {
     djls_version: String,
     response: TemplateLibrarySnapshot,
-}
-
-fn load_template_library_snapshot_cache(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Option<TemplateLibrarySnapshot> {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-
-    load_cached_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-    )
 }
 
 fn load_static_template_library_snapshot_cache(
@@ -3955,7 +3943,8 @@ TEMPLATES = [
             Vec::new(),
         );
 
-        assert!(load_project_template_library_cache(&mut db, project));
+        assert_eq!(db.project(), Some(project));
+        assert!(load_template_library_cache(&mut db));
         let libraries = project.template_libraries(&db);
         assert_eq!(libraries.active_knowledge, Knowledge::Partial);
         assert!(libraries.is_enabled_library_str("i18n"));
