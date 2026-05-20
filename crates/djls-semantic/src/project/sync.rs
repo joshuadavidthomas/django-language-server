@@ -97,7 +97,20 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
 
     match project.django_discovery(db) {
         DjangoDiscoveryMode::Source => {
-            let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
+            let interpreter = project.interpreter(db).clone();
+            let root = project.root(db).clone();
+            let django_settings_module = project.django_settings_module(db).clone();
+            let pythonpath = project.pythonpath(db).clone();
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let Some(entry) = load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            ) else {
                 return false;
             };
             apply_static_template_library_cache_entry(db, project, entry)
@@ -125,7 +138,16 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
                 return true;
             }
 
-            let Some(entry) = load_static_template_library_snapshot_cache(db, project) else {
+            let site_packages_paths = find_site_packages(&interpreter, &root)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let Some(entry) = load_static_template_library_snapshot(
+                &root,
+                &interpreter,
+                django_settings_module.as_deref(),
+                &pythonpath,
+                &site_packages_paths,
+            ) else {
                 return false;
             };
             apply_static_template_library_cache_entry(db, project, entry)
@@ -981,26 +1003,6 @@ fn extend_unique_static_reasons(reasons: &mut Vec<Reason>, new_reasons: Vec<Reas
 struct CacheEnvelope {
     djls_version: String,
     response: TemplateLibrarySnapshot,
-}
-
-fn load_static_template_library_snapshot_cache(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Option<StaticTemplateLibraryCacheEntry> {
-    let interpreter = project.interpreter(db).clone();
-    let root = project.root(db).clone();
-    let django_settings_module = project.django_settings_module(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-    let site_packages_paths = find_site_packages(&interpreter, &root)
-        .into_iter()
-        .collect::<Vec<_>>();
-    load_static_template_library_snapshot(
-        &root,
-        &interpreter,
-        django_settings_module.as_deref(),
-        &pythonpath,
-        &site_packages_paths,
-    )
 }
 
 #[cfg(test)]
