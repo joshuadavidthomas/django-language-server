@@ -90,6 +90,10 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
 /// This is a fast, synchronous startup path. It gives completions and
 /// diagnostics previously discovered library data while fresh project
 /// introspection runs in the background.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Phase 1 keeps startup cache policy inline until the next seam is clear."
+)]
 pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
     let Some(project) = db.project() else {
         return false;
