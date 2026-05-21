@@ -11,9 +11,9 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 
 Keep this section current while implementing the plan.
 
-- **Implementation bookmark**: `startup-rethink` points to the initial planning-docs change `sqoqvvrn` (`docs: add startup rethink planning docs`). Move it forward after the first verified implementation slice.
-- **Implementation change**: `nyntuxws` (`protocol-ready startup`) contains the verified protocol-ready startup slice on top of the planning-docs baseline.
-- **Current slice**: Phase 1 complete; ready to describe the change, move `startup-rethink`, and start Phase 2 after approval.
+- **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
+- **Implementation change**: `xsnutlnv` contains the verified neutral source/workspace primitives slice on top of the protocol-ready startup slice.
+- **Current slice**: Phase 2 complete; start Phase 3A1 in a new undescribed working change.
 
 ### Implementation Notes
 
@@ -36,6 +36,16 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - `cargo build -q` passed.
   - `just fmt --check` passed.
 - Follow-ups/blockers: Phase 3C must move/delete `crates/djls-semantic/src/availability.rs` into `djls-project::availability` or narrow it to a semantic-only adapter.
+
+### Neutral source/workspace primitives
+- Bookmark: `startup-rethink` points to `xsnutlnv`.
+- Current change: `xsnutlnv`.
+- Scope: added neutral `SourceFileSet` data types in `djls-source`; added source-root identity and discovered/loaded source-file types; added neutral workspace file loading over existing `walk_files`; preserved traversal mechanics without Django policy or readiness state.
+- Validation:
+  - `cargo test -p djls-source file_set` passed: 6 tests.
+  - `cargo test -p djls-workspace file_loader` passed: 7 tests.
+  - `cargo build -q` passed.
+- Follow-ups/blockers: Phase 3 owns root construction, project-loading readiness, partition patches, and database materialization.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -229,9 +239,10 @@ Background loading must not regress Project Facts or diagnostics to older open-b
 7. Run the baseline checks before the first code change.
 8. Complete and verify one implementation slice at a time.
 9. After each slice passes its targeted checks, update the Implementation Status / Implementation Notes section for that slice.
-10. Describe the verified slice with `jj describe -m "<descriptive message>"`, move `startup-rethink` to the verified slice with `jj bookmark set startup-rethink -r '@'`, then start the next slice with `jj new -m "<next slice>"`.
-11. Use a normal descriptive change message for the actual change. Do not mention "plan", "phase", or slice numbers in the message unless the domain change itself needs that wording.
-12. Before pushing for review, make sure the bookmark points at the latest completed slice: `jj bookmark set startup-rethink -r '@'`.
+10. At the end of each verified slice, describe the completed change with `jj describe -m "<descriptive message>"`, then move `startup-rethink` to that verified slice with `jj bookmark set startup-rethink -r '@'`.
+11. Start the next slice with `jj new` and no message. Leave the new empty working change undescribed until its work is complete and verified.
+12. Use a normal descriptive change message for the actual completed change. Do not mention "plan", "phase", or slice numbers in the message unless the domain change itself needs that wording.
+13. Before pushing for review, make sure the bookmark points at the latest completed slice: `jj bookmark set startup-rethink -r '@'`.
 
 ### Commands
 - [x] Describe the planning-docs change: `sqoqvvrn` (`docs: add startup rethink planning docs`)
@@ -457,15 +468,15 @@ pub struct LoadedSourceFile {
 ### Success Criteria
 
 #### Automated Verification
-- [ ] Source file-set unit tests pass: `cargo test -p djls-source file_set`
-- [ ] Workspace neutral file-loader tests pass: `cargo test -p djls-workspace file_loader`
-- [ ] Workspace builds: `cargo build -q`
+- [x] Source file-set unit tests pass: `cargo test -p djls-source file_set` — 6 passed.
+- [x] Workspace neutral file-loader tests pass: `cargo test -p djls-workspace file_loader` — 7 passed.
+- [x] Workspace builds: `cargo build -q` — passed.
 
 #### Manual Verification
-- [ ] Confirm `djls-source` contains no `SourceFileSetAvailability`, `FileSetPatch`, `FileSetPartition`, loading generation, or Django partition policy.
-- [ ] Confirm any `djls_source::Db::source_file_set()` accessor is documented as low-level storage, not startup readiness.
-- [ ] Confirm `load_files_for_roots` does not require a `Session` lock and delegates filesystem walking to `walk_files`.
-- [ ] Confirm `djls-workspace` contains no Python/template/config/installed-app predicate logic.
+- [x] Confirm `djls-source` contains no `SourceFileSetAvailability`, `FileSetPatch`, `FileSetPartition`, loading generation, or Django partition policy. Evidence: inspected `crates/djls-source/src/file_set.rs`; it contains only neutral source roots, discovered/loaded files, handle-bearing `SourceFileSetData`, and included-file summary.
+- [x] Confirm any `djls_source::Db::source_file_set()` accessor is documented as low-level storage, not startup readiness. Evidence: no `djls_source::Db::source_file_set()` accessor was added in Phase 2.
+- [x] Confirm `load_files_for_roots` does not require a `Session` lock and delegates filesystem walking to `walk_files`. Evidence: inspected `crates/djls-workspace/src/file_loader.rs`; `load_files_for_roots` takes a `FilesForRootsRequest`, uses no session/lock types, and calls `walk_files` for traversal.
+- [x] Confirm `djls-workspace` contains no Python/template/config/installed-app predicate logic. Evidence: inspected `crates/djls-workspace/src/file_loader.rs`; predicates are caller-provided closures and the module contains no Django policy beyond test file extensions used to prove caller filtering.
 
 ## Phase 3: `djls-project` crate, shared loading executor, and project layout tracer
 
