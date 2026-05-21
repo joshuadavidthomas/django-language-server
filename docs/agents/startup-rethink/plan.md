@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `xowsopvw` contains the in-progress Phase 3A1 project crate/helper move slice on top of the neutral source/workspace primitives slice.
-- **Current slice**: Phase 3A1 helper move complete; ready for review/describe after approval.
+- **Implementation change**: `nmqyksul` contains the in-progress Phase 3A2a project loading-state shell slice on top of the project crate/helper boundary slice.
+- **Current slice**: Phase 3A2a loading-state shell complete; ready for review/describe after approval.
 
 ### Implementation Notes
 
@@ -1075,7 +1075,7 @@ pub enum ProjectLayoutIssue {
 - [x] `djls-project` exposes moved helpers through specific root exports, not public helper modules. Evidence: `crates/djls-project/src/lib.rs` declares `mod env; mod interpreter; mod system;` and re-exports `load_env_file` / `Interpreter`.
 
 **Phase 3A2a gate**
-- [ ] `ProjectLoadingState` shell and fixture DB impls compile with generation-free source unavailable states: `cargo test -p djls-project loading_state`
+- [x] `ProjectLoadingState` shell and fixture DB impls compile with generation-free source unavailable states: `cargo test -p djls-project loading_state` — 2 passed; `cargo test -p djls-project project_source_files_summary` — 1 passed; `cargo test -p djls-db` — 13 passed; `cargo build -q` also passed with `DjangoDatabase`, `djls-bench::Db`, and semantic test database `djls_project::Db` impls. Review follow-up evidence: production `DjangoDatabase` now uses `ProjectLoadingState::not_loaded`, fixture DBs keep `fixture_unavailable`, and `ProjectSourceFiles` derives summary from its merged `SourceFileSet`.
 
 **Phase 3A2b gate**
 - [ ] Root-construction, first-party discovery file-policy, and first-party apply-seam tests pass in the project crate, including private-constructor enforcement, `ProjectSourceFilesIssue` construction for missing/duplicate/walk cases, partition readiness/status construction through the merge seam, overlapping-root longest-prefix ownership/deduplication, and root removal by `SourceRootId`: `cargo test -p djls-project files`. Conflict detection and lower-precedence resurrection tests land in Phase 6B with the first real non-first-party partitions.

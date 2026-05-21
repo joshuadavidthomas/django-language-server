@@ -9,7 +9,7 @@ use crate::FileRootKind;
 #[derive(Debug)]
 pub struct SourceFileSet {
     #[returns(ref)]
-    data: SourceFileSetData,
+    pub data: SourceFileSetData,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

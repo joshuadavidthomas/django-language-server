@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::ProjectLoadingState;
 use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
@@ -47,6 +48,9 @@ pub struct DjangoDatabase {
     /// Shared introspector for external project facts.
     pub(crate) project_introspector: Arc<ProjectIntrospector>,
 
+    /// Salsa-visible project loading readiness handle.
+    pub(crate) project_loading_state: Arc<Mutex<Option<ProjectLoadingState>>>,
+
     pub(crate) storage: salsa::Storage<Self>,
 
     // The logs are only used for testing and demonstrating reuse:
@@ -62,12 +66,13 @@ impl Default for DjangoDatabase {
 
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
 
-        Self {
+        let db = Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
+            project_loading_state: Arc::new(Mutex::new(None)),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -82,23 +87,30 @@ impl Default for DjangoDatabase {
                 }
             }))),
             logs,
-        }
+        };
+        let state = ProjectLoadingState::not_loaded(&db);
+        *db.project_loading_state.lock().unwrap() = Some(state);
+        db
     }
 }
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
     pub fn new(file_system: Arc<dyn FileSystem>, settings: &Settings) -> Self {
-        Self {
+        let db = Self {
             fs: file_system,
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
+            project_loading_state: Arc::new(Mutex::new(None)),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
-        }
+        };
+        let state = ProjectLoadingState::not_loaded(&db);
+        *db.project_loading_state.lock().unwrap() = Some(state);
+        db
     }
 
     /// Bootstrap the legacy single-project input for project-aware callers.
@@ -114,6 +126,16 @@ impl DjangoDatabase {
 
 #[salsa::db]
 impl salsa::Database for DjangoDatabase {}
+
+#[salsa::db]
+impl djls_project::Db for DjangoDatabase {
+    fn project_loading_state(&self) -> ProjectLoadingState {
+        self.project_loading_state
+            .lock()
+            .unwrap()
+            .expect("project loading state should be initialized")
+    }
+}
 
 #[salsa::db]
 impl SourceDb for DjangoDatabase {
@@ -203,6 +225,7 @@ mod invalidation_tests {
     use std::sync::Mutex;
 
     use djls_conf::Settings;
+    use djls_project::ProjectLoadingState;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
@@ -256,6 +279,7 @@ mod invalidation_tests {
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            project_loading_state: Arc::new(Mutex::new(None)),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -264,6 +288,8 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
+        let loading_state = ProjectLoadingState::fixture_unavailable(&db);
+        *db.project_loading_state.lock().unwrap() = Some(loading_state);
 
         let interpreter = Interpreter::discover(settings.venv_path());
         let dsm = settings
@@ -535,6 +561,7 @@ def my_filter(value, arg):
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            project_loading_state: Arc::new(Mutex::new(None)),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -543,6 +570,8 @@ def my_filter(value, arg):
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
+        let loading_state = ProjectLoadingState::fixture_unavailable(&db);
+        *db.project_loading_state.lock().unwrap() = Some(loading_state);
 
         let file = djls_source::Db::get_or_create_file(
             &db,
