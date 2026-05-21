@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `xsnutlnv` contains the verified neutral source/workspace primitives slice on top of the protocol-ready startup slice.
-- **Current slice**: Phase 2 complete; start Phase 3A1 in a new undescribed working change.
+- **Implementation change**: `xowsopvw` contains the in-progress Phase 3A1 project crate/helper move slice on top of the neutral source/workspace primitives slice.
+- **Current slice**: Phase 3A1 helper move complete; ready for review/describe after approval.
 
 ### Implementation Notes
 
@@ -530,6 +530,7 @@ Treat Phase 3 as separate execution PR slices, not one workbench batch. These sl
 - Depends on **Phase 2 neutral source/workspace primitives**.
 - Add `djls-project = { path = "crates/djls-project" }` to root `[workspace.dependencies]` in the internal dependency group, alphabetized with the other `djls-*` crates.
 - Create `crates/djls-project/Cargo.toml` with version `0.0.0`, edition `2021`, workspace dependencies, and `[lints] workspace = true`.
+- Keep `djls-project` façade modules private by default. Expose specific root exports such as `djls_project::Interpreter` and `djls_project::load_env_file`; do not make helper modules public unless a later phase introduces a real module-level API.
 - Initial dependencies should include `djls-conf`, `djls-source`, `djls-workspace` only if needed by public contracts, plus `camino`, `dotenvy`, `rustc-hash`, `salsa`, `serde`, `thiserror`, `tracing`, and `which` as needed by the moved interpreter/env helpers and project inputs.
 - Do not depend on `djls-server`, `djls-db`, `djls-ide`, or `djls-semantic`.
 - Move `Interpreter` and testable system helpers from `djls-semantic::project` into `djls-project`.
@@ -1068,9 +1069,10 @@ pub enum ProjectLayoutIssue {
 
 #### Automated Verification
 **Phase 3A1 gate**
-- [ ] New crate compiles: `cargo test -p djls-project`
-- [ ] Interpreter/env moved tests pass for helpers needed by the first loading node: `cargo test -p djls-project interpreter` and `cargo test -p djls-project env`
-- [ ] Helper-move cleanup search passes with only intentional temporary semantic re-exports/callers: `rg "djls_semantic::project::(python|system)|load_env_file|Interpreter" crates -g '*.rs'`
+- [x] New crate compiles: `cargo test -p djls-project` — 22 passed.
+- [x] Interpreter/env moved tests pass for helpers needed by the first loading node: `cargo test -p djls-project interpreter` — 12 passed; `cargo test -p djls-project env` — 11 passed.
+- [x] Helper-move cleanup search passes with only intentional temporary semantic re-exports/callers: `rg "djls_semantic::project::(python|system)|load_env_file|Interpreter" crates -g '*.rs'` — remaining hits are new `djls-project` definitions/tests, temporary semantic re-exports, old semantic callers behind those re-exports, and `djls-db` callers using the temporary `djls_semantic` façade.
+- [x] `djls-project` exposes moved helpers through specific root exports, not public helper modules. Evidence: `crates/djls-project/src/lib.rs` declares `mod env; mod interpreter; mod system;` and re-exports `load_env_file` / `Interpreter`.
 
 **Phase 3A2a gate**
 - [ ] `ProjectLoadingState` shell and fixture DB impls compile with generation-free source unavailable states: `cargo test -p djls-project loading_state`
@@ -1129,10 +1131,10 @@ pub enum ProjectLayoutIssue {
 - [ ] Workspace builds: `cargo build -q`
 
 #### Manual Verification
-- [ ] Confirm `djls-project` has no dependency on `djls-semantic`, `djls-server`, `djls-db`, or `djls-ide`.
+- [x] Confirm `djls-project` has no dependency on `djls-semantic`, `djls-server`, `djls-db`, or `djls-ide`. Evidence: `rg "djls-semantic|djls-server|djls-db|djls-ide" crates/djls-project/Cargo.toml` returned no matches.
 - [ ] Confirm `project_layout_index` returns `ProjectLayoutIndexOutcome`, uses only `ProjectSourceFilesAvailability` / `SourceFileSet`, and does not call `std::fs`, `walk_files`, `ProjectDiscoverySet`, settings/environment queries, or old `Project` fields.
 - [ ] Confirm low-level `djls_source::Db::source_file_set()` consumers do not use `None`/`Some` as startup readiness. Run `rg "source_file_set\(" crates -g '*.rs'` and verify project-facing code reads `ProjectLoadingState.source_files` before branching on readiness.
-- [ ] Confirm no `Fact<T>` appears under `crates/djls-project`.
+- [x] Confirm no `Fact<T>` appears under `crates/djls-project`. Evidence: `rg "Fact<" crates/djls-project -g '*.rs'` returned no matches.
 - [ ] Confirm `crates/djls-project/src/loading/plan.rs`, the neutral loading driver, the execution/apply contract, and the observer/event-sink contract do not import LSP/server/CLI/database concrete types or activity modules.
 - [ ] Confirm `ProjectLoadingSnapshot` and `StartupRunInputs` are server-local, and `djls-project` activity code receives only node-specific request structs or plain domain values, never `ProjectLoadingSnapshot` or `Arc<Mutex<Session>>`.
 - [ ] Confirm CLI and LSP effect adapters use the same per-node request builders; adapters may differ in capture/apply/reporting but not request-construction policy.

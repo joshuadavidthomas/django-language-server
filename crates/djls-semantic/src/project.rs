@@ -9,10 +9,10 @@ mod static_model;
 mod static_resolver;
 mod symbols;
 mod sync;
-mod system;
+
+pub use djls_project::load_env_file;
 
 pub use crate::project::db::Db;
-pub use crate::project::input::load_env_file;
 pub(crate) use crate::project::input::project_model_modules;
 pub(crate) use crate::project::input::project_templatetag_modules;
 pub use crate::project::input::Project;

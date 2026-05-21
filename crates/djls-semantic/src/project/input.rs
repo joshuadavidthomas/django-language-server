@@ -4,6 +4,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
+use djls_project::load_env_file;
 use djls_source::File;
 use djls_source::FileRootKind;
 use rustc_hash::FxHashMap;
@@ -330,50 +331,6 @@ fn register_source_roots(db: &dyn ProjectDb, root: &Utf8Path, interpreter: &Inte
     source_files.try_add_root(root.to_path_buf(), FileRootKind::Project);
     if let Some(site_packages) = find_site_packages(interpreter, root) {
         source_files.try_add_root(site_packages, FileRootKind::LibrarySearchPath);
-    }
-}
-
-pub fn load_env_file(root: &Utf8Path, settings: &Settings) -> Vec<(String, String)> {
-    let env_path = match settings.env_file() {
-        Some(path) => root.join(path),
-        None => root.join(".env"),
-    };
-
-    if !env_path.exists() {
-        if settings.env_file().is_some() {
-            tracing::warn!("Configured env_file not found: {}", env_path);
-        } else {
-            tracing::debug!("No .env file found at {}", env_path);
-        }
-        return Vec::new();
-    }
-
-    match dotenvy::from_path_iter(env_path.as_std_path()) {
-        Ok(iter) => {
-            let mut vars = Vec::new();
-            for item in iter {
-                match item {
-                    Ok((key, value)) => {
-                        tracing::debug!("Loaded env var from file: {}", key);
-                        vars.push((key, value));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse env file entry: {}", e);
-                    }
-                }
-            }
-            if !vars.is_empty() {
-                tracing::info!(
-                    "Loaded {} environment variable(s) from env file",
-                    vars.len()
-                );
-            }
-            vars
-        }
-        Err(e) => {
-            tracing::warn!("Failed to read env file {}: {}", env_path, e);
-            Vec::new()
-        }
     }
 }
 

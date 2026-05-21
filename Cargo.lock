@@ -971,6 +971,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-project"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-conf",
+ "djls-source",
+ "djls-workspace",
+ "dotenvy",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "which",
+]
+
+[[package]]
 name = "djls-semantic"
 version = "0.0.0"
 dependencies = [
@@ -978,6 +996,7 @@ dependencies = [
  "camino",
  "djls-conf",
  "djls-corpus",
+ "djls-project",
  "djls-source",
  "djls-templates",
  "djls-workspace",
