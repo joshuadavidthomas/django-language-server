@@ -981,6 +981,7 @@ dependencies = [
  "djls-source",
  "djls-workspace",
  "dotenvy",
+ "dunce",
  "rustc-hash",
  "salsa",
  "serde",

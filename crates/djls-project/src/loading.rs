@@ -1,5 +1,19 @@
+mod files;
 mod state;
 
+pub use files::build_source_roots;
+pub use files::first_party_discovery_files_request;
+pub use files::first_party_source_files_load_request;
+pub use files::merge_first_party_source_file_patch;
+pub use files::FileSetPartition;
+pub use files::FileSetPartitionId;
+pub use files::FirstPartySourceFilePatch;
+pub use files::ProjectFileLoadingTransition;
+pub use files::ProjectFilePartitionReadiness;
+pub use files::ProjectSourceFilesMaterializationPatch;
+pub use files::ProjectSourceFilesUpdate;
+pub use files::SourceFilesLoadRequest;
+pub use files::SourceRootsPlan;
 pub use state::ProjectDiscoveryAvailability;
 pub use state::ProjectDiscoveryIssue;
 pub use state::ProjectEnrichmentIssue;

@@ -571,7 +571,7 @@ Treat Phase 3 as separate execution PR slices, not one workbench batch. These sl
 - Define a node-specific `SourceFilesLoadRequest` for first-party project file loading. It should contain source roots and the neutral workspace-loader options/predicate inputs needed by `djls-project`; it must not contain `ProjectLoadingSnapshot`, `Arc<Mutex<Session>>`, LSP types, progress handles, or generation guards.
 - Expose a small `first_party_discovery_files_request(roots) -> FilesForRootsRequest` helper or equivalent typed request builder that lowers `SourceFilesLoadRequest` into the neutral `djls-workspace` loader request.
 - Define `ProjectSourceFilesAvailability` in `djls-project::loading`, not in `djls-source`. It distinguishes `Loading`, `Ready(ProjectSourceFiles)`, `Unavailable { issue }`, and `Stale { previous }` without carrying an independent generation.
-- Define one durable project-owned source-file state object, `ProjectSourceFiles`. It privately owns the current partition state, the merged materialized `SourceFileSet`, and any summary data needed for later patch merges. This is the single durable representation of the current project source files; all handle-free merge/update shapes are ephemeral inputs to the reset/apply seam.
+- Define one durable project-owned source-file state object, `ProjectSourceFiles`. Implementation note: model this as an ADT with a discovered partition-state variant and a materialized variant rather than one struct carrying every projection at once. The partition state remains the canonical discovered/source-ownership representation, the materialized variant adds the merged `SourceFileSet`, and handle-free merged discovered data stays an ephemeral derived value for patch comparison. This is the single durable representation of the current project source files; all handle-free merge/update shapes are ephemeral inputs to the reset/apply seam.
 - Define internal partition state such as `ProjectFileSetPartitions` inside those project source files. In 3A2 it needs to store the first-party partition snapshot plus its domain readiness and enough structure for later patch merges and file-loading node/partition terminal projection. Multi-partition precedence decisions, conflict checks, and lower-precedence resurrection are introduced with their first real second partition in Phase 6B.
 - Keep partition snapshots, partition readiness/status values, full merged snapshot data, incremental materialization patch data, and `ProjectSourceFilesUpdate` constructor-controlled with private fields. Treat these as internal implementation shapes for the merge/apply seam, not public consumer APIs. Tests may use fixture builders, but production code must obtain updates through the project-owned merge seam rather than assembling partition state, merged data, diffs, and readiness snapshots independently.
 - Define partition identity in `djls-project::loading::files` with a typed `FileSetPartitionId` enum/newtype, not string IDs. In 3A2 only `FirstParty` is active. Add the documented precedence scale, conflict detection, and lower-precedence resurrection in Phase 6B when configured-template-directory and installed-app partitions exist and can test the behavior against real callers.
@@ -601,7 +601,16 @@ pub enum ProjectSourceFilesAvailability {
     Stale { previous: ProjectSourceFiles },
 }
 
-pub struct ProjectSourceFiles {
+pub enum ProjectSourceFiles {
+    Discovered(ProjectSourceFilesDiscovered),
+    Materialized(ProjectSourceFilesMaterialized),
+}
+
+pub struct ProjectSourceFilesDiscovered {
+    partitions: ProjectFileSetPartitions,
+}
+
+pub struct ProjectSourceFilesMaterialized {
     partitions: ProjectFileSetPartitions,
     merged: SourceFileSet,
 }
@@ -1078,7 +1087,7 @@ pub enum ProjectLayoutIssue {
 - [x] `ProjectLoadingState` shell and fixture DB impls compile with generation-free source unavailable states: `cargo test -p djls-project loading_state` — 2 passed; `cargo test -p djls-project project_source_files_summary` — 1 passed; `cargo test -p djls-db` — 13 passed; `cargo build -q` also passed with `DjangoDatabase`, `djls-bench::Db`, and semantic test database `djls_project::Db` impls. Review follow-up evidence: production `DjangoDatabase` now uses `ProjectLoadingState::not_loaded`, fixture DBs keep `fixture_unavailable`, and `ProjectSourceFiles` derives summary from its merged `SourceFileSet`.
 
 **Phase 3A2b gate**
-- [ ] Root-construction, first-party discovery file-policy, and first-party apply-seam tests pass in the project crate, including private-constructor enforcement, `ProjectSourceFilesIssue` construction for missing/duplicate/walk cases, partition readiness/status construction through the merge seam, overlapping-root longest-prefix ownership/deduplication, and root removal by `SourceRootId`: `cargo test -p djls-project files`. Conflict detection and lower-precedence resurrection tests land in Phase 6B with the first real non-first-party partitions.
+- [x] Root-construction, first-party discovery file-policy, and first-party apply-seam tests pass in the project crate, including private-constructor enforcement, `ProjectSourceFilesIssue` construction for missing/duplicate/walk cases, partition readiness/status construction through the merge seam, overlapping-root longest-prefix ownership/deduplication, and root removal by `SourceRootId`: `cargo test -p djls-project files` — 13 passed. Conflict detection and lower-precedence resurrection tests land in Phase 6B with the first real non-first-party partitions. Evidence includes constructor-controlled `ProjectSourceFiles`/update internals, canonical root alias deduplication, missing-root fallback identity, first-party request policy tests, issue mapping tests, duplicate root issues flowing through the full first-party update, missing-root readiness projecting as `Unavailable`, incremental `changed_roots` diffing, longest-prefix ownership/deduplication tests, and root-removal patch tests; `cargo test -p djls-workspace file_loader` — 7 passed after removing the production-public workspace test constructor; `cargo test -p djls-project loading_state` — 2 passed; `cargo build -q` also passed. Review follow-up evidence: first-party requests now consume `SourceRootsPlan`, `SourceFilesLoadRequest::new` is not public, `ProjectSourceFiles` is opaque publicly while internally modeled as a discovered/materialized ADT, the public merge seam is explicitly first-party (`FirstPartySourceFilePatch`, `merge_first_party_source_file_patch`), `MergedDiscoveredSourceFileSetData` is ephemeral/internal and not crate-root re-exported, and predicate/options helpers are no longer crate-root API.
 
 **Phase 3A2c gate**
 - [ ] Database source-file materialization tests preserve `File` handles for unchanged paths, apply `ProjectSourceFilesMaterializationPatch` changed roots/files/deletions where possible, return `SourceFileSetMaterialized`, and stay partition-policy-free: `cargo test -p djls-db source_file_set`

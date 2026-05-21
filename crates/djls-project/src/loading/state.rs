@@ -3,6 +3,9 @@ use djls_source::FileSetSummary;
 use djls_source::SourceFileSet;
 use djls_source::SourceRootId;
 
+use super::files::MergedDiscoveredSourceFileSetData;
+use super::files::ProjectFileSetPartitions;
+
 #[salsa::input]
 #[derive(Debug)]
 pub struct ProjectLoadingState {
@@ -50,24 +53,60 @@ pub enum ProjectSourceFilesAvailability {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectSourceFiles {
+pub struct ProjectSourceFiles(ProjectSourceFilesState);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ProjectSourceFilesState {
+    #[allow(dead_code)]
+    Discovered(ProjectSourceFilesDiscovered),
+    #[allow(dead_code)]
+    Materialized(ProjectSourceFilesMaterialized),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProjectSourceFilesDiscovered {
+    partitions: ProjectFileSetPartitions,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProjectSourceFilesMaterialized {
+    partitions: ProjectFileSetPartitions,
     merged: SourceFileSet,
 }
 
 impl ProjectSourceFiles {
+    #[cfg(test)]
     #[must_use]
-    pub fn new(merged: SourceFileSet) -> Self {
-        Self { merged }
+    pub(crate) fn materialized_for_test(
+        partitions: ProjectFileSetPartitions,
+        merged: SourceFileSet,
+    ) -> Self {
+        Self(ProjectSourceFilesState::Materialized(
+            ProjectSourceFilesMaterialized { partitions, merged },
+        ))
     }
 
     #[must_use]
-    pub fn merged(&self) -> SourceFileSet {
-        self.merged
+    pub fn merged(&self) -> Option<SourceFileSet> {
+        match &self.0 {
+            ProjectSourceFilesState::Discovered(_) => None,
+            ProjectSourceFilesState::Materialized(files) => Some(files.merged),
+        }
     }
 
     #[must_use]
-    pub fn summary(&self, db: &dyn djls_source::Db) -> FileSetSummary {
-        *self.merged.data(db).summary()
+    pub(crate) fn discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
+        match &self.0 {
+            ProjectSourceFilesState::Discovered(files) => files.partitions.merged_discovered_data(),
+            ProjectSourceFilesState::Materialized(files) => {
+                files.partitions.merged_discovered_data()
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn summary(&self, db: &dyn djls_source::Db) -> Option<FileSetSummary> {
+        self.merged().map(|merged| *merged.data(db).summary())
     }
 }
 
@@ -86,6 +125,11 @@ pub enum ProjectSourceFilesIssue {
         root: SourceRootId,
         path: Utf8PathBuf,
         error_kind: std::io::ErrorKind,
+    },
+    PartitionConflict {
+        path: Utf8PathBuf,
+        winner: super::FileSetPartitionId,
+        shadowed: super::FileSetPartitionId,
     },
     FixtureUnavailable {
         surface: ProjectSourceFilesFixtureSurface,
@@ -235,12 +279,13 @@ mod tests {
         let file_path = root_path.join("templates/index.html");
         let file = File::new(&db, file_path.clone(), 0);
         let loaded = LoadedSourceFile::new(file_path, root_id, file);
-        let data = SourceFileSetData::new(vec![SourceRootEntry::new(root)], vec![loaded])
+        let data = SourceFileSetData::new(vec![SourceRootEntry::new(root.clone())], vec![loaded])
             .expect("source file set should be coherent");
         let set = SourceFileSet::new(&db, data);
 
-        let files = ProjectSourceFiles::new(set);
+        let files =
+            ProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set);
 
-        assert_eq!(files.summary(&db), FileSetSummary::new(1));
+        assert_eq!(files.summary(&db), Some(FileSetSummary::new(1)));
     }
 }
