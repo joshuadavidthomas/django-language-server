@@ -42,6 +42,9 @@ pub(crate) struct Session {
 
     client_info: ClientInfo,
 
+    /// Workspace roots provided by the client or current directory fallback.
+    workspace_roots: Vec<Utf8PathBuf>,
+
     /// The Salsa database for incremental computation
     db: DjangoDatabase,
 }
@@ -49,29 +52,12 @@ pub(crate) struct Session {
 impl Session {
     #[must_use]
     pub(crate) fn new(params: &ls_types::InitializeParams) -> Self {
-        let project_path = params
-            .workspace_folders
-            .as_ref()
-            .and_then(|folders| folders.first())
-            .and_then(|folder| folder.uri.to_utf8_path_buf())
-            .or_else(|| {
-                // Fall back to current directory
-                std::env::current_dir()
-                    .ok()
-                    .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
-            });
-
+        let workspace_roots = workspace_roots(params);
         let client_options = params.client_options();
-
         let client_settings = client_options.settings.clone();
 
         let workspace = Workspace::new();
-        let settings = project_path
-            .as_ref()
-            .and_then(|path| djls_conf::Settings::new(path, Some(client_settings.clone())).ok())
-            .unwrap_or(client_settings);
-
-        let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
+        let db = DjangoDatabase::new(workspace.overlay(), &client_settings);
 
         let client_info = ClientInfo::new(
             &params.capabilities,
@@ -82,6 +68,7 @@ impl Session {
         Self {
             workspace,
             client_info,
+            workspace_roots,
             db,
         }
     }
@@ -93,6 +80,22 @@ impl Session {
 
     pub(crate) fn client_info(&self) -> &ClientInfo {
         &self.client_info
+    }
+
+    pub(crate) fn workspace_roots(&self) -> &[Utf8PathBuf] {
+        &self.workspace_roots
+    }
+
+    pub(crate) fn configuration_root(&self) -> Utf8PathBuf {
+        self.project()
+            .map(|project| project.root(&self.db).clone())
+            .or_else(|| self.workspace_roots.first().cloned())
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
+            })
+            .unwrap_or_else(|| Utf8PathBuf::from("."))
     }
 
     pub(crate) fn db(&self) -> &DjangoDatabase {
@@ -242,6 +245,37 @@ impl Session {
     }
 }
 
+fn workspace_roots(params: &ls_types::InitializeParams) -> Vec<Utf8PathBuf> {
+    if let Some(roots) = params
+        .workspace_folders
+        .as_ref()
+        .map(|folders| {
+            folders
+                .iter()
+                .filter_map(|folder| folder.uri.to_utf8_path_buf())
+                .collect::<Vec<_>>()
+        })
+        .filter(|roots| !roots.is_empty())
+    {
+        return roots;
+    }
+
+    #[allow(deprecated)]
+    if let Some(root) = params
+        .root_uri
+        .as_ref()
+        .and_then(ls_types::Uri::to_utf8_path_buf)
+    {
+        return vec![root];
+    }
+
+    std::env::current_dir()
+        .ok()
+        .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
+        .into_iter()
+        .collect()
+}
+
 impl Default for Session {
     fn default() -> Self {
         Self::new(&ls_types::InitializeParams::default())
@@ -273,6 +307,7 @@ impl SessionSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use djls_semantic::Db as SemanticDb;
     use djls_source::Db as SourceDb;
 
     use super::*;
@@ -344,6 +379,141 @@ mod tests {
         let file = db.get_or_create_file(&path);
         let content = file.source(db).to_string();
         assert_eq!(content, "updated");
+    }
+
+    #[test]
+    fn session_new_does_not_bootstrap_project() {
+        let session = Session::default();
+
+        assert!(session.project().is_none());
+    }
+
+    #[test]
+    fn session_new_preserves_all_workspace_folders() {
+        let root_a = ls_types::Uri::from_file_path("/tmp/djls-root-a").unwrap();
+        let root_b = ls_types::Uri::from_file_path("/tmp/djls-root-b").unwrap();
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![
+                ls_types::WorkspaceFolder {
+                    uri: root_a,
+                    name: "root-a".to_string(),
+                },
+                ls_types::WorkspaceFolder {
+                    uri: root_b,
+                    name: "root-b".to_string(),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let session = Session::new(&params);
+
+        assert_eq!(
+            session.workspace_roots(),
+            &[
+                Utf8PathBuf::from("/tmp/djls-root-a"),
+                Utf8PathBuf::from("/tmp/djls-root-b")
+            ]
+        );
+    }
+
+    #[test]
+    fn session_new_uses_client_settings_without_project_config_load() {
+        let params = ls_types::InitializeParams {
+            initialization_options: Some(serde_json::json!({
+                "debug": true,
+                "django_settings_module": "client.settings"
+            })),
+            ..Default::default()
+        };
+
+        let session = Session::new(&params);
+        let settings = session.db().settings();
+
+        assert!(settings.debug());
+        assert_eq!(settings.django_settings_module(), Some("client.settings"));
+        assert!(session.project().is_none());
+    }
+
+    #[test]
+    fn configuration_reload_can_update_settings_without_project() {
+        let dir = std::env::temp_dir().join(format!("djls-config-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("djls.toml"),
+            r#"
+[diagnostics.severity]
+S100 = "warning"
+"#,
+        )
+        .unwrap();
+        let root_uri = ls_types::Uri::from_file_path(&dir).unwrap();
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: root_uri,
+                name: "root".to_string(),
+            }]),
+            ..Default::default()
+        };
+        let mut session = Session::new(&params);
+
+        assert!(session.project().is_none());
+        let settings = djls_conf::Settings::new(&session.configuration_root(), None).unwrap();
+        let update = session.set_settings(settings);
+
+        assert!(update.diagnostics_changed);
+        assert!(session.project().is_none());
+        assert_eq!(
+            session.db().settings().diagnostics().get_severity("S100"),
+            djls_conf::DiagnosticSeverity::Warning
+        );
+    }
+
+    #[test]
+    fn degraded_no_project_template_requests_do_not_panic() {
+        let mut session = Session::default();
+        let (path, uri) = test_file_uri("degraded_no_project.html");
+        let text_document = ls_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "django-html".to_string(),
+            version: 1,
+            text: "{% load missing %}\n{% if user %}{{ user|default:'anon' }}{% endif %}"
+                .to_string(),
+        };
+        session.open_document(&text_document);
+
+        let db = session.db();
+        assert_eq!(
+            djls_semantic::project_facts_availability(db),
+            djls_semantic::ProjectFactsAvailability::Absent {
+                reason: djls_semantic::ProjectFactsAbsentReason::StartupNotLoaded
+            }
+        );
+
+        let file = db.get_or_create_file(&path);
+        let diagnostics = djls_ide::collect_diagnostics(db, file);
+        let completions = djls_ide::handle_completion(
+            file.source(db).as_str(),
+            ls_types::Position::new(0, 3),
+            session.client_info().position_encoding(),
+            *file.source(db).kind(),
+            db.project().map(|project| project.template_libraries(db)),
+            Some(db.tag_specs()),
+            None,
+            false,
+        );
+        let hover = djls_ide::hover(db, file, djls_source::Offset::new(3));
+        let definition = djls_ide::goto_definition(db, file, djls_source::Offset::new(3));
+        let references = djls_ide::find_references(db, file, djls_source::Offset::new(3));
+
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.source.is_some()));
+        assert!(completions.is_empty() || completions.iter().all(|item| !item.label.is_empty()));
+        assert!(hover.is_none());
+        assert!(definition.is_none());
+        assert!(references.is_none());
     }
 
     #[test]

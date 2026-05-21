@@ -43,6 +43,37 @@ name = "endfor"
     .unwrap();
 }
 
+fn setup_project_with_custom_tagspec(dir: &Path) {
+    setup_project(dir);
+
+    std::fs::write(
+        dir.join("djls.toml"),
+        r#"
+[tagspecs]
+version = "0.6.0"
+engine = "django"
+
+[[tagspecs.libraries]]
+module = "myapp.templatetags.custom"
+
+[[tagspecs.libraries.tags]]
+name = "switch"
+type = "block"
+
+[tagspecs.libraries.tags.end]
+name = "endswitch"
+
+[[tagspecs.libraries.tags.intermediates]]
+name = "case"
+
+[[tagspecs.libraries.tags.args]]
+name = "value"
+kind = "variable"
+"#,
+    )
+    .unwrap();
+}
+
 #[test]
 fn check_clean_template_exits_zero() {
     let dir = tempfile::tempdir().unwrap();
@@ -65,6 +96,34 @@ fn check_clean_template_exits_zero() {
     assert!(
         output.status.success(),
         "Expected exit 0, got {:?}\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn check_uses_custom_tagspec_from_project_config() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_project_with_custom_tagspec(dir.path());
+
+    let templates = dir.path().join("templates");
+    std::fs::create_dir_all(&templates).unwrap();
+    std::fs::write(
+        templates.join("custom.html"),
+        "{% switch value %}{% case 'x' %}x{% endswitch %}\n",
+    )
+    .unwrap();
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "Expected custom tagspec to be accepted, got {:?}\nstdout: {}\nstderr: {}",
         output.status.code(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),

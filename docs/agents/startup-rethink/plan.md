@@ -5,21 +5,37 @@ Rework DJLS startup into a rust-analyzer-style loading model: the LSP handshake 
 
 This plan is the authoritative implementation sequence for startup-rethink. The outline is high-level background; when the outline and this plan disagree about phase mechanics, this plan wins.
 
-The implementation uses the outline's broad ten-phase shape, but these phases are implementation slices, not independent release points. Each phase should be self-contained enough to compile, test, and hand off to the next slice, but the project is not shipping them separately; temporary feature gaps or rough intermediate behavior are acceptable when they are named and deleted by a later phase. Do not contort the design to make every intermediate phase a polished product state. If a phase check fails, halt and surface the failure; do not silently redesign the next phase around it.
+The whole plan is the reviewable PR-sized change that will land. Each phase or subphase is a commit-sized implementation slice inside that PR, not an independently shippable pull request. Each slice should be self-contained enough to compile, test, and hand off to the next slice, but the project is not shipping the slices separately; temporary feature gaps or rough intermediate behavior are acceptable when they are named and deleted by a later phase. Do not contort the design to make every intermediate phase a polished product state. If a phase check fails, halt and surface the failure; do not silently redesign the next phase around it.
 
 ## Implementation Status
 
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the initial planning-docs change `sqoqvvrn` (`docs: add startup rethink planning docs`). Move it forward after the first verified implementation slice.
-- **Implementation change**: `otrxksps` (`startup-rethink implementation`) is the empty current change on top of the planning-docs baseline.
-- **Current slice**: Pre-flight before Phase 1; baseline validation has not run yet.
+- **Implementation change**: `nyntuxws` (`protocol-ready startup`) contains the verified protocol-ready startup slice on top of the planning-docs baseline.
+- **Current slice**: Phase 1 complete; ready to describe the change, move `startup-rethink`, and start Phase 2 after approval.
 
 ### Implementation Notes
 
 Add one entry at the end of each completed implementation slice, after validation passes and before starting the next `jj` change. Use a short human-readable slice name rather than a phase number as the heading. Include the bookmark, current change ID, scope, validation commands, and follow-ups/blockers. Keep entries newest last so this section reads as an implementation log.
 
 Do not keep placeholder slice headings in this live log. If an example is needed, keep it outside this section so future readers do not mistake it for an implemented slice.
+
+### Protocol-ready startup
+- Bookmark: `startup-rethink` still points to planning baseline `sqoqvvrn`; move it to `nyntuxws` after describing this verified slice.
+- Current change: `nyntuxws`.
+- Scope: removed implicit Project bootstrap from `DjangoDatabase::new`; added explicit legacy project bootstrap for project-aware callers; made `Session::new` capture roots and use client settings only; made `initialized` log and return; kept configuration reload settings storage working without a Project; added temporary no-Project availability adapter; added pytest-lsp startup smoke tests.
+- Validation:
+  - `cargo test -q` baseline passed before edits.
+  - `cargo test -p djls-server session::tests::session_new` passed.
+  - `cargo test -p djls-server degraded_no_project` passed.
+  - `uv run pytest tests/lsp/test_startup.py -k "initialize_returns_capabilities or server_stays_responsive_after_initialized"` passed.
+  - `uv run ruff check tests/lsp/test_startup.py` passed.
+  - `cargo test -p djls-server` passed.
+  - `cargo test -p djls --test check` passed with custom project tagspec coverage.
+  - `cargo build -q` passed.
+  - `just fmt --check` passed.
+- Follow-ups/blockers: Phase 3C must move/delete `crates/djls-semantic/src/availability.rs` into `djls-project::availability` or narrow it to a semantic-only adapter.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -222,7 +238,7 @@ Background loading must not regress Project Facts or diagnostics to older open-b
 - [x] Create the work-item bookmark: `startup-rethink` points to `sqoqvvrn`
 - [x] Start the implementation change on top of the planning baseline: `otrxksps` (`startup-rethink implementation`)
 - [x] Confirm the implementation change is clean before implementation: `jj st` shows no unexpected file changes in `@`
-- [ ] Capture baseline: `cargo test -q`
+- [x] Capture baseline: `cargo test -q` — passed before edits (workspace tests all green).
 
 ### Halt conditions
 - If baseline tests fail, halt and report the failing tests before starting the rewrite.
@@ -325,18 +341,18 @@ Do not add the startup controller, generation guards, progress task APIs, loadin
 ### Success Criteria
 
 #### Automated Verification
-- [ ] Session startup tests pass: `cargo test -p djls-server session::tests::session_new`
-- [ ] Minimal real-LSP startup smoke tests pass: `uv run pytest tests/lsp/test_startup.py -k "initialize_returns_capabilities or server_stays_responsive_after_initialized"`
-- [ ] No-project degraded request tests pass through the temporary no-project semantic adapter and record the Phase 3C move/delete gate to `djls-project::availability`: `cargo test -p djls-server degraded_no_project` or equivalent targeted IDE/server tests
-- [ ] Executable startup assertion proves Phase 1 `initialized` does not call or schedule `load_template_library_cache`, `refresh_external_data`, root config loading, startup controller work, or Queue startup work; if a direct assertion would be more intrusive than the behavior change, keep the manual `rg` check as a temporary Phase 1 gate and replace it when the startup controller seam lands.
-- [ ] Server and CLI compile with the new database constructor: `cargo test -p djls-server`
-- [ ] Existing CLI tests still pass with the intentional Phase 1 degraded no-project fallback for no-path `djls check` discovery: `cargo test -p djls --test check`
-- [ ] Workspace builds: `cargo build -q`
+- [x] Session startup tests pass: `cargo test -p djls-server session::tests::session_new` — 3 passed.
+- [x] Minimal real-LSP startup smoke tests pass: `uv run pytest tests/lsp/test_startup.py -k "initialize_returns_capabilities or server_stays_responsive_after_initialized"` — 2 passed.
+- [x] No-project degraded request tests pass through the temporary no-project semantic adapter and record the Phase 3C move/delete gate to `djls-project::availability`: `cargo test -p djls-server degraded_no_project` — 1 passed; gate documented in `crates/djls-semantic/src/availability.rs`.
+- [x] Executable startup assertion proves Phase 1 `initialized` does not call or schedule `load_template_library_cache`, `refresh_external_data`, root config loading, startup controller work, or Queue startup work; if a direct assertion would be more intrusive than the behavior change, keep the manual `rg` check as a temporary Phase 1 gate and replace it when the startup controller seam lands. Evidence: `initialized` only logs/returns; `rg "load_template_library_cache|refresh_external_data|StartupController|root settings|Settings::new" crates/djls-server -g '*.rs'` finds only non-startup configuration-refresh uses.
+- [x] Server and CLI compile with the new database constructor: `cargo test -p djls-server` — 32 passed; doc test ignored as before.
+- [x] Existing CLI tests still pass with explicit legacy Project bootstrap for `djls check` while LSP startup remains no-project: `cargo test -p djls --test check` — 7 passed, including custom project tagspec coverage.
+- [x] Workspace builds: `cargo build -q` — passed.
 
 #### Manual Verification
-- [ ] Inspect `crates/djls-server/src/server.rs` and confirm `initialized` only logs/returns and no longer calls `load_template_library_cache`, `refresh_external_data`, root settings/config loading, startup controller code, or any awaited startup work.
-- [ ] Run `rg "load_template_library_cache|refresh_external_data|StartupController|root settings|Settings::new" crates/djls-server -g '*.rs'` and confirm any matches are not in `initialize`, `initialized`, `Session::new`, or Phase 1 startup paths.
-- [ ] Inspect `tests/lsp/test_startup.py` and confirm the Phase 1 smoke tests use the stable `djls serve --connection-type stdio` launch fixture and cover only black-box protocol responsiveness, not progress or background-loading timing.
+- [x] Inspect `crates/djls-server/src/server.rs` and confirm `initialized` only logs/returns and no longer calls `load_template_library_cache`, `refresh_external_data`, root settings/config loading, startup controller code, or any awaited startup work. Evidence: inspected `initialized`; body is only `tracing::info!(...)`.
+- [x] Run `rg "load_template_library_cache|refresh_external_data|StartupController|root settings|Settings::new" crates/djls-server -g '*.rs'` and confirm any matches are not in `initialize`, `initialized`, `Session::new`, or Phase 1 startup paths. Evidence: matches are only the `refresh_external_data` import/call and `Settings::new` in `did_change_configuration`.
+- [x] Inspect `tests/lsp/test_startup.py` and confirm the Phase 1 smoke tests use the stable `djls serve --connection-type stdio` launch fixture and cover only black-box protocol responsiveness, not progress or background-loading timing. Evidence: `SERVER_COMMAND` is `cargo run -q -p djls -- serve --connection-type stdio`; tests assert capabilities and an awaited completion request only.
 
 ## Phase 2: neutral source and workspace loading primitives
 

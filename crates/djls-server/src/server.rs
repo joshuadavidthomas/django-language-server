@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use djls_semantic::load_template_library_cache;
 use djls_semantic::refresh_external_data;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ProjectDb;
@@ -135,6 +134,10 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
+        tracing::debug!(
+            workspace_roots = session.workspace_roots().len(),
+            "Captured workspace roots"
+        );
         let encoding = session.client_info().position_encoding();
 
         {
@@ -198,55 +201,6 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
-
-        // Phase 1: Load the cached template library snapshot for near-instant startup.
-        // This populates template_libraries from disk cache so completions and
-        // diagnostics work immediately while fresh project introspection runs.
-        let cache_loaded = self
-            .with_session_mut(|session| {
-                let t = std::time::Instant::now();
-                let loaded = load_template_library_cache(session.db_mut());
-                if loaded {
-                    tracing::info!(
-                        "Template library snapshot cache loaded in {:?}",
-                        t.elapsed()
-                    );
-                } else {
-                    tracing::info!("No template library snapshot cache available");
-                }
-                loaded
-            })
-            .await;
-
-        // Phase 2: Refresh project data in the background.
-        // This validates/refreshes the cached data, extracts external
-        // rules, and initializes the workspace.
-        let rx = self
-            .with_session_mut_task(|session| async move {
-                let start = std::time::Instant::now();
-
-                let mut session_lock = session.lock().await;
-                let db = session_lock.db_mut();
-
-                let t = std::time::Instant::now();
-                refresh_external_data(db);
-                tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                if db.project().is_none() {
-                    tracing::info!("Task: No project configured, skipping initialization.");
-                }
-
-                tracing::info!("Server initialization completed in {:?}", start.elapsed());
-                Ok(())
-            })
-            .await;
-
-        // If we loaded from cache, the server is already functional — requests
-        // arriving during the background refresh will use cached data. If no
-        // cache was available, we wait for the full initialization like before.
-        if !cache_loaded {
-            let _ = rx.await;
-        }
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -559,11 +513,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         let settings_update = self
             .with_session_mut(|session| {
-                if session.project().is_none() {
-                    return djls_db::SettingsUpdate::default();
-                }
-
-                let project_root = session.db().project_root_or_cwd();
+                let project_root = session.configuration_root();
 
                 match djls_conf::Settings::new(
                     &project_root,

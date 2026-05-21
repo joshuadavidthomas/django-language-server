@@ -88,12 +88,8 @@ impl Default for DjangoDatabase {
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
-    pub fn new(
-        file_system: Arc<dyn FileSystem>,
-        settings: &Settings,
-        project_path: Option<&Utf8Path>,
-    ) -> Self {
-        let mut db = Self {
+    pub fn new(file_system: Arc<dyn FileSystem>, settings: &Settings) -> Self {
+        Self {
             fs: file_system,
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
@@ -102,16 +98,15 @@ impl DjangoDatabase {
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
-        };
-
-        if let Some(path) = project_path {
-            db.set_project(path, settings);
         }
-
-        db
     }
 
-    fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
+    /// Bootstrap the legacy single-project input for project-aware callers.
+    ///
+    /// LSP protocol startup intentionally does not call this. Batch/project-aware
+    /// entrypoints such as `djls check` can call it explicitly until the
+    /// root-scoped project loading graph replaces the old `Project` input.
+    pub fn bootstrap_project(&mut self, root: &Utf8Path, settings: &Settings) {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
     }
