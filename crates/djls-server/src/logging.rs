@@ -22,6 +22,7 @@ use tracing::field::Visit;
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -162,6 +163,7 @@ where
         .with_target(true)
         .with_file(true)
         .with_line_number(true)
+        .with_span_events(FmtSpan::CLOSE)
         .with_filter(env_filter);
 
     let lsp_layer = LspLayer::new(send_message);

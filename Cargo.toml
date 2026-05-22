@@ -51,7 +51,7 @@ tempfile = "3.26"
 thiserror = "2.0"
 tokio = { version = "1.52", features = ["full"] }
 toml = "1.1"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["attributes"] }
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 which = "8.0"
