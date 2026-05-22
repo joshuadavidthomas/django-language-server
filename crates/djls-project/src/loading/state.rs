@@ -92,7 +92,6 @@ impl ReadyProjectSourceFiles {
         Self::new(partitions, merged)
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn merged_for_test(merged: SourceFileSet) -> Self {
         Self::new(ProjectFileSetPartitions::empty(), merged)
@@ -126,30 +125,6 @@ impl ReadyProjectSourceFiles {
     #[must_use]
     pub fn has_partition_readiness(&self) -> bool {
         self.partitions.has_partitions()
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ProjectSourceFilesBuildState {
-    #[allow(dead_code)]
-    Discovered(ProjectSourceFilesDiscovered),
-    #[allow(dead_code)]
-    Materialized(ReadyProjectSourceFiles),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ProjectSourceFilesDiscovered {
-    partitions: ProjectFileSetPartitions,
-}
-
-impl ProjectSourceFilesBuildState {
-    #[allow(dead_code)]
-    #[must_use]
-    pub(crate) fn discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
-        match self {
-            Self::Discovered(files) => files.partitions.merged_discovered_data(),
-            Self::Materialized(files) => files.discovered_data(),
-        }
     }
 }
 

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -82,6 +80,7 @@ impl StartupController {
         }
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn guard_for_active_generation(&self) -> Option<GenerationGuard> {
         let generation = StartupGeneration(self.active.load(Ordering::SeqCst));
@@ -132,6 +131,7 @@ impl GenerationGuard {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn observe<T>(
         &self,
         session: &Arc<Mutex<Session>>,
@@ -155,6 +155,7 @@ pub(crate) enum ApplyOutcome<T> {
     Rejected { reason: ApplyRejection },
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ObservationOutcome<T> {
     Observed(T),
@@ -169,15 +170,6 @@ pub(crate) enum ApplyRejection {
         captured: CapturedDocumentState,
         current: CapturedDocumentState,
     },
-}
-
-impl ApplyRejection {
-    #[must_use]
-    pub(crate) fn path(&self) -> &Utf8PathBuf {
-        match self {
-            Self::StaleDocument { path, .. } => path,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -277,6 +269,7 @@ impl ProjectLoadingSnapshot {
         &self.settings
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn open_documents(&self) -> &[CapturedDocumentSnapshot] {
         &self.open_documents
@@ -310,6 +303,7 @@ pub(crate) struct StartupRunInputs {
 }
 
 impl StartupRunInputs {
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn capture(session: &Session, guard: GenerationGuard) -> Self {
         Self::capture_with_progress(session, guard, StartupProgress::log_fallback())
@@ -351,6 +345,7 @@ pub(crate) enum StartupRunOutcome {
     Superseded { generation: StartupGeneration },
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum StartupProgressEvent {
     Begin,
@@ -390,6 +385,7 @@ impl StartupProgress {
         }
     }
 
+    #[cfg(test)]
     #[cfg(test)]
     #[must_use]
     fn recording(events: Arc<StdMutex<Vec<StartupProgressEvent>>>) -> Self {

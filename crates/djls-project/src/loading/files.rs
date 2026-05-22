@@ -256,7 +256,6 @@ pub(crate) struct ProjectFileSetPartitions {
 }
 
 impl ProjectFileSetPartitions {
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn empty() -> Self {
         Self::default()
@@ -289,7 +288,7 @@ impl ProjectFileSetPartitions {
         Self { partitions }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn first_party_readiness(&self) -> Option<&ProjectFilePartitionReadiness> {
         self.partitions
@@ -583,7 +582,7 @@ impl ProjectSourceFilesUpdate {
         &self.issues
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn partitions(&self) -> &ProjectFileSetPartitions {
         &self.partitions

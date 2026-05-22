@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::io::Write;
 use std::process::Command;
 use std::process::Stdio;
+use std::time::Instant;
 
 use camino::Utf8PathBuf;
 use serde::Deserialize;
@@ -48,17 +49,44 @@ impl RuntimeEnrichmentDto {
 pub(crate) fn load_runtime_enrichment(
     request: RuntimeEnrichmentRequest,
 ) -> djls_project::ProjectEnrichmentDraft {
+    let span = tracing::info_span!(
+        "runtime_enrichment_provider",
+        project_root = %request.project_root,
+        python = %request.python,
+        django_settings_module = ?request.django_settings_module,
+        pythonpath_entries = request.pythonpath.len(),
+        env_var_count = request.env_vars.len(),
+    );
+    let _enter = span.enter();
+    let start = Instant::now();
+
     match query_runtime_enrichment(&request) {
-        Ok(dto) => dto.into_draft(),
-        Err(kind) => djls_project::ProjectEnrichmentDraft::Failed {
-            issue: djls_project::ProjectEnrichmentIssue::InspectorFailed { kind },
-        },
+        Ok(dto) => {
+            tracing::info!(
+                elapsed_ms = start.elapsed().as_millis(),
+                template_dir_count = dto.template_dirs.len(),
+                template_library_count = dto.template_libraries.len(),
+                "Runtime enrichment provider succeeded"
+            );
+            dto.into_draft()
+        }
+        Err(kind) => {
+            tracing::warn!(
+                elapsed_ms = start.elapsed().as_millis(),
+                failure = ?kind,
+                "Runtime enrichment provider failed"
+            );
+            djls_project::ProjectEnrichmentDraft::Failed {
+                issue: djls_project::ProjectEnrichmentIssue::InspectorFailed { kind },
+            }
+        }
     }
 }
 
 fn query_runtime_enrichment(
     request: &RuntimeEnrichmentRequest,
 ) -> Result<RuntimeEnrichmentDto, djls_project::InspectorFailureKind> {
+    let start = Instant::now();
     let mut zipapp = NamedTempFile::with_prefix("djls_inspector_")
         .map_err(|_| djls_project::InspectorFailureKind::SubprocessFailed { status: None })?;
     zipapp
@@ -92,9 +120,15 @@ fn query_runtime_enrichment(
         command.env(key, value);
     }
 
+    tracing::info!("Starting runtime enrichment inspector subprocess");
+    let spawn_start = Instant::now();
     let mut child = command
         .spawn()
         .map_err(|_| djls_project::InspectorFailureKind::SubprocessFailed { status: None })?;
+    tracing::info!(
+        elapsed_ms = spawn_start.elapsed().as_millis(),
+        "Runtime enrichment inspector subprocess started"
+    );
 
     {
         let stdin = child
@@ -112,19 +146,37 @@ fn query_runtime_enrichment(
         .stdout
         .take()
         .ok_or(djls_project::InspectorFailureKind::SubprocessFailed { status: None })?;
+    let response_start = Instant::now();
     let mut lines = BufReader::new(stdout).lines();
     let template_dirs: TemplateDirsDto = parse_response_line(lines.next())?;
     let template_libraries: TemplateLibrariesDto = parse_response_line(lines.next())?;
+    tracing::info!(
+        elapsed_ms = response_start.elapsed().as_millis(),
+        template_dir_count = template_dirs.dirs.len(),
+        template_library_count = template_libraries.libraries.len(),
+        "Runtime enrichment inspector responses parsed"
+    );
 
+    let wait_start = Instant::now();
     let status = child
         .wait()
         .map_err(|_| djls_project::InspectorFailureKind::SubprocessFailed { status: None })?;
+    tracing::info!(
+        elapsed_ms = wait_start.elapsed().as_millis(),
+        status = status.code(),
+        success = status.success(),
+        "Runtime enrichment inspector subprocess exited"
+    );
     if !status.success() {
         return Err(djls_project::InspectorFailureKind::SubprocessFailed {
             status: status.code(),
         });
     }
 
+    tracing::info!(
+        elapsed_ms = start.elapsed().as_millis(),
+        "Runtime enrichment inspector query completed"
+    );
     Ok(RuntimeEnrichmentDto {
         template_dirs: template_dirs.dirs,
         template_libraries: template_libraries.libraries,

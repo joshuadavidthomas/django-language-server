@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use camino::Utf8Path;
 use djls_conf::Settings;
@@ -75,11 +76,6 @@ pub struct DjangoDatabase {
     pub(crate) semantic_settings_revision: Arc<OnceLock<SemanticSettingsRevision>>,
 
     pub(crate) storage: salsa::Storage<Self>,
-
-    // The logs are only used for testing and demonstrating reuse:
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) logs: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 #[cfg(test)]
@@ -108,7 +104,6 @@ impl Default for DjangoDatabase {
                     }
                 }
             }))),
-            logs,
         };
         let project = ProjectFacts::virtual_project(&db);
         db.project_facts
@@ -137,8 +132,6 @@ impl DjangoDatabase {
             project_facts: Arc::new(OnceLock::new()),
             semantic_settings_revision: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(None),
-            #[cfg(test)]
-            logs: Arc::new(Mutex::new(None)),
         };
         let project = ProjectFacts::virtual_project(&db);
         db.project_facts
@@ -156,23 +149,48 @@ impl DjangoDatabase {
     }
 
     pub fn load_project_enrichment(&self) -> ProjectEnrichmentDraft {
+        let start = Instant::now();
+        let span = tracing::info_span!("load_project_enrichment");
+        let _enter = span.enter();
+
         let project = LoadingDb::project(self);
         let request = match runtime_enrichment_request(self, project) {
             Ok(request) => request,
-            Err(issue) => return ProjectEnrichmentDraft::Unavailable { issue },
+            Err(issue) => {
+                tracing::info!(
+                    elapsed_ms = start.elapsed().as_millis(),
+                    reason = ?issue,
+                    "Runtime enrichment unavailable"
+                );
+                return ProjectEnrichmentDraft::Unavailable { issue };
+            }
         };
-        load_runtime_enrichment(request)
+        let draft = load_runtime_enrichment(request);
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis(),
+            outcome = enrichment_draft_outcome(&draft),
+            "Runtime enrichment loaded"
+        );
+        draft
     }
 
     pub fn apply_enrichment(
         &mut self,
         draft: ProjectEnrichmentDraft,
     ) -> djls_project::ProjectEnrichment {
+        let start = Instant::now();
         let project = LoadingDb::project(self);
         let next = draft.into_enrichment();
-        if project.enrichment(self) != &next {
+        let changed = project.enrichment(self) != &next;
+        if changed {
             project.set_enrichment(self).to(next.clone());
         }
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis(),
+            changed,
+            outcome = enrichment_outcome(&next),
+            "Runtime enrichment applied"
+        );
         next
     }
 
@@ -340,12 +358,39 @@ impl DjangoDatabase {
     }
 }
 
+fn enrichment_draft_outcome(draft: &ProjectEnrichmentDraft) -> &'static str {
+    match draft {
+        ProjectEnrichmentDraft::Disabled => "disabled",
+        ProjectEnrichmentDraft::Fresh(_) => "fresh",
+        ProjectEnrichmentDraft::CachedStale { .. } => "cached_stale",
+        ProjectEnrichmentDraft::Failed { .. } => "failed",
+        ProjectEnrichmentDraft::Unavailable { .. } => "unavailable",
+    }
+}
+
+fn enrichment_outcome(enrichment: &djls_project::ProjectEnrichment) -> &'static str {
+    match enrichment {
+        djls_project::ProjectEnrichment::Absent => "absent",
+        djls_project::ProjectEnrichment::Disabled => "disabled",
+        djls_project::ProjectEnrichment::Fresh(_) => "fresh",
+        djls_project::ProjectEnrichment::CachedStale { .. } => "cached_stale",
+        djls_project::ProjectEnrichment::Failed { .. } => "failed",
+        djls_project::ProjectEnrichment::Unavailable { .. } => "unavailable",
+    }
+}
+
 fn runtime_enrichment_request(
     db: &dyn djls_project::Db,
     project: ProjectFacts,
 ) -> Result<RuntimeEnrichmentRequest, ProjectEnrichmentIssue> {
+    let start = Instant::now();
     let discovery = project.discovery(db);
     let ProjectDiscovery::Ready(discovery) = discovery else {
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis(),
+            reason = ?RuntimeUnavailableKind::EnvironmentNotConfigured,
+            "Runtime enrichment request unavailable"
+        );
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
             interpreter: None,
             kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
@@ -354,12 +399,22 @@ fn runtime_enrichment_request(
     let djls_project::DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
         djls_project::django_environment_candidates(db, project)
     else {
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis(),
+            reason = ?RuntimeUnavailableKind::EnvironmentNotConfigured,
+            "Runtime enrichment request unavailable"
+        );
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
             interpreter: None,
             kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
         });
     };
     let Some(candidate) = candidates.first() else {
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis(),
+            reason = ?RuntimeUnavailableKind::EnvironmentNotConfigured,
+            "Runtime enrichment request unavailable"
+        );
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
             interpreter: None,
             kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
@@ -376,19 +431,35 @@ fn runtime_enrichment_request(
         .clone()
         .unwrap_or(djls_project::Interpreter::Auto);
     let Some(python) = interpreter.python_path(&project_root) else {
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis(),
+            reason = ?RuntimeUnavailableKind::MissingPython,
+            interpreter = ?interpreter,
+            "Runtime enrichment request unavailable"
+        );
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
             interpreter: Some(interpreter),
             kind: RuntimeUnavailableKind::MissingPython,
         });
     };
 
-    Ok(RuntimeEnrichmentRequest {
+    let request = RuntimeEnrichmentRequest {
         python,
         project_root,
         django_settings_module: Some(candidate.settings().as_str().to_string()),
         pythonpath: root.pythonpath(db).clone(),
         env_vars: root.env_vars(db).entries().to_vec(),
-    })
+    };
+    tracing::info!(
+        elapsed_ms = start.elapsed().as_millis(),
+        project_root = %request.project_root,
+        python = %request.python,
+        django_settings_module = ?request.django_settings_module,
+        pythonpath_entries = request.pythonpath.len(),
+        env_var_count = request.env_vars.len(),
+        "Runtime enrichment request prepared"
+    );
+    Ok(request)
 }
 
 fn project_discovery_matches_data(
@@ -800,7 +871,6 @@ mod invalidation_tests {
                     log.events.lock().unwrap().push(event);
                 }
             }))),
-            logs: Arc::new(Mutex::new(None)),
         };
         let project_facts = djls_project::Project::fixture_unavailable(&db);
         db.project_facts
@@ -941,7 +1011,6 @@ def my_filter(value, arg):
                     log.events.lock().unwrap().push(event);
                 }
             }))),
-            logs: Arc::new(Mutex::new(None)),
         };
         let project_facts = djls_project::Project::fixture_unavailable(&db);
         db.project_facts

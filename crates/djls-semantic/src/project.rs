@@ -1,6 +1,5 @@
 mod names;
 mod python;
-mod resolve;
 mod symbols;
 
 pub use djls_project::load_env_file;
