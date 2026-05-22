@@ -16,6 +16,7 @@ use crate::ReadyProjectSourceFiles;
 use crate::RootDiscoveryInput;
 
 #[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn source_file_set_for_test(
     db: &dyn Db,
     root: impl Into<Utf8PathBuf>,
@@ -45,6 +46,7 @@ pub fn ready_source_inventory_for_test(
 }
 
 #[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn ready_source_inventory_with_roots_for_test(
     db: &dyn Db,
     roots: Vec<Utf8PathBuf>,
@@ -88,6 +90,7 @@ pub fn ready_source_inventory_with_roots_for_test(
 }
 
 #[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn project_discovery_set_for_test(
     db: &dyn Db,
     root: impl Into<Utf8PathBuf>,

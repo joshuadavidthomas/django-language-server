@@ -313,24 +313,19 @@ fn directory_entry_with_readiness(
         Some(ProjectFilePartitionReadiness::Ready { .. }) => {
             TemplateDirectoryEntry::Discovered(directory)
         }
-        Some(ProjectFilePartitionReadiness::Deferred { .. }) => {
-            TemplateDirectoryEntry::Deferred { directory }
-        }
         None if directory_fallback_loaded(files, &directory, loaded_roots) => {
             TemplateDirectoryEntry::Discovered(directory)
         }
-        None => TemplateDirectoryEntry::Deferred { directory },
-        Some(ProjectFilePartitionReadiness::Unavailable { issue, .. }) => {
-            TemplateDirectoryEntry::Unavailable { directory, issue }
-        }
+        Some(
+            ProjectFilePartitionReadiness::Deferred { .. } | ProjectFilePartitionReadiness::Loading,
+        )
+        | None => TemplateDirectoryEntry::Deferred { directory },
+        Some(
+            ProjectFilePartitionReadiness::Unavailable { issue, .. }
+            | ProjectFilePartitionReadiness::Skipped { issue, .. },
+        ) => TemplateDirectoryEntry::Unavailable { directory, issue },
         Some(ProjectFilePartitionReadiness::Stale { .. }) => {
             TemplateDirectoryEntry::Stale { directory }
-        }
-        Some(ProjectFilePartitionReadiness::Loading) => {
-            TemplateDirectoryEntry::Deferred { directory }
-        }
-        Some(ProjectFilePartitionReadiness::Skipped { issue, .. }) => {
-            TemplateDirectoryEntry::Unavailable { directory, issue }
         }
     }
 }
@@ -354,6 +349,7 @@ fn defer_discovered_directory(entry: TemplateDirectoryEntry) -> TemplateDirector
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn template_directory_entries(
     db: &dyn Db,
     project: Project,
@@ -368,7 +364,7 @@ fn template_directory_entries(
                     entries.push(TemplateDirectoryEntry::Discovered(TemplateDirectory {
                         path: Utf8PathBuf::from(path),
                         source: TemplateDirectorySource::SettingsDirs,
-                    }))
+                    }));
                 }
                 (_, Some(issue)) => entries.push(TemplateDirectoryEntry::UnknownSettingsDir {
                     issue: issue.clone(),
@@ -377,7 +373,7 @@ fn template_directory_entries(
             }
         }
         if backend.app_dirs() == Some(true) {
-            for app in installed_apps(db, project, env.clone()).iter() {
+            for app in installed_apps(db, project, env.clone()) {
                 if let Some(path) = installed_app_template_dir(db, app.resolution()) {
                     entries.push(TemplateDirectoryEntry::Discovered(TemplateDirectory {
                         path,

@@ -276,7 +276,7 @@ fn imported_settings_module(
             level,
             ..
         } if name == "*" => import_from_module_name(current_module, module.as_ref(), *level),
-        _ => None,
+        ImportStatement::ImportFrom { .. } => None,
     }
 }
 
@@ -337,7 +337,10 @@ fn apply_settings_operations(
                 }
             }
             PythonSourceOperation::Call(call) => {
-                let Some(callee) = call.callee().map(|callee| callee.as_dotted()) else {
+                let Some(callee) = call
+                    .callee()
+                    .map(super::super::python::source::QualifiedName::as_dotted)
+                else {
                     continue;
                 };
                 match callee.as_str() {

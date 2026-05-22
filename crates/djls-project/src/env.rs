@@ -28,6 +28,7 @@ impl EnvFileLoadOutcome {
     }
 }
 
+#[must_use]
 pub fn load_env_file(root: &Utf8Path, settings: &Settings) -> Vec<(String, String)> {
     load_env_file_outcome(root, settings).entries
 }

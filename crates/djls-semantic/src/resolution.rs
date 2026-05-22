@@ -77,12 +77,12 @@ impl<'db> TemplateLookupResult<'db> {
     }
 }
 
-pub fn resolve_static_template<'db>(
-    db: &'db dyn SemanticDb,
+pub fn resolve_static_template(
+    db: &dyn SemanticDb,
     project: djls_project::Project,
     env: djls_project::DjangoEnvironmentId,
     name: djls_project::TemplateName,
-) -> TemplateLookupResult<'db> {
+) -> TemplateLookupResult<'_> {
     let template_name = InternedTemplateName::new(db, name.as_str().to_string());
     let inventory = djls_project::template_files(db, project, env.clone());
     let templates = discover_templates(db, project, env);
@@ -132,14 +132,14 @@ pub fn resolve_template<'db>(
     let project_facts = djls_project::Db::project(db);
     match djls_project::environment_for_file(db, project_facts, source) {
         djls_project::EnvironmentSelection::Selected(env) => {
-            return resolve_static_template(db, project_facts, env.clone(), name);
+            resolve_static_template(db, project_facts, env.clone(), name)
         }
         djls_project::EnvironmentSelection::Unknown { issues }
         | djls_project::EnvironmentSelection::Ambiguous { issues, .. } => {
-            return TemplateLookupResult::Deferred {
+            TemplateLookupResult::Deferred {
                 name: Some(name),
                 issue: TemplateLookupIssue::Environment(issues.clone()),
-            };
+            }
         }
     }
 }

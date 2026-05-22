@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `rkpmtosy` contains the completed runtime enrichment hints slice.
-- **Current slice**: Phase 10 is next; start a fresh `jj` change before implementation.
+- **Implementation change**: `szqwxlox` contains the completed CLI/LSP readiness and old Project removal slice.
+- **Current slice**: complete; no remaining implementation phase.
 
 ### Implementation Notes
 
@@ -526,13 +526,49 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed runtime/process probing belongs in infrastructure/session boundaries, lowered typed facts belong in project/model inputs, and failures should degrade status without blocking core static readiness. No Oracle redesign was needed.
 - Follow-ups/blockers: Phase 10 should finish CLI/LSP parity and remove the remaining old semantic `Project` API/adapter surface.
 
+### CLI/LSP readiness and old Project removal
+- Bookmark: `startup-rethink` still points to `rkpmtosy`; move it to `szqwxlox` after describing this verified slice.
+- Current change: `szqwxlox`.
+- Scope: deleted the old semantic static `Fact<T>` scaffolding modules (`static_model`, `static_resolver`, and `static_django_environments`) after equivalent `djls-project` APIs were in place; removed the legacy semantic `ProjectDb` trait, old semantic `Project`/`TemplateDirs` re-exports, `DjangoDatabase::bootstrap_project`, and old `template_dirs()` discovery fallback; shifted semantic extraction queries to accept the stable `djls_project::Project` root and use tracked project inventories; made tag-spec config invalidation Salsa-visible through a semantic settings revision; ran the full CLI loading graph for explicit and implicit `djls check`; added CLI environment-ambiguity warnings for files matching multiple Django Environments; extended pytest-lsp startup coverage for work-done progress, in-progress template diagnostics, and log fallback; updated `ARCHITECTURE.md` and `CONTEXT.md` for the new readiness and Project Facts model; and cleaned up clippy findings surfaced by the final gate.
+- Validation:
+  - `cargo check -q` passed.
+  - `cargo test -p djls-semantic --no-run` passed.
+  - `cargo test -p djls-server session` passed.
+  - `cargo test -p djls-server startup` passed.
+  - `cargo test -p djls --test check` passed.
+  - `cargo test -p djls-db invalidation` passed.
+  - `cargo test -p djls-project` passed.
+  - `cargo test -p djls-semantic` passed.
+  - `cargo test -p djls-ide` passed.
+  - `cargo test -q` passed.
+  - `uv run ruff check tests/lsp/test_startup.py` passed.
+  - `uv run pytest tests/lsp/test_startup.py` passed.
+  - `just fmt --check` passed.
+  - `cargo clippy --all-targets --all-features --benches -- -D warnings` passed.
+  - `just lint` passed.
+- Cleanup/audit evidence:
+  - Loading parity: `LoadingPlan::phase3()` and `NODE_SPECS` include `source-file-set`, `project-discovery-set`, `python-source-models`, `environment-discovery`, `installed-app-files`, `template-directory-files`, and scheduler-only `enrichment`; `crates/djls/src/commands/check.rs` and `crates/djls-server/src/startup.rs` both run `run_loading_plan(LoadingPlan::phase3(), ...)`; phase logs above name CLI/LSP adapter tests for every node introduction.
+  - `rg "ProjectDb|Project::bootstrap|bootstrap_project|TemplateDirs|template_dirs\(" crates -g '*.rs'` finds only `djls_project::Db` aliases, runtime enrichment DTO names, and `runtime_template_dirs()` enrichment accessors; no old semantic Project API remains.
+  - `rg "refresh_external_data|load_template_library_cache|ProjectPythonIndex|ProjectTemplateFiles|TemplateDirs|Fact<|ProjectDiscoveryIssue|Project Model" crates docs -g '*.rs' -g '*.md'` finds only intentional historical/design docs, the current `ProjectDiscoveryIssue` domain type, and `TemplateDirsDto` runtime-provider DTO naming.
+  - `rg "django_settings_module" crates/djls-server crates/djls-db crates/djls-semantic crates/djls-project -g '*.rs'` finds settings fields/tests/provider request lowering only; no startup path globally selects one settings module.
+  - `rg "window.workDoneProgress|create_work_done_progress|Client::progress|WorkDoneProgress" crates/djls-server -g '*.rs'` confirms progress creation/emission remains isolated in `startup.rs` with server capability advertisement in `server.rs`.
+- Manual verification:
+  - `uv run pytest tests/lsp/test_startup.py` exercises the LSP harness for fast handshake, progress/log fallback, and degraded requests during startup.
+  - `/home/josh/projects/joshuadavidthomas/django-language-server/target/debug/djls check templates/index.html` in a temporary multisite fixture with two matching Django Environments emitted `warning[DJLS_ENV]` instead of choosing a global default.
+  - `rg "refresh_external_data|ProjectPythonIndex|ProjectTemplateFiles|TemplateDirs|Fact<|Project Model|Project::bootstrap" ARCHITECTURE.md CONTEXT.md` finds only canonical `CONTEXT.md` avoid-list entries for `Project Model`; the architecture docs no longer use old startup/fact-bag language.
+- Review/reference follow-up:
+  - Ousterhout review found one must-fix: `compute_tag_specs` read tag-spec config through an untracked settings mutex after old Project removal. Fixed by adding a Salsa-visible `SemanticSettingsRevision` input and bumping it when tag-spec settings change.
+  - Rust specialist found the same tag-spec invalidation issue and also required explicit-path `djls check` to run the Project Facts loading graph. Fixed by running `LoadingPlan::phase3()` before both explicit and implicit path checks and adding CLI environment-ambiguity warnings.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed stable Salsa project/program roots, orchestration-owned loading/progress, full CLI check paths, and narrow Salsa-visible settings invalidation match mature project idioms. No Oracle redesign was needed.
+- Follow-ups/blockers: none; the startup-rethink implementation plan is complete.
+
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
 - `Project::bootstrap` chooses one optional Django Settings Module and seeds runtime-backed or refresh-backed project fields such as `TemplateDirs::Unknown`, `TemplateLibraries`, `ProjectTemplateFiles`, and `ProjectPythonIndex` (`crates/djls-semantic/src/project/input.rs:219-325`).
 - `initialized` still runs the old inspector/cache path: it loads a template-library cache, queues `refresh_external_data`, and awaits the queued refresh when no cache was loaded (`crates/djls-server/src/server.rs:203-249`).
 - The queued refresh does expensive work behind the shared `Session` mutex: runtime introspection, template-directory walking, Python indexing, and external extraction (`crates/djls-server/src/server.rs:40-71`, `crates/djls-semantic/src/project/sync.rs:47-85`).
 - DJLS has no work-done progress implementation. It only forwards tracing logs to `window/logMessage`; `ClientInfo` records pull diagnostics and snippets but not `window.workDoneProgress` (`crates/djls-server/src/client.rs:95-122`, `crates/djls-server/src/logging.rs:31-110`).
-- The repo has static discovery scaffolding, but it uses a generic `Fact<T>` model that this design intentionally does not carry forward (`crates/djls-semantic/src/project/static_model.rs:21-47`).
+- Superseded: the old semantic static discovery scaffolding that used a generic `Fact<T>` model has been deleted; `djls-project` now owns static Django Discovery with domain-specific result types.
 - Existing tests cover many lower-level pieces but not the full startup contract, request behavior during background loading, or work-done progress.
 
 ## Desired End State
@@ -2576,21 +2612,21 @@ Audit CLI/LSP parity on the shared project model, add real LSP startup/readiness
 ### Success Criteria
 
 #### Automated Verification
-- [ ] Loading-node parity audit confirms every static node row has both CLI and LSP effect-adapter tests in its introduction phase.
-- [ ] CLI check tests pass: `cargo test -p djls --test check`
-- [ ] Real LSP startup tests pass: `uv run pytest tests/lsp/test_startup.py`
-- [ ] Project-model fixture tests pass: `cargo test -p djls-project`
-- [ ] Semantic tests pass: `cargo test -p djls-semantic`
-- [ ] IDE tests pass: `cargo test -p djls-ide`
-- [ ] Full cargo test suite passes: `cargo test -q`
-- [ ] Formatting check passes: `just fmt --check`
-- [ ] Clippy passes: `just clippy`
-- [ ] Pre-commit/lint passes: `just lint`
+- [x] Loading-node parity audit confirms every static node row has both CLI and LSP effect-adapter tests in its introduction phase.
+- [x] CLI check tests pass: `cargo test -p djls --test check`
+- [x] Real LSP startup tests pass: `uv run pytest tests/lsp/test_startup.py`
+- [x] Project-model fixture tests pass: `cargo test -p djls-project`
+- [x] Semantic tests pass: `cargo test -p djls-semantic`
+- [x] IDE tests pass: `cargo test -p djls-ide`
+- [x] Full cargo test suite passes: `cargo test -q`
+- [x] Formatting check passes: `just fmt --check`
+- [x] Clippy passes: `cargo clippy --all-targets --all-features --benches -- -D warnings` and `just lint`'s cargo clippy hook
+- [x] Pre-commit/lint passes: `just lint`
 
 #### Manual Verification
-- [ ] Run `djls serve` through the LSP harness and observe fast handshake, non-blocking `initialized`, progress/log fallback behavior, and degraded-mode requests while loading is in progress.
-- [ ] Run `djls check` against a multisite fixture and confirm ambiguity is reported instead of hidden behind a default global settings module.
-- [ ] Confirm `ARCHITECTURE.md` and `CONTEXT.md` describe the new startup model without old fact-bag language.
+- [x] Run `djls serve` through the LSP harness and observe fast handshake, non-blocking `initialized`, progress/log fallback behavior, and degraded-mode requests while loading is in progress.
+- [x] Run `djls check` against a multisite fixture and confirm ambiguity is reported instead of hidden behind a default global settings module.
+- [x] Confirm `ARCHITECTURE.md` and `CONTEXT.md` describe the new startup model without old fact-bag language.
 
 ## Testing Strategy
 

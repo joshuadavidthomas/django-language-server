@@ -1,7 +1,6 @@
 use djls_source::File;
 
 use crate::db::Db;
-use crate::project::Project;
 use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
 use crate::python::extract_model_graph;
@@ -22,9 +21,9 @@ use crate::specs::tags::TagSpecs;
 ///
 /// Does NOT read from `Arc<Mutex<Settings>>`.
 #[salsa::tracked(returns(ref))]
-pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
-    let _libraries = project.template_libraries(db);
-    let tagspecs = project.tagspecs(db);
+pub fn compute_tag_specs(db: &dyn Db, project: djls_project::Project) -> TagSpecs {
+    let _settings_revision = db.semantic_settings_revision().revision(db);
+    let tagspecs = db.tag_specs_config();
 
     let mut specs = builtin_tag_specs();
 
@@ -38,7 +37,7 @@ pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
     }
 
     if !tagspecs.libraries.is_empty() {
-        let fallback = TagSpecs::from_tagspec_def(tagspecs);
+        let fallback = TagSpecs::from_tagspec_def(&tagspecs);
         specs.merge_fallback(fallback);
     }
 
@@ -50,7 +49,7 @@ pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
 /// Merges filter arity data from both workspace and external extraction results,
 /// with last-wins semantics for name collisions.
 #[salsa::tracked(returns(ref))]
-pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterAritySpecs {
+pub fn compute_filter_arity_specs(db: &dyn Db, project: djls_project::Project) -> FilterAritySpecs {
     let mut specs = FilterAritySpecs::new();
 
     let workspace_results = collect_workspace_filter_arities(db, project);
@@ -63,7 +62,7 @@ pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterArityS
 
 /// Compute a merged `ModelGraph` from workspace and external model sources.
 #[salsa::tracked(returns(ref))]
-pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
+pub fn compute_model_graph(db: &dyn Db, project: djls_project::Project) -> ModelGraph {
     let mut graph = ModelGraph::new();
 
     for (_module_path, model_graph) in collect_workspace_models(db, project) {
@@ -74,12 +73,14 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 }
 
 #[salsa::tracked(returns(ref))]
-fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
+fn collect_workspace_models(
+    db: &dyn Db,
+    project: djls_project::Project,
+) -> Vec<(ModulePath, ModelGraph)> {
     let mut results = Vec::new();
 
-    let project_facts = djls_project::Db::project(db);
     for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project_facts, env)
+        for module in djls_project::python_module_inventory(db, project, env)
             .modules()
             .iter()
             .filter(|module| module.has_role(djls_project::PythonModuleRole::Model))
@@ -106,12 +107,14 @@ fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePat
 }
 
 #[salsa::tracked(returns(ref))]
-fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
+fn collect_workspace_tag_rules(
+    db: &dyn Db,
+    project: djls_project::Project,
+) -> Vec<(String, TagRuleMap)> {
     let mut results = Vec::new();
 
-    let project_facts = djls_project::Db::project(db);
     for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project_facts, env)
+        for module in djls_project::python_module_inventory(db, project, env)
             .modules()
             .iter()
             .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
@@ -136,13 +139,12 @@ fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, Ta
 #[salsa::tracked(returns(ref))]
 fn collect_workspace_filter_arities(
     db: &dyn Db,
-    project: Project,
+    project: djls_project::Project,
 ) -> Vec<(String, FilterArityMap)> {
     let mut results = Vec::new();
 
-    let project_facts = djls_project::Db::project(db);
     for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project_facts, env)
+        for module in djls_project::python_module_inventory(db, project, env)
             .modules()
             .iter()
             .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
@@ -165,12 +167,14 @@ fn collect_workspace_filter_arities(
 }
 
 #[salsa::tracked(returns(ref))]
-fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
+fn collect_workspace_block_specs(
+    db: &dyn Db,
+    project: djls_project::Project,
+) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
-    let project_facts = djls_project::Db::project(db);
     for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project_facts, env)
+        for module in djls_project::python_module_inventory(db, project, env)
             .modules()
             .iter()
             .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
@@ -194,19 +198,16 @@ fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, 
 
 fn ready_static_environments(
     db: &dyn Db,
-    legacy_project: Project,
+    project: djls_project::Project,
 ) -> Vec<djls_project::DjangoEnvironmentId> {
-    let project = djls_project::Db::project(db);
     let (djls_project::DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
     | djls_project::DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. }) =
         djls_project::django_environment_candidates(db, project)
     else {
         return Vec::new();
     };
-    let legacy_root = legacy_project.root(db);
     candidates
         .iter()
-        .filter(|candidate| candidate.root().is_none_or(|root| root == legacy_root))
         .map(|candidate| candidate.id().clone())
         .collect()
 }
@@ -214,7 +215,6 @@ fn ready_static_environments(
 #[cfg(test)]
 mod tests {
     use camino::Utf8PathBuf;
-    use djls_conf::Settings;
     use djls_project::testing::manage_py_path;
     use djls_project::testing::package_init_path;
     use djls_project::testing::project_discovery_set_for_test;
@@ -224,7 +224,6 @@ mod tests {
     use djls_project::ProjectDiscovery;
 
     use super::*;
-    use crate::project::Project;
     use crate::testing::TestDatabase;
 
     #[test]
@@ -255,9 +254,9 @@ mod tests {
             &db,
             root.clone(),
         )));
-        let legacy_project = Project::bootstrap(&db, root.as_path(), &Settings::default());
+        let project = djls_project::Db::project(&db);
 
-        let graph = compute_model_graph(&db, legacy_project);
+        let graph = compute_model_graph(&db, project);
 
         assert!(graph.get("Post").is_some());
     }

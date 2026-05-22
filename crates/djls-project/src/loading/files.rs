@@ -406,6 +406,7 @@ impl PartitionedSourceFilePatch {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn partitioned_patches(
     result: FilesForRootsResult,
     partition_for_root: impl Fn(SourceRootId) -> FileSetPartition,
@@ -446,6 +447,7 @@ fn workspace_issue_root(issue: &WorkspaceRootIssue) -> &SourceRootId {
 
 impl FirstPartySourceFilePatch {
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn first_party(
         root_plan_issues: Vec<ProjectSourceFilesIssue>,
         result: FilesForRootsResult,
@@ -732,6 +734,7 @@ impl ProjectSourceFilesApplied {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn finalize_project_source_files(
     db: &mut dyn Db,
     previous: Option<ReadyProjectSourceFiles>,
@@ -797,6 +800,7 @@ enum TerminalSourceFilesAvailability {
     Failed,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn terminal_source_files_apply_result(
     db: &mut dyn Db,
     transition: ProjectFileLoadingTransition,
@@ -1083,8 +1087,8 @@ fn assign_longest_prefix_owners(
         let Some(owner) = longest_prefix_root(file.path(), roots) else {
             continue;
         };
-        let owned = DiscoveredSourceFile::new(file.path().to_owned(), owner.id().clone());
-        by_path.insert(file.path().to_owned(), owned);
+        let owned_file = DiscoveredSourceFile::new(file.path().to_owned(), owner.id().clone());
+        by_path.insert(file.path().to_owned(), owned_file);
     }
     by_path.into_values().collect()
 }

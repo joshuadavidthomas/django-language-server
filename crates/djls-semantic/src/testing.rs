@@ -23,13 +23,12 @@ use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
 use crate::db::Db as SemanticDb;
+use crate::db::SemanticSettingsRevision;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::project::Db as ProjectDb;
 use crate::project::Knowledge;
 use crate::project::LibraryName;
 use crate::project::LibraryOrigin;
-use crate::project::Project;
 use crate::project::PyModuleName;
 use crate::project::SymbolDefinition;
 use crate::project::TemplateLibraries;
@@ -151,6 +150,7 @@ pub(crate) struct TestDatabase {
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
     project_facts: Arc<OnceLock<ProjectFacts>>,
+    semantic_settings_revision: Arc<OnceLock<SemanticSettingsRevision>>,
 }
 
 impl TestDatabase {
@@ -164,11 +164,20 @@ impl TestDatabase {
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
             project_facts: Arc::new(OnceLock::new()),
+            semantic_settings_revision: Arc::new(OnceLock::new()),
         };
         let project_facts = ProjectFacts::fixture_unavailable(&db);
         db.project_facts
             .set(project_facts)
             .expect("project facts should initialize once");
+        let initialized = db
+            .semantic_settings_revision
+            .set(SemanticSettingsRevision::new(&db, 0))
+            .is_ok();
+        assert!(
+            initialized,
+            "semantic settings revision should initialize once"
+        );
         db
     }
 
@@ -236,20 +245,20 @@ impl djls_source::Db for TestDatabase {
 }
 
 #[salsa::db]
-impl ProjectDb for TestDatabase {
-    fn project(&self) -> Option<Project> {
-        None
-    }
-}
-
-#[salsa::db]
 impl SemanticDb for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
     }
 
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        None
+    fn semantic_settings_revision(&self) -> SemanticSettingsRevision {
+        *self
+            .semantic_settings_revision
+            .get()
+            .expect("semantic settings revision should be initialized")
+    }
+
+    fn tag_specs_config(&self) -> djls_conf::TagSpecDef {
+        djls_conf::TagSpecDef::default()
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

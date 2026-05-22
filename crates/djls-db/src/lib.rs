@@ -2,8 +2,7 @@
 //!
 //! This crate owns the [`DjangoDatabase`] struct — the single concrete
 //! implementation of all Salsa database traits (`SourceDb`, `SemanticDb`,
-//! `ProjectDb`). Both the LSP server and CLI
-//! commands consume this crate.
+//! `djls_project::Db`). Both the LSP server and CLI commands consume this crate.
 //!
 mod db;
 mod enrichment_cache;

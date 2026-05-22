@@ -136,6 +136,7 @@ pub enum RootSettingsLoadIssueKind {
     Unsupported,
 }
 
+#[must_use]
 pub fn load_root_settings(root: &Utf8Path, fallback: &Settings) -> RootSettingsLoadOutcome {
     match load_root_settings_file(root) {
         Ok(load) => RootSettingsLoadOutcome {

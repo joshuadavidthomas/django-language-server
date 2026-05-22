@@ -437,14 +437,14 @@ pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOu
         .iter()
         .filter(|file| file.kind() == FileKind::Python)
         .filter_map(|file| {
-            let module = layout
-                .module_name_for_path(file.path())
-                .map(PyModuleNameResolution::Resolved)
-                .unwrap_or_else(|| PyModuleNameResolution::Unknown {
+            let module = layout.module_name_for_path(file.path()).map_or_else(
+                || PyModuleNameResolution::Unknown {
                     issue: ModuleNameIssue::OutsideImportRoots {
                         path: file.path().to_owned(),
                     },
-                });
+                },
+                PyModuleNameResolution::Resolved,
+            );
             layout
                 .file_for_path(file.path())
                 .map(|file| python_source_model(db, file).clone().with_module(module))
@@ -493,6 +493,7 @@ impl PythonSourceCollector {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn collect_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Import(stmt) => {
@@ -717,6 +718,7 @@ impl PythonSourceCollector {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn collect_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Call(call) => {
@@ -769,7 +771,7 @@ impl PythonSourceCollector {
                 self.collect_expr(&expr.orelse);
             }
             Expr::Dict(dict) => {
-                for item in dict.iter() {
+                for item in dict {
                     if let Some(key) = &item.key {
                         self.collect_expr(key);
                     }
@@ -807,7 +809,7 @@ impl PythonSourceCollector {
             Expr::YieldFrom(expr) => self.collect_expr(&expr.value),
             Expr::Compare(expr) => {
                 self.collect_expr(&expr.left);
-                for comparator in expr.comparators.iter() {
+                for comparator in &expr.comparators {
                     self.collect_expr(comparator);
                 }
             }
@@ -957,7 +959,7 @@ fn static_value(expr: &Expr) -> StaticValue {
         }
         Expr::Dict(dict) => {
             let mut entries = Vec::new();
-            for item in dict.iter() {
+            for item in dict {
                 let Some(Expr::StringLiteral(key)) = &item.key else {
                     return StaticValue::Unknown {
                         issue: StaticValueIssue::UnsupportedDictKey,
@@ -1090,7 +1092,7 @@ mod tests {
                     events
                         .lock()
                         .expect("event log is not poisoned")
-                        .push(event)
+                        .push(event);
                 }
             })));
             Self {

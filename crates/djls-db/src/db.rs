@@ -11,7 +11,6 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as LoadingDb;
 use djls_project::Project as ProjectFacts;
@@ -35,8 +34,7 @@ use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::Project;
-use djls_semantic::ProjectDb;
+use djls_semantic::SemanticSettingsRevision;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
@@ -57,7 +55,7 @@ use crate::enrichment_provider::RuntimeEnrichmentRequest;
 /// This database implements all the traits from various crates:
 /// - [`SourceDb`] for file tracking and file reads
 /// - [`SemanticDb`] for template semantics and diagnostics
-/// - [`ProjectDb`] for project metadata and Python environment
+/// - [`djls_project::Db`] for stable project facts
 #[salsa::db]
 #[derive(Clone)]
 pub struct DjangoDatabase {
@@ -67,14 +65,14 @@ pub struct DjangoDatabase {
     /// Registry of tracked files used by the workspace layer.
     pub(crate) files: SourceFiles,
 
-    /// The single project for this database instance
-    pub(crate) project: Arc<Mutex<Option<Project>>>,
-
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
 
     /// Stable Salsa-visible project facts root.
     pub(crate) project_facts: Arc<OnceLock<ProjectFacts>>,
+
+    /// Salsa-visible revision for semantic settings read from infrastructure config.
+    pub(crate) semantic_settings_revision: Arc<OnceLock<SemanticSettingsRevision>>,
 
     pub(crate) storage: salsa::Storage<Self>,
 
@@ -94,9 +92,9 @@ impl Default for DjangoDatabase {
         let db = Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
             project_facts: Arc::new(OnceLock::new()),
+            semantic_settings_revision: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -116,19 +114,28 @@ impl Default for DjangoDatabase {
         db.project_facts
             .set(project)
             .expect("project facts should initialize once");
+        let initialized = db
+            .semantic_settings_revision
+            .set(SemanticSettingsRevision::new(&db, 0))
+            .is_ok();
+        assert!(
+            initialized,
+            "semantic settings revision should initialize once"
+        );
         db
     }
 }
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(file_system: Arc<dyn FileSystem>, settings: &Settings) -> Self {
         let db = Self {
             fs: file_system,
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_facts: Arc::new(OnceLock::new()),
+            semantic_settings_revision: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -137,17 +144,15 @@ impl DjangoDatabase {
         db.project_facts
             .set(project)
             .expect("project facts should initialize once");
+        let initialized = db
+            .semantic_settings_revision
+            .set(SemanticSettingsRevision::new(&db, 0))
+            .is_ok();
+        assert!(
+            initialized,
+            "semantic settings revision should initialize once"
+        );
         db
-    }
-
-    /// Bootstrap the legacy single-project input for project-aware callers.
-    ///
-    /// LSP protocol startup intentionally does not call this. Batch/project-aware
-    /// entrypoints such as `djls check` can call it explicitly until the
-    /// root-scoped project loading graph replaces the old `Project` input.
-    pub fn bootstrap_project(&mut self, root: &Utf8Path, settings: &Settings) {
-        let project = Project::bootstrap(self, root, settings);
-        *self.project.lock().unwrap() = Some(project);
     }
 
     pub fn load_project_enrichment(&self) -> ProjectEnrichmentDraft {
@@ -171,6 +176,7 @@ impl DjangoDatabase {
         next
     }
 
+    #[allow(clippy::missing_panics_doc, clippy::needless_pass_by_value)]
     pub fn apply_project_discovery_data(
         &mut self,
         data: ProjectDiscoverySetData,
@@ -303,18 +309,15 @@ impl DjangoDatabase {
             );
         }
 
-        let removed = previous_data
-            .as_ref()
-            .map(|data| {
-                data.files()
-                    .iter()
-                    .filter(|file| {
-                        removed_roots.contains(file.root())
-                            || removed_files.contains(&file.path().to_owned())
-                    })
-                    .count()
-            })
-            .unwrap_or(0);
+        let removed = previous_data.as_ref().map_or(0, |data| {
+            data.files()
+                .iter()
+                .filter(|file| {
+                    removed_roots.contains(file.root())
+                        || removed_files.contains(&file.path().to_owned())
+                })
+                .count()
+        });
         let roots = roots.into_values().collect::<Vec<SourceRootEntry>>();
         let files = loaded.into_values().collect::<Vec<_>>();
         let (data, issues) = match SourceFileSetData::new(roots, files) {
@@ -453,22 +456,18 @@ impl SourceDb for DjangoDatabase {
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> &TagSpecs {
-        if let Some(project) = ProjectDb::project(self) {
-            compute_tag_specs(self, project)
-        } else {
-            static DEFAULT: std::sync::LazyLock<TagSpecs> =
-                std::sync::LazyLock::new(djls_semantic::builtin_tag_specs);
-            &DEFAULT
-        }
+        compute_tag_specs(self, LoadingDb::project(self))
     }
 
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        ProjectDb::project(self).and_then(|project| {
-            project
-                .template_dirs(self)
-                .as_known()
-                .map(<[Utf8PathBuf]>::to_vec)
-        })
+    fn semantic_settings_revision(&self) -> SemanticSettingsRevision {
+        *self
+            .semantic_settings_revision
+            .get()
+            .expect("semantic settings revision should be initialized")
+    }
+
+    fn tag_specs_config(&self) -> djls_conf::TagSpecDef {
+        self.settings.lock().unwrap().tagspecs().clone()
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -476,28 +475,15 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn template_libraries(&self) -> &TemplateLibraries {
-        ProjectDb::project(self).map_or(TemplateLibraries::empty_ref(), |project| {
-            project.template_libraries(self)
-        })
+        TemplateLibraries::empty_ref()
     }
 
     fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
-        ProjectDb::project(self).map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
-            compute_filter_arity_specs(self, project)
-        })
+        compute_filter_arity_specs(self, LoadingDb::project(self))
     }
 
     fn model_graph(&self) -> &djls_semantic::ModelGraph {
-        ProjectDb::project(self).map_or(djls_semantic::ModelGraph::empty_ref(), |project| {
-            compute_model_graph(self, project)
-        })
-    }
-}
-
-#[salsa::db]
-impl ProjectDb for DjangoDatabase {
-    fn project(&self) -> Option<Project> {
-        *self.project.lock().unwrap()
+        compute_model_graph(self, LoadingDb::project(self))
     }
 }
 
@@ -760,17 +746,12 @@ mod marker_tests {
 
 #[cfg(test)]
 mod invalidation_tests {
-    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::Mutex;
 
     use djls_conf::Settings;
     use djls_semantic::Db as SemanticDb;
-    use djls_semantic::Interpreter;
-    use djls_semantic::Knowledge;
-    use djls_semantic::Project;
-    use djls_semantic::TemplateDirs;
-    use djls_semantic::TemplateLibraries;
+    use djls_semantic::SemanticSettingsRevision;
     use djls_source::SourceFiles;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
@@ -802,10 +783,7 @@ mod invalidation_tests {
         })
     }
 
-    /// Create a test database with event logging and a pre-configured project.
-    ///
-    /// Uses `Interpreter::discover(None)` to match what `update_project_from_settings`
-    /// produces, avoiding spurious interpreter mismatches from `$VIRTUAL_ENV`.
+    /// Create a test database with event logging.
     fn test_db_with_project() -> (DjangoDatabase, EventLog) {
         let event_log = EventLog::default();
         let settings = Settings::default();
@@ -813,9 +791,9 @@ mod invalidation_tests {
         let db = DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_facts: Arc::new(std::sync::OnceLock::new()),
+            semantic_settings_revision: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -828,29 +806,14 @@ mod invalidation_tests {
         db.project_facts
             .set(project_facts)
             .expect("project facts should initialize once");
-
-        let interpreter = Interpreter::discover(settings.venv_path());
-        let dsm = settings
-            .django_settings_module()
-            .map(String::from)
-            .or_else(|| {
-                std::env::var("DJANGO_SETTINGS_MODULE")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            });
-
-        let project = Project::new(
-            &db,
-            "/test/project".into(),
-            interpreter,
-            dsm,
-            settings.pythonpath().to_vec(),
-            Vec::new(),
-            TemplateDirs::Unknown,
-            settings.tagspecs().clone(),
-            TemplateLibraries::default(),
+        let initialized = db
+            .semantic_settings_revision
+            .set(SemanticSettingsRevision::new(&db, 0))
+            .is_ok();
+        assert!(
+            initialized,
+            "semantic settings revision should initialize once"
         );
-        *db.project.lock().unwrap() = Some(project);
 
         (db, event_log)
     }
@@ -873,127 +836,6 @@ mod invalidation_tests {
         assert!(
             !was_executed(&db, &events, "compute_tag_specs"),
             "compute_tag_specs should NOT re-execute on second call (cached)"
-        );
-    }
-
-    #[test]
-    fn template_libraries_change_invalidates_compute_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        // Update template_libraries on the project
-        let project = db.project.lock().unwrap().unwrap();
-
-        let response = djls_semantic::TemplateLibrarySnapshot {
-            symbols: Vec::new(),
-            libraries: BTreeMap::new(),
-            builtins: Vec::new(),
-        };
-
-        let new_libraries = TemplateLibraries::default().apply_active_snapshot(Some(response));
-
-        project.set_template_libraries(&mut db).to(new_libraries);
-
-        // Access again — should re-execute
-        let _specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after template_libraries change"
-        );
-    }
-
-    #[test]
-    fn tagspecs_change_invalidates_compute_tag_specs() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        let project = db.project.lock().unwrap().unwrap();
-
-        let new_tagspecs = djls_conf::TagSpecDef {
-            version: "0.6.0".to_string(),
-            engine: "django".to_string(),
-            requires_engine: None,
-            extends: vec![],
-            libraries: vec![djls_conf::TagLibraryDef {
-                module: "myapp.templatetags.custom".to_string(),
-                requires_engine: None,
-                tags: vec![djls_conf::TagDef {
-                    name: "switch".to_string(),
-                    tag_type: djls_conf::TagTypeDef::Block,
-                    end: None,
-                    intermediates: vec![],
-                    args: vec![],
-                    extra: None,
-                }],
-                extra: None,
-            }],
-            extra: None,
-        };
-
-        project.set_tagspecs(&mut db).to(new_tagspecs);
-
-        // Access again — should re-execute
-        let _specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after tagspecs change"
-        );
-    }
-
-    #[test]
-    fn same_value_no_invalidation() {
-        let (db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        // Simulate a no-op update path: compare against an identical value and
-        // intentionally skip any setter call.
-        let project = db.project.lock().unwrap().unwrap();
-        let current = project.tagspecs(&db).clone();
-
-        assert_eq!(project.tagspecs(&db), &current);
-        // No setter called — cache should be preserved
-
-        let _specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should NOT re-execute when value is unchanged"
-        );
-    }
-
-    #[test]
-    fn update_project_from_settings_unchanged_no_invalidation() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime the cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        // Call update_project_from_settings with default settings (same as project was created with)
-        let settings = Settings::default();
-        let env_changed = db.update_project_from_settings(&settings);
-        assert!(
-            !env_changed,
-            "env should not have changed with default settings"
-        );
-
-        // Access tag_specs — should still be cached
-        let _specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should NOT re-execute when settings are unchanged"
         );
     }
 
@@ -1090,9 +932,9 @@ def my_filter(value, arg):
         let db = DjangoDatabase {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_facts: Arc::new(std::sync::OnceLock::new()),
+            semantic_settings_revision: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -1105,6 +947,14 @@ def my_filter(value, arg):
         db.project_facts
             .set(project_facts)
             .expect("project facts should initialize once");
+        let initialized = db
+            .semantic_settings_revision
+            .set(SemanticSettingsRevision::new(&db, 0))
+            .is_ok();
+        assert!(
+            initialized,
+            "semantic settings revision should initialize once"
+        );
 
         let file = djls_source::Db::get_or_create_file(
             &db,
@@ -1163,47 +1013,6 @@ def my_filter(value, arg):
                 issue: djls_project::ProjectEnrichmentIssue::RuntimeUnavailable { .. }
             }
         ));
-    }
-
-    #[test]
-    fn discovered_template_libraries_stored_on_project() {
-        let (db, _event_log) = test_db_with_project();
-
-        let project = db.project.lock().unwrap().unwrap();
-        assert_eq!(
-            project.template_libraries(&db).discovery_knowledge,
-            Knowledge::Unknown
-        );
-        assert!(
-            project.template_libraries(&db).loadable.is_empty(),
-            "template libraries should initially be empty"
-        );
-    }
-
-    #[test]
-    fn template_libraries_same_value_no_invalidation() {
-        let (mut db, event_log) = test_db_with_project();
-
-        // Prime tag_specs cache
-        let _specs = db.tag_specs();
-        event_log.take();
-
-        let project = db.project.lock().unwrap().unwrap();
-
-        // Setting the same value should not trigger invalidation.
-        // (manual comparison prevents setter call)
-        let current = project.template_libraries(&db).clone();
-        if project.template_libraries(&db) != &current {
-            project.set_template_libraries(&mut db).to(current);
-        }
-
-        // tag_specs should NOT re-execute
-        let _specs = db.tag_specs();
-        let events = event_log.take();
-        assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should not re-execute when template_libraries unchanged"
-        );
     }
 
     #[test]

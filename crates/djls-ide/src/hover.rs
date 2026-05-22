@@ -23,8 +23,9 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                     let path = template.path_buf(db);
                     sections.push(format!("Resolved to `{path}`"));
                 }
-                TemplateLookupResult::Deferred { .. } => return None,
-                TemplateLookupResult::Ambiguous { .. } => return None,
+                TemplateLookupResult::Deferred { .. } | TemplateLookupResult::Ambiguous { .. } => {
+                    return None;
+                }
                 TemplateLookupResult::NotFound { tried, .. } => {
                     // No tried paths means the project did not provide template loader
                     // locations, so there is nothing useful to show.

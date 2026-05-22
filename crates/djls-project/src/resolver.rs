@@ -189,6 +189,7 @@ pub fn module_name_for_path(
 }
 
 #[salsa::tracked(returns(ref))]
+#[allow(clippy::too_many_lines)]
 pub fn resolve_module(db: &dyn Db, project: Project, requested: PyModuleName) -> ModuleResolution {
     let roots = import_roots(db, project).clone();
     if roots.is_empty() {

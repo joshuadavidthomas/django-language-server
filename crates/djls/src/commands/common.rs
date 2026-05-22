@@ -6,7 +6,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::ValueEnum;
 use djls_db::DjangoDatabase;
-use djls_semantic::Db as _;
 use djls_source::FileKind;
 use djls_workspace::walk_files;
 use djls_workspace::WalkOptions;
@@ -34,7 +33,7 @@ impl ColorMode {
 
 pub(crate) fn discover_files(
     paths: &[Utf8PathBuf],
-    db: &DjangoDatabase,
+    _db: &DjangoDatabase,
     project_root: &Utf8Path,
     options: &WalkOptions,
 ) -> Vec<Utf8PathBuf> {
@@ -53,12 +52,7 @@ pub(crate) fn discover_files(
         return walk_files(&resolved, is_template, options);
     }
 
-    if let Some(dirs) = db.template_dirs() {
-        let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_files(&dirs, is_template, options)
-    } else {
-        walk_files(&[project_root.to_owned()], is_template, options)
-    }
+    walk_files(&[project_root.to_owned()], is_template, options)
 }
 
 pub(crate) fn resolve_project_root() -> Result<Utf8PathBuf> {

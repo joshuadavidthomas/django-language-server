@@ -204,6 +204,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDis
     )
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn resolve_env_vars(
     root: &Utf8PathBuf,
     source: Utf8PathBuf,

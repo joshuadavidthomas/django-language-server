@@ -869,6 +869,7 @@ impl LspLoadingExecutor {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn finish(self, result: LoadingRunResult) -> StartupRunOutcome {
         if !self.inputs.guard().is_current() {
             return StartupRunOutcome::Superseded {

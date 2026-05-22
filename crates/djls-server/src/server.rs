@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::ProjectDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
@@ -261,11 +260,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let file_kind = *source.kind();
 
                 tracing::debug!("Completion requested for {} at {:?}", path, position);
-                let template_libraries = djls_semantic::template_libraries_for_file(db, file)
-                    .or_else(|| {
-                        db.project()
-                            .map(|project| project.template_libraries(db).clone())
-                    });
+                let template_libraries = djls_semantic::template_libraries_for_file(db, file);
 
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();

@@ -44,6 +44,7 @@ impl RuntimeEnrichmentDto {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn load_runtime_enrichment(
     request: RuntimeEnrichmentRequest,
 ) -> djls_project::ProjectEnrichmentDraft {

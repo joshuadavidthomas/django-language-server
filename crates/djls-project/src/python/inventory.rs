@@ -69,6 +69,7 @@ impl PythonModuleInventory {
 }
 
 #[salsa::tracked(returns(ref))]
+#[allow(clippy::needless_pass_by_value)]
 pub fn python_module_inventory(
     db: &dyn Db,
     project: Project,
@@ -138,7 +139,7 @@ fn installed_app_module_name_for_path(
     env: &DjangoEnvironmentId,
     path: &camino::Utf8Path,
 ) -> Option<PyModuleName> {
-    for app in installed_apps(db, project, env.clone()).iter() {
+    for app in installed_apps(db, project, env.clone()) {
         let (root, base_module) = match app.resolution() {
             InstalledAppResolution::Package { module, file } => {
                 (app_root_for_file(db, *file)?, module.clone())
@@ -220,8 +221,7 @@ fn roles_for_path(
         Some("urls.py") => roles.push(PythonModuleRole::Urls),
         Some("admin.py") => roles.push(PythonModuleRole::Admin),
         Some("forms.py") => roles.push(PythonModuleRole::Forms),
-        Some("__init__.py") | None => {}
-        Some(_) => {}
+        Some("__init__.py" | _) | None => {}
     }
     if is_model_package_file(path, all_paths) && !roles.contains(&PythonModuleRole::Model) {
         roles.push(PythonModuleRole::Model);

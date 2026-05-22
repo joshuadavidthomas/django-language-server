@@ -15,7 +15,7 @@ The language server's view of open documents and filesystem contents.
 _Avoid_: Project, repository, workspace folder
 
 **Project Facts**:
-The static and derived information the language server has about a **Project**.
+The static, derived, and enrichment information the language server has about a **Project**. Static facts are authoritative for core readiness; runtime facts are enrichment.
 _Avoid_: Project Model, Project Context, Project Knowledge, Project State
 
 **Django Environment**:
@@ -30,13 +30,29 @@ _Avoid_: Settings, DJLS settings, environment
 The process of building **Project Facts** for a **Project**.
 _Avoid_: Project Model, analysis mode, environment
 
+**Protocol Ready**:
+The state after the LSP handshake can answer protocol requests without having completed **Django Discovery**.
+_Avoid_: initialized, loaded, ready
+
+**Workspace Ready**:
+The state where source files, Python source models, and Django Environment candidates are usable enough for degraded IDE requests.
+_Avoid_: fully loaded, project ready, initialized
+
+**Django Apps Ready**:
+The state where installed-app and template-directory file loading has reached a terminal static state.
+_Avoid_: app loaded, Django ready, runtime ready
+
+**Enriched**:
+The optional state where **Project Introspection** or cache data has produced enrichment facts. Enrichment may be fresh, stale, failed, unavailable, or disabled.
+_Avoid_: ready, loaded, workspace ready
+
 **Static Extraction**:
 Source-based **Django Discovery** that derives **Project Facts** from source files without executing project code.
 _Avoid_: introspection, runtime analysis, import-time analysis
 
 **Project Introspection**:
-Runtime-backed **Django Discovery** that asks Django or Python about the configured **Project** and is expected to shrink as **Static Extraction** matures.
-_Avoid_: Static Extraction, runtime validation, rendering
+Runtime-backed optional enrichment that asks Django or Python about the configured **Project** and is expected to shrink as **Static Extraction** matures.
+_Avoid_: Static Extraction, runtime validation, rendering, readiness
 
 **Django Model**:
 A Python class in a **Project** that represents a Django ORM model.

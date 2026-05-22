@@ -362,7 +362,7 @@ mod tests {
                     events
                         .lock()
                         .expect("event log is not poisoned")
-                        .push(event)
+                        .push(event);
                 }
             })));
             Self {

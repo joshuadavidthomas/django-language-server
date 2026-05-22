@@ -35,7 +35,7 @@ pub struct ProjectLayoutIndex {
 }
 
 impl ProjectLayoutIndex {
-    fn new(data: djls_source::SourceFileSetData) -> Self {
+    fn new(data: &djls_source::SourceFileSetData) -> Self {
         let mut roots = data
             .roots()
             .iter()
@@ -45,7 +45,6 @@ impl ProjectLayoutIndex {
         let mut files = data
             .files()
             .iter()
-            .cloned()
             .map(|file| LayoutFile {
                 path: file.path().to_owned(),
                 file: file.file(),
@@ -165,6 +164,7 @@ impl ProjectLayoutIndex {
         crate::PyModuleName::parse(&components.join(".")).ok()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.files.len()
     }
@@ -190,7 +190,7 @@ fn ancestors(path: &Utf8Path) -> impl Iterator<Item = &Utf8Path> {
 pub fn project_layout_index(db: &dyn Db, project: Project) -> ProjectLayoutIndexOutcome {
     match project.source_inventory(db) {
         ProjectSourceInventory::Ready(files) => {
-            let data = files.merged().data(db).clone();
+            let data = files.merged().data(db);
             ProjectLayoutIndexOutcome::Ready(ProjectLayoutIndex::new(data))
         }
         ProjectSourceInventory::Unavailable {
@@ -271,7 +271,7 @@ mod tests {
                     events
                         .lock()
                         .expect("event log is not poisoned")
-                        .push(event)
+                        .push(event);
                 }
             })));
             let mut db = Self {

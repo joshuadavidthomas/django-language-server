@@ -8,7 +8,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
-use djls_semantic::ProjectDb;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Offset;
@@ -91,9 +90,9 @@ impl Session {
     }
 
     pub(crate) fn configuration_root(&self) -> Utf8PathBuf {
-        self.project()
-            .map(|project| project.root(&self.db).clone())
-            .or_else(|| self.workspace_roots.first().cloned())
+        self.workspace_roots
+            .first()
+            .cloned()
             .or_else(|| {
                 std::env::current_dir()
                     .ok()
@@ -120,11 +119,6 @@ impl Session {
 
     pub(crate) fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
         self.db.set_settings(settings)
-    }
-
-    /// Get the current project for this session
-    pub(crate) fn project(&self) -> Option<djls_semantic::Project> {
-        self.db.project()
     }
 
     /// Open a document in the session.
@@ -403,10 +397,13 @@ mod tests {
     }
 
     #[test]
-    fn session_new_does_not_bootstrap_project() {
+    fn session_new_initializes_stable_project_facts() {
         let session = Session::default();
 
-        assert!(session.project().is_none());
+        assert!(matches!(
+            session.project_facts_availability().source_files,
+            djls_project::ProjectFactStatus::Unavailable { .. }
+        ));
     }
 
     #[test]
@@ -453,7 +450,10 @@ mod tests {
 
         assert!(settings.debug());
         assert_eq!(settings.django_settings_module(), Some("client.settings"));
-        assert!(session.project().is_none());
+        assert!(matches!(
+            session.project_facts_availability().source_files,
+            djls_project::ProjectFactStatus::Unavailable { .. }
+        ));
     }
 
     #[test]
@@ -479,12 +479,10 @@ S100 = "warning"
         };
         let mut session = Session::new(&params);
 
-        assert!(session.project().is_none());
         let settings = djls_conf::Settings::new(&session.configuration_root(), None).unwrap();
         let update = session.set_settings(settings);
 
         assert!(update.diagnostics_changed);
-        assert!(session.project().is_none());
         assert_eq!(
             session.db().settings().diagnostics().get_severity("S100"),
             djls_conf::DiagnosticSeverity::Warning
@@ -524,7 +522,7 @@ S100 = "warning"
             ls_types::Position::new(0, 3),
             session.client_info().position_encoding(),
             *file.source(db).kind(),
-            db.project().map(|project| project.template_libraries(db)),
+            None,
             Some(db.tag_specs()),
             None,
             false,
@@ -578,7 +576,7 @@ S100 = "warning"
             ls_types::Position::new(0, 3),
             session.client_info().position_encoding(),
             *file.source(db).kind(),
-            db.project().map(|project| project.template_libraries(db)),
+            None,
             Some(db.tag_specs()),
             None,
             false,
@@ -606,8 +604,8 @@ S100 = "warning"
             snapshot.client_info().position_encoding()
         );
         assert_eq!(
-            session.project().is_some(),
-            snapshot.db().project().is_some()
+            session.project_facts_availability(),
+            djls_project::project_facts_availability(snapshot.db())
         );
     }
 }

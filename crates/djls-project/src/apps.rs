@@ -293,7 +293,7 @@ fn installed_app_file_roots_and_issues(
     };
 
     for candidate in candidates {
-        for app in installed_apps(db, project, candidate.id().clone()).iter() {
+        for app in installed_apps(db, project, candidate.id().clone()) {
             match app.resolution() {
                 InstalledAppResolution::Package { file, .. } => {
                     if let Some(root) = app_root_for_file(db, *file) {

@@ -261,10 +261,9 @@ impl LoadingReadiness for ProjectDiscoveryApplyResult {
                 discovery: ProjectDiscovery::Unavailable { .. },
                 ..
             }
-            | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable { .. })
-            | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Ready(_)) => {
-                NodeTerminalStatus::Unavailable
-            }
+            | ProjectDiscoveryApplyResult::Unavailable(
+                ProjectDiscovery::Unavailable { .. } | ProjectDiscovery::Ready(_),
+            ) => NodeTerminalStatus::Unavailable,
         }
     }
 }
@@ -296,6 +295,7 @@ impl LoadingReadiness for PythonSourceIndexOutcome {
     }
 }
 
+#[must_use]
 pub fn node_status_from_project_source_files_applied(
     applied: &ProjectSourceFilesApplied,
 ) -> NodeTerminalStatus {
@@ -307,12 +307,12 @@ pub fn node_status_from_file_partition_readiness(
     readiness: &ProjectFilePartitionReadiness,
 ) -> NodeTerminalStatus {
     match readiness {
-        ProjectFilePartitionReadiness::Loading => NodeTerminalStatus::Deferred,
         ProjectFilePartitionReadiness::Ready { .. } => NodeTerminalStatus::Succeeded,
-        ProjectFilePartitionReadiness::Deferred { .. } => NodeTerminalStatus::Deferred,
         ProjectFilePartitionReadiness::Skipped { .. } => NodeTerminalStatus::Skipped,
         ProjectFilePartitionReadiness::Unavailable { .. } => NodeTerminalStatus::Unavailable,
-        ProjectFilePartitionReadiness::Stale { .. } => NodeTerminalStatus::Deferred,
+        ProjectFilePartitionReadiness::Loading
+        | ProjectFilePartitionReadiness::Deferred { .. }
+        | ProjectFilePartitionReadiness::Stale { .. } => NodeTerminalStatus::Deferred,
     }
 }
 

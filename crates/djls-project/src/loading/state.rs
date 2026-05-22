@@ -35,6 +35,7 @@ impl Project {
         )
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn fixture_unavailable(db: &dyn crate::Db) -> Self {
         Self::new(
             db,

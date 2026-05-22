@@ -157,6 +157,7 @@ impl LoadingNodeResult {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn run_loading_plan(
     plan: LoadingPlan,
     effects: &mut impl LoadingEffects,
@@ -225,8 +226,8 @@ pub fn run_loading_plan(
             }
             NodeId::PythonSourceModels => {
                 observer.node_started(*node);
-                let observed = match effects.observe_python_source_index() {
-                    LoadingObservationOutcome::Observed(observed) => observed,
+                let index_outcome = match effects.observe_python_source_index() {
+                    LoadingObservationOutcome::Observed(index_outcome) => index_outcome,
                     LoadingObservationOutcome::Superseded => {
                         observer.node_finished(*node, NodeTerminalStatus::Superseded);
                         return LoadingRunResult::aborted(
@@ -236,14 +237,17 @@ pub fn run_loading_plan(
                         );
                     }
                 };
-                let status = node_status_from_readiness(&observed);
+                let status = node_status_from_readiness(&index_outcome);
                 observer.node_finished(*node, status.clone());
-                node_results.push(LoadingNodeResult::PythonSourceModels { observed, status });
+                node_results.push(LoadingNodeResult::PythonSourceModels {
+                    observed: index_outcome,
+                    status,
+                });
             }
             NodeId::EnvironmentDiscovery => {
                 observer.node_started(*node);
-                let observed = match effects.observe_django_environment_candidates() {
-                    LoadingObservationOutcome::Observed(observed) => observed,
+                let environment_outcome = match effects.observe_django_environment_candidates() {
+                    LoadingObservationOutcome::Observed(environment_outcome) => environment_outcome,
                     LoadingObservationOutcome::Superseded => {
                         observer.node_finished(*node, NodeTerminalStatus::Superseded);
                         return LoadingRunResult::aborted(
@@ -253,9 +257,12 @@ pub fn run_loading_plan(
                         );
                     }
                 };
-                let status = node_status_from_readiness(&observed);
+                let status = node_status_from_readiness(&environment_outcome);
                 observer.node_finished(*node, status.clone());
-                node_results.push(LoadingNodeResult::EnvironmentDiscovery { observed, status });
+                node_results.push(LoadingNodeResult::EnvironmentDiscovery {
+                    observed: environment_outcome,
+                    status,
+                });
             }
             NodeId::InstalledAppFiles => {
                 observer.node_started(*node);
@@ -375,25 +382,13 @@ fn aggregate_file_loading_status(applied: &[ProjectSourceFilesApplyResult]) -> N
         .iter()
         .map(node_status_from_readiness)
         .collect::<Vec<_>>();
-    if statuses
-        .iter()
-        .any(|status| *status == NodeTerminalStatus::Failed)
-    {
+    if statuses.contains(&NodeTerminalStatus::Failed) {
         NodeTerminalStatus::Failed
-    } else if statuses
-        .iter()
-        .any(|status| *status == NodeTerminalStatus::Unavailable)
-    {
+    } else if statuses.contains(&NodeTerminalStatus::Unavailable) {
         NodeTerminalStatus::Unavailable
-    } else if statuses
-        .iter()
-        .any(|status| *status == NodeTerminalStatus::Deferred)
-    {
+    } else if statuses.contains(&NodeTerminalStatus::Deferred) {
         NodeTerminalStatus::Deferred
-    } else if statuses
-        .iter()
-        .any(|status| *status == NodeTerminalStatus::Degraded)
-    {
+    } else if statuses.contains(&NodeTerminalStatus::Degraded) {
         NodeTerminalStatus::Degraded
     } else if statuses
         .iter()
@@ -499,6 +494,7 @@ mod tests {
     }
 
     #[derive(Default)]
+    #[allow(clippy::struct_excessive_bools)]
     struct FakeEffects {
         reset_count: usize,
         load_count: usize,
