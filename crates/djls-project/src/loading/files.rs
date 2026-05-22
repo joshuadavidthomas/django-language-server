@@ -483,6 +483,9 @@ impl SourceFileHandleChanges {
     }
 
     #[must_use]
+    /// Count of upserted paths that reused an existing `File` handle.
+    ///
+    /// This does not include unchanged paths carried forward by the patch.
     pub fn preserved(&self) -> usize {
         self.preserved
     }
@@ -583,6 +586,20 @@ pub fn finalize_project_source_files(
         );
     }
 
+    if !materialized_source_file_set_matches_update(db, &update, materialized.source_file_set) {
+        let issue = ProjectSourceFilesIssue::MaterializationFailed {
+            path: Utf8PathBuf::from("<source-file-set>"),
+            error_kind: std::io::ErrorKind::InvalidData,
+        };
+        return terminal_source_files_apply_result(
+            db,
+            update.applied_transition,
+            issue,
+            previous,
+            TerminalSourceFilesAvailability::Failed,
+        );
+    }
+
     let files = ReadyProjectSourceFiles::new(update.partitions, materialized.source_file_set);
     db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(files.clone()));
     ProjectSourceFilesApplyResult::Applied(ProjectSourceFilesApplied {
@@ -641,6 +658,44 @@ fn terminal_source_files_apply_result(
             }
         }
     }
+}
+
+fn materialized_source_file_set_matches_update(
+    db: &dyn djls_source::Db,
+    update: &ProjectSourceFilesUpdate,
+    source_file_set: SourceFileSet,
+) -> bool {
+    let expected = update.partitions.merged_discovered_data();
+    let data = source_file_set.data(db);
+    if expected.summary() != *data.summary() {
+        return false;
+    }
+
+    let expected_roots = expected
+        .roots()
+        .iter()
+        .map(|entry| (entry.root().id().clone(), entry.root().clone()))
+        .collect::<BTreeMap<_, _>>();
+    let actual_roots = data
+        .roots()
+        .iter()
+        .map(|entry| (entry.root().id().clone(), entry.root().clone()))
+        .collect::<BTreeMap<_, _>>();
+    if expected_roots != actual_roots {
+        return false;
+    }
+
+    let expected_files = expected
+        .files()
+        .iter()
+        .map(|file| (file.path().to_owned(), file.root().clone()))
+        .collect::<BTreeMap<_, _>>();
+    let actual_files = data
+        .files()
+        .iter()
+        .map(|file| (file.path().to_owned(), file.root().clone()))
+        .collect::<BTreeMap<_, _>>();
+    expected_files == actual_files
 }
 
 fn project_issue_from_materialization_issue(
@@ -865,6 +920,87 @@ mod tests {
         let (root_issues, request) =
             first_party_discovery_files_request(first_party_source_files_load_request(plan));
         (root_issues, load_files_for_roots(request))
+    }
+
+    #[salsa::db]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+        files: djls_source::SourceFiles,
+        loading_state: std::sync::Mutex<Option<crate::ProjectLoadingState>>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDb {
+        fn files(&self) -> &djls_source::SourceFiles {
+            &self.files
+        }
+
+        fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
+            Ok(String::new())
+        }
+    }
+
+    #[salsa::db]
+    impl crate::Db for TestDb {
+        fn project_loading_state(&self) -> crate::ProjectLoadingState {
+            self.loading_state
+                .lock()
+                .unwrap()
+                .expect("test database should initialize project loading state")
+        }
+    }
+
+    impl TestDb {
+        fn with_loading_state() -> Self {
+            let db = Self::default();
+            let state = crate::ProjectLoadingState::not_loaded(&db);
+            *db.loading_state.lock().unwrap() = Some(state);
+            db
+        }
+    }
+
+    #[test]
+    fn finalize_rejects_mismatched_materialized_source_file_set() {
+        let mut db = TestDb::with_loading_state();
+        let update_root = root("/workspace");
+        let update_file = discovered("/workspace/models.py", &update_root);
+        let patch = FirstPartySourceFilePatch {
+            partition: FileSetPartition::first_party(),
+            roots: vec![update_root],
+            files: vec![update_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let update = merge_first_party_source_file_patch(None, patch);
+
+        let other_root = root("/other");
+        let other_file = discovered("/other/other.py", &other_root);
+        let loaded = LoadedSourceFile::from_discovered(
+            other_file,
+            djls_source::File::new(&db, Utf8PathBuf::from("/other/other.py"), 0),
+        );
+        let data = SourceFileSetData::new(vec![SourceRootEntry::new(other_root)], vec![loaded])
+            .expect("mismatched source file set should be internally coherent");
+        let materialized = SourceFileSetMaterialized::new(
+            SourceFileSet::new(&db, data),
+            SourceFileHandleChanges::default(),
+            Vec::new(),
+        );
+
+        let result = finalize_project_source_files(&mut db, None, update, materialized);
+
+        assert!(matches!(
+            result,
+            ProjectSourceFilesApplyResult::Failed { .. }
+        ));
+        assert!(matches!(
+            db.project_loading_state().source_files(&db),
+            ProjectSourceFilesAvailability::Failed { .. }
+        ));
     }
 
     #[test]

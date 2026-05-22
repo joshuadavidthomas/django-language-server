@@ -12,7 +12,6 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
-use djls_project::finalize_project_source_files;
 use djls_project::Db as LoadingDb;
 use djls_project::ProjectLoadingState;
 use djls_project::ProjectSourceFilesApplyResult;
@@ -145,19 +144,25 @@ impl DjangoDatabase {
         update: ProjectSourceFilesUpdate,
     ) -> ProjectSourceFilesApplyResult {
         let previous = self.current_ready_project_source_files();
-        let materialized = self.materialize_source_file_set(update.materialization());
-        finalize_project_source_files(self, previous, update, materialized)
+        let materialized =
+            self.materialize_source_file_set_from(previous.as_ref(), update.materialization());
+        djls_project::finalize_project_source_files(self, previous, update, materialized)
     }
 
     pub fn materialize_source_file_set(
         &mut self,
         patch: &ProjectSourceFilesMaterializationPatch,
     ) -> SourceFileSetMaterialized {
-        let previous = self
-            .current_ready_project_source_files()
-            .map(|files| files.merged());
+        let previous = self.current_ready_project_source_files();
+        self.materialize_source_file_set_from(previous.as_ref(), patch)
+    }
 
-        let previous_data = previous.map(|set| set.data(self).clone());
+    fn materialize_source_file_set_from(
+        &mut self,
+        previous: Option<&ReadyProjectSourceFiles>,
+        patch: &ProjectSourceFilesMaterializationPatch,
+    ) -> SourceFileSetMaterialized {
+        let previous_data = previous.map(|files| files.merged().data(self).clone());
         let removed_roots = patch.removed_roots().iter().collect::<BTreeSet<_>>();
         let removed_files = patch.removed_files().iter().collect::<BTreeSet<_>>();
         let mut roots = previous_data
@@ -219,16 +224,18 @@ impl DjangoDatabase {
             );
         }
 
-        let removed = patch.removed_files().len()
-            + previous_data
-                .as_ref()
-                .map(|data| {
-                    data.files()
-                        .iter()
-                        .filter(|file| removed_roots.contains(file.root()))
-                        .count()
-                })
-                .unwrap_or(0);
+        let removed = previous_data
+            .as_ref()
+            .map(|data| {
+                data.files()
+                    .iter()
+                    .filter(|file| {
+                        removed_roots.contains(file.root())
+                            || removed_files.contains(&file.path().to_owned())
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
         let roots = roots.into_values().collect::<Vec<SourceRootEntry>>();
         let files = loaded.into_values().collect::<Vec<_>>();
         let (data, issues) = match SourceFileSetData::new(roots, files) {
@@ -443,6 +450,58 @@ mod source_file_set_tests {
             applied.files().merged().data(&db).files()[0].file(),
             first_handle
         );
+    }
+
+    #[test]
+    fn source_file_set_materialization_counts_removed_root_files_once() {
+        let first_dir = tempfile::tempdir().unwrap();
+        let first_root = utf8(first_dir.path());
+        let removed_file = first_root.join("gone.py");
+        std::fs::write(&removed_file, "").unwrap();
+        let mut db = DjangoDatabase::default();
+
+        let update = first_party_update(None, vec![first_root]);
+        let applied = db.apply_project_source_files(update);
+        let ProjectSourceFilesApplyResult::Applied(applied) = applied else {
+            panic!("first materialization should apply");
+        };
+
+        let second_dir = tempfile::tempdir().unwrap();
+        let second_root = utf8(second_dir.path());
+        let update = first_party_update(Some(applied.files()), vec![second_root]);
+        let materialized = db.materialize_source_file_set(update.materialization());
+
+        assert_eq!(materialized.handle_changes().removed(), 1);
+    }
+
+    #[test]
+    fn terminal_issue_preserves_previous_ready_source_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = utf8(dir.path());
+        std::fs::write(root.join("models.py"), "").unwrap();
+        let mut db = DjangoDatabase::default();
+
+        let update = first_party_update(None, vec![root]);
+        let applied = db.apply_project_source_files(update);
+        let ProjectSourceFilesApplyResult::Applied(applied) = applied else {
+            panic!("initial materialization should apply");
+        };
+
+        let missing = utf8(tempfile::tempdir().unwrap().path()).join("missing");
+        let update = first_party_update(Some(applied.files()), vec![missing]);
+        let result = db.apply_project_source_files(update);
+
+        let ProjectSourceFilesApplyResult::Unavailable { previous, .. } = result else {
+            panic!("missing root should be unavailable");
+        };
+        assert_eq!(previous, Some(applied.files().clone()));
+        assert!(matches!(
+            db.project_loading_state().source_files(&db),
+            ProjectSourceFilesAvailability::Unavailable {
+                previous: Some(_),
+                ..
+            }
+        ));
     }
 
     #[test]
