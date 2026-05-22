@@ -36,6 +36,7 @@ pub struct NodeSpec {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum MilestoneId {
     WorkspaceReady,
+    DjangoAppsReady,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,23 +104,46 @@ pub const NODE_SPECS: &[NodeSpec] = &[
     },
 ];
 
-pub const MILESTONE_SPECS: &[MilestoneSpec] = &[MilestoneSpec {
-    id: MilestoneId::WorkspaceReady,
-    prerequisites: &[
-        MilestonePrerequisite {
-            node: NodeId::SourceFileSet,
-            acceptable_statuses: &[NodeTerminalStatus::Succeeded],
-        },
-        MilestonePrerequisite {
-            node: NodeId::PythonSourceModels,
-            acceptable_statuses: &[NodeTerminalStatus::Succeeded, NodeTerminalStatus::Skipped],
-        },
-        MilestonePrerequisite {
-            node: NodeId::EnvironmentDiscovery,
-            acceptable_statuses: &[NodeTerminalStatus::Succeeded, NodeTerminalStatus::Degraded],
-        },
-    ],
-}];
+pub const MILESTONE_SPECS: &[MilestoneSpec] = &[
+    MilestoneSpec {
+        id: MilestoneId::WorkspaceReady,
+        prerequisites: &[
+            MilestonePrerequisite {
+                node: NodeId::SourceFileSet,
+                acceptable_statuses: &[NodeTerminalStatus::Succeeded],
+            },
+            MilestonePrerequisite {
+                node: NodeId::PythonSourceModels,
+                acceptable_statuses: &[NodeTerminalStatus::Succeeded, NodeTerminalStatus::Skipped],
+            },
+            MilestonePrerequisite {
+                node: NodeId::EnvironmentDiscovery,
+                acceptable_statuses: &[NodeTerminalStatus::Succeeded, NodeTerminalStatus::Degraded],
+            },
+        ],
+    },
+    MilestoneSpec {
+        id: MilestoneId::DjangoAppsReady,
+        prerequisites: &[
+            MilestonePrerequisite {
+                node: NodeId::InstalledAppFiles,
+                acceptable_statuses: &[
+                    NodeTerminalStatus::Succeeded,
+                    NodeTerminalStatus::Deferred,
+                    NodeTerminalStatus::Skipped,
+                ],
+            },
+            MilestonePrerequisite {
+                node: NodeId::TemplateDirectoryFiles,
+                acceptable_statuses: &[
+                    NodeTerminalStatus::Succeeded,
+                    NodeTerminalStatus::Deferred,
+                    NodeTerminalStatus::Skipped,
+                ],
+            },
+        ],
+    },
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LoadingPlan {
@@ -342,6 +366,26 @@ mod tests {
                     ],
                     readiness_source: ReadinessSourceKind::EnvironmentCandidates,
                 },
+                NodeSpec {
+                    id: NodeId::InstalledAppFiles,
+                    prerequisites: &[
+                        NodeId::SourceFileSet,
+                        NodeId::ProjectDiscoverySet,
+                        NodeId::PythonSourceModels,
+                        NodeId::EnvironmentDiscovery,
+                    ],
+                    readiness_source: ReadinessSourceKind::InstalledAppFiles,
+                },
+                NodeSpec {
+                    id: NodeId::TemplateDirectoryFiles,
+                    prerequisites: &[
+                        NodeId::SourceFileSet,
+                        NodeId::ProjectDiscoverySet,
+                        NodeId::PythonSourceModels,
+                        NodeId::EnvironmentDiscovery,
+                    ],
+                    readiness_source: ReadinessSourceKind::TemplateDirectoryFiles,
+                },
             ]
         );
     }
@@ -350,29 +394,52 @@ mod tests {
     fn loading_plan_workspace_ready_milestone_policy_uses_static_readiness_nodes() {
         assert_eq!(
             LoadingPlan::phase3().milestones(),
-            &[MilestoneSpec {
-                id: MilestoneId::WorkspaceReady,
-                prerequisites: &[
-                    MilestonePrerequisite {
-                        node: NodeId::SourceFileSet,
-                        acceptable_statuses: &[NodeTerminalStatus::Succeeded],
-                    },
-                    MilestonePrerequisite {
-                        node: NodeId::PythonSourceModels,
-                        acceptable_statuses: &[
-                            NodeTerminalStatus::Succeeded,
-                            NodeTerminalStatus::Skipped,
-                        ],
-                    },
-                    MilestonePrerequisite {
-                        node: NodeId::EnvironmentDiscovery,
-                        acceptable_statuses: &[
-                            NodeTerminalStatus::Succeeded,
-                            NodeTerminalStatus::Degraded,
-                        ],
-                    },
-                ],
-            }]
+            &[
+                MilestoneSpec {
+                    id: MilestoneId::WorkspaceReady,
+                    prerequisites: &[
+                        MilestonePrerequisite {
+                            node: NodeId::SourceFileSet,
+                            acceptable_statuses: &[NodeTerminalStatus::Succeeded],
+                        },
+                        MilestonePrerequisite {
+                            node: NodeId::PythonSourceModels,
+                            acceptable_statuses: &[
+                                NodeTerminalStatus::Succeeded,
+                                NodeTerminalStatus::Skipped,
+                            ],
+                        },
+                        MilestonePrerequisite {
+                            node: NodeId::EnvironmentDiscovery,
+                            acceptable_statuses: &[
+                                NodeTerminalStatus::Succeeded,
+                                NodeTerminalStatus::Degraded,
+                            ],
+                        },
+                    ],
+                },
+                MilestoneSpec {
+                    id: MilestoneId::DjangoAppsReady,
+                    prerequisites: &[
+                        MilestonePrerequisite {
+                            node: NodeId::InstalledAppFiles,
+                            acceptable_statuses: &[
+                                NodeTerminalStatus::Succeeded,
+                                NodeTerminalStatus::Deferred,
+                                NodeTerminalStatus::Skipped,
+                            ],
+                        },
+                        MilestonePrerequisite {
+                            node: NodeId::TemplateDirectoryFiles,
+                            acceptable_statuses: &[
+                                NodeTerminalStatus::Succeeded,
+                                NodeTerminalStatus::Deferred,
+                                NodeTerminalStatus::Skipped,
+                            ],
+                        },
+                    ],
+                },
+            ]
         );
     }
 
@@ -385,6 +452,8 @@ mod tests {
                 NodeId::ProjectDiscoverySet,
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
+                NodeId::InstalledAppFiles,
+                NodeId::TemplateDirectoryFiles,
             ]
         );
     }

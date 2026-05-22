@@ -1,8 +1,10 @@
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileSetSummary;
 use djls_source::SourceFileSet;
 use djls_source::SourceRootId;
 
+use super::files::FileSetPartitionId;
 use super::files::MergedDiscoveredSourceFileSetData;
 use super::files::ProjectFilePartitionReadiness;
 use super::files::ProjectFileSetPartitions;
@@ -89,7 +91,7 @@ impl ReadyProjectSourceFiles {
         Self::new(partitions, merged)
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn merged_for_test(merged: SourceFileSet) -> Self {
         Self::new(ProjectFileSetPartitions::empty(), merged)
@@ -111,11 +113,18 @@ impl ReadyProjectSourceFiles {
     }
 
     #[must_use]
-    pub fn root_readiness_covering(
+    pub fn root_readiness_for_partition(
         &self,
-        path: &camino::Utf8Path,
+        path: &Utf8Path,
+        matches_partition: impl Fn(&FileSetPartitionId) -> bool,
     ) -> Option<ProjectFilePartitionReadiness> {
-        self.partitions.root_readiness_covering(path)
+        self.partitions
+            .root_readiness_for_partition(path, matches_partition)
+    }
+
+    #[must_use]
+    pub fn has_partition_readiness(&self) -> bool {
+        self.partitions.has_partitions()
     }
 }
 

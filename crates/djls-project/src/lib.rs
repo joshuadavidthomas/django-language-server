@@ -15,8 +15,8 @@ mod resolver;
 mod settings;
 mod system;
 mod templates;
-#[cfg(test)]
-mod testing;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 pub use apps::installed_app_file_load_outcome;
 pub use apps::installed_app_file_roots;

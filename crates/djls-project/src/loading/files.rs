@@ -299,19 +299,26 @@ impl ProjectFileSetPartitions {
     }
 
     #[must_use]
-    pub(crate) fn root_readiness_covering(
+    pub(crate) fn root_readiness_for_partition(
         &self,
         path: &Utf8Path,
+        matches_partition: impl Fn(&FileSetPartitionId) -> bool,
     ) -> Option<ProjectFilePartitionReadiness> {
         self.partitions
             .iter()
             .find(|partition| {
-                partition
-                    .roots
-                    .iter()
-                    .any(|root| path.starts_with(root.path()))
+                matches_partition(partition.partition.id())
+                    && partition
+                        .roots
+                        .iter()
+                        .any(|root| path.starts_with(root.path()))
             })
             .map(|partition| partition.readiness.clone())
+    }
+
+    #[must_use]
+    pub(crate) fn has_partitions(&self) -> bool {
+        !self.partitions.is_empty()
     }
 
     pub(crate) fn merged_discovered_data(&self) -> MergedDiscoveredSourceFileSetData {

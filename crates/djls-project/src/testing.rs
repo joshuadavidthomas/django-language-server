@@ -41,8 +41,49 @@ pub fn ready_source_inventory_for_test(
     root: impl Into<Utf8PathBuf>,
     paths: impl IntoIterator<Item = Utf8PathBuf>,
 ) -> ProjectSourceInventory {
+    ready_source_inventory_with_roots_for_test(db, vec![root.into()], paths)
+}
+
+#[must_use]
+pub fn ready_source_inventory_with_roots_for_test(
+    db: &dyn Db,
+    roots: Vec<Utf8PathBuf>,
+    paths: impl IntoIterator<Item = Utf8PathBuf>,
+) -> ProjectSourceInventory {
+    let roots = roots
+        .into_iter()
+        .map(|root_path| {
+            SourceRoot::new(
+                SourceRootId::new(root_path.clone()),
+                root_path,
+                FileRootKind::Project,
+            )
+        })
+        .collect::<Vec<_>>();
+    let root_entries = roots
+        .iter()
+        .cloned()
+        .map(SourceRootEntry::new)
+        .collect::<Vec<_>>();
+    let files = paths
+        .into_iter()
+        .map(|path| {
+            let root = roots
+                .iter()
+                .filter(|root| path.starts_with(root.path()))
+                .max_by_key(|root| root.path().as_str().len())
+                .expect("test path should be inside a root");
+            LoadedSourceFile::new(
+                path.clone(),
+                root.id().clone(),
+                db.get_or_create_file(&path),
+            )
+        })
+        .collect::<Vec<_>>();
+    let data =
+        SourceFileSetData::new(root_entries, files).expect("test source file set should be valid");
     ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
-        source_file_set_for_test(db, root, paths),
+        SourceFileSet::new(db, data),
     ))
 }
 

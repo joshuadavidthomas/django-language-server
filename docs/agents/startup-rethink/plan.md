@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `tqtwupmz` contains the completed static template inventory slice.
-- **Current slice**: Phase 6C completed; Phase 6D is next.
+- **Implementation change**: `utvwxmyn` contains the completed static template resolution and django-apps-ready slice.
+- **Current slice**: Phase 6D completed; Phase 7 is next.
 
 ### Implementation Notes
 
@@ -435,6 +435,25 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required inventory to read partition/root readiness, preserve unavailable/stale/deferred directory semantics, and avoid global `templatetags` scans; addressed with a root-readiness projection and installed-app-root-scoped tag-library inventory.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed the candidate-to-loaded-inventory layering, explicit source roots/file roots, static settings/search-path derivation, and tracked semantic index shape align with mature tooling patterns.
 - Follow-ups/blockers: Phase 6D should migrate the first semantic template consumer and register `django-apps-ready` over the installed-app/template-directory file-loading nodes.
+
+### Static template resolution and django-apps-ready
+- Bookmark: `startup-rethink` still points to `tqtwupmz`; move it to `utvwxmyn` after describing this verified slice.
+- Current change: `utvwxmyn`.
+- Scope: registered the `django-apps-ready` milestone over installed-app and template-directory file-loading node statuses; added a static template resolution consumer through `resolve_template`/`resolve_static_template`; represented deferred static template lookups when configured template directories are known but not loaded; and kept legacy template fields as documented Phase 7 bridge leftovers.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-semantic static_template_resolution` passed: 2 tests.
+  - `cargo test -p djls-project loading_plan` passed: 5 tests.
+  - `cargo test -p djls-project template_inventory` passed: 6 tests.
+  - `cargo test -p djls-server startup` passed: 22 tests.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `cargo build -q` passed.
+  - Cleanup search `rg "ProjectTemplateFiles|template_dirs\(|template_libraries\(" crates/djls-semantic crates/djls-db crates/djls-ide crates/djls-project -g '*.rs'` still finds legacy template-file, template-dir, and template-library bridge consumers; these are intentional Phase 7 deletion/migration gates for the broad IDE/semantic migration.
+- Review/reference follow-up:
+  - Lamport review required no-op file-loading node terminal states to advance `django-apps-ready` and static template resolution to rely on explicit app/template partition readiness instead of broad aggregate source coverage; addressed both.
+  - Rust specialist required an actual production consumer, deferred static lookup semantics, a non-public testing helper boundary, and mixed file-node milestone coverage; addressed with `resolve_template` static-first behavior, `ResolveResult::Deferred`, a feature-gated `djls-project::testing` module, and milestone tests.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed milestone/readiness projection and static inventory consumption align with mature tooling patterns.
+- Follow-ups/blockers: Phase 7 should migrate the remaining template resolution, load-library completions/diagnostics, navigation, references, hover, and diagnostics degradation paths to `djls-project` queries and remove the legacy bridge fields found by the cleanup search.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).

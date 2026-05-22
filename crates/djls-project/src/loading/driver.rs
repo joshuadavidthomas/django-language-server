@@ -336,7 +336,7 @@ fn apply_partitioned_patches(
 
 fn aggregate_file_loading_status(applied: &[ProjectSourceFilesApplyResult]) -> NodeTerminalStatus {
     if applied.is_empty() {
-        return NodeTerminalStatus::Skipped;
+        return NodeTerminalStatus::Succeeded;
     }
     let statuses = applied
         .iter()
@@ -476,6 +476,8 @@ mod tests {
         source_ready: bool,
         python_skipped: bool,
         environment_degraded: bool,
+        installed_app_deferred: bool,
+        template_directory_deferred: bool,
     }
 
     impl LoadingEffects for FakeEffects {
@@ -579,10 +581,22 @@ mod tests {
         }
 
         fn load_installed_app_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome {
+            if self.installed_app_deferred {
+                return PartitionedSourceFileLoadOutcome::Deferred {
+                    issue: crate::ProjectSourceFilesIssue::InstalledAppGap {
+                        entry: "UNKNOWN".to_string(),
+                    },
+                };
+            }
             PartitionedSourceFileLoadOutcome::Ready(Vec::new())
         }
 
         fn load_template_directory_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome {
+            if self.template_directory_deferred {
+                return PartitionedSourceFileLoadOutcome::Deferred {
+                    issue: crate::ProjectSourceFilesIssue::TemplateDirectoryGap,
+                };
+            }
             PartitionedSourceFileLoadOutcome::Ready(Vec::new())
         }
 
@@ -655,8 +669,11 @@ mod tests {
                 (NodeId::ProjectDiscoverySet, NodeTerminalStatus::Deferred),
                 (NodeId::PythonSourceModels, NodeTerminalStatus::Succeeded),
                 (NodeId::EnvironmentDiscovery, NodeTerminalStatus::Succeeded),
-                (NodeId::InstalledAppFiles, NodeTerminalStatus::Skipped),
-                (NodeId::TemplateDirectoryFiles, NodeTerminalStatus::Skipped),
+                (NodeId::InstalledAppFiles, NodeTerminalStatus::Succeeded),
+                (
+                    NodeId::TemplateDirectoryFiles,
+                    NodeTerminalStatus::Succeeded
+                ),
             ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);
@@ -684,10 +701,16 @@ mod tests {
         );
         assert_eq!(
             observer.milestones,
-            vec![(
-                MilestoneId::WorkspaceReady,
-                MilestoneTerminalStatus::Succeeded,
-            )]
+            vec![
+                (
+                    MilestoneId::WorkspaceReady,
+                    MilestoneTerminalStatus::Succeeded,
+                ),
+                (
+                    MilestoneId::DjangoAppsReady,
+                    MilestoneTerminalStatus::Succeeded,
+                ),
+            ]
         );
         assert_eq!(
             result.milestone_results()[0].id(),
@@ -713,15 +736,45 @@ mod tests {
 
         assert_eq!(
             observer.milestones,
-            vec![(
-                MilestoneId::WorkspaceReady,
-                MilestoneTerminalStatus::Degraded
-            )]
+            vec![
+                (
+                    MilestoneId::WorkspaceReady,
+                    MilestoneTerminalStatus::Degraded,
+                ),
+                (
+                    MilestoneId::DjangoAppsReady,
+                    MilestoneTerminalStatus::Succeeded,
+                ),
+            ]
         );
         assert_eq!(
             result.milestone_results()[0].status(),
             MilestoneTerminalStatus::Degraded
         );
+    }
+
+    #[test]
+    fn loading_plan_django_apps_ready_milestone_degrades_for_deferred_app_files() {
+        let mut effects = FakeEffects {
+            source_ready: true,
+            installed_app_deferred: true,
+            roots: vec![Utf8PathBuf::from("/missing")],
+            ..FakeEffects::default()
+        };
+
+        let (_result, observer) = run_fake_plan(&mut effects);
+
+        assert!(observer
+            .events
+            .contains(&(NodeId::InstalledAppFiles, NodeTerminalStatus::Deferred,)));
+        assert!(observer.events.contains(&(
+            NodeId::TemplateDirectoryFiles,
+            NodeTerminalStatus::Succeeded,
+        )));
+        assert!(observer.milestones.contains(&(
+            MilestoneId::DjangoAppsReady,
+            MilestoneTerminalStatus::Degraded,
+        )));
     }
 
     #[test]
@@ -733,7 +786,13 @@ mod tests {
 
         let (result, observer) = run_fake_plan(&mut effects);
 
-        assert!(observer.milestones.is_empty());
-        assert!(result.milestone_results().is_empty());
+        assert_eq!(
+            observer.milestones,
+            vec![(
+                MilestoneId::DjangoAppsReady,
+                MilestoneTerminalStatus::Succeeded,
+            )]
+        );
+        assert_eq!(result.milestone_results().len(), 1);
     }
 }

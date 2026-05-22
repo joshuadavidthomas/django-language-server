@@ -7,6 +7,7 @@ use crate::installed_apps;
 use crate::resolve_module;
 use crate::Db;
 use crate::DjangoEnvironmentId;
+use crate::FileSetPartitionId;
 use crate::InstalledAppResolution;
 use crate::ModuleResolutionOutcome;
 use crate::Project;
@@ -294,14 +295,28 @@ fn directory_entry_with_readiness(
     let TemplateDirectoryEntry::Discovered(directory) = entry else {
         return entry;
     };
-    match files.root_readiness_covering(directory.path()) {
+    let partition_readiness = match directory.source() {
+        TemplateDirectorySource::SettingsDirs => {
+            files.root_readiness_for_partition(directory.path(), |partition| {
+                matches!(
+                    partition,
+                    FileSetPartitionId::ConfiguredTemplateDirectory(_)
+                )
+            })
+        }
+        TemplateDirectorySource::InstalledApp { .. } => files
+            .root_readiness_for_partition(directory.path(), |partition| {
+                matches!(partition, FileSetPartitionId::InstalledApp(_))
+            }),
+    };
+    match partition_readiness {
         Some(ProjectFilePartitionReadiness::Ready { .. }) => {
             TemplateDirectoryEntry::Discovered(directory)
         }
         Some(ProjectFilePartitionReadiness::Deferred { .. }) => {
             TemplateDirectoryEntry::Deferred { directory }
         }
-        None if directory_fallback_loaded(&directory, loaded_roots) => {
+        None if directory_fallback_loaded(files, &directory, loaded_roots) => {
             TemplateDirectoryEntry::Discovered(directory)
         }
         None => TemplateDirectoryEntry::Deferred { directory },
@@ -320,15 +335,14 @@ fn directory_entry_with_readiness(
     }
 }
 
-fn directory_fallback_loaded(directory: &TemplateDirectory, loaded_roots: &[Utf8PathBuf]) -> bool {
-    match directory.source() {
-        TemplateDirectorySource::SettingsDirs => {
-            loaded_roots.iter().any(|root| root == directory.path())
-        }
-        TemplateDirectorySource::InstalledApp { .. } => loaded_roots
-            .iter()
-            .any(|root| directory.path().starts_with(root)),
-    }
+fn directory_fallback_loaded(
+    files: &crate::ReadyProjectSourceFiles,
+    directory: &TemplateDirectory,
+    loaded_roots: &[Utf8PathBuf],
+) -> bool {
+    !files.has_partition_readiness()
+        && matches!(directory.source(), TemplateDirectorySource::SettingsDirs)
+        && loaded_roots.iter().any(|root| root == directory.path())
 }
 
 fn defer_discovered_directory(entry: TemplateDirectoryEntry) -> TemplateDirectoryEntry {

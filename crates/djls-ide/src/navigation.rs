@@ -32,6 +32,7 @@ pub fn goto_definition(
                         },
                     ))
                 }
+                ResolveResult::Deferred { .. } => None,
                 ResolveResult::NotFound { tried, .. } => {
                     tracing::warn!("Template '{}' not found. Tried: {:?}", template_name, tried);
                     None
