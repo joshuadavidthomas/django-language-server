@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `sqppsxrp` contains the completed environment-discovery loading observation slice.
-- **Current slice**: Environment-discovery loading observation completed; Phase 5D is next.
+- **Implementation change**: `yzympxnx` contains the completed workspace-ready milestone slice.
+- **Current slice**: Workspace-ready milestone completed; Phase 6A is next.
 
 ### Implementation Notes
 
@@ -371,6 +371,21 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist found no must-fix issues and confirmed the node uses the neutral loading path, nonblocking snapshot seam, readiness projection, reuse coverage, and request-while-running coverage.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed snapshot/background work, short session locks, progress, cancellation/supersession guards, and query/cache reuse align with mature tooling patterns.
 - Follow-ups/blockers: Phase 5D should register `workspace-ready` as a loading-plan milestone over source files, Python source models, and environment discovery.
+
+### Workspace-ready milestone
+- Bookmark: `startup-rethink` still points to `sqppsxrp`; move it to `yzympxnx` after describing this verified slice.
+- Current change: `yzympxnx`.
+- Scope: added `workspace-ready` milestone policy to the neutral loading plan, recorded milestone results with full vs degraded terminal status, emitted milestone observer events, guarded LSP milestone progress by startup generation, and moved semantic trait inheritance toward `djls_project::Db` while retaining legacy `ProjectDb` during migration.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project loading_plan` passed: 4 tests.
+  - `cargo test -p djls-semantic --no-run` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review required milestone results/events to distinguish full readiness from degraded readiness; addressed with `MilestoneTerminalStatus::{Succeeded, Degraded}` and tests for full, degraded, and non-advancing cases.
+  - Rust specialist required the same degraded milestone status, LSP milestone reporting, and stronger acceptance/rejection matrix tests; addressed all in this slice.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed composite readiness, degraded health/status preservation, guarded stale progress, and best-effort service align with mature tooling patterns, with DJLS intentionally making the milestone a first-class neutral loading result.
+- Follow-ups/blockers: Phase 6A should build static effective settings and installed-app projection on top of the environment candidate and module-resolution seams.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1855,9 +1870,9 @@ pub enum EnvironmentSelection {
 - [x] Live-readiness reuse test or query counter proves the first post-ready request does not recompute `django_environment_candidates(db, project)` after `environment-discovery` reported ready: `cargo test -p djls-project environment_candidates_reuse` passed.
 
 **Phase 5D gate**
-- [ ] LoadingPlan milestone policy tests pass for `workspace-ready`: `cargo test -p djls-project loading_plan`
-- [ ] Semantic trait impls compile: `cargo test -p djls-semantic --no-run`
-- [ ] Workspace builds: `cargo build -q`
+- [x] LoadingPlan milestone policy tests pass for `workspace-ready`: `cargo test -p djls-project loading_plan` passed.
+- [x] Semantic trait impls compile: `cargo test -p djls-semantic --no-run` passed.
+- [x] Workspace builds: `cargo build -q` passed.
 
 #### Manual Verification
 - [ ] Confirm a multisite fixture yields distinct `DjangoEnvironmentCandidate` values.

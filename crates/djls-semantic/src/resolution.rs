@@ -66,7 +66,7 @@ impl<'db> ResolveResult<'db> {
 
 pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResult<'db> {
     let template_name = InternedTemplateName::new(db, name.to_string());
-    let Some(project) = db.project() else {
+    let Some(project) = crate::project::Db::project(db) else {
         return ResolveResult::NotFound {
             name: name.to_string(),
             tried: Vec::new(),
@@ -111,7 +111,7 @@ pub fn find_references_to_template<'db>(
     db: &'db dyn SemanticDb,
     name: &str,
 ) -> Vec<TemplateReference<'db>> {
-    let Some(project) = db.project() else {
+    let Some(project) = crate::project::Db::project(db) else {
         return Vec::new();
     };
 

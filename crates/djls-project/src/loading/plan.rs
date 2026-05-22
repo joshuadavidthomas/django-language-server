@@ -29,6 +29,29 @@ pub struct NodeSpec {
     pub readiness_source: ReadinessSourceKind,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum MilestoneId {
+    WorkspaceReady,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MilestoneSpec {
+    pub id: MilestoneId,
+    pub prerequisites: &'static [MilestonePrerequisite],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MilestonePrerequisite {
+    pub node: NodeId,
+    pub acceptable_statuses: &'static [NodeTerminalStatus],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MilestoneTerminalStatus {
+    Succeeded,
+    Degraded,
+}
+
 pub const NODE_SPECS: &[NodeSpec] = &[
     NodeSpec {
         id: NodeId::SourceFileSet,
@@ -56,9 +79,28 @@ pub const NODE_SPECS: &[NodeSpec] = &[
     },
 ];
 
+pub const MILESTONE_SPECS: &[MilestoneSpec] = &[MilestoneSpec {
+    id: MilestoneId::WorkspaceReady,
+    prerequisites: &[
+        MilestonePrerequisite {
+            node: NodeId::SourceFileSet,
+            acceptable_statuses: &[NodeTerminalStatus::Succeeded],
+        },
+        MilestonePrerequisite {
+            node: NodeId::PythonSourceModels,
+            acceptable_statuses: &[NodeTerminalStatus::Succeeded, NodeTerminalStatus::Skipped],
+        },
+        MilestonePrerequisite {
+            node: NodeId::EnvironmentDiscovery,
+            acceptable_statuses: &[NodeTerminalStatus::Succeeded, NodeTerminalStatus::Degraded],
+        },
+    ],
+}];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LoadingPlan {
     nodes: &'static [NodeId],
+    milestones: &'static [MilestoneSpec],
 }
 
 impl LoadingPlan {
@@ -71,12 +113,18 @@ impl LoadingPlan {
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
             ],
+            milestones: MILESTONE_SPECS,
         }
     }
 
     #[must_use]
     pub fn nodes(&self) -> &'static [NodeId] {
         self.nodes
+    }
+
+    #[must_use]
+    pub fn milestones(&self) -> &'static [MilestoneSpec] {
+        self.milestones
     }
 }
 
@@ -269,6 +317,36 @@ mod tests {
                     readiness_source: ReadinessSourceKind::EnvironmentCandidates,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn loading_plan_workspace_ready_milestone_policy_uses_static_readiness_nodes() {
+        assert_eq!(
+            LoadingPlan::phase3().milestones(),
+            &[MilestoneSpec {
+                id: MilestoneId::WorkspaceReady,
+                prerequisites: &[
+                    MilestonePrerequisite {
+                        node: NodeId::SourceFileSet,
+                        acceptable_statuses: &[NodeTerminalStatus::Succeeded],
+                    },
+                    MilestonePrerequisite {
+                        node: NodeId::PythonSourceModels,
+                        acceptable_statuses: &[
+                            NodeTerminalStatus::Succeeded,
+                            NodeTerminalStatus::Skipped,
+                        ],
+                    },
+                    MilestonePrerequisite {
+                        node: NodeId::EnvironmentDiscovery,
+                        acceptable_statuses: &[
+                            NodeTerminalStatus::Succeeded,
+                            NodeTerminalStatus::Degraded,
+                        ],
+                    },
+                ],
+            }]
         );
     }
 

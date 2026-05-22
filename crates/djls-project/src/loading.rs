@@ -6,6 +6,7 @@ mod settings;
 mod state;
 
 pub use driver::run_loading_plan;
+pub use driver::LoadingMilestoneResult;
 pub use driver::LoadingNodeResult;
 pub use driver::LoadingRunResult;
 pub use effects::LoadingApplyOutcome;
@@ -39,6 +40,10 @@ pub use plan::node_status_from_project_source_files_applied;
 pub use plan::node_status_from_readiness;
 pub use plan::LoadingPlan;
 pub use plan::LoadingReadiness;
+pub use plan::MilestoneId;
+pub use plan::MilestonePrerequisite;
+pub use plan::MilestoneSpec;
+pub use plan::MilestoneTerminalStatus;
 pub use plan::NodeId;
 pub use plan::NodeSpec;
 pub use plan::NodeTerminalStatus;

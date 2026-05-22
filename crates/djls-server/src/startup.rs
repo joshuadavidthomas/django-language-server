@@ -23,6 +23,8 @@ use djls_project::LoadingObserver;
 use djls_project::LoadingPlan;
 use djls_project::LoadingRunControl;
 use djls_project::LoadingRunResult;
+use djls_project::MilestoneId;
+use djls_project::MilestoneTerminalStatus;
 use djls_project::NodeId;
 use djls_project::NodeTerminalStatus;
 use djls_project::ProjectDiscoveryApplyResult;
@@ -355,6 +357,10 @@ pub(crate) enum StartupProgressEvent {
         node: NodeId,
         status: NodeTerminalStatus,
     },
+    MilestoneReached {
+        milestone: MilestoneId,
+        status: MilestoneTerminalStatus,
+    },
     Finish(StartupRunOutcome),
 }
 
@@ -412,6 +418,15 @@ impl StartupProgress {
         self.reporter.node_finished(handle, node, status);
     }
 
+    fn report_milestone_reached(
+        &self,
+        handle: &tokio::runtime::Handle,
+        milestone: MilestoneId,
+        status: MilestoneTerminalStatus,
+    ) {
+        self.reporter.milestone_reached(handle, milestone, status);
+    }
+
     fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
         self.reporter.finish(handle, outcome);
     }
@@ -425,6 +440,12 @@ trait StartupProgressReporter: Send + Sync + std::fmt::Debug {
         handle: &tokio::runtime::Handle,
         node: NodeId,
         status: NodeTerminalStatus,
+    );
+    fn milestone_reached(
+        &self,
+        handle: &tokio::runtime::Handle,
+        milestone: MilestoneId,
+        status: MilestoneTerminalStatus,
     );
     fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome);
 }
@@ -448,6 +469,15 @@ impl StartupProgressReporter for LogStartupProgressReporter {
         status: NodeTerminalStatus,
     ) {
         tracing::info!(node = ?node, status = ?status, "Finished Django project loading task");
+    }
+
+    fn milestone_reached(
+        &self,
+        _handle: &tokio::runtime::Handle,
+        milestone: MilestoneId,
+        status: MilestoneTerminalStatus,
+    ) {
+        tracing::info!(milestone = ?milestone, status = ?status, "Reached Django project loading milestone");
     }
 
     fn finish(&self, _handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
@@ -518,6 +548,17 @@ impl StartupProgressReporter for WorkDoneStartupProgressReporter {
     ) {
         self.send(WorkDoneProgressCommand::Report(format!(
             "Finished {node:?}: {status:?}"
+        )));
+    }
+
+    fn milestone_reached(
+        &self,
+        _handle: &tokio::runtime::Handle,
+        milestone: MilestoneId,
+        status: MilestoneTerminalStatus,
+    ) {
+        self.send(WorkDoneProgressCommand::Report(format!(
+            "Reached {milestone:?}: {status:?}"
         )));
     }
 
@@ -672,6 +713,16 @@ impl LoadingObserver for GuardedStartupProgressObserver {
                 .report_node_finished(&tokio::runtime::Handle::current(), node, status);
         }
     }
+
+    fn milestone_reached(&mut self, milestone: MilestoneId, status: MilestoneTerminalStatus) {
+        if self.guard.is_current() {
+            self.progress.report_milestone_reached(
+                &tokio::runtime::Handle::current(),
+                milestone,
+                status,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -706,6 +757,18 @@ impl StartupProgressReporter for RecordingStartupProgressReporter {
             .lock()
             .expect("startup progress events mutex poisoned")
             .push(StartupProgressEvent::NodeFinished { node, status });
+    }
+
+    fn milestone_reached(
+        &self,
+        _handle: &tokio::runtime::Handle,
+        milestone: MilestoneId,
+        status: MilestoneTerminalStatus,
+    ) {
+        self.events
+            .lock()
+            .expect("startup progress events mutex poisoned")
+            .push(StartupProgressEvent::MilestoneReached { milestone, status });
     }
 
     fn finish(&self, _handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {

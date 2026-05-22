@@ -1,3 +1,5 @@
+use super::plan::MilestoneId;
+use super::plan::MilestoneTerminalStatus;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
 use crate::DjangoEnvironmentCandidatesOutcome;
@@ -55,6 +57,7 @@ pub trait LoadingEffects {
 pub trait LoadingObserver {
     fn node_started(&mut self, node: NodeId);
     fn node_finished(&mut self, node: NodeId, status: NodeTerminalStatus);
+    fn milestone_reached(&mut self, _milestone: MilestoneId, _status: MilestoneTerminalStatus) {}
 }
 
 #[derive(Default)]
@@ -64,4 +67,6 @@ impl LoadingObserver for NoopLoadingObserver {
     fn node_started(&mut self, _node: NodeId) {}
 
     fn node_finished(&mut self, _node: NodeId, _status: NodeTerminalStatus) {}
+
+    fn milestone_reached(&mut self, _milestone: MilestoneId, _status: MilestoneTerminalStatus) {}
 }

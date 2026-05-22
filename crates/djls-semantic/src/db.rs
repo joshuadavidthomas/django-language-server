@@ -9,7 +9,7 @@ use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
 
 #[salsa::db]
-pub trait Db: ProjectDb {
+pub trait Db: ProjectDb + djls_project::Db {
     /// Get the Django tag specifications for semantic analysis.
     fn tag_specs(&self) -> &TagSpecs;
 
