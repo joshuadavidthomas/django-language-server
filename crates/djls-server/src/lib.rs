@@ -1,8 +1,6 @@
 mod client;
 mod ext;
 mod logging;
-#[cfg(test)]
-mod queue;
 mod server;
 mod session;
 mod startup;

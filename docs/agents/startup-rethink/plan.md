@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `sxrlwqyu` contains the completed availability/request matrix slice.
-- **Current slice**: availability/request matrix completed; Phase 3D is next.
+- **Implementation change**: `yktvoszl` contains the completed layout index and queue cleanup slice.
+- **Current slice**: layout index and queue cleanup completed; Phase 4 is next.
 
 ### Implementation Notes
 
@@ -241,6 +241,25 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required removing `djls-semantic` passthrough re-exports, preserving the non-empty discovery-issue invariant, and making availability visible in the production request path; fixed by deleting the semantic re-export, carrying `ProjectDiscoveryIssues` through `ProjectDiscoveryUnavailableReason::Failed`, and adding the session helper used by request handlers.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that project facts belong in the project layer, request handlers should degrade to empty/`None` results, and loading/Salsa internals should stay behind project/session APIs.
 - Follow-ups/blockers: Phase 3D should add layout/concrete provenance and continue cleanup of legacy queue/dependency wiring.
+
+### Layout index and queue cleanup
+- Bookmark: `startup-rethink` still points to `sxrlwqyu`; move it to `yktvoszl` after describing this verified slice.
+- Current change: `yktvoszl`.
+- Scope: added `ProjectLayoutIndex` and `project_layout_index` over stable `Project.source_inventory`, explicit absent/unavailable layout outcomes, path/file/name/extension/directory/package lookup APIs, `settings_module_candidates` as the first layout consumer that preserves unavailable layout instead of returning empty candidates, and tests proving layout invalidates on source-inventory changes but not enrichment-only changes. Deleted the obsolete server `Queue` module after confirming startup/discovery no longer use it. Did not introduce generic provenance because Phase 3D has no concrete provenance consumer.
+- Validation:
+  - `cargo test -p djls-project layout` passed: 4 tests.
+  - `cargo test -p djls-server queue` passed: 0 tests after deleting the module.
+  - `cargo test -p djls-server startup` passed: 20 tests.
+  - `cargo test -p djls-bench --no-run` passed.
+  - `cargo build -q` passed.
+  - `just fmt --check` passed.
+  - `rg "Queue|enqueue|refresh_external_data|load_template_library_cache" crates/djls-server -g '*.rs'` returned no matches.
+  - `rg "ProjectLoadingSnapshot|Arc<Mutex<Session>>" crates/djls-project/src -g '*.rs'` returned no matches.
+- Review/reference follow-up:
+  - Ousterhout review found no must-fix issues and agreed the layout boundary hides `SourceFileSetData` while preserving absent/unavailable source inventory.
+  - Rust specialist found no must-fix issues and confirmed the enrichment-only invalidation test covers the core `project_layout_index` dependency claim.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed stable source-root/file-set-backed lookup APIs, explicit unavailable-vs-empty outcomes, Salsa invalidation scoped to source membership, delayed provenance, and deletion of unused queue abstractions all match mature tooling patterns.
+- Follow-ups/blockers: Phase 4 should add Python source models on top of the layout/source inventory boundary.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1389,24 +1408,24 @@ Names may change, but the outcome must be derived from stable Project facts, not
 - [x] No-discovery-set degraded request tests, absent/unavailable source/discovery availability tests, and the shared project availability matrix pass: `cargo test -p djls-project availability` and `cargo test -p djls-server degraded`.
 
 **Phase 3D gate**
-- [ ] Layout index tests pass, including domain outcome variants for absent/unavailable source inventory, invalidation through stable `Project.source_inventory`, and no recomputation for enrichment-only state changes: `cargo test -p djls-project layout` or the rewritten equivalent.
-- [ ] Layout consumer tests prove absent/unavailable layout does not look like "no conventional candidates": `cargo test -p djls-project settings_candidates` or equivalent layout consumer tests
-- [ ] Queue cleanup/removal tests or compile checks pass: `cargo test -p djls-server queue` and `cargo test -p djls-server startup`
-- [ ] Queue/cache startup bridge cleanup search passes or documents bounded non-startup leftovers: `rg "Queue|enqueue|refresh_external_data|load_template_library_cache" crates/djls-server -g '*.rs'`
-- [ ] Benchmark database compiles: `cargo test -p djls-bench --no-run`
-- [ ] Workspace builds: `cargo build -q`
+- [x] Layout index tests pass, including domain outcome variants for absent/unavailable source inventory, invalidation through stable `Project.source_inventory`, and no recomputation for enrichment-only state changes: `cargo test -p djls-project layout`.
+- [x] Layout consumer tests prove absent/unavailable layout does not look like "no conventional candidates": `settings_candidates_do_not_treat_unavailable_layout_as_empty` under `cargo test -p djls-project layout`.
+- [x] Queue cleanup/removal tests or compile checks pass: `cargo test -p djls-server queue` and `cargo test -p djls-server startup`.
+- [x] Queue/cache startup bridge cleanup search passes with no remaining matches: `rg "Queue|enqueue|refresh_external_data|load_template_library_cache" crates/djls-server -g '*.rs'`.
+- [x] Benchmark database compiles: `cargo test -p djls-bench --no-run`.
+- [x] Workspace builds: `cargo build -q`.
 
 #### Manual Verification
 - [x] Confirm `djls-project` has no dependency on `djls-semantic`, `djls-server`, `djls-db`, or `djls-ide`. Evidence: `rg "djls-semantic|djls-server|djls-db|djls-ide" crates/djls-project/Cargo.toml` returned no matches.
-- [ ] Confirm `project_layout_index` returns a domain outcome, uses stable `Project.source_inventory` / `SourceFileSet`, and does not call `std::fs`, `walk_files`, settings/environment queries, or legacy semantic `Project` fields.
-- [ ] Confirm low-level `djls_source::Db::source_file_set()` consumers do not use `None`/`Some` as startup readiness. Run `rg "source_file_set\(" crates -g '*.rs'` and verify project-facing code reads stable Project source-inventory facts or receives an explicit `Project` handle.
+- [x] Confirm `project_layout_index` returns a domain outcome, uses stable `Project.source_inventory` / `SourceFileSet`, and does not call `std::fs`, `walk_files`, settings/environment queries, or legacy semantic `Project` fields. Evidence: `rg "std::fs|walk_files|settings_module_candidates|Project::|djls_semantic|project\(\)" crates/djls-project/src/layout.rs` shows only the intended layout consumer and local test setup/calls.
+- [x] Confirm low-level `djls_source::Db::source_file_set()` consumers do not use `None`/`Some` as startup readiness. Evidence: `rg "source_file_set\(" crates -g '*.rs'` shows only loading effect names, the source-file-set wrapper accessor, database materialization tests, and CLI/LSP loading adapters; project-facing layout reads stable Project source-inventory facts with an explicit `Project` handle.
 - [x] Confirm no `Fact<T>` appears under `crates/djls-project`. Evidence: `rg "Fact<" crates/djls-project -g '*.rs'` returned no matches.
-- [ ] Confirm `crates/djls-project/src/loading/plan.rs`, the neutral loading driver, the execution/apply contract, and the observer/event-sink contract do not import LSP/server/CLI/database concrete types or activity modules.
-- [ ] Confirm `ProjectLoadingSnapshot` and `StartupRunInputs` are server-local, and `djls-project` activity code receives only node-specific request structs or plain domain values, never `ProjectLoadingSnapshot` or `Arc<Mutex<Session>>`.
-- [ ] Confirm CLI and LSP effect adapters use the same per-node request builders; adapters may differ in capture/apply/reporting but not request-construction policy.
-- [ ] Confirm the concrete `CliLoadingExecutor` lives in `crates/djls`, not `crates/djls-project`.
-- [ ] Confirm `crates/djls-project/src/loading/*` activity modules return typed outcomes only and do not emit progress, check startup generations, or advance milestones; Phase 3 must not define milestone IDs or milestone advancement.
-- [ ] Confirm `djls-source` still has no readiness availability or partition precedence policy, and `djls-db` apply code does not know Django partition names.
+- [x] Confirm `crates/djls-project/src/loading/plan.rs`, the neutral loading driver, the execution/apply contract, and the observer/event-sink contract do not import LSP/server/CLI/database concrete types or activity modules. Evidence: `rg "tower_lsp_server|ls_types|DjangoDatabase|Session|CliLoadingExecutor|ProjectLoadingSnapshot|StartupRunInputs|Arc<Mutex<Session>>" crates/djls-project/src/loading crates/djls-project/src/layout.rs -g '*.rs'` returned no matches.
+- [x] Confirm `ProjectLoadingSnapshot` and `StartupRunInputs` are server-local, and `djls-project` activity code receives only node-specific request structs or plain domain values, never `ProjectLoadingSnapshot` or `Arc<Mutex<Session>>`. Evidence: same concrete-type search returned no matches in `djls-project`.
+- [x] Confirm CLI and LSP effect adapters use the same per-node request builders; adapters may differ in capture/apply/reporting but not request-construction policy. Evidence: both `crates/djls/src/loading.rs` and `crates/djls-server/src/startup.rs` use `build_source_roots`, `first_party_source_files_load_request`, `build_project_discovery_data`, and `ProjectDiscoveryLoadRequest`.
+- [x] Confirm the concrete `CliLoadingExecutor` lives in `crates/djls`, not `crates/djls-project`.
+- [x] Confirm `crates/djls-project/src/loading/*` activity modules return typed outcomes only and do not emit progress, check startup generations, or advance milestones; Phase 3 must not define milestone IDs or milestone advancement. Evidence: `rg "milestone|progress|generation" crates/djls-project/src/loading -g '*.rs'` shows only the generation-free source-inventory fixture test name.
+- [x] Confirm `djls-source` still has no readiness availability or partition precedence policy, and `djls-db` apply code does not know Django partition names. Evidence: `rg "availability|FileSetPartition" crates/djls-source crates/djls-db/src/db.rs -g '*.rs'` shows no `djls-source` readiness availability and only project source-file apply/materialization types in `djls-db`.
 
 ## Phase 4: Python source model and settings candidates
 

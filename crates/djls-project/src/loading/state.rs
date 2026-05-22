@@ -88,6 +88,12 @@ impl ReadyProjectSourceFiles {
         Self::new(partitions, merged)
     }
 
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn merged_for_test(merged: SourceFileSet) -> Self {
+        Self::new(ProjectFileSetPartitions::empty(), merged)
+    }
+
     #[must_use]
     pub fn merged(&self) -> SourceFileSet {
         self.merged
