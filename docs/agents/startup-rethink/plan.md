@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `urrpmlnp` contains the completed structured root settings load slice.
-- **Current slice**: structured root settings load completed; Phase 3C2 is next.
+- **Implementation change**: `ynmqxous` contains the completed discovery data/apply slice.
+- **Current slice**: discovery data/apply completed; Phase 3C3 is next.
 
 ### Implementation Notes
 
@@ -190,6 +190,23 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist clarified that client/default settings can override a successful root config without being recorded as fallback-after-error; this behavior is covered by test.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It noted ty preserves per-value provenance; this slice keeps root/effective-source provenance only, with per-value provenance deferred until a future diagnostic actually needs it.
 - Follow-ups/blockers: Phase 3C2 should lower this structured outcome into project-owned discovery facts without reverse-engineering `ConfigError` strings.
+
+### Discovery data and Project apply
+- Bookmark: `startup-rethink` still points to `urrpmlnp`; move it to `ynmqxous` after describing this verified slice.
+- Current change: `ynmqxous`.
+- Scope: added `ProjectDiscoveryLoadRequest`, `ProjectDiscoverySetData`, `RootDiscoveryData`, shared `build_project_discovery_data`, structured env-file load outcomes, typed config/env provenance lowering, project-owned environment seed lowering, canonical env-var construction after duplicate resolution, and `DjangoDatabase::apply_project_discovery_data` that mutates stable `Project.discovery` through setters.
+- Validation:
+  - `cargo test -p djls-project loading_settings` passed: 5 tests.
+  - `cargo test -p djls-project discovery_invalidation` passed: 1 test.
+  - `cargo test -p djls-db project_discovery` passed: 2 tests.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review and Rust specialist review found that failed empty discovery data could overwrite old facts; fixed by rejecting empty data without changing `Project.discovery`.
+  - Reviews found env-file failures and duplicate env vars were logging-only/implicit; added structured env-file outcomes, `EnvFileLoadFailed` / `DuplicateEnvVar` discovery issues, and deterministic last-wins duplicate resolution before constructing `ProjectEnvVars`.
+  - Rust specialist found repeated identical discovery data would allocate fresh `RootDiscoveryInput` handles and invalidate Salsa; apply now compares plain data against existing `RootDiscoveryInput` fields before allocating/setter calls.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. Carry-forward caution: future provenance should not participate in semantic equality when it would cause avoidable invalidation; keep resolved semantic values distinct from diagnostic provenance when that matters.
+- Follow-ups/blockers: Phase 3C3 should add the `project-discovery-set` loading node and wire both CLI/LSP adapters using the shared discovery data/apply seams.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1325,8 +1342,8 @@ Names may change, but the outcome must be derived from stable Project facts, not
 - [x] `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load` — 6 passed. Evidence: tests cover missing config without fallback issue, effective `djls.toml` source path, unrelated `pyproject.toml` not masking `djls.toml`, invalid `pyproject.toml` / `djls.toml` parse issues with source paths, and client overrides on successful root config without fallback-after-error.
 
 **Phase 3C2 gate**
-- [ ] Discovery data/helper tests preserve config-load failures/fallback provenance, distinguish missing config fallback from invalid config, lower `djls-conf` DTOs into project-owned environment seeds, treat interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing canonical `ProjectEnvVars`, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings`
-- [ ] Discovery apply tests update stable `Project.discovery` facts through setters, preserve old facts on failed reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation` or the rewritten equivalent.
+- [x] Discovery data/helper tests preserve config-load failures/fallback provenance, distinguish missing config fallback from invalid config, lower `djls-conf` DTOs into project-owned environment seeds, treat interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing canonical `ProjectEnvVars`, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings` — 5 passed. Evidence: tests cover config failure/fallback provenance, configured environment seed lowering, pythonpath lowering, env-file failure issues, duplicate env-var issues, and canonical env-var ordering.
+- [x] Discovery apply tests update stable `Project.discovery` facts through setters, preserve old facts on failed reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation` — 1 passed; `cargo test -p djls-db project_discovery` — 2 passed. Evidence: project-crate tracked probe invalidates on discovery change, database apply materializes `RootDiscoveryInput` handles and sets `Project.discovery`, repeated identical data avoids fresh setter invalidation by comparing plain data first, and empty failed discovery data preserves prior facts.
 
 **Phase 3C3 gate**
 - [ ] Two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, domain-outcome-to-terminal projection table behavior, prerequisite degraded successor behavior, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`

@@ -12,6 +12,12 @@ pub enum ProjectDiscovery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProjectDiscoveryApplyResult {
+    Applied(ProjectDiscovery),
+    Unavailable(ProjectDiscovery),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectDiscoverySet {
     roots: Vec<RootDiscoveryInput>,
 }
@@ -191,6 +197,11 @@ pub enum ProjectDiscoveryIssue {
         source: Utf8PathBuf,
         kind: EnvFileLoadIssueKind,
     },
+    DuplicateEnvVar {
+        root: Utf8PathBuf,
+        source: Utf8PathBuf,
+        name: String,
+    },
     NoWorkspaceRoots,
     FixtureDoesNotModelDiscovery,
 }
@@ -212,24 +223,62 @@ pub enum InterpreterDiscoveryIssueKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnvFileLoadIssueKind {
+    Missing,
     Io,
     Parse,
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::OnceLock;
+
+    use camino::Utf8Path;
     use camino::Utf8PathBuf;
+    use djls_source::SourceFiles;
 
     use super::*;
+    use crate::Db as ProjectDb;
+    use crate::Project;
 
     #[salsa::db]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
+        files: SourceFiles,
+        project: OnceLock<Project>,
+    }
+
+    impl TestDb {
+        fn new_with_project() -> Self {
+            let db = Self::default();
+            let project = Project::virtual_project(&db);
+            db.project
+                .set(project)
+                .expect("project should initialize once");
+            db
+        }
     }
 
     #[salsa::db]
     impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDb {
+        fn files(&self) -> &SourceFiles {
+            &self.files
+        }
+
+        fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
+            Ok(String::new())
+        }
+    }
+
+    #[salsa::db]
+    impl crate::Db for TestDb {
+        fn project(&self) -> Project {
+            *self.project.get().expect("project should be initialized")
+        }
+    }
 
     #[test]
     fn discovery_set_preserves_multiple_roots_without_primary_selection() {
@@ -321,6 +370,37 @@ mod tests {
         .expect_err("duplicate env var names should be resolved before construction");
 
         assert_eq!(duplicate.name(), "DJANGO_SETTINGS_MODULE");
+    }
+
+    #[salsa::tracked]
+    fn discovery_root_count(db: &dyn crate::Db) -> Option<usize> {
+        match db.project().discovery(db) {
+            ProjectDiscovery::Ready(discovery) => Some(discovery.roots().len()),
+            ProjectDiscovery::Absent | ProjectDiscovery::Unavailable { .. } => None,
+        }
+    }
+
+    #[test]
+    fn discovery_invalidation_tracks_stable_project_discovery_field() {
+        let mut db = TestDb::new_with_project();
+        assert_eq!(discovery_root_count(&db), None);
+
+        let root = RootDiscoveryInput::new(
+            &db,
+            Utf8PathBuf::from("/workspace"),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            ProjectEnvVars::default(),
+            Vec::new(),
+        );
+        let discovery = ProjectDiscovery::Ready(
+            ProjectDiscoverySet::new(vec![root]).expect("root should construct discovery set"),
+        );
+        db.set_project_discovery(discovery);
+
+        assert_eq!(discovery_root_count(&db), Some(1));
     }
 
     #[test]

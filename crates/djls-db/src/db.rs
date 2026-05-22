@@ -15,6 +15,10 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as LoadingDb;
 use djls_project::Project as ProjectFacts;
+use djls_project::ProjectDiscovery;
+use djls_project::ProjectDiscoveryApplyResult;
+use djls_project::ProjectDiscoverySet;
+use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::ProjectSourceFilesMaterializationPatch;
 use djls_project::ProjectSourceFilesUpdate;
@@ -143,6 +147,43 @@ impl DjangoDatabase {
         *self.project.lock().unwrap() = Some(project);
     }
 
+    pub fn apply_project_discovery_data(
+        &mut self,
+        data: ProjectDiscoverySetData,
+    ) -> ProjectDiscoveryApplyResult {
+        if data.roots().is_empty() {
+            let current = LoadingDb::project(self).discovery(self).clone();
+            return ProjectDiscoveryApplyResult::Unavailable(current);
+        }
+
+        let current = LoadingDb::project(self).discovery(self).clone();
+        if project_discovery_matches_data(self, &current, &data) {
+            return ProjectDiscoveryApplyResult::Applied(current);
+        }
+
+        let roots = data
+            .roots()
+            .iter()
+            .map(|root| {
+                djls_project::RootDiscoveryInput::new(
+                    self,
+                    root.root().clone(),
+                    root.interpreter().cloned(),
+                    root.settings_module_seed().cloned(),
+                    root.configured_environment_seeds().to_vec(),
+                    root.pythonpath().to_vec(),
+                    root.env_vars().clone(),
+                    root.issues().to_vec(),
+                )
+            })
+            .collect();
+        let set = ProjectDiscoverySet::new(roots)
+            .expect("non-empty discovery data should construct discovery set");
+        let discovery = ProjectDiscovery::Ready(set);
+        LoadingDb::set_project_discovery(self, discovery.clone());
+        ProjectDiscoveryApplyResult::Applied(discovery)
+    }
+
     pub fn apply_project_source_files(
         &mut self,
         update: ProjectSourceFilesUpdate,
@@ -260,6 +301,27 @@ impl DjangoDatabase {
     fn current_ready_project_source_files(&self) -> Option<ReadyProjectSourceFiles> {
         LoadingDb::project(self).source_inventory(self).ready()
     }
+}
+
+fn project_discovery_matches_data(
+    db: &dyn djls_project::Db,
+    discovery: &ProjectDiscovery,
+    data: &ProjectDiscoverySetData,
+) -> bool {
+    let ProjectDiscovery::Ready(discovery) = discovery else {
+        return false;
+    };
+    let roots = discovery.roots();
+    roots.len() == data.roots().len()
+        && roots.iter().zip(data.roots()).all(|(input, data)| {
+            input.root(db) == data.root()
+                && input.interpreter(db).as_ref() == data.interpreter()
+                && input.settings_module_seed(db).as_ref() == data.settings_module_seed()
+                && input.configured_environment_seeds(db) == data.configured_environment_seeds()
+                && input.pythonpath(db) == data.pythonpath()
+                && input.env_vars(db) == data.env_vars()
+                && input.issues(db) == data.issues()
+        })
 }
 
 fn materialization_issue_from_invariant_error(
@@ -525,6 +587,67 @@ mod source_file_set_tests {
             LoadingDb::project(&db).source_inventory(&db),
             ProjectSourceInventory::Unavailable { issue }
         );
+    }
+}
+
+#[cfg(test)]
+mod project_discovery_tests {
+    use camino::Utf8PathBuf;
+    use djls_project::Db as ProjectDb;
+    use djls_project::ProjectDiscovery;
+    use djls_project::ProjectDiscoveryApplyResult;
+    use djls_project::ProjectDiscoverySetData;
+    use djls_project::ProjectEnvVars;
+    use djls_project::RootDiscoveryData;
+
+    use super::DjangoDatabase;
+
+    fn root_data(path: &str) -> RootDiscoveryData {
+        RootDiscoveryData::new(
+            Utf8PathBuf::from(path),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            ProjectEnvVars::default(),
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn apply_project_discovery_data_sets_ready_project_fact() {
+        let mut db = DjangoDatabase::default();
+        let result =
+            db.apply_project_discovery_data(ProjectDiscoverySetData::new(vec![root_data(
+                "/workspace",
+            )]));
+
+        assert!(matches!(result, ProjectDiscoveryApplyResult::Applied(_)));
+        let ProjectDiscovery::Ready(discovery) = ProjectDb::project(&db).discovery(&db) else {
+            panic!("discovery should be ready");
+        };
+        assert_eq!(discovery.roots().len(), 1);
+        assert_eq!(
+            discovery.roots()[0].root(&db),
+            &Utf8PathBuf::from("/workspace")
+        );
+    }
+
+    #[test]
+    fn failed_project_discovery_apply_preserves_previous_ready_fact() {
+        let mut db = DjangoDatabase::default();
+        db.apply_project_discovery_data(ProjectDiscoverySetData::new(vec![root_data(
+            "/workspace",
+        )]));
+        let before = ProjectDb::project(&db).discovery(&db).clone();
+
+        let result = db.apply_project_discovery_data(ProjectDiscoverySetData::new(Vec::new()));
+
+        assert_eq!(
+            result,
+            ProjectDiscoveryApplyResult::Unavailable(before.clone())
+        );
+        assert_eq!(ProjectDb::project(&db).discovery(&db), &before);
     }
 }
 

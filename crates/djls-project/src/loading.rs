@@ -2,6 +2,7 @@ mod driver;
 mod effects;
 mod files;
 pub mod plan;
+mod settings;
 mod state;
 
 pub use driver::run_loading_plan;
@@ -41,6 +42,10 @@ pub use plan::NodeSpec;
 pub use plan::NodeTerminalStatus;
 pub use plan::ReadinessSourceKind;
 pub use plan::NODE_SPECS;
+pub use settings::build_project_discovery_data;
+pub use settings::ProjectDiscoveryLoadRequest;
+pub use settings::ProjectDiscoverySetData;
+pub use settings::RootDiscoveryData;
 pub use state::Project;
 pub use state::ProjectSourceFilesFixtureSurface;
 pub use state::ProjectSourceFilesIssue;
