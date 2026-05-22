@@ -62,7 +62,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - Background work computes outside the shared `Session` lock and applies only short generation-checked input updates.
 - An explicit `SourceFileSet` input records loaded files and roots. Project queries enumerate that input instead of walking the filesystem or reading `SourceFiles` side tables.
 - A new `djls-project` crate owns static Django Discovery: project layout indexing, Python source models, module resolution, settings candidates, Django Environment candidates, effective settings, installed apps, template inventory, Python module inventory, and enrichment merge policy.
-- Existing IDE features consume `djls-project` queries directly. The old fat `Project` fact bag is removed from the semantic API.
+- Existing IDE features consume `djls-project` queries directly. Collection-heavy tracked queries use Salsa-friendly return shapes (`#[salsa::tracked(returns(ref))]` where appropriate, or small handle inputs) so readiness probes and request paths do not clone large vectors/maps unnecessarily. The old fat `Project` fact bag is removed from the semantic API.
 - Runtime Project Introspection contributes enrichment hints only. Python/Django failure leaves static readiness intact and visible as degraded enrichment.
 - `djls check` and LSP share the same project model and static loading graph. The CLI runs the graph synchronously; LSP runs it through the startup controller with generation guards and progress reporting.
 
@@ -75,6 +75,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - **Add minimal enrichment state early.** Phase 3 creates `ProjectEnrichmentState::NotStarted` so the `djls-project::Db` shape is stable without nesting availability and status. Phase 9 expands the same state enum with runtime/deep enrichment data.
 - **Runtime introspection is an enrichment provider, not semantic analysis.** Phase 9 keeps stable enrichment domain types, drafts, state, issues, and merge policy in `djls-project`. Inspector subprocess invocation, JSON DTOs, zipapp packaging/embedding, cache I/O, freshness policy, and provider fallback behavior remain infrastructure owned by `djls-db`/server-side provider code. Only translated `ProjectEnrichmentDraft` values and typed issues cross into `djls-project`; `djls-semantic` consumes merged facts only.
 - **No generic `Fact<T>` in `djls-project`.** Keep domain objects primary and model uncertainty in domain-specific result enums or partial settings values.
+- **Lean into Rust for startup invariants.** Prefer ADTs, newtypes, private fields, sealed constructors, and typed apply seams over comments plus validation. `Ready` states should contain only ready/materialized values. Ambiguity states should use `AtLeastTwo<T>` or an equivalent private-constructor type, not raw `Vec<T>`. Unknown/not-found states that drive degradation or reporting should carry a `NonEmpty<T>` issue/evidence set. Stringly inputs such as Python module names, template names, environment names, settings-module seeds, document versions, and partition precedence should be parsed into domain types at the boundary.
 
 ## What We're Not Doing
 - Not eagerly validating every template at startup.
@@ -209,14 +210,14 @@ LSP executor outcomes are not readiness inputs. They gate whether an observed or
 | Transition | Required checks | Stale/current-generation failure outcome | Notes |
 |---|---|---|---|
 | Guarded reset | Check generation before applying the central reset intent. | `StartupRunOutcome::Superseded` | No activity starts after a superseded reset. |
-| Guarded apply | Check generation before applying; validate captured open-document versions before writing facts derived from captured text. | `ApplyOutcome::Superseded` for generation mismatch; `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument }` for stale text. | `Superseded` is only for generation supersession. Stale document text is its own rejection reason. |
+| Guarded apply | Check generation before applying; validate captured open-document versions before writing facts derived from captured text. | `ApplyOutcome::Superseded` for generation mismatch; `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { file, path, captured, current } }` for stale text. | `Superseded` is only for generation supersession. Stale document text is its own rejection reason with evidence. |
 | Guarded live-query observation | Check generation before live observation, after live observation, and before emitting node events or advancing milestones. | `ObservationOutcome::Superseded` | Query-only nodes such as `python-source-models` and `environment-discovery` must not report gen1 success from gen2 facts. |
 | Progress or milestone emission | Check the run is still current immediately before reporting. | Finish the old run once as `StartupRunOutcome::Superseded`; do not emit current-success events. | Reporting is also guarded, not just database mutation. |
 | Stale-document rejection | Do not apply facts derived from older open-buffer text. | Restart the affected node once from a fresh snapshot; if it repeats, mark the node `Deferred` with a typed stale-document issue and finish the run coherently. | Do not conflate this with generation supersession. |
 
 ### Open-buffer event policy
 
-Background loading must not regress Project Facts or diagnostics to older open-buffer text. `ProjectLoadingSnapshot` captures opened documents with stable document identity and version/epoch data, not live buffer handles. `didOpen`, `didChange`, and `didClose` update the live `File::source(db)` state and advance an open-document epoch before request handling observes the file. Loading activities should avoid carrying source text across async boundaries; when they must use captured source text, guarded apply/reporting must verify that the captured document versions still match the live open-document table. A stale document snapshot produces `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument }` and follows the stale-document rejection policy above instead of applying facts from older text.
+Background loading must not regress Project Facts or diagnostics to older open-buffer text. `ProjectLoadingSnapshot` captures opened documents with stable document identity and version/epoch data, not live buffer handles. `didOpen`, `didChange`, and `didClose` update the live `File::source(db)` state and advance an open-document epoch before request handling observes the file. Loading activities should avoid carrying source text across async boundaries; when they must use captured source text, guarded apply/reporting must verify that the captured document versions still match the live open-document table. A stale document snapshot produces `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { file, path, captured, current } }` and follows the stale-document rejection policy above instead of applying facts from older text.
 
 ## Temporary Bridge Deletion Gates
 - Do not add a temporary Phase 2 startup scheduler or server-owned Django file policy.
@@ -562,7 +563,7 @@ Treat Phase 3 as separate execution PR slices, not one workbench batch. These sl
 - Implement this section as three hard gates:
   - **3A2a loading-state shell**: `Db`, `ProjectLoadingState`, source-file availability enum, minimal concrete discovery/enrichment placeholder availability types, fixture DB impls, and reset intent shape only.
   - **3A2b first-party source apply seam**: project-owned root construction, first-party file policy, `SourceFilesLoadRequest`, a first-party partition snapshot, per-partition readiness, incremental materialization patch data, and opaque update constructors. Defer multi-partition conflict, precedence, and lower-precedence resurrection behavior that cannot be tested with a real second partition until Phase 6B.
-  - **3A2c database materialization/finalize**: policy-free `djls-db` materialization, changed-path `File` handle preservation, project-owned finalization into `ProjectSourceFilesAvailability::Ready(ProjectSourceFiles)`, `ProjectSourceFilesApplied` return, and invalidation tests only.
+  - **3A2c database materialization/finalize**: policy-free `djls-db` materialization, changed-path `File` handle preservation, project-owned finalization into `ProjectSourceFilesAvailability::Ready(ReadyProjectSourceFiles)`, `ProjectSourceFilesApplyResult`/`ProjectSourceFilesApplied` return, terminal failure/deferred availability transitions, and invalidation tests only.
 - Define `#[salsa::db] pub trait Db: djls_source::Db` and add `fn project_loading_state(&self) -> ProjectLoadingState` as the single Salsa-visible readiness handle for project loading.
 - Define `#[salsa::input] ProjectLoadingState` with `source_files`, `discovery`, and `enrichment` fields. In 3A2, source-files must be real and the discovery/enrichment fields must use concrete minimal placeholder types, not untyped placeholders: `ProjectDiscoveryAvailability::Unavailable { issue }` and `ProjectEnrichmentState::NotStarted` / `Unavailable { issue }`. Phase 3B expands discovery to the full enum, including `Loading`, `Ready(ProjectDiscoverySet)`, and `Stale { previous }`, once `ProjectDiscoverySet` exists. Do not add an independent project loading generation.
 - Add convenience accessors such as `project_source_files(db)`, `project_discovery(db)`, and `project_enrichment(db)` only if they read fields from `ProjectLoadingState`. Do not implement tracked queries by reading mutex-backed availability values.
@@ -570,22 +571,22 @@ Treat Phase 3 as separate execution PR slices, not one workbench batch. These sl
 - Add the first-party discovery predicate and high-cost exclude policy in `djls-project`, not in `djls-server` or `djls-workspace`.
 - Define a node-specific `SourceFilesLoadRequest` for first-party project file loading. It should contain source roots and the neutral workspace-loader options/predicate inputs needed by `djls-project`; it must not contain `ProjectLoadingSnapshot`, `Arc<Mutex<Session>>`, LSP types, progress handles, or generation guards.
 - Expose a small `first_party_discovery_files_request(roots) -> FilesForRootsRequest` helper or equivalent typed request builder that lowers `SourceFilesLoadRequest` into the neutral `djls-workspace` loader request.
-- Define `ProjectSourceFilesAvailability` in `djls-project::loading`, not in `djls-source`. It distinguishes `Loading`, `Ready(ProjectSourceFiles)`, `Unavailable { issue }`, and `Stale { previous }` without carrying an independent generation.
-- Define one durable project-owned source-file state object, `ProjectSourceFiles`. Implementation note: model this as an ADT with a discovered partition-state variant and a materialized variant rather than one struct carrying every projection at once. The partition state remains the canonical discovered/source-ownership representation, the materialized variant adds the merged `SourceFileSet`, and handle-free merged discovered data stays an ephemeral derived value for patch comparison. This is the single durable representation of the current project source files; all handle-free merge/update shapes are ephemeral inputs to the reset/apply seam.
+- Define `ProjectSourceFilesAvailability` in `djls-project::loading`, not in `djls-source`. It distinguishes `Loading`, `Ready(ReadyProjectSourceFiles)`, terminal `Deferred`/`Unavailable`/`Failed` states with typed issues and optional previous ready files, and `Stale { previous }` without carrying an independent generation. `Ready` and `Stale.previous` must carry only materialized ready source files; discovered-only state is internal to the merge/materialization seam and must not be query-visible as ready.
+- Define one durable query-visible project source-file state object, `ReadyProjectSourceFiles`. It privately owns the current partition state plus the materialized merged `SourceFileSet`, and its public `merged()` accessor returns `SourceFileSet` directly, not `Option<SourceFileSet>`. Implementation note: keep the discovered/materialized ADT internal to merge/update/finalization if useful, but do not expose a discovered-only variant through `ProjectSourceFilesAvailability::Ready`. The partition state remains the canonical discovered/source-ownership representation, and handle-free merged discovered data stays an ephemeral derived value for patch comparison.
 - Define internal partition state such as `ProjectFileSetPartitions` inside those project source files. In 3A2 it needs to store the first-party partition snapshot plus its domain readiness and enough structure for later patch merges and file-loading node/partition terminal projection. Multi-partition precedence decisions, conflict checks, and lower-precedence resurrection are introduced with their first real second partition in Phase 6B.
 - Keep partition snapshots, partition readiness/status values, full merged snapshot data, incremental materialization patch data, and `ProjectSourceFilesUpdate` constructor-controlled with private fields. Treat these as internal implementation shapes for the merge/apply seam, not public consumer APIs. Tests may use fixture builders, but production code must obtain updates through the project-owned merge seam rather than assembling partition state, merged data, diffs, and readiness snapshots independently.
 - Define partition identity in `djls-project::loading::files` with a typed `FileSetPartitionId` enum/newtype, not string IDs. In 3A2 only `FirstParty` is active. Add the documented precedence scale, conflict detection, and lower-precedence resurrection in Phase 6B when configured-template-directory and installed-app partitions exist and can test the behavior against real callers.
 - Define a full handle-free merged data shape such as `MergedDiscoveredSourceFileSetData` only for project-owned comparison, full-reset/config-restart cases, and tests. It contains merged roots/files as `DiscoveredSourceFile` values, not `LoadedSourceFile` values and not `File` handles. Do not make this full snapshot the normal database handoff for every partition update.
 - Define an incremental materialization patch shape, for example `ProjectSourceFilesMaterializationPatch`, containing changed roots, upserted discovered files, removed paths/files, and the updated summary needed to keep the materialized `SourceFileSet` coherent.
 - Define one project-owned merge seam, for example `merge_partition_patch(current, patch) -> ProjectSourceFilesUpdate`. In 3A2 this API updates the first-party partition readiness, diffs the previous merged view against the new merged view, maps neutral traversal/root evidence into `ProjectSourceFilesIssue`, and derives the incremental materialization patch. Phase 6B extends the same seam with multi-partition precedence, conflict detection, and lower-precedence resurrection. Full merged snapshots remain available inside the seam for reset/tests, but the steady-state handoff is the patch.
-- Define `ProjectSourceFilesUpdate` as the only project-owned handoff aggregate between project-loading policy and database materialization. It contains the updated private `ProjectFileSetPartitions`, the incremental materialization patch, the applied partition/node transition for the file-loading row that produced the update, and any typed merge issues/warnings needed by executors for reporting. `djls-db` may consume only the materialization patch through public accessors; it must not inspect partitions, precedence, conflicts, or `ProjectSourceFiles` internals.
-- Expose only the small source-file loading surface needed outside the merge/apply seam: current query snapshot, `ProjectSourceFilesApplied`/applied node transition for `node_status_from_readiness`, a narrow partition/root readiness projection, and typed issues for reporting. A snapshot may carry partition state privately so later merges have one durable owner, but public consumers should see the merged `SourceFileSet` plus readiness predicates such as whether a required template directory/root is loaded, deferred, unavailable, or stale. Do not expose `ProjectFileSetPartitions`, partition snapshots, merged discovered data, materialization patch internals, or update internals as general APIs outside `djls-project::loading::files` and the `djls-db` apply boundary.
-- Add a source-file coherence invariant: partition snapshots, the project-owned merged view, the incremental materialization patch, the materialized `SourceFileSet`, preserved `File` handles, and `ProjectLoadingState.source_files = ProjectSourceFilesAvailability::Ready(files)` must describe the same `ProjectSourceFiles` after apply. No executor, fixture, or helper may update only one side of those source files.
-- `DjangoDatabase` must not merge patches, construct `ProjectSourceFiles`, or know partition policy. It should expose a policy-free materialization method that accepts only the incremental materialization patch, materializes changed roots/files/deletions where possible, preserves existing `File` handles for unchanged paths, compares before setters, stores/updates the neutral `SourceFileSet` input, and returns a materialization result such as `SourceFileSetMaterialized { source_file_set, handle_changes, issues }`. `DjangoDatabase` must not know Django partition names, precedence values, conflict policy, resurrection rules, or private `ProjectFileSetPartitions` fields.
-- Add a project-owned finalize/constructor API, for example `finalize_project_source_files(update, materialized) -> ProjectSourceFilesApplied`. It combines the private partition state from `ProjectSourceFilesUpdate` with the materialized `SourceFileSet`, maps any `SourceFileMaterializationIssue` into project-owned typed issues, constructs `ProjectSourceFiles`, sets `ProjectLoadingState.source_files` to `ProjectSourceFilesAvailability::Ready(files)`, and returns `ProjectSourceFilesApplied` with the files and applied partition/node transition. The neutral driver consumes that applied value for `node_status_from_readiness`; callers must not reconstruct status from side state.
-- Wrap database materialization plus project finalization in one shared apply operation for executors, for example `apply_project_source_files(db, update) -> ProjectSourceFilesApplied`. The CLI adapter calls it directly; the LSP adapter calls the same operation through `GenerationGuard`. Neither adapter should sequence merge, database materialization, finalization, or status projection itself.
+- Define `ProjectSourceFilesUpdate` as the only project-owned handoff aggregate between project-loading policy and database materialization. It contains the updated private `ProjectFileSetPartitions`, the incremental materialization patch, the applied partition/node transition for the file-loading row that produced the update, and any typed merge issues/warnings needed by executors for reporting. `djls-db` may consume only the materialization patch through public accessors; it must not inspect partitions, precedence, conflicts, or `ReadyProjectSourceFiles` internals.
+- Expose only the small source-file loading surface needed outside the merge/apply seam: current ready query snapshot, `ProjectSourceFilesApplied`/applied node transition for `node_status_from_readiness`, a narrow partition/root readiness projection, and typed issues for reporting. A ready snapshot may carry partition state privately so later merges have one durable owner, but public consumers should see the merged `SourceFileSet` plus readiness predicates such as whether a required template directory/root is loaded, deferred, unavailable, or stale. Do not expose `ProjectFileSetPartitions`, partition snapshots, merged discovered data, materialization patch internals, update internals, or discovered-only source-file state as general APIs outside `djls-project::loading::files` and the `djls-db` apply boundary.
+- Add a source-file coherence invariant: partition snapshots, the project-owned merged view, the incremental materialization patch, the materialized `SourceFileSet`, preserved `File` handles, and `ProjectLoadingState.source_files = ProjectSourceFilesAvailability::Ready(files)` must describe the same `ReadyProjectSourceFiles` after apply. No executor, fixture, or helper may update only one side of those source files.
+- `DjangoDatabase` must not merge patches, construct `ReadyProjectSourceFiles`, or know partition policy. It should expose a policy-free materialization method that accepts only the incremental materialization patch, materializes changed roots/files/deletions where possible, preserves existing `File` handles for unchanged paths, compares before setters, stores/updates the neutral `SourceFileSet` input, and returns a materialization result such as `SourceFileSetMaterialized { source_file_set, handle_changes, issues }`. `DjangoDatabase` must not know Django partition names, precedence values, conflict policy, resurrection rules, or private `ProjectFileSetPartitions` fields.
+- Add a project-owned finalize/constructor API, for example `finalize_project_source_files(update, materialized) -> ProjectSourceFilesApplyResult`. It combines the private partition state from `ProjectSourceFilesUpdate` with the materialized `SourceFileSet`, maps any `SourceFileMaterializationIssue` into project-owned typed issues, constructs `ReadyProjectSourceFiles`, sets `ProjectLoadingState.source_files` to `ProjectSourceFilesAvailability::Ready(files)` for success or to a terminal `Deferred`/`Unavailable`/`Failed` state for materialization/apply failure, and returns `ProjectSourceFilesApplied` with the files and applied partition/node transition for the success case. The neutral driver consumes that applied value for `node_status_from_readiness`; callers must not reconstruct status from side state.
+- Wrap database materialization plus project finalization in one shared apply operation for executors, for example `apply_project_source_files(db, update) -> ProjectSourceFilesApplyResult`. This is the only public apply seam for source-file updates. The CLI adapter calls it directly; the LSP adapter calls the same operation through `GenerationGuard`. Neither adapter should sequence merge, database materialization, finalization, loading-state mutation, or status projection itself.
 - Store aggregate project source readiness in the Salsa-visible `ProjectLoadingState` field exposed by `djls_project::Db`, not in `djls_source::Db` or mutex-only side state. Keep file-loading node readiness as applied partition/node readiness carried in `ProjectFileSetPartitions`/`ProjectSourceFilesUpdate`; do not mirror executor-local task state into `ProjectLoadingState`.
-- Define a neutral `ProjectLoadingReset` or `begin_project_loading_run` apply intent that updates `ProjectLoadingState.source_files` to `ProjectSourceFilesAvailability::Loading` or `ProjectSourceFilesAvailability::Stale { previous }` before any task output applies. Do not require `GenerationGuard` in 3A2; the CLI wires this intent directly in 3A3 and the LSP wires it through `GenerationGuard` in 3A4.
+- Define a neutral `ProjectLoadingReset` or `begin_project_loading_run` apply intent that updates `ProjectLoadingState.source_files` to `ProjectSourceFilesAvailability::Loading` or `ProjectSourceFilesAvailability::Stale { previous }` before any task output applies. Do not require `GenerationGuard` in 3A2; the CLI wires this intent directly in 3A3 and the LSP wires it through `GenerationGuard` in 3A4. `begin_project_loading_run` and `apply_project_source_files` are the only production write APIs for `ProjectLoadingState.source_files`; add a cleanup gate that searches for direct generated Salsa setter use and allows it only inside the project-owned reset/apply module and narrowly scoped test fixtures.
 - Test/fixture databases that do not model project source files should create a `ProjectLoadingState` initialized with a generation-free `Unavailable` state and typed fixture issue.
 - Implement `djls_project::Db` for `DjangoDatabase`, `djls-bench::Db`, and semantic test databases.
 - After this subphase, neither `djls-server`, `djls-db`, nor `djls-source` owns Django file-selection policy, partition IDs, partition precedence, or readiness state.
@@ -596,23 +597,29 @@ These are internal seam shapes unless the bullets above explicitly name them as 
 ```rust
 pub enum ProjectSourceFilesAvailability {
     Loading,
-    Ready(ProjectSourceFiles),
-    Unavailable { issue: ProjectSourceFilesIssue },
-    Stale { previous: ProjectSourceFiles },
+    Ready(ReadyProjectSourceFiles),
+    Deferred { issue: ProjectSourceFilesIssue, previous: Option<ReadyProjectSourceFiles> },
+    Unavailable { issue: ProjectSourceFilesIssue, previous: Option<ReadyProjectSourceFiles> },
+    Failed { issue: ProjectSourceFilesIssue, previous: Option<ReadyProjectSourceFiles> },
+    Stale { previous: ReadyProjectSourceFiles },
 }
 
-pub enum ProjectSourceFiles {
-    Discovered(ProjectSourceFilesDiscovered),
-    Materialized(ProjectSourceFilesMaterialized),
-}
-
-pub struct ProjectSourceFilesDiscovered {
-    partitions: ProjectFileSetPartitions,
-}
-
-pub struct ProjectSourceFilesMaterialized {
+pub struct ReadyProjectSourceFiles {
     partitions: ProjectFileSetPartitions,
     merged: SourceFileSet,
+}
+
+impl ReadyProjectSourceFiles {
+    pub fn merged(&self) -> SourceFileSet;
+}
+
+pub(crate) enum ProjectSourceFilesBuildState {
+    Discovered(ProjectSourceFilesDiscovered),
+    Materialized(ReadyProjectSourceFiles),
+}
+
+pub(crate) struct ProjectSourceFilesDiscovered {
+    partitions: ProjectFileSetPartitions,
 }
 
 pub struct ProjectFileSetPartitions {
@@ -638,13 +645,18 @@ pub enum ProjectFilePartitionReadiness {
 
 pub enum FileSetPartitionId {
     FirstParty,
-    ConfiguredTemplateDirectory(SourceRootId),
-    InstalledApp(SourceRootId),
+    // Phase 6B adds configured-template-directory and installed-app variants with their real identity payloads.
+}
+
+pub struct PartitionPrecedence(u16);
+
+impl PartitionPrecedence {
+    pub const FIRST_PARTY: Self = Self(100);
 }
 
 pub struct FileSetPartition {
     id: FileSetPartitionId,
-    precedence: u16,
+    precedence: PartitionPrecedence,
 }
 
 pub enum ProjectSourceFilesIssue {
@@ -713,8 +725,15 @@ pub struct SourceFileHandleChanges {
     removed: usize,
 }
 
+pub enum ProjectSourceFilesApplyResult {
+    Applied(ProjectSourceFilesApplied),
+    Deferred { transition: ProjectFileLoadingTransition, issue: ProjectSourceFilesIssue, previous: Option<ReadyProjectSourceFiles> },
+    Unavailable { transition: ProjectFileLoadingTransition, issue: ProjectSourceFilesIssue, previous: Option<ReadyProjectSourceFiles> },
+    Failed { transition: ProjectFileLoadingTransition, issue: ProjectSourceFilesIssue, previous: Option<ReadyProjectSourceFiles> },
+}
+
 pub struct ProjectSourceFilesApplied {
-    files: ProjectSourceFiles,
+    files: ReadyProjectSourceFiles,
     transition: ProjectFileLoadingTransition,
     issues: Vec<ProjectSourceFilesIssue>,
 }
@@ -724,7 +743,8 @@ pub struct ProjectSourceFilesApplied {
 - **3A2a gate**: stop after the `ProjectLoadingState` shell and fixture DB impls compile with generation-free source unavailable states: `cargo test -p djls-project loading_state`.
 - **3A2b gate**: stop after root-construction, first-party discovery file-policy, and first-party apply-seam tests pass in the project crate, including private-constructor enforcement, `ProjectSourceFilesIssue` construction for missing/duplicate/walk cases, partition readiness/status construction through the merge seam, overlapping-root longest-prefix ownership/deduplication, and root removal by `SourceRootId`: `cargo test -p djls-project files`. Conflict detection and lower-precedence resurrection tests land in Phase 6B with the first real non-first-party partitions.
 - **3A2c gate**: stop after database source-file materialization tests preserve `File` handles for unchanged paths, materialize only changed roots/files/deletions from `ProjectSourceFilesMaterializationPatch` where possible, return `SourceFileSetMaterialized`, and stay partition-policy-free: `cargo test -p djls-db source_file_set`.
-- **3A2c gate**: stop after round-trip coherence tests prove partitions -> project-owned merged view -> materialization patch -> `SourceFileSetMaterialized` -> project-owned finalization -> `ProjectLoadingState.source_files = ProjectSourceFilesAvailability::Ready(files)` -> `ProjectSourceFilesApplied.files` stay coherent across an apply and config restart, while preserving unchanged `File` handles and preserving the applied partition/node transition separately from aggregate source-file readiness: `cargo test -p djls-db source_file_set_roundtrip` or the equivalent `source_file_set` test module.
+- **3A2c gate**: stop after round-trip coherence tests prove partitions -> project-owned merged view -> materialization patch -> `SourceFileSetMaterialized` -> project-owned finalization -> `ProjectLoadingState.source_files = ProjectSourceFilesAvailability::Ready(ReadyProjectSourceFiles)` -> `ProjectSourceFilesApplied.files` stay coherent across an apply and config restart, while preserving unchanged `File` handles and preserving the applied partition/node transition separately from aggregate source-file readiness: `cargo test -p djls-db source_file_set_roundtrip` or the equivalent `source_file_set` test module.
+- **3A2c gate**: stop after terminal transition tests prove activity/materialization/apply failures do not leave `ProjectLoadingState.source_files` stuck in `Loading`/`Stale`; they must produce query-visible `Deferred`, `Unavailable`, or `Failed` availability with typed issue and previous ready files when available.
 - **3A2c gate**: stop after Salsa invalidation tests prove `ProjectLoadingState.source_files` transitions from `Loading`/`Unavailable` to `Ready` invalidate a minimal tracked probe query: `cargo test -p djls-project loading_state_invalidation`.
 
 #### Phase 3A3: Run the source-file node through the CLI executor
@@ -742,11 +762,11 @@ pub struct ProjectSourceFilesApplied {
 - Add a minimal neutral loading runner in `djls-project`, for example `run_loading_plan(plan, effects, observer)`. In Phase 3A3 it should be a boring one-node runner for `NodeId::SourceFileSet`: run reset, run the source-file activity, call one node-level apply intent for the resulting patch, call `node_status_from_readiness` on the applied value, emit observer events, and stop. It must not introduce registry/plugin machinery, dynamic node factories, generic schedulers, node traits, or milestone APIs for a one-node plan.
 - When `project-discovery-set` lands in Phase 3C, add a two-node driver test before expanding any driver abstractions. The second node should prove the existing runner shape and justify any generalization; do not retrofit untested generic machinery.
 - The driver must not import CLI, server, LSP, database concrete types, or formatting/reporting policy.
-- Add a narrow execution/apply contract in `djls-project::loading` using neutral node IDs, domain outcomes, and apply intents. In Phase 3A3 this contract can be source-file-specific rather than a generic node framework. Expose one file-node apply intent such as `apply_source_file_patch(patch) -> ProjectSourceFilesApplied`; inside the concrete adapter this may perform project merge, policy-free DB materialization, and project finalization, but callers and later file-loading nodes must not reimplement that choreography. `djls-project` defines the contract and event/outcome types only; the server and CLI crates implement concrete activity execution and guarded/direct apply behavior.
+- Add a narrow execution/apply contract in `djls-project::loading` using neutral node IDs, domain outcomes, and apply intents. In Phase 3A3 this contract can be source-file-specific rather than a generic node framework. Expose one file-node apply intent such as `apply_source_file_patch(patch) -> ProjectSourceFilesApplyResult`; the concrete effect adapter may choose direct vs guarded invocation, but the one apply intent must own merge, policy-free DB materialization, project finalization, loading-state mutation, and status evidence. Callers and later file-loading nodes must not reimplement that choreography. `djls-project` defines the contract and event/outcome types only; the server and CLI crates implement concrete activity execution and guarded/direct apply behavior.
 - Add a separate neutral observer/event-sink contract for stable node events. LSP and CLI adapters translate those events into progress/logs or terminal diagnostics respectively. Do not put progress/log emission or terminal formatting methods on the execution/apply contract.
 - Compose the first active plan with the `source-file-set` node only. Add the `project-discovery-set` node in Phase 3C when the discovery activity exists. Do not predeclare future nodes.
 - The `source-file-set` activity takes `SourceFilesLoadRequest` and returns a project-owned `PartitionedSourceFilePatch` for the first-party partition. It does not materialize `File` handles and does not apply database setters.
-- The concrete `CliLoadingExecutor` lives in `crates/djls`, implements the neutral effect contract, and is invoked by `djls check`. It runs the direct reset intent, lets the neutral runner execute the `source-file-set` node, implements the node-level `apply_source_file_patch` intent with direct database mutation, returns `ProjectSourceFilesApplied` to the neutral runner for `node_status_from_readiness`, and reports terminal diagnostics/warnings. The CLI adapter may call merge/materialize/finalize helpers internally, but that sequence must remain behind the one apply intent.
+- The concrete `CliLoadingExecutor` lives in `crates/djls`, implements the neutral effect contract, and is invoked by `djls check`. It runs the direct reset intent, lets the neutral runner execute the `source-file-set` node, implements the node-level `apply_source_file_patch` intent with direct database mutation through the single shared apply seam, returns `ProjectSourceFilesApplyResult` to the neutral runner for terminal projection, and reports terminal diagnostics/warnings. The CLI adapter must not call merge/materialize/finalize helpers directly outside that one apply intent.
 - Have `djls check` use the same Phase 3 loading plan through the CLI effect adapter for the nodes that exist in this phase. Phase 10 may broaden CLI feature parity, but it must not be the first time the CLI exercises the graph.
 - Every later phase that adds a real static graph node must update the loading-node table, add executor-neutral driver/plan tests, and add both LSP and CLI effect-adapter tests for that node in the same phase.
 - Shared loading activities return typed outcomes only; they must not import LSP types, wrap outputs in `StartupUpdate`, emit progress, check startup generations, or advance readiness milestones.
@@ -774,13 +794,13 @@ pub struct ProjectSourceFilesApplied {
   - `StartupRunInputs` is the LSP-owned wrapper captured under the same short lock. It contains `ProjectLoadingSnapshot`, the `StartupGeneration`/`GenerationGuard`, progress/log adapters, and any runtime policy needed by the LSP effect adapter.
   - Before calling `djls-project`, the LSP effect adapter lowers the server-local snapshot through shared per-node request builders such as `source_files_load_request(...)`, `project_discovery_load_request(...)`, `python_source_probe_request(...)`, or `environment_discovery_probe_request(...)`. The CLI effect adapter calls the same builders from CLI inputs and its database/read context. Adapters may differ in capture, apply, and reporting; they must not duplicate request-construction policy.
   - Those request structs contain only roots, client/default settings, structured config data, immutable source snapshots with document version/epoch data or current `File` source state, and source/file abstractions owned by `djls-source`, `djls-workspace`, `djls-conf`, or `djls-project`. They must not contain `Arc<Mutex<Session>>`, LSP types, live overlay handles, mutable buffer access, open-buffer storage internals, progress handles, or generation guards.
-  - `didOpen`, `didChange`, and `didClose` update the live `File::source(db)` state and advance an open-document epoch before request handling observes the file. A loading apply/report path that used captured open-buffer text must compare captured versions against the live document table; stale captures return `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument }` and follow the stale-document rejection policy instead of applying facts from older text.
+  - `didOpen`, `didChange`, and `didClose` update the live `File::source(db)` state and advance an open-document epoch before request handling observes the file. A loading apply/report path that used captured open-buffer text must compare captured versions against the live document table; stale captures return `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }` with file/path/captured/current evidence and follow the stale-document rejection policy instead of applying facts from older text.
   - Prefer request structs that carry paths and `File` identities over copied source text. When an activity can read source through `File::source(db)` at query time, it must use that path so open-buffer text participates through Salsa-visible file state rather than live LSP overlay handles.
   - `djls-project` activities receive node-specific request structs or plain domain values only. They must never receive `ProjectLoadingSnapshot` or `Arc<Mutex<Session>>`.
   - A cloned `DjangoDatabase` may be used for report-only validation or speculative measurement when the clone captures the relevant Salsa inputs and `File` source state. Clone-only results must not advance node terminal status, milestones, or user-facing "ready" progress. Readiness-advancing observation nodes must observe the table's readiness source on the live database under the appropriate short-lock/read boundary. All mutation still returns typed apply intents and is applied to the live database under a short lock.
 - Introduce `LspLoadingExecutor` in `djls-server`, backed by `StartupController`, `StartupGeneration`, `GenerationGuard`, `StartupRunInputs`, and `StartupProgress`. It implements the neutral loading execution/apply contract and observer/event sink, then calls `djls_project::loading::run_loading_plan`; it must not duplicate graph-order or terminal-policy logic from the driver.
 - Move work-done progress capability parsing here: add `work_done_progress: bool` to `ClientCapabilities`, parse `window.workDoneProgress`, expose `ClientInfo::work_done_progress`, and test explicit true/false/missing cases.
-- Define typed run outcomes. `GenerationGuard::apply` must return `ApplyOutcome`, not `bool`; superseded reset/apply intents must propagate to the run outcome. Stale document text must use a rejected apply outcome, not `Superseded`. Do not call executor rejection Project Facts `Stale`.
+- Define typed run outcomes. `GenerationGuard::apply` must return `ApplyOutcome<T>`, not `bool`; `Applied` carries the applied value needed for downstream status projection. Superseded reset/apply intents must propagate to the run outcome. Stale document text must use a rejected apply outcome with evidence, not `Superseded`. Do not call executor rejection Project Facts `Stale`.
 - Centralize progress finishing: `run_startup` calls an inner runner that returns `StartupRunOutcome`, then calls exactly one `progress.finish(outcome)` path for `Succeeded`, `Failed`, or `Superseded`. Do not leave success/failure/superseded finish behavior to comments or caller discipline.
 - Add `StartupProgress` methods for real node events: create token if supported, begin before the first task event, report task events, and finish exactly once from the typed run outcome. Do not add milestone reporting in Phase 3.
 - Before spawning node work, the LSP executor applies the Phase 3A2 project-loading reset intent through `GenerationGuard`. A superseded guarded reset must return `StartupRunOutcome::Superseded` before activity work starts.
@@ -793,14 +813,19 @@ pub struct ProjectSourceFilesApplied {
 
 **Code shape**:
 ```rust
-pub enum ApplyOutcome {
-    Applied,
+pub enum ApplyOutcome<T> {
+    Applied(T),
     Superseded,
     Rejected { reason: ApplyRejection },
 }
 
 pub enum ApplyRejection {
-    StaleDocument,
+    StaleDocument {
+        file: File,
+        path: Utf8PathBuf,
+        captured: DocumentVersion,
+        current: DocumentVersion,
+    },
 }
 
 pub enum ObservationOutcome<T> {
@@ -818,10 +843,10 @@ impl GenerationGuard {
     pub(crate) async fn apply(
         &self,
         session: &Arc<Mutex<Session>>,
-        apply: impl FnOnce(&mut Session),
-    ) -> ApplyOutcome {
+        apply: impl FnOnce(&mut Session) -> Result<T, ApplyRejection>,
+    ) -> ApplyOutcome<T> {
         // generation mismatch returns ApplyOutcome::Superseded;
-        // stale captured document text returns ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument }
+        // stale captured document text returns ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }
     }
 }
 
@@ -834,7 +859,7 @@ async fn run_startup(...) -> StartupRunOutcome {
 ```
 
 **Tests and stop gate**:
-- **3A4a gate**: stop after generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` or equivalent startup tests.
+- **3A4a gate**: stop after generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading with file/path/captured/current evidence, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` or equivalent startup tests.
 - **3A4b gate**: stop after LSP effect-adapter tests pass for the `source-file-set` node through `run_loading_plan`, with guarded apply and no progress assertions: `cargo test -p djls-server startup_source_files` or equivalent startup tests.
 - **3A4b gate**: stop after a deterministic request-while-loading test proves a blocked active `source-file-set` startup run does not block a representative request and returns a valid degraded response: `cargo test -p djls-server startup_request_while_loading` or equivalent startup test.
 - **3A4c gate**: stop after client work-done progress capability tests pass: `cargo test -p djls-server client::tests::work_done_progress`.
@@ -937,11 +962,16 @@ pub enum EnvFileLoadIssueKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DjangoEnvironmentName(String);
+pub struct PyModuleName(String);
+pub struct SettingsModuleSeed(PyModuleName);
+pub struct PythonPathEntry(Utf8PathBuf);
+
 pub struct DjangoEnvironmentSeed {
-    name: Option<String>,
+    name: Option<DjangoEnvironmentName>,
     root: Utf8PathBuf,
-    settings_module_seed: Option<String>,
-    pythonpath: Vec<String>,
+    settings_module_seed: Option<SettingsModuleSeed>,
+    pythonpath: Vec<PythonPathEntry>,
 }
 ```
 
@@ -977,7 +1007,7 @@ pub struct DjangoEnvironmentSeed {
 - For each root from `ProjectDiscoveryLoadRequest`, call the structured `djls-conf` root settings load API outside the session lock. On a per-root config error, record a typed `ConfigLoadFailed` issue with source path and cause category where available; if client/default settings are used as fallback, also record a paired `ConfigFallbackUsed` provenance marker in that root's `RootDiscoveryData`.
 - Lower any `djls_conf::DjangoEnvironmentConfig` values in the load outcome into `DjangoEnvironmentSeed` / project-owned seed types before constructing `RootDiscoveryData`.
 - Interpreter discovery and env-file loading failures must also record structured root/source/cause data using `InterpreterDiscoveryIssueKind` and `EnvFileLoadIssueKind`; do not use bare failure variants or generic strings.
-- Store environment variables in a deterministic Salsa-visible shape, for example `ProjectEnvVars` wrapping a `BTreeMap<String, String>` or a canonical sorted vector. Resolve duplicate keys before constructing/applying `RootDiscoveryData` using documented source precedence; if a lower-precedence value is discarded and that matters for diagnostics/provenance, record a typed discovery issue or provenance marker. Do not store unordered `Vec<(String, String)>` in discovery inputs.
+- Store environment variables in a deterministic Salsa-visible shape, for example `ProjectEnvVars` wrapping a `BTreeMap<String, String>` or a canonical sorted vector. Resolve duplicate keys before constructing/applying `RootDiscoveryData` using documented source precedence; if a lower-precedence value is discarded and that matters for diagnostics/provenance, record a typed discovery issue or provenance marker. Do not store unordered `Vec<(String, String)>` in discovery inputs. Keep the underlying collection private; construct `ProjectEnvVars` only through a canonicalizing `ProjectEnvVars::from_sources(...)`/equivalent, not through raw vector setters.
 - `djls-server` must not perform interpreter discovery, env-file loading, project config loading, or `ProjectDiscoverySet` / `RootDiscoveryInput` construction directly. It lowers `ProjectLoadingSnapshot` into `ProjectDiscoveryLoadRequest`, invokes the shared activity through the LSP effect adapter, and applies a generic guarded project-loading apply intent through `GenerationGuard`. If a server-local `StartupUpdate` enum remains, keep it as a thin adapter and do not mirror every domain output in server vocabulary.
 - `DjangoDatabase::apply_project_discovery_data` is the only place that creates or updates `ProjectDiscoverySet` / `RootDiscoveryInput` Salsa inputs from the plain data.
 - The CLI effect adapter invokes the same activity through the neutral driver and applies the same plain data directly in this phase. This node is not complete until both CLI and LSP effect-adapter tests pass.
@@ -1091,7 +1121,8 @@ pub enum ProjectLayoutIssue {
 
 **Phase 3A2c gate**
 - [ ] Database source-file materialization tests preserve `File` handles for unchanged paths, apply `ProjectSourceFilesMaterializationPatch` changed roots/files/deletions where possible, return `SourceFileSetMaterialized`, and stay partition-policy-free: `cargo test -p djls-db source_file_set`
-- [ ] Source-file round-trip coherence tests prove partitions, project-owned merged view, materialization patch, `SourceFileSetMaterialized`, project-owned finalization, preserved unchanged `File` handles, `ProjectLoadingState.source_files = ProjectSourceFilesAvailability::Ready(files)`, and `ProjectSourceFilesApplied.files` remain coherent across an apply and config restart while preserving the applied partition/node transition separately from aggregate source-file readiness: `cargo test -p djls-db source_file_set_roundtrip` or equivalent `source_file_set` tests
+- [ ] Source-file round-trip coherence tests prove partitions, project-owned merged view, materialization patch, `SourceFileSetMaterialized`, project-owned finalization, preserved unchanged `File` handles, `ProjectLoadingState.source_files = ProjectSourceFilesAvailability::Ready(ReadyProjectSourceFiles)`, and `ProjectSourceFilesApplied.files` remain coherent across an apply and config restart while preserving the applied partition/node transition separately from aggregate source-file readiness: `cargo test -p djls-db source_file_set_roundtrip` or equivalent `source_file_set` tests
+- [ ] Source-file terminal transition tests prove activity/materialization/apply failures do not leave `ProjectLoadingState.source_files` stuck in `Loading`/`Stale`; they produce query-visible `Deferred`, `Unavailable`, or `Failed` availability with typed issues and previous ready files when available.
 - [ ] Salsa invalidation tests prove `ProjectLoadingState.source_files` transitions from `Loading`/`Unavailable` to `Ready` invalidate a minimal tracked probe query: `cargo test -p djls-project loading_state_invalidation`
 
 **Phase 3A3 gate**
@@ -1099,7 +1130,7 @@ pub enum ProjectLayoutIssue {
 - [ ] Phase 3 CLI effect adapter in `crates/djls` runs the active Phase 3 loading plan through `run_loading_plan`: `cargo test -p djls --test check`
 
 **Phase 3A4a gate**
-- [ ] Generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` or equivalent startup tests
+- [ ] Generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` or equivalent startup tests
 
 **Phase 3A4b gate**
 - [ ] LSP effect-adapter tests pass for the `source-file-set` node through `run_loading_plan`, with guarded apply and no progress assertions: `cargo test -p djls-server startup_source_files` or equivalent startup tests
@@ -1357,8 +1388,8 @@ Do not begin the next subphase until the current subphase's targeted checks pass
 ```rust
 pub enum ModuleResolutionOutcome {
     Resolved(ResolvedModule),
-    NotFound { issues: Vec<ModuleResolutionIssue> },
-    Ambiguous { candidates: Vec<ResolvedModule>, issues: Vec<ModuleResolutionIssue> },
+    NotFound { issues: NonEmpty<ModuleResolutionIssue> },
+    Ambiguous { candidates: AtLeastTwo<ResolvedModule>, issues: NonEmpty<ModuleResolutionIssue> },
     Deferred { issue: ModuleResolutionIssue },
 }
 
@@ -1391,10 +1422,10 @@ pub enum ModuleResolutionIssue {
 **Code shape**:
 ```rust
 pub enum DjangoEnvironmentCandidatesOutcome {
-    Ready(Vec<DjangoEnvironmentCandidate>),
+    Ready(NonEmpty<DjangoEnvironmentCandidate>),
     Ambiguous {
-        candidates: Vec<DjangoEnvironmentCandidate>,
-        issues: Vec<EnvironmentCandidatesIssue>,
+        candidates: AtLeastTwo<DjangoEnvironmentCandidate>,
+        issues: NonEmpty<EnvironmentCandidatesIssue>,
     },
     Unavailable { issue: EnvironmentCandidatesIssue },
     Deferred { issue: EnvironmentCandidatesIssue },
@@ -1403,11 +1434,11 @@ pub enum DjangoEnvironmentCandidatesOutcome {
 pub enum EnvironmentSelection {
     Selected(DjangoEnvironmentId),
     Ambiguous {
-        candidates: Vec<DjangoEnvironmentCandidate>,
-        issues: Vec<EnvironmentSelectionIssue>,
+        candidates: AtLeastTwo<DjangoEnvironmentCandidate>,
+        issues: NonEmpty<EnvironmentSelectionIssue>,
     },
     Unknown {
-        issues: Vec<EnvironmentSelectionIssue>,
+        issues: NonEmpty<EnvironmentSelectionIssue>,
     },
 }
 ```
@@ -1666,7 +1697,7 @@ Finish moving template resolution, load-library completions/diagnostics, navigat
 **Edits**:
 - Replace old `ResolveResult` with `TemplateLookupResult` and `TemplateLookupIssue`.
 - Add the outline's environment-scoped discovery helper: `discover_templates(db: &dyn SemanticDb, env: DjangoEnvironmentId) -> Vec<Template<'_>>`, built from `djls_project::template_files`.
-- Change `resolve_template` to accept the source `File` and template name string: `resolve_template(db, source, name)`.
+- Change `resolve_template` to accept the source `File` and a parsed `TemplateName`, or parse the raw template name at the call boundary before entering the resolver. Do not pass arbitrary `String` names through semantic/project APIs.
 - Select the environment with `djls_project::environment_for_file(db, source)`.
 - On `Selected`, search `discover_templates(db, env)` by `TemplateName` and template search order.
 - On `Unknown` or `Ambiguous`, return `Deferred` with the matching issue.
@@ -1677,16 +1708,15 @@ Finish moving template resolution, load-library completions/diagnostics, navigat
 ```rust
 pub enum TemplateLookupResult<'db> {
     Found(Template<'db>),
-    NotFound { name: String, tried: Vec<Utf8PathBuf> },
-    Ambiguous { name: String, candidates: Vec<Template<'db>> },
-    Deferred { name: String, issue: TemplateLookupIssue },
+    NotFound { name: TemplateName, tried: NonEmpty<Utf8PathBuf> },
+    Ambiguous { name: TemplateName, candidates: AtLeastTwo<Template<'db>> },
+    Deferred { name: TemplateName, issue: TemplateLookupIssue },
 }
 
 pub enum TemplateLookupIssue {
-    EnvironmentUnknown,
-    EnvironmentAmbiguous,
-    InventoryUnavailable,
-    InvalidTemplateName,
+    Environment(EnvironmentSelectionIssue),
+    Inventory(TemplateInventoryIssue),
+    InvalidTemplateName(TemplateNameParseError),
 }
 ```
 
@@ -1865,9 +1895,10 @@ pub enum ProjectEnrichmentState {
 }
 
 pub enum ProjectEnrichmentIssue {
-    RuntimeUnavailable,
-    InspectorFailed,
-    CacheStale,
+    RuntimeUnavailable { interpreter: Option<Interpreter>, kind: RuntimeUnavailableKind },
+    InspectorFailed { kind: InspectorFailureKind },
+    CacheStale { key: EnrichmentCacheKey, age: CacheAge },
+    CacheReadFailed { kind: CacheIssueKind },
 }
 ```
 
@@ -1903,8 +1934,7 @@ pub enum ProjectEnrichmentIssue {
 **Files**:
 - `crates/djls-semantic/src/project/sync.rs`
 - `crates/djls-project/src/enrichment.rs`
-- `crates/djls-project/src/enrichment/cache.rs`
-- optional new `crates/djls-db/src/enrichment_cache.rs`
+- `crates/djls-db/src/enrichment_cache.rs` or equivalent infrastructure-owned cache module
 
 **Edits**:
 - Replace template-library snapshot cache helpers with enrichment cache helpers.
@@ -1933,8 +1963,8 @@ pub enum ProjectEnrichmentIssue {
 
 #### Automated Verification
 - [ ] Enrichment merge tests pass: `cargo test -p djls-project enrichment`
-- [ ] Inspector provider/translation tests pass in the project crate and prove only `ProjectEnrichmentDraft`/typed issues cross the provider-to-domain seam: `cargo test -p djls-project enrichment::inspector`
-- [ ] Inspector zipapp packaging/build ownership lives in `djls-project`, and `djls-semantic` no longer owns `inspector/`, inspector `build.rs` packaging, or embedded inspector bytes: `cargo test -p djls-project --no-run` and `cargo test -p djls-semantic --no-run`
+- [ ] Inspector provider/translation tests pass in the infrastructure owner and prove only `ProjectEnrichmentDraft`/typed issues cross the provider-to-domain seam: `cargo test -p djls-db enrichment_provider` or the equivalent provider-module test.
+- [ ] Inspector zipapp packaging/build ownership lives in the infrastructure provider, and neither `djls-semantic` nor `djls-project` owns `inspector/`, inspector `build.rs` packaging, or embedded inspector bytes: `cargo test -p djls-db --no-run`, `cargo test -p djls-project --no-run`, and `cargo test -p djls-semantic --no-run`.
 - [ ] Database enrichment apply tests pass: `cargo test -p djls-db enrichment`
 - [ ] Enrichment loading-node tests cover run/skip behavior through the neutral driver/shared plan, LSP effect adapter, and CLI explicit-skip effect outcome: `cargo test -p djls-project loading_enrichment`, `cargo test -p djls-server startup`, and `cargo test -p djls --test check`
 - [ ] Cache-as-hint tests pass: `cargo test -p djls-project cache_as_hint`
@@ -2006,7 +2036,7 @@ Audit CLI/LSP parity on the shared project model, add real LSP startup/readiness
 - Remove public re-exports of old `Project`, `ProjectTemplateFiles`, `ProjectPythonIndex`, `TemplateDirs`, old cache loaders, and `refresh_external_data`.
 - Delete old static scaffolding that used `Fact<T>` after equivalent `djls-project` APIs exist.
 - Remove `ProjectDb::project()` and old current-project helper methods from semantic traits.
-- Remove or move any remaining inspector runtime code from `djls-semantic`; Phase 9 should have moved provider/DTO ownership to `djls-project` enrichment.
+- Remove or move any remaining inspector runtime code from `djls-semantic`; Phase 9 should have moved provider/DTO/cache/zipapp ownership to the infrastructure provider while `djls-project` owns only enrichment drafts, state, typed issues, and merge policy.
 - Update all imports to use `djls_project` domain types and query APIs.
 
 #### 4. Update docs
