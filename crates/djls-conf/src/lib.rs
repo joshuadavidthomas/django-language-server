@@ -68,6 +68,208 @@ pub enum ConfigError {
     PyprojectSerialize(#[from] toml::ser::Error),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct RootSettingsLoadOutcome {
+    root: Utf8PathBuf,
+    settings: Settings,
+    source_path: Option<Utf8PathBuf>,
+    issues: Vec<RootSettingsLoadIssue>,
+    fallback_used: bool,
+}
+
+impl RootSettingsLoadOutcome {
+    #[must_use]
+    pub fn root(&self) -> &Utf8Path {
+        &self.root
+    }
+
+    #[must_use]
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Utf8Path> {
+        self.source_path.as_deref()
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[RootSettingsLoadIssue] {
+        &self.issues
+    }
+
+    #[must_use]
+    pub fn fallback_used(&self) -> bool {
+        self.fallback_used
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RootSettingsLoadIssue {
+    root: Utf8PathBuf,
+    source: Option<Utf8PathBuf>,
+    kind: RootSettingsLoadIssueKind,
+}
+
+impl RootSettingsLoadIssue {
+    #[must_use]
+    pub fn root(&self) -> &Utf8Path {
+        &self.root
+    }
+
+    #[must_use]
+    pub fn source(&self) -> Option<&Utf8Path> {
+        self.source.as_deref()
+    }
+
+    #[must_use]
+    pub fn kind(&self) -> RootSettingsLoadIssueKind {
+        self.kind
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RootSettingsLoadIssueKind {
+    Io,
+    Parse,
+    Schema,
+    Unsupported,
+}
+
+pub fn load_root_settings(root: &Utf8Path, fallback: &Settings) -> RootSettingsLoadOutcome {
+    match load_root_settings_file(root) {
+        Ok(load) => RootSettingsLoadOutcome {
+            root: root.to_owned(),
+            settings: load.settings.with_overrides(fallback.clone()),
+            source_path: load.source_path,
+            issues: Vec::new(),
+            fallback_used: false,
+        },
+        Err(issue) => RootSettingsLoadOutcome {
+            root: root.to_owned(),
+            settings: fallback.clone(),
+            source_path: issue.source.clone(),
+            issues: vec![issue],
+            fallback_used: true,
+        },
+    }
+}
+
+struct RootSettingsFileLoad {
+    settings: Settings,
+    source_path: Option<Utf8PathBuf>,
+}
+
+fn load_root_settings_file(root: &Utf8Path) -> Result<RootSettingsFileLoad, RootSettingsLoadIssue> {
+    let mut builder = Config::builder();
+    let mut source_path = None;
+
+    for candidate in root_config_sources(root)? {
+        source_path = Some(candidate.path.clone());
+        builder = builder.add_source(File::from_str(&candidate.content, FileFormat::Toml));
+    }
+
+    let config = builder.build().map_err(|_error| RootSettingsLoadIssue {
+        root: root.to_owned(),
+        source: source_path.clone(),
+        kind: RootSettingsLoadIssueKind::Schema,
+    })?;
+    let settings = config
+        .try_deserialize()
+        .map_err(|_error| RootSettingsLoadIssue {
+            root: root.to_owned(),
+            source: source_path.clone(),
+            kind: RootSettingsLoadIssueKind::Schema,
+        })?;
+
+    Ok(RootSettingsFileLoad {
+        settings,
+        source_path,
+    })
+}
+
+struct RootConfigSource {
+    path: Utf8PathBuf,
+    content: String,
+}
+
+fn root_config_sources(root: &Utf8Path) -> Result<Vec<RootConfigSource>, RootSettingsLoadIssue> {
+    let mut sources = Vec::new();
+
+    if let Some(source) = pyproject_tool_djls_source(root)? {
+        sources.push(source);
+    }
+    for path in [root.join(".djls.toml"), root.join("djls.toml")] {
+        if let Some(source) = toml_file_source(root, path)? {
+            sources.push(source);
+        }
+    }
+
+    Ok(sources)
+}
+
+fn pyproject_tool_djls_source(
+    root: &Utf8Path,
+) -> Result<Option<RootConfigSource>, RootSettingsLoadIssue> {
+    let path = root.join("pyproject.toml");
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = read_config_file(root, &path)?;
+    let toml_str: toml::Value = toml::from_str(&content).map_err(|_error| {
+        root_settings_issue(root, Some(path.clone()), RootSettingsLoadIssueKind::Parse)
+    })?;
+    let tool_djls_value: Option<&toml::Value> = ["tool", "djls"]
+        .iter()
+        .try_fold(&toml_str, |val, &key| val.get(key));
+    let Some(tool_djls_table) = tool_djls_value.and_then(|value| value.as_table()) else {
+        return Ok(None);
+    };
+    let content = toml::to_string(tool_djls_table).map_err(|_error| {
+        root_settings_issue(
+            root,
+            Some(path.clone()),
+            RootSettingsLoadIssueKind::Unsupported,
+        )
+    })?;
+
+    Ok(Some(RootConfigSource { path, content }))
+}
+
+fn toml_file_source(
+    root: &Utf8Path,
+    path: Utf8PathBuf,
+) -> Result<Option<RootConfigSource>, RootSettingsLoadIssue> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = read_config_file(root, &path)?;
+    toml::from_str::<toml::Value>(&content).map_err(|_error| {
+        root_settings_issue(root, Some(path.clone()), RootSettingsLoadIssueKind::Parse)
+    })?;
+    Ok(Some(RootConfigSource { path, content }))
+}
+
+fn read_config_file(root: &Utf8Path, path: &Utf8Path) -> Result<String, RootSettingsLoadIssue> {
+    fs::read_to_string(path).map_err(|_error| {
+        root_settings_issue(root, Some(path.to_owned()), RootSettingsLoadIssueKind::Io)
+    })
+}
+
+fn root_settings_issue(
+    root: &Utf8Path,
+    source: Option<Utf8PathBuf>,
+    kind: RootSettingsLoadIssueKind,
+) -> RootSettingsLoadIssue {
+    RootSettingsLoadIssue {
+        root: root.to_owned(),
+        source,
+        kind,
+    }
+}
+
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
 pub struct Settings {
     #[serde(default)]
@@ -95,31 +297,36 @@ impl Settings {
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
 
         if let Some(overrides) = overrides {
-            settings.debug = overrides.debug || settings.debug;
-            settings.venv_path = overrides.venv_path.or(settings.venv_path);
-            settings.django_settings_module = overrides
-                .django_settings_module
-                .or(settings.django_settings_module);
-            if !overrides.django_environments.is_empty() {
-                settings.django_environments = overrides.django_environments;
-            }
-            if !overrides.pythonpath.is_empty() {
-                settings.pythonpath = overrides.pythonpath;
-            }
-            settings.env_file = overrides.env_file.or(settings.env_file);
-            if !overrides.tagspecs.libraries.is_empty() {
-                settings.tagspecs = overrides.tagspecs;
-            }
-            // For diagnostics, override if the config is non-default
-            if overrides.diagnostics != DiagnosticsConfig::default() {
-                settings.diagnostics = overrides.diagnostics;
-            }
-            if overrides.format != FormatConfig::default() {
-                settings.format = overrides.format;
-            }
+            settings = settings.with_overrides(overrides);
         }
 
         Ok(settings)
+    }
+
+    #[must_use]
+    fn with_overrides(mut self, overrides: Settings) -> Self {
+        self.debug = overrides.debug || self.debug;
+        self.venv_path = overrides.venv_path.or(self.venv_path);
+        self.django_settings_module = overrides
+            .django_settings_module
+            .or(self.django_settings_module);
+        if !overrides.django_environments.is_empty() {
+            self.django_environments = overrides.django_environments;
+        }
+        if !overrides.pythonpath.is_empty() {
+            self.pythonpath = overrides.pythonpath;
+        }
+        self.env_file = overrides.env_file.or(self.env_file);
+        if !overrides.tagspecs.libraries.is_empty() {
+            self.tagspecs = overrides.tagspecs;
+        }
+        if overrides.diagnostics != DiagnosticsConfig::default() {
+            self.diagnostics = overrides.diagnostics;
+        }
+        if overrides.format != FormatConfig::default() {
+            self.format = overrides.format;
+        }
+        self
     }
 
     fn load_from_paths(
@@ -218,6 +425,114 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    mod root_settings_load {
+        use super::*;
+
+        #[test]
+        fn missing_config_uses_defaults_without_fallback_issue() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let fallback = Settings::default();
+
+            let outcome = load_root_settings(root, &fallback);
+
+            assert_eq!(outcome.root(), root);
+            assert_eq!(outcome.settings(), &Settings::default());
+            assert_eq!(outcome.source_path(), None);
+            assert!(outcome.issues().is_empty());
+            assert!(!outcome.fallback_used());
+        }
+
+        #[test]
+        fn loaded_project_config_preserves_source_path() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let source = root.join("djls.toml");
+            fs::write(&source, "debug = true").unwrap();
+
+            let outcome = load_root_settings(root, &Settings::default());
+
+            assert_eq!(outcome.source_path(), Some(source.as_path()));
+            assert!(outcome.settings().debug());
+            assert!(!outcome.fallback_used());
+        }
+
+        #[test]
+        fn unrelated_pyproject_does_not_hide_djls_toml_source() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(root.join("pyproject.toml"), "[project]\nname = 'demo'").unwrap();
+            let source = root.join("djls.toml");
+            fs::write(&source, "debug = true").unwrap();
+
+            let outcome = load_root_settings(root, &Settings::default());
+
+            assert_eq!(outcome.source_path(), Some(source.as_path()));
+            assert!(outcome.settings().debug());
+            assert!(!outcome.fallback_used());
+        }
+
+        #[test]
+        fn invalid_djls_toml_reports_parse_error_for_that_source() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let source = root.join("djls.toml");
+            fs::write(&source, "debug = [true").unwrap();
+            let fallback = Settings {
+                debug: true,
+                ..Settings::default()
+            };
+
+            let outcome = load_root_settings(root, &fallback);
+
+            assert_eq!(outcome.settings(), &fallback);
+            assert_eq!(outcome.source_path(), Some(source.as_path()));
+            assert!(outcome.fallback_used());
+            assert_eq!(outcome.issues()[0].source(), Some(source.as_path()));
+            assert_eq!(outcome.issues()[0].kind(), RootSettingsLoadIssueKind::Parse);
+        }
+
+        #[test]
+        fn client_settings_can_override_successful_root_config_without_fallback_error() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(root.join("djls.toml"), "debug = false").unwrap();
+            let client_settings = Settings {
+                debug: true,
+                ..Settings::default()
+            };
+
+            let outcome = load_root_settings(root, &client_settings);
+
+            assert!(outcome.settings().debug());
+            assert!(!outcome.fallback_used());
+            assert!(outcome.issues().is_empty());
+        }
+
+        #[test]
+        fn parse_failure_preserves_root_source_kind_and_fallback_marker() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let source = root.join("pyproject.toml");
+            fs::write(&source, "not = [valid").unwrap();
+            let fallback = Settings {
+                debug: true,
+                ..Settings::default()
+            };
+
+            let outcome = load_root_settings(root, &fallback);
+
+            assert_eq!(outcome.root(), root);
+            assert_eq!(outcome.settings(), &fallback);
+            assert_eq!(outcome.source_path(), Some(source.as_path()));
+            assert!(outcome.fallback_used());
+            assert_eq!(outcome.issues().len(), 1);
+            assert_eq!(outcome.issues()[0].root(), root);
+            assert_eq!(outcome.issues()[0].source(), Some(source.as_path()));
+            assert_eq!(outcome.issues()[0].kind(), RootSettingsLoadIssueKind::Parse);
+        }
+    }
 
     mod defaults {
         use super::*;

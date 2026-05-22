@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `lvnkyyyr` contains the completed discovery/enrichment scaffolding slice.
-- **Current slice**: discovery/enrichment scaffolding completed; Phase 3C is next.
+- **Implementation change**: `urrpmlnp` contains the completed structured root settings load slice.
+- **Current slice**: structured root settings load completed; Phase 3C2 is next.
 
 ### Implementation Notes
 
@@ -176,6 +176,20 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist flagged the option-matrix environment seed; replaced it with a named settings-module seed variant.
   - Librarian found no major reversal needed. Phase 3C must keep interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing `ProjectEnvVars`, and distinguish missing config fallback from invalid config.
 - Follow-ups/blockers: Phase 3C should preserve the reference-check constraints above while wiring structured settings load and discovery apply.
+
+### Structured root settings load
+- Bookmark: `startup-rethink` still points to `lvnkyyyr`; move it to `urrpmlnp` after describing this verified slice.
+- Current change: `urrpmlnp`.
+- Scope: added `djls_conf::load_root_settings` with root-scoped `RootSettingsLoadOutcome`, effective source path, typed issue categories, fallback-after-error marker, and tests for missing config, unrelated `pyproject.toml`, invalid TOML, source provenance, and client override behavior.
+- Validation:
+  - `cargo test -p djls-conf root_settings_load` passed: 6 tests.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review and Rust specialist review rejected guessed source provenance and lossy parse/schema classification; root settings loading now parses candidate files directly enough to distinguish unrelated `pyproject.toml`, syntax parse failures, schema/deserialization failures, unsupported shapes, and effective project config source.
+  - Rust specialist clarified that client/default settings can override a successful root config without being recorded as fallback-after-error; this behavior is covered by test.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It noted ty preserves per-value provenance; this slice keeps root/effective-source provenance only, with per-value provenance deferred until a future diagnostic actually needs it.
+- Follow-ups/blockers: Phase 3C2 should lower this structured outcome into project-owned discovery facts without reverse-engineering `ConfigError` strings.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1308,7 +1322,7 @@ Names may change, but the outcome must be derived from stable Project facts, not
 - [x] Discovery/enrichment project-root scaffolding compiles without adding a new readiness singleton: `cargo test -p djls-project discovery` — 10 passed. Evidence: `Project.discovery` / `Project.enrichment` are stable Project fields, `ProjectDiscoverySet` is root-scoped and non-empty, discovery/enrichment unavailable states require non-empty typed issues, and `ProjectEnvVars` rejects duplicate keys before canonicalization.
 
 **Phase 3C1 gate**
-- [ ] `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load`
+- [x] `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load` — 6 passed. Evidence: tests cover missing config without fallback issue, effective `djls.toml` source path, unrelated `pyproject.toml` not masking `djls.toml`, invalid `pyproject.toml` / `djls.toml` parse issues with source paths, and client overrides on successful root config without fallback-after-error.
 
 **Phase 3C2 gate**
 - [ ] Discovery data/helper tests preserve config-load failures/fallback provenance, distinguish missing config fallback from invalid config, lower `djls-conf` DTOs into project-owned environment seeds, treat interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing canonical `ProjectEnvVars`, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings`
