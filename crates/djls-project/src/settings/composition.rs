@@ -1,0 +1,705 @@
+use crate::django_environment_candidates;
+use crate::resolve_module;
+use crate::AssignmentKind;
+use crate::Db;
+use crate::DjangoEnvironmentCandidatesOutcome;
+use crate::DjangoEnvironmentId;
+use crate::ImportStatement;
+use crate::ModuleResolutionOutcome;
+use crate::Project;
+use crate::PyModuleName;
+use crate::PythonSourceModelStatus;
+use crate::PythonSourceOperation;
+use crate::StaticValue;
+use crate::StaticValueIssue;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EffectiveSettings {
+    installed_apps: PartialList<String>,
+    templates: TemplateSettingsResolution,
+    issues: Vec<SettingsIssue>,
+}
+
+impl EffectiveSettings {
+    #[must_use]
+    pub fn installed_apps(&self) -> &PartialList<String> {
+        &self.installed_apps
+    }
+
+    #[must_use]
+    pub fn templates(&self) -> &TemplateSettingsResolution {
+        &self.templates
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[SettingsIssue] {
+        &self.issues
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PartialList<T> {
+    segments: Vec<PartialListSegment<T>>,
+}
+
+impl<T> PartialList<T> {
+    #[must_use]
+    pub fn segments(&self) -> &[PartialListSegment<T>] {
+        &self.segments
+    }
+
+    fn replace(&mut self, segments: Vec<PartialListSegment<T>>) {
+        self.segments = segments;
+    }
+
+    fn extend(&mut self, segments: Vec<PartialListSegment<T>>) {
+        self.segments.extend(segments);
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartialListSegment<T> {
+    value: Option<T>,
+    issue: Option<SettingsIssue>,
+}
+
+impl<T> PartialListSegment<T> {
+    fn known(value: T) -> Self {
+        Self {
+            value: Some(value),
+            issue: None,
+        }
+    }
+
+    fn unknown(issue: SettingsIssue) -> Self {
+        Self {
+            value: None,
+            issue: Some(issue),
+        }
+    }
+
+    #[must_use]
+    pub fn value(&self) -> Option<&T> {
+        self.value.as_ref()
+    }
+
+    #[must_use]
+    pub fn issue(&self) -> Option<&SettingsIssue> {
+        self.issue.as_ref()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettingsIssue {
+    EnvironmentCandidateUnavailable,
+    EnvironmentNotFound { id: DjangoEnvironmentId },
+    SettingsModuleNotResolved { module: PyModuleName },
+    SettingsModuleAmbiguous { module: PyModuleName },
+    SettingsModuleDeferred { module: PyModuleName },
+    SettingsModuleParseError,
+    UnsupportedInstalledAppsValue { issue: StaticValueIssue },
+    UnsupportedTemplatesValue { issue: StaticValueIssue },
+    UnsupportedListOperation { operation: &'static str },
+    ImportNotResolved { module: PyModuleName },
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TemplateSettingsResolution {
+    backends: Vec<TemplateBackend>,
+    issues: Vec<SettingsIssue>,
+}
+
+impl TemplateSettingsResolution {
+    #[must_use]
+    pub fn backends(&self) -> &[TemplateBackend] {
+        &self.backends
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[SettingsIssue] {
+        &self.issues
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateBackend {
+    backend: Option<String>,
+    dirs: PartialList<String>,
+    app_dirs: Option<bool>,
+}
+
+impl TemplateBackend {
+    #[must_use]
+    pub fn backend(&self) -> Option<&str> {
+        self.backend.as_deref()
+    }
+
+    #[must_use]
+    pub fn dirs(&self) -> &PartialList<String> {
+        &self.dirs
+    }
+
+    #[must_use]
+    pub fn app_dirs(&self) -> Option<bool> {
+        self.app_dirs
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn effective_settings(
+    db: &dyn Db,
+    project: Project,
+    env: DjangoEnvironmentId,
+) -> EffectiveSettings {
+    let Some(settings_module) = settings_module_for_env(db, project, &env) else {
+        return EffectiveSettings {
+            issues: vec![SettingsIssue::EnvironmentNotFound { id: env }],
+            ..EffectiveSettings::default()
+        };
+    };
+    let mut visited = Vec::new();
+    effective_settings_for_module(db, project, settings_module, &mut visited)
+}
+
+fn settings_module_for_env(
+    db: &dyn Db,
+    project: Project,
+    env: &DjangoEnvironmentId,
+) -> Option<PyModuleName> {
+    let candidates = match django_environment_candidates(db, project) {
+        DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
+        | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
+        DjangoEnvironmentCandidatesOutcome::Unavailable { .. }
+        | DjangoEnvironmentCandidatesOutcome::Deferred { .. } => return None,
+    };
+    candidates
+        .iter()
+        .find(|candidate| candidate.id() == env)
+        .map(|candidate| candidate.settings().clone())
+}
+
+fn effective_settings_for_module(
+    db: &dyn Db,
+    project: Project,
+    module: PyModuleName,
+    visited: &mut Vec<PyModuleName>,
+) -> EffectiveSettings {
+    if visited.contains(&module) {
+        return EffectiveSettings::default();
+    }
+    visited.push(module.clone());
+
+    let file = match resolve_module(db, project, module.clone()).outcome() {
+        ModuleResolutionOutcome::Resolved(resolved) => resolved.location().file(),
+        ModuleResolutionOutcome::Ambiguous { .. } => {
+            return EffectiveSettings {
+                issues: vec![SettingsIssue::SettingsModuleAmbiguous { module }],
+                ..EffectiveSettings::default()
+            };
+        }
+        ModuleResolutionOutcome::Deferred { .. } => {
+            return EffectiveSettings {
+                issues: vec![SettingsIssue::SettingsModuleDeferred { module }],
+                ..EffectiveSettings::default()
+            };
+        }
+        ModuleResolutionOutcome::NotFound { .. } => {
+            return EffectiveSettings {
+                issues: vec![SettingsIssue::SettingsModuleNotResolved { module }],
+                ..EffectiveSettings::default()
+            };
+        }
+    };
+
+    let model = crate::python_source_model(db, file);
+    if !matches!(model.status(), PythonSourceModelStatus::Parsed) {
+        return EffectiveSettings {
+            issues: vec![SettingsIssue::SettingsModuleParseError],
+            ..EffectiveSettings::default()
+        };
+    }
+
+    let mut settings = EffectiveSettings::default();
+    apply_settings_operations(
+        db,
+        project,
+        &module,
+        &mut settings,
+        model.operations(),
+        visited,
+    );
+    settings
+}
+
+impl EffectiveSettings {
+    fn merge(&mut self, other: EffectiveSettings) {
+        self.installed_apps.extend(other.installed_apps.segments);
+        self.templates.backends.extend(other.templates.backends);
+        self.templates.issues.extend(other.templates.issues);
+        self.issues.extend(other.issues);
+    }
+}
+
+fn imported_settings_module(
+    current_module: &PyModuleName,
+    import: &ImportStatement,
+) -> Option<PyModuleName> {
+    match import {
+        ImportStatement::Import { module, .. } => PyModuleName::parse(&module.as_dotted()).ok(),
+        ImportStatement::ImportFrom {
+            module,
+            name,
+            level,
+            ..
+        } if name == "*" => import_from_module_name(current_module, module.as_ref(), *level),
+        _ => None,
+    }
+}
+
+fn import_from_module_name(
+    current_module: &PyModuleName,
+    module: Option<&crate::QualifiedName>,
+    level: u32,
+) -> Option<PyModuleName> {
+    if level == 0 {
+        return PyModuleName::parse(&module?.as_dotted()).ok();
+    }
+    let mut parts = current_module.as_str().split('.').collect::<Vec<_>>();
+    parts.pop();
+    for _ in 1..level {
+        parts.pop()?;
+    }
+    if let Some(module) = module {
+        for part in module.parts() {
+            parts.push(part);
+        }
+    }
+    PyModuleName::parse(&parts.join(".")).ok()
+}
+
+fn apply_settings_operations(
+    db: &dyn Db,
+    project: Project,
+    current_module: &PyModuleName,
+    settings: &mut EffectiveSettings,
+    operations: &[PythonSourceOperation],
+    visited: &mut Vec<PyModuleName>,
+) {
+    for operation in operations {
+        match operation {
+            PythonSourceOperation::Import(import) => {
+                if let Some(imported) = imported_settings_module(current_module, import) {
+                    let imported_settings =
+                        effective_settings_for_module(db, project, imported, visited);
+                    settings.merge(imported_settings);
+                }
+            }
+            PythonSourceOperation::Assignment(assignment) => {
+                let target_names = assignment
+                    .targets()
+                    .iter()
+                    .map(|target| target.name().as_dotted())
+                    .collect::<Vec<_>>();
+                if target_names.iter().any(|target| target == "INSTALLED_APPS") {
+                    let segments = partial_string_list_from_value(assignment.value(), |issue| {
+                        SettingsIssue::UnsupportedInstalledAppsValue { issue }
+                    });
+                    match assignment.kind() {
+                        AssignmentKind::Assign => settings.installed_apps.replace(segments),
+                        AssignmentKind::AugAdd => settings.installed_apps.extend(segments),
+                    }
+                } else if target_names.iter().any(|target| target == "TEMPLATES") {
+                    settings.templates = template_settings_from_value(assignment.value());
+                }
+            }
+            PythonSourceOperation::Call(call) => {
+                let Some(callee) = call.callee().map(|callee| callee.as_dotted()) else {
+                    continue;
+                };
+                match callee.as_str() {
+                    "INSTALLED_APPS.append" => {
+                        if let Some(StaticValue::String(value)) = call.arguments().first() {
+                            settings
+                                .installed_apps
+                                .extend(vec![PartialListSegment::known(value.clone())]);
+                        }
+                    }
+                    "INSTALLED_APPS.extend" => {
+                        if let Some(value) = call.arguments().first() {
+                            settings
+                                .installed_apps
+                                .extend(partial_string_list_from_value(value, |issue| {
+                                    SettingsIssue::UnsupportedInstalledAppsValue { issue }
+                                }));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn partial_string_list_from_value(
+    value: &StaticValue,
+    issue: impl Fn(StaticValueIssue) -> SettingsIssue,
+) -> Vec<PartialListSegment<String>> {
+    match value {
+        StaticValue::StringList(segments) => segments
+            .iter()
+            .map(|segment| match (segment.value(), segment.issue()) {
+                (Some(value), None) => PartialListSegment::known(value.clone()),
+                (_, Some(static_issue)) => PartialListSegment::unknown(issue(static_issue.clone())),
+                (None, None) => {
+                    PartialListSegment::unknown(SettingsIssue::UnsupportedListOperation {
+                        operation: "unknown-list-segment",
+                    })
+                }
+            })
+            .collect(),
+        StaticValue::Unknown {
+            issue: static_issue,
+        } => {
+            vec![PartialListSegment::unknown(issue(static_issue.clone()))]
+        }
+        _ => vec![PartialListSegment::unknown(
+            SettingsIssue::UnsupportedListOperation {
+                operation: "non-list",
+            },
+        )],
+    }
+}
+
+fn template_settings_from_value(value: &StaticValue) -> TemplateSettingsResolution {
+    let mut resolution = TemplateSettingsResolution::default();
+    match value {
+        StaticValue::List(backends) => {
+            for backend in backends {
+                match backend {
+                    StaticValue::Dict(entries) => {
+                        resolution
+                            .backends
+                            .push(template_backend_from_dict(entries));
+                    }
+                    StaticValue::Unknown { issue } => {
+                        resolution
+                            .issues
+                            .push(SettingsIssue::UnsupportedTemplatesValue {
+                                issue: issue.clone(),
+                            });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        StaticValue::Unknown { issue } => {
+            resolution
+                .issues
+                .push(SettingsIssue::UnsupportedTemplatesValue {
+                    issue: issue.clone(),
+                });
+        }
+        _ => {}
+    }
+    resolution
+}
+
+fn template_backend_from_dict(entries: &[(String, StaticValue)]) -> TemplateBackend {
+    let mut backend = TemplateBackend {
+        backend: None,
+        dirs: PartialList::default(),
+        app_dirs: None,
+    };
+    for (key, value) in entries {
+        match (key.as_str(), value) {
+            ("BACKEND", StaticValue::String(name)) => backend.backend = Some(name.clone()),
+            ("DIRS", value) => {
+                backend.dirs = PartialList {
+                    segments: partial_string_list_from_value(value, |issue| {
+                        SettingsIssue::UnsupportedTemplatesValue { issue }
+                    }),
+                }
+            }
+            ("APP_DIRS", StaticValue::Bool(value)) => backend.app_dirs = Some(*value),
+            _ => {}
+        }
+    }
+    backend
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::OnceLock;
+
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use djls_source::Db as SourceDb;
+    use djls_source::File;
+    use djls_source::FileRootKind;
+    use djls_source::LoadedSourceFile;
+    use djls_source::SourceFileSet;
+    use djls_source::SourceFileSetData;
+    use djls_source::SourceFiles;
+    use djls_source::SourceRoot;
+    use djls_source::SourceRootEntry;
+    use djls_source::SourceRootId;
+    use rustc_hash::FxHashMap;
+
+    use super::*;
+    use crate::DjangoSettingsModuleSeed;
+    use crate::ProjectDiscovery;
+    use crate::ProjectDiscoverySet;
+    use crate::ProjectEnrichment;
+    use crate::ProjectEnvVars;
+    use crate::ProjectSourceFilesIssue;
+    use crate::ProjectSourceInventory;
+    use crate::ReadyProjectSourceFiles;
+    use crate::RootDiscoveryInput;
+
+    #[salsa::db]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+        files: SourceFiles,
+        sources: FxHashMap<Utf8PathBuf, String>,
+        project: OnceLock<Project>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDb {
+        fn files(&self) -> &SourceFiles {
+            &self.files
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+            Ok(self.sources.get(path).cloned().unwrap_or_default())
+        }
+    }
+
+    #[salsa::db]
+    impl crate::Db for TestDb {
+        fn project(&self) -> Project {
+            *self.project.get().expect("test project initialized")
+        }
+    }
+
+    impl TestDb {
+        fn with_project() -> Self {
+            let db = Self::default();
+            db.project
+                .set(Project::new(
+                    &db,
+                    ProjectSourceInventory::Unavailable {
+                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    },
+                    ProjectDiscovery::Absent,
+                    ProjectEnrichment::Absent,
+                ))
+                .expect("project should initialize once");
+            db
+        }
+
+        fn set_file(&mut self, path: &str, source: &str) -> File {
+            let path = Utf8PathBuf::from(path);
+            self.sources.insert(path.clone(), source.to_string());
+            self.get_or_create_file(path.as_path())
+        }
+    }
+
+    fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {
+        let root_path = Utf8PathBuf::from("/workspace");
+        let root_id = SourceRootId::new(root_path.clone());
+        let root = SourceRoot::new(root_id.clone(), root_path, FileRootKind::Project);
+        let roots = vec![SourceRootEntry::new(root)];
+        let files = paths
+            .iter()
+            .map(|path| {
+                let path = Utf8PathBuf::from(path);
+                LoadedSourceFile::new(path.clone(), root_id.clone(), db.get_or_create_file(&path))
+            })
+            .collect::<Vec<_>>();
+        let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
+            SourceFileSet::new(db, data),
+        ))
+    }
+
+    fn discovery(db: &TestDb, settings_module: &str) -> ProjectDiscovery {
+        let root = RootDiscoveryInput::new(
+            db,
+            Utf8PathBuf::from("/workspace"),
+            None,
+            Some(DjangoSettingsModuleSeed::new(settings_module)),
+            Vec::new(),
+            Vec::new(),
+            ProjectEnvVars::default(),
+            Vec::new(),
+        );
+        ProjectDiscovery::Ready(
+            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        )
+    }
+
+    fn single_env_id(db: &TestDb) -> DjangoEnvironmentId {
+        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+            django_environment_candidates(db, db.project())
+        else {
+            panic!("single candidate should be ready");
+        };
+        candidates[0].id().clone()
+    }
+
+    #[test]
+    fn effective_settings_preserve_installed_apps_order_with_unknown_gaps() {
+        let mut db = TestDb::with_project();
+        db.set_file(
+            "/workspace/project/settings.py",
+            "INSTALLED_APPS = ['django.contrib.auth', UNKNOWN, 'blog']\n",
+        );
+        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_discovery(discovery(&db, "project.settings"));
+        let env = single_env_id(&db);
+
+        let settings = effective_settings(&db, db.project(), env);
+        let segments = settings.installed_apps().segments();
+
+        assert_eq!(
+            segments[0].value(),
+            Some(&"django.contrib.auth".to_string())
+        );
+        assert!(segments[1].issue().is_some());
+        assert_eq!(segments[2].value(), Some(&"blog".to_string()));
+    }
+
+    #[test]
+    fn effective_settings_extract_template_backend_settings() {
+        let mut db = TestDb::with_project();
+        db.set_file(
+            "/workspace/project/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], 'APP_DIRS': True}]\n",
+        );
+        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_discovery(discovery(&db, "project.settings"));
+        let env = single_env_id(&db);
+
+        let settings = effective_settings(&db, db.project(), env);
+        let backend = &settings.templates().backends()[0];
+
+        assert_eq!(
+            backend.backend(),
+            Some("django.template.backends.django.DjangoTemplates")
+        );
+        assert_eq!(
+            backend.dirs().segments()[0].value(),
+            Some(&"templates".to_string())
+        );
+        assert_eq!(backend.app_dirs(), Some(true));
+    }
+
+    #[test]
+    fn effective_settings_apply_operations_in_source_order() {
+        let mut db = TestDb::with_project();
+        db.set_file(
+            "/workspace/project/settings.py",
+            "INSTALLED_APPS = []\nINSTALLED_APPS.append('temporary')\nINSTALLED_APPS = ['final']\n",
+        );
+        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_discovery(discovery(&db, "project.settings"));
+        let env = single_env_id(&db);
+
+        let settings = effective_settings(&db, db.project(), env);
+        let values = settings
+            .installed_apps()
+            .segments()
+            .iter()
+            .filter_map(PartialListSegment::value)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(values, vec!["final"]);
+    }
+
+    #[test]
+    fn effective_settings_support_relative_star_imports() {
+        let mut db = TestDb::with_project();
+        db.set_file(
+            "/workspace/project/base.py",
+            "INSTALLED_APPS = ['base_app']\n",
+        );
+        db.set_file(
+            "/workspace/project/settings.py",
+            "from .base import *\nINSTALLED_APPS += ['local_app']\n",
+        );
+        db.set_project_source_inventory(ready_inventory(
+            &db,
+            &[
+                "/workspace/project/base.py",
+                "/workspace/project/settings.py",
+            ],
+        ));
+        db.set_project_discovery(discovery(&db, "project.settings"));
+        let env = single_env_id(&db);
+
+        let settings = effective_settings(&db, db.project(), env);
+        let values = settings
+            .installed_apps()
+            .segments()
+            .iter()
+            .filter_map(PartialListSegment::value)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(values, vec!["base_app", "local_app"]);
+    }
+
+    #[test]
+    fn effective_settings_preserve_known_concat_tail_after_unknown_prefix() {
+        let mut db = TestDb::with_project();
+        db.set_file(
+            "/workspace/project/settings.py",
+            "INSTALLED_APPS = BASE_APPS + ['local_app']\n",
+        );
+        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_discovery(discovery(&db, "project.settings"));
+        let env = single_env_id(&db);
+
+        let settings = effective_settings(&db, db.project(), env);
+        let segments = settings.installed_apps().segments();
+
+        assert!(segments[0].issue().is_some());
+        assert_eq!(segments[1].value(), Some(&"local_app".to_string()));
+    }
+
+    #[test]
+    fn effective_settings_imports_apply_before_current_file_appends() {
+        let mut db = TestDb::with_project();
+        db.set_file("/workspace/base.py", "INSTALLED_APPS = ['base_app']\n");
+        db.set_file(
+            "/workspace/project/settings.py",
+            "import base\nINSTALLED_APPS = ['local_app'] + ['concat_app']\nINSTALLED_APPS += ['aug_app']\nINSTALLED_APPS.append('tail_app')\n",
+        );
+        db.set_project_source_inventory(ready_inventory(
+            &db,
+            &["/workspace/base.py", "/workspace/project/settings.py"],
+        ));
+        db.set_project_discovery(discovery(&db, "project.settings"));
+        let env = single_env_id(&db);
+
+        let settings = effective_settings(&db, db.project(), env);
+        let values = settings
+            .installed_apps()
+            .segments()
+            .iter()
+            .filter_map(PartialListSegment::value)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            values,
+            vec!["local_app", "concat_app", "aug_app", "tail_app"]
+        );
+    }
+}

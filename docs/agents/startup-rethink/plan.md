@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `yzympxnx` contains the completed workspace-ready milestone slice.
-- **Current slice**: Workspace-ready milestone completed; Phase 6A is next.
+- **Implementation change**: `yortktwk` contains the completed effective settings and installed-app projection slice.
+- **Current slice**: Phase 6A completed; Phase 6B is next.
 
 ### Implementation Notes
 
@@ -386,6 +386,21 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required the same degraded milestone status, LSP milestone reporting, and stronger acceptance/rejection matrix tests; addressed all in this slice.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed composite readiness, degraded health/status preservation, guarded stale progress, and best-effort service align with mature tooling patterns, with DJLS intentionally making the milestone a first-class neutral loading result.
 - Follow-ups/blockers: Phase 6A should build static effective settings and installed-app projection on top of the environment candidate and module-resolution seams.
+
+### Effective settings and installed-app projection
+- Bookmark: `startup-rethink` still points to `yzympxnx`; move it to `yortktwk` after describing this verified slice.
+- Current change: `yortktwk`.
+- Scope: added static `effective_settings` and `installed_apps` tracked queries in `djls-project`; introduced ordered top-level Python source operations for supported settings interpretation; preserved partial list gaps and unknown causes; supported direct settings assignments, list concat, `+=`, append/extend, direct imports, and relative star imports; resolved known installed app package/AppConfig entries through static module resolution and already loaded files; and extracted AppConfig `name`, `label`, and `path` from the selected class only.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project effective_settings` passed: 6 tests.
+  - `cargo test -p djls-project installed_apps` passed: 5 tests.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review required settings operations to replay in source order, unknown installed-app segments to preserve their cause, and AppConfig metadata to be class-specific; addressed all in this slice.
+  - Rust specialist required source-order semantics, relative settings imports, partial list concat with known tails, and class-scoped AppConfig extraction; addressed all in this slice.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed the ordered, file-local AST-derived projection plus layered semantic interpretation, static module resolution, and deferred/partial states match mature tooling patterns.
+- Follow-ups/blockers: Phase 6B should add installed-app and configured-template file loading through the source-inventory partition merge seam.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).

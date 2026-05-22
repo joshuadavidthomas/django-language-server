@@ -4,6 +4,7 @@ use djls_source::FileKind;
 use ruff_python_ast::Comprehension;
 use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
+use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 
 use crate::project_layout_index;
@@ -24,6 +25,7 @@ pub struct PythonSourceModel {
     calls: Vec<CallExpression>,
     class_defs: Vec<ClassDef>,
     function_defs: Vec<FunctionDef>,
+    operations: Vec<PythonSourceOperation>,
 }
 
 impl PythonSourceModel {
@@ -65,6 +67,11 @@ impl PythonSourceModel {
     #[must_use]
     pub fn function_defs(&self) -> &[FunctionDef] {
         &self.function_defs
+    }
+
+    #[must_use]
+    pub fn operations(&self) -> &[PythonSourceOperation] {
+        &self.operations
     }
 
     fn with_module(mut self, module: PyModuleNameResolution) -> Self {
@@ -197,11 +204,17 @@ impl AssignmentTarget {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Assignment {
+    kind: AssignmentKind,
     targets: Vec<AssignmentTarget>,
     value: StaticValue,
 }
 
 impl Assignment {
+    #[must_use]
+    pub fn kind(&self) -> AssignmentKind {
+        self.kind
+    }
+
     #[must_use]
     pub fn targets(&self) -> &[AssignmentTarget] {
         &self.targets
@@ -211,6 +224,12 @@ impl Assignment {
     pub fn value(&self) -> &StaticValue {
         &self.value
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AssignmentKind {
+    Assign,
+    AugAdd,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -241,6 +260,7 @@ impl CallExpression {
 pub struct ClassDef {
     name: String,
     bases: Vec<QualifiedName>,
+    assignments: Vec<Assignment>,
 }
 
 impl ClassDef {
@@ -253,6 +273,18 @@ impl ClassDef {
     pub fn bases(&self) -> &[QualifiedName] {
         &self.bases
     }
+
+    #[must_use]
+    pub fn assignments(&self) -> &[Assignment] {
+        &self.assignments
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PythonSourceOperation {
+    Import(ImportStatement),
+    Assignment(Assignment),
+    Call(CallExpression),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -308,7 +340,9 @@ impl<T> StaticValueSegment<T> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StaticValue {
     String(String),
+    Bool(bool),
     StringList(Vec<StaticValueSegment<String>>),
+    List(Vec<StaticValue>),
     Dict(Vec<(String, StaticValue)>),
     Unknown { issue: StaticValueIssue },
 }
@@ -342,6 +376,7 @@ pub fn python_source_model(db: &dyn Db, file: File) -> PythonSourceModel {
             calls: Vec::new(),
             class_defs: Vec::new(),
             function_defs: Vec::new(),
+            operations: Vec::new(),
         };
     }
 
@@ -359,6 +394,7 @@ pub fn python_source_model(db: &dyn Db, file: File) -> PythonSourceModel {
                 calls: Vec::new(),
                 class_defs: Vec::new(),
                 function_defs: Vec::new(),
+                operations: Vec::new(),
             };
         }
     };
@@ -432,6 +468,8 @@ struct PythonSourceCollector {
     calls: Vec<CallExpression>,
     class_defs: Vec<ClassDef>,
     function_defs: Vec<FunctionDef>,
+    operations: Vec<PythonSourceOperation>,
+    scope_depth: usize,
 }
 
 impl PythonSourceCollector {
@@ -444,6 +482,8 @@ impl PythonSourceCollector {
             calls: Vec::new(),
             class_defs: Vec::new(),
             function_defs: Vec::new(),
+            operations: Vec::new(),
+            scope_depth: 0,
         }
     }
 
@@ -456,15 +496,25 @@ impl PythonSourceCollector {
     fn collect_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Import(stmt) => {
-                self.imports
-                    .extend(stmt.names.iter().map(|alias| ImportStatement::Import {
+                let imports = stmt
+                    .names
+                    .iter()
+                    .map(|alias| ImportStatement::Import {
                         module: QualifiedName::parse(alias.name.as_str()),
                         alias: alias.asname.as_ref().map(ToString::to_string),
-                    }));
+                    })
+                    .collect::<Vec<_>>();
+                if self.scope_depth == 0 {
+                    self.operations
+                        .extend(imports.iter().cloned().map(PythonSourceOperation::Import));
+                }
+                self.imports.extend(imports);
             }
             Stmt::ImportFrom(stmt) => {
-                self.imports.extend(stmt.names.iter().map(|alias| {
-                    ImportStatement::ImportFrom {
+                let imports = stmt
+                    .names
+                    .iter()
+                    .map(|alias| ImportStatement::ImportFrom {
                         module: stmt
                             .module
                             .as_ref()
@@ -472,15 +522,21 @@ impl PythonSourceCollector {
                         name: alias.name.to_string(),
                         alias: alias.asname.as_ref().map(ToString::to_string),
                         level: stmt.level,
-                    }
-                }));
+                    })
+                    .collect::<Vec<_>>();
+                if self.scope_depth == 0 {
+                    self.operations
+                        .extend(imports.iter().cloned().map(PythonSourceOperation::Import));
+                }
+                self.imports.extend(imports);
             }
             Stmt::Assign(stmt) => {
                 for target in &stmt.targets {
                     self.collect_expr(target);
                 }
                 self.collect_expr(&stmt.value);
-                self.assignments.push(Assignment {
+                let assignment = Assignment {
+                    kind: AssignmentKind::Assign,
                     targets: stmt
                         .targets
                         .iter()
@@ -488,11 +544,31 @@ impl PythonSourceCollector {
                         .map(|name| AssignmentTarget { name })
                         .collect(),
                     value: static_value(&stmt.value),
-                });
+                };
+                if self.scope_depth == 0 {
+                    self.operations
+                        .push(PythonSourceOperation::Assignment(assignment.clone()));
+                }
+                self.assignments.push(assignment);
             }
             Stmt::AugAssign(stmt) => {
                 self.collect_expr(&stmt.target);
                 self.collect_expr(&stmt.value);
+                if stmt.op == Operator::Add {
+                    let assignment = Assignment {
+                        kind: AssignmentKind::AugAdd,
+                        targets: QualifiedName::from_expr(&stmt.target)
+                            .into_iter()
+                            .map(|name| AssignmentTarget { name })
+                            .collect(),
+                        value: static_value(&stmt.value),
+                    };
+                    if self.scope_depth == 0 {
+                        self.operations
+                            .push(PythonSourceOperation::Assignment(assignment.clone()));
+                    }
+                    self.assignments.push(assignment);
+                }
             }
             Stmt::AnnAssign(stmt) => {
                 self.collect_expr(&stmt.target);
@@ -502,6 +578,11 @@ impl PythonSourceCollector {
                 }
             }
             Stmt::ClassDef(stmt) => {
+                let assignments = stmt
+                    .body
+                    .iter()
+                    .filter_map(class_assignment_from_stmt)
+                    .collect::<Vec<_>>();
                 self.class_defs.push(ClassDef {
                     name: stmt.name.to_string(),
                     bases: stmt
@@ -515,11 +596,14 @@ impl PythonSourceCollector {
                                 .collect()
                         })
                         .unwrap_or_default(),
+                    assignments,
                 });
                 for decorator in &stmt.decorator_list {
                     self.collect_expr(&decorator.expression);
                 }
+                self.scope_depth += 1;
                 self.collect_body(&stmt.body);
+                self.scope_depth -= 1;
             }
             Stmt::FunctionDef(stmt) => {
                 self.function_defs.push(FunctionDef {
@@ -540,7 +624,9 @@ impl PythonSourceCollector {
                 if let Some(returns) = &stmt.returns {
                     self.collect_expr(returns);
                 }
+                self.scope_depth += 1;
                 self.collect_body(&stmt.body);
+                self.scope_depth -= 1;
             }
             Stmt::Return(stmt) => {
                 if let Some(value) = &stmt.value {
@@ -634,7 +720,7 @@ impl PythonSourceCollector {
     fn collect_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Call(call) => {
-                self.calls.push(CallExpression {
+                let call_expression = CallExpression {
                     callee: QualifiedName::from_expr(&call.func),
                     arguments: call.arguments.args.iter().map(static_value).collect(),
                     keywords: call
@@ -648,7 +734,12 @@ impl PythonSourceCollector {
                                 .map(|arg| (arg.to_string(), static_value(&keyword.value)))
                         })
                         .collect(),
-                });
+                };
+                if self.scope_depth == 0 {
+                    self.operations
+                        .push(PythonSourceOperation::Call(call_expression.clone()));
+                }
+                self.calls.push(call_expression);
                 self.collect_expr(&call.func);
                 for arg in &call.arguments.args {
                     self.collect_expr(arg);
@@ -780,42 +871,90 @@ impl PythonSourceCollector {
             calls: self.calls,
             class_defs: self.class_defs,
             function_defs: self.function_defs,
+            operations: self.operations,
         }
     }
+}
+
+fn class_assignment_from_stmt(stmt: &Stmt) -> Option<Assignment> {
+    match stmt {
+        Stmt::Assign(stmt) => Some(Assignment {
+            kind: AssignmentKind::Assign,
+            targets: stmt
+                .targets
+                .iter()
+                .filter_map(QualifiedName::from_expr)
+                .map(|name| AssignmentTarget { name })
+                .collect(),
+            value: static_value(&stmt.value),
+        }),
+        Stmt::AugAssign(stmt) if stmt.op == Operator::Add => Some(Assignment {
+            kind: AssignmentKind::AugAdd,
+            targets: QualifiedName::from_expr(&stmt.target)
+                .into_iter()
+                .map(|name| AssignmentTarget { name })
+                .collect(),
+            value: static_value(&stmt.value),
+        }),
+        _ => None,
+    }
+}
+
+fn static_sequence_value(elements: &[Expr]) -> StaticValue {
+    if elements.iter().all(|element| {
+        matches!(
+            element,
+            Expr::StringLiteral(_) | Expr::Starred(_) | Expr::Name(_) | Expr::Attribute(_)
+        )
+    }) {
+        return StaticValue::StringList(
+            elements
+                .iter()
+                .map(|element| match element {
+                    Expr::StringLiteral(string) => {
+                        StaticValueSegment::known(string.value.to_str().to_string())
+                    }
+                    Expr::Starred(_) => {
+                        StaticValueSegment::unknown(StaticValueIssue::SpreadElement)
+                    }
+                    other => StaticValueSegment::unknown(unsupported_expr(other)),
+                })
+                .collect(),
+        );
+    }
+    StaticValue::List(elements.iter().map(static_value).collect())
 }
 
 fn static_value(expr: &Expr) -> StaticValue {
     match expr {
         Expr::StringLiteral(string) => StaticValue::String(string.value.to_str().to_string()),
-        Expr::List(list) => StaticValue::StringList(
-            list.elts
-                .iter()
-                .map(|element| match element {
-                    Expr::StringLiteral(string) => {
-                        StaticValueSegment::known(string.value.to_str().to_string())
-                    }
-                    Expr::Starred(_) => {
-                        StaticValueSegment::unknown(StaticValueIssue::SpreadElement)
-                    }
-                    other => StaticValueSegment::unknown(unsupported_expr(other)),
-                })
-                .collect(),
-        ),
-        Expr::Tuple(tuple) => StaticValue::StringList(
-            tuple
-                .elts
-                .iter()
-                .map(|element| match element {
-                    Expr::StringLiteral(string) => {
-                        StaticValueSegment::known(string.value.to_str().to_string())
-                    }
-                    Expr::Starred(_) => {
-                        StaticValueSegment::unknown(StaticValueIssue::SpreadElement)
-                    }
-                    other => StaticValueSegment::unknown(unsupported_expr(other)),
-                })
-                .collect(),
-        ),
+        Expr::BooleanLiteral(boolean) => StaticValue::Bool(boolean.value),
+        Expr::List(list) => static_sequence_value(&list.elts),
+        Expr::Tuple(tuple) => static_sequence_value(&tuple.elts),
+        Expr::BinOp(bin_op) if bin_op.op == Operator::Add => {
+            let left = static_value(&bin_op.left);
+            let right = static_value(&bin_op.right);
+            match (left, right) {
+                (StaticValue::StringList(mut left), StaticValue::StringList(right)) => {
+                    left.extend(right);
+                    StaticValue::StringList(left)
+                }
+                (StaticValue::StringList(mut left), other) => {
+                    left.push(StaticValueSegment::unknown(static_value_issue(&other)));
+                    StaticValue::StringList(left)
+                }
+                (other, StaticValue::StringList(mut right)) => {
+                    let mut segments =
+                        vec![StaticValueSegment::unknown(static_value_issue(&other))];
+                    segments.append(&mut right);
+                    StaticValue::StringList(segments)
+                }
+                (left, right) => StaticValue::StringList(vec![
+                    StaticValueSegment::unknown(static_value_issue(&left)),
+                    StaticValueSegment::unknown(static_value_issue(&right)),
+                ]),
+            }
+        }
         Expr::Dict(dict) => {
             let mut entries = Vec::new();
             for item in dict.iter() {
@@ -831,6 +970,17 @@ fn static_value(expr: &Expr) -> StaticValue {
         other => StaticValue::Unknown {
             issue: unsupported_expr(other),
         },
+    }
+}
+
+fn static_value_issue(value: &StaticValue) -> StaticValueIssue {
+    match value {
+        StaticValue::Unknown { issue } => issue.clone(),
+        StaticValue::String(_)
+        | StaticValue::Bool(_)
+        | StaticValue::StringList(_)
+        | StaticValue::List(_)
+        | StaticValue::Dict(_) => StaticValueIssue::UnsupportedExpression { kind: "bin_op" },
     }
 }
 
