@@ -492,17 +492,16 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Hickey review required package-style Django model files, settings-registered workspace template libraries, and multiple environment candidates to keep working; addressed by model-package role classification, `template_tag_libraries`-derived templatetag roles, and multi-environment deduplication.
   - Rust specialist required avoiding arbitrary non-installed `templatetags` extraction, making the legacy/static project boundary explicit, and not disabling workspace extraction for multiple environments; addressed by scoping templatetag role assignment to static inventory, filtering environment candidates by legacy project root while iterating multiples, and deduplicating results.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed queryable project-scoped module inventories, source-root/search-path scoping, multi-candidate deduplication, and removal of legacy indexes are idiomatic.
-- Follow-ups/blockers: Phase 9 should move remaining external extraction maps and runtime inspector/cache behavior behind typed enrichment hints; `crates/djls-db/src/scanning.rs` is intentionally a new boundary placeholder until Phase 9 infrastructure-owned provider/cache work fills it in.
+- Follow-ups/blockers: Phase 9 should move remaining external extraction maps and runtime inspector behavior behind typed enrichment hints; `crates/djls-db/src/scanning.rs` is intentionally a new boundary placeholder until Phase 9 infrastructure-owned provider work fills it in.
 
 ### Runtime enrichment hints
 - Bookmark: `startup-rethink` still points to `mtlvxvsx`; move it to `rkpmtosy` after describing this verified slice.
 - Current change: `rkpmtosy`.
-- Scope: expanded `djls_project::ProjectEnrichment` with `Fresh`, `CachedStale`, `Failed`, typed issue states, `ProjectEnrichmentHints`, `ProjectEnrichmentDraft`, cache/runtime/inspector issue types, deep extraction hint placeholders, and `merge_template_libraries`; added `DjangoDatabase::apply_enrichment` so infrastructure can apply translated enrichment drafts to the stable Project Facts root without knowing startup generations; added infrastructure-owned enrichment provider/cache modules that translate runtime DTOs and cache outcomes into `ProjectEnrichmentDraft`; added the scheduler-only `Enrichment` loading node and wired CLI/LSP effects through `DjangoDatabase::load_project_enrichment`; moved inspector zipapp packaging and embedded inspector asset ownership from `djls-semantic` to `djls-db`; removed the unused public `refresh_external_data` / `load_template_library_cache` semantic bridge and the semantic-owned `ProjectIntrospector` capability; deleted the legacy semantic Project external extraction maps and made semantic extraction rely on tracked static workspace/module inventory inputs; merged runtime template-library enrichment hints into the semantic template-library adapter so applied enrichment is visible to semantic consumers.
+- Scope: expanded `djls_project::ProjectEnrichment` with `Fresh`, `Failed`, typed issue states, `ProjectEnrichmentHints`, `ProjectEnrichmentDraft`, and runtime/inspector issue types; added `DjangoDatabase::apply_enrichment` so infrastructure can apply translated enrichment drafts to the stable Project Facts root without knowing startup generations; added infrastructure-owned enrichment provider code that translates runtime DTOs into `ProjectEnrichmentDraft`; added the scheduler-only `Enrichment` loading node and wired CLI/LSP effects through `DjangoDatabase::load_project_enrichment`; moved inspector zipapp packaging and embedded inspector asset ownership from `djls-semantic` to `djls-db`; removed the unused public `refresh_external_data` / `load_template_library_cache` semantic bridge and the semantic-owned `ProjectIntrospector` capability; deleted the legacy semantic Project external extraction maps and made semantic extraction rely on tracked static workspace/module inventory inputs; added a project-owned `loadable_template_libraries` projection so static/runtime library merge policy lives in `djls-project` and `djls-semantic` only lowers the neutral project view into semantic symbol types. Cache-as-hint, deep-extraction scaffolding, unused runtime template-dir hints, and unused runtime installed-app hints were later deleted from this branch because static/source discovery is the strategic path and no real enrichment cache is wired.
 - Validation:
   - `just fmt --check` passed.
   - `cargo test -p djls-project loading_plan` passed.
   - `cargo test -p djls-project loading_enrichment` passed.
-  - `cargo test -p djls-project cache_as_hint` passed.
   - `cargo test -p djls-project enrichment_compat` passed.
   - `cargo test -p djls-project enrichment` passed.
   - `cargo test -p djls-db enrichment` passed.
@@ -511,7 +510,6 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - `cargo test -p djls-semantic queries` passed.
   - `cargo test -p djls-semantic runtime_enrichment` passed.
   - `cargo test -p djls-semantic resolution` passed.
-  - `cargo test -p djls-db enrichment_cache` passed.
   - `cargo test -p djls-db --no-run` passed.
   - `cargo test -p djls-project --no-run` passed.
   - `cargo test -p djls-semantic --no-run` passed.
@@ -522,7 +520,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - Cleanup search status: `rg "extracted_external|load_template_library_cache|refresh_external_data|project::introspector|djls_inspector.pyz" crates/djls-semantic crates/djls-project crates/djls-db crates/djls-server -g '*.rs' -g 'build.rs'` now finds only the `djls-db` build script and `djls-db::enrichment_provider` embedded asset ownership for `djls_inspector.pyz`.
 - Review/reference follow-up:
   - Ousterhout review found a loading-plan contract mismatch after adding `NodeId::Enrichment`; fixed by adding enrichment to `NODE_SPECS` manifest expectations and Phase 3 plan tests.
-  - Rust specialist required applied enrichment to be visible to semantic consumers, production effects to call the provider/cache seam instead of hard-coded `Disabled`, and legacy external extraction maps to have a replacement/removal story; fixed by merging runtime template-library hints in the semantic adapter, wiring CLI/LSP loading effects through `DjangoDatabase::load_project_enrichment`, and relying on tracked static Python module inventory for extraction inputs after deleting the legacy maps.
+  - Rust specialist required applied enrichment to be visible to semantic consumers, production effects to call the provider seam instead of hard-coded `Disabled`, and legacy external extraction maps to have a replacement/removal story; fixed by merging runtime template-library hints in the semantic adapter, wiring CLI/LSP loading effects through `DjangoDatabase::load_project_enrichment`, and relying on tracked static Python module inventory for extraction inputs after deleting the legacy maps.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed runtime/process probing belongs in infrastructure/session boundaries, lowered typed facts belong in project/model inputs, and failures should degrade status without blocking core static readiness. No Oracle redesign was needed.
 - Follow-ups/blockers: Phase 10 should finish CLI/LSP parity and remove the remaining old semantic `Project` API/adapter surface.
 
@@ -548,7 +546,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - `just lint` passed.
 - Cleanup/audit evidence:
   - Loading parity: `LoadingPlan::phase3()` and `NODE_SPECS` include `source-file-set`, `project-discovery-set`, `python-source-models`, `environment-discovery`, `installed-app-files`, `template-directory-files`, and scheduler-only `enrichment`; `crates/djls/src/commands/check.rs` and `crates/djls-server/src/startup.rs` both run `run_loading_plan(LoadingPlan::phase3(), ...)`; phase logs above name CLI/LSP adapter tests for every node introduction.
-  - `rg "ProjectDb|Project::bootstrap|bootstrap_project|TemplateDirs|template_dirs\(" crates -g '*.rs'` finds only `djls_project::Db` aliases, runtime enrichment DTO names, and `runtime_template_dirs()` enrichment accessors; no old semantic Project API remains.
+  - `rg "ProjectDb|Project::bootstrap|bootstrap_project|TemplateDirs|template_dirs\(" crates -g '*.rs'` finds only `djls_project::Db` aliases and historical inspector support; no old semantic Project API remains.
   - `rg "refresh_external_data|load_template_library_cache|ProjectPythonIndex|ProjectTemplateFiles|TemplateDirs|Fact<|ProjectDiscoveryIssue|Project Model" crates docs -g '*.rs' -g '*.md'` finds only intentional historical/design docs, the current `ProjectDiscoveryIssue` domain type, and `TemplateDirsDto` runtime-provider DTO naming.
   - `rg "django_settings_module" crates/djls-server crates/djls-db crates/djls-semantic crates/djls-project -g '*.rs'` finds settings fields/tests/provider request lowering only; no startup path globally selects one settings module.
   - `rg "window.workDoneProgress|create_work_done_progress|Client::progress|WorkDoneProgress" crates/djls-server -g '*.rs'` confirms progress creation/emission remains isolated in `startup.rs` with server capability advertisement in `server.rs`.
@@ -657,7 +655,7 @@ This table plus the canonical projection rule below is the plan's source of trut
 | `environment-discovery` | 5 | `source-file-set`, `project-discovery-set`, `python-source-models` | `djls-project::environments` readiness-observation activity | typed live-query outcome; tracked queries remain source of truth | `DjangoEnvironmentCandidatesOutcome` / `EnvironmentSelection` outcome from live `django_environment_candidates(db, project)` / `environment_for_file(db, project, file)` queries; no `ProjectLoadingState` field | observe live query and report ambiguity/degraded outcome | observe live query and report ambiguity/degraded progress/log outcome | `workspace-ready` |
 | `installed-app-files` | 6B | `source-file-set`, `project-discovery-set`, `python-source-models`, `environment-discovery` | `djls-project::apps` | `PartitionedSourceFilePatch` then project-owned source-inventory update containing an incremental materialization patch; `djls-db` returns `SourceFileSetMaterialized`; project finalization returns `ProjectSourceFilesApplied` | `node_status_from_readiness(ProjectSourceFilesApplied)` using the applied installed-app partition/node transition; successful apply updates `Project.source_inventory` | apply update directly; report unknown/deferred app gaps | guarded apply; report unknown/deferred app gaps via progress/logs | prerequisite for `django-apps-ready` once Phase 6D registers it |
 | `template-directory-files` | 6B | `source-file-set`, `project-discovery-set`, `python-source-models`, `environment-discovery` | `djls-project::templates::loading` | `PartitionedSourceFilePatch` then project-owned source-inventory update containing an incremental materialization patch; `djls-db` returns `SourceFileSetMaterialized`; project finalization returns `ProjectSourceFilesApplied` | `node_status_from_readiness(ProjectSourceFilesApplied)` using the applied template-directory partition/node transition; successful apply updates `Project.source_inventory` | apply update directly; report deferred template roots | guarded apply; report deferred template roots via progress/logs | prerequisite for `django-apps-ready` once Phase 6D registers it |
-| `enrichment` | 9 | static milestones as configured by runtime policy; must not block them | `djls-project::enrichment` | `ProjectEnrichmentDraft` | applied `Project.enrichment` field update and/or derived enrichment domain outcome | run or explicitly skip according to CLI policy | run optional runtime/cache work and guarded apply | no static milestone; optional enrichment view only |
+| `enrichment` | 9 | static milestones as configured by runtime policy; must not block them | `djls-project::enrichment` | `ProjectEnrichmentDraft` | applied `Project.enrichment` field update and/or derived enrichment domain outcome | run or explicitly skip according to CLI policy | run optional runtime work and guarded apply | no static milestone; optional enrichment view only |
 
 ### Canonical readiness projection rule
 
@@ -684,7 +682,6 @@ Query-visible Project Facts are the source of readiness. Loading-plan node termi
 | `Skipped` | `Skipped` | The node intentionally did not run, usually because no relevant inputs exist or policy disabled optional work. Dependents run only when their `NodeSpec` marks the prerequisite optional. |
 | `Unavailable` | `Unavailable` | Required facts cannot be produced from current inputs. Mandatory dependents are blocked through the prerequisite policy. |
 | `Failed` | `Failed` | Unexpected execution or apply failure. Mandatory dependents are blocked and the run finishes failed unless adapter policy explicitly downgrades to degraded reporting. |
-| `CachedStale` | `Degraded` | Cache/enrichment staleness is a durable domain fact, not reload-in-progress state. It may support degraded presentation when the node's policy accepts it. |
 | `Superseded` / `RejectedApply` | Not a readiness input | These are executor outcomes. They become `StartupRunOutcome::Superseded` and must not be fed to `node_status_from_readiness`. |
 
 Milestone acceptability is configured in `NODE_SPECS`. By default, milestones advance fully only from `Succeeded` prerequisites. `workspace-ready` may advance as degraded for accepted `Degraded` environment ambiguity or intentional `Skipped` Python-source work with no relevant files; it must not advance on `Deferred`, `Unavailable`, or `Failed`. `django-apps-ready` advances fully only when both app/template file nodes succeed; accepted `Deferred` app/template partitions may advance it only as degraded.
@@ -2412,7 +2409,7 @@ pub struct PythonModule {
 ## Phase 9: runtime Project Introspection as enrichment
 
 ### Overview
-Reintroduce runtime-backed data as optional enrichment hints with typed status, superseded-result guards, and cache-as-hint semantics. Runtime data augments static Project Facts; it does not own startup readiness.
+Reintroduce runtime-backed data as optional enrichment hints with typed status and superseded-result guards. Runtime data augments static Project Facts; it does not own startup readiness. Cache-as-hint is deferred to static/source discovery or explicit legacy-runtime compatibility work; this branch should not keep cache API surface without a real cache implementation.
 
 ### Changes Required
 
@@ -2420,16 +2417,13 @@ Reintroduce runtime-backed data as optional enrichment hints with typed status, 
 **File**: `crates/djls-project/src/enrichment.rs`
 
 **Edits**:
-- Add `ProjectEnrichmentHints` with runtime/deep hint fields:
-  - `runtime_template_dirs`
+- Add `ProjectEnrichmentHints` with the runtime hint fields still consumed by semantic behavior:
   - `runtime_template_libraries`
-  - `runtime_installed_apps`
-  - `deep_extraction_hints`
-- Add `ProjectEnrichmentDraft` and extend `ProjectEnrichmentIssue` for runtime/cache/deep enrichment failures.
+- Add `ProjectEnrichmentDraft` and extend `ProjectEnrichmentIssue` for runtime/inspector enrichment failures.
 - Expand the Phase 3 `Project.enrichment` domain facts into the single project-visible enrichment fact shape. Do not reintroduce `ProjectEnrichmentAvailability`, and do not put executor status inside `ProjectEnrichmentHints`.
 - Add the `enrichment` scheduler-only loading node from the loading-node table in this phase. It may track only pending/running/superseded execution state and is never a core readiness authority. Terminal progress status comes from the scheduler outcome plus the applied `Project.enrichment` domain result. Runtime success/failure/cache-staleness visible to queries comes from `Project.enrichment`.
-- Add merge helpers such as `merge_template_libraries(static_inventory, enrichment)`.
-- Preserve provenance/staleness on runtime/cache values.
+- Add project-owned loadable-library projections that merge static facts and runtime hints before semantic lowering.
+- Preserve provenance on runtime values.
 
 **Code shape**:
 ```rust
@@ -2437,7 +2431,6 @@ pub enum ProjectEnrichment {
     Absent,
     Disabled,
     Fresh(ProjectEnrichmentHints),
-    CachedStale { hints: ProjectEnrichmentHints, issue: ProjectEnrichmentIssue },
     Failed { issue: ProjectEnrichmentIssue },
     Unavailable { issue: ProjectEnrichmentIssue },
 }
@@ -2445,15 +2438,12 @@ pub enum ProjectEnrichment {
 pub enum ProjectEnrichmentIssue {
     RuntimeUnavailable { interpreter: Option<Interpreter>, kind: RuntimeUnavailableKind },
     InspectorFailed { kind: InspectorFailureKind },
-    CacheStale { key: EnrichmentCacheKey, age: CacheAge },
-    CacheReadFailed { kind: CacheIssueKind },
 }
 ```
 
 #### 2. Move inspector provider output translation out of semantic analysis
 **Files**:
 - `crates/djls-db/src/enrichment_provider.rs` or equivalent infrastructure-owned provider module
-- `crates/djls-db/src/enrichment_cache.rs` or equivalent infrastructure-owned cache module
 - `crates/djls-semantic/build.rs`
 - `crates/djls-semantic/inspector/`
 - `crates/djls-semantic/src/project/introspector.rs`
@@ -2461,11 +2451,11 @@ pub enum ProjectEnrichmentIssue {
 
 **Edits**:
 - Keep stable enrichment domain types (`ProjectEnrichment`, `ProjectEnrichmentDraft`, merge policy, typed issues) in `djls-project`.
-- Move inspector subprocess invocation, JSON response DTOs, DTO parsing, zipapp build packaging, embedded inspector asset ownership, cache I/O, cache freshness policy, and provider fallback behavior to infrastructure-owned code, not `djls-project` and not `djls-semantic`.
-- Translate successful inspector/cache responses into `djls_project::ProjectEnrichmentDraft` at the infrastructure-to-project seam. Only drafts and typed issues cross into `djls-project`.
+- Move inspector subprocess invocation, JSON response DTOs, DTO parsing, zipapp build packaging, embedded inspector asset ownership, and provider fallback behavior to infrastructure-owned code, not `djls-project` and not `djls-semantic`.
+- Translate successful inspector responses into `djls_project::ProjectEnrichmentDraft` at the infrastructure-to-project seam. Only drafts and typed issues cross into `djls-project`.
 - Move `crates/djls-semantic/inspector/` and the `djls_inspector.pyz` packaging responsibility from `crates/djls-semantic/build.rs` to the chosen infrastructure owner.
 - Update the `include_bytes!(concat!(env!("OUT_DIR"), "/djls_inspector.pyz"))` location so embedded inspector bytes are owned by the infrastructure provider, not `djls-semantic` or `djls-project`.
-- Keep `djls-semantic` as a consumer of merged static/enrichment facts only. It must not own inspector JSON DTOs, cache shape, subprocess policy, zipapp packaging, embedded inspector bytes, or provider fallback behavior after this phase.
+- Keep `djls-semantic` as a consumer of merged static/enrichment facts only. It must not own inspector JSON DTOs, subprocess policy, zipapp packaging, embedded inspector bytes, or provider fallback behavior after this phase.
 - Do not mutate environment candidates, template inventories, or semantic outputs directly from inspector responses.
 - On failure, produce a failed enrichment draft/state instead of returning `None` to hide the failure.
 - Delete or quarantine the old `djls-semantic::project::introspector` module once no callers remain; if a temporary re-export is needed, mark Phase 10 as its deletion gate.
@@ -2474,32 +2464,30 @@ pub enum ProjectEnrichmentIssue {
 **File**: `crates/djls-db/src/db.rs`
 
 **Edits**:
-- Add `apply_enrichment(&mut self, draft: ProjectEnrichmentDraft)` that updates `Project.enrichment` to `Fresh`, `CachedStale`, `Failed`, or `Unavailable` as appropriate.
+- Add `apply_enrichment(&mut self, draft: ProjectEnrichmentDraft)` that updates `Project.enrichment` to `Fresh`, `Failed`, or `Unavailable` as appropriate.
 - Compare current enrichment fields before calling setters on the stable `Project` input.
 - Keep generation/superseded-result rejection in `startup.rs` via `GenerationGuard`; database methods must not know startup generations.
 
-#### 4. Replace old inspector cache helpers
+#### 4. Delete old inspector cache helpers and defer cache-as-hint
 **Files**:
 - `crates/djls-semantic/src/project/sync.rs`
 - `crates/djls-project/src/enrichment.rs`
-- `crates/djls-db/src/enrichment_cache.rs` or equivalent infrastructure-owned cache module
 
 **Edits**:
-- Replace template-library snapshot cache helpers with enrichment cache helpers.
-- Cache keys must include discovery-relevant config and enough provenance/staleness metadata to treat cache results as hints.
-- A warm cache may seed enrichment status, but the fresh file-set/static pass remains authoritative.
 - Delete `load_template_library_cache` and `refresh_external_data` public exports when no longer used.
-- Add a phase-local cleanup search: run `rg "load_template_library_cache|refresh_external_data|djls-semantic/inspector|project::introspector|djls_inspector.pyz" crates/djls-semantic crates/djls-project crates/djls-db crates/djls-server -g '*.rs' -g 'build.rs'` and remove stale semantic-owned inspector/cache bridges or document the exact Phase 10 deletion gate for intentional temporary re-exports.
+- Do not keep public cache/stale enrichment domain states without a real cache implementation.
+- Defer cache-as-hint to the static/source discovery work or an explicit legacy-runtime compatibility path. Runtime enrichment in this branch should not reserve cache API surface.
+- Add a phase-local cleanup search: run `rg "load_template_library_cache|refresh_external_data|djls-semantic/inspector|project::introspector|djls_inspector.pyz" crates/djls-semantic crates/djls-project crates/djls-db crates/djls-server -g '*.rs' -g 'build.rs'` and remove stale semantic-owned inspector bridges or document the exact Phase 10 deletion gate for intentional temporary re-exports.
 
 #### 5. Schedule enrichment as optional startup/background work
 **File**: `crates/djls-server/src/startup.rs`
 
 **Edits**:
 - Run the scheduler-only `enrichment` loading node for pending/running progress, not as a terminal readiness authority.
-- Implement runtime/cache acquisition as an enrichment activity service that returns `ProjectEnrichmentDraft`; the neutral driver invokes effect adapters that may run or explicitly skip it according to their runtime policy. The LSP effect adapter reports progress through `StartupController`'s adapter hooks and applies the guarded result.
+- Implement runtime acquisition as an enrichment activity service that returns `ProjectEnrichmentDraft`; the neutral driver invokes effect adapters that may run or explicitly skip it according to their runtime policy. The LSP effect adapter reports progress through `StartupController`'s adapter hooks and applies the guarded result.
 - Capture immutable runtime config into server-local `StartupRunInputs` / `ProjectLoadingSnapshot` under a short session lock, alongside the `GenerationGuard`.
 - Lower the captured data into a project-owned `EnrichmentLoadRequest` before invoking `djls-project` enrichment activity code.
-- Run subprocess/cache work from that request outside the lock.
+- Run subprocess work from that request outside the lock.
 - Apply translated enrichment drafts under a short lock: LSP through `GenerationGuard::apply`; CLI directly if it runs enrichment, or an explicit skipped outcome if it does not.
 - After the guarded apply writes `Project.enrichment`, derive the scheduler/progress view from that domain fact instead of writing a second terminal task value.
 - If an `Enriched` view is added in this phase, implement it as a projection from `Project.enrichment`, not as a core `LoadingPlan` milestone prerequisite over independent task terminal status.
@@ -2515,16 +2503,14 @@ pub enum ProjectEnrichmentIssue {
 - [x] Inspector zipapp packaging/build ownership lives in the infrastructure provider, and neither `djls-semantic` nor `djls-project` owns `inspector/`, inspector `build.rs` packaging, or embedded inspector bytes: `cargo test -p djls-db --no-run`, `cargo test -p djls-project --no-run`, and `cargo test -p djls-semantic --no-run`.
 - [x] Database enrichment apply tests pass: `cargo test -p djls-db enrichment`
 - [x] Enrichment loading-node tests cover run/skip behavior through the neutral driver/shared plan, LSP effect adapter, and CLI explicit-skip effect outcome: `cargo test -p djls-project loading_enrichment`, `cargo test -p djls-server startup`, and `cargo test -p djls --test check`
-- [x] Cache-as-hint tests pass: `cargo test -p djls-project cache_as_hint`
-- [x] Inspector/cache bridge cleanup search passes or records exact Phase 10 deletion gates: `rg "extracted_external|load_template_library_cache|refresh_external_data|project::introspector|djls_inspector.pyz" crates/djls-semantic crates/djls-project crates/djls-db crates/djls-server -g '*.rs' -g 'build.rs'` returns only the `djls-db` build script and `djls-db::enrichment_provider` embedded asset ownership for `djls_inspector.pyz`.
+- [x] Inspector bridge cleanup search passes or records exact Phase 10 deletion gates: `rg "extracted_external|load_template_library_cache|refresh_external_data|project::introspector|djls_inspector.pyz" crates/djls-semantic crates/djls-project crates/djls-db crates/djls-server -g '*.rs' -g 'build.rs'` returns only the provider embedded asset ownership for `djls_inspector.pyz`.
 - [x] `Project.enrichment` expansion remains compatible with Phase 3–8 assertions: `cargo test -p djls-project enrichment_compat`
 - [x] Workspace builds: `cargo build -q`
 
 #### Manual Verification
 - [ ] With a failing Python interpreter, static template inventory remains available and enrichment status records failure.
-- [ ] With a warm cache, cached enrichment is marked as a hint and does not skip the fresh static file-set pass.
 - [ ] No request waits behind a failed or slow inspector subprocess.
-- [ ] Confirm provider/cache/zipapp internals remain behind the enrichment provider seam and stable Project Facts merge code consumes only drafts and typed issues.
+- [ ] Confirm provider/zipapp internals remain behind the enrichment provider seam and stable Project Facts merge code consumes only drafts and typed issues.
 
 ## Phase 10: CLI, real-LSP readiness, and old Project removal
 
@@ -2640,7 +2626,7 @@ Audit CLI/LSP parity on the shared project model, add real LSP startup/readiness
 
 ### Integration Tests
 - CLI `djls check` tests under `crates/djls/tests/check.rs` continue to cover explicit files, directories, stdin, ignore/select behavior, and no-template success.
-- Add project-model integration fixtures under `crates/djls-project/tests/` for multisite, settings composition, installed apps, ignored files, template inventory, cache-as-hint, explicit config-load failure/fallback issues, and degraded enrichment.
+- Add project-model integration fixtures under `crates/djls-project/tests/` for multisite, settings composition, installed apps, ignored files, template inventory, explicit config-load failure/fallback issues, and degraded enrichment.
 - Keep corpus tests for extraction and model graph behavior. Run `just corpus sync` if corpus tests fail due missing data.
 
 ### Real LSP E2E Tests

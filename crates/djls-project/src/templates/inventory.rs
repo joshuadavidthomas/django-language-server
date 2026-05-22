@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
@@ -9,6 +11,7 @@ use crate::Db;
 use crate::DjangoEnvironmentId;
 use crate::FileSetPartitionId;
 use crate::InstalledAppResolution;
+use crate::LibraryName;
 use crate::ModuleResolutionOutcome;
 use crate::Project;
 use crate::ProjectFilePartitionReadiness;
@@ -176,6 +179,48 @@ impl TemplateTagLibraryInventory {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LoadableTemplateLibraryInventory {
+    libraries: Vec<LoadableTemplateLibrary>,
+}
+
+impl LoadableTemplateLibraryInventory {
+    #[must_use]
+    pub fn libraries(&self) -> &[LoadableTemplateLibrary] {
+        &self.libraries
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoadableTemplateLibrary {
+    name: LibraryName,
+    module: Option<PyModuleName>,
+    source: LoadableTemplateLibrarySource,
+}
+
+impl LoadableTemplateLibrary {
+    #[must_use]
+    pub fn name(&self) -> &LibraryName {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn module(&self) -> Option<&PyModuleName> {
+        self.module.as_ref()
+    }
+
+    #[must_use]
+    pub fn source(&self) -> &LoadableTemplateLibrarySource {
+        &self.source
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LoadableTemplateLibrarySource {
+    Static,
+    Runtime,
+}
+
 #[salsa::tracked(returns(ref))]
 pub fn template_directories(
     db: &dyn Db,
@@ -285,6 +330,54 @@ pub fn template_tag_libraries(
         }
     }
     TemplateTagLibraryInventory { libraries }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn loadable_template_libraries(
+    db: &dyn Db,
+    project: Project,
+    env: DjangoEnvironmentId,
+) -> LoadableTemplateLibraryInventory {
+    let static_inventory = template_tag_libraries(db, project, env);
+    let mut libraries = Vec::new();
+    let mut known_names = BTreeSet::new();
+
+    for library in static_inventory.libraries() {
+        if matches!(
+            library.resolution(),
+            TemplateTagLibraryResolution::Unresolved { .. }
+                | TemplateTagLibraryResolution::Ambiguous { .. }
+        ) {
+            continue;
+        }
+        let Ok(name) = LibraryName::parse(library.name()) else {
+            continue;
+        };
+        known_names.insert(name.clone());
+        libraries.push(LoadableTemplateLibrary {
+            name,
+            module: None,
+            source: LoadableTemplateLibrarySource::Static,
+        });
+    }
+
+    let crate::ProjectEnrichment::Fresh(hints) = project.enrichment(db) else {
+        return LoadableTemplateLibraryInventory { libraries };
+    };
+    for (name, module) in hints.runtime_template_libraries() {
+        let (Ok(name), Ok(module)) = (LibraryName::parse(name), PyModuleName::parse(module)) else {
+            continue;
+        };
+        if known_names.insert(name.clone()) {
+            libraries.push(LoadableTemplateLibrary {
+                name,
+                module: Some(module),
+                source: LoadableTemplateLibrarySource::Runtime,
+            });
+        }
+    }
+
+    LoadableTemplateLibraryInventory { libraries }
 }
 
 fn directory_entry_with_readiness(
@@ -488,6 +581,7 @@ mod tests {
     use djls_source::SourceRootEntry;
     use djls_source::SourceRootId;
     use rustc_hash::FxHashMap;
+    use salsa::Setter;
 
     use super::*;
     use crate::django_environment_candidates;
@@ -496,6 +590,7 @@ mod tests {
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;
+    use crate::ProjectEnrichmentHints;
     use crate::ProjectEnvVars;
     use crate::ProjectSourceFilesIssue;
     use crate::ReadyProjectSourceFiles;
@@ -782,5 +877,81 @@ mod tests {
             library.resolution(),
             TemplateTagLibraryResolution::Resolved { .. }
         ));
+    }
+
+    #[test]
+    fn loadable_template_libraries_include_runtime_fallbacks() {
+        let mut db = TestDb::with_project();
+        db.set_file("/workspace/project/settings.py", "TEMPLATES = [{}]\n");
+        db.set_project_discovery(discovery(&db));
+        db.set_project_source_inventory(ready_inventory(
+            &db,
+            &["/workspace"],
+            &["/workspace/project/settings.py"],
+        ));
+        db.project()
+            .set_enrichment(&mut db)
+            .to(ProjectEnrichment::Fresh(ProjectEnrichmentHints::new(
+                std::collections::BTreeMap::from([(
+                    "runtime_ui".to_string(),
+                    "blog.templatetags.runtime_ui".to_string(),
+                )]),
+            )));
+        let env = env(&db);
+
+        let inventory = loadable_template_libraries(&db, db.project(), env);
+        let library = inventory
+            .libraries()
+            .iter()
+            .find(|library| library.name().as_str() == "runtime_ui")
+            .expect("runtime library should fill a static gap");
+
+        assert_eq!(
+            library.module().map(PyModuleName::as_str),
+            Some("blog.templatetags.runtime_ui")
+        );
+        assert_eq!(library.source(), &LoadableTemplateLibrarySource::Runtime);
+    }
+
+    #[test]
+    fn loadable_template_libraries_prefer_static_facts_over_runtime_hints() {
+        let mut db = TestDb::with_project();
+        db.set_file(
+            "/workspace/project/settings.py",
+            "TEMPLATES = [{'OPTIONS': {'libraries': {'ui': 'blog.templatetags.ui'}}}]\n",
+        );
+        db.set_file("/workspace/blog/templatetags/ui.py", "");
+        db.set_project_discovery(discovery(&db));
+        db.set_project_source_inventory(ready_inventory(
+            &db,
+            &["/workspace"],
+            &[
+                "/workspace/project/settings.py",
+                "/workspace/blog/templatetags/ui.py",
+            ],
+        ));
+        db.project()
+            .set_enrichment(&mut db)
+            .to(ProjectEnrichment::Fresh(ProjectEnrichmentHints::new(
+                std::collections::BTreeMap::from([(
+                    "ui".to_string(),
+                    "runtime.templatetags.ui".to_string(),
+                )]),
+            )));
+        let env = env(&db);
+
+        let inventory = loadable_template_libraries(&db, db.project(), env);
+        let ui_libraries = inventory
+            .libraries()
+            .iter()
+            .filter(|library| library.name().as_str() == "ui")
+            .collect::<Vec<_>>();
+
+        assert_eq!(ui_libraries.len(), 1);
+        assert_eq!(ui_libraries[0].module(), None);
+        assert_eq!(
+            ui_libraries[0].source(),
+            &LoadableTemplateLibrarySource::Static
+        );
     }
 }

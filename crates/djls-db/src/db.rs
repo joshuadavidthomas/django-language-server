@@ -21,12 +21,10 @@ use djls_project::ProjectDiscoveryIssues;
 use djls_project::ProjectDiscoverySet;
 use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectEnrichmentDraft;
-use djls_project::ProjectEnrichmentIssue;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::ProjectSourceFilesMaterializationPatch;
 use djls_project::ProjectSourceFilesUpdate;
 use djls_project::ReadyProjectSourceFiles;
-use djls_project::RuntimeUnavailableKind;
 use djls_project::SourceFileHandleChanges;
 use djls_project::SourceFileMaterializationIssue;
 use djls_project::SourceFileSetMaterialized;
@@ -46,9 +44,6 @@ use djls_source::SourceFiles;
 use djls_source::SourceRootEntry;
 use djls_workspace::FileSystem;
 use salsa::Setter;
-
-use crate::enrichment::load_runtime_enrichment;
-use crate::enrichment::RuntimeEnrichmentRequest;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -147,23 +142,12 @@ impl DjangoDatabase {
         db
     }
 
-    #[tracing::instrument(level = "info", skip_all, fields(outcome))]
     pub fn load_project_enrichment(&self) -> ProjectEnrichmentDraft {
         let project = LoadingDb::project(self);
-        let request = match runtime_enrichment_request(self, project) {
-            Ok(request) => request,
-            Err(issue) => {
-                let draft = ProjectEnrichmentDraft::Unavailable { issue };
-                tracing::Span::current().record("outcome", enrichment_draft_outcome(&draft));
-                return draft;
-            }
-        };
-        let draft = load_runtime_enrichment(&request);
-        tracing::Span::current().record("outcome", enrichment_draft_outcome(&draft));
-        draft
+        djls_project::load_runtime_project_enrichment(self, project)
     }
 
-    #[tracing::instrument(level = "info", skip_all, fields(outcome = enrichment_draft_outcome(&draft), changed))]
+    #[tracing::instrument(level = "info", skip_all, fields(changed))]
     pub fn apply_enrichment(
         &mut self,
         draft: ProjectEnrichmentDraft,
@@ -340,94 +324,6 @@ impl DjangoDatabase {
     fn current_ready_project_source_files(&self) -> Option<ReadyProjectSourceFiles> {
         LoadingDb::project(self).source_inventory(self).ready()
     }
-}
-
-fn enrichment_draft_outcome(draft: &ProjectEnrichmentDraft) -> &'static str {
-    match draft {
-        ProjectEnrichmentDraft::Disabled => "disabled",
-        ProjectEnrichmentDraft::Fresh(_) => "fresh",
-        ProjectEnrichmentDraft::CachedStale { .. } => "cached_stale",
-        ProjectEnrichmentDraft::Failed { .. } => "failed",
-        ProjectEnrichmentDraft::Unavailable { .. } => "unavailable",
-    }
-}
-
-#[tracing::instrument(
-    level = "info",
-    skip_all,
-    fields(
-        outcome,
-        project_root,
-        python,
-        django_settings_module,
-        pythonpath_entries,
-        env_var_count
-    )
-)]
-fn runtime_enrichment_request(
-    db: &dyn djls_project::Db,
-    project: ProjectFacts,
-) -> Result<RuntimeEnrichmentRequest, ProjectEnrichmentIssue> {
-    let discovery = project.discovery(db);
-    let ProjectDiscovery::Ready(discovery) = discovery else {
-        tracing::Span::current().record("outcome", "environment_not_configured");
-        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
-            interpreter: None,
-            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
-        });
-    };
-    let djls_project::DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
-        djls_project::django_environment_candidates(db, project)
-    else {
-        tracing::Span::current().record("outcome", "environment_not_configured");
-        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
-            interpreter: None,
-            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
-        });
-    };
-    let Some(candidate) = candidates.first() else {
-        tracing::Span::current().record("outcome", "environment_not_configured");
-        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
-            interpreter: None,
-            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
-        });
-    };
-    let root = candidate
-        .root()
-        .and_then(|path| discovery.roots().iter().find(|root| root.root(db) == path))
-        .or_else(|| discovery.roots().first())
-        .expect("ready discovery has at least one root");
-    let project_root = root.root(db).clone();
-    let interpreter = root
-        .interpreter(db)
-        .clone()
-        .unwrap_or(djls_project::Interpreter::Auto);
-    let Some(python) = interpreter.python_path(&project_root) else {
-        tracing::Span::current().record("outcome", "missing_python");
-        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
-            interpreter: Some(interpreter),
-            kind: RuntimeUnavailableKind::MissingPython,
-        });
-    };
-
-    let request = RuntimeEnrichmentRequest {
-        python,
-        project_root,
-        django_settings_module: Some(candidate.settings().as_str().to_string()),
-        pythonpath: root.pythonpath(db).clone(),
-        env_vars: root.env_vars(db).entries().to_vec(),
-    };
-    let span = tracing::Span::current();
-    span.record("outcome", "ready");
-    span.record("project_root", request.project_root.as_str());
-    span.record("python", request.python.as_str());
-    span.record(
-        "django_settings_module",
-        tracing::field::debug(&request.django_settings_module),
-    );
-    span.record("pythonpath_entries", request.pythonpath.len());
-    span.record("env_var_count", request.env_vars.len());
-    Ok(request)
 }
 
 fn project_discovery_matches_data(
@@ -1024,8 +920,8 @@ def my_filter(value, arg):
     #[test]
     fn database_apply_enrichment_updates_project_facts() {
         let (mut db, _event_log) = test_db_with_project();
-        let issue = djls_project::ProjectEnrichmentIssue::CacheReadFailed {
-            kind: djls_project::CacheIssueKind::NotFound,
+        let issue = djls_project::ProjectEnrichmentIssue::InspectorFailed {
+            kind: djls_project::InspectorFailureKind::InvalidJson,
         };
 
         db.apply_enrichment(djls_project::ProjectEnrichmentDraft::Failed {

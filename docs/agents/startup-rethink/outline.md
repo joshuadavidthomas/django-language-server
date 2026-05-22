@@ -362,7 +362,7 @@ This phase proves runtime-backed Project Introspection can augment the static pr
 
 ### File changes
 - `crates/djls-project/src/enrichment.rs`:
-  - `#[salsa::input] pub struct ProjectEnrichmentInput` with `runtime_template_dirs`, `runtime_template_libraries`, `runtime_installed_apps`, `deep_extraction_hints`, and `status` fields.
+  - `#[salsa::input] pub struct ProjectEnrichmentInput` with `runtime_template_dirs`, `runtime_template_libraries`, `runtime_installed_apps`, and `status` fields.
   - `pub enum EnrichmentStatus { NotStarted, Fresh, Stale, Failed { issue: EnrichmentIssue } }`.
   - `pub enum EnrichmentIssue { RuntimeUnavailable, InspectorFailed, CacheStale }`.
   - `pub fn merge_template_libraries(static_inventory: &TemplateTagLibraryInventory, enrichment: &ProjectEnrichmentInput) -> TemplateTagLibraryInventory`.

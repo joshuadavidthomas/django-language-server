@@ -6,7 +6,6 @@ use djls_source::Span;
 use crate::db::Db as SemanticDb;
 use crate::primitives::InternedTemplateName;
 use crate::primitives::Template;
-use crate::project::LibraryName;
 use crate::project::PyModuleName;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateLibrary;
@@ -154,50 +153,24 @@ pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<
     let djls_project::ProjectSourceInventory::Ready(_) = project.source_inventory(db) else {
         return None;
     };
-    let inventory = djls_project::template_tag_libraries(db, project, env);
+    let inventory = djls_project::loadable_template_libraries(db, project, env);
     let mut libraries = db.template_libraries().clone();
 
-    merge_runtime_template_libraries(&mut libraries, project.enrichment(db));
-
-    for library in inventory.libraries() {
-        if matches!(
-            library.resolution(),
-            djls_project::TemplateTagLibraryResolution::Unresolved { .. }
-                | djls_project::TemplateTagLibraryResolution::Ambiguous { .. }
-        ) {
-            continue;
-        }
-        let Ok(name) = LibraryName::parse(library.name()) else {
-            continue;
-        };
-        let module = static_template_library_module();
-        libraries
-            .loadable
-            .entry(name.clone())
-            .or_default()
-            .push(TemplateLibrary::new_active(name, module, None));
-    }
+    lower_project_template_libraries(&mut libraries, inventory.libraries());
 
     Some(libraries)
 }
 
-fn merge_runtime_template_libraries(
+fn lower_project_template_libraries(
     libraries: &mut TemplateLibraries,
-    enrichment: &djls_project::ProjectEnrichment,
+    project_libraries: &[djls_project::LoadableTemplateLibrary],
 ) {
-    let hints = match enrichment {
-        djls_project::ProjectEnrichment::Fresh(hints)
-        | djls_project::ProjectEnrichment::CachedStale { hints, .. } => hints,
-        djls_project::ProjectEnrichment::Absent
-        | djls_project::ProjectEnrichment::Disabled
-        | djls_project::ProjectEnrichment::Failed { .. }
-        | djls_project::ProjectEnrichment::Unavailable { .. } => return,
-    };
-
-    for (name, module) in hints.runtime_template_libraries() {
-        let (Ok(name), Ok(module)) = (LibraryName::parse(name), PyModuleName::parse(module)) else {
-            continue;
-        };
+    for library in project_libraries {
+        let module = library
+            .module()
+            .cloned()
+            .unwrap_or_else(static_template_library_module);
+        let name = library.name().clone();
         libraries
             .loadable
             .entry(name.clone())
@@ -254,6 +227,7 @@ mod tests {
     use djls_project::testing::template_path;
     use djls_project::Db as ProjectFactsDb;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
+    use djls_project::LibraryName;
     use djls_project::ProjectDiscovery;
     use salsa::Setter;
 
@@ -356,15 +330,10 @@ mod tests {
         project
             .set_enrichment(&mut db)
             .to(djls_project::ProjectEnrichment::Fresh(
-                djls_project::ProjectEnrichmentHints::new(
-                    Vec::new(),
-                    std::collections::BTreeMap::from([(
-                        "runtime_ui".to_string(),
-                        "blog.templatetags.runtime_ui".to_string(),
-                    )]),
-                    Vec::new(),
-                    djls_project::DeepExtractionHints::default(),
-                ),
+                djls_project::ProjectEnrichmentHints::new(std::collections::BTreeMap::from([(
+                    "runtime_ui".to_string(),
+                    "blog.templatetags.runtime_ui".to_string(),
+                )])),
             ));
         let source = db.create_file(&template_path(&root, "base.html"));
 

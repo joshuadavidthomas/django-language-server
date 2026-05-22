@@ -1,9 +1,13 @@
 mod inventory;
 mod loading;
 
+pub use inventory::loadable_template_libraries;
 pub use inventory::template_directories;
 pub use inventory::template_files;
 pub use inventory::template_tag_libraries;
+pub use inventory::LoadableTemplateLibrary;
+pub use inventory::LoadableTemplateLibraryInventory;
+pub use inventory::LoadableTemplateLibrarySource;
 pub use inventory::ProjectTemplate;
 pub use inventory::TemplateDirectory;
 pub use inventory::TemplateDirectoryEntry;

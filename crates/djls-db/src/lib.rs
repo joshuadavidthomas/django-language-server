@@ -5,7 +5,6 @@
 //! `djls_project::Db`). Both the LSP server and CLI commands consume this crate.
 //!
 mod db;
-mod enrichment;
 mod scanning;
 mod settings;
 

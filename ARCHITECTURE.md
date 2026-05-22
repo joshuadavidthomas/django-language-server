@@ -79,7 +79,7 @@ It lexes and parses template source into a flat `NodeList` — the same represen
 
 ### `crates/djls-project`
 
-Static Django Discovery and Project Facts. This crate owns the stable `Project` Salsa input and the tracked queries that derive project-level facts from source files:
+Django Discovery and Project Facts. This crate owns the stable `Project` Salsa input, the tracked queries that derive project-level facts from source files, and the explicit runtime enrichment provider used by the loading effect:
 
 - source-file inventory and project layout indexes
 - Python source models and module resolution
@@ -87,13 +87,13 @@ Static Django Discovery and Project Facts. This crate owns the stable `Project` 
 - installed-app projections
 - template-directory and Template Tag Library inventories
 - Python module inventories for model and templatetag extraction inputs
-- runtime enrichment domain types and merge helpers
+- runtime enrichment domain types, inspector provider, and project-owned static/runtime loadable-library projections
 
-`djls-project` does not speak LSP, spawn subprocesses, or own filesystem walking infrastructure directly. Loading effects in `djls`/`djls-server`/`djls-db` feed it typed inputs and apply typed outcomes.
+`djls-project` does not speak LSP. Its runtime inspector is an explicit loading effect, not a tracked query: callers invoke it through `LoadingEffects::load_project_enrichment`, then `djls-db` applies the returned draft to the stable `Project` input. Loading effects in `djls`/`djls-server`/`djls-db` feed it typed inputs and apply typed outcomes.
 
 ### `crates/djls-semantic`
 
-Semantic analysis. This is where Project Facts meet the parsed template, and where most of the interesting analysis happens.
+Semantic analysis. This is where Project Facts meet the parsed template, and where most of the interesting analysis happens. It consumes project-owned loadable-library projections and lowers them into semantic symbol tables; it does not own static/runtime Project Facts merge policy.
 
 It takes the flat node list from `djls-templates` and does two things:
 
@@ -174,7 +174,7 @@ Template parsing does not need its own database trait. `parse_template` depends 
 > [!NOTE]
 > The inspector is planned for replacement with static settings extraction ([#401](https://github.com/joshuadavidthomas/django-language-server/issues/401)). The goal: parse `settings.py` with the Ruff AST — the same approach used for templatetag extraction — and eliminate the Python subprocess and calling `django.setup()` entirely.
 
-The server can ask Django runtime questions through a Python subprocess, but this path is enrichment only. A small Python program from `crates/djls-db/inspector/` ships embedded in the binary as a zipapp owned by the infrastructure database crate. The provider translates runtime responses into `djls_project::ProjectEnrichmentDraft` values, which are then applied to the stable Project Facts root.
+The server can ask Django runtime questions through a Python subprocess, but this path is enrichment only. A small Python program from `crates/djls-project/inspector/` ships embedded in the binary as a zipapp owned by the Project Facts crate. The provider translates runtime responses into `djls_project::ProjectEnrichmentDraft` values, which `djls-db` then applies to the stable Project Facts root.
 
 Static Project Facts remain authoritative: source files, settings, installed apps, template directories, Template Tag Libraries, and Python module inventories are derived without executing project code. A missing or failing Python interpreter records failed/unavailable enrichment and should not block static readiness or normal degraded requests.
 

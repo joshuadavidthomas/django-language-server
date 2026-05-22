@@ -212,7 +212,6 @@ impl LoadingReadiness for ProjectEnrichment {
         match self {
             ProjectEnrichment::Absent | ProjectEnrichment::Disabled => NodeTerminalStatus::Skipped,
             ProjectEnrichment::Fresh(_) => NodeTerminalStatus::Succeeded,
-            ProjectEnrichment::CachedStale { .. } => NodeTerminalStatus::Degraded,
             ProjectEnrichment::Failed { .. } => NodeTerminalStatus::Failed,
             ProjectEnrichment::Unavailable { .. } => NodeTerminalStatus::Unavailable,
         }
