@@ -30,7 +30,6 @@ pub use project::LibraryName;
 pub use project::LibraryOrigin;
 pub use project::Project;
 pub use project::ProjectIntrospector;
-pub use project::ProjectPythonIndex;
 pub use project::PyModuleName;
 pub use project::SymbolDefinition;
 pub use project::TemplateDirs;

@@ -1,5 +1,10 @@
+pub mod inventory;
 pub mod source;
 
+pub use inventory::python_module_inventory;
+pub use inventory::PythonModule;
+pub use inventory::PythonModuleInventory;
+pub use inventory::PythonModuleRole;
 pub use source::python_source_index;
 pub use source::python_source_model;
 pub use source::Assignment;

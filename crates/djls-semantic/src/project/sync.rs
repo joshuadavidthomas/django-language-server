@@ -20,8 +20,6 @@ use sha2::Sha256;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::input::Project;
-use crate::project::input::ProjectPythonIndex;
-use crate::project::input::ProjectPythonModule;
 use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::python::Interpreter;
@@ -70,7 +68,6 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
 fn refresh_project_external_data(db: &mut dyn ProjectDb, project: Project) {
     refresh_template_dirs(db, project);
     refresh_template_libraries(db, project);
-    refresh_python_index(db, project);
     refresh_external_semantic_data(db, project);
 }
 
@@ -139,9 +136,7 @@ fn load_project_template_library_cache(db: &mut dyn ProjectDb, project: Project)
         return false;
     };
 
-    if apply_template_library_snapshot(db, project, snapshot) {
-        refresh_templatetag_modules(db, project);
-    }
+    apply_template_library_snapshot(db, project, snapshot);
 
     true
 }
@@ -323,74 +318,6 @@ fn save_template_library_snapshot(
             tracing::warn!("Failed to serialize template library snapshot cache: {e}");
         }
     }
-}
-
-fn refresh_python_index(db: &mut dyn ProjectDb, project: Project) {
-    let root = project.root(db).clone();
-    let modules = discover_model_files(&root, FileRootKind::Project)
-        .into_iter()
-        .map(|(module_path, file_path)| {
-            ProjectPythonModule::model(
-                module_path,
-                file_path.clone(),
-                db.get_or_create_file(&file_path),
-            )
-        })
-        .chain(templatetag_modules(db, project))
-        .collect();
-
-    let next = ProjectPythonIndex::new(modules);
-    if project.python_index(db) != &next {
-        project.set_python_index(db).to(next);
-    }
-}
-
-fn refresh_templatetag_modules(db: &mut dyn ProjectDb, project: Project) {
-    let modules = project
-        .python_index(db)
-        .models()
-        .cloned()
-        .chain(templatetag_modules(db, project))
-        .collect();
-
-    let next = ProjectPythonIndex::new(modules);
-    if project.python_index(db) != &next {
-        project.set_python_index(db).to(next);
-    }
-}
-
-fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<ProjectPythonModule> {
-    let root = project.root(db).clone();
-    let module_paths: Vec<String> = project
-        .template_libraries(db)
-        .registration_modules()
-        .into_iter()
-        .map(|module| module.as_str().to_string())
-        .collect();
-
-    if module_paths.is_empty() {
-        return Vec::new();
-    }
-
-    let interpreter = project.interpreter(db).clone();
-    let pythonpath = project.pythonpath(db).clone();
-    let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
-    let (workspace_modules, _external) = resolve_modules(
-        module_paths.iter().map(String::as_str),
-        &search_paths,
-        &root,
-    );
-
-    workspace_modules
-        .into_iter()
-        .map(|module| {
-            ProjectPythonModule::templatetag(
-                ModulePath::new(module.module_path),
-                module.file_path.clone(),
-                db.get_or_create_file(&module.file_path),
-            )
-        })
-        .collect()
 }
 
 fn refresh_external_semantic_data(db: &mut dyn ProjectDb, project: Project) {

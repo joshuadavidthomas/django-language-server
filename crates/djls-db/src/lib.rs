@@ -6,6 +6,7 @@
 //! commands consume this crate.
 //!
 mod db;
+mod scanning;
 mod settings;
 
 pub use db::DjangoDatabase;

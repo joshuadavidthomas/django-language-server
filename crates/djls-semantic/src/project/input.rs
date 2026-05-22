@@ -1,11 +1,8 @@
-use std::fmt;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::load_env_file;
-use djls_source::File;
 use djls_source::FileRootKind;
 use rustc_hash::FxHashMap;
 use salsa::Durability;
@@ -38,118 +35,6 @@ impl TemplateDirs {
             Self::Known(dirs) => Some(dirs),
         }
     }
-}
-
-/// First-party Python modules sorted by module path, path, and kind.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct ProjectPythonIndex(Vec<ProjectPythonModule>);
-
-impl ProjectPythonIndex {
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn new(mut modules: Vec<ProjectPythonModule>) -> Self {
-        modules.sort_by(|a, b| {
-            a.module_path
-                .cmp(&b.module_path)
-                .then_with(|| a.path.cmp(&b.path))
-                .then_with(|| a.kind.cmp(&b.kind))
-        });
-        Self(modules)
-    }
-
-    pub(crate) fn models(&self) -> impl Iterator<Item = &ProjectPythonModule> {
-        self.0
-            .iter()
-            .filter(|module| module.kind == ProjectPythonModuleKind::Model)
-    }
-
-    pub(crate) fn templatetags(&self) -> impl Iterator<Item = &ProjectPythonModule> {
-        self.0
-            .iter()
-            .filter(|module| module.kind == ProjectPythonModuleKind::TemplateTag)
-    }
-}
-
-impl fmt::Debug for ProjectPythonIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ProjectPythonIndex").field(&self.0).finish()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ProjectPythonModuleKind {
-    Model,
-    TemplateTag,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ProjectPythonModule {
-    module_path: ModulePath,
-    path: Utf8PathBuf,
-    kind: ProjectPythonModuleKind,
-    file: File,
-}
-
-impl ProjectPythonModule {
-    pub(crate) fn model(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
-        Self {
-            module_path,
-            path,
-            kind: ProjectPythonModuleKind::Model,
-            file,
-        }
-    }
-
-    pub(crate) fn templatetag(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
-        Self {
-            module_path,
-            path,
-            kind: ProjectPythonModuleKind::TemplateTag,
-            file,
-        }
-    }
-
-    pub(crate) fn module_path(&self) -> &ModulePath {
-        &self.module_path
-    }
-
-    pub(crate) fn file(&self) -> File {
-        self.file
-    }
-}
-
-impl fmt::Debug for ProjectPythonModule {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProjectPythonModule")
-            .field("module_path", &self.module_path)
-            .field("path", &self.path)
-            .field("kind", &self.kind)
-            .finish_non_exhaustive()
-    }
-}
-
-#[salsa::tracked(returns(ref))]
-pub(crate) fn project_model_modules(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<ProjectPythonModule> {
-    project.python_index(db).models().cloned().collect()
-}
-
-#[salsa::tracked(returns(ref))]
-pub(crate) fn project_templatetag_modules(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<ProjectPythonModule> {
-    project.python_index(db).templatetags().cloned().collect()
 }
 
 /// Complete project configuration as a Salsa input.
@@ -194,9 +79,6 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// First-party Python modules discovered for this project.
-    #[returns(ref)]
-    pub(crate) python_index: ProjectPythonIndex,
     /// Extracted tag rules from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_external_data`. Workspace files use tracked queries.
@@ -239,7 +121,6 @@ impl Project {
             TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            ProjectPythonIndex::default(),
             FxHashMap::default(),
             FxHashMap::default(),
             FxHashMap::default(),
@@ -247,7 +128,6 @@ impl Project {
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
-        .python_index_durability(Durability::LOW)
         .extracted_external_tag_rules_durability(Durability::HIGH)
         .extracted_external_filter_arities_durability(Durability::HIGH)
         .extracted_external_block_specs_durability(Durability::HIGH)

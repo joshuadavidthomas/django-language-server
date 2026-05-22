@@ -13,10 +13,7 @@ mod sync;
 pub use djls_project::load_env_file;
 
 pub use crate::project::db::Db;
-pub(crate) use crate::project::input::project_model_modules;
-pub(crate) use crate::project::input::project_templatetag_modules;
 pub use crate::project::input::Project;
-pub use crate::project::input::ProjectPythonIndex;
 pub use crate::project::input::TemplateDirs;
 pub use crate::project::introspector::ProjectIntrospector;
 pub use crate::project::names::LibraryName;

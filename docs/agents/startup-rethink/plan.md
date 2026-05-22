@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `ltouroxq` contains the completed semantic static project query migration slice.
-- **Current slice**: Phase 7 completed; Phase 8 is next.
+- **Implementation change**: `mtlvxvsx` contains the completed Python module inventory extraction-input slice.
+- **Current slice**: Phase 8 completed; Phase 9 is next.
 
 ### Implementation Notes
 
@@ -475,6 +475,24 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required preserving structural validation in `validate_template_file` and avoiding false `Known` library state while startup inventories are incomplete; addressed both. Advisory items on `InvalidTemplateName`, synthetic static library module identity, and the temporary adapter remain Phase 8/10 cleanup considerations.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed source-file-aware resolution, explicit readiness/deferred behavior, deterministic precedence, and thin migration adapters are consistent with mature tooling patterns.
 - Follow-ups/blockers: Phase 8 should move extraction inputs from `ProjectPythonIndex` and old external maps into environment-scoped project inventories; Phase 10 should delete the remaining legacy `TemplateDirs`/`template_libraries` adapter surface once enrichment and symbol definitions have moved.
+
+### Python module inventory extraction inputs
+- Bookmark: `startup-rethink` still points to `ltouroxq`; move it to `mtlvxvsx` after describing this verified slice.
+- Current change: `mtlvxvsx`.
+- Scope: added `djls_project::python_module_inventory` with `PythonModuleRole`, `PythonModule`, and `PythonModuleInventory`; derives model, templatetag, AppConfig, urls, admin, and forms roles from loaded source inventory, resolved installed apps, static template tag library inventory, and Django conventions; includes `models.py` and `models/` package files; limits templatetag extraction inputs to installed-app/static-library modules rather than arbitrary directories; migrates semantic model/tag/filter/block extraction queries to the static inventory; handles multiple ready environments by iterating and deduplicating; removes the legacy `ProjectPythonIndex`/`ProjectPythonModule` input, helper queries, and refresh path; and adds `crates/djls-db/src/scanning.rs` as the infrastructure scanning boundary.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project python_module_inventory` passed: 1 test.
+  - `cargo test -p djls-semantic queries` passed: 1 test.
+  - `cargo test -p djls-db invalidation` passed: 12 tests.
+  - `cargo test -p djls-semantic --test corpus` passed: 1 test.
+  - Cleanup search `rg "ProjectPythonIndex|ProjectPythonModule|project_model_modules|project_templatetag_modules|python_index" crates/djls-semantic crates/djls-db crates/djls-project -g '*.rs'` returned no matches.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review required package-style Django model files, settings-registered workspace template libraries, and multiple environment candidates to keep working; addressed by model-package role classification, `template_tag_libraries`-derived templatetag roles, and multi-environment deduplication.
+  - Rust specialist required avoiding arbitrary non-installed `templatetags` extraction, making the legacy/static project boundary explicit, and not disabling workspace extraction for multiple environments; addressed by scoping templatetag role assignment to static inventory, filtering environment candidates by legacy project root while iterating multiples, and deduplicating results.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed queryable project-scoped module inventories, source-root/search-path scoping, multi-candidate deduplication, and removal of legacy indexes are idiomatic.
+- Follow-ups/blockers: Phase 9 should move remaining external extraction maps and runtime inspector/cache behavior behind typed enrichment hints; `crates/djls-db/src/scanning.rs` is intentionally a new boundary placeholder until Phase 9 infrastructure-owned provider/cache work fills it in.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -2311,12 +2329,12 @@ pub struct PythonModule {
 ### Success Criteria
 
 #### Automated Verification
-- [ ] Python module inventory tests pass: `cargo test -p djls-project python_module_inventory`
-- [ ] Semantic extraction query tests pass: `cargo test -p djls-semantic queries`
-- [ ] Incremental extraction tests pass: `cargo test -p djls-db invalidation`
-- [ ] Corpus extraction tests still pass if corpus is synced: `cargo test -p djls-semantic --test corpus`
-- [ ] Python index cleanup search passes or records exact enrichment deletion gates: `rg "ProjectPythonIndex|ProjectPythonModule|project_model_modules|project_templatetag_modules|python_index" crates/djls-semantic crates/djls-db crates/djls-project -g '*.rs'`
-- [ ] Workspace builds: `cargo build -q`
+- [x] Python module inventory tests pass: `cargo test -p djls-project python_module_inventory`
+- [x] Semantic extraction query tests pass: `cargo test -p djls-semantic queries`
+- [x] Incremental extraction tests pass: `cargo test -p djls-db invalidation`
+- [x] Corpus extraction tests still pass if corpus is synced: `cargo test -p djls-semantic --test corpus`
+- [x] Python index cleanup search passes or records exact enrichment deletion gates: `rg "ProjectPythonIndex|ProjectPythonModule|project_model_modules|project_templatetag_modules|python_index" crates/djls-semantic crates/djls-db crates/djls-project -g '*.rs'`
+- [x] Workspace builds: `cargo build -q`
 
 #### Manual Verification
 - [ ] Editing a known workspace templatetag module invalidates only that module's tracked extraction.

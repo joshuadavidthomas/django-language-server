@@ -1,8 +1,6 @@
 use djls_source::File;
 
 use crate::db::Db;
-use crate::project::project_model_modules;
-use crate::project::project_templatetag_modules;
 use crate::project::Project;
 use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
@@ -94,10 +92,21 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 fn collect_workspace_models(db: &dyn Db, project: Project) -> Vec<(ModulePath, ModelGraph)> {
     let mut results = Vec::new();
 
-    for module in project_model_modules(db, project) {
-        let graph = extract_workspace_model_graph(db, module.file(), module.module_path().clone());
-        if !graph.is_empty() {
-            results.push((module.module_path().clone(), graph));
+    let project_facts = djls_project::Db::project(db);
+    for env in ready_static_environments(db, project) {
+        for module in djls_project::python_module_inventory(db, project_facts, env)
+            .modules()
+            .iter()
+            .filter(|module| module.has_role(djls_project::PythonModuleRole::Model))
+        {
+            let module_path = ModulePath::new(module.module().as_str().to_string());
+            if results.iter().any(|(existing, _)| existing == &module_path) {
+                continue;
+            }
+            let graph = extract_workspace_model_graph(db, module.file(), module_path.clone());
+            if !graph.is_empty() {
+                results.push((module_path, graph));
+            }
         }
     }
 
@@ -115,12 +124,24 @@ fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePat
 fn collect_workspace_tag_rules(db: &dyn Db, project: Project) -> Vec<(String, TagRuleMap)> {
     let mut results = Vec::new();
 
-    for module in project_templatetag_modules(db, project) {
-        let file = module.file();
-        let tag_rules = extract_tag_rules(db, file, module.module_path().clone());
+    let project_facts = djls_project::Db::project(db);
+    for env in ready_static_environments(db, project) {
+        for module in djls_project::python_module_inventory(db, project_facts, env)
+            .modules()
+            .iter()
+            .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
+        {
+            let module_name = module.module().as_str().to_string();
+            if results.iter().any(|(existing, _)| existing == &module_name) {
+                continue;
+            }
+            let file = module.file();
+            let module_path = ModulePath::new(module_name.clone());
+            let tag_rules = extract_tag_rules(db, file, module_path);
 
-        if !tag_rules.is_empty() {
-            results.push((module.module_path().as_str().to_string(), tag_rules.clone()));
+            if !tag_rules.is_empty() {
+                results.push((module_name, tag_rules.clone()));
+            }
         }
     }
 
@@ -134,15 +155,24 @@ fn collect_workspace_filter_arities(
 ) -> Vec<(String, FilterArityMap)> {
     let mut results = Vec::new();
 
-    for module in project_templatetag_modules(db, project) {
-        let file = module.file();
-        let filter_arities = extract_filter_arities(db, file, module.module_path().clone());
+    let project_facts = djls_project::Db::project(db);
+    for env in ready_static_environments(db, project) {
+        for module in djls_project::python_module_inventory(db, project_facts, env)
+            .modules()
+            .iter()
+            .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
+        {
+            let module_name = module.module().as_str().to_string();
+            if results.iter().any(|(existing, _)| existing == &module_name) {
+                continue;
+            }
+            let file = module.file();
+            let module_path = ModulePath::new(module_name.clone());
+            let filter_arities = extract_filter_arities(db, file, module_path);
 
-        if !filter_arities.is_empty() {
-            results.push((
-                module.module_path().as_str().to_string(),
-                filter_arities.clone(),
-            ));
+            if !filter_arities.is_empty() {
+                results.push((module_name, filter_arities.clone()));
+            }
         }
     }
 
@@ -153,17 +183,97 @@ fn collect_workspace_filter_arities(
 fn collect_workspace_block_specs(db: &dyn Db, project: Project) -> Vec<(String, BlockSpecs)> {
     let mut results = Vec::new();
 
-    for module in project_templatetag_modules(db, project) {
-        let file = module.file();
-        let block_specs = extract_block_specs(db, file, module.module_path().clone());
+    let project_facts = djls_project::Db::project(db);
+    for env in ready_static_environments(db, project) {
+        for module in djls_project::python_module_inventory(db, project_facts, env)
+            .modules()
+            .iter()
+            .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
+        {
+            let module_name = module.module().as_str().to_string();
+            if results.iter().any(|(existing, _)| existing == &module_name) {
+                continue;
+            }
+            let file = module.file();
+            let module_path = ModulePath::new(module_name.clone());
+            let block_specs = extract_block_specs(db, file, module_path);
 
-        if !block_specs.is_empty() {
-            results.push((
-                module.module_path().as_str().to_string(),
-                block_specs.clone(),
-            ));
+            if !block_specs.is_empty() {
+                results.push((module_name, block_specs.clone()));
+            }
         }
     }
 
     results
+}
+
+fn ready_static_environments(
+    db: &dyn Db,
+    legacy_project: Project,
+) -> Vec<djls_project::DjangoEnvironmentId> {
+    let project = djls_project::Db::project(db);
+    let (djls_project::DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
+    | djls_project::DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. }) =
+        djls_project::django_environment_candidates(db, project)
+    else {
+        return Vec::new();
+    };
+    let legacy_root = legacy_project.root(db);
+    candidates
+        .iter()
+        .filter(|candidate| candidate.root().is_none_or(|root| root == legacy_root))
+        .map(|candidate| candidate.id().clone())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use camino::Utf8PathBuf;
+    use djls_conf::Settings;
+    use djls_project::testing::manage_py_path;
+    use djls_project::testing::package_init_path;
+    use djls_project::testing::project_discovery_set_for_test;
+    use djls_project::testing::ready_source_inventory_with_roots_for_test;
+    use djls_project::testing::settings_file_path;
+    use djls_project::Db as ProjectFactsDb;
+    use djls_project::ProjectDiscovery;
+
+    use super::*;
+    use crate::project::Project;
+    use crate::testing::TestDatabase;
+
+    #[test]
+    fn queries_extract_models_from_static_python_module_inventory() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "INSTALLED_APPS = ['blog']\n",
+        );
+        db.add_file("/workspace/blog/__init__.py", "");
+        db.add_file(
+            "/workspace/blog/models.py",
+            "from django.db import models\nclass Post(models.Model):\n    pass\n",
+        );
+        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone()],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+                package_init_path(&root, "blog"),
+                root.join("blog/models.py"),
+            ],
+        ));
+        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+            &db,
+            root.clone(),
+        )));
+        let legacy_project = Project::bootstrap(&db, root.as_path(), &Settings::default());
+
+        let graph = compute_model_graph(&db, legacy_project);
+
+        assert!(graph.get("Post").is_some());
+    }
 }
