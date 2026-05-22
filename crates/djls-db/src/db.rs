@@ -4,13 +4,25 @@
 //! the database traits from source, semantic, and project crates. This follows
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::finalize_project_source_files;
+use djls_project::Db as LoadingDb;
 use djls_project::ProjectLoadingState;
+use djls_project::ProjectSourceFilesApplyResult;
+use djls_project::ProjectSourceFilesAvailability;
+use djls_project::ProjectSourceFilesMaterializationPatch;
+use djls_project::ProjectSourceFilesUpdate;
+use djls_project::ReadyProjectSourceFiles;
+use djls_project::SourceFileHandleChanges;
+use djls_project::SourceFileMaterializationIssue;
+use djls_project::SourceFileSetMaterialized;
 use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
@@ -21,7 +33,12 @@ use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
+use djls_source::LoadedSourceFile;
+use djls_source::SourceFileSet;
+use djls_source::SourceFileSetData;
+use djls_source::SourceFileSetInvariantError;
 use djls_source::SourceFiles;
+use djls_source::SourceRootEntry;
 use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
@@ -122,6 +139,152 @@ impl DjangoDatabase {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
     }
+
+    pub fn apply_project_source_files(
+        &mut self,
+        update: ProjectSourceFilesUpdate,
+    ) -> ProjectSourceFilesApplyResult {
+        let previous = self.current_ready_project_source_files();
+        let materialized = self.materialize_source_file_set(update.materialization());
+        finalize_project_source_files(self, previous, update, materialized)
+    }
+
+    pub fn materialize_source_file_set(
+        &mut self,
+        patch: &ProjectSourceFilesMaterializationPatch,
+    ) -> SourceFileSetMaterialized {
+        let previous = self
+            .current_ready_project_source_files()
+            .map(|files| files.merged());
+
+        let previous_data = previous.map(|set| set.data(self).clone());
+        let removed_roots = patch.removed_roots().iter().collect::<BTreeSet<_>>();
+        let removed_files = patch.removed_files().iter().collect::<BTreeSet<_>>();
+        let mut roots = previous_data
+            .as_ref()
+            .map(|data| {
+                data.roots()
+                    .iter()
+                    .filter(|entry| !removed_roots.contains(entry.root().id()))
+                    .cloned()
+                    .map(|entry| (entry.root().id().clone(), entry))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
+        roots.extend(
+            patch
+                .changed_roots()
+                .iter()
+                .cloned()
+                .map(|entry| (entry.root().id().clone(), entry)),
+        );
+
+        for entry in roots.values() {
+            self.files
+                .try_add_root(entry.root().path().to_owned(), entry.root().kind());
+        }
+
+        let mut loaded = previous_data
+            .as_ref()
+            .map(|data| {
+                data.files()
+                    .iter()
+                    .filter(|file| {
+                        !removed_roots.contains(file.root())
+                            && !removed_files.contains(&file.path().to_owned())
+                    })
+                    .cloned()
+                    .map(|file| (file.path().to_owned(), file))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
+        let previous_handles = loaded
+            .iter()
+            .map(|(path, file)| (path.clone(), file.file()))
+            .collect::<BTreeMap<_, _>>();
+
+        let mut preserved = 0;
+        let mut created = 0;
+        for discovered in patch.upserted_files() {
+            let file = if let Some(file) = previous_handles.get(discovered.path()) {
+                preserved += 1;
+                *file
+            } else {
+                created += 1;
+                self.get_or_create_file(discovered.path())
+            };
+            loaded.insert(
+                discovered.path().to_owned(),
+                LoadedSourceFile::from_discovered(discovered.clone(), file),
+            );
+        }
+
+        let removed = patch.removed_files().len()
+            + previous_data
+                .as_ref()
+                .map(|data| {
+                    data.files()
+                        .iter()
+                        .filter(|file| removed_roots.contains(file.root()))
+                        .count()
+                })
+                .unwrap_or(0);
+        let roots = roots.into_values().collect::<Vec<SourceRootEntry>>();
+        let files = loaded.into_values().collect::<Vec<_>>();
+        let (data, issues) = match SourceFileSetData::new(roots, files) {
+            Ok(data) => (data, Vec::new()),
+            Err(error) => (
+                SourceFileSetData::default(),
+                vec![materialization_issue_from_invariant_error(error)],
+            ),
+        };
+        let source_file_set = SourceFileSet::new(self, data);
+        SourceFileSetMaterialized::new(
+            source_file_set,
+            SourceFileHandleChanges::new(preserved, created, removed),
+            issues,
+        )
+    }
+
+    fn current_ready_project_source_files(&self) -> Option<ReadyProjectSourceFiles> {
+        match self.project_loading_state().source_files(self) {
+            ProjectSourceFilesAvailability::Ready(files)
+            | ProjectSourceFilesAvailability::Stale { previous: files }
+            | ProjectSourceFilesAvailability::Deferred {
+                previous: Some(files),
+                ..
+            }
+            | ProjectSourceFilesAvailability::Unavailable {
+                previous: Some(files),
+                ..
+            }
+            | ProjectSourceFilesAvailability::Failed {
+                previous: Some(files),
+                ..
+            } => Some(files),
+            ProjectSourceFilesAvailability::Loading
+            | ProjectSourceFilesAvailability::Deferred { previous: None, .. }
+            | ProjectSourceFilesAvailability::Unavailable { previous: None, .. }
+            | ProjectSourceFilesAvailability::Failed { previous: None, .. } => None,
+        }
+    }
+}
+
+fn materialization_issue_from_invariant_error(
+    error: SourceFileSetInvariantError,
+) -> SourceFileMaterializationIssue {
+    match error {
+        SourceFileSetInvariantError::UnknownFileRoot { root, .. }
+        | SourceFileSetInvariantError::DuplicateRootId { root, .. } => {
+            SourceFileMaterializationIssue::MissingRoot { root }
+        }
+        SourceFileSetInvariantError::DuplicateFile { path, .. } => {
+            SourceFileMaterializationIssue::MaterializationFailed {
+                path,
+                error_kind: std::io::ErrorKind::AlreadyExists,
+            }
+        }
+    }
 }
 
 #[salsa::db]
@@ -203,6 +366,130 @@ impl ProjectDb for DjangoDatabase {
 
     fn project_introspector(&self) -> Arc<ProjectIntrospector> {
         self.project_introspector.clone()
+    }
+}
+
+#[cfg(test)]
+mod source_file_set_tests {
+    use camino::Utf8PathBuf;
+    use djls_project::build_source_roots;
+    use djls_project::first_party_discovery_files_request;
+    use djls_project::first_party_source_files_load_request;
+    use djls_project::merge_first_party_source_file_patch;
+    use djls_project::Db as LoadingDb;
+    use djls_project::FirstPartySourceFilePatch;
+    use djls_project::ProjectSourceFilesApplyResult;
+    use djls_project::ProjectSourceFilesAvailability;
+    use djls_project::ProjectSourceFilesIssue;
+    use djls_source::Db as SourceDb;
+    use djls_workspace::load_files_for_roots;
+
+    use super::DjangoDatabase;
+
+    fn utf8(path: &std::path::Path) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(path.to_path_buf()).unwrap()
+    }
+
+    fn first_party_update(
+        current: Option<&djls_project::ReadyProjectSourceFiles>,
+        roots: Vec<Utf8PathBuf>,
+    ) -> djls_project::ProjectSourceFilesUpdate {
+        let plan = build_source_roots(roots);
+        let (root_issues, request) =
+            first_party_discovery_files_request(first_party_source_files_load_request(plan));
+        let result = load_files_for_roots(request);
+        merge_first_party_source_file_patch(
+            current,
+            FirstPartySourceFilePatch::first_party(root_issues, result),
+        )
+    }
+
+    #[test]
+    fn source_file_set_materialization_preserves_unchanged_file_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = utf8(dir.path());
+        let file_path = root.join("templates/index.html");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, "").unwrap();
+        let mut db = DjangoDatabase::default();
+
+        let update = first_party_update(None, vec![root.clone()]);
+        let materialized = db.materialize_source_file_set(update.materialization());
+        assert_eq!(materialized.handle_changes().created(), 1);
+        assert_eq!(materialized.handle_changes().preserved(), 0);
+        let applied =
+            djls_project::finalize_project_source_files(&mut db, None, update, materialized);
+        let ProjectSourceFilesApplyResult::Applied(applied) = applied else {
+            panic!("first materialization should apply");
+        };
+        let first_handle = db.get_file(file_path.as_path()).unwrap();
+
+        let update = first_party_update(Some(applied.files()), vec![root]);
+        let materialized = db.materialize_source_file_set(update.materialization());
+        assert_eq!(materialized.handle_changes().created(), 0);
+        assert_eq!(materialized.handle_changes().preserved(), 0);
+        let applied = djls_project::finalize_project_source_files(
+            &mut db,
+            Some(applied.files().clone()),
+            update,
+            materialized,
+        );
+        let ProjectSourceFilesApplyResult::Applied(applied) = applied else {
+            panic!("second materialization should apply");
+        };
+
+        assert_eq!(db.get_file(file_path.as_path()), Some(first_handle));
+        assert_eq!(
+            applied.files().merged().data(&db).files()[0].file(),
+            first_handle
+        );
+    }
+
+    #[test]
+    fn source_file_set_roundtrip_finalizes_ready_loading_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = utf8(dir.path());
+        std::fs::write(root.join("models.py"), "").unwrap();
+        let mut db = DjangoDatabase::default();
+
+        let update = first_party_update(None, vec![root]);
+        let transition = update.applied_transition().clone();
+        let applied = db.apply_project_source_files(update);
+        let ProjectSourceFilesApplyResult::Applied(applied) = applied else {
+            panic!("materialization should apply");
+        };
+
+        assert_eq!(applied.transition(), &transition);
+        assert_eq!(applied.files().summary(&db).included_files(), 1);
+        assert_eq!(
+            db.project_loading_state().source_files(&db),
+            ProjectSourceFilesAvailability::Ready(applied.files().clone())
+        );
+    }
+
+    #[test]
+    fn source_file_set_terminal_issue_updates_query_visible_availability() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = utf8(dir.path()).join("missing");
+        let mut db = DjangoDatabase::default();
+
+        let update = first_party_update(None, vec![missing.clone()]);
+        let result = db.apply_project_source_files(update);
+        let ProjectSourceFilesApplyResult::Unavailable { issue, .. } = result else {
+            panic!("missing root should be unavailable");
+        };
+
+        assert!(matches!(
+            issue,
+            ProjectSourceFilesIssue::MissingRoot { ref path, .. } if *path == missing
+        ));
+        assert_eq!(
+            db.project_loading_state().source_files(&db),
+            ProjectSourceFilesAvailability::Unavailable {
+                issue,
+                previous: None,
+            }
+        );
     }
 }
 

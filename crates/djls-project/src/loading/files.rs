@@ -6,6 +6,7 @@ use camino::Utf8PathBuf;
 use djls_source::DiscoveredSourceFile;
 use djls_source::FileRootKind;
 use djls_source::FileSetSummary;
+use djls_source::SourceFileSet;
 use djls_source::SourceRoot;
 use djls_source::SourceRootEntry;
 use djls_source::SourceRootId;
@@ -15,8 +16,10 @@ use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
 use djls_workspace::WorkspaceRootIssue;
 
-use crate::ProjectSourceFiles;
+use crate::Db;
+use crate::ProjectSourceFilesAvailability;
 use crate::ProjectSourceFilesIssue;
+use crate::ReadyProjectSourceFiles;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SourceRootsPlan {
@@ -425,9 +428,243 @@ impl ProjectSourceFilesUpdate {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceFileSetMaterialized {
+    source_file_set: SourceFileSet,
+    handle_changes: SourceFileHandleChanges,
+    issues: Vec<SourceFileMaterializationIssue>,
+}
+
+impl SourceFileSetMaterialized {
+    #[must_use]
+    pub fn new(
+        source_file_set: SourceFileSet,
+        handle_changes: SourceFileHandleChanges,
+        issues: Vec<SourceFileMaterializationIssue>,
+    ) -> Self {
+        Self {
+            source_file_set,
+            handle_changes,
+            issues,
+        }
+    }
+
+    #[must_use]
+    pub fn source_file_set(&self) -> SourceFileSet {
+        self.source_file_set
+    }
+
+    #[must_use]
+    pub fn handle_changes(&self) -> &SourceFileHandleChanges {
+        &self.handle_changes
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[SourceFileMaterializationIssue] {
+        &self.issues
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SourceFileHandleChanges {
+    preserved: usize,
+    created: usize,
+    removed: usize,
+}
+
+impl SourceFileHandleChanges {
+    #[must_use]
+    pub fn new(preserved: usize, created: usize, removed: usize) -> Self {
+        Self {
+            preserved,
+            created,
+            removed,
+        }
+    }
+
+    #[must_use]
+    pub fn preserved(&self) -> usize {
+        self.preserved
+    }
+
+    #[must_use]
+    pub fn created(&self) -> usize {
+        self.created
+    }
+
+    #[must_use]
+    pub fn removed(&self) -> usize {
+        self.removed
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SourceFileMaterializationIssue {
+    MissingRoot {
+        root: SourceRootId,
+    },
+    MaterializationFailed {
+        path: Utf8PathBuf,
+        error_kind: std::io::ErrorKind,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProjectSourceFilesApplyResult {
+    Applied(ProjectSourceFilesApplied),
+    Deferred {
+        transition: ProjectFileLoadingTransition,
+        issue: ProjectSourceFilesIssue,
+        previous: Option<ReadyProjectSourceFiles>,
+    },
+    Unavailable {
+        transition: ProjectFileLoadingTransition,
+        issue: ProjectSourceFilesIssue,
+        previous: Option<ReadyProjectSourceFiles>,
+    },
+    Failed {
+        transition: ProjectFileLoadingTransition,
+        issue: ProjectSourceFilesIssue,
+        previous: Option<ReadyProjectSourceFiles>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectSourceFilesApplied {
+    files: ReadyProjectSourceFiles,
+    transition: ProjectFileLoadingTransition,
+    issues: Vec<ProjectSourceFilesIssue>,
+}
+
+impl ProjectSourceFilesApplied {
+    #[must_use]
+    pub fn files(&self) -> &ReadyProjectSourceFiles {
+        &self.files
+    }
+
+    #[must_use]
+    pub fn transition(&self) -> &ProjectFileLoadingTransition {
+        &self.transition
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+        &self.issues
+    }
+}
+
+pub fn finalize_project_source_files(
+    db: &mut dyn Db,
+    previous: Option<ReadyProjectSourceFiles>,
+    update: ProjectSourceFilesUpdate,
+    materialized: SourceFileSetMaterialized,
+) -> ProjectSourceFilesApplyResult {
+    if let Some(issue) = update.issues.first().cloned() {
+        return terminal_source_files_apply_result(
+            db,
+            update.applied_transition,
+            issue,
+            previous,
+            TerminalSourceFilesAvailability::Unavailable,
+        );
+    }
+
+    if let Some(issue) = materialized
+        .issues
+        .first()
+        .map(project_issue_from_materialization_issue)
+    {
+        return terminal_source_files_apply_result(
+            db,
+            update.applied_transition,
+            issue,
+            previous,
+            TerminalSourceFilesAvailability::Failed,
+        );
+    }
+
+    let files = ReadyProjectSourceFiles::new(update.partitions, materialized.source_file_set);
+    db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(files.clone()));
+    ProjectSourceFilesApplyResult::Applied(ProjectSourceFilesApplied {
+        files,
+        transition: update.applied_transition,
+        issues: update.issues,
+    })
+}
+
+#[allow(dead_code)]
+enum TerminalSourceFilesAvailability {
+    Deferred,
+    Unavailable,
+    Failed,
+}
+
+fn terminal_source_files_apply_result(
+    db: &mut dyn Db,
+    transition: ProjectFileLoadingTransition,
+    issue: ProjectSourceFilesIssue,
+    previous: Option<ReadyProjectSourceFiles>,
+    availability: TerminalSourceFilesAvailability,
+) -> ProjectSourceFilesApplyResult {
+    match availability {
+        TerminalSourceFilesAvailability::Deferred => {
+            db.set_project_source_files_availability(ProjectSourceFilesAvailability::Deferred {
+                issue: issue.clone(),
+                previous: previous.clone(),
+            });
+            ProjectSourceFilesApplyResult::Deferred {
+                transition,
+                issue,
+                previous,
+            }
+        }
+        TerminalSourceFilesAvailability::Unavailable => {
+            db.set_project_source_files_availability(ProjectSourceFilesAvailability::Unavailable {
+                issue: issue.clone(),
+                previous: previous.clone(),
+            });
+            ProjectSourceFilesApplyResult::Unavailable {
+                transition,
+                issue,
+                previous,
+            }
+        }
+        TerminalSourceFilesAvailability::Failed => {
+            db.set_project_source_files_availability(ProjectSourceFilesAvailability::Failed {
+                issue: issue.clone(),
+                previous: previous.clone(),
+            });
+            ProjectSourceFilesApplyResult::Failed {
+                transition,
+                issue,
+                previous,
+            }
+        }
+    }
+}
+
+fn project_issue_from_materialization_issue(
+    issue: &SourceFileMaterializationIssue,
+) -> ProjectSourceFilesIssue {
+    match issue {
+        SourceFileMaterializationIssue::MissingRoot { root } => {
+            ProjectSourceFilesIssue::MissingRoot {
+                root: root.clone(),
+                path: root.as_path().to_owned(),
+            }
+        }
+        SourceFileMaterializationIssue::MaterializationFailed { path, error_kind } => {
+            ProjectSourceFilesIssue::MaterializationFailed {
+                path: path.clone(),
+                error_kind: *error_kind,
+            }
+        }
+    }
+}
+
 #[must_use]
 pub fn merge_first_party_source_file_patch(
-    current: Option<&ProjectSourceFiles>,
+    current: Option<&ReadyProjectSourceFiles>,
     patch: FirstPartySourceFilePatch,
 ) -> ProjectSourceFilesUpdate {
     let readiness = first_party_readiness(current, &patch);
@@ -439,7 +676,7 @@ pub fn merge_first_party_source_file_patch(
     );
     let partitions = ProjectFileSetPartitions::with_first_party(snapshot);
     let merged = merged_first_party_data(&patch.roots, &patch.files);
-    let previous = current.map(ProjectSourceFiles::discovered_data);
+    let previous = current.map(ReadyProjectSourceFiles::discovered_data);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = ProjectFileLoadingTransition {
         partition: patch.partition,
@@ -455,7 +692,7 @@ pub fn merge_first_party_source_file_patch(
 }
 
 fn first_party_readiness(
-    current: Option<&ProjectSourceFiles>,
+    current: Option<&ReadyProjectSourceFiles>,
     patch: &FirstPartySourceFilePatch,
 ) -> ProjectFilePartitionReadiness {
     if let Some(issue) = patch.issues.first() {
@@ -799,7 +1036,7 @@ mod tests {
                 summary: FileSetSummary::new(1),
             },
         );
-        let previous = ProjectSourceFiles::materialized_for_test(
+        let previous = ReadyProjectSourceFiles::materialized_for_test(
             ProjectFileSetPartitions::with_first_party(previous_partition),
             SourceFileSet::new(&db, set_data),
         );
@@ -869,7 +1106,7 @@ mod tests {
                 summary: FileSetSummary::new(1),
             },
         );
-        let previous = ProjectSourceFiles::materialized_for_test(
+        let previous = ReadyProjectSourceFiles::materialized_for_test(
             ProjectFileSetPartitions::with_first_party(previous_partition),
             SourceFileSet::new(&db, set_data),
         );

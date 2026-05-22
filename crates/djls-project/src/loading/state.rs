@@ -20,6 +20,7 @@ impl ProjectLoadingState {
             db,
             ProjectSourceFilesAvailability::Unavailable {
                 issue: ProjectSourceFilesIssue::NotLoaded,
+                previous: None,
             },
             ProjectDiscoveryAvailability::Unavailable {
                 issue: ProjectDiscoveryIssue::NotLoaded,
@@ -35,6 +36,7 @@ impl ProjectLoadingState {
                 issue: ProjectSourceFilesIssue::FixtureUnavailable {
                     surface: ProjectSourceFilesFixtureSurface::SourceFiles,
                 },
+                previous: None,
             },
             ProjectDiscoveryAvailability::Unavailable {
                 issue: ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
@@ -47,20 +49,67 @@ impl ProjectLoadingState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectSourceFilesAvailability {
     Loading,
-    Ready(ProjectSourceFiles),
-    Unavailable { issue: ProjectSourceFilesIssue },
-    Stale { previous: ProjectSourceFiles },
+    Ready(ReadyProjectSourceFiles),
+    Deferred {
+        issue: ProjectSourceFilesIssue,
+        previous: Option<ReadyProjectSourceFiles>,
+    },
+    Unavailable {
+        issue: ProjectSourceFilesIssue,
+        previous: Option<ReadyProjectSourceFiles>,
+    },
+    Failed {
+        issue: ProjectSourceFilesIssue,
+        previous: Option<ReadyProjectSourceFiles>,
+    },
+    Stale {
+        previous: ReadyProjectSourceFiles,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectSourceFiles(ProjectSourceFilesState);
+pub struct ReadyProjectSourceFiles {
+    pub(crate) partitions: ProjectFileSetPartitions,
+    merged: SourceFileSet,
+}
+
+impl ReadyProjectSourceFiles {
+    #[must_use]
+    pub(crate) fn new(partitions: ProjectFileSetPartitions, merged: SourceFileSet) -> Self {
+        Self { partitions, merged }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn materialized_for_test(
+        partitions: ProjectFileSetPartitions,
+        merged: SourceFileSet,
+    ) -> Self {
+        Self::new(partitions, merged)
+    }
+
+    #[must_use]
+    pub fn merged(&self) -> SourceFileSet {
+        self.merged
+    }
+
+    #[must_use]
+    pub(crate) fn discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
+        self.partitions.merged_discovered_data()
+    }
+
+    #[must_use]
+    pub fn summary(&self, db: &dyn djls_source::Db) -> FileSetSummary {
+        *self.merged.data(db).summary()
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ProjectSourceFilesState {
+pub(crate) enum ProjectSourceFilesBuildState {
     #[allow(dead_code)]
     Discovered(ProjectSourceFilesDiscovered),
     #[allow(dead_code)]
-    Materialized(ProjectSourceFilesMaterialized),
+    Materialized(ReadyProjectSourceFiles),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -68,45 +117,14 @@ pub(crate) struct ProjectSourceFilesDiscovered {
     partitions: ProjectFileSetPartitions,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ProjectSourceFilesMaterialized {
-    partitions: ProjectFileSetPartitions,
-    merged: SourceFileSet,
-}
-
-impl ProjectSourceFiles {
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn materialized_for_test(
-        partitions: ProjectFileSetPartitions,
-        merged: SourceFileSet,
-    ) -> Self {
-        Self(ProjectSourceFilesState::Materialized(
-            ProjectSourceFilesMaterialized { partitions, merged },
-        ))
-    }
-
-    #[must_use]
-    pub fn merged(&self) -> Option<SourceFileSet> {
-        match &self.0 {
-            ProjectSourceFilesState::Discovered(_) => None,
-            ProjectSourceFilesState::Materialized(files) => Some(files.merged),
-        }
-    }
-
+impl ProjectSourceFilesBuildState {
+    #[allow(dead_code)]
     #[must_use]
     pub(crate) fn discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
-        match &self.0 {
-            ProjectSourceFilesState::Discovered(files) => files.partitions.merged_discovered_data(),
-            ProjectSourceFilesState::Materialized(files) => {
-                files.partitions.merged_discovered_data()
-            }
+        match self {
+            Self::Discovered(files) => files.partitions.merged_discovered_data(),
+            Self::Materialized(files) => files.discovered_data(),
         }
-    }
-
-    #[must_use]
-    pub fn summary(&self, db: &dyn djls_source::Db) -> Option<FileSetSummary> {
-        self.merged().map(|merged| *merged.data(db).summary())
     }
 }
 
@@ -239,6 +257,7 @@ mod tests {
                 issue: ProjectSourceFilesIssue::FixtureUnavailable {
                     surface: ProjectSourceFilesFixtureSurface::SourceFiles,
                 },
+                previous: None,
             }
         );
         assert_eq!(
@@ -259,6 +278,7 @@ mod tests {
             state.source_files(&db),
             ProjectSourceFilesAvailability::Unavailable {
                 issue: ProjectSourceFilesIssue::NotLoaded,
+                previous: None,
             }
         );
         assert_eq!(
@@ -270,8 +290,40 @@ mod tests {
         assert_eq!(state.enrichment(&db), ProjectEnrichmentState::NotStarted);
     }
 
+    #[salsa::tracked]
+    fn source_file_count_probe(db: &dyn crate::Db) -> Option<usize> {
+        match db.project_loading_state().source_files(db) {
+            ProjectSourceFilesAvailability::Ready(files) => {
+                Some(files.summary(db).included_files())
+            }
+            _ => None,
+        }
+    }
+
     #[test]
-    fn project_source_files_summary_comes_from_merged_file_set() {
+    fn loading_state_invalidation_source_files_transition_invalidates_probe_query() {
+        let mut db = TestDb::new_with_loading_state();
+        assert_eq!(source_file_count_probe(&db), None);
+
+        let root_path = Utf8PathBuf::from("/workspace");
+        let root_id = SourceRootId::new(root_path.clone());
+        let root = SourceRoot::new(root_id.clone(), root_path.clone(), FileRootKind::Project);
+        let file_path = root_path.join("templates/index.html");
+        let file = File::new(&db, file_path.clone(), 0);
+        let loaded = LoadedSourceFile::new(file_path, root_id, file);
+        let data = SourceFileSetData::new(vec![SourceRootEntry::new(root)], vec![loaded])
+            .expect("source file set should be coherent");
+        let set = SourceFileSet::new(&db, data);
+        let files =
+            ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set);
+
+        db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(files));
+
+        assert_eq!(source_file_count_probe(&db), Some(1));
+    }
+
+    #[test]
+    fn ready_project_source_files_summary_comes_from_merged_file_set() {
         let db = TestDb::default();
         let root_path = Utf8PathBuf::from("/workspace");
         let root_id = SourceRootId::new(root_path.clone());
@@ -284,8 +336,8 @@ mod tests {
         let set = SourceFileSet::new(&db, data);
 
         let files =
-            ProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set);
+            ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set);
 
-        assert_eq!(files.summary(&db), Some(FileSetSummary::new(1)));
+        assert_eq!(files.summary(&db), FileSetSummary::new(1));
     }
 }
