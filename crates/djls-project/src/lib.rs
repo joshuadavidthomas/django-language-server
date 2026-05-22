@@ -6,6 +6,7 @@ mod env;
 mod interpreter;
 mod layout;
 pub mod loading;
+mod names;
 mod system;
 
 pub use availability::project_facts_availability;
@@ -78,3 +79,8 @@ pub use loading::SourceFileMaterializationIssue;
 pub use loading::SourceFileSetMaterialized;
 pub use loading::SourceFilesLoadRequest;
 pub use loading::SourceRootsPlan;
+pub use names::InvalidName;
+pub use names::LibraryName;
+pub use names::PyModuleName;
+pub use names::TemplateName;
+pub use names::TemplateSymbolName;

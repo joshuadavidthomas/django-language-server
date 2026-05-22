@@ -9,6 +9,7 @@ use std::fs;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::TemplateName;
 use djls_source::FileRootKind;
 use djls_source::Utf8PathClean;
 use ignore::WalkBuilder;
@@ -373,11 +374,18 @@ fn discover_project_template_files(
                 Err(_) => continue,
             };
 
+            let Ok(name) = TemplateName::parse(&name) else {
+                tracing::warn!("Skipping invalid template name derived from path: {}", path);
+                continue;
+            };
             dir_templates.push((name, path));
         }
 
         dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
-            a_name.cmp(b_name).then_with(|| a_path.cmp(b_path))
+            a_name
+                .as_str()
+                .cmp(b_name.as_str())
+                .then_with(|| a_path.cmp(b_path))
         });
         templates.extend(dir_templates.into_iter().map(|(name, path)| {
             ProjectTemplateFile::new(name, path.clone(), db.get_or_create_file(&path))

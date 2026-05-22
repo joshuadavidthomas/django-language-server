@@ -4,8 +4,8 @@ use djls_source::File;
 use djls_source::Span;
 
 use crate::db::Db as SemanticDb;
+use crate::primitives::InternedTemplateName;
 use crate::primitives::Template;
-use crate::primitives::TemplateName;
 use crate::project::Project;
 
 #[salsa::tracked]
@@ -16,7 +16,7 @@ pub(crate) fn discover_templates(db: &dyn SemanticDb, project: Project) -> Vec<T
         .map(|template| {
             Template::new(
                 db,
-                TemplateName::new(db, template.name().to_string()),
+                InternedTemplateName::new(db, template.name().as_str().to_string()),
                 template.file(),
             )
         })
@@ -30,7 +30,7 @@ pub(crate) fn discover_templates(db: &dyn SemanticDb, project: Project) -> Vec<T
 pub(crate) fn find_template<'db>(
     db: &'db dyn SemanticDb,
     project: Project,
-    template_name: TemplateName<'db>,
+    template_name: InternedTemplateName<'db>,
 ) -> Option<Template<'db>> {
     let templates = discover_templates(db, project);
 
@@ -65,7 +65,7 @@ impl<'db> ResolveResult<'db> {
 }
 
 pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResult<'db> {
-    let template_name = TemplateName::new(db, name.to_string());
+    let template_name = InternedTemplateName::new(db, name.to_string());
     let Some(project) = db.project() else {
         return ResolveResult::NotFound {
             name: name.to_string(),
@@ -96,7 +96,7 @@ pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResu
 #[salsa::tracked]
 pub struct TemplateReference<'db> {
     pub source: Template<'db>,
-    pub target: TemplateName<'db>,
+    pub target: InternedTemplateName<'db>,
     pub span: Span,
 }
 
@@ -115,7 +115,7 @@ pub fn find_references_to_template<'db>(
         return Vec::new();
     };
 
-    let template_name = TemplateName::new(db, name.to_string());
+    let template_name = InternedTemplateName::new(db, name.to_string());
     let all_refs = template_reference_index(db, project);
 
     let matches: Vec<_> = all_refs
@@ -148,7 +148,7 @@ fn template_reference_index(db: &dyn SemanticDb, project: Project) -> Vec<Templa
                     references.push(TemplateReference::new(
                         db,
                         template,
-                        TemplateName::new(db, template_name.to_string()),
+                        InternedTemplateName::new(db, template_name.to_string()),
                         tag.span(),
                     ));
                 }

@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `yktvoszl` contains the completed layout index and queue cleanup slice.
-- **Current slice**: layout index and queue cleanup completed; Phase 4 is next.
+- **Implementation change**: `qylmxnpq` contains the completed name/type move slice.
+- **Current slice**: name/type move completed; Phase 4B is next.
 
 ### Implementation Notes
 
@@ -260,6 +260,22 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist found no must-fix issues and confirmed the enrichment-only invalidation test covers the core `project_layout_index` dependency claim.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed stable source-root/file-set-backed lookup APIs, explicit unavailable-vs-empty outcomes, Salsa invalidation scoped to source membership, delayed provenance, and deletion of unused queue abstractions all match mature tooling patterns.
 - Follow-ups/blockers: Phase 4 should add Python source models on top of the layout/source inventory boundary.
+
+### Name/type move
+- Bookmark: `startup-rethink` still points to `yktvoszl`; move it to `qylmxnpq` after describing this verified slice.
+- Current change: `qylmxnpq`.
+- Scope: moved project-domain name newtypes and `InvalidName` into `djls-project`, added path-like `djls_project::TemplateName`, kept temporary semantic re-exports for existing callers, renamed the semantic Salsa identity to `InternedTemplateName`, and changed legacy `ProjectTemplateFile` to store the domain `TemplateName` while interning only at tracked-query boundaries.
+- Validation:
+  - `cargo test -p djls-project names` passed: 6 tests.
+  - `cargo test -p djls-semantic --no-run` passed.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+  - `rg "TemplateName|LibraryName|PyModuleName|TemplateSymbolName" crates/djls-semantic crates/djls-project -g '*.rs'` shows the new project-owned definitions/exports, temporary semantic re-exports/old semantic callers, and the renamed `InternedTemplateName` identity.
+- Review/reference follow-up:
+  - Beck review required the semantic compatibility shim to include `InvalidName`; added the temporary re-export while keeping the new `TemplateName` out of semantic re-exports to avoid identity confusion.
+  - Rust specialist required `TemplateName` to use template-specific path-like validation and to replace raw template-name strings in the legacy semantic template file model; `TemplateName` now rejects empty/absolute/parent-component names while allowing path-like names with spaces, and `ProjectTemplateFile` stores the new domain type.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that mature tools keep validated domain newtypes in project/domain crates and separate stable domain values from Salsa/interned identities.
+- Follow-ups/blockers: Phase 4B should add the Ruff AST anti-corruption layer and tracked Python source-model queries in `djls-project`.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1581,9 +1597,9 @@ pub enum SettingsCandidateSource {
 
 #### Automated Verification
 **Phase 4A gate**
-- [ ] Name newtype tests pass: `cargo test -p djls-project names`
-- [ ] Semantic crate still compiles with moved name re-exports: `cargo test -p djls-semantic --no-run`
-- [ ] Name re-export cleanup search passes with only intentional temporary re-exports or interned semantic identities: `rg "TemplateName|LibraryName|PyModuleName|TemplateSymbolName" crates/djls-semantic crates/djls-project -g '*.rs'`
+- [x] Name newtype tests pass: `cargo test -p djls-project names`.
+- [x] Semantic crate still compiles with moved name re-exports: `cargo test -p djls-semantic --no-run`.
+- [x] Name re-export cleanup search passes with only intentional temporary re-exports or interned semantic identities: `rg "TemplateName|LibraryName|PyModuleName|TemplateSymbolName" crates/djls-semantic crates/djls-project -g '*.rs'`.
 
 **Phase 4B gate**
 - [ ] Ruff dependency boundary compiles in `djls-project`: `cargo test -p djls-project python_source_model --no-run` or equivalent compile check

@@ -9,7 +9,7 @@ use crate::db::Db as SemanticDb;
 
 #[salsa::tracked]
 pub struct Template<'db> {
-    pub name: TemplateName<'db>,
+    pub name: InternedTemplateName<'db>,
     pub file: File,
 }
 
@@ -46,7 +46,7 @@ fn template_tags(db: &dyn SemanticDb, template: Template<'_>) -> Vec<Tag> {
 }
 
 #[salsa::interned]
-pub struct TemplateName {
+pub struct InternedTemplateName {
     #[returns(ref)]
     pub name: String,
 }

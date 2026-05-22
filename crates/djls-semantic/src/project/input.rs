@@ -5,6 +5,7 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::load_env_file;
+use djls_project::TemplateName;
 use djls_source::File;
 use djls_source::FileRootKind;
 use rustc_hash::FxHashMap;
@@ -127,17 +128,17 @@ pub(crate) enum ProjectPythonModuleKind {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ProjectTemplateFile {
-    name: String,
+    name: TemplateName,
     path: Utf8PathBuf,
     file: File,
 }
 
 impl ProjectTemplateFile {
-    pub(crate) fn new(name: String, path: Utf8PathBuf, file: File) -> Self {
+    pub(crate) fn new(name: TemplateName, path: Utf8PathBuf, file: File) -> Self {
         Self { name, path, file }
     }
 
-    pub(crate) fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &TemplateName {
         &self.name
     }
 
