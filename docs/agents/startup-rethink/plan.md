@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `xuputsyz` contains the completed module resolution roots slice.
-- **Current slice**: Module resolution roots completed; Phase 5B is next.
+- **Implementation change**: `mrznmops` contains the completed Django Environment candidates slice.
+- **Current slice**: Django Environment candidates completed; Phase 5C is next.
 
 ### Implementation Notes
 
@@ -339,6 +339,21 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required the same unloaded-root deferral and required settings candidates to stop using their temporary conventional-module heuristic; addressed by adding resolver-backed `module_name_for_path` and using it from settings candidates.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed source/import-root mapping, loaded-file-scoped resolution, conventional module-file/package lookup, and explicit deferred state for incomplete inventories align with mature tooling patterns.
 - Follow-ups/blockers: Phase 5B should use settings candidates as input to Django Environment candidates without selecting a global settings module.
+
+### Django Environment candidates
+- Bookmark: `startup-rethink` still points to `xuputsyz`; move it to `mrznmops` after describing this verified slice.
+- Current change: `mrznmops`.
+- Scope: added Django Environment candidate IDs, sources, readiness outcomes, candidate issue preservation, and file-scoped environment selection by longest root prefix. Every settings candidate can become an environment candidate, multiple candidates remain normal ready state, and no global settings module is selected.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project environments` passed: 4 tests.
+  - `cargo test -p djls-project multisite` passed: 1 test.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review required upstream settings-candidate issues to survive promotion to environment candidates; addressed by carrying mapped settings issues alongside ready candidates.
+  - Rust specialist required file-based candidate roots to use owning project roots, stable candidate IDs, multiple project candidates to remain ready instead of globally ambiguous, and upstream issues to survive; addressed all in this slice.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed multiple project/config/environment records, per-file/root selection, stable provenance, and partial issue preservation match mature tooling patterns.
+- Follow-ups/blockers: Phase 5C should observe `django_environment_candidates(db, project)` through the loading graph without holding the session lock across candidate derivation.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1813,8 +1828,8 @@ pub enum EnvironmentSelection {
 - [x] Import-root and module-resolution tests pass: `cargo test -p djls-project resolver` passed.
 
 **Phase 5B gate**
-- [ ] Environment candidate tests pass: `cargo test -p djls-project environments`
-- [ ] Multisite fixture test passes: `cargo test -p djls-project multisite`
+- [x] Environment candidate tests pass: `cargo test -p djls-project environments` passed.
+- [x] Multisite fixture test passes: `cargo test -p djls-project multisite` passed.
 
 **Phase 5C gate**
 - [ ] Nonblocking live-query access seam covers environment candidate derivation without holding `Arc<Mutex<Session>>` across long tracked-query execution.
