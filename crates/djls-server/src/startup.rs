@@ -3,10 +3,25 @@
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::build_source_roots;
+use djls_project::first_party_discovery_files_request;
+use djls_project::first_party_source_files_load_request;
+use djls_project::merge_first_party_source_file_patch;
+use djls_project::run_loading_plan;
+use djls_project::Db as ProjectDb;
+use djls_project::FirstPartySourceFilePatch;
+use djls_project::LoadingEffects;
+use djls_project::LoadingPlan;
+use djls_project::LoadingRunResult;
+use djls_project::NoopLoadingObserver;
+use djls_project::ProjectSourceFilesApplyResult;
+use djls_project::ProjectSourceFilesIssue;
 use djls_source::File;
+use djls_workspace::load_files_for_roots;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Mutex;
 
@@ -290,15 +305,187 @@ pub(crate) enum StartupRunOutcome {
     Superseded { generation: StartupGeneration },
 }
 
+pub(crate) async fn run_startup_source_files(
+    session: Arc<Mutex<Session>>,
+    inputs: StartupRunInputs,
+) -> StartupRunOutcome {
+    run_startup_source_files_with_gate(session, inputs, None).await
+}
+
+async fn run_startup_source_files_with_gate(
+    session: Arc<Mutex<Session>>,
+    inputs: StartupRunInputs,
+    load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> StartupRunOutcome {
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        let mut effects = LspLoadingExecutor::new(handle, session, inputs, load_gate);
+        let mut observer = NoopLoadingObserver;
+        let result = run_loading_plan(LoadingPlan::phase3(), &mut effects, &mut observer);
+        effects.finish(result)
+    })
+    .await
+    .unwrap_or(StartupRunOutcome::Failed)
+}
+
+struct LspLoadingExecutor {
+    handle: tokio::runtime::Handle,
+    session: Arc<Mutex<Session>>,
+    inputs: StartupRunInputs,
+    roots: Vec<Utf8PathBuf>,
+    outcome: Arc<StdMutex<Option<StartupRunOutcome>>>,
+    load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl LspLoadingExecutor {
+    fn new(
+        handle: tokio::runtime::Handle,
+        session: Arc<Mutex<Session>>,
+        inputs: StartupRunInputs,
+        load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) -> Self {
+        Self {
+            handle,
+            session,
+            roots: inputs.snapshot().workspace_roots().to_vec(),
+            inputs,
+            outcome: Arc::new(StdMutex::new(None)),
+            load_gate,
+        }
+    }
+
+    fn record_outcome(&self, outcome: StartupRunOutcome) {
+        let mut current = self.outcome.lock().expect("startup outcome mutex poisoned");
+        if current.is_none() {
+            *current = Some(outcome);
+        }
+    }
+
+    fn finish(self, _result: LoadingRunResult) -> StartupRunOutcome {
+        self.outcome
+            .lock()
+            .expect("startup outcome mutex poisoned")
+            .clone()
+            .unwrap_or(StartupRunOutcome::Succeeded)
+    }
+}
+
+impl LoadingEffects for LspLoadingExecutor {
+    fn begin_loading_run(&mut self) {
+        let outcome = self
+            .handle
+            .block_on(self.inputs.guard().apply(&self.session, |session| {
+                ProjectDb::begin_project_loading_run(session.db_mut());
+                Ok(())
+            }));
+        match outcome {
+            ApplyOutcome::Applied(()) => {}
+            ApplyOutcome::Superseded => self.record_outcome(StartupRunOutcome::Superseded {
+                generation: self.inputs.guard().generation(),
+            }),
+            ApplyOutcome::Rejected { .. } => self.record_outcome(StartupRunOutcome::Failed),
+        }
+    }
+
+    fn load_source_file_set(&mut self) -> FirstPartySourceFilePatch {
+        if let Some(load_gate) = &self.load_gate {
+            load_gate();
+        }
+        let plan = build_source_roots(self.roots.clone());
+        let (root_issues, request) =
+            first_party_discovery_files_request(first_party_source_files_load_request(plan));
+        FirstPartySourceFilePatch::first_party(root_issues, load_files_for_roots(request))
+    }
+
+    fn apply_source_file_patch(
+        &mut self,
+        patch: FirstPartySourceFilePatch,
+    ) -> ProjectSourceFilesApplyResult {
+        let fallback_patch = patch.clone();
+        let outcome = self
+            .handle
+            .block_on(self.inputs.guard().apply(&self.session, |session| {
+                if let Some(reason) = self.inputs.snapshot().stale_document_rejection(session) {
+                    return Err(reason);
+                }
+                let current = session
+                    .db()
+                    .project_loading_state()
+                    .source_files(session.db())
+                    .ready_or_previous();
+                let update = merge_first_party_source_file_patch(current.as_ref(), patch);
+                Ok(session.db_mut().apply_project_source_files(update))
+            }));
+
+        match outcome {
+            ApplyOutcome::Applied(applied) => applied,
+            ApplyOutcome::Superseded => {
+                self.record_outcome(StartupRunOutcome::Superseded {
+                    generation: self.inputs.guard().generation(),
+                });
+                fallback_source_file_apply_result(fallback_patch, FallbackApplyResult::Deferred)
+            }
+            ApplyOutcome::Rejected { .. } => {
+                self.record_outcome(StartupRunOutcome::Failed);
+                fallback_source_file_apply_result(fallback_patch, FallbackApplyResult::Failed)
+            }
+        }
+    }
+}
+
+enum FallbackApplyResult {
+    Deferred,
+    Failed,
+}
+
+fn fallback_source_file_apply_result(
+    patch: FirstPartySourceFilePatch,
+    result: FallbackApplyResult,
+) -> ProjectSourceFilesApplyResult {
+    let update = merge_first_party_source_file_patch(None, patch);
+    let transition = update.applied_transition().clone();
+    let issue = update
+        .issues()
+        .first()
+        .cloned()
+        .unwrap_or(ProjectSourceFilesIssue::NotLoaded);
+    match result {
+        FallbackApplyResult::Deferred => ProjectSourceFilesApplyResult::Deferred {
+            transition,
+            issue,
+            previous: None,
+        },
+        FallbackApplyResult::Failed => ProjectSourceFilesApplyResult::Failed {
+            transition,
+            issue,
+            previous: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod startup_generation {
+    use std::sync::atomic::AtomicBool;
+
     use djls_project::Db as _;
+    use djls_project::ProjectSourceFilesAvailability;
+    use djls_source::Db as _;
     use tower_lsp_server::ls_types;
 
     use super::*;
 
     fn initialized_session() -> Session {
         Session::new(&ls_types::InitializeParams::default())
+    }
+
+    fn initialized_session_with_root(root: &str) -> Session {
+        Session::new(&ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root).expect("root should convert to URI"),
+                name: root.to_string(),
+            }]),
+            ..ls_types::InitializeParams::default()
+        })
     }
 
     fn text_document(path: &str, version: i32, text: &str) -> ls_types::TextDocumentItem {
@@ -584,6 +771,80 @@ mod startup_generation {
                 .generation(),
             StartupGeneration(2)
         );
+    }
+
+    #[tokio::test]
+    async fn startup_source_files_runs_source_file_set_through_loading_plan() {
+        let session = Arc::new(Mutex::new(initialized_session_with_root(
+            "/tmp/djls-startup-source-files-missing",
+        )));
+        let controller = StartupController::new();
+        let inputs = {
+            let session = session.lock().await;
+            StartupRunInputs::capture(&session, controller.start_generation().await)
+        };
+
+        let outcome = run_startup_source_files(Arc::clone(&session), inputs).await;
+
+        assert_eq!(outcome, StartupRunOutcome::Succeeded);
+        let session = session.lock().await;
+        assert!(matches!(
+            session
+                .db()
+                .project_loading_state()
+                .source_files(session.db()),
+            ProjectSourceFilesAvailability::Unavailable { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn startup_request_while_loading_does_not_wait_for_source_file_node() {
+        let session = Arc::new(Mutex::new(initialized_session_with_root(
+            "/tmp/djls-startup-source-files-blocked",
+        )));
+        let controller = StartupController::new();
+        let path = "/workspace/templates/index.html";
+        let inputs = {
+            let mut session = session.lock().await;
+            session.open_document(&text_document(path, 1, "{% if user %}hi{% endif %}"));
+            StartupRunInputs::capture(&session, controller.start_generation().await)
+        };
+        let blocked = Arc::new(AtomicBool::new(false));
+        let unblock = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let gate_blocked = Arc::clone(&blocked);
+        let gate_unblock = Arc::clone(&unblock);
+        let gate = Arc::new(move || {
+            gate_blocked.store(true, Ordering::SeqCst);
+            let (lock, cvar) = &*gate_unblock;
+            let mut unblocked = lock.lock().expect("unblock mutex should not be poisoned");
+            while !*unblocked {
+                unblocked = cvar
+                    .wait(unblocked)
+                    .expect("unblock mutex should not be poisoned");
+            }
+        });
+
+        let startup = tokio::spawn(run_startup_source_files_with_gate(
+            Arc::clone(&session),
+            inputs,
+            Some(gate),
+        ));
+        while !blocked.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+
+        let diagnostics = {
+            let session = session.lock().await;
+            let db = session.db();
+            let file = db.get_or_create_file(&Utf8PathBuf::from(path));
+            djls_ide::collect_diagnostics(db, file)
+        };
+
+        let (lock, cvar) = &*unblock;
+        *lock.lock().expect("unblock mutex should not be poisoned") = true;
+        cvar.notify_one();
+        assert_eq!(startup.await.unwrap(), StartupRunOutcome::Succeeded);
+        assert!(diagnostics.is_empty());
     }
 
     #[tokio::test]
