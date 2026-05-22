@@ -1,3 +1,4 @@
+mod availability;
 mod db;
 mod discovery;
 mod enrichment;
@@ -6,6 +7,10 @@ mod interpreter;
 pub mod loading;
 mod system;
 
+pub use availability::project_facts_availability;
+pub use availability::ProjectDiscoveryUnavailableReason;
+pub use availability::ProjectFactStatus;
+pub use availability::ProjectFactsAvailability;
 pub use db::Db;
 pub use discovery::ConfigLoadIssueKind;
 pub use discovery::DjangoEnvironmentSeed;

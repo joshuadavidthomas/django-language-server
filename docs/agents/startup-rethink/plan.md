@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `ynlpuktv` contains the completed project-discovery loading-node slice.
-- **Current slice**: project-discovery loading node completed; Phase 3C4 is next.
+- **Implementation change**: `sxrlwqyu` contains the completed availability/request matrix slice.
+- **Current slice**: availability/request matrix completed; Phase 3D is next.
 
 ### Implementation Notes
 
@@ -224,6 +224,23 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist requested canonical root consistency, degraded status for recoverable discovery issues, and explicit projection tests; discovery loading now derives roots from `build_source_roots`, ready-with-issues maps to `Degraded`, and plan tests cover clean/degraded/deferred/unavailable outcomes.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that mature tools keep loading/supersession outside Salsa, derive loading from canonical roots, model partial discovery as usable/degraded state, and mutate a stable project handle through targeted setters.
 - Follow-ups/blockers: Phase 3C4 should move pure Project Facts availability projection into `djls-project::availability` and extend degraded request behavior for absent/unavailable discovery facts.
+
+### Availability/request matrix
+- Bookmark: `startup-rethink` still points to `ynlpuktv`; move it to `sxrlwqyu` after describing this verified slice.
+- Current change: `sxrlwqyu`.
+- Scope: moved pure Project Facts availability classification into `djls-project::availability`, deleted the temporary semantic availability module, exposed a narrow `Session::project_facts_availability` request boundary, preserved non-empty discovery issues in the availability API, logged availability from template request handlers, and added degraded absent/unavailable discovery request tests for diagnostics, completions, hover, definition, and references.
+- Validation:
+  - `cargo test -p djls-project availability` passed: 3 tests.
+  - `cargo test -p djls-server degraded` passed: 2 tests.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+  - `rg "ProjectFactsAvailability|degraded_no_project|availability" crates/djls-semantic crates/djls-ide crates/djls-server -g '*.rs'` shows only the server session/request boundary and unrelated scoping-symbol availability comments/tests; no semantic availability bridge remains.
+  - `rg "availability|ProjectSourceFiles|FileSetPartition" crates/djls-source crates/djls-db/src/db.rs -g '*.rs'` shows no readiness availability in `djls-source`; `djls-db` references project source-file apply types without Django partition names.
+- Review/reference follow-up:
+  - Ousterhout review found no must-fix issues and accepted the project-owned availability boundary and degraded request tests.
+  - Rust specialist required removing `djls-semantic` passthrough re-exports, preserving the non-empty discovery-issue invariant, and making availability visible in the production request path; fixed by deleting the semantic re-export, carrying `ProjectDiscoveryIssues` through `ProjectDiscoveryUnavailableReason::Failed`, and adding the session helper used by request handlers.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that project facts belong in the project layer, request handlers should degrade to empty/`None` results, and loading/Salsa internals should stay behind project/session APIs.
+- Follow-ups/blockers: Phase 3D should add layout/concrete provenance and continue cleanup of legacy queue/dependency wiring.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1242,7 +1259,7 @@ pub struct ProjectEnvVars {
 - **3C2 gate**: stop after discovery apply tests mutate `Project.discovery` through setters, preserve old facts on failed/superseded reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation`.
 - **3C3 gate**: completed in `ynlpuktv`; two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, terminal-status projection table behavior, successor execution, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`.
 - **3C3 gate**: completed in `ynlpuktv`; startup/executor tests cover applying root-scoped discovery data, CLI applying root-scoped discovery data, configuration restart/supersession preserving Project Facts, and config-load failure preservation in discovery data: `cargo test -p djls-server startup` and `cargo test -p djls --test check`.
-- **3C4 gate**: stop after pure availability ownership has moved to `djls-project::availability`, the temporary Phase 1 semantic availability type/module is deleted or narrowed to a semantic-specific adapter, and no-discovery-set degraded request tests plus the shared project/semantic availability matrix pass: `cargo test -p djls-server degraded_no_discovery_set` or equivalent targeted IDE/server tests.
+- **3C4 gate**: completed in `sxrlwqyu`; pure availability ownership moved to `djls-project::availability`, the temporary Phase 1 semantic availability type/module was deleted, and no-discovery-set degraded request tests plus the shared project availability matrix pass: `cargo test -p djls-project availability` and `cargo test -p djls-server degraded`.
 
 #### Phase 3D: Layout, concrete provenance, legacy queue cleanup, and dependency wiring
 
@@ -1364,12 +1381,12 @@ Names may change, but the outcome must be derived from stable Project facts, not
 
 **Phase 3C3 gate**
 - [x] Two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, domain-outcome-to-terminal projection table behavior, successor execution, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`
-- [ ] Project-discovery loading-node tests pass through both CLI and LSP effect adapters, including configuration-change restart and superseded apply rejection: `cargo test -p djls-server startup` and `cargo test -p djls --test check`
+- [x] Project-discovery loading-node tests pass through both CLI and LSP effect adapters, including configuration-change restart and superseded apply rejection: `cargo test -p djls-server startup` and `cargo test -p djls --test check`
 
 **Phase 3C4 gate**
-- [ ] Pure availability ownership has moved to `djls-project::availability`; the temporary Phase 1 semantic availability type/module is deleted or narrowed to a semantic-specific adapter.
-- [ ] An executable cleanup assertion proves the temporary semantic availability bridge is gone or narrowed: `rg "ProjectFactsAvailability|degraded_no_project|availability" crates/djls-semantic crates/djls-ide crates/djls-server -g '*.rs'` with only the final project-owned seam or documented semantic-specific adapter remaining.
-- [ ] No-discovery-set degraded request tests, absent/unavailable source/discovery availability tests, and the shared project/semantic availability matrix pass: `cargo test -p djls-server degraded_no_discovery_set` or equivalent targeted IDE/server tests
+- [x] Pure availability ownership has moved to `djls-project::availability`; the temporary Phase 1 semantic availability type/module is deleted.
+- [x] An executable cleanup assertion proves the temporary semantic availability bridge is gone or narrowed: `rg "ProjectFactsAvailability|degraded_no_project|availability" crates/djls-semantic crates/djls-ide crates/djls-server -g '*.rs'` shows only the final server/session use of the project-owned seam plus unrelated scoping availability comments/tests.
+- [x] No-discovery-set degraded request tests, absent/unavailable source/discovery availability tests, and the shared project availability matrix pass: `cargo test -p djls-project availability` and `cargo test -p djls-server degraded`.
 
 **Phase 3D gate**
 - [ ] Layout index tests pass, including domain outcome variants for absent/unavailable source inventory, invalidation through stable `Project.source_inventory`, and no recomputation for enrichment-only state changes: `cargo test -p djls-project layout` or the rewritten equivalent.

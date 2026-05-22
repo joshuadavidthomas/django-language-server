@@ -110,6 +110,10 @@ impl Session {
         &mut self.db
     }
 
+    pub(crate) fn project_facts_availability(&self) -> djls_project::ProjectFactsAvailability {
+        djls_project::project_facts_availability(&self.db)
+    }
+
     pub(crate) fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
         self.db.set_settings(settings)
     }
@@ -498,11 +502,70 @@ S100 = "warning"
 
         let db = session.db();
         assert_eq!(
-            djls_semantic::project_facts_availability(db),
-            djls_semantic::ProjectFactsAvailability::Absent {
-                reason: djls_semantic::ProjectFactsAbsentReason::StartupNotLoaded
+            session.project_facts_availability(),
+            djls_project::ProjectFactsAvailability {
+                source_files: djls_project::ProjectFactStatus::Unavailable {
+                    issue: djls_project::ProjectSourceFilesIssue::NotLoaded,
+                },
+                discovery: djls_project::ProjectFactStatus::Unavailable {
+                    issue: djls_project::ProjectDiscoveryUnavailableReason::NotLoaded,
+                },
             }
         );
+
+        let file = db.get_or_create_file(&path);
+        let diagnostics = djls_ide::collect_diagnostics(db, file);
+        let completions = djls_ide::handle_completion(
+            file.source(db).as_str(),
+            ls_types::Position::new(0, 3),
+            session.client_info().position_encoding(),
+            *file.source(db).kind(),
+            db.project().map(|project| project.template_libraries(db)),
+            Some(db.tag_specs()),
+            None,
+            false,
+        );
+        let hover = djls_ide::hover(db, file, djls_source::Offset::new(3));
+        let definition = djls_ide::goto_definition(db, file, djls_source::Offset::new(3));
+        let references = djls_ide::find_references(db, file, djls_source::Offset::new(3));
+
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.source.is_some()));
+        assert!(completions.is_empty() || completions.iter().all(|item| !item.label.is_empty()));
+        assert!(hover.is_none());
+        assert!(definition.is_none());
+        assert!(references.is_none());
+    }
+
+    #[test]
+    fn degraded_unavailable_discovery_template_requests_do_not_panic() {
+        let mut session = Session::default();
+        let (path, uri) = test_file_uri("degraded_unavailable_discovery.html");
+        let text_document = ls_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "django-html".to_string(),
+            version: 1,
+            text: "{% load missing %}\n{% if user %}{{ user|default:'anon' }}{% endif %}"
+                .to_string(),
+        };
+        session.open_document(&text_document);
+        let issues = djls_project::ProjectDiscoveryIssues::new(vec![
+            djls_project::ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
+        ])
+        .expect("test issue list should be non-empty");
+        djls_project::Db::set_project_discovery(
+            session.db_mut(),
+            djls_project::ProjectDiscovery::Unavailable { issues },
+        );
+
+        let db = session.db();
+        assert!(matches!(
+            session.project_facts_availability().discovery,
+            djls_project::ProjectFactStatus::Unavailable {
+                issue: djls_project::ProjectDiscoveryUnavailableReason::Failed { .. }
+            }
+        ));
 
         let file = db.get_or_create_file(&path);
         let diagnostics = djls_ide::collect_diagnostics(db, file);

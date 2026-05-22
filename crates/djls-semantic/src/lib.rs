@@ -1,4 +1,3 @@
-mod availability;
 mod db;
 mod errors;
 mod primitives;
@@ -16,9 +15,6 @@ mod validation;
 #[cfg(test)]
 mod testing;
 
-pub use availability::project_facts_availability;
-pub use availability::ProjectFactsAbsentReason;
-pub use availability::ProjectFactsAvailability;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
