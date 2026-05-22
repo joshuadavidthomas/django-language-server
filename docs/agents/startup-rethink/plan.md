@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `vwkwqxpn` contains the in-progress Phase 3A4c progress lifecycle slice.
-- **Current slice**: Phase 3A4c progress lifecycle in progress.
+- **Implementation change**: `zzwtomox` contains the in-progress Phase 3A4c progress lifecycle review follow-up.
+- **Current slice**: Phase 3A4c progress lifecycle review follow-up in progress.
 
 ### Implementation Notes
 
@@ -92,7 +92,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - Follow-ups/blockers: Phase 3A4c can build progress lifecycle on `LoadingRunResult::execution_outcome` instead of a server-side outcome side channel.
 
 ### LSP startup progress lifecycle
-- Bookmark: `startup-rethink` will move to `vwkwqxpn` after describing this verified slice.
+- Bookmark: `startup-rethink` points to `vwkwqxpn`.
 - Current change: `vwkwqxpn`.
 - Scope: parsed `window.workDoneProgress` into `ClientInfo`, added `StartupProgress` as the LSP observer/log fallback boundary, reported begin/node/finish events from the existing loading runner, and centralized startup progress finish through the typed `StartupRunOutcome` returned by the inner source-file runner.
 - Validation:
@@ -102,6 +102,18 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - `just fmt --check` passed.
   - `cargo build -q` passed.
 - Follow-ups/blockers: Phase 3A4d wires startup/configuration restart entrypoints to capture `StartupRunInputs` with the real client progress adapter.
+
+### LSP startup progress lifecycle review follow-up
+- Bookmark: `startup-rethink` will move to `zzwtomox` after describing this verified slice.
+- Current change: `zzwtomox`.
+- Scope: made work-done progress tokens generation-scoped, moved LSP progress create/notify work onto a nonblocking dispatcher so progress IO cannot gate loading execution, added explicit work-done progress state that only emits begin/report/end after successful token creation, and removed the unused recording-only log event.
+- Validation:
+  - `cargo test -p djls-server work_done_progress` passed: 5 tests.
+  - `cargo test -p djls-server startup_progress` passed: 3 tests.
+  - `cargo test -p djls-server startup_source_files` passed: 3 tests.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Follow-ups/blockers: Phase 3A4d can pass the active `StartupGeneration` into `StartupProgress::for_client(...)` when wiring real startup/configuration restarts.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -919,7 +931,7 @@ async fn run_startup(...) -> StartupRunOutcome {
 - **3A4b gate**: stop after LSP effect-adapter tests pass for the `source-file-set` node through `run_loading_plan`, with guarded apply and no progress assertions: `cargo test -p djls-server startup_source_files` or equivalent startup tests.
 - **3A4b gate**: stop after a deterministic request-while-loading test proves a blocked active `source-file-set` startup run does not block a representative request and returns a valid degraded response: `cargo test -p djls-server startup_request_while_loading` or equivalent startup test.
 - [x] **3A4c gate**: stop after client work-done progress capability tests pass: `cargo test -p djls-server client::tests::work_done_progress` — 3 passed. Evidence: `ClientCapabilities` parses `window.workDoneProgress` true/false/missing and `ClientInfo::supports_work_done_progress()` exposes it.
-- [x] **3A4c gate**: stop after progress lifecycle tests cover begin/report/finish and log fallback over stable observer events: `cargo test -p djls-server startup_progress` — 2 passed. Evidence: `StartupProgress` observes the neutral loading runner events, emits begin/node/finish events through a recording reporter in tests, uses tracing as the fallback reporter, and `run_startup_source_files_with_gate` has exactly one finish call after the inner runner returns a typed `StartupRunOutcome`.
+- [x] **3A4c gate**: stop after progress lifecycle tests cover begin/report/finish and log fallback over stable observer events: `cargo test -p djls-server startup_progress` — 3 passed after review follow-up; `cargo test -p djls-server work_done_progress` — 5 passed. Evidence: `StartupProgress` observes the neutral loading runner events, emits begin/node/finish events through a recording reporter in tests, uses tracing as the fallback reporter, and `run_startup_source_files_with_gate` has exactly one finish call after the inner runner returns a typed `StartupRunOutcome`. Work-done progress uses generation-scoped tokens, a nonblocking dispatcher, and an explicit created/active state so create failure suppresses begin/report/end.
 - **3A4d gate**: stop after configuration-change tests prove `didChangeConfiguration` restarts the active loading graph, does not depend on `project().is_some()`, and rejects superseded applies from the older run: `cargo test -p djls-server configuration_restart`.
 
 #### Phase 3B: Discovery and enrichment loading-state scaffolding

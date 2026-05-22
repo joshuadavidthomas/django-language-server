@@ -28,6 +28,7 @@ use djls_project::ProjectSourceFilesAvailability;
 use djls_project::ProjectSourceFilesIssue;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Mutex;
 use tower_lsp_server::ls_types;
@@ -348,7 +349,6 @@ pub(crate) enum StartupProgressEvent {
         status: NodeTerminalStatus,
     },
     Finish(StartupRunOutcome),
-    Log(String),
 }
 
 #[derive(Clone, Debug)]
@@ -363,9 +363,13 @@ impl StartupProgress {
     }
 
     #[must_use]
-    pub(crate) fn for_client(client: Client, work_done_progress: bool) -> Self {
+    pub(crate) fn for_client(
+        client: Client,
+        work_done_progress: bool,
+        generation: StartupGeneration,
+    ) -> Self {
         if work_done_progress {
-            Self::new(WorkDoneStartupProgressReporter::new(client))
+            Self::new(WorkDoneStartupProgressReporter::new(client, generation))
         } else {
             Self::log_fallback()
         }
@@ -448,16 +452,16 @@ impl StartupProgressReporter for LogStartupProgressReporter {
 struct WorkDoneStartupProgressReporter {
     client: Client,
     token: ls_types::ProgressToken,
-    started: StdMutex<bool>,
+    sender: StdMutex<Option<mpsc::UnboundedSender<WorkDoneProgressCommand>>>,
     finished: StdMutex<bool>,
 }
 
 impl WorkDoneStartupProgressReporter {
-    fn new(client: Client) -> Self {
+    fn new(client: Client, generation: StartupGeneration) -> Self {
         Self {
             client,
-            token: ls_types::ProgressToken::String("djls/startup".to_string()),
-            started: StdMutex::new(false),
+            token: work_done_progress_token(generation),
+            sender: StdMutex::new(None),
             finished: StdMutex::new(false),
         }
     }
@@ -469,90 +473,48 @@ impl WorkDoneStartupProgressReporter {
             StartupRunOutcome::Superseded { .. } => "Django project loading superseded",
         }
     }
+
+    fn send(&self, command: WorkDoneProgressCommand) {
+        let sender = self
+            .sender
+            .lock()
+            .expect("startup progress mutex poisoned")
+            .clone();
+        if let Some(sender) = sender {
+            let _ = sender.send(command);
+        }
+    }
 }
 
 impl StartupProgressReporter for WorkDoneStartupProgressReporter {
     fn begin(&self, handle: &tokio::runtime::Handle) {
-        let client = self.client.clone();
-        let token = self.token.clone();
-        handle.block_on(async move {
-            let _ = client.create_work_done_progress(token.clone()).await;
-            client
-                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
-                    token,
-                    value: ls_types::ProgressParamsValue::WorkDone(
-                        ls_types::WorkDoneProgress::Begin(ls_types::WorkDoneProgressBegin {
-                            title: "Loading Django project".to_string(),
-                            cancellable: Some(false),
-                            message: Some("Starting".to_string()),
-                            percentage: None,
-                        }),
-                    ),
-                })
-                .await;
-        });
-        *self
-            .started
-            .lock()
-            .expect("startup progress mutex poisoned") = true;
+        let (sender, receiver) = mpsc::unbounded_channel();
+        *self.sender.lock().expect("startup progress mutex poisoned") = Some(sender.clone());
+        spawn_work_done_progress_dispatcher(
+            handle,
+            self.client.clone(),
+            self.token.clone(),
+            receiver,
+        );
+        let _ = sender.send(WorkDoneProgressCommand::Begin);
     }
 
-    fn node_started(&self, handle: &tokio::runtime::Handle, node: NodeId) {
-        if !*self
-            .started
-            .lock()
-            .expect("startup progress mutex poisoned")
-        {
-            return;
-        }
-        let client = self.client.clone();
-        let token = self.token.clone();
-        handle.block_on(async move {
-            client
-                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
-                    token,
-                    value: ls_types::ProgressParamsValue::WorkDone(
-                        ls_types::WorkDoneProgress::Report(ls_types::WorkDoneProgressReport {
-                            message: Some(format!("Started {node:?}")),
-                            ..Default::default()
-                        }),
-                    ),
-                })
-                .await;
-        });
+    fn node_started(&self, _handle: &tokio::runtime::Handle, node: NodeId) {
+        self.send(WorkDoneProgressCommand::Report(format!("Started {node:?}")));
     }
 
     fn node_finished(
         &self,
-        handle: &tokio::runtime::Handle,
+        _handle: &tokio::runtime::Handle,
         node: NodeId,
         status: NodeTerminalStatus,
     ) {
-        if !*self
-            .started
-            .lock()
-            .expect("startup progress mutex poisoned")
-        {
-            return;
-        }
-        let client = self.client.clone();
-        let token = self.token.clone();
-        handle.block_on(async move {
-            client
-                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
-                    token,
-                    value: ls_types::ProgressParamsValue::WorkDone(
-                        ls_types::WorkDoneProgress::Report(ls_types::WorkDoneProgressReport {
-                            message: Some(format!("Finished {node:?}: {status:?}")),
-                            ..Default::default()
-                        }),
-                    ),
-                })
-                .await;
-        });
+        self.send(WorkDoneProgressCommand::Report(format!(
+            "Finished {node:?}: {status:?}"
+        )));
     }
 
-    fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
+    fn finish(&self, _handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
         let mut finished = self
             .finished
             .lock()
@@ -561,22 +523,127 @@ impl StartupProgressReporter for WorkDoneStartupProgressReporter {
             return;
         }
         *finished = true;
-        let client = self.client.clone();
-        let token = self.token.clone();
-        let message = Self::message_for_outcome(outcome).to_string();
-        handle.block_on(async move {
-            client
-                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
-                    token,
-                    value: ls_types::ProgressParamsValue::WorkDone(
-                        ls_types::WorkDoneProgress::End(ls_types::WorkDoneProgressEnd {
-                            message: Some(message),
-                        }),
-                    ),
-                })
-                .await;
-        });
+        self.send(WorkDoneProgressCommand::End(
+            Self::message_for_outcome(outcome).to_string(),
+        ));
     }
+}
+
+#[derive(Debug)]
+enum WorkDoneProgressCommand {
+    Begin,
+    Report(String),
+    End(String),
+}
+
+#[derive(Debug)]
+struct WorkDoneProgressMachine {
+    token: ls_types::ProgressToken,
+    active: bool,
+    finished: bool,
+}
+
+impl WorkDoneProgressMachine {
+    fn new(token: ls_types::ProgressToken) -> Self {
+        Self {
+            token,
+            active: false,
+            finished: false,
+        }
+    }
+
+    fn begin(&mut self, created: bool) -> Option<ls_types::ProgressParams> {
+        if !created {
+            self.active = false;
+            return None;
+        }
+        self.active = true;
+        Some(ls_types::ProgressParams {
+            token: self.token.clone(),
+            value: ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::Begin(
+                ls_types::WorkDoneProgressBegin {
+                    title: "Loading Django project".to_string(),
+                    cancellable: Some(false),
+                    message: Some("Starting".to_string()),
+                    percentage: None,
+                },
+            )),
+        })
+    }
+
+    fn report(&self, message: String) -> Option<ls_types::ProgressParams> {
+        (self.active && !self.finished).then(|| ls_types::ProgressParams {
+            token: self.token.clone(),
+            value: ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::Report(
+                ls_types::WorkDoneProgressReport {
+                    message: Some(message),
+                    ..Default::default()
+                },
+            )),
+        })
+    }
+
+    fn finish(&mut self, message: String) -> Option<ls_types::ProgressParams> {
+        if !self.active || self.finished {
+            return None;
+        }
+        self.finished = true;
+        Some(ls_types::ProgressParams {
+            token: self.token.clone(),
+            value: ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::End(
+                ls_types::WorkDoneProgressEnd {
+                    message: Some(message),
+                },
+            )),
+        })
+    }
+}
+
+fn work_done_progress_token(generation: StartupGeneration) -> ls_types::ProgressToken {
+    ls_types::ProgressToken::String(format!("djls/startup/{}", generation.0))
+}
+
+fn spawn_work_done_progress_dispatcher(
+    handle: &tokio::runtime::Handle,
+    client: Client,
+    token: ls_types::ProgressToken,
+    mut receiver: mpsc::UnboundedReceiver<WorkDoneProgressCommand>,
+) {
+    handle.spawn(async move {
+        let mut machine = WorkDoneProgressMachine::new(token.clone());
+        while let Some(command) = receiver.recv().await {
+            match command {
+                WorkDoneProgressCommand::Begin => {
+                    let created = client
+                        .create_work_done_progress(token.clone())
+                        .await
+                        .is_ok();
+                    if let Some(params) = machine.begin(created) {
+                        client
+                            .send_notification::<ProgressNotification>(params)
+                            .await;
+                    } else {
+                        tracing::debug!(token = ?token, "Work-done progress unavailable");
+                    }
+                }
+                WorkDoneProgressCommand::Report(message) => {
+                    if let Some(params) = machine.report(message) {
+                        client
+                            .send_notification::<ProgressNotification>(params)
+                            .await;
+                    }
+                }
+                WorkDoneProgressCommand::End(message) => {
+                    if let Some(params) = machine.finish(message) {
+                        client
+                            .send_notification::<ProgressNotification>(params)
+                            .await;
+                    }
+                    break;
+                }
+            }
+        }
+    });
 }
 
 impl LoadingObserver for StartupProgress {
@@ -1234,6 +1301,60 @@ mod startup_generation {
                 previous: None,
             }
         ));
+    }
+
+    #[test]
+    fn startup_progress_tokens_are_generation_scoped() {
+        assert_ne!(
+            work_done_progress_token(StartupGeneration(1)),
+            work_done_progress_token(StartupGeneration(2)),
+        );
+        assert_eq!(
+            work_done_progress_token(StartupGeneration(42)),
+            ls_types::ProgressToken::String("djls/startup/42".to_string()),
+        );
+    }
+
+    #[test]
+    fn work_done_progress_create_failure_suppresses_notifications() {
+        let mut machine =
+            WorkDoneProgressMachine::new(work_done_progress_token(StartupGeneration(1)));
+
+        assert_eq!(machine.begin(false), None);
+        assert_eq!(machine.report("started".to_string()), None);
+        assert_eq!(machine.finish("done".to_string()), None);
+    }
+
+    #[test]
+    fn work_done_progress_success_emits_begin_report_end_in_order() {
+        let token = work_done_progress_token(StartupGeneration(7));
+        let mut machine = WorkDoneProgressMachine::new(token.clone());
+
+        let begin = machine.begin(true).expect("begin should be emitted");
+        assert_eq!(begin.token, token);
+        assert!(matches!(
+            begin.value,
+            ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::Begin(_)),
+        ));
+
+        let report = machine
+            .report("started".to_string())
+            .expect("report should be emitted");
+        assert_eq!(report.token, token);
+        assert!(matches!(
+            report.value,
+            ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::Report(_)),
+        ));
+
+        let end = machine
+            .finish("done".to_string())
+            .expect("end should be emitted");
+        assert_eq!(end.token, token);
+        assert!(matches!(
+            end.value,
+            ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::End(_)),
+        ));
+        assert_eq!(machine.finish("again".to_string()), None);
     }
 
     #[tokio::test]
