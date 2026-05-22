@@ -1,10 +1,7 @@
-use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_conf::RootSettingsLoadIssueKind;
 use djls_conf::Settings;
 
 use crate::load_env_file_outcome;
-use crate::ConfigLoadIssueKind;
 use crate::DjangoEnvironmentSeed;
 use crate::DjangoSettingsModuleSeed;
 use crate::Interpreter;
@@ -137,20 +134,13 @@ pub fn build_project_discovery_data(
 }
 
 fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDiscoveryData {
-    let settings_outcome = djls_conf::load_root_settings(&root, client_settings);
-    let settings = settings_outcome.settings();
+    let loaded_settings = djls_conf::load_settings_for_root(&root, client_settings);
+    let settings = loaded_settings.settings();
     let mut issues = Vec::new();
-    for issue in settings_outcome.issues() {
+    if let Some(error) = loaded_settings.error() {
         issues.push(ProjectDiscoveryIssue::ConfigLoadFailed {
-            root: issue.root().to_owned(),
-            source: issue.source().map(Utf8Path::to_owned),
-            kind: config_issue_kind(issue.kind()),
-        });
-    }
-    if settings_outcome.fallback_used() {
-        issues.push(ProjectDiscoveryIssue::ConfigFallbackUsed {
             root: root.clone(),
-            source: settings_outcome.source_path().map(Utf8Path::to_owned),
+            error: error.clone().into(),
         });
     }
 
@@ -224,15 +214,6 @@ fn resolve_env_vars(
     (resolved.into_iter().collect(), issues)
 }
 
-fn config_issue_kind(kind: RootSettingsLoadIssueKind) -> ConfigLoadIssueKind {
-    match kind {
-        RootSettingsLoadIssueKind::Io => ConfigLoadIssueKind::Io,
-        RootSettingsLoadIssueKind::Parse => ConfigLoadIssueKind::Parse,
-        RootSettingsLoadIssueKind::Schema => ConfigLoadIssueKind::Schema,
-        RootSettingsLoadIssueKind::Unsupported => ConfigLoadIssueKind::Unsupported,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -246,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn loading_settings_preserves_config_failure_and_fallback_provenance() {
+    fn loading_settings_preserves_config_failure() {
         let dir = tempdir().unwrap();
         let root = utf8(dir.path());
         let source = root.join("djls.toml");
@@ -260,17 +241,10 @@ mod tests {
         assert_eq!(data.roots().len(), 1);
         assert_eq!(
             data.roots()[0].issues(),
-            &[
-                ProjectDiscoveryIssue::ConfigLoadFailed {
-                    root: root.clone(),
-                    source: Some(source.clone()),
-                    kind: ConfigLoadIssueKind::Parse,
-                },
-                ProjectDiscoveryIssue::ConfigFallbackUsed {
-                    root,
-                    source: Some(source),
-                },
-            ]
+            &[ProjectDiscoveryIssue::ConfigLoadFailed {
+                root,
+                error: crate::ProjectConfigLoadError::Parse(source),
+            }]
         );
     }
 

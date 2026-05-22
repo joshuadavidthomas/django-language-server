@@ -180,16 +180,16 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 ### Structured root settings load
 - Bookmark: `startup-rethink` still points to `lvnkyyyr`; move it to `urrpmlnp` after describing this verified slice.
 - Current change: `urrpmlnp`.
-- Scope: added `djls_conf::load_root_settings` with root-scoped `RootSettingsLoadOutcome`, effective source path, typed issue categories, fallback-after-error marker, and tests for missing config, unrelated `pyproject.toml`, invalid TOML, source provenance, and client override behavior.
+- Scope: added `djls_conf::load_settings_for_root` with a compact `LoadedSettings` result, typed `ConfigError` variants, shared project config source discovery, and tests for missing config, unrelated `pyproject.toml`, invalid TOML, source provenance on failure, and client override behavior.
 - Validation:
-  - `cargo test -p djls-conf root_settings_load` passed: 6 tests.
+  - `cargo test -p djls-conf settings` passed: 6 `settings_load` tests.
   - `just fmt --check` passed.
   - `cargo build -q` passed.
 - Review/reference follow-up:
   - Hickey review and Rust specialist review rejected guessed source provenance and lossy parse/schema classification; root settings loading now parses candidate files directly enough to distinguish unrelated `pyproject.toml`, syntax parse failures, schema/deserialization failures, unsupported shapes, and effective project config source.
-  - Rust specialist clarified that client/default settings can override a successful root config without being recorded as fallback-after-error; this behavior is covered by test.
+  - Rust specialist clarified that client/default settings can override a successful root config without being recorded as a config-load issue; this behavior is covered by test.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It noted ty preserves per-value provenance; this slice keeps root/effective-source provenance only, with per-value provenance deferred until a future diagnostic actually needs it.
-- Follow-ups/blockers: Phase 3C2 should lower this structured outcome into project-owned discovery facts without reverse-engineering `ConfigError` strings.
+- Follow-ups/blockers: Phase 3C2 should lower this structured outcome into project-owned discovery facts without reverse-engineering `ConfigError` strings. LSP startup still initializes DB-wide settings from client options while discovery loads per-root config for environment facts; decide separately whether global diagnostics/format settings should use the same per-root config path before `didChangeConfiguration`.
 
 ### Discovery data and Project apply
 - Bookmark: `startup-rethink` still points to `urrpmlnp`; move it to `ynmqxous` after describing this verified slice.
@@ -584,7 +584,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - **`djls-project` cannot depend on `djls-semantic`.** Follow the outline's crate boundary. If `djls-project` needs an existing helper that currently lives under `djls-semantic::project`, move that helper to the owning crate and leave only temporary semantic re-exports until Phase 10.
 - **Use pytest-lsp for real LSP startup.** The outline selected a tiny pytest/pytest-lsp e2e foundation at `tests/lsp/test_startup.py`; keep that decision. Add the Python test dependency and harness instead of replacing it with Rust integration tests.
 - **Workspace roots are real inputs, not a primary-root shortcut.** Preserve all workspace folders as source roots. Discovery data is root-scoped, and file-scoped queries choose the relevant Django Environment by path. Do not silently collapse a multi-root workspace into one startup-selected Project root.
-- **Root config failures are Project Facts too.** If per-root config loading fails and client/default settings are used as fallback, preserve that as typed discovery data with provenance. Do not silently substitute defaults.
+- **Root config failures are Project Facts too.** If per-root config loading fails and client/default settings keep discovery running, preserve that as typed discovery data with provenance. Do not silently substitute defaults.
 - **Add minimal enrichment facts early.** Phase 3 creates `Project.enrichment` as an absent/disabled/unavailable domain-fact field on the stable Project root. Phase 9 expands the same field with runtime/deep enrichment hints and typed failures.
 - **Runtime introspection is an enrichment provider, not semantic analysis.** Phase 9 keeps stable enrichment domain types, drafts, state, issues, and merge policy in `djls-project`. Inspector subprocess invocation, JSON DTOs, zipapp packaging/embedding, cache I/O, freshness policy, and provider fallback behavior remain infrastructure owned by `djls-db`/server-side provider code. Only translated `ProjectEnrichmentDraft` values and typed issues cross into `djls-project`; `djls-semantic` consumes merged facts only.
 - **No generic `Fact<T>` in `djls-project`.** Keep domain objects primary and model uncertainty in domain-specific result enums or partial settings values.
@@ -1467,7 +1467,7 @@ async fn run_startup(...) -> StartupRunOutcome {
 - Define `ProjectDiscoverySet` as the root-scoped discovery snapshot for the workspace. It contains one `RootDiscoveryInput` per workspace/source root and must not choose a primary root.
 - Define the project-owned configuration seed type `DjangoEnvironmentSeed`. Lower `djls_conf::DjangoEnvironmentConfig` into this type in Phase 3C; do not store `djls-conf` DTOs in Project Facts.
 - Define `RootDiscoveryInput` as a root-scoped Salsa input snapshot of config values relevant to discovery: root, interpreter, settings module seed, configured Django environment seeds, `pythonpath`, canonical env vars, and root-specific discovery issues. Do not name this as a selected/global Django Settings Module.
-- Define typed discovery issue variants for config load failures/fallbacks, interpreter discovery failures, env-file load failures, no workspace roots, and fixtures that do not model discovery. The config/interpreter/env-file failures must carry root/source/cause fields; do not use bare failure variants or generic strings.
+- Define typed discovery issue variants for config load failures, interpreter discovery failures, env-file load failures, no workspace roots, and fixtures that do not model discovery. The config/interpreter/env-file failures must carry root/source/cause fields; do not use bare failure variants or generic strings.
 - Define `ProjectEnrichment` or equivalent as optional domain facts with initial absent/disabled/unavailable states only. Phase 9 expands this with runtime/deep enrichment hints and failures. Do not model enrichment as readiness for core startup.
 - Do not wire root config loading, interpreter discovery, env-file loading, or discovery apply in this subphase.
 
@@ -1527,12 +1527,12 @@ Names may change during implementation, but the architectural constraint is fixe
   - **3C3 project-discovery loading node**: add `project-discovery-set` to the graph, CLI/LSP effect adapters, and configuration restart.
   - **3C4 availability/request matrix**: move pure Project Facts projection to `djls-project::availability` and extend degraded request tests.
 - Add the `project-discovery-set` node to the active loading plan and loading-node table in this subphase. Keep it as a normal node with terminal status derived from the applied discovery outcome; do not introduce readiness milestones in Phase 3.
-- In `djls-conf`, add a structured root settings load API/outcome, for example `load_root_settings(root, client_settings) -> RootSettingsLoadOutcome`. The outcome must carry the root, loaded `Settings` on success, config source path when known, typed error category on failure, and whether client/default settings were used as fallback. Do not require callers to reverse-engineer provenance from a generic `ConfigError` string.
-- Add `RootSettingsLoadIssueKind` or equivalent typed categories for I/O, parse, schema/deserialization, and unsupported config shapes.
+- In `djls-conf`, add a structured tolerant settings load API/outcome, for example `load_settings_for_root(root, client_settings) -> LoadedSettings`. The outcome must carry loaded `Settings` and, on failure, a typed `ConfigError` with source path when known. Do not require callers to reverse-engineer provenance from a generic config error string.
+- Model config load failures as `ConfigError` variants for I/O, parse, schema/deserialization, and unsupported config shapes.
 - Add a shared project activity such as `build_project_discovery_data(request: ProjectDiscoveryLoadRequest) -> ProjectDiscoverySetData` in `djls-project::loading::settings`.
 - Keep `project-discovery-set` as a coordinator, not a hidden mini-pipeline. `djls-conf` owns config file/schema loading. `djls-project` should place interpreter discovery, env-file loading, config DTO lowering, and discovery data construction in typed helper modules with typed issues, then have the loading node assemble `ProjectDiscoverySetData` from those helpers.
 - Define `ProjectDiscoverySetData` and `RootDiscoveryData` as plain executor-neutral data. Loading activities return these data structs; database apply methods materialize/update Salsa inputs and set `Project.discovery`.
-- For each root from `ProjectDiscoveryLoadRequest`, call the structured `djls-conf` root settings load API outside the session lock. On a per-root config error, record a typed `ConfigLoadFailed` issue with source path and cause category where available; if client/default settings are used as fallback, also record a paired `ConfigFallbackUsed` provenance marker in that root's `RootDiscoveryData`.
+- For each root from `ProjectDiscoveryLoadRequest`, call the structured `djls-conf` tolerant settings load API outside the session lock. On a per-root config error, record a typed `ConfigLoadFailed` issue with a project-owned `ProjectConfigLoadError` converted from `djls_conf::ConfigError`; the config failure itself implies client/default settings were used to keep discovery running.
 - Lower any `djls_conf::DjangoEnvironmentConfig` values in the load outcome into `DjangoEnvironmentSeed` / project-owned seed types before constructing `RootDiscoveryData`.
 - Interpreter discovery and env-file loading failures must record structured root/source/cause data using `InterpreterDiscoveryIssueKind` and `EnvFileLoadIssueKind`; do not use bare failure variants or generic strings.
 - Store environment variables in a deterministic Salsa-visible shape, for example `ProjectEnvVars` wrapping a `BTreeMap<String, String>` or a canonical sorted vector. Resolve duplicate keys before constructing/applying `RootDiscoveryData` using documented source precedence; if a lower-precedence value is discarded and that matters for diagnostics/provenance, record a typed discovery issue or provenance marker. Do not store unordered `Vec<(String, String)>` in discovery inputs.
@@ -1571,8 +1571,8 @@ pub struct ProjectEnvVars {
 ```
 
 **Tests and stop gate**:
-- **3C1 gate**: stop after `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load`.
-- **3C2 gate**: stop after discovery data/helper tests preserve config-load failures/fallback provenance, lower `djls-conf` DTOs into project-owned environment seeds, and canonicalize `ProjectEnvVars` deterministically: `cargo test -p djls-project loading_settings`.
+- **3C1 gate**: stop after `djls-conf` tolerant settings load tests preserve loaded settings, failure source path, and typed error category: `cargo test -p djls-conf settings`.
+- **3C2 gate**: stop after discovery data/helper tests preserve config-load failure provenance, lower `djls-conf` DTOs into project-owned environment seeds, and canonicalize `ProjectEnvVars` deterministically: `cargo test -p djls-project loading_settings`.
 - **3C2 gate**: stop after discovery apply tests mutate `Project.discovery` through setters, preserve old facts on failed/superseded reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation`.
 - **3C3 gate**: completed in `ynlpuktv`; two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, terminal-status projection table behavior, successor execution, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`.
 - **3C3 gate**: completed in `ynlpuktv`; startup/executor tests cover applying root-scoped discovery data, CLI applying root-scoped discovery data, configuration restart/supersession preserving Project Facts, and config-load failure preservation in discovery data: `cargo test -p djls-server startup` and `cargo test -p djls --test check`.
@@ -1690,10 +1690,10 @@ Names may change, but the outcome must be derived from stable Project facts, not
 - [x] Discovery/enrichment project-root scaffolding compiles without adding a new readiness singleton: `cargo test -p djls-project discovery` — 10 passed. Evidence: `Project.discovery` / `Project.enrichment` are stable Project fields, `ProjectDiscoverySet` is root-scoped and non-empty, discovery/enrichment unavailable states require non-empty typed issues, and `ProjectEnvVars` rejects duplicate keys before canonicalization.
 
 **Phase 3C1 gate**
-- [x] `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load` — 6 passed. Evidence: tests cover missing config without fallback issue, effective `djls.toml` source path, unrelated `pyproject.toml` not masking `djls.toml`, invalid `pyproject.toml` / `djls.toml` parse issues with source paths, and client overrides on successful root config without fallback-after-error.
+- [x] `djls-conf` tolerant settings load tests preserve loaded settings, failure source path, and typed error category: `cargo test -p djls-conf settings` — 6 passed. Evidence: tests cover missing config without issue, loading `djls.toml`, unrelated `pyproject.toml` not masking `djls.toml`, invalid `pyproject.toml` / `djls.toml` parse issues with source paths, and client overrides on successful root config without a config-load issue.
 
 **Phase 3C2 gate**
-- [x] Discovery data/helper tests preserve config-load failures/fallback provenance, distinguish missing config fallback from invalid config, lower `djls-conf` DTOs into project-owned environment seeds, treat interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing canonical `ProjectEnvVars`, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings` — 5 passed. Evidence: tests cover config failure/fallback provenance, configured environment seed lowering, pythonpath lowering, env-file failure issues, duplicate env-var issues, and canonical env-var ordering.
+- [x] Discovery data/helper tests preserve config-load failure provenance, distinguish missing config from invalid config, lower `djls-conf` DTOs into project-owned environment seeds, treat interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing canonical `ProjectEnvVars`, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings` — 5 passed. Evidence: tests cover config failure provenance, configured environment seed lowering, pythonpath lowering, env-file failure issues, duplicate env-var issues, and canonical env-var ordering.
 - [x] Discovery apply tests update stable `Project.discovery` facts through setters, preserve old facts on failed reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation` — 1 passed; `cargo test -p djls-db project_discovery` — 2 passed. Evidence: project-crate tracked probe invalidates on discovery change, database apply materializes `RootDiscoveryInput` handles and sets `Project.discovery`, repeated identical data avoids fresh setter invalidation by comparing plain data first, and empty failed discovery data preserves prior facts.
 
 **Phase 3C3 gate**
@@ -2626,7 +2626,7 @@ Audit CLI/LSP parity on the shared project model, add real LSP startup/readiness
 
 ### Integration Tests
 - CLI `djls check` tests under `crates/djls/tests/check.rs` continue to cover explicit files, directories, stdin, ignore/select behavior, and no-template success.
-- Add project-model integration fixtures under `crates/djls-project/tests/` for multisite, settings composition, installed apps, ignored files, template inventory, explicit config-load failure/fallback issues, and degraded enrichment.
+- Add project-model integration fixtures under `crates/djls-project/tests/` for multisite, settings composition, installed apps, ignored files, template inventory, explicit config-load failure issues, and degraded enrichment.
 - Keep corpus tests for extraction and model graph behavior. Run `just corpus sync` if corpus tests fail due missing data.
 
 ### Real LSP E2E Tests

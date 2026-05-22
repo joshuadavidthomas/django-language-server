@@ -10,7 +10,6 @@ use anyhow::Context;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use config::Config;
-use config::ConfigError as ExternalConfigError;
 use config::File;
 use config::FileFormat;
 use directories::ProjectDirs;
@@ -56,152 +55,87 @@ pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
     Ok(dir)
 }
 
-#[derive(Error, Debug)]
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ConfigError {
-    #[error("Configuration build/deserialize error")]
-    Config(#[from] ExternalConfigError),
-    #[error("Failed to read pyproject.toml")]
-    PyprojectIo(#[from] std::io::Error),
-    #[error("Failed to parse pyproject.toml TOML")]
-    PyprojectParse(#[from] toml::de::Error),
-    #[error("Failed to serialize extracted pyproject.toml data")]
-    PyprojectSerialize(#[from] toml::ser::Error),
+    #[error("failed to read DJLS config")]
+    Io(Utf8PathBuf),
+    #[error("failed to parse DJLS config")]
+    Parse(Utf8PathBuf),
+    #[error("DJLS config schema is invalid")]
+    Schema(Option<Utf8PathBuf>),
+    #[error("DJLS config shape is unsupported")]
+    Unsupported(Utf8PathBuf),
+}
+
+impl ConfigError {
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Utf8Path> {
+        match self {
+            Self::Io(source_path) | Self::Parse(source_path) | Self::Unsupported(source_path) => {
+                Some(source_path.as_path())
+            }
+            Self::Schema(source_path) => source_path.as_deref(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RootSettingsLoadOutcome {
-    root: Utf8PathBuf,
+pub struct LoadedSettings {
     settings: Settings,
-    source_path: Option<Utf8PathBuf>,
-    issues: Vec<RootSettingsLoadIssue>,
-    fallback_used: bool,
+    error: Option<ConfigError>,
 }
 
-impl RootSettingsLoadOutcome {
-    #[must_use]
-    pub fn root(&self) -> &Utf8Path {
-        &self.root
-    }
-
+impl LoadedSettings {
     #[must_use]
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
 
     #[must_use]
-    pub fn source_path(&self) -> Option<&Utf8Path> {
-        self.source_path.as_deref()
+    pub fn error(&self) -> Option<&ConfigError> {
+        self.error.as_ref()
     }
-
-    #[must_use]
-    pub fn issues(&self) -> &[RootSettingsLoadIssue] {
-        &self.issues
-    }
-
-    #[must_use]
-    pub fn fallback_used(&self) -> bool {
-        self.fallback_used
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RootSettingsLoadIssue {
-    root: Utf8PathBuf,
-    source: Option<Utf8PathBuf>,
-    kind: RootSettingsLoadIssueKind,
-}
-
-impl RootSettingsLoadIssue {
-    #[must_use]
-    pub fn root(&self) -> &Utf8Path {
-        &self.root
-    }
-
-    #[must_use]
-    pub fn source(&self) -> Option<&Utf8Path> {
-        self.source.as_deref()
-    }
-
-    #[must_use]
-    pub fn kind(&self) -> RootSettingsLoadIssueKind {
-        self.kind
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RootSettingsLoadIssueKind {
-    Io,
-    Parse,
-    Schema,
-    Unsupported,
 }
 
 #[must_use]
-pub fn load_root_settings(root: &Utf8Path, fallback: &Settings) -> RootSettingsLoadOutcome {
-    match load_root_settings_file(root) {
-        Ok(load) => RootSettingsLoadOutcome {
-            root: root.to_owned(),
-            settings: load.settings.with_overrides(fallback.clone()),
-            source_path: load.source_path,
-            issues: Vec::new(),
-            fallback_used: false,
+pub fn load_settings_for_root(root: &Utf8Path, overrides: &Settings) -> LoadedSettings {
+    match load_project_settings(root) {
+        Ok(settings) => LoadedSettings {
+            settings: settings.with_overrides(overrides.clone()),
+            error: None,
         },
-        Err(issue) => RootSettingsLoadOutcome {
-            root: root.to_owned(),
-            settings: fallback.clone(),
-            source_path: issue.source.clone(),
-            issues: vec![issue],
-            fallback_used: true,
+        Err(error) => LoadedSettings {
+            settings: overrides.clone(),
+            error: Some(error),
         },
     }
 }
 
-struct RootSettingsFileLoad {
-    settings: Settings,
-    source_path: Option<Utf8PathBuf>,
-}
-
-fn load_root_settings_file(root: &Utf8Path) -> Result<RootSettingsFileLoad, RootSettingsLoadIssue> {
+fn load_project_settings(root: &Utf8Path) -> Result<Settings, ConfigError> {
     let mut builder = Config::builder();
     let mut source_path = None;
 
-    for candidate in root_config_sources(root)? {
+    for candidate in project_config_sources(root)? {
         source_path = Some(candidate.path.clone());
         builder = builder.add_source(File::from_str(&candidate.content, FileFormat::Toml));
     }
 
-    let config = builder.build().map_err(|_error| RootSettingsLoadIssue {
-        root: root.to_owned(),
-        source: source_path.clone(),
-        kind: RootSettingsLoadIssueKind::Schema,
-    })?;
-    let settings = config
-        .try_deserialize()
-        .map_err(|_error| RootSettingsLoadIssue {
-            root: root.to_owned(),
-            source: source_path.clone(),
-            kind: RootSettingsLoadIssueKind::Schema,
-        })?;
-
-    Ok(RootSettingsFileLoad {
-        settings,
-        source_path,
-    })
+    deserialize_settings(builder, source_path)
 }
 
-struct RootConfigSource {
+struct ConfigSource {
     path: Utf8PathBuf,
     content: String,
 }
 
-fn root_config_sources(root: &Utf8Path) -> Result<Vec<RootConfigSource>, RootSettingsLoadIssue> {
+fn project_config_sources(root: &Utf8Path) -> Result<Vec<ConfigSource>, ConfigError> {
     let mut sources = Vec::new();
 
     if let Some(source) = pyproject_tool_djls_source(root)? {
         sources.push(source);
     }
     for path in [root.join(".djls.toml"), root.join("djls.toml")] {
-        if let Some(source) = toml_file_source(root, path)? {
+        if let Some(source) = toml_file_source(path)? {
             sources.push(source);
         }
     }
@@ -209,66 +143,51 @@ fn root_config_sources(root: &Utf8Path) -> Result<Vec<RootConfigSource>, RootSet
     Ok(sources)
 }
 
-fn pyproject_tool_djls_source(
-    root: &Utf8Path,
-) -> Result<Option<RootConfigSource>, RootSettingsLoadIssue> {
+fn pyproject_tool_djls_source(root: &Utf8Path) -> Result<Option<ConfigSource>, ConfigError> {
     let path = root.join("pyproject.toml");
     if !path.exists() {
         return Ok(None);
     }
 
-    let content = read_config_file(root, &path)?;
-    let toml_str: toml::Value = toml::from_str(&content).map_err(|_error| {
-        root_settings_issue(root, Some(path.clone()), RootSettingsLoadIssueKind::Parse)
-    })?;
+    let content = read_config_file(&path)?;
+    let toml_str: toml::Value =
+        toml::from_str(&content).map_err(|_error| ConfigError::Parse(path.clone()))?;
     let tool_djls_value: Option<&toml::Value> = ["tool", "djls"]
         .iter()
         .try_fold(&toml_str, |val, &key| val.get(key));
     let Some(tool_djls_table) = tool_djls_value.and_then(|value| value.as_table()) else {
         return Ok(None);
     };
-    let content = toml::to_string(tool_djls_table).map_err(|_error| {
-        root_settings_issue(
-            root,
-            Some(path.clone()),
-            RootSettingsLoadIssueKind::Unsupported,
-        )
-    })?;
+    let content = toml::to_string(tool_djls_table)
+        .map_err(|_error| ConfigError::Unsupported(path.clone()))?;
 
-    Ok(Some(RootConfigSource { path, content }))
+    Ok(Some(ConfigSource { path, content }))
 }
 
-fn toml_file_source(
-    root: &Utf8Path,
-    path: Utf8PathBuf,
-) -> Result<Option<RootConfigSource>, RootSettingsLoadIssue> {
+fn toml_file_source(path: Utf8PathBuf) -> Result<Option<ConfigSource>, ConfigError> {
     if !path.exists() {
         return Ok(None);
     }
 
-    let content = read_config_file(root, &path)?;
-    toml::from_str::<toml::Value>(&content).map_err(|_error| {
-        root_settings_issue(root, Some(path.clone()), RootSettingsLoadIssueKind::Parse)
-    })?;
-    Ok(Some(RootConfigSource { path, content }))
+    let content = read_config_file(&path)?;
+    toml::from_str::<toml::Value>(&content).map_err(|_error| ConfigError::Parse(path.clone()))?;
+    Ok(Some(ConfigSource { path, content }))
 }
 
-fn read_config_file(root: &Utf8Path, path: &Utf8Path) -> Result<String, RootSettingsLoadIssue> {
-    fs::read_to_string(path).map_err(|_error| {
-        root_settings_issue(root, Some(path.to_owned()), RootSettingsLoadIssueKind::Io)
-    })
+fn read_config_file(path: &Utf8Path) -> Result<String, ConfigError> {
+    fs::read_to_string(path).map_err(|_error| ConfigError::Io(path.to_owned()))
 }
 
-fn root_settings_issue(
-    root: &Utf8Path,
-    source: Option<Utf8PathBuf>,
-    kind: RootSettingsLoadIssueKind,
-) -> RootSettingsLoadIssue {
-    RootSettingsLoadIssue {
-        root: root.to_owned(),
-        source,
-        kind,
-    }
+fn deserialize_settings(
+    builder: config::ConfigBuilder<config::builder::DefaultState>,
+    source_path: Option<Utf8PathBuf>,
+) -> Result<Settings, ConfigError> {
+    let config = builder
+        .build()
+        .map_err(|_error| ConfigError::Schema(source_path.clone()))?;
+    config
+        .try_deserialize()
+        .map_err(|_error| ConfigError::Schema(source_path))
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
@@ -340,37 +259,13 @@ impl Settings {
             builder = builder.add_source(File::from(path).format(FileFormat::Toml).required(false));
         }
 
-        let pyproject_path = project_root.join("pyproject.toml");
-        if pyproject_path.exists() {
-            let content = fs::read_to_string(&pyproject_path)?;
-            let toml_str: toml::Value = toml::from_str(&content)?;
-            let tool_djls_value: Option<&toml::Value> =
-                ["tool", "djls"].iter().try_fold(&toml_str, |val, &key| {
-                    // Attempt to get the next key. If it exists, return Some(value) to continue.
-                    // If get returns None, try_fold automatically stops and returns None overall.
-                    val.get(key)
-                });
-            if let Some(tool_djls_table) = tool_djls_value.and_then(|v| v.as_table()) {
-                let tool_djls_string = toml::to_string(tool_djls_table)?;
-                builder = builder.add_source(File::from_str(&tool_djls_string, FileFormat::Toml));
-            }
+        let mut source_path = None;
+        for source in project_config_sources(project_root)? {
+            source_path = Some(source.path.clone());
+            builder = builder.add_source(File::from_str(&source.content, FileFormat::Toml));
         }
 
-        builder = builder.add_source(
-            File::from(project_root.join(".djls.toml").as_std_path())
-                .format(FileFormat::Toml)
-                .required(false),
-        );
-
-        builder = builder.add_source(
-            File::from(project_root.join("djls.toml").as_std_path())
-                .format(FileFormat::Toml)
-                .required(false),
-        );
-
-        let config = builder.build()?;
-        let settings: Self = config.try_deserialize()?;
-        Ok(settings)
+        deserialize_settings(builder, source_path)
     }
 
     #[must_use]
@@ -427,36 +322,31 @@ mod tests {
 
     use super::*;
 
-    mod root_settings_load {
+    mod settings_load {
         use super::*;
 
         #[test]
-        fn missing_config_uses_defaults_without_fallback_issue() {
+        fn missing_config_uses_overrides_without_error() {
             let dir = tempdir().unwrap();
             let root = Utf8Path::from_path(dir.path()).unwrap();
-            let fallback = Settings::default();
+            let overrides = Settings::default();
 
-            let outcome = load_root_settings(root, &fallback);
+            let load = load_settings_for_root(root, &overrides);
 
-            assert_eq!(outcome.root(), root);
-            assert_eq!(outcome.settings(), &Settings::default());
-            assert_eq!(outcome.source_path(), None);
-            assert!(outcome.issues().is_empty());
-            assert!(!outcome.fallback_used());
+            assert_eq!(load.settings(), &Settings::default());
+            assert_eq!(load.error(), None);
         }
 
         #[test]
-        fn loaded_project_config_preserves_source_path() {
+        fn loads_project_config_without_error() {
             let dir = tempdir().unwrap();
             let root = Utf8Path::from_path(dir.path()).unwrap();
-            let source = root.join("djls.toml");
-            fs::write(&source, "debug = true").unwrap();
+            fs::write(root.join("djls.toml"), "debug = true").unwrap();
 
-            let outcome = load_root_settings(root, &Settings::default());
+            let load = load_settings_for_root(root, &Settings::default());
 
-            assert_eq!(outcome.source_path(), Some(source.as_path()));
-            assert!(outcome.settings().debug());
-            assert!(!outcome.fallback_used());
+            assert!(load.settings().debug());
+            assert_eq!(load.error(), None);
         }
 
         #[test]
@@ -464,14 +354,12 @@ mod tests {
             let dir = tempdir().unwrap();
             let root = Utf8Path::from_path(dir.path()).unwrap();
             fs::write(root.join("pyproject.toml"), "[project]\nname = 'demo'").unwrap();
-            let source = root.join("djls.toml");
-            fs::write(&source, "debug = true").unwrap();
+            fs::write(root.join("djls.toml"), "debug = true").unwrap();
 
-            let outcome = load_root_settings(root, &Settings::default());
+            let load = load_settings_for_root(root, &Settings::default());
 
-            assert_eq!(outcome.source_path(), Some(source.as_path()));
-            assert!(outcome.settings().debug());
-            assert!(!outcome.fallback_used());
+            assert!(load.settings().debug());
+            assert_eq!(load.error(), None);
         }
 
         #[test]
@@ -480,22 +368,22 @@ mod tests {
             let root = Utf8Path::from_path(dir.path()).unwrap();
             let source = root.join("djls.toml");
             fs::write(&source, "debug = [true").unwrap();
-            let fallback = Settings {
+            let overrides = Settings {
                 debug: true,
                 ..Settings::default()
             };
 
-            let outcome = load_root_settings(root, &fallback);
+            let load = load_settings_for_root(root, &overrides);
 
-            assert_eq!(outcome.settings(), &fallback);
-            assert_eq!(outcome.source_path(), Some(source.as_path()));
-            assert!(outcome.fallback_used());
-            assert_eq!(outcome.issues()[0].source(), Some(source.as_path()));
-            assert_eq!(outcome.issues()[0].kind(), RootSettingsLoadIssueKind::Parse);
+            assert_eq!(load.settings(), &overrides);
+            assert!(matches!(
+                load.error(),
+                Some(ConfigError::Parse(source_path)) if source_path == &source
+            ));
         }
 
         #[test]
-        fn client_settings_can_override_successful_root_config_without_fallback_error() {
+        fn client_settings_can_override_successful_root_config() {
             let dir = tempdir().unwrap();
             let root = Utf8Path::from_path(dir.path()).unwrap();
             fs::write(root.join("djls.toml"), "debug = false").unwrap();
@@ -504,34 +392,30 @@ mod tests {
                 ..Settings::default()
             };
 
-            let outcome = load_root_settings(root, &client_settings);
+            let load = load_settings_for_root(root, &client_settings);
 
-            assert!(outcome.settings().debug());
-            assert!(!outcome.fallback_used());
-            assert!(outcome.issues().is_empty());
+            assert!(load.settings().debug());
+            assert_eq!(load.error(), None);
         }
 
         #[test]
-        fn parse_failure_preserves_root_source_kind_and_fallback_marker() {
+        fn parse_failure_preserves_source() {
             let dir = tempdir().unwrap();
             let root = Utf8Path::from_path(dir.path()).unwrap();
             let source = root.join("pyproject.toml");
             fs::write(&source, "not = [valid").unwrap();
-            let fallback = Settings {
+            let overrides = Settings {
                 debug: true,
                 ..Settings::default()
             };
 
-            let outcome = load_root_settings(root, &fallback);
+            let load = load_settings_for_root(root, &overrides);
 
-            assert_eq!(outcome.root(), root);
-            assert_eq!(outcome.settings(), &fallback);
-            assert_eq!(outcome.source_path(), Some(source.as_path()));
-            assert!(outcome.fallback_used());
-            assert_eq!(outcome.issues().len(), 1);
-            assert_eq!(outcome.issues()[0].root(), root);
-            assert_eq!(outcome.issues()[0].source(), Some(source.as_path()));
-            assert_eq!(outcome.issues()[0].kind(), RootSettingsLoadIssueKind::Parse);
+            assert_eq!(load.settings(), &overrides);
+            assert!(matches!(
+                load.error(),
+                Some(ConfigError::Parse(source_path)) if source_path == &source
+            ));
         }
     }
 
@@ -981,9 +865,10 @@ kind = "variable"
         #[test]
         fn test_rejects_legacy_tagspecs_v040_array_format() {
             let dir = tempdir().unwrap();
+            let source = Utf8PathBuf::from_path_buf(dir.path().join("djls.toml")).unwrap();
 
             fs::write(
-                dir.path().join("djls.toml"),
+                &source,
                 r#"
 [[tagspecs]]
 name = "block"
@@ -996,16 +881,23 @@ end_tag = { name = "endblock", optional = false }
             let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
 
             assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+            assert!(matches!(
+                result.unwrap_err(),
+                ConfigError::Schema(Some(source_path)) if source_path == source
+            ));
         }
 
         #[test]
         fn test_invalid_toml_content() {
             let dir = tempdir().unwrap();
-            fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean").unwrap();
+            let source = Utf8PathBuf::from_path_buf(dir.path().join("djls.toml")).unwrap();
+            fs::write(&source, "debug = not_a_boolean").unwrap();
             let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
             assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+            assert!(matches!(
+                result.unwrap_err(),
+                ConfigError::Parse(source_path) if source_path == source
+            ));
         }
 
         #[test]

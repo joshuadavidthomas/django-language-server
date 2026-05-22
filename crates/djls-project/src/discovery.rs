@@ -184,12 +184,7 @@ pub struct EmptyProjectDiscoveryIssues;
 pub enum ProjectDiscoveryIssue {
     ConfigLoadFailed {
         root: Utf8PathBuf,
-        source: Option<Utf8PathBuf>,
-        kind: ConfigLoadIssueKind,
-    },
-    ConfigFallbackUsed {
-        root: Utf8PathBuf,
-        source: Option<Utf8PathBuf>,
+        error: ProjectConfigLoadError,
     },
     InterpreterDiscoveryFailed {
         root: Utf8PathBuf,
@@ -209,12 +204,23 @@ pub enum ProjectDiscoveryIssue {
     FixtureDoesNotModelDiscovery,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ConfigLoadIssueKind {
-    Io,
-    Parse,
-    Schema,
-    Unsupported,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProjectConfigLoadError {
+    Io(Utf8PathBuf),
+    Parse(Utf8PathBuf),
+    Schema(Option<Utf8PathBuf>),
+    Unsupported(Utf8PathBuf),
+}
+
+impl From<djls_conf::ConfigError> for ProjectConfigLoadError {
+    fn from(error: djls_conf::ConfigError) -> Self {
+        match error {
+            djls_conf::ConfigError::Io(source_path) => Self::Io(source_path),
+            djls_conf::ConfigError::Parse(source_path) => Self::Parse(source_path),
+            djls_conf::ConfigError::Schema(source_path) => Self::Schema(source_path),
+            djls_conf::ConfigError::Unsupported(source_path) => Self::Unsupported(source_path),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
