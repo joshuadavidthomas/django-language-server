@@ -37,13 +37,6 @@ pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
         specs.merge_tag_rules(tag_rules);
     }
 
-    for block_specs in project.extracted_external_block_specs(db).values() {
-        specs.merge_block_specs(block_specs);
-    }
-    for tag_rules in project.extracted_external_tag_rules(db).values() {
-        specs.merge_tag_rules(tag_rules);
-    }
-
     if !tagspecs.libraries.is_empty() {
         let fallback = TagSpecs::from_tagspec_def(tagspecs);
         specs.merge_fallback(fallback);
@@ -65,10 +58,6 @@ pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterArityS
         specs.merge_filter_arities(filter_arities);
     }
 
-    for filter_arities in project.extracted_external_filter_arities(db).values() {
-        specs.merge_filter_arities(filter_arities);
-    }
-
     specs
 }
 
@@ -76,10 +65,6 @@ pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterArityS
 #[salsa::tracked(returns(ref))]
 pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
     let mut graph = ModelGraph::new();
-
-    for model_graph in project.extracted_external_models(db).values() {
-        graph.merge(model_graph.clone());
-    }
 
     for (_module_path, model_graph) in collect_workspace_models(db, project) {
         graph.merge(model_graph.clone());

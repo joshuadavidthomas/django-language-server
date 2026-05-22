@@ -18,6 +18,8 @@ use djls_project::PartitionedSourceFilePatch;
 use djls_project::ProjectDiscoveryApplyResult;
 use djls_project::ProjectDiscoveryLoadRequest;
 use djls_project::ProjectDiscoverySetData;
+use djls_project::ProjectEnrichment;
+use djls_project::ProjectEnrichmentDraft;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::PythonSourceIndexOutcome;
 use djls_workspace::load_files_for_roots;
@@ -116,5 +118,16 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
             .ready();
         let update = merge_partitioned_source_file_patch(current.as_ref(), patch);
         LoadingApplyOutcome::Applied(self.db.apply_project_source_files(update))
+    }
+
+    fn load_project_enrichment(&mut self) -> ProjectEnrichmentDraft {
+        self.db.load_project_enrichment()
+    }
+
+    fn apply_project_enrichment(
+        &mut self,
+        draft: ProjectEnrichmentDraft,
+    ) -> LoadingApplyOutcome<ProjectEnrichment> {
+        LoadingApplyOutcome::Applied(self.db.apply_enrichment(draft))
     }
 }

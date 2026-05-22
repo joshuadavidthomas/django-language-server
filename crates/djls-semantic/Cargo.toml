@@ -12,7 +12,6 @@ djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }
-dotenvy = { workspace = true }
 ignore = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_python_parser = { workspace = true }
@@ -20,14 +19,9 @@ rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-which = { workspace = true }
-
-[build-dependencies]
-which = { workspace = true }
 
 [dev-dependencies]
 djls-corpus = { workspace = true }

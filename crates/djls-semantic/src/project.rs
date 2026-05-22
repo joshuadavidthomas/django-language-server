@@ -1,6 +1,5 @@
 mod db;
 mod input;
-mod introspector;
 mod names;
 mod python;
 mod resolve;
@@ -8,14 +7,12 @@ mod static_django_environments;
 mod static_model;
 mod static_resolver;
 mod symbols;
-mod sync;
 
 pub use djls_project::load_env_file;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::Project;
 pub use crate::project::input::TemplateDirs;
-pub use crate::project::introspector::ProjectIntrospector;
 pub use crate::project::names::LibraryName;
 pub use crate::project::names::PyModuleName;
 pub use crate::project::names::TemplateSymbolName;
@@ -32,5 +29,3 @@ pub use crate::project::symbols::TemplateLibrarySnapshot;
 pub use crate::project::symbols::TemplateSymbol;
 pub use crate::project::symbols::TemplateSymbolKind;
 pub use crate::project::symbols::TemplateSymbolSnapshot;
-pub use crate::project::sync::load_template_library_cache;
-pub use crate::project::sync::refresh_external_data;

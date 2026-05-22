@@ -30,6 +30,8 @@ use djls_project::NodeTerminalStatus;
 use djls_project::ProjectDiscoveryApplyResult;
 use djls_project::ProjectDiscoveryLoadRequest;
 use djls_project::ProjectDiscoverySetData;
+use djls_project::ProjectEnrichment;
+use djls_project::ProjectEnrichmentDraft;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::PythonSourceIndexOutcome;
 use djls_source::File;
@@ -1052,6 +1054,31 @@ impl LoadingEffects for LspLoadingExecutor {
             ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
         }
     }
+
+    fn load_project_enrichment(&mut self) -> ProjectEnrichmentDraft {
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        db.load_project_enrichment()
+    }
+
+    fn apply_project_enrichment(
+        &mut self,
+        draft: ProjectEnrichmentDraft,
+    ) -> LoadingApplyOutcome<ProjectEnrichment> {
+        let outcome = self
+            .handle
+            .block_on(self.inputs.guard().apply(&self.session, |session| {
+                Ok(session.db_mut().apply_enrichment(draft))
+            }));
+
+        match outcome {
+            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
+            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
+            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1873,6 +1900,11 @@ mod startup_generation {
                 StartupProgressEvent::NodeStarted(NodeId::TemplateDirectoryFiles),
                 StartupProgressEvent::NodeFinished {
                     node: NodeId::TemplateDirectoryFiles,
+                    status: NodeTerminalStatus::Unavailable,
+                },
+                StartupProgressEvent::NodeStarted(NodeId::Enrichment),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::Enrichment,
                     status: NodeTerminalStatus::Unavailable,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),

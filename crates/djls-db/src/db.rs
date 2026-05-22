@@ -21,10 +21,13 @@ use djls_project::ProjectDiscoveryIssue;
 use djls_project::ProjectDiscoveryIssues;
 use djls_project::ProjectDiscoverySet;
 use djls_project::ProjectDiscoverySetData;
+use djls_project::ProjectEnrichmentDraft;
+use djls_project::ProjectEnrichmentIssue;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::ProjectSourceFilesMaterializationPatch;
 use djls_project::ProjectSourceFilesUpdate;
 use djls_project::ReadyProjectSourceFiles;
+use djls_project::RuntimeUnavailableKind;
 use djls_project::SourceFileHandleChanges;
 use djls_project::SourceFileMaterializationIssue;
 use djls_project::SourceFileSetMaterialized;
@@ -34,7 +37,6 @@ use djls_semantic::compute_tag_specs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
-use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
@@ -45,6 +47,10 @@ use djls_source::SourceFileSetInvariantError;
 use djls_source::SourceFiles;
 use djls_source::SourceRootEntry;
 use djls_workspace::FileSystem;
+use salsa::Setter;
+
+use crate::enrichment_provider::load_runtime_enrichment;
+use crate::enrichment_provider::RuntimeEnrichmentRequest;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -66,9 +72,6 @@ pub struct DjangoDatabase {
 
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
-
-    /// Shared introspector for external project facts.
-    pub(crate) project_introspector: Arc<ProjectIntrospector>,
 
     /// Stable Salsa-visible project facts root.
     pub(crate) project_facts: Arc<OnceLock<ProjectFacts>>,
@@ -93,7 +96,6 @@ impl Default for DjangoDatabase {
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
-            project_introspector: Arc::new(ProjectIntrospector::new()),
             project_facts: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
@@ -126,7 +128,6 @@ impl DjangoDatabase {
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(ProjectIntrospector::new()),
             project_facts: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
@@ -147,6 +148,27 @@ impl DjangoDatabase {
     pub fn bootstrap_project(&mut self, root: &Utf8Path, settings: &Settings) {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
+    }
+
+    pub fn load_project_enrichment(&self) -> ProjectEnrichmentDraft {
+        let project = LoadingDb::project(self);
+        let request = match runtime_enrichment_request(self, project) {
+            Ok(request) => request,
+            Err(issue) => return ProjectEnrichmentDraft::Unavailable { issue },
+        };
+        load_runtime_enrichment(request)
+    }
+
+    pub fn apply_enrichment(
+        &mut self,
+        draft: ProjectEnrichmentDraft,
+    ) -> djls_project::ProjectEnrichment {
+        let project = LoadingDb::project(self);
+        let next = draft.into_enrichment();
+        if project.enrichment(self) != &next {
+            project.set_enrichment(self).to(next.clone());
+        }
+        next
     }
 
     pub fn apply_project_discovery_data(
@@ -315,6 +337,57 @@ impl DjangoDatabase {
     }
 }
 
+fn runtime_enrichment_request(
+    db: &dyn djls_project::Db,
+    project: ProjectFacts,
+) -> Result<RuntimeEnrichmentRequest, ProjectEnrichmentIssue> {
+    let discovery = project.discovery(db);
+    let ProjectDiscovery::Ready(discovery) = discovery else {
+        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
+            interpreter: None,
+            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
+        });
+    };
+    let djls_project::DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        djls_project::django_environment_candidates(db, project)
+    else {
+        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
+            interpreter: None,
+            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
+        });
+    };
+    let Some(candidate) = candidates.first() else {
+        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
+            interpreter: None,
+            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
+        });
+    };
+    let root = candidate
+        .root()
+        .and_then(|path| discovery.roots().iter().find(|root| root.root(db) == path))
+        .or_else(|| discovery.roots().first())
+        .expect("ready discovery has at least one root");
+    let project_root = root.root(db).clone();
+    let interpreter = root
+        .interpreter(db)
+        .clone()
+        .unwrap_or(djls_project::Interpreter::Auto);
+    let Some(python) = interpreter.python_path(&project_root) else {
+        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
+            interpreter: Some(interpreter),
+            kind: RuntimeUnavailableKind::MissingPython,
+        });
+    };
+
+    Ok(RuntimeEnrichmentRequest {
+        python,
+        project_root,
+        django_settings_module: Some(candidate.settings().as_str().to_string()),
+        pythonpath: root.pythonpath(db).clone(),
+        env_vars: root.env_vars(db).entries().to_vec(),
+    })
+}
+
 fn project_discovery_matches_data(
     db: &dyn djls_project::Db,
     discovery: &ProjectDiscovery,
@@ -425,10 +498,6 @@ impl SemanticDb for DjangoDatabase {
 impl ProjectDb for DjangoDatabase {
     fn project(&self) -> Option<Project> {
         *self.project.lock().unwrap()
-    }
-
-    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-        self.project_introspector.clone()
     }
 }
 
@@ -746,7 +815,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             project_facts: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
@@ -781,10 +849,6 @@ mod invalidation_tests {
             TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            rustc_hash::FxHashMap::default(),
-            rustc_hash::FxHashMap::default(),
-            rustc_hash::FxHashMap::default(),
-            rustc_hash::FxHashMap::default(),
         );
         *db.project.lock().unwrap() = Some(project);
 
@@ -1028,7 +1092,6 @@ def my_filter(value, arg):
             files: SourceFiles::default(),
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             project_facts: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
@@ -1069,6 +1132,37 @@ def my_filter(value, arg):
         let other_key = djls_semantic::SymbolKey::filter("other.project.tags", "my_filter");
         assert!(other_module_result.contains_key(&other_key));
         assert!(!other_module_result.contains_key(&key));
+    }
+
+    #[test]
+    fn database_apply_enrichment_updates_project_facts() {
+        let (mut db, _event_log) = test_db_with_project();
+        let issue = djls_project::ProjectEnrichmentIssue::CacheReadFailed {
+            kind: djls_project::CacheIssueKind::NotFound,
+        };
+
+        db.apply_enrichment(djls_project::ProjectEnrichmentDraft::Failed {
+            issue: issue.clone(),
+        });
+
+        assert_eq!(
+            *djls_project::Db::project(&db).enrichment(&db),
+            djls_project::ProjectEnrichment::Failed { issue }
+        );
+    }
+
+    #[test]
+    fn database_load_enrichment_reports_unavailable_without_environment() {
+        let db = DjangoDatabase::default();
+
+        let draft = db.load_project_enrichment();
+
+        assert!(matches!(
+            draft,
+            djls_project::ProjectEnrichmentDraft::Unavailable {
+                issue: djls_project::ProjectEnrichmentIssue::RuntimeUnavailable { .. }
+            }
+        ));
     }
 
     #[test]

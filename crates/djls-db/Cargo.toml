@@ -16,7 +16,11 @@ rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 tracing = { workspace = true }
+
+[build-dependencies]
+which = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

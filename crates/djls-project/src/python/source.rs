@@ -1241,6 +1241,17 @@ mod tests {
         ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
             unreachable!("test effects return no partitioned patches")
         }
+
+        fn load_project_enrichment(&mut self) -> crate::ProjectEnrichmentDraft {
+            crate::ProjectEnrichmentDraft::Disabled
+        }
+
+        fn apply_project_enrichment(
+            &mut self,
+            draft: crate::ProjectEnrichmentDraft,
+        ) -> LoadingApplyOutcome<crate::ProjectEnrichment> {
+            LoadingApplyOutcome::Applied(draft.into_enrichment())
+        }
     }
 
     fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {

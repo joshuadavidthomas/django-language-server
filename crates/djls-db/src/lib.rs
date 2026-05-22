@@ -6,6 +6,8 @@
 //! commands consume this crate.
 //!
 mod db;
+mod enrichment_cache;
+mod enrichment_provider;
 mod scanning;
 mod settings;
 

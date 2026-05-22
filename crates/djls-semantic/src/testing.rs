@@ -30,7 +30,6 @@ use crate::project::Knowledge;
 use crate::project::LibraryName;
 use crate::project::LibraryOrigin;
 use crate::project::Project;
-use crate::project::ProjectIntrospector;
 use crate::project::PyModuleName;
 use crate::project::SymbolDefinition;
 use crate::project::TemplateLibraries;
@@ -240,10 +239,6 @@ impl djls_source::Db for TestDatabase {
 impl ProjectDb for TestDatabase {
     fn project(&self) -> Option<Project> {
         None
-    }
-
-    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-        Arc::new(ProjectIntrospector::new())
     }
 }
 

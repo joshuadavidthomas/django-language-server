@@ -1,6 +1,7 @@
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::ProjectDiscovery;
 use crate::ProjectDiscoveryApplyResult;
+use crate::ProjectEnrichment;
 use crate::ProjectFilePartitionReadiness;
 use crate::ProjectSourceFilesApplied;
 use crate::ProjectSourceFilesApplyResult;
@@ -14,6 +15,7 @@ pub enum NodeId {
     EnvironmentDiscovery,
     InstalledAppFiles,
     TemplateDirectoryFiles,
+    Enrichment,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,6 +26,7 @@ pub enum ReadinessSourceKind {
     EnvironmentCandidates,
     InstalledAppFiles,
     TemplateDirectoryFiles,
+    Enrichment,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -102,6 +105,11 @@ pub const NODE_SPECS: &[NodeSpec] = &[
         ],
         readiness_source: ReadinessSourceKind::TemplateDirectoryFiles,
     },
+    NodeSpec {
+        id: NodeId::Enrichment,
+        prerequisites: &[NodeId::InstalledAppFiles, NodeId::TemplateDirectoryFiles],
+        readiness_source: ReadinessSourceKind::Enrichment,
+    },
 ];
 
 pub const MILESTONE_SPECS: &[MilestoneSpec] = &[
@@ -162,6 +170,7 @@ impl LoadingPlan {
                 NodeId::EnvironmentDiscovery,
                 NodeId::InstalledAppFiles,
                 NodeId::TemplateDirectoryFiles,
+                NodeId::Enrichment,
             ],
             milestones: MILESTONE_SPECS,
         }
@@ -196,6 +205,18 @@ pub trait LoadingReadiness {
 #[must_use]
 pub fn node_status_from_readiness(result: &impl LoadingReadiness) -> NodeTerminalStatus {
     result.terminal_status()
+}
+
+impl LoadingReadiness for ProjectEnrichment {
+    fn terminal_status(&self) -> NodeTerminalStatus {
+        match self {
+            ProjectEnrichment::Absent | ProjectEnrichment::Disabled => NodeTerminalStatus::Skipped,
+            ProjectEnrichment::Fresh(_) => NodeTerminalStatus::Succeeded,
+            ProjectEnrichment::CachedStale { .. } => NodeTerminalStatus::Degraded,
+            ProjectEnrichment::Failed { .. } => NodeTerminalStatus::Failed,
+            ProjectEnrichment::Unavailable { .. } => NodeTerminalStatus::Unavailable,
+        }
+    }
 }
 
 impl LoadingReadiness for ProjectSourceFilesApplyResult {
@@ -386,6 +407,11 @@ mod tests {
                     ],
                     readiness_source: ReadinessSourceKind::TemplateDirectoryFiles,
                 },
+                NodeSpec {
+                    id: NodeId::Enrichment,
+                    prerequisites: &[NodeId::InstalledAppFiles, NodeId::TemplateDirectoryFiles],
+                    readiness_source: ReadinessSourceKind::Enrichment,
+                },
             ]
         );
     }
@@ -454,6 +480,7 @@ mod tests {
                 NodeId::EnvironmentDiscovery,
                 NodeId::InstalledAppFiles,
                 NodeId::TemplateDirectoryFiles,
+                NodeId::Enrichment,
             ]
         );
     }

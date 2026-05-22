@@ -7,7 +7,7 @@ use crate::system;
 ///
 /// This enum represents the different ways to specify which Python interpreter
 /// to use for a project.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Interpreter {
     /// Automatically discover interpreter (`VIRTUAL_ENV`, project venv dirs, system)
     Auto,

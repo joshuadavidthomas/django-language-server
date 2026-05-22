@@ -1,5 +1,7 @@
 //! Module path → file path resolution using `sys_path`.
 
+#![allow(dead_code)]
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;

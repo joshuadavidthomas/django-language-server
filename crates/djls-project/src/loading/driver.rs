@@ -13,6 +13,7 @@ use super::plan::NodeTerminalStatus;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::PartitionedSourceFileLoadOutcome;
 use crate::ProjectDiscoveryApplyResult;
+use crate::ProjectEnrichment;
 use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
 
@@ -72,7 +73,8 @@ impl LoadingRunResult {
             | LoadingNodeResult::PythonSourceModels { .. }
             | LoadingNodeResult::EnvironmentDiscovery { .. }
             | LoadingNodeResult::InstalledAppFiles { .. }
-            | LoadingNodeResult::TemplateDirectoryFiles { .. } => None,
+            | LoadingNodeResult::TemplateDirectoryFiles { .. }
+            | LoadingNodeResult::Enrichment { .. } => None,
         })
     }
 }
@@ -121,6 +123,10 @@ pub enum LoadingNodeResult {
         applied: Vec<ProjectSourceFilesApplyResult>,
         status: NodeTerminalStatus,
     },
+    Enrichment {
+        applied: ProjectEnrichment,
+        status: NodeTerminalStatus,
+    },
 }
 
 impl LoadingNodeResult {
@@ -133,6 +139,7 @@ impl LoadingNodeResult {
             Self::EnvironmentDiscovery { .. } => NodeId::EnvironmentDiscovery,
             Self::InstalledAppFiles { .. } => NodeId::InstalledAppFiles,
             Self::TemplateDirectoryFiles { .. } => NodeId::TemplateDirectoryFiles,
+            Self::Enrichment { .. } => NodeId::Enrichment,
         }
     }
 
@@ -144,7 +151,8 @@ impl LoadingNodeResult {
             | Self::PythonSourceModels { status, .. }
             | Self::EnvironmentDiscovery { status, .. }
             | Self::InstalledAppFiles { status, .. }
-            | Self::TemplateDirectoryFiles { status, .. } => status,
+            | Self::TemplateDirectoryFiles { status, .. }
+            | Self::Enrichment { status, .. } => status,
         }
     }
 }
@@ -276,6 +284,31 @@ pub fn run_loading_plan(
                 };
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::TemplateDirectoryFiles { applied, status });
+            }
+            NodeId::Enrichment => {
+                observer.node_started(*node);
+                let draft = effects.load_project_enrichment();
+                let applied = match effects.apply_project_enrichment(draft) {
+                    LoadingApplyOutcome::Applied(applied) => applied,
+                    LoadingApplyOutcome::Superseded => {
+                        observer.node_finished(*node, NodeTerminalStatus::Superseded);
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            milestone_results,
+                            LoadingExecutionOutcome::Superseded,
+                        );
+                    }
+                    LoadingApplyOutcome::RejectedApply => {
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            milestone_results,
+                            LoadingExecutionOutcome::RejectedApply,
+                        );
+                    }
+                };
+                let status = node_status_from_readiness(&applied);
+                observer.node_finished(*node, status.clone());
+                node_results.push(LoadingNodeResult::Enrichment { applied, status });
             }
         }
         advance_milestones(plan, &node_results, &mut milestone_results, observer);
@@ -437,6 +470,8 @@ mod tests {
     use crate::ProjectDiscoveryApplyResult;
     use crate::ProjectDiscoveryLoadRequest;
     use crate::ProjectDiscoverySetData;
+    use crate::ProjectEnrichment;
+    use crate::ProjectEnrichmentDraft;
     use crate::ProjectSourceFilesApplied;
     use crate::ProjectSourceFilesApplyResult;
     use crate::PythonSourceIndex;
@@ -606,6 +641,17 @@ mod tests {
         ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
             unreachable!("fake effects return no partitioned patches")
         }
+
+        fn load_project_enrichment(&mut self) -> ProjectEnrichmentDraft {
+            ProjectEnrichmentDraft::Disabled
+        }
+
+        fn apply_project_enrichment(
+            &mut self,
+            draft: ProjectEnrichmentDraft,
+        ) -> LoadingApplyOutcome<ProjectEnrichment> {
+            LoadingApplyOutcome::Applied(draft.into_enrichment())
+        }
     }
 
     #[derive(Default)]
@@ -660,6 +706,7 @@ mod tests {
                 NodeId::EnvironmentDiscovery,
                 NodeId::InstalledAppFiles,
                 NodeId::TemplateDirectoryFiles,
+                NodeId::Enrichment,
             ]
         );
         assert_eq!(
@@ -674,6 +721,7 @@ mod tests {
                     NodeId::TemplateDirectoryFiles,
                     NodeTerminalStatus::Succeeded
                 ),
+                (NodeId::Enrichment, NodeTerminalStatus::Skipped),
             ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);
@@ -751,6 +799,29 @@ mod tests {
             result.milestone_results()[0].status(),
             MilestoneTerminalStatus::Degraded
         );
+    }
+
+    #[test]
+    fn loading_enrichment_node_runs_after_static_file_nodes_and_skips_by_default() {
+        let mut effects = FakeEffects {
+            source_ready: true,
+            roots: vec![Utf8PathBuf::from("/missing")],
+            ..FakeEffects::default()
+        };
+
+        let (result, observer) = run_fake_plan(&mut effects);
+
+        assert_eq!(
+            result.node_results().last().unwrap().node(),
+            NodeId::Enrichment
+        );
+        assert_eq!(
+            result.node_results().last().unwrap().status(),
+            &NodeTerminalStatus::Skipped
+        );
+        assert!(observer
+            .events
+            .contains(&(NodeId::Enrichment, NodeTerminalStatus::Skipped,)));
     }
 
     #[test]

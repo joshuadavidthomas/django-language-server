@@ -4,18 +4,12 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::load_env_file;
 use djls_source::FileRootKind;
-use rustc_hash::FxHashMap;
 use salsa::Durability;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
 use crate::project::resolve::find_site_packages;
 use crate::project::symbols::TemplateLibraries;
-use crate::python::BlockSpecs;
-use crate::python::FilterArityMap;
-use crate::python::ModelGraph;
-use crate::python::ModulePath;
-use crate::python::TagRuleMap;
 
 /// Template-directory introspection state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -79,25 +73,6 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// Extracted tag rules from external modules (site-packages), keyed by
-    /// registration module path (e.g., `"django.templatetags.i18n"`).
-    /// Populated by `refresh_external_data`. Workspace files use tracked queries.
-    #[returns(ref)]
-    pub(crate) extracted_external_tag_rules: FxHashMap<String, TagRuleMap>,
-    /// Extracted filter arities from external modules (site-packages), keyed by
-    /// registration module path. Populated by `refresh_external_data`.
-    #[returns(ref)]
-    pub(crate) extracted_external_filter_arities: FxHashMap<String, FilterArityMap>,
-    /// Extracted block specs from external modules (site-packages), keyed by
-    /// registration module path. Populated by `refresh_external_data`.
-    #[returns(ref)]
-    pub(crate) extracted_external_block_specs: FxHashMap<String, BlockSpecs>,
-    /// Model graphs from external packages (site-packages), keyed by module
-    /// path (e.g., `"django.contrib.auth.models"`). Populated by scanning
-    /// the venv's site-packages directory. Workspace `models.py` files use
-    /// tracked queries via `collect_workspace_models` instead.
-    #[returns(ref)]
-    pub(crate) extracted_external_models: FxHashMap<ModulePath, ModelGraph>,
 }
 
 impl Project {
@@ -121,17 +96,9 @@ impl Project {
             TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
-        .extracted_external_tag_rules_durability(Durability::HIGH)
-        .extracted_external_filter_arities_durability(Durability::HIGH)
-        .extracted_external_block_specs_durability(Durability::HIGH)
-        .extracted_external_models_durability(Durability::HIGH)
         .new(db)
     }
 }

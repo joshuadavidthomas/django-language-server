@@ -157,6 +157,8 @@ pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<
     let inventory = djls_project::template_tag_libraries(db, project, env);
     let mut libraries = db.template_libraries().clone();
 
+    merge_runtime_template_libraries(&mut libraries, project.enrichment(db));
+
     for library in inventory.libraries() {
         if matches!(
             library.resolution(),
@@ -177,6 +179,31 @@ pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<
     }
 
     Some(libraries)
+}
+
+fn merge_runtime_template_libraries(
+    libraries: &mut TemplateLibraries,
+    enrichment: &djls_project::ProjectEnrichment,
+) {
+    let hints = match enrichment {
+        djls_project::ProjectEnrichment::Fresh(hints)
+        | djls_project::ProjectEnrichment::CachedStale { hints, .. } => hints,
+        djls_project::ProjectEnrichment::Absent
+        | djls_project::ProjectEnrichment::Disabled
+        | djls_project::ProjectEnrichment::Failed { .. }
+        | djls_project::ProjectEnrichment::Unavailable { .. } => return,
+    };
+
+    for (name, module) in hints.runtime_template_libraries() {
+        let (Ok(name), Ok(module)) = (LibraryName::parse(name), PyModuleName::parse(module)) else {
+            continue;
+        };
+        libraries
+            .loadable
+            .entry(name.clone())
+            .or_default()
+            .push(TemplateLibrary::new_active(name, module, None));
+    }
 }
 
 fn static_template_library_module() -> PyModuleName {
@@ -228,6 +255,7 @@ mod tests {
     use djls_project::Db as ProjectFactsDb;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
     use djls_project::ProjectDiscovery;
+    use salsa::Setter;
 
     use super::*;
     use crate::testing::TestDatabase;
@@ -300,6 +328,51 @@ mod tests {
         assert!(matches!(
             djls_project::django_environment_candidates(&db, project),
             DjangoEnvironmentCandidatesOutcome::Ready { .. }
+        ));
+    }
+
+    #[test]
+    fn template_libraries_for_file_merges_runtime_enrichment_hints() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "TEMPLATES = [{'DIRS': ['/workspace/templates']}]\n",
+        );
+        let project = djls_project::Db::project(&db);
+        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone()],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+            ],
+        ));
+        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+            &db,
+            root.clone(),
+        )));
+        project
+            .set_enrichment(&mut db)
+            .to(djls_project::ProjectEnrichment::Fresh(
+                djls_project::ProjectEnrichmentHints::new(
+                    Vec::new(),
+                    std::collections::BTreeMap::from([(
+                        "runtime_ui".to_string(),
+                        "blog.templatetags.runtime_ui".to_string(),
+                    )]),
+                    Vec::new(),
+                    djls_project::DeepExtractionHints::default(),
+                ),
+            ));
+        let source = db.create_file(&template_path(&root, "base.html"));
+
+        let libraries = template_libraries_for_file(&db, source)
+            .expect("selected environment should provide template libraries");
+
+        assert!(libraries.loadable.contains_key(
+            &LibraryName::parse("runtime_ui").expect("test library name should be valid")
         ));
     }
 

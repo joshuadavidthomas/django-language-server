@@ -5,12 +5,9 @@
 //! synchronization lives outside the trait so it stays a capability boundary
 //! rather than a service object.
 
-use std::sync::Arc;
-
 use camino::Utf8PathBuf;
 use djls_source::Db as SourceDb;
 
-use crate::project::introspector::ProjectIntrospector;
 use crate::project::Project;
 
 /// Project-specific database capabilities.
@@ -18,9 +15,6 @@ use crate::project::Project;
 pub trait Db: SourceDb {
     /// Get the current project (if set)
     fn project(&self) -> Option<Project>;
-
-    /// Get the shared project introspector.
-    fn project_introspector(&self) -> Arc<ProjectIntrospector>;
 
     /// Return the current project root or fall back to the current working directory.
     fn project_root_or_cwd(&self) -> Utf8PathBuf {
