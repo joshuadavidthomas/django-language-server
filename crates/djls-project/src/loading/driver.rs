@@ -1,5 +1,8 @@
+use super::effects::LoadingApplyOutcome;
 use super::effects::LoadingEffects;
+use super::effects::LoadingExecutionOutcome;
 use super::effects::LoadingObserver;
+use super::effects::LoadingRunControl;
 use super::plan::node_status_from_readiness;
 use super::plan::LoadingPlan;
 use super::plan::NodeId;
@@ -9,12 +12,37 @@ use crate::ProjectSourceFilesApplyResult;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoadingRunResult {
     node_results: Vec<LoadingNodeResult>,
+    execution_outcome: Option<LoadingExecutionOutcome>,
 }
 
 impl LoadingRunResult {
     #[must_use]
+    pub fn completed(node_results: Vec<LoadingNodeResult>) -> Self {
+        Self {
+            node_results,
+            execution_outcome: None,
+        }
+    }
+
+    #[must_use]
+    pub fn aborted(
+        node_results: Vec<LoadingNodeResult>,
+        execution_outcome: LoadingExecutionOutcome,
+    ) -> Self {
+        Self {
+            node_results,
+            execution_outcome: Some(execution_outcome),
+        }
+    }
+
+    #[must_use]
     pub fn node_results(&self) -> &[LoadingNodeResult] {
         &self.node_results
+    }
+
+    #[must_use]
+    pub fn execution_outcome(&self) -> Option<&LoadingExecutionOutcome> {
+        self.execution_outcome.as_ref()
     }
 
     #[must_use]
@@ -54,15 +82,34 @@ pub fn run_loading_plan(
     effects: &mut impl LoadingEffects,
     observer: &mut impl LoadingObserver,
 ) -> LoadingRunResult {
-    effects.begin_loading_run();
-
     let mut node_results = Vec::with_capacity(plan.nodes().len());
+    match effects.begin_loading_run() {
+        LoadingRunControl::Continue => {}
+        LoadingRunControl::Abort(outcome) => {
+            return LoadingRunResult::aborted(node_results, outcome)
+        }
+    }
+
     for node in plan.nodes() {
         match node {
             NodeId::SourceFileSet => {
                 observer.node_started(*node);
                 let patch = effects.load_source_file_set();
-                let applied = effects.apply_source_file_patch(patch);
+                let applied = match effects.apply_source_file_patch(patch) {
+                    LoadingApplyOutcome::Applied(applied) => applied,
+                    LoadingApplyOutcome::Superseded => {
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            LoadingExecutionOutcome::Superseded,
+                        );
+                    }
+                    LoadingApplyOutcome::RejectedApply => {
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            LoadingExecutionOutcome::RejectedApply,
+                        );
+                    }
+                };
                 let status = node_status_from_readiness(&applied);
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::SourceFileSet { applied, status });
@@ -70,7 +117,7 @@ pub fn run_loading_plan(
         }
     }
 
-    LoadingRunResult { node_results }
+    LoadingRunResult::completed(node_results)
 }
 
 #[cfg(test)]
@@ -95,8 +142,9 @@ mod tests {
     }
 
     impl LoadingEffects for FakeEffects {
-        fn begin_loading_run(&mut self) {
+        fn begin_loading_run(&mut self) -> LoadingRunControl {
             self.reset_count += 1;
+            LoadingRunControl::Continue
         }
 
         fn load_source_file_set(&mut self) -> FirstPartySourceFilePatch {
@@ -110,7 +158,7 @@ mod tests {
         fn apply_source_file_patch(
             &mut self,
             patch: FirstPartySourceFilePatch,
-        ) -> ProjectSourceFilesApplyResult {
+        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
             self.apply_count += 1;
             let update = merge_first_party_source_file_patch(None, patch);
             let transition = update.applied_transition().clone();
@@ -119,11 +167,11 @@ mod tests {
                 .first()
                 .cloned()
                 .unwrap_or(crate::ProjectSourceFilesIssue::NotLoaded);
-            ProjectSourceFilesApplyResult::Unavailable {
+            LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Unavailable {
                 transition,
                 issue,
                 previous: None,
-            }
+            })
         }
     }
 

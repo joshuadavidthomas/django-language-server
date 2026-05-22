@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `kttmzkwn` contains the in-progress Phase 3A4b LSP source-file executor slice on top of the LSP generation guard slice.
-- **Current slice**: Phase 3A4b LSP source-file executor in progress.
+- **Implementation change**: `luktmluq` contains the in-progress Phase 3A4b review follow-up on top of the LSP source-file executor slice.
+- **Current slice**: Phase 3A4b LSP source-file executor review follow-up in progress.
 
 ### Implementation Notes
 
@@ -78,6 +78,18 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - `cargo test -p djls-server startup_request_while_loading` passed: 1 test.
   - `cargo build -q` passed.
 - Follow-ups/blockers: Phase 3A4c adds work-done progress capability parsing and progress/log reporting over the existing loading observer events; the LSP executor remains intentionally not connected to `initialized` until the progress lifecycle slice.
+
+### LSP source-file executor review follow-up
+- Bookmark: `startup-rethink` will move to `luktmluq` after describing this verified slice.
+- Current change: `luktmluq`.
+- Scope: made loading-run control explicit in the neutral runner/effects seam, stopped superseded LSP resets before source-file activity starts, removed synthetic project-readiness fallback laundering for LSP execution outcomes, and made stale-document rejection write terminal query-visible source-file availability before returning a rejected apply outcome.
+- Validation:
+  - `cargo test -p djls-project loading` passed: 23 tests.
+  - `cargo test -p djls-server startup_source_files` passed: 3 tests.
+  - `cargo test -p djls-server startup_request_while_loading` passed: 1 test.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Follow-ups/blockers: Phase 3A4c can build progress lifecycle on `LoadingRunResult::execution_outcome` instead of a server-side outcome side channel.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1165,7 +1177,7 @@ pub enum ProjectLayoutIssue {
 - [x] Generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` — 10 passed after review follow-up. Evidence: `crates/djls-server/src/startup.rs` defines server-local `ProjectLoadingSnapshot`, `StartupRunInputs`, `StartupGeneration`, `GenerationGuard`, `ApplyOutcome<T>`, `ApplyRejection::StaleDocument { file, path, captured, current }`, and `ObservationOutcome<T>`; tests cover immutable capture, changed/closed stale-document evidence, close/reopen with the same document version, guarded reset, no active generation before first start, default generation initialization, superseded apply before session locking, superseded observation, and serialized generation supersession vs guarded apply.
 
 **Phase 3A4b gate**
-- [x] LSP effect-adapter tests pass for the `source-file-set` node through `run_loading_plan`, with guarded apply and no progress assertions: `cargo test -p djls-server startup_source_files` — 1 passed. Evidence: `LspLoadingExecutor` implements `LoadingEffects`, runs `LoadingPlan::phase3()` through `run_loading_plan`, applies reset/source-file update through `GenerationGuard`, and updates query-visible `ProjectLoadingState.source_files` on the live session database.
+- [x] LSP effect-adapter tests pass for the `source-file-set` node through `run_loading_plan`, with guarded apply and no progress assertions: `cargo test -p djls-server startup_source_files` — 3 passed after review follow-up. Evidence: `LspLoadingExecutor` implements `LoadingEffects`, runs `LoadingPlan::phase3()` through `run_loading_plan`, applies reset/source-file update through `GenerationGuard`, updates query-visible `ProjectLoadingState.source_files` on the live session database, stops before source-file loading when reset is superseded, and writes terminal failed source-file availability for stale-document rejection before returning a rejected apply outcome.
 - [x] Request-while-loading test proves a blocked active `source-file-set` startup run does not block a representative request and returns a valid degraded response: `cargo test -p djls-server startup_request_while_loading` — 1 passed. Evidence: `startup_request_while_loading_does_not_wait_for_source_file_node` blocks source-file loading before apply, collects diagnostics through the shared session while the node is blocked, then unblocks the run and observes coherent completion.
 
 **Phase 3A4c gate**

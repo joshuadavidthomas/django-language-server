@@ -3,13 +3,32 @@ use super::plan::NodeTerminalStatus;
 use crate::FirstPartySourceFilePatch;
 use crate::ProjectSourceFilesApplyResult;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LoadingRunControl {
+    Continue,
+    Abort(LoadingExecutionOutcome),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LoadingApplyOutcome<T> {
+    Applied(T),
+    Superseded,
+    RejectedApply,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LoadingExecutionOutcome {
+    Superseded,
+    RejectedApply,
+}
+
 pub trait LoadingEffects {
-    fn begin_loading_run(&mut self);
+    fn begin_loading_run(&mut self) -> LoadingRunControl;
     fn load_source_file_set(&mut self) -> FirstPartySourceFilePatch;
     fn apply_source_file_patch(
         &mut self,
         patch: FirstPartySourceFilePatch,
-    ) -> ProjectSourceFilesApplyResult;
+    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult>;
 }
 
 pub trait LoadingObserver {
