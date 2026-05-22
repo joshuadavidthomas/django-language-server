@@ -261,14 +261,18 @@ impl LanguageServer for DjangoLanguageServer {
                 let file_kind = *source.kind();
 
                 tracing::debug!("Completion requested for {} at {:?}", path, position);
-                let template_libraries = db.project().map(|project| project.template_libraries(db));
+                let template_libraries = djls_semantic::template_libraries_for_file(db, file)
+                    .or_else(|| {
+                        db.project()
+                            .map(|project| project.template_libraries(db).clone())
+                    });
 
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
                 // Compute position-aware available symbols for load-scoped completions.
                 let available_symbols = if file_kind == FileKind::Template {
-                    if let Some(template_libraries) = template_libraries {
+                    if let Some(template_libraries) = template_libraries.as_ref() {
                         if template_libraries.active_knowledge == djls_semantic::Knowledge::Known {
                             let nodelist = djls_templates::parse_template(db, file);
 
@@ -297,7 +301,7 @@ impl LanguageServer for DjangoLanguageServer {
                     position,
                     encoding,
                     file_kind,
-                    template_libraries,
+                    template_libraries.as_ref(),
                     Some(tag_specs),
                     available_symbols.as_ref(),
                     supports_snippets,

@@ -5,7 +5,6 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::load_env_file;
-use djls_project::TemplateName;
 use djls_source::File;
 use djls_source::FileRootKind;
 use rustc_hash::FxHashMap;
@@ -38,41 +37,6 @@ impl TemplateDirs {
             Self::Unknown => None,
             Self::Known(dirs) => Some(dirs),
         }
-    }
-}
-
-/// First-party template files in Django loader precedence order.
-///
-/// Duplicate template names are kept because shadowed templates can still be
-/// opened, inspected, and used as reference sources.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
-
-impl ProjectTemplateFiles {
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn from_ordered(templates: Vec<ProjectTemplateFile>) -> Self {
-        Self(templates)
-    }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
-        self.0.iter()
-    }
-}
-
-impl fmt::Debug for ProjectTemplateFiles {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ProjectTemplateFiles")
-            .field(&self.0)
-            .finish()
     }
 }
 
@@ -124,36 +88,6 @@ impl fmt::Debug for ProjectPythonIndex {
 pub(crate) enum ProjectPythonModuleKind {
     Model,
     TemplateTag,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ProjectTemplateFile {
-    name: TemplateName,
-    path: Utf8PathBuf,
-    file: File,
-}
-
-impl ProjectTemplateFile {
-    pub(crate) fn new(name: TemplateName, path: Utf8PathBuf, file: File) -> Self {
-        Self { name, path, file }
-    }
-
-    pub(crate) fn name(&self) -> &TemplateName {
-        &self.name
-    }
-
-    pub(crate) fn file(&self) -> File {
-        self.file
-    }
-}
-
-impl fmt::Debug for ProjectTemplateFile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProjectTemplateFile")
-            .field("name", &self.name)
-            .field("path", &self.path)
-            .finish_non_exhaustive()
-    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -260,9 +194,6 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// First-party template files discovered for this project.
-    #[returns(ref)]
-    pub(crate) template_files: ProjectTemplateFiles,
     /// First-party Python modules discovered for this project.
     #[returns(ref)]
     pub(crate) python_index: ProjectPythonIndex,
@@ -308,7 +239,6 @@ impl Project {
             TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            ProjectTemplateFiles::default(),
             ProjectPythonIndex::default(),
             FxHashMap::default(),
             FxHashMap::default(),
@@ -317,7 +247,6 @@ impl Project {
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
-        .template_files_durability(Durability::LOW)
         .python_index_durability(Durability::LOW)
         .extracted_external_tag_rules_durability(Durability::HIGH)
         .extracted_external_filter_arities_durability(Durability::HIGH)

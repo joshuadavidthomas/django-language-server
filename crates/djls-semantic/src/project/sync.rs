@@ -9,10 +9,7 @@ use std::fs;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::TemplateName;
 use djls_source::FileRootKind;
-use djls_source::Utf8PathClean;
-use ignore::WalkBuilder;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use salsa::Setter;
@@ -25,8 +22,6 @@ use crate::project::db::Db as ProjectDb;
 use crate::project::input::Project;
 use crate::project::input::ProjectPythonIndex;
 use crate::project::input::ProjectPythonModule;
-use crate::project::input::ProjectTemplateFile;
-use crate::project::input::ProjectTemplateFiles;
 use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::python::Interpreter;
@@ -75,7 +70,6 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
 fn refresh_project_external_data(db: &mut dyn ProjectDb, project: Project) {
     refresh_template_dirs(db, project);
     refresh_template_libraries(db, project);
-    refresh_template_files(db, project);
     refresh_python_index(db, project);
     refresh_external_semantic_data(db, project);
 }
@@ -329,70 +323,6 @@ fn save_template_library_snapshot(
             tracing::warn!("Failed to serialize template library snapshot cache: {e}");
         }
     }
-}
-
-fn refresh_template_files(db: &mut dyn ProjectDb, project: Project) {
-    let next = match project.template_dirs(db).as_known() {
-        Some(search_dirs) => discover_project_template_files(db, search_dirs),
-        None => ProjectTemplateFiles::default(),
-    };
-
-    if project.template_files(db) != &next {
-        project.set_template_files(db).to(next);
-    }
-}
-
-fn discover_project_template_files(
-    db: &dyn ProjectDb,
-    search_dirs: &[Utf8PathBuf],
-) -> ProjectTemplateFiles {
-    let mut templates = Vec::new();
-
-    for dir in search_dirs {
-        if !dir.exists() {
-            tracing::warn!("Template directory does not exist: {}", dir);
-            continue;
-        }
-
-        let mut dir_templates = Vec::new();
-        for entry in WalkBuilder::new(dir.as_std_path())
-            .standard_filters(false)
-            .build()
-            .filter_map(std::result::Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_type()
-                    .is_some_and(|file_type| file_type.is_file())
-            })
-        {
-            let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
-                continue;
-            };
-
-            let name = match path.strip_prefix(dir) {
-                Ok(rel) => rel.clean().to_string(),
-                Err(_) => continue,
-            };
-
-            let Ok(name) = TemplateName::parse(&name) else {
-                tracing::warn!("Skipping invalid template name derived from path: {}", path);
-                continue;
-            };
-            dir_templates.push((name, path));
-        }
-
-        dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
-            a_name
-                .as_str()
-                .cmp(b_name.as_str())
-                .then_with(|| a_path.cmp(b_path))
-        });
-        templates.extend(dir_templates.into_iter().map(|(name, path)| {
-            ProjectTemplateFile::new(name, path.clone(), db.get_or_create_file(&path))
-        }));
-    }
-
-    ProjectTemplateFiles::from_ordered(templates)
 }
 
 fn refresh_python_index(db: &mut dyn ProjectDb, project: Project) {

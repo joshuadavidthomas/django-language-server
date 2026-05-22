@@ -48,3 +48,12 @@ pub(crate) fn compute_symbol_index(db: &dyn Db, nodelist: NodeList<'_>) -> Symbo
     let template_libraries = db.template_libraries();
     SymbolIndex::build(loaded_libraries, template_libraries)
 }
+
+pub(crate) fn compute_symbol_index_with_libraries(
+    db: &dyn Db,
+    nodelist: NodeList<'_>,
+    template_libraries: &crate::project::TemplateLibraries,
+) -> SymbolIndex {
+    let loaded_libraries = compute_loaded_libraries(db, nodelist);
+    SymbolIndex::build(loaded_libraries, template_libraries)
+}

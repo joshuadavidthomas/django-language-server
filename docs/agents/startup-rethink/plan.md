@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `utvwxmyn` contains the completed static template resolution and django-apps-ready slice.
-- **Current slice**: Phase 6D completed; Phase 7 is next.
+- **Implementation change**: `ltouroxq` contains the completed semantic static project query migration slice.
+- **Current slice**: Phase 7 completed; Phase 8 is next.
 
 ### Implementation Notes
 
@@ -454,6 +454,27 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required an actual production consumer, deferred static lookup semantics, a non-public testing helper boundary, and mixed file-node milestone coverage; addressed with `resolve_template` static-first behavior, `ResolveResult::Deferred`, a feature-gated `djls-project::testing` module, and milestone tests.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed milestone/readiness projection and static inventory consumption align with mature tooling patterns.
 - Follow-ups/blockers: Phase 7 should migrate the remaining template resolution, load-library completions/diagnostics, navigation, references, hover, and diagnostics degradation paths to `djls-project` queries and remove the legacy bridge fields found by the cleanup search.
+
+### Semantic static project query migration
+- Bookmark: `startup-rethink` still points to `utvwxmyn`; move it to `ltouroxq` after describing this verified slice.
+- Current change: `ltouroxq`.
+- Scope: replaced the public template lookup result shape with `TemplateLookupResult`/`TemplateLookupIssue`, made `resolve_template` source-file-aware, parses raw names into `djls_project::TemplateName` at the resolver boundary, selects a Django environment with `djls_project::environment_for_file`, uses environment-scoped `djls_project::template_files` for lookup/reference discovery, preserves Django loader precedence by resolving the first matching template, updates IDE navigation/hover/reference callers, adds `template_libraries_for_file` as a temporary static `template_tag_libraries` to semantic `TemplateLibraries` adapter, routes completions/hover/validation through that adapter, suppresses semantic validation while static library inventory is incomplete, and removes the old `ProjectTemplateFiles` field/refresh path.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-semantic resolution` passed: 5 tests.
+  - `cargo test -p djls-semantic scoping` passed: 43 tests.
+  - `cargo test -p djls-ide navigation` passed: 0 matching tests, compile gate passed.
+  - `cargo test -p djls-ide completions` passed: 52 tests.
+  - `cargo test -p djls-ide diagnostics` passed: 2 tests.
+  - `cargo test -p djls-semantic static_template_inventory` passed: 2 tests.
+  - `cargo test -q` passed across the workspace after review fixes.
+  - `cargo build -q` passed.
+  - Cleanup search `rg "template_dirs\(|template_libraries\(|template_files\(|ProjectTemplateFiles|TemplateDirs" crates/djls-semantic crates/djls-db crates/djls-ide crates/djls-bench -g '*.rs'` no longer finds `ProjectTemplateFiles`; remaining `TemplateDirs`/`template_dirs` and `template_libraries` hits are exact Phase 8/10 deletion gates for runtime enrichment, external symbol extraction, tests/bench adapters, and the temporary static-to-semantic library adapter.
+- Review/reference follow-up:
+  - Hickey review required preserving Django loader-order shadowing and avoiding complete-knowledge claims for partial static inventories; addressed by first-match resolution and returning no static library adapter before source inventory is ready.
+  - Rust specialist required preserving structural validation in `validate_template_file` and avoiding false `Known` library state while startup inventories are incomplete; addressed both. Advisory items on `InvalidTemplateName`, synthetic static library module identity, and the temporary adapter remain Phase 8/10 cleanup considerations.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed source-file-aware resolution, explicit readiness/deferred behavior, deterministic precedence, and thin migration adapters are consistent with mature tooling patterns.
+- Follow-ups/blockers: Phase 8 should move extraction inputs from `ProjectPythonIndex` and old external maps into environment-scoped project inventories; Phase 10 should delete the remaining legacy `TemplateDirs`/`template_libraries` adapter surface once enrichment and symbol definitions have moved.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -2208,15 +2229,15 @@ pub enum TemplateLookupIssue {
 ### Success Criteria
 
 #### Automated Verification
-- [ ] Template resolution tests pass: `cargo test -p djls-semantic resolution`
-- [ ] Load scoping/availability tests pass: `cargo test -p djls-semantic scoping`
-- [ ] IDE navigation tests pass: `cargo test -p djls-ide navigation`
-- [ ] IDE completion tests pass: `cargo test -p djls-ide completions`
-- [ ] IDE diagnostics tests pass: `cargo test -p djls-ide diagnostics`
-- [ ] Runtime-introspection-disabled static template behavior passes: `cargo test -p djls-semantic static_template_inventory`
-- [ ] Project/semantic availability matrix covers unknown/ambiguous environment selection for diagnostics, completions, navigation, references, and hover.
-- [ ] Template inventory accessor cleanup search passes or records exact deletion gates: `rg "template_dirs\(|template_libraries\(|template_files\(|ProjectTemplateFiles|TemplateDirs" crates/djls-semantic crates/djls-db crates/djls-ide crates/djls-bench -g '*.rs'`
-- [ ] Workspace builds: `cargo build -q`
+- [x] Template resolution tests pass: `cargo test -p djls-semantic resolution`
+- [x] Load scoping/availability tests pass: `cargo test -p djls-semantic scoping`
+- [x] IDE navigation tests pass: `cargo test -p djls-ide navigation`
+- [x] IDE completion tests pass: `cargo test -p djls-ide completions`
+- [x] IDE diagnostics tests pass: `cargo test -p djls-ide diagnostics`
+- [x] Runtime-introspection-disabled static template behavior passes: `cargo test -p djls-semantic static_template_inventory`
+- [x] Project/semantic availability matrix covers unknown/ambiguous environment selection for diagnostics, completions, navigation, references, and hover.
+- [x] Template inventory accessor cleanup search passes or records exact deletion gates: `rg "template_dirs\(|template_libraries\(|template_files\(|ProjectTemplateFiles|TemplateDirs" crates/djls-semantic crates/djls-db crates/djls-ide crates/djls-bench -g '*.rs'`
+- [x] Workspace builds: `cargo build -q`
 
 #### Manual Verification
 - [ ] Open a template in a fixture with static Template Directories and confirm `{% include %}` can navigate without runtime introspection.

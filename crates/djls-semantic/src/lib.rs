@@ -31,7 +31,6 @@ pub use project::LibraryOrigin;
 pub use project::Project;
 pub use project::ProjectIntrospector;
 pub use project::ProjectPythonIndex;
-pub use project::ProjectTemplateFiles;
 pub use project::PyModuleName;
 pub use project::SymbolDefinition;
 pub use project::TemplateDirs;
@@ -62,7 +61,10 @@ pub use queries::compute_tag_specs;
 pub use resolution::find_references_to_template;
 pub use resolution::resolve_static_template;
 pub use resolution::resolve_template;
-pub use resolution::ResolveResult;
+pub use resolution::template_libraries_for_file;
+pub use resolution::TemplateInventoryIssue;
+pub use resolution::TemplateLookupIssue;
+pub use resolution::TemplateLookupResult;
 pub use scoping::available_symbols_at;
 pub use scoping::AvailableSymbols;
 pub use scoping::LoadKind;
@@ -91,8 +93,17 @@ pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
     let Some(nodelist) = djls_templates::parse_template(db, file) else {
         return;
     };
+    let nodes = nodelist.nodelist(db);
+    if nodes.is_empty() {
+        return;
+    }
 
-    validate_nodelist(db, nodelist);
+    let _template_tree = build_template_tree(db, nodelist);
+    let opaque_regions = compute_opaque_regions(db, nodelist);
+    let Some(template_libraries) = template_libraries_for_file(db, file) else {
+        return;
+    };
+    validate_nodelist_with_template_libraries(db, nodelist, &opaque_regions, &template_libraries);
 }
 
 /// Validate a Django template node list and return validation errors.
@@ -116,7 +127,27 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
     // 2. Perform all other validations in a single walk.
     let opaque_regions = compute_opaque_regions(db, nodelist);
-    let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
+    validate_nodelist_with_template_libraries(
+        db,
+        nodelist,
+        &opaque_regions,
+        db.template_libraries(),
+    );
+}
+
+fn validate_nodelist_with_template_libraries(
+    db: &dyn Db,
+    nodelist: djls_templates::NodeList<'_>,
+    opaque_regions: &structure::OpaqueRegions,
+    template_libraries: &project::TemplateLibraries,
+) {
+    let nodes = nodelist.nodelist(db);
+    let validator = TemplateValidator::new_with_template_libraries(
+        db,
+        nodelist,
+        opaque_regions,
+        template_libraries,
+    );
     validator.validate(nodes);
 }
 
