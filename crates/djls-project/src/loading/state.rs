@@ -162,6 +162,10 @@ pub enum ProjectSourceFilesIssue {
         path: Utf8PathBuf,
         error_kind: std::io::ErrorKind,
     },
+    InstalledAppGap {
+        entry: String,
+    },
+    TemplateDirectoryGap,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

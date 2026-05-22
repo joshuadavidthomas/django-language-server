@@ -1224,6 +1224,23 @@ mod tests {
                 issues: Vec::new(),
             })
         }
+
+        fn load_installed_app_file_patches(&mut self) -> crate::PartitionedSourceFileLoadOutcome {
+            crate::PartitionedSourceFileLoadOutcome::Ready(Vec::new())
+        }
+
+        fn load_template_directory_file_patches(
+            &mut self,
+        ) -> crate::PartitionedSourceFileLoadOutcome {
+            crate::PartitionedSourceFileLoadOutcome::Ready(Vec::new())
+        }
+
+        fn apply_partitioned_source_file_patch(
+            &mut self,
+            _patch: crate::PartitionedSourceFilePatch,
+        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+            unreachable!("test effects return no partitioned patches")
+        }
     }
 
     fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {

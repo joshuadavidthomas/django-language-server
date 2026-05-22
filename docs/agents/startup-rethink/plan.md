@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `yortktwk` contains the completed effective settings and installed-app projection slice.
-- **Current slice**: Phase 6A completed; Phase 6B is next.
+- **Implementation change**: `qxtuwrlp` contains the completed installed-app and template-directory file loading slice.
+- **Current slice**: Phase 6B completed; Phase 6C is next.
 
 ### Implementation Notes
 
@@ -401,6 +401,26 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required source-order semantics, relative settings imports, partial list concat with known tails, and class-scoped AppConfig extraction; addressed all in this slice.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed the ordered, file-local AST-derived projection plus layered semantic interpretation, static module resolution, and deferred/partial states match mature tooling patterns.
 - Follow-ups/blockers: Phase 6B should add installed-app and configured-template file loading through the source-inventory partition merge seam.
+
+### Installed-app and template-directory file loading
+- Bookmark: `startup-rethink` still points to `yortktwk`; move it to `qxtuwrlp` after describing this verified slice.
+- Current change: `qxtuwrlp`.
+- Scope: added installed-app and configured-template-directory file loaders in `djls-project`; derived roots from static environment/settings/app projections; introduced partitioned source-file load outcomes and patches; extended the source-inventory merge seam with first-party, configured-template-directory, and installed-app partition precedence; preserved lower-precedence resurrection across partition updates; surfaced deferred/unavailable/degraded app/template gaps as typed node outcomes; and wired the two loading nodes through the shared driver plus CLI/LSP effect adapters without registering `django-apps-ready` yet.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project installed_app_files` passed: 1 test.
+  - `cargo test -p djls-project template_directory_files` passed: 1 test.
+  - `cargo test -p djls-project loading_template_files` passed: 3 tests.
+  - `cargo test -p djls-project loading_plan` passed: 4 tests.
+  - `cargo test -p djls-server startup` passed: 22 tests.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `cargo test -p djls-db source_file_set` passed: 5 tests.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review required first-party partition reloads to preserve lower-precedence partitions so resurrection remains possible; addressed by applying first-party updates through the same replace-one-partition merge invariant and adding regression coverage.
+  - Rust specialist required typed deferred/unavailable/degraded outcomes instead of empty-root `Skipped`, preservation of missing/ambiguous/deferred installed-app gaps, `AppConfig.path` root selection, and no Phase 6B `django-apps-ready` API; addressed all in this slice.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed neutral VFS/workspace loading, source-root/file-set partitioning, typed roots/search paths, transactional DB changes, and explicit precedence align with mature tooling patterns.
+- Follow-ups/blockers: Phase 6C should build static template directory/file/tag-library inventories over the merged source inventory and distinguish known-but-not-loaded template roots from loaded-empty roots.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).

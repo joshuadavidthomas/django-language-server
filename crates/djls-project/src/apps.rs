@@ -1,12 +1,23 @@
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::FileRootKind;
+use djls_workspace::FilesForRootsRequest;
+use djls_workspace::FilesForRootsResult;
+use djls_workspace::WalkOptions;
 
+use crate::build_source_roots_with_kind;
+use crate::django_environment_candidates;
 use crate::effective_settings;
 use crate::resolve_module;
 use crate::Db;
+use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::DjangoEnvironmentId;
 use crate::ModuleResolutionOutcome;
+use crate::PartitionedSourceFileLoadOutcome;
+use crate::PartitionedSourceFilePatch;
 use crate::Project;
+use crate::ProjectSourceFilesIssue;
 use crate::PyModuleName;
 use crate::SettingsIssue;
 use crate::StaticValue;
@@ -197,6 +208,151 @@ fn split_app_config_entry(entry: &str) -> Option<(PyModuleName, &str)> {
     Some((PyModuleName::parse(module).ok()?, class_name))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstalledAppFilesLoadRequest {
+    roots: Vec<Utf8PathBuf>,
+}
+
+impl InstalledAppFilesLoadRequest {
+    #[must_use]
+    pub fn new(roots: Vec<Utf8PathBuf>) -> Self {
+        Self { roots }
+    }
+
+    #[must_use]
+    pub fn roots(&self) -> &[Utf8PathBuf] {
+        &self.roots
+    }
+}
+
+#[must_use]
+pub fn installed_app_files_request(request: InstalledAppFilesLoadRequest) -> FilesForRootsRequest {
+    let plan = build_source_roots_with_kind(request.roots, FileRootKind::LibrarySearchPath);
+    FilesForRootsRequest::new(
+        plan.roots().to_vec(),
+        Box::new(installed_app_file_predicate),
+        django_app_walk_options(),
+    )
+}
+
+#[must_use]
+pub fn load_installed_app_files(request: InstalledAppFilesLoadRequest) -> FilesForRootsResult {
+    djls_workspace::load_files_for_roots(installed_app_files_request(request))
+}
+
+#[must_use]
+pub fn installed_app_file_roots(db: &dyn Db, project: Project) -> InstalledAppFilesLoadRequest {
+    let (roots, _) = installed_app_file_roots_and_issues(db, project);
+    InstalledAppFilesLoadRequest::new(roots)
+}
+
+#[must_use]
+pub fn installed_app_file_load_outcome(
+    db: &dyn Db,
+    project: Project,
+) -> PartitionedSourceFileLoadOutcome {
+    match django_environment_candidates(db, project) {
+        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
+            return PartitionedSourceFileLoadOutcome::Deferred {
+                issue: ProjectSourceFilesIssue::InstalledAppGap {
+                    entry: "<environment-discovery>".to_string(),
+                },
+            };
+        }
+        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
+            return PartitionedSourceFileLoadOutcome::Unavailable {
+                issue: ProjectSourceFilesIssue::InstalledAppGap {
+                    entry: "<environment-discovery>".to_string(),
+                },
+            };
+        }
+        DjangoEnvironmentCandidatesOutcome::Ready { .. }
+        | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => {}
+    }
+    let (roots, issues) = installed_app_file_roots_and_issues(db, project);
+    let result = load_installed_app_files(InstalledAppFilesLoadRequest::new(roots));
+    let patches = PartitionedSourceFilePatch::installed_app(result);
+    if issues.is_empty() {
+        PartitionedSourceFileLoadOutcome::Ready(patches)
+    } else {
+        PartitionedSourceFileLoadOutcome::Degraded { patches, issues }
+    }
+}
+
+fn installed_app_file_roots_and_issues(
+    db: &dyn Db,
+    project: Project,
+) -> (Vec<Utf8PathBuf>, Vec<ProjectSourceFilesIssue>) {
+    let mut roots = Vec::new();
+    let mut issues = Vec::new();
+    let candidates = match django_environment_candidates(db, project) {
+        DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
+        | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
+        DjangoEnvironmentCandidatesOutcome::Unavailable { .. }
+        | DjangoEnvironmentCandidatesOutcome::Deferred { .. } => return (roots, issues),
+    };
+
+    for candidate in candidates {
+        for app in installed_apps(db, project, candidate.id().clone()).iter() {
+            match app.resolution() {
+                InstalledAppResolution::Package { file, .. } => {
+                    if let Some(root) = app_root_for_file(db, *file) {
+                        roots.push(root);
+                    }
+                }
+                InstalledAppResolution::AppConfig { config, file } => {
+                    if let Some(path) = config.path() {
+                        roots.push(path.to_owned());
+                    } else if let Some(root) = app_root_for_file(db, *file) {
+                        roots.push(root);
+                    }
+                }
+                InstalledAppResolution::Missing { .. }
+                | InstalledAppResolution::Ambiguous { .. }
+                | InstalledAppResolution::Deferred { .. } => {
+                    issues.push(ProjectSourceFilesIssue::InstalledAppGap {
+                        entry: app.entry().to_string(),
+                    });
+                }
+            }
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    (roots, issues)
+}
+
+fn app_root_for_file(db: &dyn Db, file: File) -> Option<Utf8PathBuf> {
+    let path = file.path(db);
+    let parent = path.parent()?;
+    if path.file_name() == Some("__init__.py") || path.file_name() == Some("apps.py") {
+        return Some(parent.to_owned());
+    }
+    parent.parent().map(Utf8Path::to_owned)
+}
+
+fn django_app_walk_options() -> WalkOptions {
+    WalkOptions {
+        hidden: false,
+        globs: vec!["!**/__pycache__/**".to_string()],
+        no_ignore: false,
+        follow_links: false,
+        max_depth: None,
+    }
+}
+
+fn installed_app_file_predicate(path: &Utf8Path) -> bool {
+    if matches!(
+        path.file_name(),
+        Some("apps.py" | "models.py" | "admin.py" | "urls.py" | "forms.py")
+    ) {
+        return true;
+    }
+
+    path.components()
+        .any(|component| matches!(component.as_str(), "models" | "templates" | "templatetags"))
+}
+
 fn static_app_config_string_assignment(
     classes: &[crate::ClassDef],
     class_name: &str,
@@ -346,6 +502,44 @@ mod tests {
             panic!("single candidate should be ready");
         };
         candidates[0].id().clone()
+    }
+
+    #[test]
+    fn installed_app_files_loads_django_relevant_files_only() {
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        let root = utf8(tempdir.path()).join("blog");
+        std::fs::create_dir_all(root.join("templates/blog"))
+            .expect("templates directory should be created");
+        std::fs::create_dir_all(root.join("templatetags"))
+            .expect("templatetags directory should be created");
+        std::fs::create_dir_all(root.join("migrations"))
+            .expect("migrations directory should be created");
+        std::fs::write(root.join("apps.py"), "").expect("apps.py should be written");
+        std::fs::write(root.join("models.py"), "").expect("models.py should be written");
+        std::fs::write(root.join("templates/blog/index.html"), "")
+            .expect("template should be written");
+        std::fs::write(root.join("templatetags/blog_tags.py"), "")
+            .expect("tag library should be written");
+        std::fs::write(root.join("migrations/0001_initial.py"), "")
+            .expect("migration should be written");
+
+        let result = load_installed_app_files(InstalledAppFilesLoadRequest::new(vec![root]));
+        let loaded = result
+            .files()
+            .iter()
+            .map(|file| file.path().file_name().unwrap().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(loaded.contains(&"apps.py".to_string()));
+        assert!(loaded.contains(&"models.py".to_string()));
+        assert!(loaded.contains(&"index.html".to_string()));
+        assert!(loaded.contains(&"blog_tags.py".to_string()));
+        assert!(!loaded.contains(&"0001_initial.py".to_string()));
+        assert_eq!(result.roots()[0].kind(), FileRootKind::LibrarySearchPath);
+    }
+
+    fn utf8(path: &std::path::Path) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(path.to_path_buf()).expect("path should be utf8")
     }
 
     #[test]

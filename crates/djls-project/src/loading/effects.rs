@@ -4,6 +4,8 @@ use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::FirstPartySourceFilePatch;
+use crate::PartitionedSourceFileLoadOutcome;
+use crate::PartitionedSourceFilePatch;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectDiscoverySetData;
 use crate::ProjectSourceFilesApplyResult;
@@ -52,6 +54,12 @@ pub trait LoadingEffects {
     fn observe_django_environment_candidates(
         &mut self,
     ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome>;
+    fn load_installed_app_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome;
+    fn load_template_directory_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome;
+    fn apply_partitioned_source_file_patch(
+        &mut self,
+        patch: PartitionedSourceFilePatch,
+    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult>;
 }
 
 pub trait LoadingObserver {

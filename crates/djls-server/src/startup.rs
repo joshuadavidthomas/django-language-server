@@ -1008,6 +1008,50 @@ impl LoadingEffects for LspLoadingExecutor {
         }
         LoadingObservationOutcome::Observed(outcome)
     }
+
+    fn load_installed_app_file_patches(
+        &mut self,
+    ) -> djls_project::PartitionedSourceFileLoadOutcome {
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        let project = ProjectDb::project(&db);
+        djls_project::installed_app_file_load_outcome(&db, project)
+    }
+
+    fn load_template_directory_file_patches(
+        &mut self,
+    ) -> djls_project::PartitionedSourceFileLoadOutcome {
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        let project = ProjectDb::project(&db);
+        djls_project::template_directory_file_load_outcome(&db, project)
+    }
+
+    fn apply_partitioned_source_file_patch(
+        &mut self,
+        patch: djls_project::PartitionedSourceFilePatch,
+    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+        let outcome = self
+            .handle
+            .block_on(self.inputs.guard().apply(&self.session, |session| {
+                let current = ProjectDb::project(session.db())
+                    .source_inventory(session.db())
+                    .ready();
+                let update =
+                    djls_project::merge_partitioned_source_file_patch(current.as_ref(), patch);
+                Ok(session.db_mut().apply_project_source_files(update))
+            }));
+
+        match outcome {
+            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
+            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
+            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1819,6 +1863,16 @@ mod startup_generation {
                 StartupProgressEvent::NodeStarted(NodeId::EnvironmentDiscovery),
                 StartupProgressEvent::NodeFinished {
                     node: NodeId::EnvironmentDiscovery,
+                    status: NodeTerminalStatus::Unavailable,
+                },
+                StartupProgressEvent::NodeStarted(NodeId::InstalledAppFiles),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::InstalledAppFiles,
+                    status: NodeTerminalStatus::Unavailable,
+                },
+                StartupProgressEvent::NodeStarted(NodeId::TemplateDirectoryFiles),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::TemplateDirectoryFiles,
                     status: NodeTerminalStatus::Unavailable,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),

@@ -11,6 +11,7 @@ use super::plan::MilestoneTerminalStatus;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
 use crate::DjangoEnvironmentCandidatesOutcome;
+use crate::PartitionedSourceFileLoadOutcome;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
@@ -69,7 +70,9 @@ impl LoadingRunResult {
             LoadingNodeResult::SourceFileSet { applied, .. } => Some(applied),
             LoadingNodeResult::ProjectDiscoverySet { .. }
             | LoadingNodeResult::PythonSourceModels { .. }
-            | LoadingNodeResult::EnvironmentDiscovery { .. } => None,
+            | LoadingNodeResult::EnvironmentDiscovery { .. }
+            | LoadingNodeResult::InstalledAppFiles { .. }
+            | LoadingNodeResult::TemplateDirectoryFiles { .. } => None,
         })
     }
 }
@@ -110,6 +113,14 @@ pub enum LoadingNodeResult {
         observed: DjangoEnvironmentCandidatesOutcome,
         status: NodeTerminalStatus,
     },
+    InstalledAppFiles {
+        applied: Vec<ProjectSourceFilesApplyResult>,
+        status: NodeTerminalStatus,
+    },
+    TemplateDirectoryFiles {
+        applied: Vec<ProjectSourceFilesApplyResult>,
+        status: NodeTerminalStatus,
+    },
 }
 
 impl LoadingNodeResult {
@@ -120,6 +131,8 @@ impl LoadingNodeResult {
             Self::ProjectDiscoverySet { .. } => NodeId::ProjectDiscoverySet,
             Self::PythonSourceModels { .. } => NodeId::PythonSourceModels,
             Self::EnvironmentDiscovery { .. } => NodeId::EnvironmentDiscovery,
+            Self::InstalledAppFiles { .. } => NodeId::InstalledAppFiles,
+            Self::TemplateDirectoryFiles { .. } => NodeId::TemplateDirectoryFiles,
         }
     }
 
@@ -129,7 +142,9 @@ impl LoadingNodeResult {
             Self::SourceFileSet { status, .. }
             | Self::ProjectDiscoverySet { status, .. }
             | Self::PythonSourceModels { status, .. }
-            | Self::EnvironmentDiscovery { status, .. } => status,
+            | Self::EnvironmentDiscovery { status, .. }
+            | Self::InstalledAppFiles { status, .. }
+            | Self::TemplateDirectoryFiles { status, .. } => status,
         }
     }
 }
@@ -234,11 +249,127 @@ pub fn run_loading_plan(
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::EnvironmentDiscovery { observed, status });
             }
+            NodeId::InstalledAppFiles => {
+                observer.node_started(*node);
+                let (applied, status) = match apply_partitioned_load_outcome(
+                    effects.load_installed_app_file_patches(),
+                    effects,
+                ) {
+                    Ok(result) => result,
+                    Err(outcome) => {
+                        return LoadingRunResult::aborted(node_results, milestone_results, outcome)
+                    }
+                };
+                observer.node_finished(*node, status.clone());
+                node_results.push(LoadingNodeResult::InstalledAppFiles { applied, status });
+            }
+            NodeId::TemplateDirectoryFiles => {
+                observer.node_started(*node);
+                let (applied, status) = match apply_partitioned_load_outcome(
+                    effects.load_template_directory_file_patches(),
+                    effects,
+                ) {
+                    Ok(result) => result,
+                    Err(outcome) => {
+                        return LoadingRunResult::aborted(node_results, milestone_results, outcome)
+                    }
+                };
+                observer.node_finished(*node, status.clone());
+                node_results.push(LoadingNodeResult::TemplateDirectoryFiles { applied, status });
+            }
         }
         advance_milestones(plan, &node_results, &mut milestone_results, observer);
     }
 
     LoadingRunResult::completed(node_results, milestone_results)
+}
+
+fn apply_partitioned_load_outcome(
+    outcome: PartitionedSourceFileLoadOutcome,
+    effects: &mut impl LoadingEffects,
+) -> Result<(Vec<ProjectSourceFilesApplyResult>, NodeTerminalStatus), LoadingExecutionOutcome> {
+    match outcome {
+        PartitionedSourceFileLoadOutcome::Ready(patches) => {
+            let applied = apply_partitioned_patches(patches, effects)?;
+            let status = aggregate_file_loading_status(&applied);
+            Ok((applied, status))
+        }
+        PartitionedSourceFileLoadOutcome::Degraded { patches, .. } => {
+            let applied = apply_partitioned_patches(patches, effects)?;
+            let status = if applied.is_empty() {
+                NodeTerminalStatus::Degraded
+            } else {
+                match aggregate_file_loading_status(&applied) {
+                    NodeTerminalStatus::Succeeded | NodeTerminalStatus::Skipped => {
+                        NodeTerminalStatus::Degraded
+                    }
+                    status => status,
+                }
+            };
+            Ok((applied, status))
+        }
+        PartitionedSourceFileLoadOutcome::Deferred { .. } => {
+            Ok((Vec::new(), NodeTerminalStatus::Deferred))
+        }
+        PartitionedSourceFileLoadOutcome::Unavailable { .. } => {
+            Ok((Vec::new(), NodeTerminalStatus::Unavailable))
+        }
+    }
+}
+
+fn apply_partitioned_patches(
+    patches: Vec<crate::PartitionedSourceFilePatch>,
+    effects: &mut impl LoadingEffects,
+) -> Result<Vec<ProjectSourceFilesApplyResult>, LoadingExecutionOutcome> {
+    let mut applied = Vec::new();
+    for patch in patches {
+        match effects.apply_partitioned_source_file_patch(patch) {
+            LoadingApplyOutcome::Applied(result) => applied.push(result),
+            LoadingApplyOutcome::Superseded => return Err(LoadingExecutionOutcome::Superseded),
+            LoadingApplyOutcome::RejectedApply => {
+                return Err(LoadingExecutionOutcome::RejectedApply)
+            }
+        }
+    }
+    Ok(applied)
+}
+
+fn aggregate_file_loading_status(applied: &[ProjectSourceFilesApplyResult]) -> NodeTerminalStatus {
+    if applied.is_empty() {
+        return NodeTerminalStatus::Skipped;
+    }
+    let statuses = applied
+        .iter()
+        .map(node_status_from_readiness)
+        .collect::<Vec<_>>();
+    if statuses
+        .iter()
+        .any(|status| *status == NodeTerminalStatus::Failed)
+    {
+        NodeTerminalStatus::Failed
+    } else if statuses
+        .iter()
+        .any(|status| *status == NodeTerminalStatus::Unavailable)
+    {
+        NodeTerminalStatus::Unavailable
+    } else if statuses
+        .iter()
+        .any(|status| *status == NodeTerminalStatus::Deferred)
+    {
+        NodeTerminalStatus::Deferred
+    } else if statuses
+        .iter()
+        .any(|status| *status == NodeTerminalStatus::Degraded)
+    {
+        NodeTerminalStatus::Degraded
+    } else if statuses
+        .iter()
+        .all(|status| *status == NodeTerminalStatus::Skipped)
+    {
+        NodeTerminalStatus::Skipped
+    } else {
+        NodeTerminalStatus::Succeeded
+    }
 }
 
 fn advance_milestones(
@@ -446,6 +577,21 @@ mod tests {
                 issues,
             })
         }
+
+        fn load_installed_app_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome {
+            PartitionedSourceFileLoadOutcome::Ready(Vec::new())
+        }
+
+        fn load_template_directory_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome {
+            PartitionedSourceFileLoadOutcome::Ready(Vec::new())
+        }
+
+        fn apply_partitioned_source_file_patch(
+            &mut self,
+            _patch: crate::PartitionedSourceFilePatch,
+        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+            unreachable!("fake effects return no partitioned patches")
+        }
     }
 
     #[derive(Default)]
@@ -498,6 +644,8 @@ mod tests {
                 NodeId::ProjectDiscoverySet,
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
+                NodeId::InstalledAppFiles,
+                NodeId::TemplateDirectoryFiles,
             ]
         );
         assert_eq!(
@@ -507,6 +655,8 @@ mod tests {
                 (NodeId::ProjectDiscoverySet, NodeTerminalStatus::Deferred),
                 (NodeId::PythonSourceModels, NodeTerminalStatus::Succeeded),
                 (NodeId::EnvironmentDiscovery, NodeTerminalStatus::Succeeded),
+                (NodeId::InstalledAppFiles, NodeTerminalStatus::Skipped),
+                (NodeId::TemplateDirectoryFiles, NodeTerminalStatus::Skipped),
             ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);

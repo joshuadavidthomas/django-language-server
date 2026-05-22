@@ -3,7 +3,10 @@ use djls_db::DjangoDatabase;
 use djls_project::build_source_roots;
 use djls_project::first_party_discovery_files_request;
 use djls_project::first_party_source_files_load_request;
+use djls_project::installed_app_file_load_outcome;
 use djls_project::merge_first_party_source_file_patch;
+use djls_project::merge_partitioned_source_file_patch;
+use djls_project::template_directory_file_load_outcome;
 use djls_project::Db as ProjectDb;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
 use djls_project::FirstPartySourceFilePatch;
@@ -11,6 +14,7 @@ use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
 use djls_project::LoadingObservationOutcome;
 use djls_project::LoadingRunControl;
+use djls_project::PartitionedSourceFilePatch;
 use djls_project::ProjectDiscoveryApplyResult;
 use djls_project::ProjectDiscoveryLoadRequest;
 use djls_project::ProjectDiscoverySetData;
@@ -87,5 +91,30 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
         LoadingObservationOutcome::Observed(
             djls_project::django_environment_candidates(self.db, project).clone(),
         )
+    }
+
+    fn load_installed_app_file_patches(
+        &mut self,
+    ) -> djls_project::PartitionedSourceFileLoadOutcome {
+        let project = ProjectDb::project(self.db);
+        installed_app_file_load_outcome(self.db, project)
+    }
+
+    fn load_template_directory_file_patches(
+        &mut self,
+    ) -> djls_project::PartitionedSourceFileLoadOutcome {
+        let project = ProjectDb::project(self.db);
+        template_directory_file_load_outcome(self.db, project)
+    }
+
+    fn apply_partitioned_source_file_patch(
+        &mut self,
+        patch: PartitionedSourceFilePatch,
+    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+        let current = ProjectDb::project(self.db)
+            .source_inventory(self.db)
+            .ready();
+        let update = merge_partitioned_source_file_patch(current.as_ref(), patch);
+        LoadingApplyOutcome::Applied(self.db.apply_project_source_files(update))
     }
 }

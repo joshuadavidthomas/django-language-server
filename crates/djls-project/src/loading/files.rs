@@ -41,6 +41,14 @@ impl SourceRootsPlan {
 
 #[must_use]
 pub fn build_source_roots(raw_roots: impl IntoIterator<Item = Utf8PathBuf>) -> SourceRootsPlan {
+    build_source_roots_with_kind(raw_roots, FileRootKind::Project)
+}
+
+#[must_use]
+pub fn build_source_roots_with_kind(
+    raw_roots: impl IntoIterator<Item = Utf8PathBuf>,
+    kind: FileRootKind,
+) -> SourceRootsPlan {
     let mut roots = Vec::new();
     let mut issues = Vec::new();
     let mut seen = BTreeSet::new();
@@ -56,7 +64,7 @@ pub fn build_source_roots(raw_roots: impl IntoIterator<Item = Utf8PathBuf>) -> S
             continue;
         }
 
-        roots.push(SourceRoot::new(id, path, FileRootKind::Project));
+        roots.push(SourceRoot::new(id, path, kind));
     }
 
     SourceRootsPlan { roots, issues }
@@ -166,6 +174,22 @@ impl FileSetPartition {
     }
 
     #[must_use]
+    pub fn configured_template_directory(root: SourceRootId) -> Self {
+        Self {
+            id: FileSetPartitionId::ConfiguredTemplateDirectory(root),
+            precedence: 75,
+        }
+    }
+
+    #[must_use]
+    pub fn installed_app(root: SourceRootId) -> Self {
+        Self {
+            id: FileSetPartitionId::InstalledApp(root),
+            precedence: 50,
+        }
+    }
+
+    #[must_use]
     pub fn id(&self) -> &FileSetPartitionId {
         &self.id
     }
@@ -238,10 +262,31 @@ impl ProjectFileSetPartitions {
         Self::default()
     }
 
+    #[cfg(test)]
     fn with_first_party(snapshot: ProjectFileSetPartitionSnapshot) -> Self {
         Self {
             partitions: vec![snapshot],
         }
+    }
+
+    fn replace_partition(&self, snapshot: ProjectFileSetPartitionSnapshot) -> Self {
+        let mut partitions = self
+            .partitions
+            .iter()
+            .filter(|partition| partition.partition.id() != snapshot.partition.id())
+            .cloned()
+            .collect::<Vec<_>>();
+        partitions.push(snapshot);
+        partitions.sort_by(|left, right| {
+            right
+                .partition
+                .precedence()
+                .cmp(&left.partition.precedence())
+                .then_with(|| {
+                    format!("{:?}", left.partition.id()).cmp(&format!("{:?}", right.partition.id()))
+                })
+        });
+        Self { partitions }
     }
 
     #[allow(dead_code)]
@@ -261,11 +306,15 @@ impl ProjectFileSetPartitions {
             .flat_map(|partition| partition.roots.iter().cloned())
             .map(SourceRootEntry::new)
             .collect::<Vec<_>>();
-        let files = self
-            .partitions
-            .iter()
-            .flat_map(|partition| partition.files.iter().cloned())
-            .collect::<Vec<_>>();
+        let mut selected_files = BTreeMap::<Utf8PathBuf, DiscoveredSourceFile>::new();
+        for partition in &self.partitions {
+            for file in &partition.files {
+                selected_files
+                    .entry(file.path().to_owned())
+                    .or_insert_with(|| file.clone());
+            }
+        }
+        let files = selected_files.into_values().collect::<Vec<_>>();
         let summary = FileSetSummary::new(files.len());
         MergedDiscoveredSourceFileSetData {
             roots,
@@ -282,6 +331,95 @@ pub struct FirstPartySourceFilePatch {
     files: Vec<DiscoveredSourceFile>,
     summary: FileSetSummary,
     issues: Vec<ProjectSourceFilesIssue>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PartitionedSourceFileLoadOutcome {
+    Ready(Vec<PartitionedSourceFilePatch>),
+    Degraded {
+        patches: Vec<PartitionedSourceFilePatch>,
+        issues: Vec<ProjectSourceFilesIssue>,
+    },
+    Deferred {
+        issue: ProjectSourceFilesIssue,
+    },
+    Unavailable {
+        issue: ProjectSourceFilesIssue,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartitionedSourceFilePatch {
+    partition: FileSetPartition,
+    roots: Vec<SourceRoot>,
+    files: Vec<DiscoveredSourceFile>,
+    summary: FileSetSummary,
+    issues: Vec<ProjectSourceFilesIssue>,
+}
+
+impl PartitionedSourceFilePatch {
+    #[must_use]
+    pub fn installed_app(result: FilesForRootsResult) -> Vec<Self> {
+        partitioned_patches(result, FileSetPartition::installed_app)
+    }
+
+    #[must_use]
+    pub fn configured_template_directory(result: FilesForRootsResult) -> Vec<Self> {
+        partitioned_patches(result, FileSetPartition::configured_template_directory)
+    }
+
+    #[must_use]
+    pub fn partition(&self) -> &FileSetPartition {
+        &self.partition
+    }
+
+    #[must_use]
+    pub fn summary(&self) -> FileSetSummary {
+        self.summary
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+        &self.issues
+    }
+}
+
+fn partitioned_patches(
+    result: FilesForRootsResult,
+    partition_for_root: impl Fn(SourceRootId) -> FileSetPartition,
+) -> Vec<PartitionedSourceFilePatch> {
+    result
+        .roots()
+        .iter()
+        .map(|root| {
+            let files = result
+                .files()
+                .iter()
+                .filter(|file| file.root() == root.id())
+                .cloned()
+                .collect::<Vec<_>>();
+            let issues = result
+                .root_issues()
+                .iter()
+                .filter(|issue| workspace_issue_root(issue) == root.id())
+                .map(project_issue_from_workspace_issue)
+                .collect::<Vec<_>>();
+            PartitionedSourceFilePatch {
+                partition: partition_for_root(root.id().clone()),
+                roots: vec![root.clone()],
+                summary: FileSetSummary::new(files.len()),
+                files,
+                issues,
+            }
+        })
+        .collect()
+}
+
+fn workspace_issue_root(issue: &WorkspaceRootIssue) -> &SourceRootId {
+    match issue {
+        WorkspaceRootIssue::MissingRoot { root, .. }
+        | WorkspaceRootIssue::UnreadableRoot { root, .. } => root,
+    }
 }
 
 impl FirstPartySourceFilePatch {
@@ -578,7 +716,7 @@ pub fn finalize_project_source_files(
     update: ProjectSourceFilesUpdate,
     materialized: SourceFileSetMaterialized,
 ) -> ProjectSourceFilesApplyResult {
-    if let Some(issue) = update.issues.first().cloned() {
+    if let Some(issue) = first_fatal_update_issue(&update.issues) {
         return terminal_source_files_apply_result(
             db,
             update.applied_transition,
@@ -623,6 +761,13 @@ pub fn finalize_project_source_files(
         transition: update.applied_transition,
         issues: update.issues,
     })
+}
+
+fn first_fatal_update_issue(issues: &[ProjectSourceFilesIssue]) -> Option<ProjectSourceFilesIssue> {
+    issues
+        .iter()
+        .find(|issue| !matches!(issue, ProjectSourceFilesIssue::PartitionConflict { .. }))
+        .cloned()
 }
 
 enum TerminalSourceFilesAvailability {
@@ -723,6 +868,75 @@ fn project_issue_from_materialization_issue(
 }
 
 #[must_use]
+pub fn merge_partitioned_source_file_patch(
+    current: Option<&ReadyProjectSourceFiles>,
+    patch: PartitionedSourceFilePatch,
+) -> ProjectSourceFilesUpdate {
+    let readiness = partition_readiness(current, &patch);
+    let snapshot = ProjectFileSetPartitionSnapshot::new(
+        patch.partition.clone(),
+        patch.roots.clone(),
+        patch.files.clone(),
+        readiness.clone(),
+    );
+    let current_partitions = current
+        .map(|files| files.partitions.clone())
+        .unwrap_or_default();
+    let partitions = current_partitions.replace_partition(snapshot);
+    let merged = partitions.merged_discovered_data();
+    let previous = current.map(ReadyProjectSourceFiles::discovered_data);
+    let materialization = materialization_patch(previous.as_ref(), &merged);
+    let applied_transition = ProjectFileLoadingTransition {
+        partition: patch.partition,
+        readiness,
+    };
+    let mut issues = patch.issues;
+    issues.extend(partition_conflicts(&partitions));
+
+    ProjectSourceFilesUpdate {
+        partitions,
+        materialization,
+        applied_transition,
+        issues,
+    }
+}
+
+fn partition_readiness(
+    current: Option<&ReadyProjectSourceFiles>,
+    patch: &PartitionedSourceFilePatch,
+) -> ProjectFilePartitionReadiness {
+    if let Some(issue) = patch.issues.first() {
+        return ProjectFilePartitionReadiness::Unavailable {
+            issue: issue.clone(),
+            previous: current.map(|files| files.discovered_data().summary()),
+        };
+    }
+
+    ProjectFilePartitionReadiness::Ready {
+        summary: patch.summary,
+    }
+}
+
+fn partition_conflicts(partitions: &ProjectFileSetPartitions) -> Vec<ProjectSourceFilesIssue> {
+    let mut winners = BTreeMap::<Utf8PathBuf, FileSetPartitionId>::new();
+    let mut issues = Vec::new();
+    for partition in &partitions.partitions {
+        for file in &partition.files {
+            if let Some(winner) = winners.get(file.path()) {
+                issues.push(ProjectSourceFilesIssue::PartitionConflict {
+                    path: file.path().to_owned(),
+                    winner: winner.clone(),
+                    shadowed: partition.partition.id().clone(),
+                });
+            } else {
+                winners.insert(file.path().to_owned(), partition.partition.id().clone());
+            }
+        }
+    }
+    issues
+}
+
+#[must_use]
 pub fn merge_first_party_source_file_patch(
     current: Option<&ReadyProjectSourceFiles>,
     patch: FirstPartySourceFilePatch,
@@ -734,8 +948,11 @@ pub fn merge_first_party_source_file_patch(
         patch.files.clone(),
         readiness.clone(),
     );
-    let partitions = ProjectFileSetPartitions::with_first_party(snapshot);
-    let merged = merged_first_party_data(&patch.roots, &patch.files);
+    let current_partitions = current
+        .map(|files| files.partitions.clone())
+        .unwrap_or_default();
+    let partitions = current_partitions.replace_partition(snapshot);
+    let merged = partitions.merged_discovered_data();
     let previous = current.map(ReadyProjectSourceFiles::discovered_data);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = ProjectFileLoadingTransition {
@@ -764,24 +981,6 @@ fn first_party_readiness(
 
     ProjectFilePartitionReadiness::Ready {
         summary: patch.summary,
-    }
-}
-
-pub(crate) fn merged_first_party_data(
-    roots: &[SourceRoot],
-    files: &[DiscoveredSourceFile],
-) -> MergedDiscoveredSourceFileSetData {
-    let roots = roots
-        .iter()
-        .cloned()
-        .map(SourceRootEntry::new)
-        .collect::<Vec<_>>();
-    let files = files.to_vec();
-    let summary = FileSetSummary::new(files.len());
-    MergedDiscoveredSourceFileSetData {
-        roots,
-        files,
-        summary,
     }
 }
 
@@ -1295,6 +1494,190 @@ mod tests {
                 previous: None,
             }
         );
+    }
+
+    #[test]
+    fn loading_template_files_merge_prefers_first_party_over_lower_partitions() {
+        let first_party = root("/workspace");
+        let installed = SourceRoot::new(
+            SourceRootId::new(Utf8PathBuf::from("/site-packages/blog")),
+            Utf8PathBuf::from("/site-packages/blog"),
+            FileRootKind::LibrarySearchPath,
+        );
+        let shared_path = Utf8PathBuf::from("/workspace/templates/shared.html");
+        let first_party_file =
+            DiscoveredSourceFile::new(shared_path.clone(), first_party.id().clone());
+        let installed_file = DiscoveredSourceFile::new(shared_path.clone(), installed.id().clone());
+        let first_party_patch = FirstPartySourceFilePatch {
+            partition: FileSetPartition::first_party(),
+            roots: vec![first_party.clone()],
+            files: vec![first_party_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let first_update = merge_first_party_source_file_patch(None, first_party_patch);
+        let previous = ReadyProjectSourceFiles::materialized_for_test(
+            first_update.partitions().clone(),
+            empty_source_file_set(),
+        );
+        let installed_patch = PartitionedSourceFilePatch {
+            partition: FileSetPartition::installed_app(installed.id().clone()),
+            roots: vec![installed.clone()],
+            files: vec![installed_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+
+        let update = merge_partitioned_source_file_patch(Some(&previous), installed_patch);
+
+        assert_eq!(update.materialization().summary(), FileSetSummary::new(1));
+        assert!(update
+            .issues()
+            .contains(&ProjectSourceFilesIssue::PartitionConflict {
+                path: shared_path,
+                winner: FileSetPartitionId::FirstParty,
+                shadowed: FileSetPartitionId::InstalledApp(installed.id().clone()),
+            }));
+    }
+
+    #[test]
+    fn loading_template_files_first_party_update_preserves_lower_partition_for_resurrection() {
+        let first_party = root("/workspace");
+        let installed = SourceRoot::new(
+            SourceRootId::new(Utf8PathBuf::from("/site-packages/blog")),
+            Utf8PathBuf::from("/site-packages/blog"),
+            FileRootKind::LibrarySearchPath,
+        );
+        let shared_path = Utf8PathBuf::from("/workspace/templates/shared.html");
+        let first_party_file =
+            DiscoveredSourceFile::new(shared_path.clone(), first_party.id().clone());
+        let installed_file = DiscoveredSourceFile::new(shared_path.clone(), installed.id().clone());
+        let first_party_patch = FirstPartySourceFilePatch {
+            partition: FileSetPartition::first_party(),
+            roots: vec![first_party.clone()],
+            files: vec![first_party_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let first_update = merge_first_party_source_file_patch(None, first_party_patch);
+        let with_first = ReadyProjectSourceFiles::materialized_for_test(
+            first_update.partitions().clone(),
+            empty_source_file_set(),
+        );
+        let installed_patch = PartitionedSourceFilePatch {
+            partition: FileSetPartition::installed_app(installed.id().clone()),
+            roots: vec![installed.clone()],
+            files: vec![installed_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let installed_update =
+            merge_partitioned_source_file_patch(Some(&with_first), installed_patch);
+        let with_both = ReadyProjectSourceFiles::materialized_for_test(
+            installed_update.partitions().clone(),
+            empty_source_file_set(),
+        );
+        let remove_first_party = FirstPartySourceFilePatch {
+            partition: FileSetPartition::first_party(),
+            roots: vec![first_party],
+            files: Vec::new(),
+            summary: FileSetSummary::new(0),
+            issues: Vec::new(),
+        };
+
+        let update = merge_first_party_source_file_patch(Some(&with_both), remove_first_party);
+
+        assert_eq!(
+            update.materialization().upserted_files()[0].root(),
+            installed.id()
+        );
+        assert_eq!(
+            update.materialization().upserted_files()[0].path(),
+            shared_path.as_path()
+        );
+    }
+
+    #[test]
+    fn loading_template_files_resurrects_lower_precedence_file_after_higher_partition_removal() {
+        let configured = root("/workspace/templates");
+        let installed = SourceRoot::new(
+            SourceRootId::new(Utf8PathBuf::from("/site-packages/blog")),
+            Utf8PathBuf::from("/site-packages/blog"),
+            FileRootKind::LibrarySearchPath,
+        );
+        let shared_path = Utf8PathBuf::from("/workspace/templates/shared.html");
+        let configured_file =
+            DiscoveredSourceFile::new(shared_path.clone(), configured.id().clone());
+        let installed_file = DiscoveredSourceFile::new(shared_path.clone(), installed.id().clone());
+        let configured_patch = PartitionedSourceFilePatch {
+            partition: FileSetPartition::configured_template_directory(configured.id().clone()),
+            roots: vec![configured.clone()],
+            files: vec![configured_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let configured_update = merge_partitioned_source_file_patch(None, configured_patch);
+        let with_configured = ReadyProjectSourceFiles::materialized_for_test(
+            configured_update.partitions().clone(),
+            empty_source_file_set(),
+        );
+        let installed_patch = PartitionedSourceFilePatch {
+            partition: FileSetPartition::installed_app(installed.id().clone()),
+            roots: vec![installed.clone()],
+            files: vec![installed_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let installed_update =
+            merge_partitioned_source_file_patch(Some(&with_configured), installed_patch);
+        let with_both = ReadyProjectSourceFiles::materialized_for_test(
+            installed_update.partitions().clone(),
+            empty_source_file_set(),
+        );
+        let remove_configured = PartitionedSourceFilePatch {
+            partition: FileSetPartition::configured_template_directory(configured.id().clone()),
+            roots: vec![configured],
+            files: Vec::new(),
+            summary: FileSetSummary::new(0),
+            issues: Vec::new(),
+        };
+
+        let update = merge_partitioned_source_file_patch(Some(&with_both), remove_configured);
+
+        assert_eq!(
+            update.materialization().upserted_files()[0].root(),
+            installed.id()
+        );
+        assert_eq!(
+            update.materialization().upserted_files()[0].path(),
+            shared_path.as_path()
+        );
+    }
+
+    fn empty_source_file_set() -> SourceFileSet {
+        #[salsa::db]
+        #[derive(Default)]
+        struct TestDb {
+            storage: salsa::Storage<Self>,
+            files: djls_source::SourceFiles,
+        }
+
+        #[salsa::db]
+        impl salsa::Database for TestDb {}
+
+        #[salsa::db]
+        impl djls_source::Db for TestDb {
+            fn files(&self) -> &djls_source::SourceFiles {
+                &self.files
+            }
+
+            fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
+                Ok(String::new())
+            }
+        }
+
+        let db = TestDb::default();
+        SourceFileSet::new(&db, SourceFileSetData::new(Vec::new(), Vec::new()).unwrap())
     }
 
     #[test]

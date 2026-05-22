@@ -12,6 +12,8 @@ pub enum NodeId {
     ProjectDiscoverySet,
     PythonSourceModels,
     EnvironmentDiscovery,
+    InstalledAppFiles,
+    TemplateDirectoryFiles,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,6 +22,8 @@ pub enum ReadinessSourceKind {
     ProjectDiscovery,
     PythonSourceIndex,
     EnvironmentCandidates,
+    InstalledAppFiles,
+    TemplateDirectoryFiles,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,6 +81,26 @@ pub const NODE_SPECS: &[NodeSpec] = &[
         ],
         readiness_source: ReadinessSourceKind::EnvironmentCandidates,
     },
+    NodeSpec {
+        id: NodeId::InstalledAppFiles,
+        prerequisites: &[
+            NodeId::SourceFileSet,
+            NodeId::ProjectDiscoverySet,
+            NodeId::PythonSourceModels,
+            NodeId::EnvironmentDiscovery,
+        ],
+        readiness_source: ReadinessSourceKind::InstalledAppFiles,
+    },
+    NodeSpec {
+        id: NodeId::TemplateDirectoryFiles,
+        prerequisites: &[
+            NodeId::SourceFileSet,
+            NodeId::ProjectDiscoverySet,
+            NodeId::PythonSourceModels,
+            NodeId::EnvironmentDiscovery,
+        ],
+        readiness_source: ReadinessSourceKind::TemplateDirectoryFiles,
+    },
 ];
 
 pub const MILESTONE_SPECS: &[MilestoneSpec] = &[MilestoneSpec {
@@ -112,6 +136,8 @@ impl LoadingPlan {
                 NodeId::ProjectDiscoverySet,
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
+                NodeId::InstalledAppFiles,
+                NodeId::TemplateDirectoryFiles,
             ],
             milestones: MILESTONE_SPECS,
         }
