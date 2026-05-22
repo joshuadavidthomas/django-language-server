@@ -1,6 +1,8 @@
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
 use crate::FirstPartySourceFilePatch;
+use crate::ProjectDiscoveryApplyResult;
+use crate::ProjectDiscoverySetData;
 use crate::ProjectSourceFilesApplyResult;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,6 +31,11 @@ pub trait LoadingEffects {
         &mut self,
         patch: FirstPartySourceFilePatch,
     ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult>;
+    fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData;
+    fn apply_project_discovery_data(
+        &mut self,
+        data: ProjectDiscoverySetData,
+    ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult>;
 }
 
 pub trait LoadingObserver {

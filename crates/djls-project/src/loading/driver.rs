@@ -3,10 +3,12 @@ use super::effects::LoadingEffects;
 use super::effects::LoadingExecutionOutcome;
 use super::effects::LoadingObserver;
 use super::effects::LoadingRunControl;
+use super::plan::node_status_from_discovery_readiness;
 use super::plan::node_status_from_readiness;
 use super::plan::LoadingPlan;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
+use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectSourceFilesApplyResult;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +51,7 @@ impl LoadingRunResult {
     pub fn source_file_set_result(&self) -> Option<&ProjectSourceFilesApplyResult> {
         self.node_results.iter().find_map(|result| match result {
             LoadingNodeResult::SourceFileSet { applied, .. } => Some(applied),
+            LoadingNodeResult::ProjectDiscoverySet { .. } => None,
         })
     }
 }
@@ -59,6 +62,10 @@ pub enum LoadingNodeResult {
         applied: ProjectSourceFilesApplyResult,
         status: NodeTerminalStatus,
     },
+    ProjectDiscoverySet {
+        applied: ProjectDiscoveryApplyResult,
+        status: NodeTerminalStatus,
+    },
 }
 
 impl LoadingNodeResult {
@@ -66,13 +73,14 @@ impl LoadingNodeResult {
     pub fn node(&self) -> NodeId {
         match self {
             Self::SourceFileSet { .. } => NodeId::SourceFileSet,
+            Self::ProjectDiscoverySet { .. } => NodeId::ProjectDiscoverySet,
         }
     }
 
     #[must_use]
     pub fn status(&self) -> &NodeTerminalStatus {
         match self {
-            Self::SourceFileSet { status, .. } => status,
+            Self::SourceFileSet { status, .. } | Self::ProjectDiscoverySet { status, .. } => status,
         }
     }
 }
@@ -114,6 +122,28 @@ pub fn run_loading_plan(
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::SourceFileSet { applied, status });
             }
+            NodeId::ProjectDiscoverySet => {
+                observer.node_started(*node);
+                let data = effects.load_project_discovery_set();
+                let applied = match effects.apply_project_discovery_data(data) {
+                    LoadingApplyOutcome::Applied(applied) => applied,
+                    LoadingApplyOutcome::Superseded => {
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            LoadingExecutionOutcome::Superseded,
+                        );
+                    }
+                    LoadingApplyOutcome::RejectedApply => {
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            LoadingExecutionOutcome::RejectedApply,
+                        );
+                    }
+                };
+                let status = node_status_from_discovery_readiness(&applied);
+                observer.node_finished(*node, status.clone());
+                node_results.push(LoadingNodeResult::ProjectDiscoverySet { applied, status });
+            }
         }
     }
 
@@ -131,6 +161,10 @@ mod tests {
     use crate::first_party_source_files_load_request;
     use crate::merge_first_party_source_file_patch;
     use crate::FirstPartySourceFilePatch;
+    use crate::ProjectDiscovery;
+    use crate::ProjectDiscoveryApplyResult;
+    use crate::ProjectDiscoveryLoadRequest;
+    use crate::ProjectDiscoverySetData;
     use crate::ProjectSourceFilesApplyResult;
 
     #[derive(Default)]
@@ -138,6 +172,8 @@ mod tests {
         reset_count: usize,
         load_count: usize,
         apply_count: usize,
+        discovery_load_count: usize,
+        discovery_apply_count: usize,
         roots: Vec<Utf8PathBuf>,
     }
 
@@ -173,6 +209,31 @@ mod tests {
                 previous: None,
             })
         }
+
+        fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+            self.discovery_load_count += 1;
+            crate::build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+                self.roots.clone(),
+                djls_conf::Settings::default(),
+            ))
+        }
+
+        fn apply_project_discovery_data(
+            &mut self,
+            data: ProjectDiscoverySetData,
+        ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
+            self.discovery_apply_count += 1;
+            if data.roots().is_empty() {
+                LoadingApplyOutcome::Applied(ProjectDiscoveryApplyResult::Unavailable(
+                    ProjectDiscovery::Absent,
+                ))
+            } else {
+                LoadingApplyOutcome::Applied(ProjectDiscoveryApplyResult::Applied {
+                    discovery: ProjectDiscovery::Absent,
+                    has_issues: false,
+                })
+            }
+        }
     }
 
     #[derive(Default)]
@@ -204,15 +265,28 @@ mod tests {
         assert_eq!(effects.reset_count, 1);
         assert_eq!(effects.load_count, 1);
         assert_eq!(effects.apply_count, 1);
-        assert_eq!(observer.started, vec![NodeId::SourceFileSet]);
+        assert_eq!(effects.discovery_load_count, 1);
+        assert_eq!(effects.discovery_apply_count, 1);
+        assert_eq!(
+            observer.started,
+            vec![NodeId::SourceFileSet, NodeId::ProjectDiscoverySet]
+        );
         assert_eq!(
             observer.events,
-            vec![(NodeId::SourceFileSet, NodeTerminalStatus::Unavailable)]
+            vec![
+                (NodeId::SourceFileSet, NodeTerminalStatus::Unavailable),
+                (NodeId::ProjectDiscoverySet, NodeTerminalStatus::Deferred),
+            ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);
+        assert_eq!(result.node_results()[1].node(), NodeId::ProjectDiscoverySet);
         assert_eq!(
             result.node_results()[0].status(),
             &NodeTerminalStatus::Unavailable
+        );
+        assert_eq!(
+            result.node_results()[1].status(),
+            &NodeTerminalStatus::Deferred
         );
     }
 }

@@ -1,3 +1,5 @@
+use crate::ProjectDiscovery;
+use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectFilePartitionReadiness;
 use crate::ProjectSourceFilesApplied;
 use crate::ProjectSourceFilesApplyResult;
@@ -5,11 +7,13 @@ use crate::ProjectSourceFilesApplyResult;
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NodeId {
     SourceFileSet,
+    ProjectDiscoverySet,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadinessSourceKind {
     SourceFilePartition,
+    ProjectDiscovery,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,11 +23,18 @@ pub struct NodeSpec {
     pub readiness_source: ReadinessSourceKind,
 }
 
-pub const NODE_SPECS: &[NodeSpec] = &[NodeSpec {
-    id: NodeId::SourceFileSet,
-    prerequisites: &[],
-    readiness_source: ReadinessSourceKind::SourceFilePartition,
-}];
+pub const NODE_SPECS: &[NodeSpec] = &[
+    NodeSpec {
+        id: NodeId::SourceFileSet,
+        prerequisites: &[],
+        readiness_source: ReadinessSourceKind::SourceFilePartition,
+    },
+    NodeSpec {
+        id: NodeId::ProjectDiscoverySet,
+        prerequisites: &[NodeId::SourceFileSet],
+        readiness_source: ReadinessSourceKind::ProjectDiscovery,
+    },
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LoadingPlan {
@@ -34,7 +45,7 @@ impl LoadingPlan {
     #[must_use]
     pub fn phase3() -> Self {
         Self {
-            nodes: &[NodeId::SourceFileSet],
+            nodes: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
         }
     }
 
@@ -67,6 +78,37 @@ pub fn node_status_from_readiness(result: &ProjectSourceFilesApplyResult) -> Nod
 }
 
 #[must_use]
+pub fn node_status_from_discovery_readiness(
+    result: &ProjectDiscoveryApplyResult,
+) -> NodeTerminalStatus {
+    match result {
+        ProjectDiscoveryApplyResult::Applied {
+            discovery: ProjectDiscovery::Ready(_),
+            has_issues: false,
+        } => NodeTerminalStatus::Succeeded,
+        ProjectDiscoveryApplyResult::Applied {
+            discovery: ProjectDiscovery::Ready(_),
+            has_issues: true,
+        } => NodeTerminalStatus::Degraded,
+        ProjectDiscoveryApplyResult::Applied {
+            discovery: ProjectDiscovery::Absent,
+            ..
+        }
+        | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Absent) => {
+            NodeTerminalStatus::Deferred
+        }
+        ProjectDiscoveryApplyResult::Applied {
+            discovery: ProjectDiscovery::Unavailable { .. },
+            ..
+        }
+        | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable { .. })
+        | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Ready(_)) => {
+            NodeTerminalStatus::Unavailable
+        }
+    }
+}
+
+#[must_use]
 pub fn node_status_from_project_source_files_applied(
     applied: &ProjectSourceFilesApplied,
 ) -> NodeTerminalStatus {
@@ -90,14 +132,19 @@ pub fn node_status_from_file_partition_readiness(
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
+    use camino::Utf8PathBuf;
     use djls_source::SourceFileSet;
     use djls_source::SourceFileSetData;
     use djls_source::SourceFiles;
 
     use super::super::files::ProjectFileSetPartitions;
     use super::*;
+    use crate::ProjectDiscoveryIssue;
+    use crate::ProjectDiscoveryIssues;
+    use crate::ProjectDiscoverySet;
     use crate::ProjectSourceFilesIssue;
     use crate::ReadyProjectSourceFiles;
+    use crate::RootDiscoveryInput;
 
     #[salsa::db]
     #[derive(Default)]
@@ -121,20 +168,30 @@ mod tests {
     }
 
     #[test]
-    fn node_specs_contains_only_source_file_set_in_phase3() {
+    fn node_specs_contains_source_file_and_discovery_nodes_in_phase3() {
         assert_eq!(
             NODE_SPECS,
-            &[NodeSpec {
-                id: NodeId::SourceFileSet,
-                prerequisites: &[],
-                readiness_source: ReadinessSourceKind::SourceFilePartition,
-            }]
+            &[
+                NodeSpec {
+                    id: NodeId::SourceFileSet,
+                    prerequisites: &[],
+                    readiness_source: ReadinessSourceKind::SourceFilePartition,
+                },
+                NodeSpec {
+                    id: NodeId::ProjectDiscoverySet,
+                    prerequisites: &[NodeId::SourceFileSet],
+                    readiness_source: ReadinessSourceKind::ProjectDiscovery,
+                },
+            ]
         );
     }
 
     #[test]
-    fn phase3_plan_contains_source_file_set_only() {
-        assert_eq!(LoadingPlan::phase3().nodes(), &[NodeId::SourceFileSet]);
+    fn phase3_plan_contains_source_file_set_then_project_discovery_set() {
+        assert_eq!(
+            LoadingPlan::phase3().nodes(),
+            &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet]
+        );
     }
 
     #[test]
@@ -183,6 +240,74 @@ mod tests {
                 node_status_from_file_partition_readiness(&readiness),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn discovery_readiness_projection_distinguishes_clean_degraded_and_unavailable() {
+        let db = TestDb::default();
+        let clean_root = RootDiscoveryInput::new(
+            &db,
+            Utf8PathBuf::from("/clean"),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            crate::ProjectEnvVars::default(),
+            Vec::new(),
+        );
+        let issue_root = RootDiscoveryInput::new(
+            &db,
+            Utf8PathBuf::from("/issue"),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            crate::ProjectEnvVars::default(),
+            vec![ProjectDiscoveryIssue::NoWorkspaceRoots],
+        );
+        let unavailable_issues =
+            ProjectDiscoveryIssues::new(vec![ProjectDiscoveryIssue::NoWorkspaceRoots])
+                .expect("test issue list is non-empty");
+
+        let cases = [
+            (
+                ProjectDiscoveryApplyResult::Applied {
+                    discovery: ProjectDiscovery::Ready(
+                        ProjectDiscoverySet::new(vec![clean_root])
+                            .expect("test root set is non-empty"),
+                    ),
+                    has_issues: false,
+                },
+                NodeTerminalStatus::Succeeded,
+            ),
+            (
+                ProjectDiscoveryApplyResult::Applied {
+                    discovery: ProjectDiscovery::Ready(
+                        ProjectDiscoverySet::new(vec![issue_root])
+                            .expect("test root set is non-empty"),
+                    ),
+                    has_issues: true,
+                },
+                NodeTerminalStatus::Degraded,
+            ),
+            (
+                ProjectDiscoveryApplyResult::Applied {
+                    discovery: ProjectDiscovery::Absent,
+                    has_issues: false,
+                },
+                NodeTerminalStatus::Deferred,
+            ),
+            (
+                ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable {
+                    issues: unavailable_issues,
+                }),
+                NodeTerminalStatus::Unavailable,
+            ),
+        ];
+
+        for (result, expected) in cases {
+            assert_eq!(node_status_from_discovery_readiness(&result), expected);
         }
     }
 

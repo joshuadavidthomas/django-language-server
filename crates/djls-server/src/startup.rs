@@ -23,6 +23,9 @@ use djls_project::LoadingRunControl;
 use djls_project::LoadingRunResult;
 use djls_project::NodeId;
 use djls_project::NodeTerminalStatus;
+use djls_project::ProjectDiscoveryApplyResult;
+use djls_project::ProjectDiscoveryLoadRequest;
+use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
@@ -803,6 +806,35 @@ impl LoadingEffects for LspLoadingExecutor {
             ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
         }
     }
+
+    fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+        let roots = build_source_roots(self.roots.clone())
+            .roots()
+            .iter()
+            .map(|root| root.path().to_owned())
+            .collect();
+        djls_project::build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+            roots,
+            self.inputs.snapshot().settings().clone(),
+        ))
+    }
+
+    fn apply_project_discovery_data(
+        &mut self,
+        data: ProjectDiscoverySetData,
+    ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
+        let outcome = self
+            .handle
+            .block_on(self.inputs.guard().apply(&self.session, |session| {
+                Ok(session.db_mut().apply_project_discovery_data(data))
+            }));
+
+        match outcome {
+            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
+            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
+            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -810,6 +842,7 @@ mod startup_generation {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
 
+    use djls_project::ProjectDiscovery;
     use djls_project::ProjectSourceInventory;
     use djls_source::Db as _;
     use tower_lsp_server::ls_types;
@@ -1159,6 +1192,10 @@ mod startup_generation {
             ProjectDb::project(session.db()).source_inventory(session.db()),
             ProjectSourceInventory::Unavailable { .. }
         ));
+        assert!(matches!(
+            ProjectDb::project(session.db()).discovery(session.db()),
+            ProjectDiscovery::Ready(_)
+        ));
     }
 
     #[tokio::test]
@@ -1327,6 +1364,12 @@ mod startup_generation {
         let session = Arc::new(Mutex::new(initialized_session_with_root(root.as_str())));
         let controller = StartupController::new();
         let before = seed_ready_source_inventory(Arc::clone(&session), &controller).await;
+        let discovery_before = {
+            let session = session.lock().await;
+            ProjectDb::project(session.db())
+                .discovery(session.db())
+                .clone()
+        };
 
         let inputs = {
             let session = session.lock().await;
@@ -1370,6 +1413,10 @@ mod startup_generation {
         assert_eq!(
             ProjectDb::project(session.db()).source_inventory(session.db()),
             before
+        );
+        assert_eq!(
+            ProjectDb::project(session.db()).discovery(session.db()),
+            &discovery_before
         );
     }
 
@@ -1456,6 +1503,11 @@ mod startup_generation {
                 StartupProgressEvent::NodeFinished {
                     node: NodeId::SourceFileSet,
                     status: NodeTerminalStatus::Unavailable,
+                },
+                StartupProgressEvent::NodeStarted(NodeId::ProjectDiscoverySet),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::ProjectDiscoverySet,
+                    status: NodeTerminalStatus::Succeeded,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),
             ]

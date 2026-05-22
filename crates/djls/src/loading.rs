@@ -9,6 +9,9 @@ use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
 use djls_project::LoadingRunControl;
+use djls_project::ProjectDiscoveryApplyResult;
+use djls_project::ProjectDiscoveryLoadRequest;
+use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_workspace::load_files_for_roots;
 
@@ -44,5 +47,24 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
             .ready();
         let update = merge_first_party_source_file_patch(current.as_ref(), patch);
         LoadingApplyOutcome::Applied(self.db.apply_project_source_files(update))
+    }
+
+    fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+        let roots = build_source_roots(self.roots.clone())
+            .roots()
+            .iter()
+            .map(|root| root.path().to_owned())
+            .collect();
+        djls_project::build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+            roots,
+            self.db.settings(),
+        ))
+    }
+
+    fn apply_project_discovery_data(
+        &mut self,
+        data: ProjectDiscoverySetData,
+    ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
+        LoadingApplyOutcome::Applied(self.db.apply_project_discovery_data(data))
     }
 }

@@ -13,7 +13,10 @@ pub enum ProjectDiscovery {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectDiscoveryApplyResult {
-    Applied(ProjectDiscovery),
+    Applied {
+        discovery: ProjectDiscovery,
+        has_issues: bool,
+    },
     Unavailable(ProjectDiscovery),
 }
 

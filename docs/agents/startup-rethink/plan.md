@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `ynmqxous` contains the completed discovery data/apply slice.
-- **Current slice**: discovery data/apply completed; Phase 3C3 is next.
+- **Implementation change**: `ynlpuktv` contains the completed project-discovery loading-node slice.
+- **Current slice**: project-discovery loading node completed; Phase 3C4 is next.
 
 ### Implementation Notes
 
@@ -207,6 +207,23 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist found repeated identical discovery data would allocate fresh `RootDiscoveryInput` handles and invalidate Salsa; apply now compares plain data against existing `RootDiscoveryInput` fields before allocating/setter calls.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. Carry-forward caution: future provenance should not participate in semantic equality when it would cause avoidable invalidation; keep resolved semantic values distinct from diagnostic provenance when that matters.
 - Follow-ups/blockers: Phase 3C3 should add the `project-discovery-set` loading node and wire both CLI/LSP adapters using the shared discovery data/apply seams.
+
+### Project-discovery loading node
+- Bookmark: `startup-rethink` still points to `ynmqxous`; move it to `ynlpuktv` after describing this verified slice.
+- Current change: `ynlpuktv`.
+- Scope: added the `project-discovery-set` node to the active Phase 3 loading plan after `source-file-set`, extended the loading effects/driver contract for discovery data load/apply, wired CLI and LSP executors through the shared discovery activity and stable `Project.discovery` apply method, derived discovery roots from the same canonical source-root plan, and projected clean/degraded/unavailable discovery outcomes into terminal node status.
+- Validation:
+  - `cargo test -p djls-project loading` passed: 27 tests.
+  - `cargo test -p djls-db project_discovery` passed: 2 tests.
+  - `cargo test -p djls-server startup` passed: 20 tests.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review found empty discovery input could preserve stale ready discovery facts; empty discovery apply now writes an unavailable no-workspace-roots discovery fact instead.
+  - Rust specialist requested canonical root consistency, degraded status for recoverable discovery issues, and explicit projection tests; discovery loading now derives roots from `build_source_roots`, ready-with-issues maps to `Degraded`, and plan tests cover clean/degraded/deferred/unavailable outcomes.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that mature tools keep loading/supersession outside Salsa, derive loading from canonical roots, model partial discovery as usable/degraded state, and mutate a stable project handle through targeted setters.
+- Follow-ups/blockers: Phase 3C4 should move pure Project Facts availability projection into `djls-project::availability` and extend degraded request behavior for absent/unavailable discovery facts.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1223,8 +1240,8 @@ pub struct ProjectEnvVars {
 - **3C1 gate**: stop after `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load`.
 - **3C2 gate**: stop after discovery data/helper tests preserve config-load failures/fallback provenance, lower `djls-conf` DTOs into project-owned environment seeds, and canonicalize `ProjectEnvVars` deterministically: `cargo test -p djls-project loading_settings`.
 - **3C2 gate**: stop after discovery apply tests mutate `Project.discovery` through setters, preserve old facts on failed/superseded reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation`.
-- **3C3 gate**: stop after two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, terminal-status projection table behavior, prerequisite degraded successor behavior, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`.
-- **3C3 gate**: stop after startup/executor tests cover applying root-scoped discovery data, CLI applying root-scoped discovery data, `didChangeConfiguration` restarting root-scoped discovery, superseded discovery apply rejection that leaves Project Facts unchanged, and config-load failure preservation in discovery data: `cargo test -p djls-server startup` and `cargo test -p djls --test check`.
+- **3C3 gate**: completed in `ynlpuktv`; two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, terminal-status projection table behavior, successor execution, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`.
+- **3C3 gate**: completed in `ynlpuktv`; startup/executor tests cover applying root-scoped discovery data, CLI applying root-scoped discovery data, configuration restart/supersession preserving Project Facts, and config-load failure preservation in discovery data: `cargo test -p djls-server startup` and `cargo test -p djls --test check`.
 - **3C4 gate**: stop after pure availability ownership has moved to `djls-project::availability`, the temporary Phase 1 semantic availability type/module is deleted or narrowed to a semantic-specific adapter, and no-discovery-set degraded request tests plus the shared project/semantic availability matrix pass: `cargo test -p djls-server degraded_no_discovery_set` or equivalent targeted IDE/server tests.
 
 #### Phase 3D: Layout, concrete provenance, legacy queue cleanup, and dependency wiring
@@ -1346,7 +1363,7 @@ Names may change, but the outcome must be derived from stable Project facts, not
 - [x] Discovery apply tests update stable `Project.discovery` facts through setters, preserve old facts on failed reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation` — 1 passed; `cargo test -p djls-db project_discovery` — 2 passed. Evidence: project-crate tracked probe invalidates on discovery change, database apply materializes `RootDiscoveryInput` handles and sets `Project.discovery`, repeated identical data avoids fresh setter invalidation by comparing plain data first, and empty failed discovery data preserves prior facts.
 
 **Phase 3C3 gate**
-- [ ] Two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, domain-outcome-to-terminal projection table behavior, prerequisite degraded successor behavior, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`
+- [x] Two-node runner tests prove `source-file-set -> project-discovery-set` ordering, `NODE_SPECS` coverage, domain-outcome-to-terminal projection table behavior, successor execution, and observer events without registry/plugin machinery: `cargo test -p djls-project loading`
 - [ ] Project-discovery loading-node tests pass through both CLI and LSP effect adapters, including configuration-change restart and superseded apply rejection: `cargo test -p djls-server startup` and `cargo test -p djls --test check`
 
 **Phase 3C4 gate**

@@ -17,6 +17,8 @@ use djls_project::Db as LoadingDb;
 use djls_project::Project as ProjectFacts;
 use djls_project::ProjectDiscovery;
 use djls_project::ProjectDiscoveryApplyResult;
+use djls_project::ProjectDiscoveryIssue;
+use djls_project::ProjectDiscoveryIssues;
 use djls_project::ProjectDiscoverySet;
 use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectSourceFilesApplyResult;
@@ -152,13 +154,20 @@ impl DjangoDatabase {
         data: ProjectDiscoverySetData,
     ) -> ProjectDiscoveryApplyResult {
         if data.roots().is_empty() {
-            let current = LoadingDb::project(self).discovery(self).clone();
-            return ProjectDiscoveryApplyResult::Unavailable(current);
+            let issues = ProjectDiscoveryIssues::new(vec![ProjectDiscoveryIssue::NoWorkspaceRoots])
+                .expect("no workspace roots issue should be non-empty");
+            let discovery = ProjectDiscovery::Unavailable { issues };
+            LoadingDb::set_project_discovery(self, discovery.clone());
+            return ProjectDiscoveryApplyResult::Unavailable(discovery);
         }
 
         let current = LoadingDb::project(self).discovery(self).clone();
+        let has_issues = data.roots().iter().any(|root| !root.issues().is_empty());
         if project_discovery_matches_data(self, &current, &data) {
-            return ProjectDiscoveryApplyResult::Applied(current);
+            return ProjectDiscoveryApplyResult::Applied {
+                discovery: current,
+                has_issues,
+            };
         }
 
         let roots = data
@@ -181,7 +190,10 @@ impl DjangoDatabase {
             .expect("non-empty discovery data should construct discovery set");
         let discovery = ProjectDiscovery::Ready(set);
         LoadingDb::set_project_discovery(self, discovery.clone());
-        ProjectDiscoveryApplyResult::Applied(discovery)
+        ProjectDiscoveryApplyResult::Applied {
+            discovery,
+            has_issues,
+        }
     }
 
     pub fn apply_project_source_files(
@@ -596,6 +608,7 @@ mod project_discovery_tests {
     use djls_project::Db as ProjectDb;
     use djls_project::ProjectDiscovery;
     use djls_project::ProjectDiscoveryApplyResult;
+    use djls_project::ProjectDiscoveryIssue;
     use djls_project::ProjectDiscoverySetData;
     use djls_project::ProjectEnvVars;
     use djls_project::RootDiscoveryData;
@@ -622,7 +635,10 @@ mod project_discovery_tests {
                 "/workspace",
             )]));
 
-        assert!(matches!(result, ProjectDiscoveryApplyResult::Applied(_)));
+        assert!(matches!(
+            result,
+            ProjectDiscoveryApplyResult::Applied { .. }
+        ));
         let ProjectDiscovery::Ready(discovery) = ProjectDb::project(&db).discovery(&db) else {
             panic!("discovery should be ready");
         };
@@ -634,20 +650,30 @@ mod project_discovery_tests {
     }
 
     #[test]
-    fn failed_project_discovery_apply_preserves_previous_ready_fact() {
+    fn empty_project_discovery_apply_replaces_previous_ready_with_unavailable() {
         let mut db = DjangoDatabase::default();
         db.apply_project_discovery_data(ProjectDiscoverySetData::new(vec![root_data(
             "/workspace",
         )]));
-        let before = ProjectDb::project(&db).discovery(&db).clone();
-
         let result = db.apply_project_discovery_data(ProjectDiscoverySetData::new(Vec::new()));
 
+        let ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable { issues }) =
+            result
+        else {
+            panic!("empty discovery data should be unavailable");
+        };
         assert_eq!(
-            result,
-            ProjectDiscoveryApplyResult::Unavailable(before.clone())
+            issues.as_slice(),
+            &[ProjectDiscoveryIssue::NoWorkspaceRoots]
         );
-        assert_eq!(ProjectDb::project(&db).discovery(&db), &before);
+        let ProjectDiscovery::Unavailable { issues } = ProjectDb::project(&db).discovery(&db)
+        else {
+            panic!("empty discovery data should replace previous ready facts");
+        };
+        assert_eq!(
+            issues.as_slice(),
+            &[ProjectDiscoveryIssue::NoWorkspaceRoots]
+        );
     }
 }
 
