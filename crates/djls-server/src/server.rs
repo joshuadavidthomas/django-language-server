@@ -136,6 +136,7 @@ impl LanguageServer for DjangoLanguageServer {
         let session = Session::new(&params);
         tracing::debug!(
             workspace_roots = session.workspace_roots().len(),
+            work_done_progress = session.client_info().supports_work_done_progress(),
             "Captured workspace roots"
         );
         let encoding = session.client_info().position_encoding();

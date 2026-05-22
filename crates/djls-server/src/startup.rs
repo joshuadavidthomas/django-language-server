@@ -3,6 +3,7 @@
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
@@ -16,10 +17,12 @@ use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
 use djls_project::LoadingExecutionOutcome;
+use djls_project::LoadingObserver;
 use djls_project::LoadingPlan;
 use djls_project::LoadingRunControl;
 use djls_project::LoadingRunResult;
-use djls_project::NoopLoadingObserver;
+use djls_project::NodeId;
+use djls_project::NodeTerminalStatus;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::ProjectSourceFilesAvailability;
 use djls_project::ProjectSourceFilesIssue;
@@ -27,6 +30,9 @@ use djls_source::File;
 use djls_workspace::load_files_for_roots;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Mutex;
+use tower_lsp_server::ls_types;
+use tower_lsp_server::ls_types::notification::Progress as ProgressNotification;
+use tower_lsp_server::Client;
 
 use crate::session::Session;
 
@@ -288,14 +294,25 @@ impl ProjectLoadingSnapshot {
 pub(crate) struct StartupRunInputs {
     snapshot: ProjectLoadingSnapshot,
     guard: GenerationGuard,
+    progress: StartupProgress,
 }
 
 impl StartupRunInputs {
     #[must_use]
     pub(crate) fn capture(session: &Session, guard: GenerationGuard) -> Self {
+        Self::capture_with_progress(session, guard, StartupProgress::log_fallback())
+    }
+
+    #[must_use]
+    pub(crate) fn capture_with_progress(
+        session: &Session,
+        guard: GenerationGuard,
+        progress: StartupProgress,
+    ) -> Self {
         Self {
             snapshot: ProjectLoadingSnapshot::capture(session),
             guard,
+            progress,
         }
     }
 
@@ -308,6 +325,11 @@ impl StartupRunInputs {
     pub(crate) fn guard(&self) -> &GenerationGuard {
         &self.guard
     }
+
+    #[must_use]
+    pub(crate) fn progress(&self) -> StartupProgress {
+        self.progress.clone()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -315,6 +337,298 @@ pub(crate) enum StartupRunOutcome {
     Succeeded,
     Failed,
     Superseded { generation: StartupGeneration },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum StartupProgressEvent {
+    Begin,
+    NodeStarted(NodeId),
+    NodeFinished {
+        node: NodeId,
+        status: NodeTerminalStatus,
+    },
+    Finish(StartupRunOutcome),
+    Log(String),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StartupProgress {
+    reporter: Arc<dyn StartupProgressReporter>,
+}
+
+impl StartupProgress {
+    #[must_use]
+    pub(crate) fn log_fallback() -> Self {
+        Self::new(LogStartupProgressReporter)
+    }
+
+    #[must_use]
+    pub(crate) fn for_client(client: Client, work_done_progress: bool) -> Self {
+        if work_done_progress {
+            Self::new(WorkDoneStartupProgressReporter::new(client))
+        } else {
+            Self::log_fallback()
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    fn recording(events: Arc<StdMutex<Vec<StartupProgressEvent>>>) -> Self {
+        Self::new(RecordingStartupProgressReporter { events })
+    }
+
+    #[must_use]
+    fn new(reporter: impl StartupProgressReporter + 'static) -> Self {
+        Self {
+            reporter: Arc::new(reporter),
+        }
+    }
+
+    fn begin(&self, handle: &tokio::runtime::Handle) {
+        self.reporter.begin(handle);
+    }
+
+    fn report_node_started(&self, handle: &tokio::runtime::Handle, node: NodeId) {
+        self.reporter.node_started(handle, node);
+    }
+
+    fn report_node_finished(
+        &self,
+        handle: &tokio::runtime::Handle,
+        node: NodeId,
+        status: NodeTerminalStatus,
+    ) {
+        self.reporter.node_finished(handle, node, status);
+    }
+
+    fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
+        self.reporter.finish(handle, outcome);
+    }
+}
+
+trait StartupProgressReporter: Send + Sync + std::fmt::Debug {
+    fn begin(&self, handle: &tokio::runtime::Handle);
+    fn node_started(&self, handle: &tokio::runtime::Handle, node: NodeId);
+    fn node_finished(
+        &self,
+        handle: &tokio::runtime::Handle,
+        node: NodeId,
+        status: NodeTerminalStatus,
+    );
+    fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome);
+}
+
+#[derive(Debug)]
+struct LogStartupProgressReporter;
+
+impl StartupProgressReporter for LogStartupProgressReporter {
+    fn begin(&self, _handle: &tokio::runtime::Handle) {
+        tracing::info!("Starting Django project loading");
+    }
+
+    fn node_started(&self, _handle: &tokio::runtime::Handle, node: NodeId) {
+        tracing::info!(node = ?node, "Started Django project loading task");
+    }
+
+    fn node_finished(
+        &self,
+        _handle: &tokio::runtime::Handle,
+        node: NodeId,
+        status: NodeTerminalStatus,
+    ) {
+        tracing::info!(node = ?node, status = ?status, "Finished Django project loading task");
+    }
+
+    fn finish(&self, _handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
+        tracing::info!(outcome = ?outcome, "Finished Django project loading");
+    }
+}
+
+#[derive(Debug)]
+struct WorkDoneStartupProgressReporter {
+    client: Client,
+    token: ls_types::ProgressToken,
+    started: StdMutex<bool>,
+    finished: StdMutex<bool>,
+}
+
+impl WorkDoneStartupProgressReporter {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            token: ls_types::ProgressToken::String("djls/startup".to_string()),
+            started: StdMutex::new(false),
+            finished: StdMutex::new(false),
+        }
+    }
+
+    fn message_for_outcome(outcome: &StartupRunOutcome) -> &'static str {
+        match outcome {
+            StartupRunOutcome::Succeeded => "Django project loading complete",
+            StartupRunOutcome::Failed => "Django project loading failed",
+            StartupRunOutcome::Superseded { .. } => "Django project loading superseded",
+        }
+    }
+}
+
+impl StartupProgressReporter for WorkDoneStartupProgressReporter {
+    fn begin(&self, handle: &tokio::runtime::Handle) {
+        let client = self.client.clone();
+        let token = self.token.clone();
+        handle.block_on(async move {
+            let _ = client.create_work_done_progress(token.clone()).await;
+            client
+                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
+                    token,
+                    value: ls_types::ProgressParamsValue::WorkDone(
+                        ls_types::WorkDoneProgress::Begin(ls_types::WorkDoneProgressBegin {
+                            title: "Loading Django project".to_string(),
+                            cancellable: Some(false),
+                            message: Some("Starting".to_string()),
+                            percentage: None,
+                        }),
+                    ),
+                })
+                .await;
+        });
+        *self
+            .started
+            .lock()
+            .expect("startup progress mutex poisoned") = true;
+    }
+
+    fn node_started(&self, handle: &tokio::runtime::Handle, node: NodeId) {
+        if !*self
+            .started
+            .lock()
+            .expect("startup progress mutex poisoned")
+        {
+            return;
+        }
+        let client = self.client.clone();
+        let token = self.token.clone();
+        handle.block_on(async move {
+            client
+                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
+                    token,
+                    value: ls_types::ProgressParamsValue::WorkDone(
+                        ls_types::WorkDoneProgress::Report(ls_types::WorkDoneProgressReport {
+                            message: Some(format!("Started {node:?}")),
+                            ..Default::default()
+                        }),
+                    ),
+                })
+                .await;
+        });
+    }
+
+    fn node_finished(
+        &self,
+        handle: &tokio::runtime::Handle,
+        node: NodeId,
+        status: NodeTerminalStatus,
+    ) {
+        if !*self
+            .started
+            .lock()
+            .expect("startup progress mutex poisoned")
+        {
+            return;
+        }
+        let client = self.client.clone();
+        let token = self.token.clone();
+        handle.block_on(async move {
+            client
+                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
+                    token,
+                    value: ls_types::ProgressParamsValue::WorkDone(
+                        ls_types::WorkDoneProgress::Report(ls_types::WorkDoneProgressReport {
+                            message: Some(format!("Finished {node:?}: {status:?}")),
+                            ..Default::default()
+                        }),
+                    ),
+                })
+                .await;
+        });
+    }
+
+    fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
+        let mut finished = self
+            .finished
+            .lock()
+            .expect("startup progress mutex poisoned");
+        if *finished {
+            return;
+        }
+        *finished = true;
+        let client = self.client.clone();
+        let token = self.token.clone();
+        let message = Self::message_for_outcome(outcome).to_string();
+        handle.block_on(async move {
+            client
+                .send_notification::<ProgressNotification>(ls_types::ProgressParams {
+                    token,
+                    value: ls_types::ProgressParamsValue::WorkDone(
+                        ls_types::WorkDoneProgress::End(ls_types::WorkDoneProgressEnd {
+                            message: Some(message),
+                        }),
+                    ),
+                })
+                .await;
+        });
+    }
+}
+
+impl LoadingObserver for StartupProgress {
+    fn node_started(&mut self, node: NodeId) {
+        self.report_node_started(&tokio::runtime::Handle::current(), node);
+    }
+
+    fn node_finished(&mut self, node: NodeId, status: NodeTerminalStatus) {
+        self.report_node_finished(&tokio::runtime::Handle::current(), node, status);
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct RecordingStartupProgressReporter {
+    events: Arc<StdMutex<Vec<StartupProgressEvent>>>,
+}
+
+#[cfg(test)]
+impl StartupProgressReporter for RecordingStartupProgressReporter {
+    fn begin(&self, _handle: &tokio::runtime::Handle) {
+        self.events
+            .lock()
+            .expect("startup progress events mutex poisoned")
+            .push(StartupProgressEvent::Begin);
+    }
+
+    fn node_started(&self, _handle: &tokio::runtime::Handle, node: NodeId) {
+        self.events
+            .lock()
+            .expect("startup progress events mutex poisoned")
+            .push(StartupProgressEvent::NodeStarted(node));
+    }
+
+    fn node_finished(
+        &self,
+        _handle: &tokio::runtime::Handle,
+        node: NodeId,
+        status: NodeTerminalStatus,
+    ) {
+        self.events
+            .lock()
+            .expect("startup progress events mutex poisoned")
+            .push(StartupProgressEvent::NodeFinished { node, status });
+    }
+
+    fn finish(&self, _handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
+        self.events
+            .lock()
+            .expect("startup progress events mutex poisoned")
+            .push(StartupProgressEvent::Finish(outcome.clone()));
+    }
 }
 
 pub(crate) async fn run_startup_source_files(
@@ -331,10 +645,14 @@ async fn run_startup_source_files_with_gate(
 ) -> StartupRunOutcome {
     let handle = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
-        let mut effects = LspLoadingExecutor::new(handle, session, inputs, load_gate);
-        let mut observer = NoopLoadingObserver;
+        let progress = inputs.progress();
+        progress.begin(&handle);
+        let mut effects = LspLoadingExecutor::new(handle.clone(), session, inputs, load_gate);
+        let mut observer = progress.clone();
         let result = run_loading_plan(LoadingPlan::phase3(), &mut effects, &mut observer);
-        effects.finish(result)
+        let outcome = effects.finish(result);
+        progress.finish(&handle, &outcome);
+        outcome
     })
     .await
     .unwrap_or(StartupRunOutcome::Failed)
@@ -916,6 +1234,79 @@ mod startup_generation {
                 previous: None,
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn startup_progress_reports_lifecycle_over_loading_events() {
+        let session = Arc::new(Mutex::new(initialized_session_with_root(
+            "/tmp/djls-startup-progress",
+        )));
+        let controller = StartupController::new();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let inputs = {
+            let session = session.lock().await;
+            StartupRunInputs::capture_with_progress(
+                &session,
+                controller.start_generation().await,
+                StartupProgress::recording(Arc::clone(&events)),
+            )
+        };
+
+        let outcome = run_startup_source_files(Arc::clone(&session), inputs).await;
+
+        assert_eq!(outcome, StartupRunOutcome::Succeeded);
+        assert_eq!(
+            *events
+                .lock()
+                .expect("startup progress events mutex poisoned"),
+            vec![
+                StartupProgressEvent::Begin,
+                StartupProgressEvent::NodeStarted(NodeId::SourceFileSet),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::SourceFileSet,
+                    status: NodeTerminalStatus::Unavailable,
+                },
+                StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_progress_finishes_once_for_superseded_run() {
+        let session = Arc::new(Mutex::new(initialized_session_with_root(
+            "/tmp/djls-startup-progress-superseded",
+        )));
+        let controller = StartupController::new();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let inputs = {
+            let session = session.lock().await;
+            StartupRunInputs::capture_with_progress(
+                &session,
+                controller.start_generation().await,
+                StartupProgress::recording(Arc::clone(&events)),
+            )
+        };
+        let _newer = controller.start_generation().await;
+
+        let outcome = run_startup_source_files(Arc::clone(&session), inputs).await;
+
+        assert_eq!(
+            outcome,
+            StartupRunOutcome::Superseded {
+                generation: StartupGeneration(1),
+            }
+        );
+        assert_eq!(
+            *events
+                .lock()
+                .expect("startup progress events mutex poisoned"),
+            vec![
+                StartupProgressEvent::Begin,
+                StartupProgressEvent::Finish(StartupRunOutcome::Superseded {
+                    generation: StartupGeneration(1),
+                }),
+            ]
+        );
     }
 
     #[tokio::test]
