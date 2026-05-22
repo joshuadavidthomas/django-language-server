@@ -126,6 +126,7 @@ pub struct TemplateBackend {
     backend: Option<String>,
     dirs: PartialList<String>,
     app_dirs: Option<bool>,
+    libraries: Vec<TemplateLibraryAlias>,
 }
 
 impl TemplateBackend {
@@ -142,6 +143,29 @@ impl TemplateBackend {
     #[must_use]
     pub fn app_dirs(&self) -> Option<bool> {
         self.app_dirs
+    }
+
+    #[must_use]
+    pub fn libraries(&self) -> &[TemplateLibraryAlias] {
+        &self.libraries
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateLibraryAlias {
+    name: String,
+    module: PyModuleName,
+}
+
+impl TemplateLibraryAlias {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn module(&self) -> &PyModuleName {
+        &self.module
     }
 }
 
@@ -409,6 +433,7 @@ fn template_backend_from_dict(entries: &[(String, StaticValue)]) -> TemplateBack
         backend: None,
         dirs: PartialList::default(),
         app_dirs: None,
+        libraries: Vec::new(),
     };
     for (key, value) in entries {
         match (key.as_str(), value) {
@@ -421,10 +446,32 @@ fn template_backend_from_dict(entries: &[(String, StaticValue)]) -> TemplateBack
                 }
             }
             ("APP_DIRS", StaticValue::Bool(value)) => backend.app_dirs = Some(*value),
+            ("OPTIONS", StaticValue::Dict(options)) => {
+                backend.libraries = template_libraries_from_options(options);
+            }
             _ => {}
         }
     }
     backend
+}
+
+fn template_libraries_from_options(options: &[(String, StaticValue)]) -> Vec<TemplateLibraryAlias> {
+    options
+        .iter()
+        .find_map(|(key, value)| match (key.as_str(), value) {
+            ("libraries", StaticValue::Dict(libraries)) => Some(libraries),
+            _ => None,
+        })
+        .into_iter()
+        .flat_map(|libraries| libraries.iter())
+        .filter_map(|(name, value)| match value {
+            StaticValue::String(module) => Some(TemplateLibraryAlias {
+                name: name.clone(),
+                module: PyModuleName::parse(module).ok()?,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `qxtuwrlp` contains the completed installed-app and template-directory file loading slice.
-- **Current slice**: Phase 6B completed; Phase 6C is next.
+- **Implementation change**: `tqtwupmz` contains the completed static template inventory slice.
+- **Current slice**: Phase 6C completed; Phase 6D is next.
 
 ### Implementation Notes
 
@@ -421,6 +421,20 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required typed deferred/unavailable/degraded outcomes instead of empty-root `Skipped`, preservation of missing/ambiguous/deferred installed-app gaps, `AppConfig.path` root selection, and no Phase 6B `django-apps-ready` API; addressed all in this slice.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed neutral VFS/workspace loading, source-root/file-set partitioning, typed roots/search paths, transactional DB changes, and explicit precedence align with mature tooling patterns.
 - Follow-ups/blockers: Phase 6C should build static template directory/file/tag-library inventories over the merged source inventory and distinguish known-but-not-loaded template roots from loaded-empty roots.
+
+### Static template inventory
+- Bookmark: `startup-rethink` still points to `qxtuwrlp`; move it to `tqtwupmz` after describing this verified slice.
+- Current change: `tqtwupmz`.
+- Scope: added static template directory, template file, and template tag library inventories in `djls-project`; preserved unknown settings directory segments; represented loaded, deferred, unavailable, and stale template-directory states from source-inventory partition/root readiness; inventoried templates only from loaded configured or installed-app template directories; and inventoried tag libraries from Django builtins, resolved installed-app `templatetags`, and static `TEMPLATES[*].OPTIONS["libraries"]` aliases resolved through module resolution.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project template_inventory` passed: 6 tests.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review required installed-app template directories to count as loaded when covered by an app root and tag libraries to be tied to resolved installed apps rather than any `templatetags` path; addressed both.
+  - Rust specialist required inventory to read partition/root readiness, preserve unavailable/stale/deferred directory semantics, and avoid global `templatetags` scans; addressed with a root-readiness projection and installed-app-root-scoped tag-library inventory.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed the candidate-to-loaded-inventory layering, explicit source roots/file roots, static settings/search-path derivation, and tracked semantic index shape align with mature tooling patterns.
+- Follow-ups/blockers: Phase 6D should migrate the first semantic template consumer and register `django-apps-ready` over the installed-app/template-directory file-loading nodes.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).

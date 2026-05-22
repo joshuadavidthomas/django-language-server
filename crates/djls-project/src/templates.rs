@@ -1,5 +1,20 @@
+mod inventory;
 mod loading;
 
+pub use inventory::template_directories;
+pub use inventory::template_files;
+pub use inventory::template_tag_libraries;
+pub use inventory::ProjectTemplate;
+pub use inventory::TemplateDirectory;
+pub use inventory::TemplateDirectoryEntry;
+pub use inventory::TemplateDirectoryInventory;
+pub use inventory::TemplateDirectorySource;
+pub use inventory::TemplateFileInventory;
+pub use inventory::TemplateTagLibrary;
+pub use inventory::TemplateTagLibraryInventory;
+pub use inventory::TemplateTagLibraryIssue;
+pub use inventory::TemplateTagLibraryResolution;
+pub use inventory::TemplateTagLibrarySource;
 pub use loading::load_template_directory_files;
 pub use loading::template_directory_file_load_outcome;
 pub use loading::template_directory_file_roots;

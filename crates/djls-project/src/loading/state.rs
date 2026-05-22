@@ -4,6 +4,7 @@ use djls_source::SourceFileSet;
 use djls_source::SourceRootId;
 
 use super::files::MergedDiscoveredSourceFileSetData;
+use super::files::ProjectFilePartitionReadiness;
 use super::files::ProjectFileSetPartitions;
 use crate::ProjectDiscovery;
 use crate::ProjectDiscoveryIssue;
@@ -107,6 +108,14 @@ impl ReadyProjectSourceFiles {
     #[must_use]
     pub fn summary(&self, db: &dyn djls_source::Db) -> FileSetSummary {
         *self.merged.data(db).summary()
+    }
+
+    #[must_use]
+    pub fn root_readiness_covering(
+        &self,
+        path: &camino::Utf8Path,
+    ) -> Option<ProjectFilePartitionReadiness> {
+        self.partitions.root_readiness_covering(path)
     }
 }
 

@@ -299,6 +299,21 @@ impl ProjectFileSetPartitions {
     }
 
     #[must_use]
+    pub(crate) fn root_readiness_covering(
+        &self,
+        path: &Utf8Path,
+    ) -> Option<ProjectFilePartitionReadiness> {
+        self.partitions
+            .iter()
+            .find(|partition| {
+                partition
+                    .roots
+                    .iter()
+                    .any(|root| path.starts_with(root.path()))
+            })
+            .map(|partition| partition.readiness.clone())
+    }
+
     pub(crate) fn merged_discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
         let roots = self
             .partitions

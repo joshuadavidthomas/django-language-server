@@ -12,4 +12,5 @@ pub use composition::PartialList;
 pub use composition::PartialListSegment;
 pub use composition::SettingsIssue;
 pub use composition::TemplateBackend;
+pub use composition::TemplateLibraryAlias;
 pub use composition::TemplateSettingsResolution;
