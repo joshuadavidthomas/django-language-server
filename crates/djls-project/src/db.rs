@@ -1,29 +1,16 @@
 use salsa::Setter;
 
-use crate::ProjectLoadingState;
-use crate::ProjectSourceFilesAvailability;
+use crate::Project;
+use crate::ProjectSourceInventory;
 
 #[salsa::db]
 pub trait Db: djls_source::Db {
-    fn project_loading_state(&self) -> ProjectLoadingState;
+    fn project(&self) -> Project;
 
-    fn begin_project_loading_run(&mut self) {
-        let previous = self
-            .project_loading_state()
-            .source_files(self)
-            .ready_or_previous();
-        let availability = match previous {
-            Some(previous) => ProjectSourceFilesAvailability::Stale { previous },
-            None => ProjectSourceFilesAvailability::Loading,
-        };
-        self.set_project_source_files_availability(availability);
-    }
-
-    fn set_project_source_files_availability(
-        &mut self,
-        availability: ProjectSourceFilesAvailability,
-    ) {
-        let state = self.project_loading_state();
-        state.set_source_files(self).to(availability);
+    fn set_project_source_inventory(&mut self, inventory: ProjectSourceInventory) {
+        let project = self.project();
+        if project.source_inventory(self) != inventory {
+            project.set_source_inventory(self).to(inventory);
+        }
     }
 }

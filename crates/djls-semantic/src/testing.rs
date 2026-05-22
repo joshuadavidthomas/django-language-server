@@ -5,12 +5,13 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_project::ProjectLoadingState;
+use djls_project::Project as ProjectFacts;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -150,7 +151,7 @@ pub(crate) struct TestDatabase {
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
-    project_loading_state: Arc<Mutex<Option<ProjectLoadingState>>>,
+    project_facts: Arc<OnceLock<ProjectFacts>>,
 }
 
 impl TestDatabase {
@@ -163,10 +164,12 @@ impl TestDatabase {
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
-            project_loading_state: Arc::new(Mutex::new(None)),
+            project_facts: Arc::new(OnceLock::new()),
         };
-        let state = ProjectLoadingState::fixture_unavailable(&db);
-        *db.project_loading_state.lock().unwrap() = Some(state);
+        let project_facts = ProjectFacts::fixture_unavailable(&db);
+        db.project_facts
+            .set(project_facts)
+            .expect("project facts should initialize once");
         db
     }
 
@@ -214,11 +217,11 @@ impl salsa::Database for TestDatabase {}
 
 #[salsa::db]
 impl djls_project::Db for TestDatabase {
-    fn project_loading_state(&self) -> ProjectLoadingState {
-        self.project_loading_state
-            .lock()
-            .unwrap()
-            .expect("project loading state should be initialized")
+    fn project(&self) -> ProjectFacts {
+        *self
+            .project_facts
+            .get()
+            .expect("project facts should be initialized")
     }
 }
 

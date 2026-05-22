@@ -8,74 +8,54 @@ use super::files::ProjectFileSetPartitions;
 
 #[salsa::input]
 #[derive(Debug)]
-pub struct ProjectLoadingState {
-    pub source_files: ProjectSourceFilesAvailability,
-    pub discovery: ProjectDiscoveryAvailability,
-    pub enrichment: ProjectEnrichmentState,
+pub struct Project {
+    pub source_inventory: ProjectSourceInventory,
+    pub discovery: ProjectDiscovery,
+    pub enrichment: ProjectEnrichment,
 }
 
-impl ProjectLoadingState {
-    pub fn not_loaded(db: &dyn crate::Db) -> Self {
+impl Project {
+    pub fn virtual_project(db: &dyn crate::Db) -> Self {
         Self::new(
             db,
-            ProjectSourceFilesAvailability::Unavailable {
+            ProjectSourceInventory::Unavailable {
                 issue: ProjectSourceFilesIssue::NotLoaded,
-                previous: None,
             },
-            ProjectDiscoveryAvailability::Unavailable {
+            ProjectDiscovery::Unavailable {
                 issue: ProjectDiscoveryIssue::NotLoaded,
             },
-            ProjectEnrichmentState::NotStarted,
+            ProjectEnrichment::Absent,
         )
     }
 
     pub fn fixture_unavailable(db: &dyn crate::Db) -> Self {
         Self::new(
             db,
-            ProjectSourceFilesAvailability::Unavailable {
+            ProjectSourceInventory::Unavailable {
                 issue: ProjectSourceFilesIssue::FixtureUnavailable {
                     surface: ProjectSourceFilesFixtureSurface::SourceFiles,
                 },
-                previous: None,
             },
-            ProjectDiscoveryAvailability::Unavailable {
+            ProjectDiscovery::Unavailable {
                 issue: ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
             },
-            ProjectEnrichmentState::NotStarted,
+            ProjectEnrichment::Absent,
         )
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectSourceFilesAvailability {
-    Loading,
+pub enum ProjectSourceInventory {
     Ready(ReadyProjectSourceFiles),
-    Deferred {
-        issue: ProjectSourceFilesIssue,
-        previous: Option<ReadyProjectSourceFiles>,
-    },
-    Unavailable {
-        issue: ProjectSourceFilesIssue,
-        previous: Option<ReadyProjectSourceFiles>,
-    },
-    Failed {
-        issue: ProjectSourceFilesIssue,
-        previous: Option<ReadyProjectSourceFiles>,
-    },
-    Stale {
-        previous: ReadyProjectSourceFiles,
-    },
+    Unavailable { issue: ProjectSourceFilesIssue },
 }
 
-impl ProjectSourceFilesAvailability {
+impl ProjectSourceInventory {
     #[must_use]
-    pub fn ready_or_previous(&self) -> Option<ReadyProjectSourceFiles> {
+    pub fn ready(&self) -> Option<ReadyProjectSourceFiles> {
         match self {
-            Self::Ready(files) | Self::Stale { previous: files } => Some(files.clone()),
-            Self::Deferred { previous, .. }
-            | Self::Unavailable { previous, .. }
-            | Self::Failed { previous, .. } => previous.clone(),
-            Self::Loading => None,
+            Self::Ready(files) => Some(files.clone()),
+            Self::Unavailable { .. } => None,
         }
     }
 }
@@ -165,9 +145,6 @@ pub enum ProjectSourceFilesIssue {
     FixtureUnavailable {
         surface: ProjectSourceFilesFixtureSurface,
     },
-    StaleDocument {
-        path: Utf8PathBuf,
-    },
     MaterializationFailed {
         path: Utf8PathBuf,
         error_kind: std::io::ErrorKind,
@@ -182,7 +159,7 @@ pub enum ProjectSourceFilesFixtureSurface {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectDiscoveryAvailability {
+pub enum ProjectDiscovery {
     Unavailable { issue: ProjectDiscoveryIssue },
 }
 
@@ -193,8 +170,8 @@ pub enum ProjectDiscoveryIssue {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectEnrichmentState {
-    NotStarted,
+pub enum ProjectEnrichment {
+    Absent,
     Unavailable { issue: ProjectEnrichmentIssue },
 }
 
@@ -223,14 +200,14 @@ mod tests {
     struct TestDb {
         storage: salsa::Storage<Self>,
         files: SourceFiles,
-        loading_state: std::sync::Mutex<Option<ProjectLoadingState>>,
+        project: std::sync::Mutex<Option<Project>>,
     }
 
     impl TestDb {
-        fn new_with_loading_state() -> Self {
+        fn new_with_project() -> Self {
             let db = Self::default();
-            let state = ProjectLoadingState::fixture_unavailable(&db);
-            *db.loading_state.lock().unwrap() = Some(state);
+            let project = Project::fixture_unavailable(&db);
+            *db.project.lock().unwrap() = Some(project);
             db
         }
     }
@@ -251,35 +228,34 @@ mod tests {
 
     #[salsa::db]
     impl crate::Db for TestDb {
-        fn project_loading_state(&self) -> ProjectLoadingState {
-            self.loading_state
+        fn project(&self) -> Project {
+            self.project
                 .lock()
                 .unwrap()
-                .expect("test database should initialize project loading state")
+                .expect("test database should initialize project")
         }
     }
 
     #[test]
-    fn loading_state_fixture_starts_with_generation_free_unavailable_source_files() {
-        let db = TestDb::new_with_loading_state();
-        let state = db.project_loading_state();
+    fn project_fixture_starts_with_generation_free_unavailable_source_inventory() {
+        let db = TestDb::new_with_project();
+        let project = db.project();
 
         assert_eq!(
-            state.source_files(&db),
-            ProjectSourceFilesAvailability::Unavailable {
+            project.source_inventory(&db),
+            ProjectSourceInventory::Unavailable {
                 issue: ProjectSourceFilesIssue::FixtureUnavailable {
                     surface: ProjectSourceFilesFixtureSurface::SourceFiles,
                 },
-                previous: None,
             }
         );
         assert_eq!(
-            state.discovery(&db),
-            ProjectDiscoveryAvailability::Unavailable {
+            project.discovery(&db),
+            ProjectDiscovery::Unavailable {
                 issue: ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
             }
         );
-        assert_eq!(state.enrichment(&db), ProjectEnrichmentState::NotStarted);
+        assert_eq!(project.enrichment(&db), ProjectEnrichment::Absent);
     }
 
     fn ready_source_files(db: &TestDb) -> ReadyProjectSourceFiles {
@@ -296,74 +272,41 @@ mod tests {
     }
 
     #[test]
-    fn loading_state_not_loaded_is_production_safe() {
+    fn virtual_project_is_production_safe() {
         let db = TestDb::default();
-        let state = ProjectLoadingState::not_loaded(&db);
+        let project = Project::virtual_project(&db);
 
         assert_eq!(
-            state.source_files(&db),
-            ProjectSourceFilesAvailability::Unavailable {
+            project.source_inventory(&db),
+            ProjectSourceInventory::Unavailable {
                 issue: ProjectSourceFilesIssue::NotLoaded,
-                previous: None,
             }
         );
         assert_eq!(
-            state.discovery(&db),
-            ProjectDiscoveryAvailability::Unavailable {
+            project.discovery(&db),
+            ProjectDiscovery::Unavailable {
                 issue: ProjectDiscoveryIssue::NotLoaded,
             }
         );
-        assert_eq!(state.enrichment(&db), ProjectEnrichmentState::NotStarted);
+        assert_eq!(project.enrichment(&db), ProjectEnrichment::Absent);
     }
 
     #[salsa::tracked]
     fn source_file_count_probe(db: &dyn crate::Db) -> Option<usize> {
-        match db.project_loading_state().source_files(db) {
-            ProjectSourceFilesAvailability::Ready(files) => {
-                Some(files.summary(db).included_files())
-            }
-            _ => None,
+        match db.project().source_inventory(db) {
+            ProjectSourceInventory::Ready(files) => Some(files.summary(db).included_files()),
+            ProjectSourceInventory::Unavailable { .. } => None,
         }
     }
 
     #[test]
-    fn loading_state_invalidation_source_files_transition_invalidates_probe_query() {
-        let mut db = TestDb::new_with_loading_state();
+    fn source_inventory_transition_invalidates_probe_query() {
+        let mut db = TestDb::new_with_project();
         assert_eq!(source_file_count_probe(&db), None);
 
-        db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(
-            ready_source_files(&db),
-        ));
+        db.set_project_source_inventory(ProjectSourceInventory::Ready(ready_source_files(&db)));
 
         assert_eq!(source_file_count_probe(&db), Some(1));
-    }
-
-    #[test]
-    fn begin_loading_run_without_previous_source_files_sets_loading() {
-        let mut db = TestDb::new_with_loading_state();
-
-        db.begin_project_loading_run();
-
-        assert_eq!(
-            db.project_loading_state().source_files(&db),
-            ProjectSourceFilesAvailability::Loading
-        );
-    }
-
-    #[test]
-    fn begin_loading_run_preserves_ready_source_files_as_stale() {
-        let mut db = TestDb::new_with_loading_state();
-        let files = ready_source_files(&db);
-        db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(
-            files.clone(),
-        ));
-
-        db.begin_project_loading_run();
-
-        assert_eq!(
-            db.project_loading_state().source_files(&db),
-            ProjectSourceFilesAvailability::Stale { previous: files }
-        );
     }
 
     #[test]

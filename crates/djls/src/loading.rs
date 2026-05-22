@@ -4,7 +4,7 @@ use djls_project::build_source_roots;
 use djls_project::first_party_discovery_files_request;
 use djls_project::first_party_source_files_load_request;
 use djls_project::merge_first_party_source_file_patch;
-use djls_project::Db as _;
+use djls_project::Db as ProjectDb;
 use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
@@ -25,7 +25,6 @@ impl<'db> CliLoadingExecutor<'db> {
 
 impl LoadingEffects for CliLoadingExecutor<'_> {
     fn begin_loading_run(&mut self) -> LoadingRunControl {
-        djls_project::Db::begin_project_loading_run(self.db);
         LoadingRunControl::Continue
     }
 
@@ -40,11 +39,9 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
         &mut self,
         patch: FirstPartySourceFilePatch,
     ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
-        let current = self
-            .db
-            .project_loading_state()
-            .source_files(self.db)
-            .ready_or_previous();
+        let current = ProjectDb::project(self.db)
+            .source_inventory(self.db)
+            .ready();
         let update = merge_first_party_source_file_patch(current.as_ref(), patch);
         LoadingApplyOutcome::Applied(self.db.apply_project_source_files(update))
     }

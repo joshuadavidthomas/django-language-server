@@ -24,8 +24,6 @@ use djls_project::LoadingRunResult;
 use djls_project::NodeId;
 use djls_project::NodeTerminalStatus;
 use djls_project::ProjectSourceFilesApplyResult;
-use djls_project::ProjectSourceFilesAvailability;
-use djls_project::ProjectSourceFilesIssue;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
 use tokio::sync::mpsc;
@@ -762,20 +760,10 @@ impl LspLoadingExecutor {
 
 impl LoadingEffects for LspLoadingExecutor {
     fn begin_loading_run(&mut self) -> LoadingRunControl {
-        let outcome = self
-            .handle
-            .block_on(self.inputs.guard().apply(&self.session, |session| {
-                ProjectDb::begin_project_loading_run(session.db_mut());
-                Ok(())
-            }));
-        match outcome {
-            ApplyOutcome::Applied(()) => LoadingRunControl::Continue,
-            ApplyOutcome::Superseded => {
-                LoadingRunControl::Abort(LoadingExecutionOutcome::Superseded)
-            }
-            ApplyOutcome::Rejected { .. } => {
-                LoadingRunControl::Abort(LoadingExecutionOutcome::RejectedApply)
-            }
+        if self.inputs.guard().is_current() {
+            LoadingRunControl::Continue
+        } else {
+            LoadingRunControl::Abort(LoadingExecutionOutcome::Superseded)
         }
     }
 
@@ -796,20 +784,10 @@ impl LoadingEffects for LspLoadingExecutor {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
-                let current = session
-                    .db()
-                    .project_loading_state()
-                    .source_files(session.db())
-                    .ready_or_previous();
+                let current = ProjectDb::project(session.db())
+                    .source_inventory(session.db())
+                    .ready();
                 if let Some(reason) = self.inputs.snapshot().stale_document_rejection(session) {
-                    session.db_mut().set_project_source_files_availability(
-                        ProjectSourceFilesAvailability::Failed {
-                            issue: ProjectSourceFilesIssue::StaleDocument {
-                                path: reason.path().clone(),
-                            },
-                            previous: current,
-                        },
-                    );
                     return Err(reason);
                 }
                 let update = merge_first_party_source_file_patch(current.as_ref(), patch);
@@ -829,8 +807,7 @@ mod startup_generation {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
 
-    use djls_project::Db as _;
-    use djls_project::ProjectSourceFilesAvailability;
+    use djls_project::ProjectSourceInventory;
     use djls_source::Db as _;
     use tower_lsp_server::ls_types;
 
@@ -848,6 +825,24 @@ mod startup_generation {
             }]),
             ..ls_types::InitializeParams::default()
         })
+    }
+
+    async fn seed_ready_source_inventory(
+        session: Arc<Mutex<Session>>,
+        controller: &StartupController,
+    ) -> ProjectSourceInventory {
+        let inputs = {
+            let session = session.lock().await;
+            StartupRunInputs::capture(&session, controller.start_generation().await)
+        };
+        assert_eq!(
+            run_startup_source_files(Arc::clone(&session), inputs).await,
+            StartupRunOutcome::Succeeded
+        );
+        let session = session.lock().await;
+        let inventory = ProjectDb::project(session.db()).source_inventory(session.db());
+        assert!(matches!(inventory, ProjectSourceInventory::Ready(_)));
+        inventory
     }
 
     fn text_document(path: &str, version: i32, text: &str) -> ls_types::TextDocumentItem {
@@ -1151,11 +1146,8 @@ mod startup_generation {
         assert_eq!(outcome, StartupRunOutcome::Succeeded);
         let session = session.lock().await;
         assert!(matches!(
-            session
-                .db()
-                .project_loading_state()
-                .source_files(session.db()),
-            ProjectSourceFilesAvailability::Unavailable { .. }
+            ProjectDb::project(session.db()).source_inventory(session.db()),
+            ProjectSourceInventory::Unavailable { .. }
         ));
     }
 
@@ -1211,10 +1203,15 @@ mod startup_generation {
 
     #[tokio::test]
     async fn startup_source_files_superseded_reset_stops_before_loading() {
-        let session = Arc::new(Mutex::new(initialized_session_with_root(
-            "/tmp/djls-startup-source-files-superseded",
-        )));
+        let root = Utf8PathBuf::from(format!(
+            "/tmp/djls-startup-source-files-superseded-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("root directory should be created");
+        std::fs::write(root.join("models.py"), "").expect("seed file should be written");
+        let session = Arc::new(Mutex::new(initialized_session_with_root(root.as_str())));
         let controller = StartupController::new();
+        let before = seed_ready_source_inventory(Arc::clone(&session), &controller).await;
         let inputs = {
             let session = session.lock().await;
             StartupRunInputs::capture(&session, controller.start_generation().await)
@@ -1232,22 +1229,34 @@ mod startup_generation {
         assert_eq!(
             outcome,
             StartupRunOutcome::Superseded {
-                generation: StartupGeneration(1),
+                generation: StartupGeneration(2),
             }
         );
         assert_eq!(load_count.load(Ordering::SeqCst), 0);
+        let session = session.lock().await;
+        assert_eq!(
+            ProjectDb::project(session.db()).source_inventory(session.db()),
+            before
+        );
     }
 
     #[tokio::test]
-    async fn startup_source_files_stale_document_rejection_is_terminal() {
-        let session = Arc::new(Mutex::new(initialized_session_with_root(
-            "/tmp/djls-startup-source-files-stale-document",
-        )));
+    async fn startup_source_files_stale_document_rejection_leaves_project_facts_unchanged() {
+        let root = Utf8PathBuf::from(format!(
+            "/tmp/djls-startup-source-files-stale-document-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("templates"))
+            .expect("templates directory should be created");
+        std::fs::write(root.join("templates/index.html"), "before")
+            .expect("seed file should be written");
+        let session = Arc::new(Mutex::new(initialized_session_with_root(root.as_str())));
         let controller = StartupController::new();
-        let path = "/workspace/templates/index.html";
+        let before = seed_ready_source_inventory(Arc::clone(&session), &controller).await;
+        let path = root.join("templates/index.html").to_string();
         let inputs = {
             let mut session = session.lock().await;
-            session.open_document(&text_document(path, 1, "before"));
+            session.open_document(&text_document(&path, 1, "before"));
             StartupRunInputs::capture(&session, controller.start_generation().await)
         };
         let blocked = Arc::new(AtomicBool::new(false));
@@ -1276,7 +1285,7 @@ mod startup_generation {
         {
             let mut session = session.lock().await;
             session.update_document(
-                &versioned_identifier(path, 2),
+                &versioned_identifier(&path, 2),
                 vec![ls_types::TextDocumentContentChangeEvent {
                     range: None,
                     range_length: None,
@@ -1291,16 +1300,10 @@ mod startup_generation {
 
         assert_eq!(startup.await.unwrap(), StartupRunOutcome::Failed);
         let session = session.lock().await;
-        assert!(matches!(
-            session
-                .db()
-                .project_loading_state()
-                .source_files(session.db()),
-            ProjectSourceFilesAvailability::Failed {
-                issue: ProjectSourceFilesIssue::StaleDocument { .. },
-                previous: None,
-            }
-        ));
+        assert_eq!(
+            ProjectDb::project(session.db()).source_inventory(session.db()),
+            before
+        );
     }
 
     #[test]
@@ -1431,21 +1434,20 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn guarded_apply_can_run_reset_intent() {
+    async fn guarded_apply_can_observe_project_facts_without_run_start_mutation() {
         let session = Arc::new(Mutex::new(initialized_session()));
         let controller = StartupController::new();
         let guard = controller.start_generation().await;
 
         let outcome = guard
             .apply(&session, |session| {
-                djls_project::Db::begin_project_loading_run(session.db_mut());
-                Ok(session
-                    .db()
-                    .project_loading_state()
-                    .source_files(session.db()))
+                Ok(ProjectDb::project(session.db()).source_inventory(session.db()))
             })
             .await;
 
-        assert!(matches!(outcome, ApplyOutcome::Applied(_)));
+        assert!(matches!(
+            outcome,
+            ApplyOutcome::Applied(ProjectSourceInventory::Unavailable { .. })
+        ));
     }
 }

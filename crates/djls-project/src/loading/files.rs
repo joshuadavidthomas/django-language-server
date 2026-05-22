@@ -17,8 +17,8 @@ use djls_workspace::WalkOptions;
 use djls_workspace::WorkspaceRootIssue;
 
 use crate::Db;
-use crate::ProjectSourceFilesAvailability;
 use crate::ProjectSourceFilesIssue;
+use crate::ProjectSourceInventory;
 use crate::ReadyProjectSourceFiles;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -617,7 +617,7 @@ pub fn finalize_project_source_files(
     }
 
     let files = ReadyProjectSourceFiles::new(update.partitions, materialized.source_file_set);
-    db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(files.clone()));
+    db.set_project_source_inventory(ProjectSourceInventory::Ready(files.clone()));
     ProjectSourceFilesApplyResult::Applied(ProjectSourceFilesApplied {
         files,
         transition: update.applied_transition,
@@ -625,9 +625,7 @@ pub fn finalize_project_source_files(
     })
 }
 
-#[allow(dead_code)]
 enum TerminalSourceFilesAvailability {
-    Deferred,
     Unavailable,
     Failed,
 }
@@ -640,22 +638,12 @@ fn terminal_source_files_apply_result(
     availability: TerminalSourceFilesAvailability,
 ) -> ProjectSourceFilesApplyResult {
     match availability {
-        TerminalSourceFilesAvailability::Deferred => {
-            db.set_project_source_files_availability(ProjectSourceFilesAvailability::Deferred {
-                issue: issue.clone(),
-                previous: previous.clone(),
-            });
-            ProjectSourceFilesApplyResult::Deferred {
-                transition,
-                issue,
-                previous,
-            }
-        }
         TerminalSourceFilesAvailability::Unavailable => {
-            db.set_project_source_files_availability(ProjectSourceFilesAvailability::Unavailable {
-                issue: issue.clone(),
-                previous: previous.clone(),
-            });
+            if previous.is_none() {
+                db.set_project_source_inventory(ProjectSourceInventory::Unavailable {
+                    issue: issue.clone(),
+                });
+            }
             ProjectSourceFilesApplyResult::Unavailable {
                 transition,
                 issue,
@@ -663,10 +651,11 @@ fn terminal_source_files_apply_result(
             }
         }
         TerminalSourceFilesAvailability::Failed => {
-            db.set_project_source_files_availability(ProjectSourceFilesAvailability::Failed {
-                issue: issue.clone(),
-                previous: previous.clone(),
-            });
+            if previous.is_none() {
+                db.set_project_source_inventory(ProjectSourceInventory::Unavailable {
+                    issue: issue.clone(),
+                });
+            }
             ProjectSourceFilesApplyResult::Failed {
                 transition,
                 issue,
@@ -943,7 +932,7 @@ mod tests {
     struct TestDb {
         storage: salsa::Storage<Self>,
         files: djls_source::SourceFiles,
-        loading_state: std::sync::Mutex<Option<crate::ProjectLoadingState>>,
+        project: std::sync::Mutex<Option<crate::Project>>,
     }
 
     #[salsa::db]
@@ -962,26 +951,26 @@ mod tests {
 
     #[salsa::db]
     impl crate::Db for TestDb {
-        fn project_loading_state(&self) -> crate::ProjectLoadingState {
-            self.loading_state
+        fn project(&self) -> crate::Project {
+            self.project
                 .lock()
                 .unwrap()
-                .expect("test database should initialize project loading state")
+                .expect("test database should initialize project")
         }
     }
 
     impl TestDb {
-        fn with_loading_state() -> Self {
+        fn with_project() -> Self {
             let db = Self::default();
-            let state = crate::ProjectLoadingState::not_loaded(&db);
-            *db.loading_state.lock().unwrap() = Some(state);
+            let project = crate::Project::virtual_project(&db);
+            *db.project.lock().unwrap() = Some(project);
             db
         }
     }
 
     #[test]
     fn finalize_rejects_mismatched_materialized_source_file_set() {
-        let mut db = TestDb::with_loading_state();
+        let mut db = TestDb::with_project();
         let update_root = root("/workspace");
         let update_file = discovered("/workspace/models.py", &update_root);
         let patch = FirstPartySourceFilePatch {
@@ -1014,8 +1003,8 @@ mod tests {
             ProjectSourceFilesApplyResult::Failed { .. }
         ));
         assert!(matches!(
-            db.project_loading_state().source_files(&db),
-            ProjectSourceFilesAvailability::Failed { .. }
+            db.project().source_inventory(&db),
+            ProjectSourceInventory::Unavailable { .. }
         ));
     }
 

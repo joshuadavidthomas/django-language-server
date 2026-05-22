@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `rqpkyvqm` contains the in-progress architecture correction planning slice.
-- **Current slice**: architecture correction planning in progress; feature implementation is paused before Phase 3A4d/3B.
+- **Implementation change**: `zzvlwosx` contains the completed stable Project root implementation slice.
+- **Current slice**: stable Project root implementation completed; Phase 3A4d is next.
 
 ### Implementation Notes
 
@@ -116,11 +116,33 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - Follow-ups/blockers: Phase 3A4d can pass the active `StartupGeneration` into `StartupProgress::for_client(...)` when wiring real startup/configuration restarts.
 
 ### Architecture correction planning
-- Bookmark: `startup-rethink` remains at `zzwtomox` while this planning slice is in progress.
+- Bookmark: `startup-rethink` points to `rqpkyvqm`.
 - Current change: `rqpkyvqm`.
 - Scope: recorded rust-analyzer/Ruff-ty evidence, assessed the current implementation and future phases, accepted a stable `djls_project::Project` root input as the semantic Project Facts model, inserted a required pre-3B architecture correction gate, marked completed `ProjectLoadingState` slices as superseded history, and rewrote current/future phase prose to target stable `Project` facts plus server/CLI orchestration.
 - Validation: docs/planning only; implementation validation is defined in the Architecture correction gate.
 - Follow-ups/blockers: do not implement Phase 3A4d/3B feature work until the stable Project root cleanup gate passes.
+
+### Stable Project root implementation
+- Bookmark: `startup-rethink` still points to `rqpkyvqm`; move it to `zzvlwosx` after describing this verified slice.
+- Current change: `zzvlwosx`.
+- Scope: replaced the Salsa-visible `ProjectLoadingState` readiness singleton with stable `djls_project::Project`, moved source-file facts to `Project.source_inventory`, initialized the Project handle once in production/bench/test databases, removed run-start `Loading`/`Stale` Project Fact writes, and changed stale-document rejection to leave Project Facts unchanged.
+- Validation:
+  - `cargo test -p djls-db --no-run` passed.
+  - `cargo test -p djls-bench --no-run` passed.
+  - `cargo test -p djls-semantic --no-run` passed.
+  - `cargo test -p djls-db source_file_set` passed: 5 tests.
+  - `cargo test -p djls-project loading` passed: 21 tests.
+  - `cargo test -p djls-server startup_source_files` passed: 3 tests.
+  - `cargo test -p djls-server startup_request_while_loading` passed: 1 test.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `rg "project_loading_state|ProjectLoadingState" crates -g '*.rs'` returned no matches.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review and Rust specialist review both requested stronger LSP preservation coverage; added prior-`Ready` assertions for stale-document rejection and superseded runs.
+  - Rust specialist advisory cleanup removed now-dead `ProjectSourceFilesIssue::StaleDocument` and dead `TerminalSourceFilesAvailability::Deferred`.
+  - Librarian found no major divergence from rust-analyzer and Ruff/ty: ty uses a stable Salsa `Project` input updated in place, and rust-analyzer keeps loading/progress/supersession in orchestration while lowering durable facts into incremental inputs.
+- Follow-ups/blockers: none for the architecture correction gate; Phase 3A4d may resume next.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1236,14 +1258,14 @@ Names may change, but the outcome must be derived from stable Project facts, not
 
 **Architecture correction gate**
 - [x] Current and future phase prose is updated for the stable Project-root decision. Evidence: the current cleanup gate, Phase 3A4d, Phase 3B, Phase 3C, Phase 3D, and later source/enrichment references now target `Project` fields and server/CLI orchestration instead of extending `ProjectLoadingState`; completed 3A1-3A4c references remain as superseded implementation history.
-- [ ] Stable `djls_project::Project` root compiles in production, bench, and semantic test databases: `cargo test -p djls-db --no-run`, `cargo test -p djls-bench --no-run`, and `cargo test -p djls-semantic --no-run`.
-- [ ] Source-file materialization/round-trip tests pass against the new project source inventory: `cargo test -p djls-db source_file_set`.
-- [ ] Neutral loading runner tests pass without depending on `ProjectLoadingState`: `cargo test -p djls-project loading`.
-- [ ] LSP startup source-file tests pass and stale-document rejection leaves Project Facts unchanged: `cargo test -p djls-server startup_source_files`.
-- [ ] Request-while-loading behavior remains valid: `cargo test -p djls-server startup_request_while_loading`.
-- [ ] CLI check still exercises the shared source-file node: `cargo test -p djls --test check`.
-- [ ] Cleanup search proves no production code consumes `Db::project_loading_state()` or `ProjectLoadingState`: `rg "project_loading_state|ProjectLoadingState" crates -g '*.rs'` with only documented temporary bridge/test references, or no matches.
-- [ ] Formatting and build checks pass: `just fmt --check` and `cargo build -q`.
+- [x] Stable `djls_project::Project` root compiles in production, bench, and semantic test databases: `cargo test -p djls-db --no-run`, `cargo test -p djls-bench --no-run`, and `cargo test -p djls-semantic --no-run` passed.
+- [x] Source-file materialization/round-trip tests pass against the new project source inventory: `cargo test -p djls-db source_file_set` — 5 passed.
+- [x] Neutral loading runner tests pass without depending on `ProjectLoadingState`: `cargo test -p djls-project loading` — 21 passed.
+- [x] LSP startup source-file tests pass and stale-document rejection leaves Project Facts unchanged: `cargo test -p djls-server startup_source_files` — 3 passed. Evidence: stale-document rejection returns the executor failure path while `Project.source_inventory` remains unchanged.
+- [x] Request-while-loading behavior remains valid: `cargo test -p djls-server startup_request_while_loading` — 1 passed.
+- [x] CLI check still exercises the shared source-file node: `cargo test -p djls --test check` — 7 passed.
+- [x] Cleanup search proves no production code consumes `Db::project_loading_state()` or `ProjectLoadingState`: `rg "project_loading_state|ProjectLoadingState" crates -g '*.rs'` returned no matches.
+- [x] Formatting and build checks pass: `just fmt --check` and `cargo build -q` passed.
 
 **Phase 3A4d gate**
 - [ ] Configuration-change restart tests pass for the active loading graph and superseded apply rejection: `cargo test -p djls-server configuration_restart`

@@ -1,9 +1,10 @@
 use std::io;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::ProjectLoadingState;
+use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -21,7 +22,7 @@ pub struct Db {
     tag_specs: Arc<TagSpecs>,
     template_libraries: Arc<djls_semantic::TemplateLibraries>,
     filter_arity_specs: Arc<FilterAritySpecs>,
-    project_loading_state: Arc<std::sync::Mutex<Option<ProjectLoadingState>>>,
+    project: Arc<OnceLock<Project>>,
     storage: salsa::Storage<Self>,
 }
 
@@ -34,11 +35,13 @@ impl Db {
             tag_specs: Arc::new(TagSpecs::default()),
             template_libraries: Arc::new(djls_semantic::TemplateLibraries::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
-            project_loading_state: Arc::new(std::sync::Mutex::new(None)),
+            project: Arc::new(OnceLock::new()),
             storage: salsa::Storage::default(),
         };
-        let state = ProjectLoadingState::fixture_unavailable(&db);
-        *db.project_loading_state.lock().unwrap() = Some(state);
+        let project = Project::fixture_unavailable(&db);
+        db.project
+            .set(project)
+            .expect("project facts should initialize once");
         db
     }
 
@@ -84,11 +87,11 @@ impl salsa::Database for Db {}
 
 #[salsa::db]
 impl djls_project::Db for Db {
-    fn project_loading_state(&self) -> ProjectLoadingState {
-        self.project_loading_state
-            .lock()
-            .unwrap()
-            .expect("project loading state should be initialized")
+    fn project(&self) -> Project {
+        *self
+            .project
+            .get()
+            .expect("project facts should be initialized")
     }
 }
 

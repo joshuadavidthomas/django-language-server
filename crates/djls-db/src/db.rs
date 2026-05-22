@@ -8,12 +8,13 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as LoadingDb;
-use djls_project::ProjectLoadingState;
+use djls_project::Project as ProjectFacts;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::ProjectSourceFilesMaterializationPatch;
 use djls_project::ProjectSourceFilesUpdate;
@@ -63,8 +64,8 @@ pub struct DjangoDatabase {
     /// Shared introspector for external project facts.
     pub(crate) project_introspector: Arc<ProjectIntrospector>,
 
-    /// Salsa-visible project loading readiness handle.
-    pub(crate) project_loading_state: Arc<Mutex<Option<ProjectLoadingState>>>,
+    /// Stable Salsa-visible project facts root.
+    pub(crate) project_facts: Arc<OnceLock<ProjectFacts>>,
 
     pub(crate) storage: salsa::Storage<Self>,
 
@@ -87,7 +88,7 @@ impl Default for DjangoDatabase {
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(Settings::default())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
-            project_loading_state: Arc::new(Mutex::new(None)),
+            project_facts: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -103,8 +104,10 @@ impl Default for DjangoDatabase {
             }))),
             logs,
         };
-        let state = ProjectLoadingState::not_loaded(&db);
-        *db.project_loading_state.lock().unwrap() = Some(state);
+        let project = ProjectFacts::virtual_project(&db);
+        db.project_facts
+            .set(project)
+            .expect("project facts should initialize once");
         db
     }
 }
@@ -118,13 +121,15 @@ impl DjangoDatabase {
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
-            project_loading_state: Arc::new(Mutex::new(None)),
+            project_facts: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
         };
-        let state = ProjectLoadingState::not_loaded(&db);
-        *db.project_loading_state.lock().unwrap() = Some(state);
+        let project = ProjectFacts::virtual_project(&db);
+        db.project_facts
+            .set(project)
+            .expect("project facts should initialize once");
         db
     }
 
@@ -253,9 +258,7 @@ impl DjangoDatabase {
     }
 
     fn current_ready_project_source_files(&self) -> Option<ReadyProjectSourceFiles> {
-        self.project_loading_state()
-            .source_files(self)
-            .ready_or_previous()
+        LoadingDb::project(self).source_inventory(self).ready()
     }
 }
 
@@ -281,11 +284,11 @@ impl salsa::Database for DjangoDatabase {}
 
 #[salsa::db]
 impl djls_project::Db for DjangoDatabase {
-    fn project_loading_state(&self) -> ProjectLoadingState {
-        self.project_loading_state
-            .lock()
-            .unwrap()
-            .expect("project loading state should be initialized")
+    fn project(&self) -> ProjectFacts {
+        *self
+            .project_facts
+            .get()
+            .expect("project facts should be initialized")
     }
 }
 
@@ -303,7 +306,7 @@ impl SourceDb for DjangoDatabase {
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> &TagSpecs {
-        if let Some(project) = self.project() {
+        if let Some(project) = ProjectDb::project(self) {
             compute_tag_specs(self, project)
         } else {
             static DEFAULT: std::sync::LazyLock<TagSpecs> =
@@ -313,7 +316,7 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project().and_then(|project| {
+        ProjectDb::project(self).and_then(|project| {
             project
                 .template_dirs(self)
                 .as_known()
@@ -326,24 +329,21 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn template_libraries(&self) -> &TemplateLibraries {
-        self.project()
-            .map_or(TemplateLibraries::empty_ref(), |project| {
-                project.template_libraries(self)
-            })
+        ProjectDb::project(self).map_or(TemplateLibraries::empty_ref(), |project| {
+            project.template_libraries(self)
+        })
     }
 
     fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
-        self.project()
-            .map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
-                compute_filter_arity_specs(self, project)
-            })
+        ProjectDb::project(self).map_or(djls_semantic::FilterAritySpecs::empty_ref(), |project| {
+            compute_filter_arity_specs(self, project)
+        })
     }
 
     fn model_graph(&self) -> &djls_semantic::ModelGraph {
-        self.project()
-            .map_or(djls_semantic::ModelGraph::empty_ref(), |project| {
-                compute_model_graph(self, project)
-            })
+        ProjectDb::project(self).map_or(djls_semantic::ModelGraph::empty_ref(), |project| {
+            compute_model_graph(self, project)
+        })
     }
 }
 
@@ -368,8 +368,8 @@ mod source_file_set_tests {
     use djls_project::Db as LoadingDb;
     use djls_project::FirstPartySourceFilePatch;
     use djls_project::ProjectSourceFilesApplyResult;
-    use djls_project::ProjectSourceFilesAvailability;
     use djls_project::ProjectSourceFilesIssue;
+    use djls_project::ProjectSourceInventory;
     use djls_source::Db as SourceDb;
     use djls_workspace::load_files_for_roots;
 
@@ -477,17 +477,14 @@ mod source_file_set_tests {
             panic!("missing root should be unavailable");
         };
         assert_eq!(previous, Some(applied.files().clone()));
-        assert!(matches!(
-            db.project_loading_state().source_files(&db),
-            ProjectSourceFilesAvailability::Unavailable {
-                previous: Some(_),
-                ..
-            }
-        ));
+        assert_eq!(
+            LoadingDb::project(&db).source_inventory(&db),
+            ProjectSourceInventory::Ready(applied.files().clone())
+        );
     }
 
     #[test]
-    fn source_file_set_roundtrip_finalizes_ready_loading_state() {
+    fn source_file_set_roundtrip_finalizes_ready_source_inventory() {
         let dir = tempfile::tempdir().unwrap();
         let root = utf8(dir.path());
         std::fs::write(root.join("models.py"), "").unwrap();
@@ -503,13 +500,13 @@ mod source_file_set_tests {
         assert_eq!(applied.transition(), &transition);
         assert_eq!(applied.files().summary(&db).included_files(), 1);
         assert_eq!(
-            db.project_loading_state().source_files(&db),
-            ProjectSourceFilesAvailability::Ready(applied.files().clone())
+            LoadingDb::project(&db).source_inventory(&db),
+            ProjectSourceInventory::Ready(applied.files().clone())
         );
     }
 
     #[test]
-    fn source_file_set_terminal_issue_updates_query_visible_availability() {
+    fn source_file_set_terminal_issue_updates_query_visible_inventory_when_no_prior_facts() {
         let dir = tempfile::tempdir().unwrap();
         let missing = utf8(dir.path()).join("missing");
         let mut db = DjangoDatabase::default();
@@ -525,11 +522,8 @@ mod source_file_set_tests {
             ProjectSourceFilesIssue::MissingRoot { ref path, .. } if *path == missing
         ));
         assert_eq!(
-            db.project_loading_state().source_files(&db),
-            ProjectSourceFilesAvailability::Unavailable {
-                issue,
-                previous: None,
-            }
+            LoadingDb::project(&db).source_inventory(&db),
+            ProjectSourceInventory::Unavailable { issue }
         );
     }
 }
@@ -553,7 +547,6 @@ mod invalidation_tests {
     use std::sync::Mutex;
 
     use djls_conf::Settings;
-    use djls_project::ProjectLoadingState;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
@@ -607,7 +600,7 @@ mod invalidation_tests {
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
-            project_loading_state: Arc::new(Mutex::new(None)),
+            project_facts: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -616,8 +609,10 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let loading_state = ProjectLoadingState::fixture_unavailable(&db);
-        *db.project_loading_state.lock().unwrap() = Some(loading_state);
+        let project_facts = djls_project::Project::fixture_unavailable(&db);
+        db.project_facts
+            .set(project_facts)
+            .expect("project facts should initialize once");
 
         let interpreter = Interpreter::discover(settings.venv_path());
         let dsm = settings
@@ -889,7 +884,7 @@ def my_filter(value, arg):
             project: Arc::new(Mutex::new(None)),
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
-            project_loading_state: Arc::new(Mutex::new(None)),
+            project_facts: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -898,8 +893,10 @@ def my_filter(value, arg):
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let loading_state = ProjectLoadingState::fixture_unavailable(&db);
-        *db.project_loading_state.lock().unwrap() = Some(loading_state);
+        let project_facts = djls_project::Project::fixture_unavailable(&db);
+        db.project_facts
+            .set(project_facts)
+            .expect("project facts should initialize once");
 
         let file = djls_source::Db::get_or_create_file(
             &db,
