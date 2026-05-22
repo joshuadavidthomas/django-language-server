@@ -126,7 +126,7 @@ fn config_origin_path(uri: &str) -> Utf8PathBuf {
 
 enum ConfigLayer {
     File(Utf8PathBuf),
-    TomlString { content: String },
+    TomlString(String),
 }
 
 impl ConfigLayer {
@@ -140,7 +140,7 @@ impl ConfigLayer {
                     .format(FileFormat::Toml)
                     .required(true),
             ),
-            Self::TomlString { content } => {
+            Self::TomlString(content) => {
                 builder.add_source(File::from_str(&content, FileFormat::Toml))
             }
         }
@@ -205,7 +205,7 @@ impl ConfigSource {
                 };
                 let content = toml::to_string(tool_djls_table)
                     .map_err(|_error| SettingsLoadError::Unsupported(path.to_owned()))?;
-                Ok(Some(ConfigLayer::TomlString { content }))
+                Ok(Some(ConfigLayer::TomlString(content)))
             }
         }
     }
