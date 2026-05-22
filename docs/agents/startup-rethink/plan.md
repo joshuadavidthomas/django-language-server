@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `zzvlwosx` contains the completed stable Project root implementation slice.
-- **Current slice**: stable Project root implementation completed; Phase 3A4d is next.
+- **Implementation change**: `uorlmwwk` contains the completed configuration restart implementation slice.
+- **Current slice**: configuration restart completed; Phase 3B is next.
 
 ### Implementation Notes
 
@@ -143,6 +143,21 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist advisory cleanup removed now-dead `ProjectSourceFilesIssue::StaleDocument` and dead `TerminalSourceFilesAvailability::Deferred`.
   - Librarian found no major divergence from rust-analyzer and Ruff/ty: ty uses a stable Salsa `Project` input updated in place, and rust-analyzer keeps loading/progress/supersession in orchestration while lowering durable facts into incremental inputs.
 - Follow-ups/blockers: none for the architecture correction gate; Phase 3A4d may resume next.
+
+### Configuration restart through startup controller
+- Bookmark: `startup-rethink` still points to `zzvlwosx`; move it to `uorlmwwk` after describing this verified slice.
+- Current change: `uorlmwwk`.
+- Scope: wired `initialized` to start the source-file loading graph with client progress, routed env-changing `didChangeConfiguration` through the same `StartupController` generation path, removed production use of the old runtime-refresh queue, tightened generation supersession so newer generations become active before apply linearization waits, and republished diagnostics after configuration-triggered loading completes.
+- Validation:
+  - `cargo test -p djls-server configuration_restart` passed: 1 test.
+  - `cargo test -p djls-server startup` passed: 20 tests.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review found a race where configuration changes could wait behind an older apply; fixed by marking the new generation active before waiting for apply linearization and rechecking generation after acquiring the session lock.
+  - Rust specialist requested post-restart diagnostic republish ordering; fixed by awaiting configuration-triggered loading before republishing diagnostics.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty restart patterns. It noted mature servers avoid holding the main/session lock while waiting and prefer pull diagnostic refresh when available; this slice waits only outside the session lock and keeps existing push/pull diagnostic behavior.
+- Follow-ups/blockers: Phase 3B discovery/enrichment Project-root scaffolding is next.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1268,7 +1283,7 @@ Names may change, but the outcome must be derived from stable Project facts, not
 - [x] Formatting and build checks pass: `just fmt --check` and `cargo build -q` passed.
 
 **Phase 3A4d gate**
-- [ ] Configuration-change restart tests pass for the active loading graph and superseded apply rejection: `cargo test -p djls-server configuration_restart`
+- [x] Configuration-change restart tests pass for the active loading graph and superseded apply rejection: `cargo test -p djls-server configuration_restart` — 1 passed. Evidence: `initialized` and env-changing configuration reloads start the source-file loading graph through `StartupController`; superseded applies leave prior Project Facts unchanged, and generation supersession is marked active before waiting behind apply linearization.
 
 **Phase 3B gate**
 - [x] Phase 3B has been rewritten against the stable `Project` root before implementation starts. Evidence: the Phase 3B section now depends on the Architecture correction gate, defines `Project.discovery`/`Project.enrichment` domain facts, and forbids extending `ProjectLoadingState`.

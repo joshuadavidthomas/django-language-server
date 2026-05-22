@@ -62,9 +62,9 @@ impl StartupController {
     }
 
     pub(crate) async fn start_generation(&self) -> GenerationGuard {
-        let _generation_lock = self.generation_lock.lock().await;
         let generation = StartupGeneration(self.next.fetch_add(1, Ordering::SeqCst));
         self.active.store(generation.0, Ordering::SeqCst);
+        let _generation_lock = self.generation_lock.lock().await;
         GenerationGuard {
             generation,
             active: Arc::clone(&self.active),
@@ -112,6 +112,9 @@ impl GenerationGuard {
         }
 
         let mut session = session.lock().await;
+        if !self.is_current() {
+            return ApplyOutcome::Superseded;
+        }
 
         match apply(&mut session) {
             Ok(value) => ApplyOutcome::Applied(value),
@@ -1096,7 +1099,7 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn supersession_waits_for_guarded_apply_linearization() {
+    async fn supersession_marks_active_before_waiting_for_guarded_apply_linearization() {
         use std::time::Duration;
 
         let session = Arc::new(Mutex::new(initialized_session()));
@@ -1117,9 +1120,16 @@ mod startup_generation {
         assert!(tokio::time::timeout(Duration::from_millis(10), rx)
             .await
             .is_err());
+        assert_eq!(
+            controller
+                .guard_for_active_generation()
+                .unwrap()
+                .generation(),
+            StartupGeneration(2)
+        );
 
         drop(session_lock);
-        assert_eq!(apply.await.unwrap(), ApplyOutcome::Applied(()));
+        assert_eq!(apply.await.unwrap(), ApplyOutcome::Superseded);
         restart.await.unwrap();
         assert_eq!(
             controller
@@ -1299,6 +1309,63 @@ mod startup_generation {
         cvar.notify_one();
 
         assert_eq!(startup.await.unwrap(), StartupRunOutcome::Failed);
+        let session = session.lock().await;
+        assert_eq!(
+            ProjectDb::project(session.db()).source_inventory(session.db()),
+            before
+        );
+    }
+
+    #[tokio::test]
+    async fn configuration_restart_supersedes_older_apply_without_mutating_project_facts() {
+        let root = Utf8PathBuf::from(format!(
+            "/tmp/djls-configuration-restart-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("root directory should be created");
+        std::fs::write(root.join("models.py"), "").expect("seed file should be written");
+        let session = Arc::new(Mutex::new(initialized_session_with_root(root.as_str())));
+        let controller = StartupController::new();
+        let before = seed_ready_source_inventory(Arc::clone(&session), &controller).await;
+
+        let inputs = {
+            let session = session.lock().await;
+            StartupRunInputs::capture(&session, controller.start_generation().await)
+        };
+        let blocked = Arc::new(AtomicBool::new(false));
+        let unblock = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let gate_blocked = Arc::clone(&blocked);
+        let gate_unblock = Arc::clone(&unblock);
+        let gate = Arc::new(move || {
+            gate_blocked.store(true, Ordering::SeqCst);
+            let (lock, cvar) = &*gate_unblock;
+            let mut unblocked = lock.lock().expect("unblock mutex should not be poisoned");
+            while !*unblocked {
+                unblocked = cvar
+                    .wait(unblocked)
+                    .expect("unblock mutex should not be poisoned");
+            }
+        });
+
+        let startup = tokio::spawn(run_startup_source_files_with_gate(
+            Arc::clone(&session),
+            inputs,
+            Some(gate),
+        ));
+        while !blocked.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+        let _restart = controller.start_generation().await;
+        let (lock, cvar) = &*unblock;
+        *lock.lock().expect("unblock mutex should not be poisoned") = true;
+        cvar.notify_one();
+
+        assert_eq!(
+            startup.await.unwrap(),
+            StartupRunOutcome::Superseded {
+                generation: StartupGeneration(2),
+            }
+        );
         let session = session.lock().await;
         assert_eq!(
             ProjectDb::project(session.db()).source_inventory(session.db()),
