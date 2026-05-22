@@ -1,5 +1,6 @@
 use djls_source::File;
 
+use crate::module_name_for_path;
 use crate::project_layout_index;
 use crate::Db;
 use crate::DjangoSettingsModuleSeed;
@@ -97,7 +98,7 @@ pub fn settings_candidates(db: &dyn Db, project: Project) -> SettingsCandidateOu
     match project_layout_index(db, project) {
         ProjectLayoutIndexOutcome::Ready(layout) => {
             collect_manage_py_candidates(db, layout, &mut candidates, &mut issues);
-            collect_conventional_candidates(layout, &mut candidates);
+            collect_conventional_candidates(db, project, layout, &mut candidates);
         }
         ProjectLayoutIndexOutcome::Absent { issue }
         | ProjectLayoutIndexOutcome::Unavailable { issue } => {
@@ -219,6 +220,8 @@ fn collect_manage_py_candidates(
 }
 
 fn collect_conventional_candidates(
+    db: &dyn Db,
+    project: Project,
     layout: &ProjectLayoutIndex,
     candidates: &mut Vec<SettingsCandidate>,
 ) {
@@ -226,36 +229,16 @@ fn collect_conventional_candidates(
         let Some(path) = layout.file_path(file) else {
             continue;
         };
-        let Some(module) = conventional_module_name_for_path(layout, path) else {
+        let Some(module) = module_name_for_path(db, project, path) else {
             continue;
         };
         candidates.push(SettingsCandidate::new(
-            module,
+            module.clone(),
             Some(file),
             SettingsCandidateSource::ConventionalModule,
             OriginSet::single(Origin::Convention { file }),
         ));
     }
-}
-
-fn conventional_module_name_for_path(
-    layout: &ProjectLayoutIndex,
-    path: &camino::Utf8Path,
-) -> Option<PyModuleName> {
-    let root = layout
-        .source_roots()
-        .iter()
-        .filter(|root| path.starts_with(root.as_path()))
-        .max_by_key(|root| root.as_str().len())?;
-    let relative = path.strip_prefix(root).ok()?.with_extension("");
-    let mut components = relative
-        .components()
-        .map(|component| component.as_str())
-        .collect::<Vec<_>>();
-    if components.first() == Some(&"src") && components.len() > 1 {
-        components.remove(0);
-    }
-    PyModuleName::parse(&components.join(".")).ok()
 }
 
 fn push_seed(

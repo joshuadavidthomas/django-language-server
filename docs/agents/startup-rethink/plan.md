@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `smwxvrqu` contains the completed settings candidate discovery slice.
-- **Current slice**: Settings candidate discovery completed; Phase 5A is next.
+- **Implementation change**: `xuputsyz` contains the completed module resolution roots slice.
+- **Current slice**: Module resolution roots completed; Phase 5B is next.
 
 ### Implementation Notes
 
@@ -324,6 +324,21 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required the same partial issue model, explicit source ranking without provenance-dropping deduplication, better `src/` conventional module handling, and private façade module boundaries; addressed in this slice.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed preserving multiple config/project candidates, origin/provenance, partial diagnostics, and avoiding silent default selection align with mature tooling patterns.
 - Follow-ups/blockers: Phase 5A should replace the temporary conventional module heuristic with the planned import-root/module resolver and route settings candidates through that resolver when available.
+
+### Module resolution roots
+- Bookmark: `startup-rethink` still points to `smwxvrqu`; move it to `xuputsyz` after describing this verified slice.
+- Current change: `xuputsyz`.
+- Scope: added project-owned import roots and module resolution over loaded source inventories, including source-root, `src/` convention, configured `pythonpath`, and interpreter site-packages hint roots; resolved `module.py` and `package/__init__.py`; represented not-found, ambiguous, and deferred unavailable-root outcomes; and routed settings conventional-module derivation through the resolver import-root mapping.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project resolver` passed: 5 tests.
+  - `cargo test -p djls-project settings_candidates` passed: 5 tests.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Ousterhout review required `NotFound` to mean authoritative absence rather than known-but-unloaded import roots; addressed by deferring unresolved modules when any relevant known root is outside the loaded source inventory.
+  - Rust specialist required the same unloaded-root deferral and required settings candidates to stop using their temporary conventional-module heuristic; addressed by adding resolver-backed `module_name_for_path` and using it from settings candidates.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed source/import-root mapping, loaded-file-scoped resolution, conventional module-file/package lookup, and explicit deferred state for incomplete inventories align with mature tooling patterns.
+- Follow-ups/blockers: Phase 5B should use settings candidates as input to Django Environment candidates without selecting a global settings module.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1795,7 +1810,7 @@ pub enum EnvironmentSelection {
 
 #### Automated Verification
 **Phase 5A gate**
-- [ ] Import-root and module-resolution tests pass: `cargo test -p djls-project resolver`
+- [x] Import-root and module-resolution tests pass: `cargo test -p djls-project resolver` passed.
 
 **Phase 5B gate**
 - [ ] Environment candidate tests pass: `cargo test -p djls-project environments`
