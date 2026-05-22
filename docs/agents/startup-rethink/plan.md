@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `vorzrswp` contains the completed Python source-model loading observation slice.
-- **Current slice**: Python source-model readiness observation completed; Phase 4D is next.
+- **Implementation change**: `smwxvrqu` contains the completed settings candidate discovery slice.
+- **Current slice**: Settings candidate discovery completed; Phase 5A is next.
 
 ### Implementation Notes
 
@@ -309,6 +309,21 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required unique test paths, balanced node lifecycle events on supersession, reusable/public readiness projection, discovery participation in the generic readiness projection, and a loading-path reuse test; addressed all in this slice.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that incremental query databases, typed task/readiness outcomes, snapshot/background observation, avoiding long global locks, and cancellation/supersession checks match mature tooling patterns.
 - Follow-ups/blockers: Phase 4D should reuse the nonblocking observation seam for settings-candidate discovery, or stop and revise if candidate derivation needs a different access pattern.
+
+### Settings candidate discovery
+- Bookmark: `startup-rethink` still points to `vorzrswp`; move it to `smwxvrqu` after describing this verified slice.
+- Current change: `smwxvrqu`.
+- Scope: added project-owned settings candidate types and query, provenance/origin tracking, partial issue reporting, explicit/configured-environment/env-var/manage.py/conventional settings sources, `src/` layout conventional-module handling, invalid module reporting, and test-only fixture helpers for source inventories and discovery sets.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project settings_candidates` passed: 5 settings-related tests.
+  - `cargo test -p djls-project testing` passed: 1 helper test.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review required settings discovery candidates to be independent of layout availability, configured Django environments to be collected, provenance not to be discarded by deduplication, and invalid module values to remain visible; addressed by returning partial issues, adding the configured-environment source, preserving duplicate provenance-bearing candidates, and reporting invalid module issues.
+  - Rust specialist required the same partial issue model, explicit source ranking without provenance-dropping deduplication, better `src/` conventional module handling, and private façade module boundaries; addressed in this slice.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed preserving multiple config/project candidates, origin/provenance, partial diagnostics, and avoiding silent default selection align with mature tooling patterns.
+- Follow-ups/blockers: Phase 5A should replace the temporary conventional module heuristic with the planned import-root/module resolver and route settings candidates through that resolver when available.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1645,9 +1660,9 @@ pub enum SettingsCandidateSource {
 - [x] Live-readiness reuse test or query counter proves the first post-ready request does not recompute `python_source_index(db, project)` after `python-source-models` reported ready: `cargo test -p djls-project python_source_index_reuse` passed.
 
 **Phase 4D gate**
-- [ ] Settings candidate tests pass: `cargo test -p djls-project settings_candidates`
-- [ ] Testing helpers compile with source files, `SourceFileSet`, and `ProjectDiscoverySet` fixtures: `cargo test -p djls-project testing`
-- [ ] Workspace builds: `cargo build -q`
+- [x] Settings candidate tests pass: `cargo test -p djls-project settings_candidates` passed.
+- [x] Testing helpers compile with source files, `SourceFileSet`, and `ProjectDiscoverySet` fixtures: `cargo test -p djls-project testing` passed.
+- [x] Workspace builds: `cargo build -q` passed.
 
 #### Manual Verification
 - [ ] Confirm no Ruff AST types appear in public `djls-project` source-model return structs.

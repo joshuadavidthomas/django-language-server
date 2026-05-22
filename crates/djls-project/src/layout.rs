@@ -65,6 +65,11 @@ impl ProjectLayoutIndex {
     }
 
     #[must_use]
+    pub fn source_roots(&self) -> &[Utf8PathBuf] {
+        &self.roots
+    }
+
+    #[must_use]
     pub fn file_path(&self, file: File) -> Option<&Utf8Path> {
         self.files
             .iter()
