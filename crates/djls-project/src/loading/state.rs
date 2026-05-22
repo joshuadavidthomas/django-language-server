@@ -5,12 +5,18 @@ use djls_source::SourceRootId;
 
 use super::files::MergedDiscoveredSourceFileSetData;
 use super::files::ProjectFileSetPartitions;
+use crate::ProjectDiscovery;
+use crate::ProjectDiscoveryIssue;
+use crate::ProjectDiscoveryIssues;
+use crate::ProjectEnrichment;
 
 #[salsa::input]
 #[derive(Debug)]
 pub struct Project {
     pub source_inventory: ProjectSourceInventory,
+    #[returns(ref)]
     pub discovery: ProjectDiscovery,
+    #[returns(ref)]
     pub enrichment: ProjectEnrichment,
 }
 
@@ -21,9 +27,7 @@ impl Project {
             ProjectSourceInventory::Unavailable {
                 issue: ProjectSourceFilesIssue::NotLoaded,
             },
-            ProjectDiscovery::Unavailable {
-                issue: ProjectDiscoveryIssue::NotLoaded,
-            },
+            ProjectDiscovery::Absent,
             ProjectEnrichment::Absent,
         )
     }
@@ -37,7 +41,10 @@ impl Project {
                 },
             },
             ProjectDiscovery::Unavailable {
-                issue: ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
+                issues: ProjectDiscoveryIssues::new(vec![
+                    ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
+                ])
+                .expect("fixture discovery issue should be non-empty"),
             },
             ProjectEnrichment::Absent,
         )
@@ -158,28 +165,6 @@ pub enum ProjectSourceFilesFixtureSurface {
     Materialization,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectDiscovery {
-    Unavailable { issue: ProjectDiscoveryIssue },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectDiscoveryIssue {
-    NotLoaded,
-    FixtureDoesNotModelDiscovery,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectEnrichment {
-    Absent,
-    Unavailable { issue: ProjectEnrichmentIssue },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectEnrichmentIssue {
-    FixtureDoesNotModelEnrichment,
-}
-
 #[cfg(test)]
 mod tests {
     use camino::Utf8PathBuf;
@@ -250,12 +235,15 @@ mod tests {
             }
         );
         assert_eq!(
-            project.discovery(&db),
+            *project.discovery(&db),
             ProjectDiscovery::Unavailable {
-                issue: ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
+                issues: ProjectDiscoveryIssues::new(vec![
+                    ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
+                ])
+                .expect("fixture discovery issue should be non-empty"),
             }
         );
-        assert_eq!(project.enrichment(&db), ProjectEnrichment::Absent);
+        assert_eq!(*project.enrichment(&db), ProjectEnrichment::Absent);
     }
 
     fn ready_source_files(db: &TestDb) -> ReadyProjectSourceFiles {
@@ -282,13 +270,8 @@ mod tests {
                 issue: ProjectSourceFilesIssue::NotLoaded,
             }
         );
-        assert_eq!(
-            project.discovery(&db),
-            ProjectDiscovery::Unavailable {
-                issue: ProjectDiscoveryIssue::NotLoaded,
-            }
-        );
-        assert_eq!(project.enrichment(&db), ProjectEnrichment::Absent);
+        assert_eq!(*project.discovery(&db), ProjectDiscovery::Absent);
+        assert_eq!(*project.enrichment(&db), ProjectEnrichment::Absent);
     }
 
     #[salsa::tracked]

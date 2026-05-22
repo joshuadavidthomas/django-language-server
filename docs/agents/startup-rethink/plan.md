@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `uorlmwwk` contains the completed configuration restart implementation slice.
-- **Current slice**: configuration restart completed; Phase 3B is next.
+- **Implementation change**: `lvnkyyyr` contains the completed discovery/enrichment scaffolding slice.
+- **Current slice**: discovery/enrichment scaffolding completed; Phase 3C is next.
 
 ### Implementation Notes
 
@@ -158,6 +158,24 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist requested post-restart diagnostic republish ordering; fixed by awaiting configuration-triggered loading before republishing diagnostics.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty restart patterns. It noted mature servers avoid holding the main/session lock while waiting and prefer pull diagnostic refresh when available; this slice waits only outside the session lock and keeps existing push/pull diagnostic behavior.
 - Follow-ups/blockers: Phase 3B discovery/enrichment Project-root scaffolding is next.
+
+### Discovery/enrichment Project-root scaffolding
+- Bookmark: `startup-rethink` still points to `uorlmwwk`; move it to `lvnkyyyr` after describing this verified slice.
+- Current change: `lvnkyyyr`.
+- Scope: added `ProjectDiscovery`, `ProjectDiscoverySet`, root-scoped `RootDiscoveryInput`, project-owned Django environment/settings seeds, canonical `ProjectEnvVars`, non-empty discovery/enrichment issue wrappers, and optional `ProjectEnrichment` facts under the stable `Project` root. Kept loading/progress/generation state out of discovery/enrichment facts and did not wire config loading or discovery apply yet.
+- Validation:
+  - `cargo test -p djls-project discovery` passed: 10 tests.
+  - `cargo test -p djls-db --no-run` passed.
+  - `cargo test -p djls-bench --no-run` passed.
+  - `cargo test -p djls-semantic --no-run` passed.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review and Rust specialist review both rejected implicit duplicate env-var resolution; `ProjectEnvVars` now accepts only already-resolved unique entries and canonicalizes after duplicate detection.
+  - Rust specialist requested `#[returns(ref)]` for owned Salsa fields and stronger invariants; added ref-returning discovery/enrichment fields and non-empty constructors for ready/unavailable discovery/enrichment states.
+  - Rust specialist flagged the option-matrix environment seed; replaced it with a named settings-module seed variant.
+  - Librarian found no major reversal needed. Phase 3C must keep interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing `ProjectEnvVars`, and distinguish missing config fallback from invalid config.
+- Follow-ups/blockers: Phase 3C should preserve the reference-check constraints above while wiring structured settings load and discovery apply.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1287,13 +1305,13 @@ Names may change, but the outcome must be derived from stable Project facts, not
 
 **Phase 3B gate**
 - [x] Phase 3B has been rewritten against the stable `Project` root before implementation starts. Evidence: the Phase 3B section now depends on the Architecture correction gate, defines `Project.discovery`/`Project.enrichment` domain facts, and forbids extending `ProjectLoadingState`.
-- [ ] Discovery/enrichment project-root scaffolding compiles without adding a new readiness singleton: `cargo test -p djls-project discovery` or the nearest targeted module test.
+- [x] Discovery/enrichment project-root scaffolding compiles without adding a new readiness singleton: `cargo test -p djls-project discovery` — 10 passed. Evidence: `Project.discovery` / `Project.enrichment` are stable Project fields, `ProjectDiscoverySet` is root-scoped and non-empty, discovery/enrichment unavailable states require non-empty typed issues, and `ProjectEnvVars` rejects duplicate keys before canonicalization.
 
 **Phase 3C1 gate**
 - [ ] `djls-conf` structured root settings load outcome tests preserve root, source path, typed error category, and fallback marker: `cargo test -p djls-conf root_settings_load`
 
 **Phase 3C2 gate**
-- [ ] Discovery data/helper tests preserve config-load failures/fallback provenance, lower `djls-conf` DTOs into project-owned environment seeds, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings`
+- [ ] Discovery data/helper tests preserve config-load failures/fallback provenance, distinguish missing config fallback from invalid config, lower `djls-conf` DTOs into project-owned environment seeds, treat interpreter/module-search facts and resolved settings as core root-scoped Project Facts once semantics depend on them, apply env precedence before constructing canonical `ProjectEnvVars`, and canonicalize `ProjectEnvVars`: `cargo test -p djls-project loading_settings`
 - [ ] Discovery apply tests update stable `Project.discovery` facts through setters, preserve old facts on failed reload, and invalidate discovery-dependent tracked queries when discovery facts change: `cargo test -p djls-project discovery_invalidation` or the rewritten equivalent.
 
 **Phase 3C3 gate**
