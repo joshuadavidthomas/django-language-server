@@ -15,7 +15,6 @@ use djls_conf::Settings;
 use djls_project::Db as LoadingDb;
 use djls_project::ProjectLoadingState;
 use djls_project::ProjectSourceFilesApplyResult;
-use djls_project::ProjectSourceFilesAvailability;
 use djls_project::ProjectSourceFilesMaterializationPatch;
 use djls_project::ProjectSourceFilesUpdate;
 use djls_project::ReadyProjectSourceFiles;
@@ -254,26 +253,9 @@ impl DjangoDatabase {
     }
 
     fn current_ready_project_source_files(&self) -> Option<ReadyProjectSourceFiles> {
-        match self.project_loading_state().source_files(self) {
-            ProjectSourceFilesAvailability::Ready(files)
-            | ProjectSourceFilesAvailability::Stale { previous: files }
-            | ProjectSourceFilesAvailability::Deferred {
-                previous: Some(files),
-                ..
-            }
-            | ProjectSourceFilesAvailability::Unavailable {
-                previous: Some(files),
-                ..
-            }
-            | ProjectSourceFilesAvailability::Failed {
-                previous: Some(files),
-                ..
-            } => Some(files),
-            ProjectSourceFilesAvailability::Loading
-            | ProjectSourceFilesAvailability::Deferred { previous: None, .. }
-            | ProjectSourceFilesAvailability::Unavailable { previous: None, .. }
-            | ProjectSourceFilesAvailability::Failed { previous: None, .. } => None,
-        }
+        self.project_loading_state()
+            .source_files(self)
+            .ready_or_previous()
     }
 }
 

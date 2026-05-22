@@ -67,6 +67,19 @@ pub enum ProjectSourceFilesAvailability {
     },
 }
 
+impl ProjectSourceFilesAvailability {
+    #[must_use]
+    pub fn ready_or_previous(&self) -> Option<ReadyProjectSourceFiles> {
+        match self {
+            Self::Ready(files) | Self::Stale { previous: files } => Some(files.clone()),
+            Self::Deferred { previous, .. }
+            | Self::Unavailable { previous, .. }
+            | Self::Failed { previous, .. } => previous.clone(),
+            Self::Loading => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadyProjectSourceFiles {
     pub(crate) partitions: ProjectFileSetPartitions,
@@ -269,6 +282,19 @@ mod tests {
         assert_eq!(state.enrichment(&db), ProjectEnrichmentState::NotStarted);
     }
 
+    fn ready_source_files(db: &TestDb) -> ReadyProjectSourceFiles {
+        let root_path = Utf8PathBuf::from("/workspace");
+        let root_id = SourceRootId::new(root_path.clone());
+        let root = SourceRoot::new(root_id.clone(), root_path.clone(), FileRootKind::Project);
+        let file_path = root_path.join("templates/index.html");
+        let file = File::new(db, file_path.clone(), 0);
+        let loaded = LoadedSourceFile::new(file_path, root_id, file);
+        let data = SourceFileSetData::new(vec![SourceRootEntry::new(root)], vec![loaded])
+            .expect("source file set should be coherent");
+        let set = SourceFileSet::new(db, data);
+        ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set)
+    }
+
     #[test]
     fn loading_state_not_loaded_is_production_safe() {
         let db = TestDb::default();
@@ -305,21 +331,39 @@ mod tests {
         let mut db = TestDb::new_with_loading_state();
         assert_eq!(source_file_count_probe(&db), None);
 
-        let root_path = Utf8PathBuf::from("/workspace");
-        let root_id = SourceRootId::new(root_path.clone());
-        let root = SourceRoot::new(root_id.clone(), root_path.clone(), FileRootKind::Project);
-        let file_path = root_path.join("templates/index.html");
-        let file = File::new(&db, file_path.clone(), 0);
-        let loaded = LoadedSourceFile::new(file_path, root_id, file);
-        let data = SourceFileSetData::new(vec![SourceRootEntry::new(root)], vec![loaded])
-            .expect("source file set should be coherent");
-        let set = SourceFileSet::new(&db, data);
-        let files =
-            ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set);
-
-        db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(files));
+        db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(
+            ready_source_files(&db),
+        ));
 
         assert_eq!(source_file_count_probe(&db), Some(1));
+    }
+
+    #[test]
+    fn begin_loading_run_without_previous_source_files_sets_loading() {
+        let mut db = TestDb::new_with_loading_state();
+
+        db.begin_project_loading_run();
+
+        assert_eq!(
+            db.project_loading_state().source_files(&db),
+            ProjectSourceFilesAvailability::Loading
+        );
+    }
+
+    #[test]
+    fn begin_loading_run_preserves_ready_source_files_as_stale() {
+        let mut db = TestDb::new_with_loading_state();
+        let files = ready_source_files(&db);
+        db.set_project_source_files_availability(ProjectSourceFilesAvailability::Ready(
+            files.clone(),
+        ));
+
+        db.begin_project_loading_run();
+
+        assert_eq!(
+            db.project_loading_state().source_files(&db),
+            ProjectSourceFilesAvailability::Stale { previous: files }
+        );
     }
 
     #[test]

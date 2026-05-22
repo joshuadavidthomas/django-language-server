@@ -540,6 +540,22 @@ pub struct ProjectSourceFilesApplied {
 }
 
 impl ProjectSourceFilesApplied {
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_test(
+        files: ReadyProjectSourceFiles,
+        readiness: ProjectFilePartitionReadiness,
+    ) -> Self {
+        Self {
+            files,
+            transition: ProjectFileLoadingTransition {
+                partition: FileSetPartition::first_party(),
+                readiness,
+            },
+            issues: Vec::new(),
+        }
+    }
+
     #[must_use]
     pub fn files(&self) -> &ReadyProjectSourceFiles {
         &self.files

@@ -37,16 +37,11 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
         &mut self,
         patch: FirstPartySourceFilePatch,
     ) -> ProjectSourceFilesApplyResult {
-        let current = match self.db.project_loading_state().source_files(self.db) {
-            djls_project::ProjectSourceFilesAvailability::Ready(files)
-            | djls_project::ProjectSourceFilesAvailability::Stale { previous: files } => {
-                Some(files)
-            }
-            djls_project::ProjectSourceFilesAvailability::Deferred { previous, .. }
-            | djls_project::ProjectSourceFilesAvailability::Unavailable { previous, .. }
-            | djls_project::ProjectSourceFilesAvailability::Failed { previous, .. } => previous,
-            djls_project::ProjectSourceFilesAvailability::Loading => None,
-        };
+        let current = self
+            .db
+            .project_loading_state()
+            .source_files(self.db)
+            .ready_or_previous();
         let update = merge_first_party_source_file_patch(current.as_ref(), patch);
         self.db.apply_project_source_files(update)
     }
