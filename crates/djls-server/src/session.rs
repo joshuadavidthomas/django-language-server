@@ -479,7 +479,7 @@ S100 = "warning"
         };
         let mut session = Session::new(&params);
 
-        let settings = djls_conf::Settings::new(&session.configuration_root(), None).unwrap();
+        let settings = djls_conf::Settings::load(&session.configuration_root(), None).unwrap();
         let update = session.set_settings(settings);
 
         assert!(update.diagnostics_changed);

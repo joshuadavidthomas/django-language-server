@@ -147,8 +147,8 @@ pub(crate) struct Check {
 impl Command for Check {
     fn execute(&self, args: &Args) -> Result<Exit> {
         let project_root = resolve_project_root()?;
-        let settings =
-            djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
+        let settings = djls_conf::Settings::load(&project_root, None)
+            .map_err(|errors| anyhow::anyhow!("Failed to load settings: {errors:?}"))?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
         let fmt = pick_renderer(self.color);

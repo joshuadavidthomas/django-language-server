@@ -520,13 +520,13 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session_mut(|session| {
                 let project_root = session.configuration_root();
 
-                match djls_conf::Settings::new(
+                match djls_conf::Settings::load(
                     &project_root,
                     Some(session.client_info().config_overrides().clone()),
                 ) {
                     Ok(new_settings) => session.set_settings(new_settings),
-                    Err(e) => {
-                        tracing::error!("Error loading settings: {}", e);
+                    Err(errors) => {
+                        tracing::error!(?errors, "Error loading settings");
                         djls_db::SettingsUpdate::default()
                     }
                 }

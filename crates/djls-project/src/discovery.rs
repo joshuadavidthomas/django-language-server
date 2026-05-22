@@ -212,13 +212,15 @@ pub enum ProjectConfigLoadError {
     Unsupported(Utf8PathBuf),
 }
 
-impl From<djls_conf::ConfigError> for ProjectConfigLoadError {
-    fn from(error: djls_conf::ConfigError) -> Self {
+impl From<djls_conf::SettingsLoadError> for ProjectConfigLoadError {
+    fn from(error: djls_conf::SettingsLoadError) -> Self {
         match error {
-            djls_conf::ConfigError::Io(source_path) => Self::Io(source_path),
-            djls_conf::ConfigError::Parse(source_path) => Self::Parse(source_path),
-            djls_conf::ConfigError::Schema(source_path) => Self::Schema(source_path),
-            djls_conf::ConfigError::Unsupported(source_path) => Self::Unsupported(source_path),
+            djls_conf::SettingsLoadError::Io(source_path) => Self::Io(source_path),
+            djls_conf::SettingsLoadError::Parse(source_path) => Self::Parse(source_path),
+            djls_conf::SettingsLoadError::Schema(source_path) => Self::Schema(source_path),
+            djls_conf::SettingsLoadError::Unsupported(source_path) => {
+                Self::Unsupported(source_path)
+            }
         }
     }
 }

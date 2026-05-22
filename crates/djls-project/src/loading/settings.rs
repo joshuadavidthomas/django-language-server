@@ -134,15 +134,19 @@ pub fn build_project_discovery_data(
 }
 
 fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDiscoveryData {
-    let loaded_settings = djls_conf::load_settings_for_root(&root, client_settings);
-    let settings = loaded_settings.settings();
     let mut issues = Vec::new();
-    if let Some(error) = loaded_settings.error() {
-        issues.push(ProjectDiscoveryIssue::ConfigLoadFailed {
-            root: root.clone(),
-            error: error.clone().into(),
-        });
-    }
+    let settings = match djls_conf::Settings::load(&root, Some(client_settings.clone())) {
+        Ok(settings) => settings,
+        Err(errors) => {
+            issues.extend(errors.into_iter().map(|error| {
+                ProjectDiscoveryIssue::ConfigLoadFailed {
+                    root: root.clone(),
+                    error: error.into(),
+                }
+            }));
+            client_settings.clone()
+        }
+    };
 
     let interpreter = Some(Interpreter::discover(settings.venv_path()));
     let settings_module_seed = settings
@@ -166,7 +170,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDis
         .iter()
         .map(|path| root.join(path))
         .collect();
-    let env_outcome = load_env_file_outcome(&root, settings);
+    let env_outcome = load_env_file_outcome(&root, &settings);
     if let Some(kind) = env_outcome.issue() {
         issues.push(ProjectDiscoveryIssue::EnvFileLoadFailed {
             root: root.clone(),
