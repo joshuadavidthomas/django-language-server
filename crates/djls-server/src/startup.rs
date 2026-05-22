@@ -13,6 +13,7 @@ use djls_project::first_party_source_files_load_request;
 use djls_project::merge_first_party_source_file_patch;
 use djls_project::run_loading_plan;
 use djls_project::Db as ProjectDb;
+use djls_project::DjangoEnvironmentCandidatesOutcome;
 use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
@@ -652,13 +653,24 @@ fn spawn_work_done_progress_dispatcher(
     });
 }
 
-impl LoadingObserver for StartupProgress {
+struct GuardedStartupProgressObserver {
+    progress: StartupProgress,
+    guard: GenerationGuard,
+}
+
+impl LoadingObserver for GuardedStartupProgressObserver {
     fn node_started(&mut self, node: NodeId) {
-        self.report_node_started(&tokio::runtime::Handle::current(), node);
+        if self.guard.is_current() {
+            self.progress
+                .report_node_started(&tokio::runtime::Handle::current(), node);
+        }
     }
 
     fn node_finished(&mut self, node: NodeId, status: NodeTerminalStatus) {
-        self.report_node_finished(&tokio::runtime::Handle::current(), node, status);
+        if self.guard.is_current() || status == NodeTerminalStatus::Superseded {
+            self.progress
+                .report_node_finished(&tokio::runtime::Handle::current(), node, status);
+        }
     }
 }
 
@@ -725,9 +737,21 @@ async fn run_startup_source_files_with_gates(
     load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> StartupRunOutcome {
+    run_startup_source_files_with_all_gates(session, inputs, load_gate, python_observe_gate, None)
+        .await
+}
+
+async fn run_startup_source_files_with_all_gates(
+    session: Arc<Mutex<Session>>,
+    inputs: StartupRunInputs,
+    load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    environment_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> StartupRunOutcome {
     let handle = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
         let progress = inputs.progress();
+        let observer_guard = inputs.guard().clone();
         progress.begin(&handle);
         let mut effects = LspLoadingExecutor::new(
             handle.clone(),
@@ -735,8 +759,12 @@ async fn run_startup_source_files_with_gates(
             inputs,
             load_gate,
             python_observe_gate,
+            environment_observe_gate,
         );
-        let mut observer = progress.clone();
+        let mut observer = GuardedStartupProgressObserver {
+            progress: progress.clone(),
+            guard: observer_guard,
+        };
         let result = run_loading_plan(LoadingPlan::phase3(), &mut effects, &mut observer);
         let outcome = effects.finish(result);
         progress.finish(&handle, &outcome);
@@ -753,6 +781,7 @@ struct LspLoadingExecutor {
     roots: Vec<Utf8PathBuf>,
     load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    environment_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl LspLoadingExecutor {
@@ -762,6 +791,7 @@ impl LspLoadingExecutor {
         inputs: StartupRunInputs,
         load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
         python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+        environment_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Self {
         Self {
             handle,
@@ -770,10 +800,16 @@ impl LspLoadingExecutor {
             inputs,
             load_gate,
             python_observe_gate,
+            environment_observe_gate,
         }
     }
 
     fn finish(self, result: LoadingRunResult) -> StartupRunOutcome {
+        if !self.inputs.guard().is_current() {
+            return StartupRunOutcome::Superseded {
+                generation: self.inputs.guard().generation(),
+            };
+        }
         match result.execution_outcome() {
             Some(LoadingExecutionOutcome::Superseded) => StartupRunOutcome::Superseded {
                 generation: self.inputs.guard().generation(),
@@ -877,6 +913,33 @@ impl LoadingEffects for LspLoadingExecutor {
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::python_source_index(&db, project).clone();
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        LoadingObservationOutcome::Observed(outcome)
+    }
+
+    fn observe_django_environment_candidates(
+        &mut self,
+    ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        if let Some(gate) = &self.environment_observe_gate {
+            gate();
+        }
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        let project = ProjectDb::project(&db);
+        let outcome = djls_project::django_environment_candidates(&db, project).clone();
         if !self.inputs.guard().is_current() {
             return LoadingObservationOutcome::Superseded;
         }
@@ -1296,6 +1359,71 @@ mod startup_generation {
     }
 
     #[tokio::test]
+    async fn environment_discovery_request_while_running_does_not_wait() {
+        static NEXT_TEST_ROOT: AtomicUsize = AtomicUsize::new(0);
+        let root = Utf8PathBuf::from(format!(
+            "/tmp/djls-environment-discovery-blocked-{}-{}",
+            std::process::id(),
+            NEXT_TEST_ROOT.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(root.join("templates"))
+            .expect("templates directory should be created");
+        std::fs::write(root.join("settings.py"), "SECRET_KEY = 'x'\n")
+            .expect("settings file should be written");
+        std::fs::write(
+            root.join("templates/index.html"),
+            "{% if user %}hi{% endif %}",
+        )
+        .expect("template file should be written");
+        let session = Arc::new(Mutex::new(initialized_session_with_root(root.as_str())));
+        let controller = StartupController::new();
+        let path = root.join("templates/index.html").to_string();
+        let inputs = {
+            let mut session = session.lock().await;
+            session.open_document(&text_document(&path, 1, "{% if user %}hi{% endif %}"));
+            StartupRunInputs::capture(&session, controller.start_generation().await)
+        };
+        let blocked = Arc::new(AtomicBool::new(false));
+        let unblock = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let gate_blocked = Arc::clone(&blocked);
+        let gate_unblock = Arc::clone(&unblock);
+        let gate = Arc::new(move || {
+            gate_blocked.store(true, Ordering::SeqCst);
+            let (lock, cvar) = &*gate_unblock;
+            let mut unblocked = lock.lock().expect("unblock mutex should not be poisoned");
+            while !*unblocked {
+                unblocked = cvar
+                    .wait(unblocked)
+                    .expect("unblock mutex should not be poisoned");
+            }
+        });
+
+        let startup = tokio::spawn(run_startup_source_files_with_all_gates(
+            Arc::clone(&session),
+            inputs,
+            None,
+            None,
+            Some(gate),
+        ));
+        while !blocked.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+
+        let diagnostics = {
+            let session = session.lock().await;
+            let db = session.db();
+            let file = db.get_or_create_file(&Utf8PathBuf::from(path.as_str()));
+            djls_ide::collect_diagnostics(db, file)
+        };
+
+        let (lock, cvar) = &*unblock;
+        *lock.lock().expect("unblock mutex should not be poisoned") = true;
+        cvar.notify_one();
+        assert_eq!(startup.await.unwrap(), StartupRunOutcome::Succeeded);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
     async fn python_source_models_request_while_running_does_not_wait() {
         static NEXT_TEST_ROOT: AtomicUsize = AtomicUsize::new(0);
         let root = Utf8PathBuf::from(format!(
@@ -1623,6 +1751,11 @@ mod startup_generation {
                 StartupProgressEvent::NodeStarted(NodeId::PythonSourceModels),
                 StartupProgressEvent::NodeFinished {
                     node: NodeId::PythonSourceModels,
+                    status: NodeTerminalStatus::Unavailable,
+                },
+                StartupProgressEvent::NodeStarted(NodeId::EnvironmentDiscovery),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::EnvironmentDiscovery,
                     status: NodeTerminalStatus::Unavailable,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),

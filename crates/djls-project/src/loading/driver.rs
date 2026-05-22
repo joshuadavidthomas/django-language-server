@@ -8,6 +8,7 @@ use super::plan::node_status_from_readiness;
 use super::plan::LoadingPlan;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
+use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
@@ -53,7 +54,8 @@ impl LoadingRunResult {
         self.node_results.iter().find_map(|result| match result {
             LoadingNodeResult::SourceFileSet { applied, .. } => Some(applied),
             LoadingNodeResult::ProjectDiscoverySet { .. }
-            | LoadingNodeResult::PythonSourceModels { .. } => None,
+            | LoadingNodeResult::PythonSourceModels { .. }
+            | LoadingNodeResult::EnvironmentDiscovery { .. } => None,
         })
     }
 }
@@ -72,6 +74,10 @@ pub enum LoadingNodeResult {
         observed: PythonSourceIndexOutcome,
         status: NodeTerminalStatus,
     },
+    EnvironmentDiscovery {
+        observed: DjangoEnvironmentCandidatesOutcome,
+        status: NodeTerminalStatus,
+    },
 }
 
 impl LoadingNodeResult {
@@ -81,6 +87,7 @@ impl LoadingNodeResult {
             Self::SourceFileSet { .. } => NodeId::SourceFileSet,
             Self::ProjectDiscoverySet { .. } => NodeId::ProjectDiscoverySet,
             Self::PythonSourceModels { .. } => NodeId::PythonSourceModels,
+            Self::EnvironmentDiscovery { .. } => NodeId::EnvironmentDiscovery,
         }
     }
 
@@ -89,7 +96,8 @@ impl LoadingNodeResult {
         match self {
             Self::SourceFileSet { status, .. }
             | Self::ProjectDiscoverySet { status, .. }
-            | Self::PythonSourceModels { status, .. } => status,
+            | Self::PythonSourceModels { status, .. }
+            | Self::EnvironmentDiscovery { status, .. } => status,
         }
     }
 }
@@ -171,6 +179,22 @@ pub fn run_loading_plan(
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::PythonSourceModels { observed, status });
             }
+            NodeId::EnvironmentDiscovery => {
+                observer.node_started(*node);
+                let observed = match effects.observe_django_environment_candidates() {
+                    LoadingObservationOutcome::Observed(observed) => observed,
+                    LoadingObservationOutcome::Superseded => {
+                        observer.node_finished(*node, NodeTerminalStatus::Superseded);
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            LoadingExecutionOutcome::Superseded,
+                        );
+                    }
+                };
+                let status = node_status_from_readiness(&observed);
+                observer.node_finished(*node, status.clone());
+                node_results.push(LoadingNodeResult::EnvironmentDiscovery { observed, status });
+            }
         }
     }
 
@@ -187,6 +211,8 @@ mod tests {
     use crate::first_party_discovery_files_request;
     use crate::first_party_source_files_load_request;
     use crate::merge_first_party_source_file_patch;
+    use crate::DjangoEnvironmentCandidate;
+    use crate::DjangoEnvironmentCandidatesOutcome;
     use crate::FirstPartySourceFilePatch;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoveryApplyResult;
@@ -204,6 +230,7 @@ mod tests {
         discovery_load_count: usize,
         discovery_apply_count: usize,
         python_observe_count: usize,
+        environment_observe_count: usize,
         roots: Vec<Utf8PathBuf>,
     }
 
@@ -273,6 +300,16 @@ mod tests {
                 PythonSourceIndex::default(),
             ))
         }
+
+        fn observe_django_environment_candidates(
+            &mut self,
+        ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+            self.environment_observe_count += 1;
+            LoadingObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+                candidates: Vec::<DjangoEnvironmentCandidate>::new(),
+                issues: Vec::new(),
+            })
+        }
     }
 
     #[derive(Default)]
@@ -307,12 +344,14 @@ mod tests {
         assert_eq!(effects.discovery_load_count, 1);
         assert_eq!(effects.discovery_apply_count, 1);
         assert_eq!(effects.python_observe_count, 1);
+        assert_eq!(effects.environment_observe_count, 1);
         assert_eq!(
             observer.started,
             vec![
                 NodeId::SourceFileSet,
                 NodeId::ProjectDiscoverySet,
                 NodeId::PythonSourceModels,
+                NodeId::EnvironmentDiscovery,
             ]
         );
         assert_eq!(
@@ -321,11 +360,16 @@ mod tests {
                 (NodeId::SourceFileSet, NodeTerminalStatus::Unavailable),
                 (NodeId::ProjectDiscoverySet, NodeTerminalStatus::Deferred),
                 (NodeId::PythonSourceModels, NodeTerminalStatus::Succeeded),
+                (NodeId::EnvironmentDiscovery, NodeTerminalStatus::Succeeded),
             ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);
         assert_eq!(result.node_results()[1].node(), NodeId::ProjectDiscoverySet);
         assert_eq!(result.node_results()[2].node(), NodeId::PythonSourceModels);
+        assert_eq!(
+            result.node_results()[3].node(),
+            NodeId::EnvironmentDiscovery
+        );
         assert_eq!(
             result.node_results()[0].status(),
             &NodeTerminalStatus::Unavailable
@@ -336,6 +380,10 @@ mod tests {
         );
         assert_eq!(
             result.node_results()[2].status(),
+            &NodeTerminalStatus::Succeeded
+        );
+        assert_eq!(
+            result.node_results()[3].status(),
             &NodeTerminalStatus::Succeeded
         );
     }

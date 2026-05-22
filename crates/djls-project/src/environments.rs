@@ -31,6 +31,18 @@ pub struct DjangoEnvironmentCandidate {
 }
 
 impl DjangoEnvironmentCandidate {
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_test() -> Self {
+        Self {
+            id: DjangoEnvironmentId("test:config:/workspace".to_string()),
+            settings: crate::PyModuleName::parse("test.settings")
+                .expect("test module should be valid"),
+            root: Some(camino::Utf8PathBuf::from("/workspace")),
+            source: EnvironmentCandidateSource::ExplicitConfig,
+        }
+    }
+
     #[must_use]
     pub fn id(&self) -> &DjangoEnvironmentId {
         &self.id
@@ -302,6 +314,8 @@ fn source_slug(source: &EnvironmentCandidateSource) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
     use std::sync::OnceLock;
 
     use camino::Utf8Path;
@@ -316,6 +330,7 @@ mod tests {
     use djls_source::SourceRootEntry;
     use djls_source::SourceRootId;
     use rustc_hash::FxHashMap;
+    use salsa::Database;
 
     use super::*;
     use crate::DjangoEnvironmentSeed;
@@ -330,12 +345,34 @@ mod tests {
     use crate::RootDiscoveryInput;
 
     #[salsa::db]
-    #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
         files: SourceFiles,
         sources: FxHashMap<Utf8PathBuf, String>,
         project: OnceLock<Project>,
+        events: Arc<Mutex<Vec<salsa::Event>>>,
+    }
+
+    impl Default for TestDb {
+        fn default() -> Self {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let storage = salsa::Storage::new(Some(Box::new({
+                let events = Arc::clone(&events);
+                move |event| {
+                    events
+                        .lock()
+                        .expect("event log is not poisoned")
+                        .push(event)
+                }
+            })));
+            Self {
+                storage,
+                files: SourceFiles::default(),
+                sources: FxHashMap::default(),
+                project: OnceLock::new(),
+                events,
+            }
+        }
     }
 
     #[salsa::db]
@@ -379,6 +416,19 @@ mod tests {
             let path = Utf8PathBuf::from(path);
             self.sources.insert(path.clone(), source.to_string());
             self.get_or_create_file(path.as_path())
+        }
+
+        fn take_events(&self) -> Vec<salsa::Event> {
+            std::mem::take(&mut *self.events.lock().expect("event log is not poisoned"))
+        }
+
+        fn tracked_query_executed(&self, events: &[salsa::Event], query_name: &str) -> bool {
+            events.iter().any(|event| match &event.kind {
+                salsa::EventKind::WillExecute { database_key } => self
+                    .ingredient_debug_name(database_key.ingredient_index())
+                    .contains(query_name),
+                _ => false,
+            })
         }
     }
 
@@ -521,6 +571,34 @@ mod tests {
         };
 
         assert!(selected.as_str().contains("config.settings"));
+    }
+
+    #[test]
+    fn environment_candidates_reuse_after_loading_environment_discovery_ready() {
+        let mut db = TestDb::with_project();
+        let root = discovery_root(&db, "/workspace", Some("project.settings"), Vec::new());
+        db.set_project_source_inventory(ready_inventory(&db, &[]));
+        db.set_project_discovery(ProjectDiscovery::Ready(
+            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        ));
+
+        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+            django_environment_candidates(&db, db.project())
+        else {
+            panic!("single environment candidate should be ready");
+        };
+        assert_eq!(candidates.len(), 1);
+        let _ = db.take_events();
+
+        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+            django_environment_candidates(&db, db.project())
+        else {
+            panic!("environment candidates should be reused");
+        };
+        assert_eq!(candidates.len(), 1);
+        let events = db.take_events();
+
+        assert!(!db.tracked_query_executed(&events, "django_environment_candidates"));
     }
 
     #[test]

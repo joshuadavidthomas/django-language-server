@@ -1,3 +1,4 @@
+use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::ProjectDiscovery;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectFilePartitionReadiness;
@@ -10,6 +11,7 @@ pub enum NodeId {
     SourceFileSet,
     ProjectDiscoverySet,
     PythonSourceModels,
+    EnvironmentDiscovery,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +19,7 @@ pub enum ReadinessSourceKind {
     SourceFilePartition,
     ProjectDiscovery,
     PythonSourceIndex,
+    EnvironmentCandidates,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +45,15 @@ pub const NODE_SPECS: &[NodeSpec] = &[
         prerequisites: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
         readiness_source: ReadinessSourceKind::PythonSourceIndex,
     },
+    NodeSpec {
+        id: NodeId::EnvironmentDiscovery,
+        prerequisites: &[
+            NodeId::SourceFileSet,
+            NodeId::ProjectDiscoverySet,
+            NodeId::PythonSourceModels,
+        ],
+        readiness_source: ReadinessSourceKind::EnvironmentCandidates,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +69,7 @@ impl LoadingPlan {
                 NodeId::SourceFileSet,
                 NodeId::ProjectDiscoverySet,
                 NodeId::PythonSourceModels,
+                NodeId::EnvironmentDiscovery,
             ],
         }
     }
@@ -137,6 +150,22 @@ impl LoadingReadiness for ProjectDiscoveryApplyResult {
     }
 }
 
+impl LoadingReadiness for DjangoEnvironmentCandidatesOutcome {
+    fn terminal_status(&self) -> NodeTerminalStatus {
+        match self {
+            DjangoEnvironmentCandidatesOutcome::Ready { issues, .. } if issues.is_empty() => {
+                NodeTerminalStatus::Succeeded
+            }
+            DjangoEnvironmentCandidatesOutcome::Ready { .. }
+            | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => NodeTerminalStatus::Degraded,
+            DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
+                NodeTerminalStatus::Unavailable
+            }
+            DjangoEnvironmentCandidatesOutcome::Deferred { .. } => NodeTerminalStatus::Deferred,
+        }
+    }
+}
+
 impl LoadingReadiness for PythonSourceIndexOutcome {
     fn terminal_status(&self) -> NodeTerminalStatus {
         match self {
@@ -178,6 +207,8 @@ mod tests {
 
     use super::super::files::ProjectFileSetPartitions;
     use super::*;
+    use crate::DjangoEnvironmentCandidate;
+    use crate::EnvironmentCandidatesIssue;
     use crate::ProjectDiscoveryIssue;
     use crate::ProjectDiscoveryIssues;
     use crate::ProjectDiscoverySet;
@@ -228,6 +259,15 @@ mod tests {
                     prerequisites: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
                     readiness_source: ReadinessSourceKind::PythonSourceIndex,
                 },
+                NodeSpec {
+                    id: NodeId::EnvironmentDiscovery,
+                    prerequisites: &[
+                        NodeId::SourceFileSet,
+                        NodeId::ProjectDiscoverySet,
+                        NodeId::PythonSourceModels,
+                    ],
+                    readiness_source: ReadinessSourceKind::EnvironmentCandidates,
+                },
             ]
         );
     }
@@ -240,6 +280,7 @@ mod tests {
                 NodeId::SourceFileSet,
                 NodeId::ProjectDiscoverySet,
                 NodeId::PythonSourceModels,
+                NodeId::EnvironmentDiscovery,
             ]
         );
     }
@@ -358,6 +399,42 @@ mod tests {
 
         for (result, expected) in cases {
             assert_eq!(node_status_from_discovery_readiness(&result), expected);
+        }
+    }
+
+    #[test]
+    fn loading_environment_discovery_projection_covers_readiness_classes() {
+        let cases = [
+            (
+                DjangoEnvironmentCandidatesOutcome::Ready {
+                    candidates: vec![DjangoEnvironmentCandidate::for_test()],
+                    issues: Vec::new(),
+                },
+                NodeTerminalStatus::Succeeded,
+            ),
+            (
+                DjangoEnvironmentCandidatesOutcome::Ready {
+                    candidates: vec![DjangoEnvironmentCandidate::for_test()],
+                    issues: vec![EnvironmentCandidatesIssue::NoSettingsCandidates],
+                },
+                NodeTerminalStatus::Degraded,
+            ),
+            (
+                DjangoEnvironmentCandidatesOutcome::Deferred {
+                    issue: EnvironmentCandidatesIssue::NoSettingsCandidates,
+                },
+                NodeTerminalStatus::Deferred,
+            ),
+            (
+                DjangoEnvironmentCandidatesOutcome::Unavailable {
+                    issue: EnvironmentCandidatesIssue::NoSettingsCandidates,
+                },
+                NodeTerminalStatus::Unavailable,
+            ),
+        ];
+
+        for (result, expected) in cases {
+            assert_eq!(node_status_from_readiness(&result), expected);
         }
     }
 

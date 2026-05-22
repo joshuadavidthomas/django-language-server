@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `mrznmops` contains the completed Django Environment candidates slice.
-- **Current slice**: Django Environment candidates completed; Phase 5C is next.
+- **Implementation change**: `sqppsxrp` contains the completed environment-discovery loading observation slice.
+- **Current slice**: Environment-discovery loading observation completed; Phase 5D is next.
 
 ### Implementation Notes
 
@@ -354,6 +354,23 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required file-based candidate roots to use owning project roots, stable candidate IDs, multiple project candidates to remain ready instead of globally ambiguous, and upstream issues to survive; addressed all in this slice.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed multiple project/config/environment records, per-file/root selection, stable provenance, and partial issue preservation match mature tooling patterns.
 - Follow-ups/blockers: Phase 5C should observe `django_environment_candidates(db, project)` through the loading graph without holding the session lock across candidate derivation.
+
+### Environment-discovery loading observation
+- Bookmark: `startup-rethink` still points to `mrznmops`; move it to `sqppsxrp` after describing this verified slice.
+- Current change: `sqppsxrp`.
+- Scope: added the `environment-discovery` loading node after source files, project discovery, and Python source models; projected terminal status from `DjangoEnvironmentCandidatesOutcome`; wired CLI and LSP effect adapters through the shared loading driver; reused the LSP snapshot observation seam without holding the `Session` lock across candidate derivation; guarded progress/final outcome against supersession; and added nonblocking request plus query-reuse coverage.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project loading_environment_discovery` passed: 2 tests.
+  - `cargo test -p djls-project environment_candidates_reuse` passed: 1 test.
+  - `cargo test -p djls-server startup` passed: 22 tests.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review required stale/superseded runs not to emit successful environment-discovery progress or finish as succeeded after supersession; addressed by guarding node progress and final outcome emission against the active generation.
+  - Rust specialist found no must-fix issues and confirmed the node uses the neutral loading path, nonblocking snapshot seam, readiness projection, reuse coverage, and request-while-running coverage.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed snapshot/background work, short session locks, progress, cancellation/supersession guards, and query/cache reuse align with mature tooling patterns.
+- Follow-ups/blockers: Phase 5D should register `workspace-ready` as a loading-plan milestone over source files, Python source models, and environment discovery.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1832,10 +1849,10 @@ pub enum EnvironmentSelection {
 - [x] Multisite fixture test passes: `cargo test -p djls-project multisite` passed.
 
 **Phase 5C gate**
-- [ ] Nonblocking live-query access seam covers environment candidate derivation without holding `Arc<Mutex<Session>>` across long tracked-query execution.
-- [ ] Environment-discovery node tests pass through the neutral runner/shared plan and both real effect adapters, proving terminal status is projected by `node_status_from_readiness(DjangoEnvironmentCandidatesOutcome)` observed on the live database: `cargo test -p djls-project loading_environment_discovery`, `cargo test -p djls-server startup`, and `cargo test -p djls --test check`
-- [ ] Request-while-running test proves a blocked `environment-discovery` observation does not block representative requests: `cargo test -p djls-server environment_discovery_request_while_running` or equivalent startup test
-- [ ] Live-readiness reuse test or query counter proves the first post-ready request does not recompute `django_environment_candidates(db, project)` after `environment-discovery` reported ready: `cargo test -p djls-project environment_candidates_reuse` or equivalent instrumentation test
+- [x] Nonblocking live-query access seam covers environment candidate derivation without holding `Arc<Mutex<Session>>` across long tracked-query execution. Evidence: LSP `observe_django_environment_candidates` clones the project DB under the session lock, runs `django_environment_candidates` after releasing it, and `cargo test -p djls-server startup` passed.
+- [x] Environment-discovery node tests pass through the neutral runner/shared plan and both real effect adapters, proving terminal status is projected by `node_status_from_readiness(DjangoEnvironmentCandidatesOutcome)` observed on the live database: `cargo test -p djls-project loading_environment_discovery`, `cargo test -p djls-server startup`, and `cargo test -p djls --test check` passed.
+- [x] Request-while-running test proves a blocked `environment-discovery` observation does not block representative requests: `cargo test -p djls-server startup` passed, including `environment_discovery_request_while_running_does_not_wait`.
+- [x] Live-readiness reuse test or query counter proves the first post-ready request does not recompute `django_environment_candidates(db, project)` after `environment-discovery` reported ready: `cargo test -p djls-project environment_candidates_reuse` passed.
 
 **Phase 5D gate**
 - [ ] LoadingPlan milestone policy tests pass for `workspace-ready`: `cargo test -p djls-project loading_plan`

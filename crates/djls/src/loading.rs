@@ -5,6 +5,7 @@ use djls_project::first_party_discovery_files_request;
 use djls_project::first_party_source_files_load_request;
 use djls_project::merge_first_party_source_file_patch;
 use djls_project::Db as ProjectDb;
+use djls_project::DjangoEnvironmentCandidatesOutcome;
 use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
@@ -76,6 +77,15 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
         let project = ProjectDb::project(self.db);
         LoadingObservationOutcome::Observed(
             djls_project::python_source_index(self.db, project).clone(),
+        )
+    }
+
+    fn observe_django_environment_candidates(
+        &mut self,
+    ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+        let project = ProjectDb::project(self.db);
+        LoadingObservationOutcome::Observed(
+            djls_project::django_environment_candidates(self.db, project).clone(),
         )
     }
 }

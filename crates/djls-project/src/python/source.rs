@@ -906,6 +906,7 @@ mod tests {
     use crate::first_party_source_files_load_request;
     use crate::merge_first_party_source_file_patch;
     use crate::run_loading_plan;
+    use crate::DjangoEnvironmentCandidatesOutcome;
     use crate::FirstPartySourceFilePatch;
     use crate::LoadingApplyOutcome;
     use crate::LoadingEffects;
@@ -1063,6 +1064,15 @@ mod tests {
             LoadingObservationOutcome::Observed(
                 python_source_index(self.db, self.db.project()).clone(),
             )
+        }
+
+        fn observe_django_environment_candidates(
+            &mut self,
+        ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+            LoadingObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+                candidates: Vec::new(),
+                issues: Vec::new(),
+            })
         }
     }
 

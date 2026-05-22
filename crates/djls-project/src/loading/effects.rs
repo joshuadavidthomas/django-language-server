@@ -1,5 +1,6 @@
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
+use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::FirstPartySourceFilePatch;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectDiscoverySetData;
@@ -46,6 +47,9 @@ pub trait LoadingEffects {
     fn observe_python_source_index(
         &mut self,
     ) -> LoadingObservationOutcome<PythonSourceIndexOutcome>;
+    fn observe_django_environment_candidates(
+        &mut self,
+    ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome>;
 }
 
 pub trait LoadingObserver {
