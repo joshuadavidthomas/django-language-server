@@ -47,6 +47,9 @@ pub(crate) struct Session {
 
     /// The Salsa database for incremental computation
     db: DjangoDatabase,
+
+    /// Monotonic identity for open-document lifecycle changes.
+    document_epoch: u64,
 }
 
 impl Session {
@@ -70,6 +73,7 @@ impl Session {
             client_info,
             workspace_roots,
             db,
+            document_epoch: 0,
         }
     }
 
@@ -130,6 +134,7 @@ impl Session {
 
         let kind = text_document.language_id_to_file_kind(self.client_info.client());
 
+        self.document_epoch += 1;
         self.workspace.open_document(
             &mut self.db,
             &path,
@@ -161,6 +166,7 @@ impl Session {
             return None;
         };
 
+        self.document_epoch += 1;
         self.workspace.update_document(
             &mut self.db,
             &path,
@@ -183,6 +189,7 @@ impl Session {
             return None;
         };
 
+        self.document_epoch += 1;
         let document = self.workspace.close_document(&mut self.db, &path)?;
 
         Some(document)
@@ -242,6 +249,12 @@ impl Session {
             .iter()
             .map(|(_path, document)| document)
             .collect()
+    }
+
+    pub(crate) fn open_document_freshness(&self, path: &camino::Utf8Path) -> Option<(i32, u64)> {
+        self.workspace
+            .get_document(path)
+            .map(|document| (document.version(), self.document_epoch))
     }
 }
 

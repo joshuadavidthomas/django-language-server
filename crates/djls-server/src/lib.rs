@@ -4,6 +4,7 @@ mod logging;
 mod queue;
 mod server;
 mod session;
+mod startup;
 
 use std::io::IsTerminal;
 

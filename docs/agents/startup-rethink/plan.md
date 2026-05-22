@@ -48,15 +48,25 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 - Follow-ups/blockers: Phase 3 owns root construction, project-loading readiness, partition patches, and database materialization.
 
 ### Source-file node through CLI
-- Bookmark: `startup-rethink` will move to `sslnwvtv` after describing this verified slice.
-- Current change: `sslnwvtv`.
-- Scope: added the Phase 3 one-node loading plan, `source-file-set` `NODE_SPECS` manifest row, readiness-to-terminal projection, neutral runner, source-file-specific effects contract, observer event sink, and CLI effect adapter; wired `djls check` through `run_loading_plan` before checking files.
+- Bookmark: `startup-rethink` points to `snvkzvko` after the review follow-up.
+- Current change: `snvkzvko`.
+- Scope: added the Phase 3 one-node loading plan, `source-file-set` `NODE_SPECS` manifest row, readiness-to-terminal projection, neutral runner, source-file-specific effects contract, observer event sink, and CLI effect adapter; wired no-explicit-path `djls check` through `run_loading_plan` while keeping targeted path checks from paying the project-wide loading walk until source-file facts feed check behavior.
 - Validation:
   - `just fmt --check` passed.
-  - `cargo test -p djls-project loading` passed: 19 tests.
+  - `cargo test -p djls-project loading` passed: 23 tests after review follow-up.
   - `cargo test -p djls --test check` passed: 7 tests.
   - `cargo build -q` passed.
 - Follow-ups/blockers: Phase 3A4 adds the LSP generation guard, guarded reset/apply, LSP source-file effect adapter, progress lifecycle, and configuration restart.
+
+### LSP generation guard and guarded apply
+- Bookmark: `startup-rethink` will move to `toyvwmzs` after describing this verified slice.
+- Current change: `toyvwmzs`.
+- Scope: added server-local startup generation primitives, immutable `StartupRunInputs` / `ProjectLoadingSnapshot` capture, versioned open-document snapshots, typed stale-document apply rejection with file/path/captured/current evidence, guarded apply/observe outcomes, and guarded reset coverage.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-server startup_generation` passed: 10 tests after review follow-up.
+  - `cargo build -q` passed.
+- Follow-ups/blockers: Phase 3A4b wires the LSP source-file executor through the neutral loading runner; current generation primitives are intentionally not connected to `initialized` yet.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1141,7 +1151,7 @@ pub enum ProjectLayoutIssue {
 - [x] Phase 3 CLI effect adapter in `crates/djls` runs the active Phase 3 loading plan through `run_loading_plan`: `cargo test -p djls --test check` — 7 passed. Evidence: `CliLoadingExecutor` implements reset, first-party source-file activity, and direct apply through `DjangoDatabase::apply_project_source_files`; `djls check` invokes `run_loading_plan(LoadingPlan::phase3(), ...)` for no-explicit-path runs while targeted path checks avoid the extra project-wide loading walk until source-file facts feed check behavior.
 
 **Phase 3A4a gate**
-- [ ] Generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` or equivalent startup tests
+- [x] Generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` — 10 passed after review follow-up. Evidence: `crates/djls-server/src/startup.rs` defines server-local `ProjectLoadingSnapshot`, `StartupRunInputs`, `StartupGeneration`, `GenerationGuard`, `ApplyOutcome<T>`, `ApplyRejection::StaleDocument { file, path, captured, current }`, and `ObservationOutcome<T>`; tests cover immutable capture, changed/closed stale-document evidence, close/reopen with the same document version, guarded reset, no active generation before first start, default generation initialization, superseded apply before session locking, superseded observation, and serialized generation supersession vs guarded apply.
 
 **Phase 3A4b gate**
 - [ ] LSP effect-adapter tests pass for the `source-file-set` node through `run_loading_plan`, with guarded apply and no progress assertions: `cargo test -p djls-server startup_source_files` or equivalent startup tests

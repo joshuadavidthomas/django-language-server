@@ -1031,6 +1031,7 @@ dependencies = [
  "djls-conf",
  "djls-db",
  "djls-ide",
+ "djls-project",
  "djls-semantic",
  "djls-source",
  "djls-templates",
