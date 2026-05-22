@@ -4,6 +4,7 @@ use crate::FirstPartySourceFilePatch;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectDiscoverySetData;
 use crate::ProjectSourceFilesApplyResult;
+use crate::PythonSourceIndexOutcome;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoadingRunControl {
@@ -16,6 +17,12 @@ pub enum LoadingApplyOutcome<T> {
     Applied(T),
     Superseded,
     RejectedApply,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LoadingObservationOutcome<T> {
+    Observed(T),
+    Superseded,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,6 +43,9 @@ pub trait LoadingEffects {
         &mut self,
         data: ProjectDiscoverySetData,
     ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult>;
+    fn observe_python_source_index(
+        &mut self,
+    ) -> LoadingObservationOutcome<PythonSourceIndexOutcome>;
 }
 
 pub trait LoadingObserver {

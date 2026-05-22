@@ -3,17 +3,20 @@ use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectFilePartitionReadiness;
 use crate::ProjectSourceFilesApplied;
 use crate::ProjectSourceFilesApplyResult;
+use crate::PythonSourceIndexOutcome;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NodeId {
     SourceFileSet,
     ProjectDiscoverySet,
+    PythonSourceModels,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadinessSourceKind {
     SourceFilePartition,
     ProjectDiscovery,
+    PythonSourceIndex,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +37,11 @@ pub const NODE_SPECS: &[NodeSpec] = &[
         prerequisites: &[NodeId::SourceFileSet],
         readiness_source: ReadinessSourceKind::ProjectDiscovery,
     },
+    NodeSpec {
+        id: NodeId::PythonSourceModels,
+        prerequisites: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
+        readiness_source: ReadinessSourceKind::PythonSourceIndex,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,7 +53,11 @@ impl LoadingPlan {
     #[must_use]
     pub fn phase3() -> Self {
         Self {
-            nodes: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
+            nodes: &[
+                NodeId::SourceFileSet,
+                NodeId::ProjectDiscoverySet,
+                NodeId::PythonSourceModels,
+            ],
         }
     }
 
@@ -63,17 +75,28 @@ pub enum NodeTerminalStatus {
     Skipped,
     Unavailable,
     Failed,
+    Superseded,
+}
+
+pub trait LoadingReadiness {
+    fn terminal_status(&self) -> NodeTerminalStatus;
 }
 
 #[must_use]
-pub fn node_status_from_readiness(result: &ProjectSourceFilesApplyResult) -> NodeTerminalStatus {
-    match result {
-        ProjectSourceFilesApplyResult::Applied(applied) => {
-            node_status_from_project_source_files_applied(applied)
+pub fn node_status_from_readiness(result: &impl LoadingReadiness) -> NodeTerminalStatus {
+    result.terminal_status()
+}
+
+impl LoadingReadiness for ProjectSourceFilesApplyResult {
+    fn terminal_status(&self) -> NodeTerminalStatus {
+        match self {
+            ProjectSourceFilesApplyResult::Applied(applied) => {
+                node_status_from_project_source_files_applied(applied)
+            }
+            ProjectSourceFilesApplyResult::Deferred { .. } => NodeTerminalStatus::Deferred,
+            ProjectSourceFilesApplyResult::Unavailable { .. } => NodeTerminalStatus::Unavailable,
+            ProjectSourceFilesApplyResult::Failed { .. } => NodeTerminalStatus::Failed,
         }
-        ProjectSourceFilesApplyResult::Deferred { .. } => NodeTerminalStatus::Deferred,
-        ProjectSourceFilesApplyResult::Unavailable { .. } => NodeTerminalStatus::Unavailable,
-        ProjectSourceFilesApplyResult::Failed { .. } => NodeTerminalStatus::Failed,
     }
 }
 
@@ -81,34 +104,50 @@ pub fn node_status_from_readiness(result: &ProjectSourceFilesApplyResult) -> Nod
 pub fn node_status_from_discovery_readiness(
     result: &ProjectDiscoveryApplyResult,
 ) -> NodeTerminalStatus {
-    match result {
-        ProjectDiscoveryApplyResult::Applied {
-            discovery: ProjectDiscovery::Ready(_),
-            has_issues: false,
-        } => NodeTerminalStatus::Succeeded,
-        ProjectDiscoveryApplyResult::Applied {
-            discovery: ProjectDiscovery::Ready(_),
-            has_issues: true,
-        } => NodeTerminalStatus::Degraded,
-        ProjectDiscoveryApplyResult::Applied {
-            discovery: ProjectDiscovery::Absent,
-            ..
-        }
-        | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Absent) => {
-            NodeTerminalStatus::Deferred
-        }
-        ProjectDiscoveryApplyResult::Applied {
-            discovery: ProjectDiscovery::Unavailable { .. },
-            ..
-        }
-        | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable { .. })
-        | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Ready(_)) => {
-            NodeTerminalStatus::Unavailable
+    node_status_from_readiness(result)
+}
+
+impl LoadingReadiness for ProjectDiscoveryApplyResult {
+    fn terminal_status(&self) -> NodeTerminalStatus {
+        match self {
+            ProjectDiscoveryApplyResult::Applied {
+                discovery: ProjectDiscovery::Ready(_),
+                has_issues: false,
+            } => NodeTerminalStatus::Succeeded,
+            ProjectDiscoveryApplyResult::Applied {
+                discovery: ProjectDiscovery::Ready(_),
+                has_issues: true,
+            } => NodeTerminalStatus::Degraded,
+            ProjectDiscoveryApplyResult::Applied {
+                discovery: ProjectDiscovery::Absent,
+                ..
+            }
+            | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Absent) => {
+                NodeTerminalStatus::Deferred
+            }
+            ProjectDiscoveryApplyResult::Applied {
+                discovery: ProjectDiscovery::Unavailable { .. },
+                ..
+            }
+            | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable { .. })
+            | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Ready(_)) => {
+                NodeTerminalStatus::Unavailable
+            }
         }
     }
 }
 
-#[must_use]
+impl LoadingReadiness for PythonSourceIndexOutcome {
+    fn terminal_status(&self) -> NodeTerminalStatus {
+        match self {
+            PythonSourceIndexOutcome::Ready(_) => NodeTerminalStatus::Succeeded,
+            PythonSourceIndexOutcome::Skipped { .. } => NodeTerminalStatus::Skipped,
+            PythonSourceIndexOutcome::Unavailable { .. } => NodeTerminalStatus::Unavailable,
+            PythonSourceIndexOutcome::Deferred { .. } => NodeTerminalStatus::Deferred,
+        }
+    }
+}
+
 pub fn node_status_from_project_source_files_applied(
     applied: &ProjectSourceFilesApplied,
 ) -> NodeTerminalStatus {
@@ -143,6 +182,8 @@ mod tests {
     use crate::ProjectDiscoveryIssues;
     use crate::ProjectDiscoverySet;
     use crate::ProjectSourceFilesIssue;
+    use crate::PythonSourceIndex;
+    use crate::PythonSourceIndexIssue;
     use crate::ReadyProjectSourceFiles;
     use crate::RootDiscoveryInput;
 
@@ -182,6 +223,11 @@ mod tests {
                     prerequisites: &[NodeId::SourceFileSet],
                     readiness_source: ReadinessSourceKind::ProjectDiscovery,
                 },
+                NodeSpec {
+                    id: NodeId::PythonSourceModels,
+                    prerequisites: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
+                    readiness_source: ReadinessSourceKind::PythonSourceIndex,
+                },
             ]
         );
     }
@@ -190,7 +236,11 @@ mod tests {
     fn phase3_plan_contains_source_file_set_then_project_discovery_set() {
         assert_eq!(
             LoadingPlan::phase3().nodes(),
-            &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet]
+            &[
+                NodeId::SourceFileSet,
+                NodeId::ProjectDiscoverySet,
+                NodeId::PythonSourceModels,
+            ]
         );
     }
 
@@ -308,6 +358,38 @@ mod tests {
 
         for (result, expected) in cases {
             assert_eq!(node_status_from_discovery_readiness(&result), expected);
+        }
+    }
+
+    #[test]
+    fn loading_python_source_models_projection_covers_readiness_classes() {
+        let cases = [
+            (
+                PythonSourceIndexOutcome::Ready(PythonSourceIndex::default()),
+                NodeTerminalStatus::Succeeded,
+            ),
+            (
+                PythonSourceIndexOutcome::Skipped {
+                    issue: PythonSourceIndexIssue::NoPythonFiles,
+                },
+                NodeTerminalStatus::Skipped,
+            ),
+            (
+                PythonSourceIndexOutcome::Deferred {
+                    issue: PythonSourceIndexIssue::NoPythonFiles,
+                },
+                NodeTerminalStatus::Deferred,
+            ),
+            (
+                PythonSourceIndexOutcome::Unavailable {
+                    issue: PythonSourceIndexIssue::LayoutUnavailable,
+                },
+                NodeTerminalStatus::Unavailable,
+            ),
+        ];
+
+        for (result, expected) in cases {
+            assert_eq!(node_status_from_readiness(&result), expected);
         }
     }
 

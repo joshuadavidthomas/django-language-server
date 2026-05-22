@@ -17,6 +17,7 @@ use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
 use djls_project::LoadingExecutionOutcome;
+use djls_project::LoadingObservationOutcome;
 use djls_project::LoadingObserver;
 use djls_project::LoadingPlan;
 use djls_project::LoadingRunControl;
@@ -27,6 +28,7 @@ use djls_project::ProjectDiscoveryApplyResult;
 use djls_project::ProjectDiscoveryLoadRequest;
 use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectSourceFilesApplyResult;
+use djls_project::PythonSourceIndexOutcome;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
 use tokio::sync::mpsc;
@@ -714,11 +716,26 @@ async fn run_startup_source_files_with_gate(
     inputs: StartupRunInputs,
     load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> StartupRunOutcome {
+    run_startup_source_files_with_gates(session, inputs, load_gate, None).await
+}
+
+async fn run_startup_source_files_with_gates(
+    session: Arc<Mutex<Session>>,
+    inputs: StartupRunInputs,
+    load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> StartupRunOutcome {
     let handle = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
         let progress = inputs.progress();
         progress.begin(&handle);
-        let mut effects = LspLoadingExecutor::new(handle.clone(), session, inputs, load_gate);
+        let mut effects = LspLoadingExecutor::new(
+            handle.clone(),
+            session,
+            inputs,
+            load_gate,
+            python_observe_gate,
+        );
         let mut observer = progress.clone();
         let result = run_loading_plan(LoadingPlan::phase3(), &mut effects, &mut observer);
         let outcome = effects.finish(result);
@@ -735,6 +752,7 @@ struct LspLoadingExecutor {
     inputs: StartupRunInputs,
     roots: Vec<Utf8PathBuf>,
     load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl LspLoadingExecutor {
@@ -743,6 +761,7 @@ impl LspLoadingExecutor {
         session: Arc<Mutex<Session>>,
         inputs: StartupRunInputs,
         load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+        python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Self {
         Self {
             handle,
@@ -750,6 +769,7 @@ impl LspLoadingExecutor {
             roots: inputs.snapshot().workspace_roots().to_vec(),
             inputs,
             load_gate,
+            python_observe_gate,
         }
     }
 
@@ -834,6 +854,33 @@ impl LoadingEffects for LspLoadingExecutor {
             ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
             ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
         }
+    }
+
+    fn observe_python_source_index(
+        &mut self,
+    ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        if let Some(gate) = &self.python_observe_gate {
+            gate();
+        }
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        let project = ProjectDb::project(&db);
+        let outcome = djls_project::python_source_index(&db, project).clone();
+        if !self.inputs.guard().is_current() {
+            return LoadingObservationOutcome::Superseded;
+        }
+        LoadingObservationOutcome::Observed(outcome)
     }
 }
 
@@ -1249,6 +1296,70 @@ mod startup_generation {
     }
 
     #[tokio::test]
+    async fn python_source_models_request_while_running_does_not_wait() {
+        static NEXT_TEST_ROOT: AtomicUsize = AtomicUsize::new(0);
+        let root = Utf8PathBuf::from(format!(
+            "/tmp/djls-python-source-models-blocked-{}-{}",
+            std::process::id(),
+            NEXT_TEST_ROOT.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(root.join("templates"))
+            .expect("templates directory should be created");
+        std::fs::write(root.join("models.py"), "class Book:\n    pass\n")
+            .expect("python file should be written");
+        std::fs::write(
+            root.join("templates/index.html"),
+            "{% if user %}hi{% endif %}",
+        )
+        .expect("template file should be written");
+        let session = Arc::new(Mutex::new(initialized_session_with_root(root.as_str())));
+        let controller = StartupController::new();
+        let path = root.join("templates/index.html").to_string();
+        let inputs = {
+            let mut session = session.lock().await;
+            session.open_document(&text_document(&path, 1, "{% if user %}hi{% endif %}"));
+            StartupRunInputs::capture(&session, controller.start_generation().await)
+        };
+        let blocked = Arc::new(AtomicBool::new(false));
+        let unblock = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let gate_blocked = Arc::clone(&blocked);
+        let gate_unblock = Arc::clone(&unblock);
+        let gate = Arc::new(move || {
+            gate_blocked.store(true, Ordering::SeqCst);
+            let (lock, cvar) = &*gate_unblock;
+            let mut unblocked = lock.lock().expect("unblock mutex should not be poisoned");
+            while !*unblocked {
+                unblocked = cvar
+                    .wait(unblocked)
+                    .expect("unblock mutex should not be poisoned");
+            }
+        });
+
+        let startup = tokio::spawn(run_startup_source_files_with_gates(
+            Arc::clone(&session),
+            inputs,
+            None,
+            Some(gate),
+        ));
+        while !blocked.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+
+        let diagnostics = {
+            let session = session.lock().await;
+            let db = session.db();
+            let file = db.get_or_create_file(&Utf8PathBuf::from(path.as_str()));
+            djls_ide::collect_diagnostics(db, file)
+        };
+
+        let (lock, cvar) = &*unblock;
+        *lock.lock().expect("unblock mutex should not be poisoned") = true;
+        cvar.notify_one();
+        assert_eq!(startup.await.unwrap(), StartupRunOutcome::Succeeded);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
     async fn startup_source_files_superseded_reset_stops_before_loading() {
         let root = Utf8PathBuf::from(format!(
             "/tmp/djls-startup-source-files-superseded-{}",
@@ -1475,7 +1586,7 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn startup_progress_reports_lifecycle_over_loading_events() {
+    async fn python_source_models_startup_progress_reports_lifecycle_over_loading_events() {
         let session = Arc::new(Mutex::new(initialized_session_with_root(
             "/tmp/djls-startup-progress",
         )));
@@ -1508,6 +1619,11 @@ mod startup_generation {
                 StartupProgressEvent::NodeFinished {
                     node: NodeId::ProjectDiscoverySet,
                     status: NodeTerminalStatus::Succeeded,
+                },
+                StartupProgressEvent::NodeStarted(NodeId::PythonSourceModels),
+                StartupProgressEvent::NodeFinished {
+                    node: NodeId::PythonSourceModels,
+                    status: NodeTerminalStatus::Unavailable,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),
             ]

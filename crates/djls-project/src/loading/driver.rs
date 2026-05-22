@@ -1,15 +1,16 @@
 use super::effects::LoadingApplyOutcome;
 use super::effects::LoadingEffects;
 use super::effects::LoadingExecutionOutcome;
+use super::effects::LoadingObservationOutcome;
 use super::effects::LoadingObserver;
 use super::effects::LoadingRunControl;
-use super::plan::node_status_from_discovery_readiness;
 use super::plan::node_status_from_readiness;
 use super::plan::LoadingPlan;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectSourceFilesApplyResult;
+use crate::PythonSourceIndexOutcome;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoadingRunResult {
@@ -51,7 +52,8 @@ impl LoadingRunResult {
     pub fn source_file_set_result(&self) -> Option<&ProjectSourceFilesApplyResult> {
         self.node_results.iter().find_map(|result| match result {
             LoadingNodeResult::SourceFileSet { applied, .. } => Some(applied),
-            LoadingNodeResult::ProjectDiscoverySet { .. } => None,
+            LoadingNodeResult::ProjectDiscoverySet { .. }
+            | LoadingNodeResult::PythonSourceModels { .. } => None,
         })
     }
 }
@@ -66,6 +68,10 @@ pub enum LoadingNodeResult {
         applied: ProjectDiscoveryApplyResult,
         status: NodeTerminalStatus,
     },
+    PythonSourceModels {
+        observed: PythonSourceIndexOutcome,
+        status: NodeTerminalStatus,
+    },
 }
 
 impl LoadingNodeResult {
@@ -74,13 +80,16 @@ impl LoadingNodeResult {
         match self {
             Self::SourceFileSet { .. } => NodeId::SourceFileSet,
             Self::ProjectDiscoverySet { .. } => NodeId::ProjectDiscoverySet,
+            Self::PythonSourceModels { .. } => NodeId::PythonSourceModels,
         }
     }
 
     #[must_use]
     pub fn status(&self) -> &NodeTerminalStatus {
         match self {
-            Self::SourceFileSet { status, .. } | Self::ProjectDiscoverySet { status, .. } => status,
+            Self::SourceFileSet { status, .. }
+            | Self::ProjectDiscoverySet { status, .. }
+            | Self::PythonSourceModels { status, .. } => status,
         }
     }
 }
@@ -106,6 +115,7 @@ pub fn run_loading_plan(
                 let applied = match effects.apply_source_file_patch(patch) {
                     LoadingApplyOutcome::Applied(applied) => applied,
                     LoadingApplyOutcome::Superseded => {
+                        observer.node_finished(*node, NodeTerminalStatus::Superseded);
                         return LoadingRunResult::aborted(
                             node_results,
                             LoadingExecutionOutcome::Superseded,
@@ -128,6 +138,7 @@ pub fn run_loading_plan(
                 let applied = match effects.apply_project_discovery_data(data) {
                     LoadingApplyOutcome::Applied(applied) => applied,
                     LoadingApplyOutcome::Superseded => {
+                        observer.node_finished(*node, NodeTerminalStatus::Superseded);
                         return LoadingRunResult::aborted(
                             node_results,
                             LoadingExecutionOutcome::Superseded,
@@ -140,9 +151,25 @@ pub fn run_loading_plan(
                         );
                     }
                 };
-                let status = node_status_from_discovery_readiness(&applied);
+                let status = node_status_from_readiness(&applied);
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::ProjectDiscoverySet { applied, status });
+            }
+            NodeId::PythonSourceModels => {
+                observer.node_started(*node);
+                let observed = match effects.observe_python_source_index() {
+                    LoadingObservationOutcome::Observed(observed) => observed,
+                    LoadingObservationOutcome::Superseded => {
+                        observer.node_finished(*node, NodeTerminalStatus::Superseded);
+                        return LoadingRunResult::aborted(
+                            node_results,
+                            LoadingExecutionOutcome::Superseded,
+                        );
+                    }
+                };
+                let status = node_status_from_readiness(&observed);
+                observer.node_finished(*node, status.clone());
+                node_results.push(LoadingNodeResult::PythonSourceModels { observed, status });
             }
         }
     }
@@ -166,6 +193,8 @@ mod tests {
     use crate::ProjectDiscoveryLoadRequest;
     use crate::ProjectDiscoverySetData;
     use crate::ProjectSourceFilesApplyResult;
+    use crate::PythonSourceIndex;
+    use crate::PythonSourceIndexOutcome;
 
     #[derive(Default)]
     struct FakeEffects {
@@ -174,6 +203,7 @@ mod tests {
         apply_count: usize,
         discovery_load_count: usize,
         discovery_apply_count: usize,
+        python_observe_count: usize,
         roots: Vec<Utf8PathBuf>,
     }
 
@@ -234,6 +264,15 @@ mod tests {
                 })
             }
         }
+
+        fn observe_python_source_index(
+            &mut self,
+        ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
+            self.python_observe_count += 1;
+            LoadingObservationOutcome::Observed(PythonSourceIndexOutcome::Ready(
+                PythonSourceIndex::default(),
+            ))
+        }
     }
 
     #[derive(Default)]
@@ -253,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn runner_executes_source_file_set_and_emits_observer_events() {
+    fn loading_python_source_models_runner_executes_node_and_emits_observer_events() {
         let mut effects = FakeEffects {
             roots: vec![Utf8PathBuf::from("/missing")],
             ..FakeEffects::default()
@@ -267,19 +306,26 @@ mod tests {
         assert_eq!(effects.apply_count, 1);
         assert_eq!(effects.discovery_load_count, 1);
         assert_eq!(effects.discovery_apply_count, 1);
+        assert_eq!(effects.python_observe_count, 1);
         assert_eq!(
             observer.started,
-            vec![NodeId::SourceFileSet, NodeId::ProjectDiscoverySet]
+            vec![
+                NodeId::SourceFileSet,
+                NodeId::ProjectDiscoverySet,
+                NodeId::PythonSourceModels,
+            ]
         );
         assert_eq!(
             observer.events,
             vec![
                 (NodeId::SourceFileSet, NodeTerminalStatus::Unavailable),
                 (NodeId::ProjectDiscoverySet, NodeTerminalStatus::Deferred),
+                (NodeId::PythonSourceModels, NodeTerminalStatus::Succeeded),
             ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);
         assert_eq!(result.node_results()[1].node(), NodeId::ProjectDiscoverySet);
+        assert_eq!(result.node_results()[2].node(), NodeId::PythonSourceModels);
         assert_eq!(
             result.node_results()[0].status(),
             &NodeTerminalStatus::Unavailable
@@ -287,6 +333,10 @@ mod tests {
         assert_eq!(
             result.node_results()[1].status(),
             &NodeTerminalStatus::Deferred
+        );
+        assert_eq!(
+            result.node_results()[2].status(),
+            &NodeTerminalStatus::Succeeded
         );
     }
 }

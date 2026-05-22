@@ -880,6 +880,8 @@ fn expr_kind(expr: &Expr) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
     use std::sync::OnceLock;
 
     use camino::Utf8Path;
@@ -895,19 +897,59 @@ mod tests {
     use djls_source::SourceRootEntry;
     use djls_source::SourceRootId;
     use rustc_hash::FxHashMap;
+    use salsa::Database;
 
     use super::*;
+    use crate::build_project_discovery_data;
+    use crate::build_source_roots;
+    use crate::first_party_discovery_files_request;
+    use crate::first_party_source_files_load_request;
+    use crate::merge_first_party_source_file_patch;
+    use crate::run_loading_plan;
+    use crate::FirstPartySourceFilePatch;
+    use crate::LoadingApplyOutcome;
+    use crate::LoadingEffects;
+    use crate::LoadingObservationOutcome;
+    use crate::LoadingPlan;
+    use crate::LoadingRunControl;
+    use crate::NoopLoadingObserver;
     use crate::ProjectDiscovery;
+    use crate::ProjectDiscoveryApplyResult;
+    use crate::ProjectDiscoveryLoadRequest;
+    use crate::ProjectDiscoverySetData;
     use crate::ProjectEnrichment;
+    use crate::ProjectSourceFilesApplyResult;
     use crate::ReadyProjectSourceFiles;
 
     #[salsa::db]
-    #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
         files: SourceFiles,
         sources: FxHashMap<Utf8PathBuf, String>,
         project: OnceLock<Project>,
+        events: Arc<Mutex<Vec<salsa::Event>>>,
+    }
+
+    impl Default for TestDb {
+        fn default() -> Self {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let storage = salsa::Storage::new(Some(Box::new({
+                let events = Arc::clone(&events);
+                move |event| {
+                    events
+                        .lock()
+                        .expect("event log is not poisoned")
+                        .push(event)
+                }
+            })));
+            Self {
+                storage,
+                files: SourceFiles::default(),
+                sources: FxHashMap::default(),
+                project: OnceLock::new(),
+                events,
+            }
+        }
     }
 
     #[salsa::db]
@@ -951,6 +993,76 @@ mod tests {
             let path = Utf8PathBuf::from(path);
             self.sources.insert(path.clone(), source.to_string());
             self.get_or_create_file(path.as_path())
+        }
+
+        fn take_events(&self) -> Vec<salsa::Event> {
+            std::mem::take(&mut *self.events.lock().expect("event log is not poisoned"))
+        }
+
+        fn tracked_query_executed(&self, events: &[salsa::Event], query_name: &str) -> bool {
+            events.iter().any(|event| match &event.kind {
+                salsa::EventKind::WillExecute { database_key } => self
+                    .ingredient_debug_name(database_key.ingredient_index())
+                    .contains(query_name),
+                _ => false,
+            })
+        }
+    }
+
+    struct PythonSourceLoadingEffects<'db> {
+        db: &'db TestDb,
+    }
+
+    impl LoadingEffects for PythonSourceLoadingEffects<'_> {
+        fn begin_loading_run(&mut self) -> LoadingRunControl {
+            LoadingRunControl::Continue
+        }
+
+        fn load_source_file_set(&mut self) -> FirstPartySourceFilePatch {
+            let plan = build_source_roots(Vec::new());
+            let (root_issues, request) =
+                first_party_discovery_files_request(first_party_source_files_load_request(plan));
+            FirstPartySourceFilePatch::first_party(
+                root_issues,
+                djls_workspace::load_files_for_roots(request),
+            )
+        }
+
+        fn apply_source_file_patch(
+            &mut self,
+            patch: FirstPartySourceFilePatch,
+        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+            let update = merge_first_party_source_file_patch(None, patch);
+            let transition = update.applied_transition().clone();
+            LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Deferred {
+                transition,
+                issue: ProjectSourceFilesIssue::NotLoaded,
+                previous: None,
+            })
+        }
+
+        fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+            build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+                Vec::new(),
+                djls_conf::Settings::default(),
+            ))
+        }
+
+        fn apply_project_discovery_data(
+            &mut self,
+            _data: ProjectDiscoverySetData,
+        ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
+            LoadingApplyOutcome::Applied(ProjectDiscoveryApplyResult::Unavailable(
+                ProjectDiscovery::Absent,
+            ))
+        }
+
+        fn observe_python_source_index(
+            &mut self,
+        ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
+            LoadingObservationOutcome::Observed(
+                python_source_index(self.db, self.db.project()).clone(),
+            )
         }
     }
 
@@ -1010,6 +1122,31 @@ async def build():
         };
         assert_eq!(segments[0].value.as_deref(), Some("django.contrib.auth"));
         assert!(segments[1].issue.is_some());
+    }
+
+    #[test]
+    fn python_source_index_reuse_after_loading_python_source_models_ready() {
+        let mut db = TestDb::with_project();
+        db.set_file("/workspace/app/models.py", "class Book:\n    pass\n");
+        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
+
+        let mut effects = PythonSourceLoadingEffects { db: &db };
+        let result = run_loading_plan(
+            LoadingPlan::phase3(),
+            &mut effects,
+            &mut NoopLoadingObserver,
+        );
+        assert!(result.execution_outcome().is_none());
+        let events = db.take_events();
+        assert!(db.tracked_query_executed(&events, "python_source_index"));
+
+        let PythonSourceIndexOutcome::Ready(index) = python_source_index(&db, db.project()) else {
+            panic!("python source index should be reused");
+        };
+        assert_eq!(index.len(), 1);
+        let events = db.take_events();
+
+        assert!(!db.tracked_query_executed(&events, "python_source_index"));
     }
 
     #[test]

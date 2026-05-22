@@ -8,11 +8,13 @@ use djls_project::Db as ProjectDb;
 use djls_project::FirstPartySourceFilePatch;
 use djls_project::LoadingApplyOutcome;
 use djls_project::LoadingEffects;
+use djls_project::LoadingObservationOutcome;
 use djls_project::LoadingRunControl;
 use djls_project::ProjectDiscoveryApplyResult;
 use djls_project::ProjectDiscoveryLoadRequest;
 use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectSourceFilesApplyResult;
+use djls_project::PythonSourceIndexOutcome;
 use djls_workspace::load_files_for_roots;
 
 pub(crate) struct CliLoadingExecutor<'db> {
@@ -66,5 +68,14 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
         data: ProjectDiscoverySetData,
     ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
         LoadingApplyOutcome::Applied(self.db.apply_project_discovery_data(data))
+    }
+
+    fn observe_python_source_index(
+        &mut self,
+    ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
+        let project = ProjectDb::project(self.db);
+        LoadingObservationOutcome::Observed(
+            djls_project::python_source_index(self.db, project).clone(),
+        )
     }
 }

@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `mwwsvlop` contains the completed Python source model extraction slice.
-- **Current slice**: Python source model extraction completed; Phase 4C is next.
+- **Implementation change**: `vorzrswp` contains the completed Python source-model loading observation slice.
+- **Current slice**: Python source-model readiness observation completed; Phase 4D is next.
 
 ### Implementation Notes
 
@@ -292,6 +292,23 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required broader recursive AST traversal and usable public accessors; added recursive handling for common statement/expression child shapes plus accessors for call arguments/keywords, class bases, function async-ness, and static value segments. The loading-node concern is intentionally deferred to Phase 4C.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed the AST anti-corruption layer, Salsa query boundaries, explicit parse/readiness outcomes, source-root-derived module names, and typed static unknowns match mature tooling patterns.
 - Follow-ups/blockers: Phase 4C should observe `python_source_index(db, project)` through the loading graph and project terminal status from the live query outcome.
+
+### Python source-model readiness observation
+- Bookmark: `startup-rethink` still points to `mwwsvlop`; move it to `vorzrswp` after describing this verified slice.
+- Current change: `vorzrswp`.
+- Scope: added the `python-source-models` loading node after source files and project discovery, introduced generic readiness projection for source files, discovery, and Python source index outcomes, wired neutral loading observation through CLI and LSP adapters, observed `python_source_index(db, project)` without holding the `Session` mutex across tracked-query execution, balanced superseded observation progress events, and added nonblocking request plus query-reuse coverage.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project loading_python_source_models` passed: 3 tests.
+  - `cargo test -p djls-project python_source_index_reuse` passed: 1 test.
+  - `cargo test -p djls-server python_source_models` passed: 2 tests.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Lamport review found no must-fix concurrency or state-machine issues.
+  - Rust specialist required unique test paths, balanced node lifecycle events on supersession, reusable/public readiness projection, discovery participation in the generic readiness projection, and a loading-path reuse test; addressed all in this slice.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that incremental query databases, typed task/readiness outcomes, snapshot/background observation, avoiding long global locks, and cancellation/supersession checks match mature tooling patterns.
+- Follow-ups/blockers: Phase 4D should reuse the nonblocking observation seam for settings-candidate discovery, or stop and revise if candidate derivation needs a different access pattern.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1622,10 +1639,10 @@ pub enum SettingsCandidateSource {
 - [x] Python source model tests pass: `cargo test -p djls-project python_source_model` and `cargo test -p djls-project python_source_index`.
 
 **Phase 4C gate**
-- [ ] Nonblocking live-query access seam is named and tested: observing `python_source_index(db, project)` on the live database does not hold `Arc<Mutex<Session>>` across Python parsing or long tracked-query execution, and generation is checked before observation, after observation, and before node events/progress/milestone advancement.
-- [ ] Python source-model loading-node tests pass through the neutral runner/shared plan and both real effect adapters, proving terminal status is projected by `node_status_from_readiness(PythonSourceIndexOutcome)` observed on the live database: `cargo test -p djls-project loading_python_source_models`, `cargo test -p djls-server python_source_models`, and `cargo test -p djls --test check`
-- [ ] Request-while-running test proves a blocked `python-source-models` observation does not block representative requests: `cargo test -p djls-server python_source_models_request_while_running` or equivalent startup test
-- [ ] Live-readiness reuse test or query counter proves the first post-ready request does not recompute `python_source_index(db, project)` after `python-source-models` reported ready: `cargo test -p djls-project python_source_index_reuse` or equivalent instrumentation test
+- [x] Nonblocking live-query access seam is named and tested: observing `python_source_index(db, project)` on the live database does not hold `Arc<Mutex<Session>>` across Python parsing or long tracked-query execution, and generation is checked before observation, after observation, and before node events/progress/milestone advancement. Evidence: `Session::project_db_snapshot_for_observation`, guarded LSP observation in `LspLoadingExecutor::observe_python_source_index`, and `cargo test -p djls-server python_source_models` passed.
+- [x] Python source-model loading-node tests pass through the neutral runner/shared plan and both real effect adapters, proving terminal status is projected by `node_status_from_readiness(PythonSourceIndexOutcome)` observed on the live database: `cargo test -p djls-project loading_python_source_models`, `cargo test -p djls-server python_source_models`, and `cargo test -p djls --test check` passed.
+- [x] Request-while-running test proves a blocked `python-source-models` observation does not block representative requests: `cargo test -p djls-server python_source_models` passed, including `python_source_models_request_while_running_does_not_wait`.
+- [x] Live-readiness reuse test or query counter proves the first post-ready request does not recompute `python_source_index(db, project)` after `python-source-models` reported ready: `cargo test -p djls-project python_source_index_reuse` passed.
 
 **Phase 4D gate**
 - [ ] Settings candidate tests pass: `cargo test -p djls-project settings_candidates`

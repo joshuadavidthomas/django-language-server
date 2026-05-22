@@ -110,6 +110,10 @@ impl Session {
         &mut self.db
     }
 
+    pub(crate) fn project_db_snapshot_for_observation(&self) -> DjangoDatabase {
+        self.db.clone()
+    }
+
     pub(crate) fn project_facts_availability(&self) -> djls_project::ProjectFactsAvailability {
         djls_project::project_facts_availability(&self.db)
     }
