@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `qylmxnpq` contains the completed name/type move slice.
-- **Current slice**: name/type move completed; Phase 4B is next.
+- **Implementation change**: `mwwsvlop` contains the completed Python source model extraction slice.
+- **Current slice**: Python source model extraction completed; Phase 4C is next.
 
 ### Implementation Notes
 
@@ -276,6 +276,22 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Rust specialist required `TemplateName` to use template-specific path-like validation and to replace raw template-name strings in the legacy semantic template file model; `TemplateName` now rejects empty/absolute/parent-component names while allowing path-like names with spaces, and `ProjectTemplateFile` stores the new domain type.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed that mature tools keep validated domain newtypes in project/domain crates and separate stable domain values from Salsa/interned identities.
 - Follow-ups/blockers: Phase 4B should add the Ruff AST anti-corruption layer and tracked Python source-model queries in `djls-project`.
+
+### Python source model extraction
+- Bookmark: `startup-rethink` still points to `wknnmsuv`; move it to `mwwsvlop` after describing this verified slice.
+- Current change: `mwwsvlop`.
+- Scope: added Ruff parser/AST dependencies to `djls-project`, introduced DJLS-native `PythonSourceModel` / `PythonSourceIndex` types, added tracked `python_source_model(db, file)` and `python_source_index(db, project)` queries, kept Ruff AST nodes private to the extraction boundary, modeled parse failures explicitly, derived indexed module names from `ProjectLayoutIndex` source roots, and represented static literal extraction with typed unknown issues.
+- Validation:
+  - `cargo test -p djls-project python_source_model` passed: 2 tests.
+  - `cargo test -p djls-project python_source_index` passed: 1 test.
+  - `cargo test -p djls-project python_source_model --no-run` passed.
+  - `just fmt --check` passed.
+  - `cargo build -q` passed.
+- Review/reference follow-up:
+  - Hickey review required module-name resolution to use layout/source-root context and parse errors to remain visible; fixed by resolving modules in `python_source_index` through `ProjectLayoutIndex` and adding `PythonSourceModelStatus::ParseError`.
+  - Rust specialist required broader recursive AST traversal and usable public accessors; added recursive handling for common statement/expression child shapes plus accessors for call arguments/keywords, class bases, function async-ness, and static value segments. The loading-node concern is intentionally deferred to Phase 4C.
+  - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed the AST anti-corruption layer, Salsa query boundaries, explicit parse/readiness outcomes, source-root-derived module names, and typed static unknowns match mature tooling patterns.
+- Follow-ups/blockers: Phase 4C should observe `python_source_index(db, project)` through the loading graph and project terminal status from the live query outcome.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1602,8 +1618,8 @@ pub enum SettingsCandidateSource {
 - [x] Name re-export cleanup search passes with only intentional temporary re-exports or interned semantic identities: `rg "TemplateName|LibraryName|PyModuleName|TemplateSymbolName" crates/djls-semantic crates/djls-project -g '*.rs'`.
 
 **Phase 4B gate**
-- [ ] Ruff dependency boundary compiles in `djls-project`: `cargo test -p djls-project python_source_model --no-run` or equivalent compile check
-- [ ] Python source model tests pass: `cargo test -p djls-project python_source_model`
+- [x] Ruff dependency boundary compiles in `djls-project`: `cargo test -p djls-project python_source_model --no-run`.
+- [x] Python source model tests pass: `cargo test -p djls-project python_source_model` and `cargo test -p djls-project python_source_index`.
 
 **Phase 4C gate**
 - [ ] Nonblocking live-query access seam is named and tested: observing `python_source_index(db, project)` on the live database does not hold `Arc<Mutex<Session>>` across Python parsing or long tracked-query execution, and generation is checked before observation, after observation, and before node events/progress/milestone advancement.

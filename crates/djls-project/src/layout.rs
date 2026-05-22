@@ -143,7 +143,7 @@ impl ProjectLayoutIndex {
     }
 
     #[must_use]
-    fn module_name_for_path(&self, path: &Utf8Path) -> Option<String> {
+    pub fn module_name_for_path(&self, path: &Utf8Path) -> Option<crate::PyModuleName> {
         let root = self
             .roots
             .iter()
@@ -157,7 +157,7 @@ impl ProjectLayoutIndex {
         if components.is_empty() {
             return None;
         }
-        Some(components.join("."))
+        crate::PyModuleName::parse(&components.join(".")).ok()
     }
 
     pub fn len(&self) -> usize {
@@ -219,6 +219,7 @@ pub fn settings_module_candidates(
         .into_iter()
         .filter_map(|file| layout.file_path(file))
         .filter_map(|path| layout.module_name_for_path(path))
+        .map(|module| module.as_str().to_string())
         .collect::<Vec<_>>();
     candidates.sort();
     candidates.dedup();
