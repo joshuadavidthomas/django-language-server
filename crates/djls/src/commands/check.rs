@@ -29,6 +29,7 @@ use crate::commands::common::resolve_project_root;
 use crate::commands::common::ColorMode;
 use crate::commands::Command;
 use crate::exit::Exit;
+use crate::loading::CliLoadingExecutor;
 
 struct CheckResult {
     template_errors: Vec<TemplateError>,
@@ -154,6 +155,13 @@ impl Command for Check {
         let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
         let mut db = DjangoDatabase::new(fs, &settings);
         db.bootstrap_project(&project_root, &settings);
+        let mut loading = CliLoadingExecutor::new(&mut db, vec![project_root.clone()]);
+        let mut observer = djls_project::NoopLoadingObserver;
+        djls_project::run_loading_plan(
+            djls_project::LoadingPlan::phase3(),
+            &mut loading,
+            &mut observer,
+        );
 
         let walk_options = WalkOptions {
             hidden: self.hidden,

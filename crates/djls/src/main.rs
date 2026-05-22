@@ -3,6 +3,7 @@ mod args;
 mod cli;
 mod commands;
 mod exit;
+mod loading;
 
 use anyhow::Result;
 

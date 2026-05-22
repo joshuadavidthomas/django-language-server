@@ -1,7 +1,7 @@
 mod db;
 mod env;
 mod interpreter;
-mod loading;
+pub mod loading;
 mod system;
 
 pub use db::Db;
@@ -12,9 +12,17 @@ pub use loading::finalize_project_source_files;
 pub use loading::first_party_discovery_files_request;
 pub use loading::first_party_source_files_load_request;
 pub use loading::merge_first_party_source_file_patch;
+pub use loading::run_loading_plan;
 pub use loading::FileSetPartition;
 pub use loading::FileSetPartitionId;
 pub use loading::FirstPartySourceFilePatch;
+pub use loading::LoadingEffects;
+pub use loading::LoadingObserver;
+pub use loading::LoadingPlan;
+pub use loading::LoadingRunResult;
+pub use loading::NodeId;
+pub use loading::NodeTerminalStatus;
+pub use loading::NoopLoadingObserver;
 pub use loading::ProjectDiscoveryAvailability;
 pub use loading::ProjectDiscoveryIssue;
 pub use loading::ProjectEnrichmentIssue;

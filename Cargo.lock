@@ -865,6 +865,7 @@ dependencies = [
  "clap",
  "djls-conf",
  "djls-db",
+ "djls-project",
  "djls-semantic",
  "djls-server",
  "djls-source",

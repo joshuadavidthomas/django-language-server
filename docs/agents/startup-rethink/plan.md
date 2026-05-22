@@ -12,8 +12,8 @@ The whole plan is the reviewable PR-sized change that will land. Each phase or s
 Keep this section current while implementing the plan.
 
 - **Implementation bookmark**: `startup-rethink` points to the latest verified implementation slice.
-- **Implementation change**: `nmqyksul` contains the in-progress Phase 3A2a project loading-state shell slice on top of the project crate/helper boundary slice.
-- **Current slice**: Phase 3A2a loading-state shell complete; ready for review/describe after approval.
+- **Implementation change**: `sslnwvtv` contains the in-progress Phase 3A3 source-file node through CLI slice on top of the source-file materialization invariant slice.
+- **Current slice**: Phase 3A3 source-file node through CLI in progress.
 
 ### Implementation Notes
 
@@ -46,6 +46,17 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - `cargo test -p djls-workspace file_loader` passed: 7 tests.
   - `cargo build -q` passed.
 - Follow-ups/blockers: Phase 3 owns root construction, project-loading readiness, partition patches, and database materialization.
+
+### Source-file node through CLI
+- Bookmark: `startup-rethink` will move to `sslnwvtv` after describing this verified slice.
+- Current change: `sslnwvtv`.
+- Scope: added the Phase 3 one-node loading plan, `source-file-set` `NODE_SPECS` manifest row, readiness-to-terminal projection, neutral runner, source-file-specific effects contract, observer event sink, and CLI effect adapter; wired `djls check` through `run_loading_plan` before checking files.
+- Validation:
+  - `just fmt --check` passed.
+  - `cargo test -p djls-project loading` passed: 19 tests.
+  - `cargo test -p djls --test check` passed: 7 tests.
+  - `cargo build -q` passed.
+- Follow-ups/blockers: Phase 3A4 adds the LSP generation guard, guarded reset/apply, LSP source-file effect adapter, progress lifecycle, and configuration restart.
 
 ## Current State
 - `initialize` constructs a full `Session`, which loads project config, creates `DjangoDatabase`, and bootstraps a single old `Project` input before returning capabilities (`crates/djls-server/src/server.rs:131-200`, `crates/djls-server/src/session.rs:51-75`, `crates/djls-db/src/db.rs:88-115`).
@@ -1126,8 +1137,8 @@ pub enum ProjectLayoutIssue {
 - [x] Salsa invalidation tests prove `ProjectLoadingState.source_files` transitions from `Loading`/`Unavailable` to `Ready` invalidate a minimal tracked probe query: `cargo test -p djls-project loading_state_invalidation` — 1 passed. Cleanup evidence: `rg "set_source_files\\(" crates -g '*.rs'` has one production hit, the sealed `set_project_source_files_availability` helper in `crates/djls-project/src/db.rs`.
 
 **Phase 3A3 gate**
-- [ ] Neutral runner/plan tests pass for the `source-file-set` node, including the concrete one-node path, the `NODE_SPECS` row, terminal-status projection through `node_status_from_readiness(ProjectSourceFilesApplied)`, projection-table coverage for source-file readiness classes, and observer event emission with in-process fake execution/apply effects and a recording observer: `cargo test -p djls-project loading`
-- [ ] Phase 3 CLI effect adapter in `crates/djls` runs the active Phase 3 loading plan through `run_loading_plan`: `cargo test -p djls --test check`
+- [x] Neutral runner/plan tests pass for the `source-file-set` node, including the concrete one-node path, the `NODE_SPECS` row, terminal-status projection through `node_status_from_readiness(ProjectSourceFilesApplied)`, projection-table coverage for source-file readiness classes, and observer event emission with in-process fake execution/apply effects and a recording observer: `cargo test -p djls-project loading` — 19 passed. Evidence: `loading::plan` defines the Phase 3 `source-file-set` `NODE_SPECS` row and projection API; `loading::driver` runs reset/activity/apply/status projection and emits recording-observer events in the one-node fake-effects test.
+- [x] Phase 3 CLI effect adapter in `crates/djls` runs the active Phase 3 loading plan through `run_loading_plan`: `cargo test -p djls --test check` — 7 passed. Evidence: `CliLoadingExecutor` implements reset, first-party source-file activity, and direct apply through `DjangoDatabase::apply_project_source_files`; `djls check` invokes `run_loading_plan(LoadingPlan::phase3(), ...)` before checking discovered files.
 
 **Phase 3A4a gate**
 - [ ] Generation guard tests cover immutable `StartupRunInputs` capture, versioned captured document snapshots for opened unsaved/changed files, stale-document rejection after `didChange`/`didClose` during blocked loading, guarded reset, `ApplyOutcome::Superseded`, `ApplyOutcome::Rejected { reason: ApplyRejection::StaleDocument { ... } }`, guarded observation/reporting, and superseded propagation before node work starts: `cargo test -p djls-server startup_generation` or equivalent startup tests
