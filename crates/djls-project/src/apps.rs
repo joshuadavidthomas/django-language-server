@@ -226,7 +226,6 @@ pub(crate) fn installed_apps(
 pub enum InstalledAppFileRootsOutcome {
     Ready(InstalledAppFileRoots),
     Deferred,
-    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -291,14 +290,10 @@ pub fn installed_app_file_roots_discovery(
     project: Project,
 ) -> InstalledAppFileRootsOutcome {
     let candidates = match django_environment_candidates(db, project) {
-        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
-            return InstalledAppFileRootsOutcome::Deferred;
+        DjangoEnvironmentCandidatesOutcome::Ready(candidates) => candidates,
+        DjangoEnvironmentCandidatesOutcome::Deferred => {
+            return InstalledAppFileRootsOutcome::Deferred
         }
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-            return InstalledAppFileRootsOutcome::Unavailable;
-        }
-        DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
     };
     let mut roots = Vec::new();
     let mut issues = Vec::new();
@@ -450,7 +445,7 @@ mod tests {
     }
 
     fn single_env_id(db: &TestDb) -> DjangoEnvironmentId {
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(db, db.project())
         else {
             panic!("single candidate should be ready");

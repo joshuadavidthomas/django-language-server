@@ -164,10 +164,8 @@ fn settings_module_for_env(
     env: &DjangoEnvironmentId,
 ) -> Option<PyModuleName> {
     let candidates = match django_environment_candidates(db, project) {
-        DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. }
-        | DjangoEnvironmentCandidatesOutcome::Deferred { .. } => return None,
+        DjangoEnvironmentCandidatesOutcome::Ready(candidates) => candidates,
+        DjangoEnvironmentCandidatesOutcome::Deferred => return None,
     };
     candidates
         .iter()
@@ -512,7 +510,7 @@ mod tests {
     }
 
     fn single_env_id(db: &TestDb) -> DjangoEnvironmentId {
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(db, db.project())
         else {
             panic!("single candidate should be ready");

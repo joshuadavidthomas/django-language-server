@@ -375,13 +375,8 @@ fn django_environment_candidates_status(
     result: &DjangoEnvironmentCandidatesOutcome,
 ) -> DiscoveryStageStatus {
     match result {
-        DjangoEnvironmentCandidatesOutcome::Ready { issues, .. } if issues.is_empty() => {
-            DiscoveryStageStatus::Succeeded
-        }
-        DjangoEnvironmentCandidatesOutcome::Ready { .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => DiscoveryStageStatus::Degraded,
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => DiscoveryStageStatus::Unavailable,
-        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => DiscoveryStageStatus::Deferred,
+        DjangoEnvironmentCandidatesOutcome::Ready(_) => DiscoveryStageStatus::Succeeded,
+        DjangoEnvironmentCandidatesOutcome::Deferred => DiscoveryStageStatus::Deferred,
     }
 }
 
@@ -556,7 +551,6 @@ fn run_installed_app_files_stage(
             stage_status_with_discovery_issues(&applied, &issues)
         }
         InstalledAppFileRootsOutcome::Deferred => DiscoveryStageStatus::Deferred,
-        InstalledAppFileRootsOutcome::Unavailable => DiscoveryStageStatus::Unavailable,
     };
     observer.stage_finished(stage, status.clone());
     Ok(DiscoveryStageRecord::new(stage, status))
@@ -584,7 +578,6 @@ fn run_template_directory_files_stage(
             source_files_status(&applied)
         }
         TemplateDirectoryFileRootsOutcome::Deferred => DiscoveryStageStatus::Deferred,
-        TemplateDirectoryFileRootsOutcome::Unavailable => DiscoveryStageStatus::Unavailable,
     };
     observer.stage_finished(stage, status.clone());
     Ok(DiscoveryStageRecord::new(stage, status))
@@ -759,8 +752,6 @@ mod tests {
     use djls_workspace::load_files_for_roots;
 
     use super::*;
-    use crate::environments::DjangoEnvironmentCandidate;
-    use crate::environments::EnvironmentCandidatesIssue;
     use crate::python::PythonSourceIndex;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::source_files::SourceFilesApplied;
@@ -797,7 +788,6 @@ mod tests {
         environment_observe_count: usize,
         source_ready: bool,
         python_skipped: bool,
-        environment_degraded: bool,
         installed_app_deferred: bool,
         template_directory_deferred: bool,
         cancel_on_checkpoint: Option<usize>,
@@ -898,15 +888,7 @@ mod tests {
             &mut self,
         ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
             self.environment_observe_count += 1;
-            let issues = if self.environment_degraded {
-                vec![EnvironmentCandidatesIssue::NoSettingsCandidates]
-            } else {
-                Vec::new()
-            };
-            Ok(DjangoEnvironmentCandidatesOutcome::Ready {
-                candidates: Vec::<DjangoEnvironmentCandidate>::new(),
-                issues,
-            })
+            Ok(DjangoEnvironmentCandidatesOutcome::Ready(Vec::new()))
         }
 
         fn observe_installed_app_file_roots(
@@ -1074,7 +1056,6 @@ mod tests {
         let mut host = FakeHost {
             source_ready: true,
             python_skipped: true,
-            environment_degraded: true,
             ..FakeHost::default()
         };
 

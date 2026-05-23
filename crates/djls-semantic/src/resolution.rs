@@ -86,8 +86,8 @@ pub fn resolve_template<'db>(
         djls_project::EnvironmentSelection::Selected(env) => {
             resolve_static_template(db, project, env.clone(), name)
         }
-        djls_project::EnvironmentSelection::Unknown { .. }
-        | djls_project::EnvironmentSelection::Ambiguous { .. } => TemplateLookupResult::Deferred,
+        djls_project::EnvironmentSelection::Unknown
+        | djls_project::EnvironmentSelection::Ambiguous(_) => TemplateLookupResult::Deferred,
     }
 }
 
@@ -95,8 +95,8 @@ pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<
     let project = djls_project::Db::project(db);
     let env = match djls_project::environment_for_file(db, project, source) {
         djls_project::EnvironmentSelection::Selected(env) => env.clone(),
-        djls_project::EnvironmentSelection::Unknown { .. }
-        | djls_project::EnvironmentSelection::Ambiguous { .. } => return None,
+        djls_project::EnvironmentSelection::Unknown
+        | djls_project::EnvironmentSelection::Ambiguous(_) => return None,
     };
     let djls_project::SourceFileInventory::Ready(_) = project.source_inventory(db) else {
         return None;
@@ -205,7 +205,7 @@ mod tests {
         assert!(matches!(result, TemplateLookupResult::Deferred));
         assert!(matches!(
             djls_project::django_environment_candidates(&db, project),
-            DjangoEnvironmentCandidatesOutcome::Ready { .. }
+            DjangoEnvironmentCandidatesOutcome::Ready(_)
         ));
     }
 
@@ -243,7 +243,7 @@ mod tests {
             .contains_key(&LibraryName::parse("ui").expect("test library name should be valid")));
         assert!(matches!(
             djls_project::django_environment_candidates(&db, project),
-            DjangoEnvironmentCandidatesOutcome::Ready { .. }
+            DjangoEnvironmentCandidatesOutcome::Ready(_)
         ));
     }
 
@@ -350,7 +350,7 @@ mod tests {
             &db,
             root.clone(),
         )));
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             djls_project::django_environment_candidates(&db, project)
         else {
             panic!("environment candidates should be ready");
@@ -381,8 +381,8 @@ pub fn find_references_to_template<'db>(
     let project = djls_project::Db::project(db);
     let env = match djls_project::environment_for_file(db, project, source) {
         djls_project::EnvironmentSelection::Selected(env) => env,
-        djls_project::EnvironmentSelection::Unknown { .. }
-        | djls_project::EnvironmentSelection::Ambiguous { .. } => return Vec::new(),
+        djls_project::EnvironmentSelection::Unknown
+        | djls_project::EnvironmentSelection::Ambiguous(_) => return Vec::new(),
     };
 
     let template_name = InternedTemplateName::new(db, name.as_str().to_string());

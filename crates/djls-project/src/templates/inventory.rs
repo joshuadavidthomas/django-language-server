@@ -657,7 +657,7 @@ mod tests {
     }
 
     fn env(db: &TestDb) -> DjangoEnvironmentId {
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(db, db.project())
         else {
             panic!("environment should be ready");

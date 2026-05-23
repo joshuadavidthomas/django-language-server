@@ -50,7 +50,6 @@ pub use environments::environment_for_file;
 pub use environments::DjangoEnvironmentCandidatesOutcome;
 pub use environments::DjangoEnvironmentId;
 pub use environments::EnvironmentSelection;
-pub use environments::EnvironmentSelectionIssue;
 pub use interpreter::Interpreter;
 pub use names::InvalidName;
 pub use names::LibraryName;

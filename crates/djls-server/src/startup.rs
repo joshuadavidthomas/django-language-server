@@ -1899,17 +1899,17 @@ mod startup_generation {
                 StartupProgressEvent::StageStarted(DiscoveryStage::DjangoEnvironments),
                 StartupProgressEvent::StageFinished {
                     stage: DiscoveryStage::DjangoEnvironments,
-                    status: DiscoveryStageStatus::Unavailable,
+                    status: DiscoveryStageStatus::Deferred,
                 },
                 StartupProgressEvent::StageStarted(DiscoveryStage::InstalledAppFiles),
                 StartupProgressEvent::StageFinished {
                     stage: DiscoveryStage::InstalledAppFiles,
-                    status: DiscoveryStageStatus::Unavailable,
+                    status: DiscoveryStageStatus::Deferred,
                 },
                 StartupProgressEvent::StageStarted(DiscoveryStage::TemplateDirectoryFiles),
                 StartupProgressEvent::StageFinished {
                     stage: DiscoveryStage::TemplateDirectoryFiles,
-                    status: DiscoveryStageStatus::Unavailable,
+                    status: DiscoveryStageStatus::Deferred,
                 },
                 StartupProgressEvent::StageStarted(DiscoveryStage::Enrichment),
                 StartupProgressEvent::StageFinished {

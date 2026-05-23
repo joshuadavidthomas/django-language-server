@@ -3,7 +3,6 @@ use djls_source::File;
 use crate::layout::project_layout_index;
 use crate::layout::ProjectLayoutIndex;
 use crate::layout::ProjectLayoutIndexOutcome;
-use crate::layout::ProjectLayoutIssue;
 use crate::project::Project;
 use crate::provenance::Origin;
 use crate::provenance::OriginSet;
@@ -70,43 +69,14 @@ pub enum SettingsCandidateSource {
     ConventionalModule,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SettingsCandidateOutcome {
-    Ready {
-        candidates: Vec<SettingsCandidate>,
-        issues: Vec<SettingsCandidateIssue>,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SettingsCandidateIssue {
-    LayoutUnavailable {
-        issue: ProjectLayoutIssue,
-    },
-    InvalidModuleName {
-        source: SettingsCandidateSource,
-        value: String,
-        origin: OriginSet,
-    },
-}
-
 #[salsa::tracked(returns(ref))]
-pub fn settings_candidates(db: &dyn Db, project: Project) -> SettingsCandidateOutcome {
+pub fn settings_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate> {
     let mut candidates = Vec::new();
-    let mut issues = Vec::new();
-    collect_discovery_candidates(db, project, &mut candidates, &mut issues);
+    collect_discovery_candidates(db, project, &mut candidates);
 
-    match project_layout_index(db, project) {
-        ProjectLayoutIndexOutcome::Ready(layout) => {
-            collect_manage_py_candidates(db, layout, &mut candidates, &mut issues);
-            collect_conventional_candidates(db, project, layout, &mut candidates);
-        }
-        ProjectLayoutIndexOutcome::Absent { issue }
-        | ProjectLayoutIndexOutcome::Unavailable { issue } => {
-            issues.push(SettingsCandidateIssue::LayoutUnavailable {
-                issue: issue.clone(),
-            });
-        }
+    if let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) {
+        collect_manage_py_candidates(db, layout, &mut candidates);
+        collect_conventional_candidates(db, project, layout, &mut candidates);
     }
 
     candidates.sort_by(|left, right| {
@@ -115,7 +85,7 @@ pub fn settings_candidates(db: &dyn Db, project: Project) -> SettingsCandidateOu
             .then_with(|| left.module.as_str().cmp(right.module.as_str()))
     });
 
-    SettingsCandidateOutcome::Ready { candidates, issues }
+    candidates
 }
 
 fn source_rank(source: &SettingsCandidateSource) -> u8 {
@@ -132,7 +102,6 @@ fn collect_discovery_candidates(
     db: &dyn Db,
     project: Project,
     candidates: &mut Vec<SettingsCandidate>,
-    issues: &mut Vec<SettingsCandidateIssue>,
 ) {
     let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
         return;
@@ -148,7 +117,6 @@ fn collect_discovery_candidates(
                 OriginSet::single(Origin::Config {
                     root: root.root(db).clone(),
                 }),
-                issues,
             );
         }
         for environment in root.configured_environment_seeds(db) {
@@ -162,7 +130,6 @@ fn collect_discovery_candidates(
                     root: environment.root().cloned(),
                     name: environment.name().map(str::to_string),
                 }),
-                issues,
             );
         }
         for (name, value) in root.env_vars(db).entries() {
@@ -176,7 +143,6 @@ fn collect_discovery_candidates(
                         root: root.root(db).clone(),
                         name: name.clone(),
                     }),
-                    issues,
                 );
             }
         }
@@ -187,7 +153,6 @@ fn collect_manage_py_candidates(
     db: &dyn Db,
     layout: &ProjectLayoutIndex,
     candidates: &mut Vec<SettingsCandidate>,
-    issues: &mut Vec<SettingsCandidateIssue>,
 ) {
     for file in layout.files_by_name("manage.py") {
         let model = python_source_model(db, file);
@@ -214,7 +179,6 @@ fn collect_manage_py_candidates(
                 Some(file),
                 SettingsCandidateSource::ManagePyDefault,
                 OriginSet::single(Origin::PythonSource { file }),
-                issues,
             );
         }
     }
@@ -248,9 +212,8 @@ fn push_seed(
     file: Option<File>,
     source: SettingsCandidateSource,
     origin: OriginSet,
-    issues: &mut Vec<SettingsCandidateIssue>,
 ) {
-    push_value(candidates, seed.as_str(), file, source, origin, issues);
+    push_value(candidates, seed.as_str(), file, source, origin);
 }
 
 fn push_value(
@@ -259,14 +222,8 @@ fn push_value(
     file: Option<File>,
     source: SettingsCandidateSource,
     origin: OriginSet,
-    issues: &mut Vec<SettingsCandidateIssue>,
 ) {
     let Ok(module) = PyModuleName::parse(value) else {
-        issues.push(SettingsCandidateIssue::InvalidModuleName {
-            source,
-            value: value.to_string(),
-            origin,
-        });
         return;
     };
     candidates.push(SettingsCandidate::new(module, file, source, origin));
@@ -421,9 +378,7 @@ mod tests {
             ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
-        let SettingsCandidateOutcome::Ready { candidates, issues } =
-            settings_candidates(&db, db.project());
-        assert!(issues.is_empty());
+        let candidates = settings_candidates(&db, db.project());
         let sources = sources_by_module(candidates);
 
         assert!(sources.contains(&(
@@ -454,11 +409,9 @@ mod tests {
         db.set_file("/workspace/src/config/settings.py", "SECRET_KEY = 'x'\n");
         db.set_source_file_inventory(ready_inventory(&db, &["/workspace/src/config/settings.py"]));
 
-        let SettingsCandidateOutcome::Ready { candidates, issues } =
-            settings_candidates(&db, db.project());
+        let candidates = settings_candidates(&db, db.project());
         let sources = sources_by_module(candidates);
 
-        assert!(issues.is_empty());
         assert!(sources.contains(&(
             "config.settings".to_string(),
             SettingsCandidateSource::ConventionalModule,
@@ -466,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_candidates_return_discovery_candidates_with_layout_issue() {
+    fn settings_candidates_return_discovery_candidates_without_layout() {
         let mut db = TestDb::with_project();
         let root = RootDiscoveryInput::new(
             &db,
@@ -482,18 +435,13 @@ mod tests {
             ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
-        let SettingsCandidateOutcome::Ready { candidates, issues } =
-            settings_candidates(&db, db.project());
+        let candidates = settings_candidates(&db, db.project());
 
         assert_eq!(candidates.len(), 1);
-        assert!(matches!(
-            issues.as_slice(),
-            [SettingsCandidateIssue::LayoutUnavailable { .. }]
-        ));
     }
 
     #[test]
-    fn settings_candidates_report_invalid_module_values() {
+    fn settings_candidates_ignore_invalid_module_values() {
         let mut db = TestDb::with_project();
         db.set_source_file_inventory(ready_inventory(&db, &[]));
         let root = RootDiscoveryInput::new(
@@ -510,17 +458,8 @@ mod tests {
             ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
-        let SettingsCandidateOutcome::Ready { candidates, issues } =
-            settings_candidates(&db, db.project());
+        let candidates = settings_candidates(&db, db.project());
 
         assert!(candidates.is_empty());
-        assert!(matches!(
-            issues.as_slice(),
-            [SettingsCandidateIssue::InvalidModuleName {
-                source: SettingsCandidateSource::ExplicitConfig,
-                value,
-                ..
-            }] if value == "not a module"
-        ));
     }
 }

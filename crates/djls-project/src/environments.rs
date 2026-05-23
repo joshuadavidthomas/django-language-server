@@ -6,8 +6,6 @@ use crate::provenance::Origin;
 use crate::root_discovery::ProjectRootDiscovery;
 use crate::settings::settings_candidates;
 use crate::settings::SettingsCandidate;
-use crate::settings::SettingsCandidateIssue;
-use crate::settings::SettingsCandidateOutcome;
 use crate::settings::SettingsCandidateSource;
 use crate::source_files::SourceFileInventory;
 use crate::Db;
@@ -63,47 +61,15 @@ pub enum EnvironmentCandidateSource {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DjangoEnvironmentCandidatesOutcome {
-    Ready {
-        candidates: Vec<DjangoEnvironmentCandidate>,
-        issues: Vec<EnvironmentCandidatesIssue>,
-    },
-    Ambiguous {
-        candidates: Vec<DjangoEnvironmentCandidate>,
-        issues: Vec<EnvironmentCandidatesIssue>,
-    },
-    Unavailable {
-        issue: EnvironmentCandidatesIssue,
-    },
-    Deferred {
-        issue: EnvironmentCandidatesIssue,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EnvironmentCandidatesIssue {
-    NoSettingsCandidates,
-    SettingsCandidatesUnavailable { issues: Vec<SettingsCandidateIssue> },
-    SettingsCandidateIssues { issues: Vec<SettingsCandidateIssue> },
+    Ready(Vec<DjangoEnvironmentCandidate>),
+    Deferred,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EnvironmentSelection {
     Selected(DjangoEnvironmentId),
-    Ambiguous {
-        candidates: Vec<DjangoEnvironmentCandidate>,
-        issues: Vec<EnvironmentSelectionIssue>,
-    },
-    Unknown {
-        issues: Vec<EnvironmentSelectionIssue>,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EnvironmentSelectionIssue {
-    MultipleCandidatesForFile,
-    NoCandidateForFile,
-    CandidatesUnavailable { issue: EnvironmentCandidatesIssue },
-    CandidatesDeferred { issue: EnvironmentCandidatesIssue },
+    Ambiguous(Vec<DjangoEnvironmentCandidate>),
+    Unknown,
 }
 
 #[salsa::tracked(returns(ref))]
@@ -111,29 +77,17 @@ pub fn django_environment_candidates(
     db: &dyn Db,
     project: Project,
 ) -> DjangoEnvironmentCandidatesOutcome {
-    let SettingsCandidateOutcome::Ready { candidates, issues } = settings_candidates(db, project);
+    let candidates = settings_candidates(db, project);
     let env_candidates = candidates
         .iter()
         .map(|candidate| environment_candidate(db, project, candidate))
         .collect::<Vec<_>>();
 
     if env_candidates.is_empty() {
-        if issues.is_empty() {
-            return DjangoEnvironmentCandidatesOutcome::Deferred {
-                issue: EnvironmentCandidatesIssue::NoSettingsCandidates,
-            };
-        }
-        return DjangoEnvironmentCandidatesOutcome::Unavailable {
-            issue: EnvironmentCandidatesIssue::SettingsCandidatesUnavailable {
-                issues: issues.clone(),
-            },
-        };
+        return DjangoEnvironmentCandidatesOutcome::Deferred;
     }
 
-    DjangoEnvironmentCandidatesOutcome::Ready {
-        candidates: env_candidates,
-        issues: environment_issues_from_settings_issues(issues),
-    }
+    DjangoEnvironmentCandidatesOutcome::Ready(env_candidates)
 }
 
 #[must_use]
@@ -141,8 +95,7 @@ pub(crate) fn known_django_environment_ids(
     db: &dyn Db,
     project: Project,
 ) -> Vec<DjangoEnvironmentId> {
-    let (DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
-    | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. }) =
+    let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
         django_environment_candidates(db, project)
     else {
         return Vec::new();
@@ -157,22 +110,8 @@ pub(crate) fn known_django_environment_ids(
 pub fn environment_for_file(db: &dyn Db, project: Project, file: File) -> EnvironmentSelection {
     let path = file.path(db);
     let candidates = match django_environment_candidates(db, project) {
-        DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
-        DjangoEnvironmentCandidatesOutcome::Unavailable { issue } => {
-            return EnvironmentSelection::Unknown {
-                issues: vec![EnvironmentSelectionIssue::CandidatesUnavailable {
-                    issue: issue.clone(),
-                }],
-            };
-        }
-        DjangoEnvironmentCandidatesOutcome::Deferred { issue } => {
-            return EnvironmentSelection::Unknown {
-                issues: vec![EnvironmentSelectionIssue::CandidatesDeferred {
-                    issue: issue.clone(),
-                }],
-            };
-        }
+        DjangoEnvironmentCandidatesOutcome::Ready(candidates) => candidates,
+        DjangoEnvironmentCandidatesOutcome::Deferred => return EnvironmentSelection::Unknown,
     };
     let mut matching = candidates
         .iter()
@@ -192,9 +131,7 @@ pub fn environment_for_file(db: &dyn Db, project: Project, file: File) -> Enviro
         .and_then(|candidate| candidate.root.as_ref())
         .map(|root| root.as_str().len())
     else {
-        return EnvironmentSelection::Unknown {
-            issues: vec![EnvironmentSelectionIssue::NoCandidateForFile],
-        };
+        return EnvironmentSelection::Unknown;
     };
     matching.retain(|candidate| {
         candidate
@@ -207,10 +144,7 @@ pub fn environment_for_file(db: &dyn Db, project: Project, file: File) -> Enviro
         return EnvironmentSelection::Selected(matching.remove(0).id);
     }
 
-    EnvironmentSelection::Ambiguous {
-        candidates: matching,
-        issues: vec![EnvironmentSelectionIssue::MultipleCandidatesForFile],
-    }
+    EnvironmentSelection::Ambiguous(matching)
 }
 
 fn environment_candidate(
@@ -291,18 +225,6 @@ fn owning_root_for_path(
         .into_iter()
         .filter(|root| path.starts_with(root.as_path()))
         .max_by_key(|root| root.as_str().len())
-}
-
-fn environment_issues_from_settings_issues(
-    issues: &[SettingsCandidateIssue],
-) -> Vec<EnvironmentCandidatesIssue> {
-    if issues.is_empty() {
-        Vec::new()
-    } else {
-        vec![EnvironmentCandidatesIssue::SettingsCandidateIssues {
-            issues: issues.to_vec(),
-        }]
-    }
 }
 
 fn source_slug(source: &EnvironmentCandidateSource) -> &'static str {
@@ -505,12 +427,11 @@ mod tests {
             ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, issues } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
         else {
             panic!("multiple discoverable candidates should be ready");
         };
-        assert!(issues.is_empty());
         let sources = candidates
             .iter()
             .map(|candidate| candidate.source().clone())
@@ -520,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn environments_preserve_settings_candidate_issues_with_valid_candidates() {
+    fn environments_ignore_invalid_settings_candidate_values_with_valid_candidates() {
         let mut db = TestDb::with_project();
         db.set_source_file_inventory(ready_inventory(&db, &[]));
         let root = RootDiscoveryInput::new(
@@ -541,17 +462,13 @@ mod tests {
             ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, issues } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
         else {
-            panic!("valid candidates should remain ready with issues");
+            panic!("valid candidates should remain ready");
         };
 
         assert_eq!(candidates.len(), 1);
-        assert!(matches!(
-            issues.as_slice(),
-            [EnvironmentCandidatesIssue::SettingsCandidateIssues { .. }]
-        ));
     }
 
     #[test]
@@ -585,7 +502,7 @@ mod tests {
             ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
         else {
             panic!("single environment candidate should be ready");
@@ -593,7 +510,7 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         let _ = db.take_events();
 
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
         else {
             panic!("environment candidates should be reused");

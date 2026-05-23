@@ -504,10 +504,7 @@ mod source_file_set_tests {
         fn observe_django_environment_candidates(
             &mut self,
         ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
-            Ok(DjangoEnvironmentCandidatesOutcome::Ready {
-                candidates: Vec::new(),
-                issues: Vec::new(),
-            })
+            Ok(DjangoEnvironmentCandidatesOutcome::Ready(Vec::new()))
         }
 
         fn observe_installed_app_file_roots(

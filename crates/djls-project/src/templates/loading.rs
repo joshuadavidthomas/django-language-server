@@ -20,7 +20,6 @@ use crate::DjangoEnvironmentCandidatesOutcome;
 pub enum TemplateDirectoryFileRootsOutcome {
     Ready(TemplateDirectoryFileRoots),
     Deferred,
-    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,13 +69,9 @@ pub fn template_directory_file_roots_discovery(
 ) -> TemplateDirectoryFileRootsOutcome {
     let mut roots = Vec::new();
     let candidates = match django_environment_candidates(db, project) {
-        DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
-        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
+        DjangoEnvironmentCandidatesOutcome::Ready(candidates) => candidates,
+        DjangoEnvironmentCandidatesOutcome::Deferred => {
             return TemplateDirectoryFileRootsOutcome::Deferred;
-        }
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-            return TemplateDirectoryFileRootsOutcome::Unavailable;
         }
     };
 

@@ -117,7 +117,7 @@ fn runtime_enrichment_request(
             kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
         });
     };
-    let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
+    let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
         crate::django_environment_candidates(db, project)
     else {
         tracing::Span::current().record("outcome", "environment_not_configured");

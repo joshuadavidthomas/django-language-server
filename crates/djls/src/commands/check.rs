@@ -334,14 +334,14 @@ fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {
 fn project_warnings_for_file(db: &dyn djls_semantic::Db, file: File) -> Vec<ProjectWarning> {
     let project = djls_project::Db::project(db);
     match djls_project::environment_for_file(db, project, file) {
-        djls_project::EnvironmentSelection::Ambiguous { candidates, .. } => vec![ProjectWarning {
+        djls_project::EnvironmentSelection::Ambiguous(candidates) => vec![ProjectWarning {
             message: format!(
                 "Multiple Django Environments match this file ({} candidates); semantic validation is degraded until the project configuration selects one environment.",
                 candidates.len()
             ),
         }],
         djls_project::EnvironmentSelection::Selected(_)
-        | djls_project::EnvironmentSelection::Unknown { .. } => Vec::new(),
+        | djls_project::EnvironmentSelection::Unknown => Vec::new(),
     }
 }
 
