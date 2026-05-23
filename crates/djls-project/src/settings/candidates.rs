@@ -10,7 +10,6 @@ use crate::python::python_source_model;
 use crate::python::PythonSourceParseStatus;
 use crate::python::StaticValue;
 use crate::resolver::module_name_for_path;
-use crate::root_discovery::DjangoSettingsModuleSeed;
 use crate::root_discovery::ProjectRootDiscovery;
 use crate::Db;
 use crate::PyModuleName;
@@ -109,9 +108,9 @@ fn collect_discovery_candidates(
 
     for root in discovery.roots() {
         if let Some(seed) = root.settings_module_seed(db) {
-            push_seed(
+            push_candidate(
                 candidates,
-                seed,
+                seed.as_str(),
                 None,
                 SettingsCandidateSource::ExplicitConfig,
                 OriginSet::single(Origin::Config {
@@ -121,9 +120,9 @@ fn collect_discovery_candidates(
         }
         for environment in root.configured_environment_seeds(db) {
             let seed = environment.settings_module();
-            push_seed(
+            push_candidate(
                 candidates,
-                seed,
+                seed.as_str(),
                 None,
                 SettingsCandidateSource::ConfiguredEnvironment,
                 OriginSet::single(Origin::ConfiguredEnvironment {
@@ -134,7 +133,7 @@ fn collect_discovery_candidates(
         }
         for (name, value) in root.env_vars(db).entries() {
             if name == "DJANGO_SETTINGS_MODULE" {
-                push_value(
+                push_candidate(
                     candidates,
                     value,
                     None,
@@ -173,7 +172,7 @@ fn collect_manage_py_candidates(
             if name != "DJANGO_SETTINGS_MODULE" {
                 continue;
             }
-            push_value(
+            push_candidate(
                 candidates,
                 module,
                 Some(file),
@@ -206,17 +205,7 @@ fn collect_conventional_candidates(
     }
 }
 
-fn push_seed(
-    candidates: &mut Vec<SettingsCandidate>,
-    seed: &DjangoSettingsModuleSeed,
-    file: Option<File>,
-    source: SettingsCandidateSource,
-    origin: OriginSet,
-) {
-    push_value(candidates, seed.as_str(), file, source, origin);
-}
-
-fn push_value(
+fn push_candidate(
     candidates: &mut Vec<SettingsCandidate>,
     value: &str,
     file: Option<File>,
