@@ -16,8 +16,6 @@ use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
 use djls_workspace::WorkspaceRootIssue;
 
-use crate::Db;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceFileInventory {
     Ready(ReadySourceFiles),
@@ -61,8 +59,8 @@ impl ReadySourceFiles {
     }
 
     #[must_use]
-    pub(crate) fn discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
-        self.partitions.merged_discovered_data()
+    pub(crate) fn discovered_files(&self) -> DiscoveredSourceFiles {
+        self.partitions.merged_discovered_files()
     }
 
     #[must_use]
@@ -417,7 +415,7 @@ impl SourceFileSetPartitions {
         !self.partitions.is_empty()
     }
 
-    pub(crate) fn merged_discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
+    pub(crate) fn merged_discovered_files(&self) -> DiscoveredSourceFiles {
         let roots = self
             .partitions
             .iter()
@@ -433,12 +431,7 @@ impl SourceFileSetPartitions {
             }
         }
         let files = selected_files.into_values().collect::<Vec<_>>();
-        let summary = FileSetSummary::new(files.len());
-        MergedDiscoveredSourceFileSetData {
-            roots,
-            files,
-            summary,
-        }
+        DiscoveredSourceFiles::new(roots, files)
     }
 }
 
@@ -578,25 +571,34 @@ impl FirstPartySourceFilePatch {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MergedDiscoveredSourceFileSetData {
+pub(crate) struct DiscoveredSourceFiles {
     roots: Vec<SourceRootEntry>,
     files: Vec<DiscoveredSourceFile>,
     summary: FileSetSummary,
 }
 
-impl MergedDiscoveredSourceFileSetData {
+impl DiscoveredSourceFiles {
+    fn new(roots: Vec<SourceRootEntry>, files: Vec<DiscoveredSourceFile>) -> Self {
+        let summary = FileSetSummary::new(files.len());
+        Self {
+            roots,
+            files,
+            summary,
+        }
+    }
+
     #[must_use]
-    pub fn roots(&self) -> &[SourceRootEntry] {
+    fn roots(&self) -> &[SourceRootEntry] {
         &self.roots
     }
 
     #[must_use]
-    pub fn files(&self) -> &[DiscoveredSourceFile] {
+    fn files(&self) -> &[DiscoveredSourceFile] {
         &self.files
     }
 
     #[must_use]
-    pub fn summary(&self) -> FileSetSummary {
+    fn summary(&self) -> FileSetSummary {
         self.summary
     }
 }
@@ -679,6 +681,59 @@ impl SourceFilesUpdate {
         &self.issues
     }
 
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn decide_apply(
+        self,
+        previous: Option<ReadySourceFiles>,
+        materialized: SourceFileSetMaterialized,
+    ) -> SourceFilesApplyDecision {
+        if let Some(issue) = first_fatal_update_issue(&self.issues) {
+            return terminal_source_files_apply_decision(
+                self.applied_transition,
+                issue,
+                previous,
+                TerminalSourceFilesAvailability::Unavailable,
+            );
+        }
+
+        if let Some(issue) = materialized
+            .issues
+            .first()
+            .map(project_issue_from_materialization_issue)
+        {
+            return terminal_source_files_apply_decision(
+                self.applied_transition,
+                issue,
+                previous,
+                TerminalSourceFilesAvailability::Failed,
+            );
+        }
+
+        if !materialized_source_file_set_matches_update(&self, &materialized.discovered) {
+            let issue = SourceFilesIssue::MaterializationFailed {
+                path: Utf8PathBuf::from("<source-file-set>"),
+                error_kind: std::io::ErrorKind::InvalidData,
+            };
+            return terminal_source_files_apply_decision(
+                self.applied_transition,
+                issue,
+                previous,
+                TerminalSourceFilesAvailability::Failed,
+            );
+        }
+
+        let files = ReadySourceFiles::new(self.partitions, materialized.source_file_set);
+        SourceFilesApplyDecision::new(
+            SourceFilesApplyResult::Applied(SourceFilesApplied {
+                files: files.clone(),
+                transition: self.applied_transition,
+                issues: self.issues,
+            }),
+            Some(SourceFileInventory::Ready(files)),
+        )
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(crate) fn partitions(&self) -> &SourceFileSetPartitions {
@@ -689,6 +744,7 @@ impl SourceFilesUpdate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceFileSetMaterialized {
     source_file_set: SourceFileSet,
+    discovered: DiscoveredSourceFiles,
     handle_changes: SourceFileHandleChanges,
     issues: Vec<SourceFileMaterializationIssue>,
 }
@@ -697,11 +753,14 @@ impl SourceFileSetMaterialized {
     #[must_use]
     pub fn new(
         source_file_set: SourceFileSet,
+        roots: Vec<SourceRootEntry>,
+        files: Vec<DiscoveredSourceFile>,
         handle_changes: SourceFileHandleChanges,
         issues: Vec<SourceFileMaterializationIssue>,
     ) -> Self {
         Self {
             source_file_set,
+            discovered: DiscoveredSourceFiles::new(roots, files),
             handle_changes,
             issues,
         }
@@ -791,6 +850,36 @@ pub enum SourceFilesApplyResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceFilesApplyDecision {
+    result: SourceFilesApplyResult,
+    next_inventory: Option<SourceFileInventory>,
+}
+
+impl SourceFilesApplyDecision {
+    fn new(result: SourceFilesApplyResult, next_inventory: Option<SourceFileInventory>) -> Self {
+        Self {
+            result,
+            next_inventory,
+        }
+    }
+
+    #[must_use]
+    pub fn result(&self) -> &SourceFilesApplyResult {
+        &self.result
+    }
+
+    #[must_use]
+    pub fn next_inventory(&self) -> Option<&SourceFileInventory> {
+        self.next_inventory.as_ref()
+    }
+
+    #[must_use]
+    pub fn into_result(self) -> SourceFilesApplyResult {
+        self.result
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceFilesApplied {
     files: ReadySourceFiles,
     transition: SourceFilePartitionTransition,
@@ -830,60 +919,6 @@ impl SourceFilesApplied {
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
-pub fn finalize_project_source_files(
-    db: &mut dyn Db,
-    previous: Option<ReadySourceFiles>,
-    update: SourceFilesUpdate,
-    materialized: SourceFileSetMaterialized,
-) -> SourceFilesApplyResult {
-    if let Some(issue) = first_fatal_update_issue(&update.issues) {
-        return terminal_source_files_apply_result(
-            db,
-            update.applied_transition,
-            issue,
-            previous,
-            TerminalSourceFilesAvailability::Unavailable,
-        );
-    }
-
-    if let Some(issue) = materialized
-        .issues
-        .first()
-        .map(project_issue_from_materialization_issue)
-    {
-        return terminal_source_files_apply_result(
-            db,
-            update.applied_transition,
-            issue,
-            previous,
-            TerminalSourceFilesAvailability::Failed,
-        );
-    }
-
-    if !materialized_source_file_set_matches_update(db, &update, materialized.source_file_set) {
-        let issue = SourceFilesIssue::MaterializationFailed {
-            path: Utf8PathBuf::from("<source-file-set>"),
-            error_kind: std::io::ErrorKind::InvalidData,
-        };
-        return terminal_source_files_apply_result(
-            db,
-            update.applied_transition,
-            issue,
-            previous,
-            TerminalSourceFilesAvailability::Failed,
-        );
-    }
-
-    let files = ReadySourceFiles::new(update.partitions, materialized.source_file_set);
-    db.set_source_file_inventory(SourceFileInventory::Ready(files.clone()));
-    SourceFilesApplyResult::Applied(SourceFilesApplied {
-        files,
-        transition: update.applied_transition,
-        issues: update.issues,
-    })
-}
-
 fn first_fatal_update_issue(issues: &[SourceFilesIssue]) -> Option<SourceFilesIssue> {
     issues
         .iter()
@@ -897,49 +932,40 @@ enum TerminalSourceFilesAvailability {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn terminal_source_files_apply_result(
-    db: &mut dyn Db,
+fn terminal_source_files_apply_decision(
     transition: SourceFilePartitionTransition,
     issue: SourceFilesIssue,
     previous: Option<ReadySourceFiles>,
     availability: TerminalSourceFilesAvailability,
-) -> SourceFilesApplyResult {
-    match availability {
-        TerminalSourceFilesAvailability::Unavailable => {
-            if previous.is_none() {
-                db.set_source_file_inventory(SourceFileInventory::Unavailable {
-                    issue: issue.clone(),
-                });
-            }
-            SourceFilesApplyResult::Unavailable {
-                transition,
-                issue,
-                previous,
-            }
-        }
-        TerminalSourceFilesAvailability::Failed => {
-            if previous.is_none() {
-                db.set_source_file_inventory(SourceFileInventory::Unavailable {
-                    issue: issue.clone(),
-                });
-            }
-            SourceFilesApplyResult::Failed {
-                transition,
-                issue,
-                previous,
-            }
-        }
-    }
+) -> SourceFilesApplyDecision {
+    let next_inventory = if previous.is_none() {
+        Some(SourceFileInventory::Unavailable {
+            issue: issue.clone(),
+        })
+    } else {
+        None
+    };
+    let result = match availability {
+        TerminalSourceFilesAvailability::Unavailable => SourceFilesApplyResult::Unavailable {
+            transition,
+            issue,
+            previous,
+        },
+        TerminalSourceFilesAvailability::Failed => SourceFilesApplyResult::Failed {
+            transition,
+            issue,
+            previous,
+        },
+    };
+    SourceFilesApplyDecision::new(result, next_inventory)
 }
 
 fn materialized_source_file_set_matches_update(
-    db: &dyn djls_source::Db,
     update: &SourceFilesUpdate,
-    source_file_set: SourceFileSet,
+    data: &DiscoveredSourceFiles,
 ) -> bool {
-    let expected = update.partitions.merged_discovered_data();
-    let data = source_file_set.data(db);
-    if expected.summary() != *data.summary() {
+    let expected = update.partitions.merged_discovered_files();
+    if expected.summary() != data.summary() {
         return false;
     }
 
@@ -1003,8 +1029,8 @@ pub fn merge_partitioned_source_file_patch(
         .map(|files| files.partitions.clone())
         .unwrap_or_default();
     let partitions = current_partitions.replace_partition(snapshot);
-    let merged = partitions.merged_discovered_data();
-    let previous = current.map(ReadySourceFiles::discovered_data);
+    let merged = partitions.merged_discovered_files();
+    let previous = current.map(ReadySourceFiles::discovered_files);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = SourceFilePartitionTransition {
         partition: patch.partition,
@@ -1028,7 +1054,7 @@ fn partition_readiness(
     if let Some(issue) = patch.issues.first() {
         return SourceFilePartitionReadiness::Unavailable {
             issue: issue.clone(),
-            previous: current.map(|files| files.discovered_data().summary()),
+            previous: current.map(|files| files.discovered_files().summary()),
         };
     }
 
@@ -1072,8 +1098,8 @@ pub fn merge_first_party_source_file_patch(
         .map(|files| files.partitions.clone())
         .unwrap_or_default();
     let partitions = current_partitions.replace_partition(snapshot);
-    let merged = partitions.merged_discovered_data();
-    let previous = current.map(ReadySourceFiles::discovered_data);
+    let merged = partitions.merged_discovered_files();
+    let previous = current.map(ReadySourceFiles::discovered_files);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = SourceFilePartitionTransition {
         partition: patch.partition,
@@ -1095,7 +1121,7 @@ fn first_party_readiness(
     if let Some(issue) = patch.issues.first() {
         return SourceFilePartitionReadiness::Unavailable {
             issue: issue.clone(),
-            previous: current.map(|files| files.discovered_data().summary()),
+            previous: current.map(|files| files.discovered_files().summary()),
         };
     }
 
@@ -1105,8 +1131,8 @@ fn first_party_readiness(
 }
 
 fn materialization_patch(
-    previous: Option<&MergedDiscoveredSourceFileSetData>,
-    merged: &MergedDiscoveredSourceFileSetData,
+    previous: Option<&DiscoveredSourceFiles>,
+    merged: &DiscoveredSourceFiles,
 ) -> SourceFilesMaterializationPatch {
     let previous_roots = previous
         .map(|data| {
@@ -1287,9 +1313,56 @@ mod tests {
         }
     }
 
+    fn materialized_source_files(
+        db: &TestDb,
+        roots: Vec<SourceRootEntry>,
+        files: Vec<DiscoveredSourceFile>,
+    ) -> SourceFileSetMaterialized {
+        let loaded = files
+            .iter()
+            .enumerate()
+            .map(|(index, file)| {
+                LoadedSourceFile::from_discovered(
+                    file.clone(),
+                    djls_source::File::new(
+                        db,
+                        file.path().to_owned(),
+                        u64::try_from(index).expect("test file index should fit in u64"),
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let data = SourceFileSetData::new(roots.clone(), loaded)
+            .expect("materialized source files should be coherent");
+        SourceFileSetMaterialized::new(
+            SourceFileSet::new(db, data),
+            roots,
+            files,
+            SourceFileHandleChanges::default(),
+            Vec::new(),
+        )
+    }
+
+    fn materialized_for_update(
+        db: &TestDb,
+        update: &SourceFilesUpdate,
+    ) -> SourceFileSetMaterialized {
+        let discovered = update.partitions().merged_discovered_files();
+        materialized_source_files(db, discovered.roots().to_vec(), discovered.files().to_vec())
+    }
+
+    fn ready_files_for_update(db: &TestDb, update: SourceFilesUpdate) -> ReadySourceFiles {
+        let materialized = materialized_for_update(db, &update);
+        let decision = update.decide_apply(None, materialized);
+        let SourceFilesApplyResult::Applied(applied) = decision.into_result() else {
+            panic!("source files should apply");
+        };
+        applied.files().clone()
+    }
+
     #[test]
-    fn finalize_rejects_mismatched_materialized_source_file_set() {
-        let mut db = TestDb::with_project();
+    fn decide_apply_rejects_mismatched_materialized_source_file_set() {
+        let db = TestDb::with_project();
         let update_root = root("/workspace");
         let update_file = discovered("/workspace/models.py", &update_root);
         let patch = FirstPartySourceFilePatch {
@@ -1304,24 +1377,144 @@ mod tests {
         let other_root = root("/other");
         let other_file = discovered("/other/other.py", &other_root);
         let loaded = LoadedSourceFile::from_discovered(
-            other_file,
+            other_file.clone(),
             djls_source::File::new(&db, Utf8PathBuf::from("/other/other.py"), 0),
         );
-        let data = SourceFileSetData::new(vec![SourceRootEntry::new(other_root)], vec![loaded])
+        let roots = vec![SourceRootEntry::new(other_root)];
+        let files = vec![other_file];
+        let data = SourceFileSetData::new(roots.clone(), vec![loaded])
             .expect("mismatched source file set should be internally coherent");
         let materialized = SourceFileSetMaterialized::new(
             SourceFileSet::new(&db, data),
+            roots,
+            files,
             SourceFileHandleChanges::default(),
             Vec::new(),
         );
 
-        let result = finalize_project_source_files(&mut db, None, update, materialized);
+        let decision = update.decide_apply(None, materialized);
 
-        assert!(matches!(result, SourceFilesApplyResult::Failed { .. }));
         assert!(matches!(
-            db.project().source_inventory(&db),
-            SourceFileInventory::Unavailable { .. }
+            decision.result(),
+            SourceFilesApplyResult::Failed { .. }
         ));
+        assert!(matches!(
+            decision.next_inventory(),
+            Some(SourceFileInventory::Unavailable { .. })
+        ));
+    }
+
+    #[test]
+    fn decide_apply_applied_result_publishes_ready_inventory() {
+        let db = TestDb::with_project();
+        let update_root = root("/workspace");
+        let update_file = discovered("/workspace/models.py", &update_root);
+        let patch = FirstPartySourceFilePatch {
+            partition: FileSetPartition::first_party(),
+            roots: vec![update_root],
+            files: vec![update_file],
+            summary: FileSetSummary::new(1),
+            issues: Vec::new(),
+        };
+        let update = merge_first_party_source_file_patch(None, patch);
+        let materialized = materialized_for_update(&db, &update);
+
+        let decision = update.decide_apply(None, materialized);
+
+        let SourceFilesApplyResult::Applied(applied) = decision.result() else {
+            panic!("matching materialization should apply");
+        };
+        assert_eq!(
+            decision.next_inventory(),
+            Some(&SourceFileInventory::Ready(applied.files().clone()))
+        );
+    }
+
+    #[test]
+    fn decide_apply_mismatch_with_previous_ready_preserves_previous_inventory() {
+        let db = TestDb::with_project();
+        let previous_root = root("/workspace");
+        let previous_file = discovered("/workspace/models.py", &previous_root);
+        let previous_update = merge_first_party_source_file_patch(
+            None,
+            FirstPartySourceFilePatch {
+                partition: FileSetPartition::first_party(),
+                roots: vec![previous_root],
+                files: vec![previous_file],
+                summary: FileSetSummary::new(1),
+                issues: Vec::new(),
+            },
+        );
+        let previous = ready_files_for_update(&db, previous_update);
+        let update_root = root("/new");
+        let update_file = discovered("/new/models.py", &update_root);
+        let update = merge_first_party_source_file_patch(
+            Some(&previous),
+            FirstPartySourceFilePatch {
+                partition: FileSetPartition::first_party(),
+                roots: vec![update_root],
+                files: vec![update_file],
+                summary: FileSetSummary::new(1),
+                issues: Vec::new(),
+            },
+        );
+        let other_root = root("/other");
+        let other_file = discovered("/other/other.py", &other_root);
+        let materialized = materialized_source_files(
+            &db,
+            vec![SourceRootEntry::new(other_root)],
+            vec![other_file],
+        );
+
+        let decision = update.decide_apply(Some(previous.clone()), materialized);
+
+        let SourceFilesApplyResult::Failed { previous: kept, .. } = decision.result() else {
+            panic!("mismatched materialization should fail");
+        };
+        assert_eq!(kept, &Some(previous));
+        assert_eq!(decision.next_inventory(), None);
+    }
+
+    #[test]
+    fn decide_apply_terminal_issue_with_previous_ready_preserves_previous_inventory() {
+        let db = TestDb::with_project();
+        let previous_root = root("/workspace");
+        let previous_file = discovered("/workspace/models.py", &previous_root);
+        let previous_update = merge_first_party_source_file_patch(
+            None,
+            FirstPartySourceFilePatch {
+                partition: FileSetPartition::first_party(),
+                roots: vec![previous_root],
+                files: vec![previous_file],
+                summary: FileSetSummary::new(1),
+                issues: Vec::new(),
+            },
+        );
+        let previous = ready_files_for_update(&db, previous_update);
+        let missing_root = root("/missing");
+        let missing_issue = SourceFilesIssue::MissingRoot {
+            root: missing_root.id().clone(),
+            path: missing_root.path().to_owned(),
+        };
+        let update = merge_first_party_source_file_patch(
+            Some(&previous),
+            FirstPartySourceFilePatch {
+                partition: FileSetPartition::first_party(),
+                roots: vec![missing_root],
+                files: Vec::new(),
+                summary: FileSetSummary::new(0),
+                issues: vec![missing_issue],
+            },
+        );
+        let materialized = materialized_for_update(&db, &update);
+
+        let decision = update.decide_apply(Some(previous.clone()), materialized);
+
+        let SourceFilesApplyResult::Unavailable { previous: kept, .. } = decision.result() else {
+            panic!("terminal update issue should be unavailable");
+        };
+        assert_eq!(kept, &Some(previous));
+        assert_eq!(decision.next_inventory(), None);
     }
 
     #[test]

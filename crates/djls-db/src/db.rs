@@ -36,6 +36,7 @@ use djls_semantic::SemanticSettingsRevision;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
+use djls_source::DiscoveredSourceFile;
 use djls_source::LoadedSourceFile;
 use djls_source::SourceFileSet;
 use djls_source::SourceFileSetData;
@@ -215,7 +216,11 @@ impl DjangoDatabase {
         let previous = self.current_ready_source_files();
         let materialized =
             self.materialize_source_file_set_from(previous.as_ref(), update.materialization());
-        djls_project::finalize_project_source_files(self, previous, update, materialized)
+        let decision = update.decide_apply(previous, materialized);
+        if let Some(inventory) = decision.next_inventory() {
+            LoadingDb::set_source_file_inventory(self, inventory.clone());
+        }
+        decision.into_result()
     }
 
     pub fn materialize_source_file_set(
@@ -304,6 +309,11 @@ impl DjangoDatabase {
         });
         let roots = roots.into_values().collect::<Vec<SourceRootEntry>>();
         let files = loaded.into_values().collect::<Vec<_>>();
+        let discovered_files = files
+            .iter()
+            .map(|file| DiscoveredSourceFile::new(file.path().to_owned(), file.root().clone()))
+            .collect::<Vec<_>>();
+        let materialized_roots = roots.clone();
         let (data, issues) = match SourceFileSetData::new(roots, files) {
             Ok(data) => (data, Vec::new()),
             Err(error) => (
@@ -314,6 +324,8 @@ impl DjangoDatabase {
         let source_file_set = SourceFileSet::new(self, data);
         SourceFileSetMaterialized::new(
             source_file_set,
+            materialized_roots,
+            discovered_files,
             SourceFileHandleChanges::new(preserved, created, removed),
             issues,
         )
@@ -430,6 +442,7 @@ mod source_file_set_tests {
     use djls_project::Db as LoadingDb;
     use djls_project::FirstPartySourceFilePatch;
     use djls_project::SourceFileInventory;
+    use djls_project::SourceFilesApplyDecision;
     use djls_project::SourceFilesApplyResult;
     use djls_project::SourceFilesIssue;
     use djls_source::Db as SourceDb;
@@ -455,6 +468,16 @@ mod source_file_set_tests {
         )
     }
 
+    fn apply_decision(
+        db: &mut DjangoDatabase,
+        decision: SourceFilesApplyDecision,
+    ) -> SourceFilesApplyResult {
+        if let Some(inventory) = decision.next_inventory() {
+            LoadingDb::set_source_file_inventory(db, inventory.clone());
+        }
+        decision.into_result()
+    }
+
     #[test]
     fn source_file_set_materialization_preserves_unchanged_file_handles() {
         let dir = tempfile::tempdir().unwrap();
@@ -468,8 +491,7 @@ mod source_file_set_tests {
         let materialized = db.materialize_source_file_set(update.materialization());
         assert_eq!(materialized.handle_changes().created(), 1);
         assert_eq!(materialized.handle_changes().preserved(), 0);
-        let applied =
-            djls_project::finalize_project_source_files(&mut db, None, update, materialized);
+        let applied = apply_decision(&mut db, update.decide_apply(None, materialized));
         let SourceFilesApplyResult::Applied(applied) = applied else {
             panic!("first materialization should apply");
         };
@@ -479,11 +501,9 @@ mod source_file_set_tests {
         let materialized = db.materialize_source_file_set(update.materialization());
         assert_eq!(materialized.handle_changes().created(), 0);
         assert_eq!(materialized.handle_changes().preserved(), 0);
-        let applied = djls_project::finalize_project_source_files(
+        let applied = apply_decision(
             &mut db,
-            Some(applied.files().clone()),
-            update,
-            materialized,
+            update.decide_apply(Some(applied.files().clone()), materialized),
         );
         let SourceFilesApplyResult::Applied(applied) = applied else {
             panic!("second materialization should apply");

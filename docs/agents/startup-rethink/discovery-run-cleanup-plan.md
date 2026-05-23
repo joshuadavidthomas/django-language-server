@@ -350,9 +350,12 @@ cargo check -p djls-db --all-targets
 
 Expected success criteria:
 
-- `source_files.rs` contains no concrete Salsa mutation of `Project.source_inventory`.
-- `djls-db` is the only production code applying `SourceFileInventory` to the Project input.
-- Tests prove previous ready facts are preserved on terminal failures.
+- [x] `source_files.rs` contains no concrete Salsa mutation of `Project.source_inventory`.
+  - Evidence: `rg "set_source_file_inventory|set_source_inventory" crates/djls-project/src/source_files.rs` returned no matches.
+- [x] `djls-db` is the only production code applying `SourceFileInventory` to the Project input.
+  - Evidence: `DjangoDatabase::apply_source_files` now calls `update.decide_apply(...)`, applies only `decision.next_inventory()`, and returns `decision.into_result()`; `SourceFilesApplyDecision` has private fields and no public constructor.
+- [x] Tests prove previous ready facts are preserved on terminal failures.
+  - Evidence: `cargo test -p djls-project source_files`, `cargo test -p djls-db source_files`, `cargo test -p djls-db`, `cargo check -p djls-db --all-targets`, `cargo check --all-targets`, and `just fmt --check` passed. Source-file decision tests cover applied ready inventory, no-previous mismatch unavailable inventory, previous-ready mismatch preservation, and previous-ready terminal issue preservation.
 
 ## Phase 3: Replace loading plan/effects with Django Discovery Run
 
