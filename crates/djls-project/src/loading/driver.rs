@@ -10,11 +10,11 @@ use super::plan::MilestoneId;
 use super::plan::MilestoneTerminalStatus;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
+use crate::enrichment::ProjectEnrichment;
+use crate::root_discovery::ProjectRootDiscoveryApplyResult;
+use crate::source_files::PartitionedSourceFileLoadOutcome;
+use crate::source_files::SourceFilesApplyResult;
 use crate::DjangoEnvironmentCandidatesOutcome;
-use crate::PartitionedSourceFileLoadOutcome;
-use crate::ProjectDiscoveryApplyResult;
-use crate::ProjectEnrichment;
-use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,10 +66,10 @@ impl LoadingRunResult {
     }
 
     #[must_use]
-    pub fn source_file_set_result(&self) -> Option<&ProjectSourceFilesApplyResult> {
+    pub fn source_file_set_result(&self) -> Option<&SourceFilesApplyResult> {
         self.node_results.iter().find_map(|result| match result {
             LoadingNodeResult::SourceFileSet { applied, .. } => Some(applied),
-            LoadingNodeResult::ProjectDiscoverySet { .. }
+            LoadingNodeResult::ProjectRootDiscoverySet { .. }
             | LoadingNodeResult::PythonSourceModels { .. }
             | LoadingNodeResult::EnvironmentDiscovery { .. }
             | LoadingNodeResult::InstalledAppFiles { .. }
@@ -100,11 +100,11 @@ impl LoadingMilestoneResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoadingNodeResult {
     SourceFileSet {
-        applied: ProjectSourceFilesApplyResult,
+        applied: SourceFilesApplyResult,
         status: NodeTerminalStatus,
     },
-    ProjectDiscoverySet {
-        applied: ProjectDiscoveryApplyResult,
+    ProjectRootDiscoverySet {
+        applied: ProjectRootDiscoveryApplyResult,
         status: NodeTerminalStatus,
     },
     PythonSourceModels {
@@ -116,11 +116,11 @@ pub enum LoadingNodeResult {
         status: NodeTerminalStatus,
     },
     InstalledAppFiles {
-        applied: Vec<ProjectSourceFilesApplyResult>,
+        applied: Vec<SourceFilesApplyResult>,
         status: NodeTerminalStatus,
     },
     TemplateDirectoryFiles {
-        applied: Vec<ProjectSourceFilesApplyResult>,
+        applied: Vec<SourceFilesApplyResult>,
         status: NodeTerminalStatus,
     },
     Enrichment {
@@ -134,7 +134,7 @@ impl LoadingNodeResult {
     pub fn node(&self) -> NodeId {
         match self {
             Self::SourceFileSet { .. } => NodeId::SourceFileSet,
-            Self::ProjectDiscoverySet { .. } => NodeId::ProjectDiscoverySet,
+            Self::ProjectRootDiscoverySet { .. } => NodeId::ProjectRootDiscoverySet,
             Self::PythonSourceModels { .. } => NodeId::PythonSourceModels,
             Self::EnvironmentDiscovery { .. } => NodeId::EnvironmentDiscovery,
             Self::InstalledAppFiles { .. } => NodeId::InstalledAppFiles,
@@ -147,7 +147,7 @@ impl LoadingNodeResult {
     pub fn status(&self) -> &NodeTerminalStatus {
         match self {
             Self::SourceFileSet { status, .. }
-            | Self::ProjectDiscoverySet { status, .. }
+            | Self::ProjectRootDiscoverySet { status, .. }
             | Self::PythonSourceModels { status, .. }
             | Self::EnvironmentDiscovery { status, .. }
             | Self::InstalledAppFiles { status, .. }
@@ -199,10 +199,10 @@ pub fn run_loading_plan(
                 observer.node_finished(*node, status.clone());
                 node_results.push(LoadingNodeResult::SourceFileSet { applied, status });
             }
-            NodeId::ProjectDiscoverySet => {
+            NodeId::ProjectRootDiscoverySet => {
                 observer.node_started(*node);
                 let data = effects.load_project_discovery_set();
-                let applied = match effects.apply_project_discovery_data(data) {
+                let applied = match effects.apply_project_root_discovery(data) {
                     LoadingApplyOutcome::Applied(applied) => applied,
                     LoadingApplyOutcome::Superseded => {
                         observer.node_finished(*node, NodeTerminalStatus::Superseded);
@@ -222,7 +222,7 @@ pub fn run_loading_plan(
                 };
                 let status = node_status_from_readiness(&applied);
                 observer.node_finished(*node, status.clone());
-                node_results.push(LoadingNodeResult::ProjectDiscoverySet { applied, status });
+                node_results.push(LoadingNodeResult::ProjectRootDiscoverySet { applied, status });
             }
             NodeId::PythonSourceModels => {
                 observer.node_started(*node);
@@ -327,7 +327,7 @@ pub fn run_loading_plan(
 fn apply_partitioned_load_outcome(
     outcome: PartitionedSourceFileLoadOutcome,
     effects: &mut impl LoadingEffects,
-) -> Result<(Vec<ProjectSourceFilesApplyResult>, NodeTerminalStatus), LoadingExecutionOutcome> {
+) -> Result<(Vec<SourceFilesApplyResult>, NodeTerminalStatus), LoadingExecutionOutcome> {
     match outcome {
         PartitionedSourceFileLoadOutcome::Ready(patches) => {
             let applied = apply_partitioned_patches(patches, effects)?;
@@ -360,7 +360,7 @@ fn apply_partitioned_load_outcome(
 fn apply_partitioned_patches(
     patches: Vec<crate::PartitionedSourceFilePatch>,
     effects: &mut impl LoadingEffects,
-) -> Result<Vec<ProjectSourceFilesApplyResult>, LoadingExecutionOutcome> {
+) -> Result<Vec<SourceFilesApplyResult>, LoadingExecutionOutcome> {
     let mut applied = Vec::new();
     for patch in patches {
         match effects.apply_partitioned_source_file_patch(patch) {
@@ -374,7 +374,7 @@ fn apply_partitioned_patches(
     Ok(applied)
 }
 
-fn aggregate_file_loading_status(applied: &[ProjectSourceFilesApplyResult]) -> NodeTerminalStatus {
+fn aggregate_file_loading_status(applied: &[SourceFilesApplyResult]) -> NodeTerminalStatus {
     if applied.is_empty() {
         return NodeTerminalStatus::Succeeded;
     }
@@ -454,22 +454,22 @@ mod tests {
 
     use super::*;
     use crate::build_source_roots;
+    use crate::enrichment::ProjectEnrichment;
     use crate::environments::DjangoEnvironmentCandidate;
     use crate::environments::EnvironmentCandidatesIssue;
     use crate::first_party_discovery_files_request;
     use crate::first_party_source_files_load_request;
-    use crate::loading::ProjectSourceFilesApplied;
     use crate::merge_first_party_source_file_patch;
     use crate::python::source::PythonSourceIndex;
     use crate::python::source::PythonSourceIndexIssue;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::root_discovery::ProjectRootDiscoveryApplyResult;
+    use crate::root_discovery::ProjectRootDiscoveryLoadRequest;
+    use crate::root_discovery::ProjectRootDiscoveryUpdate;
+    use crate::source_files::FirstPartySourceFilePatch;
+    use crate::source_files::SourceFilesApplied;
+    use crate::source_files::SourceFilesApplyResult;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::FirstPartySourceFilePatch;
-    use crate::ProjectDiscovery;
-    use crate::ProjectDiscoveryApplyResult;
-    use crate::ProjectDiscoveryLoadRequest;
-    use crate::ProjectDiscoverySetData;
-    use crate::ProjectEnrichment;
-    use crate::ProjectSourceFilesApplyResult;
     use crate::PythonSourceIndexOutcome;
 
     #[salsa::db]
@@ -528,19 +528,19 @@ mod tests {
         fn apply_source_file_patch(
             &mut self,
             patch: FirstPartySourceFilePatch,
-        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+        ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
             self.apply_count += 1;
             if self.source_ready {
                 let db = TestDb::default();
                 let set = SourceFileSet::new(&db, SourceFileSetData::default());
-                let files = crate::ReadyProjectSourceFiles::new(
-                    crate::loading::files::ProjectFileSetPartitions::default(),
+                let files = crate::ReadySourceFiles::new(
+                    crate::source_files::SourceFileSetPartitions::default(),
                     set,
                 );
-                return LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Applied(
-                    ProjectSourceFilesApplied::for_test(
+                return LoadingApplyOutcome::Applied(SourceFilesApplyResult::Applied(
+                    SourceFilesApplied::for_test(
                         files,
-                        crate::loading::ProjectFilePartitionReadiness::Ready {
+                        crate::source_files::SourceFilePartitionReadiness::Ready {
                             summary: FileSetSummary::new(0),
                         },
                     ),
@@ -552,34 +552,34 @@ mod tests {
                 .issues()
                 .first()
                 .cloned()
-                .unwrap_or(crate::ProjectSourceFilesIssue::NotLoaded);
-            LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Unavailable {
+                .unwrap_or(crate::SourceFilesIssue::NotLoaded);
+            LoadingApplyOutcome::Applied(SourceFilesApplyResult::Unavailable {
                 transition,
                 issue,
                 previous: None,
             })
         }
 
-        fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+        fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate {
             self.discovery_load_count += 1;
-            crate::build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+            crate::load_project_root_discovery(ProjectRootDiscoveryLoadRequest::new(
                 self.roots.clone(),
                 djls_conf::Settings::default(),
             ))
         }
 
-        fn apply_project_discovery_data(
+        fn apply_project_root_discovery(
             &mut self,
-            data: ProjectDiscoverySetData,
-        ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
+            data: ProjectRootDiscoveryUpdate,
+        ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult> {
             self.discovery_apply_count += 1;
             if data.roots().is_empty() {
-                LoadingApplyOutcome::Applied(ProjectDiscoveryApplyResult::Unavailable(
-                    ProjectDiscovery::Absent,
+                LoadingApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Unavailable(
+                    ProjectRootDiscovery::Absent,
                 ))
             } else {
-                LoadingApplyOutcome::Applied(ProjectDiscoveryApplyResult::Applied {
-                    discovery: ProjectDiscovery::Absent,
+                LoadingApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Applied {
+                    discovery: ProjectRootDiscovery::Absent,
                     has_issues: false,
                 })
             }
@@ -617,7 +617,7 @@ mod tests {
         fn load_installed_app_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome {
             if self.installed_app_deferred {
                 return PartitionedSourceFileLoadOutcome::Deferred {
-                    issue: crate::ProjectSourceFilesIssue::InstalledAppGap {
+                    issue: crate::SourceFilesIssue::InstalledAppGap {
                         entry: "UNKNOWN".to_string(),
                     },
                 };
@@ -628,7 +628,7 @@ mod tests {
         fn load_template_directory_file_patches(&mut self) -> PartitionedSourceFileLoadOutcome {
             if self.template_directory_deferred {
                 return PartitionedSourceFileLoadOutcome::Deferred {
-                    issue: crate::ProjectSourceFilesIssue::TemplateDirectoryGap,
+                    issue: crate::SourceFilesIssue::TemplateDirectoryGap,
                 };
             }
             PartitionedSourceFileLoadOutcome::Ready(Vec::new())
@@ -637,7 +637,7 @@ mod tests {
         fn apply_partitioned_source_file_patch(
             &mut self,
             _patch: crate::PartitionedSourceFilePatch,
-        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+        ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
             unreachable!("fake effects return no partitioned patches")
         }
 
@@ -700,7 +700,7 @@ mod tests {
             observer.started,
             vec![
                 NodeId::SourceFileSet,
-                NodeId::ProjectDiscoverySet,
+                NodeId::ProjectRootDiscoverySet,
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
                 NodeId::InstalledAppFiles,
@@ -712,7 +712,10 @@ mod tests {
             observer.events,
             vec![
                 (NodeId::SourceFileSet, NodeTerminalStatus::Succeeded),
-                (NodeId::ProjectDiscoverySet, NodeTerminalStatus::Deferred),
+                (
+                    NodeId::ProjectRootDiscoverySet,
+                    NodeTerminalStatus::Deferred
+                ),
                 (NodeId::PythonSourceModels, NodeTerminalStatus::Succeeded),
                 (NodeId::EnvironmentDiscovery, NodeTerminalStatus::Succeeded),
                 (NodeId::InstalledAppFiles, NodeTerminalStatus::Succeeded),
@@ -724,7 +727,10 @@ mod tests {
             ]
         );
         assert_eq!(result.node_results()[0].node(), NodeId::SourceFileSet);
-        assert_eq!(result.node_results()[1].node(), NodeId::ProjectDiscoverySet);
+        assert_eq!(
+            result.node_results()[1].node(),
+            NodeId::ProjectRootDiscoverySet
+        );
         assert_eq!(result.node_results()[2].node(), NodeId::PythonSourceModels);
         assert_eq!(
             result.node_results()[3].node(),

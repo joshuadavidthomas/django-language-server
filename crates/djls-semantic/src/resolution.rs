@@ -130,7 +130,7 @@ pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<
         djls_project::EnvironmentSelection::Unknown { .. }
         | djls_project::EnvironmentSelection::Ambiguous { .. } => return None,
     };
-    let djls_project::ProjectSourceInventory::Ready(_) = project.source_inventory(db) else {
+    let djls_project::SourceFileInventory::Ready(_) = project.source_inventory(db) else {
         return None;
     };
     let inventory = djls_project::loadable_template_libraries(db, project, env);
@@ -208,7 +208,7 @@ mod tests {
     use djls_project::Db as ProjectFactsDb;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
     use djls_project::LibraryName;
-    use djls_project::ProjectDiscovery;
+    use djls_project::ProjectRootDiscovery;
     use salsa::Setter;
 
     use super::*;
@@ -223,7 +223,7 @@ mod tests {
             "TEMPLATES = [{'DIRS': ['/workspace/templates']}]\n",
         );
         let project = djls_project::Db::project(&db);
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone()],
             vec![
@@ -232,7 +232,7 @@ mod tests {
                 settings_file_path(&root, "config"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db,
             root.clone(),
         )));
@@ -257,7 +257,7 @@ mod tests {
         );
         db.add_file("/workspace/blog/templatetags/ui.py", "");
         let project = djls_project::Db::project(&db);
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone()],
             vec![
@@ -267,7 +267,7 @@ mod tests {
                 root.join("blog/templatetags/ui.py"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db,
             root.clone(),
         )));
@@ -294,7 +294,7 @@ mod tests {
             "TEMPLATES = [{'DIRS': ['/workspace/templates']}]\n",
         );
         let project = djls_project::Db::project(&db);
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone()],
             vec![
@@ -303,7 +303,7 @@ mod tests {
                 settings_file_path(&root, "config"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db,
             root.clone(),
         )));
@@ -335,7 +335,7 @@ mod tests {
         );
         db.add_file("/workspace/blog/templatetags/ui.py", "");
         db.add_file("/workspace/templates/base.html", "{% load ui %}");
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone(), root.join("templates")],
             vec![
@@ -346,7 +346,7 @@ mod tests {
                 template_path(&root, "base.html"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db,
             root.clone(),
         )));
@@ -374,7 +374,7 @@ mod tests {
         );
         db.add_file("/workspace/templates/emails/welcome.html", "hello");
         let project = djls_project::Db::project(&db);
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone(), root.join("templates")],
             vec![
@@ -384,7 +384,7 @@ mod tests {
                 template_path(&root, "emails/welcome.html"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db,
             root.clone(),
         )));

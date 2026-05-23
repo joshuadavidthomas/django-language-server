@@ -269,9 +269,12 @@ cargo check -p djls-project --all-targets
 
 Expected success criteria:
 
-- No `loading` module required for project state/source-files/root-discovery types.
-- No old `ProjectSourceInventory`, `ReadyProjectSourceFiles`, `ProjectSourceFilesIssue`, or `ProjectDiscovery*` names remain except in docs/historical plan files if intentionally untouched.
-- Internal `djls-project` code imports from owning modules.
+- [x] No `loading` module required for project state/source-files/root-discovery types.
+  - Evidence: `Project` lives in `crates/djls-project/src/project.rs`, source-file inventory/update types live in `crates/djls-project/src/source_files.rs`, and Project Root Discovery load/update types live in `crates/djls-project/src/root_discovery.rs`.
+- [x] No old `ProjectSourceInventory`, `ReadyProjectSourceFiles`, `ProjectSourceFilesIssue`, or `ProjectDiscovery*` names remain except in docs/historical plan files if intentionally untouched.
+  - Evidence: `rg "ProjectSourceInventory|ReadyProjectSourceFiles|ProjectSourceFilesIssue|ProjectDiscovery|RootDiscoveryData|ProjectDiscoverySetData|ProjectDiscoveryLoadRequest|build_project_discovery_data|set_project_source_inventory|set_project_discovery" crates/djls-project crates/djls-db crates/djls-server crates/djls crates/djls-semantic crates/djls-ide` returned no matches.
+- [x] Internal `djls-project` code imports from owning modules.
+  - Evidence: `rg "use crate::(ProjectRootDiscovery|ProjectRootDiscoverySet|ProjectRootDiscoveryIssue|ProjectRootDiscoveryIssues|SourceFileInventory|ReadySourceFiles|SourceFilesIssue|SourceFilesApplyResult|SourceFilesUpdate|Project);" crates/djls-project/src -g '*.rs'` returned no matches; `cargo check --all-targets` and `just fmt --check` passed.
 
 ## Phase 2: Make source-file apply a decision, not a mutation
 

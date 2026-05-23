@@ -3,10 +3,10 @@ use camino::Utf8PathBuf;
 use djls_source::File;
 use rustc_hash::FxHashMap;
 
+use crate::project::Project;
+use crate::source_files::SourceFileInventory;
+use crate::source_files::SourceFilesIssue;
 use crate::Db;
-use crate::Project;
-use crate::ProjectSourceFilesIssue;
-use crate::ProjectSourceInventory;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectLayoutIndexOutcome {
@@ -18,7 +18,7 @@ pub enum ProjectLayoutIndexOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectLayoutIssue {
     SourceInventoryAbsent,
-    SourceInventoryUnavailable { issue: ProjectSourceFilesIssue },
+    SourceInventoryUnavailable { issue: SourceFilesIssue },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -113,16 +113,16 @@ struct LayoutFile {
 #[salsa::tracked(returns(ref))]
 pub fn project_layout_index(db: &dyn Db, project: Project) -> ProjectLayoutIndexOutcome {
     match project.source_inventory(db) {
-        ProjectSourceInventory::Ready(files) => {
+        SourceFileInventory::Ready(files) => {
             let data = files.merged().data(db);
             ProjectLayoutIndexOutcome::Ready(ProjectLayoutIndex::new(data))
         }
-        ProjectSourceInventory::Unavailable {
-            issue: ProjectSourceFilesIssue::NotLoaded,
+        SourceFileInventory::Unavailable {
+            issue: SourceFilesIssue::NotLoaded,
         } => ProjectLayoutIndexOutcome::Absent {
             issue: ProjectLayoutIssue::SourceInventoryAbsent,
         },
-        ProjectSourceInventory::Unavailable { issue } => ProjectLayoutIndexOutcome::Unavailable {
+        SourceFileInventory::Unavailable { issue } => ProjectLayoutIndexOutcome::Unavailable {
             issue: ProjectLayoutIssue::SourceInventoryUnavailable { issue },
         },
     }
@@ -175,9 +175,9 @@ mod tests {
     use salsa::Setter;
 
     use super::*;
-    use crate::loading::state::ProjectSourceFilesFixtureSurface;
-    use crate::ProjectEnrichment;
-    use crate::ReadyProjectSourceFiles;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFilesFixtureSurface;
 
     #[salsa::db]
     struct TestDb {
@@ -246,7 +246,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, paths: &[&str]) -> SourceFileInventory {
         let root_path = Utf8PathBuf::from("/workspace");
         let root_id = SourceRootId::new(root_path.clone());
         let root = SourceRoot::new(root_id.clone(), root_path, FileRootKind::Project);
@@ -260,8 +260,8 @@ mod tests {
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
         let set = SourceFileSet::new(db, data);
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             set,
         ))
     }
@@ -277,9 +277,9 @@ mod tests {
             }
         );
 
-        db.set_project_source_inventory(ProjectSourceInventory::Unavailable {
-            issue: ProjectSourceFilesIssue::FixtureUnavailable {
-                surface: ProjectSourceFilesFixtureSurface::SourceFiles,
+        db.set_source_file_inventory(SourceFileInventory::Unavailable {
+            issue: SourceFilesIssue::FixtureUnavailable {
+                surface: SourceFilesFixtureSurface::SourceFiles,
             },
         });
 
@@ -287,8 +287,8 @@ mod tests {
             project_layout_index(&db, db.project()).clone(),
             ProjectLayoutIndexOutcome::Unavailable {
                 issue: ProjectLayoutIssue::SourceInventoryUnavailable {
-                    issue: ProjectSourceFilesIssue::FixtureUnavailable {
-                        surface: ProjectSourceFilesFixtureSurface::SourceFiles,
+                    issue: SourceFilesIssue::FixtureUnavailable {
+                        surface: SourceFilesFixtureSurface::SourceFiles,
                     },
                 },
             }
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn ready_layout_indexes_paths_names_extensions_children_and_packages() {
         let mut db = TestDb::default();
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &[
                 "/workspace/app/__init__.py",
@@ -333,7 +333,7 @@ mod tests {
             }
         );
 
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &[
                 "/workspace/project/settings.py",
@@ -364,7 +364,7 @@ mod tests {
         let events = db.take_events();
         assert!(!db.tracked_query_executed(&events, "project_layout_index"));
 
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
         assert_eq!(project_layout_file_count(&db, db.project()), 1);
         let events = db.take_events();
         assert!(db.tracked_query_executed(&events, "project_layout_index"));

@@ -4,12 +4,12 @@ use crate::apps::installed_apps;
 use crate::apps::InstalledAppResolution;
 use crate::db::Db;
 use crate::environments::DjangoEnvironmentId;
-use crate::loading::state::Project;
-use crate::loading::state::ProjectSourceInventory;
 use crate::names::PyModuleName;
+use crate::project::Project;
 use crate::provenance::Origin;
 use crate::provenance::OriginSet;
 use crate::resolver::module_name_for_path;
+use crate::source_files::SourceFileInventory;
 use crate::templates::template_tag_libraries;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,7 +38,7 @@ impl PythonModule {
 
 #[salsa::tracked(returns(ref))]
 pub fn model_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
-    let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
+    let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
         return Vec::new();
     };
 
@@ -71,7 +71,7 @@ pub fn model_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
 
 #[salsa::tracked(returns(ref))]
 pub fn template_tag_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
-    let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
+    let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
         return Vec::new();
     };
 
@@ -193,12 +193,12 @@ mod tests {
     use djls_workspace::InMemoryFileSystem;
 
     use super::*;
+    use crate::root_discovery::ProjectRootDiscovery;
     use crate::testing::manage_py_path;
     use crate::testing::package_init_path;
     use crate::testing::project_discovery_set_for_test;
     use crate::testing::ready_source_inventory_with_roots_for_test;
     use crate::testing::settings_file_path;
-    use crate::ProjectDiscovery;
 
     #[salsa::db]
     #[derive(Default)]
@@ -236,10 +236,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    crate::ProjectSourceInventory::Unavailable {
-                        issue: crate::ProjectSourceFilesIssue::NotLoaded,
+                    crate::SourceFileInventory::Unavailable {
+                        issue: crate::SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     crate::ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -262,7 +262,7 @@ mod tests {
             "/workspace/config/settings.py",
             "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'OPTIONS': {'libraries': {'ui': 'blog.ui_tags'}}}]\n",
         );
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone()],
             vec![
@@ -282,7 +282,7 @@ mod tests {
                 root.join("shop/templatetags/unused.py"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db, root,
         )));
 

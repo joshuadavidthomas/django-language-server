@@ -15,16 +15,16 @@ use serde_json::json;
 use tempfile::NamedTempFile;
 use wait_timeout::ChildExt;
 
+use crate::enrichment::ProjectEnrichment;
+use crate::enrichment::ProjectEnrichmentIssue;
 use crate::enrichment::RuntimeUnavailableKind;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
+use crate::project::Project;
+use crate::root_discovery::ProjectRootDiscovery;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::Interpreter;
-use crate::Project;
-use crate::ProjectDiscovery;
-use crate::ProjectEnrichment;
-use crate::ProjectEnrichmentIssue;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RuntimeEnrichmentRequest {
@@ -109,8 +109,8 @@ fn runtime_enrichment_request(
     db: &dyn Db,
     project: Project,
 ) -> Result<RuntimeEnrichmentRequest, ProjectEnrichmentIssue> {
-    let discovery = project.discovery(db);
-    let ProjectDiscovery::Ready(discovery) = discovery else {
+    let discovery = project.root_discovery(db);
+    let ProjectRootDiscovery::Ready(discovery) = discovery else {
         tracing::Span::current().record("outcome", "environment_not_configured");
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
             interpreter: None,
@@ -392,15 +392,15 @@ mod tests {
     use salsa::Setter;
 
     use super::*;
-    use crate::discovery::DjangoEnvironmentSeed;
-    use crate::discovery::DjangoSettingsModuleSeed;
-    use crate::ProjectDiscovery;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectEnrichment;
-    use crate::ProjectEnvVars;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ProjectSourceInventory;
-    use crate::RootDiscoveryInput;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::root_discovery::DjangoEnvironmentSeed;
+    use crate::root_discovery::DjangoSettingsModuleSeed;
+    use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::SourceFileInventory;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     #[derive(Default)]
@@ -437,10 +437,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -471,7 +471,7 @@ mod tests {
             ("DJLS_TEST".to_string(), "1".to_string()),
         ])
         .expect("env vars should be valid");
-        let discovery = ProjectDiscoverySet::new(vec![RootDiscoveryInput::new(
+        let discovery = ProjectRootDiscoverySet::new(vec![RootDiscoveryInput::new(
             &db,
             root.clone(),
             Some(Interpreter::InterpreterPath(python.as_str().to_string())),
@@ -483,8 +483,8 @@ mod tests {
         )])
         .expect("discovery should be valid");
         db.project()
-            .set_discovery(&mut db)
-            .to(ProjectDiscovery::Ready(discovery));
+            .set_root_discovery(&mut db)
+            .to(ProjectRootDiscovery::Ready(discovery));
 
         let request = runtime_enrichment_request(&db, db.project())
             .expect("request should be built from configured project facts");
@@ -512,7 +512,7 @@ mod tests {
             .expect("temp path should be utf8")
             .to_owned();
         let python = executable_python(&root);
-        let discovery = ProjectDiscoverySet::new(vec![RootDiscoveryInput::new(
+        let discovery = ProjectRootDiscoverySet::new(vec![RootDiscoveryInput::new(
             &db,
             root.clone(),
             Some(Interpreter::InterpreterPath(python.as_str().to_string())),
@@ -528,8 +528,8 @@ mod tests {
         )])
         .expect("discovery should be valid");
         db.project()
-            .set_discovery(&mut db)
-            .to(ProjectDiscovery::Ready(discovery));
+            .set_root_discovery(&mut db)
+            .to(ProjectRootDiscovery::Ready(discovery));
 
         let request = runtime_enrichment_request(&db, db.project())
             .expect("request should fall back to the first discovered root");

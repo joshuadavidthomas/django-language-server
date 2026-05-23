@@ -15,12 +15,12 @@ use djls_project::LoadingEffects;
 use djls_project::LoadingObservationOutcome;
 use djls_project::LoadingRunControl;
 use djls_project::PartitionedSourceFilePatch;
-use djls_project::ProjectDiscoveryApplyResult;
-use djls_project::ProjectDiscoveryLoadRequest;
-use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectEnrichment;
-use djls_project::ProjectSourceFilesApplyResult;
+use djls_project::ProjectRootDiscoveryApplyResult;
+use djls_project::ProjectRootDiscoveryLoadRequest;
+use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::PythonSourceIndexOutcome;
+use djls_project::SourceFilesApplyResult;
 use djls_workspace::load_files_for_roots;
 
 pub(crate) struct CliLoadingExecutor<'db> {
@@ -49,31 +49,31 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
     fn apply_source_file_patch(
         &mut self,
         patch: FirstPartySourceFilePatch,
-    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+    ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
         let current = ProjectDb::project(self.db)
             .source_inventory(self.db)
             .ready();
         let update = merge_first_party_source_file_patch(current.as_ref(), patch);
-        LoadingApplyOutcome::Applied(self.db.apply_project_source_files(update))
+        LoadingApplyOutcome::Applied(self.db.apply_source_files(update))
     }
 
-    fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+    fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate {
         let roots = build_source_roots(self.roots.clone())
             .roots()
             .iter()
             .map(|root| root.path().to_owned())
             .collect();
-        djls_project::build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+        djls_project::load_project_root_discovery(ProjectRootDiscoveryLoadRequest::new(
             roots,
             self.db.settings(),
         ))
     }
 
-    fn apply_project_discovery_data(
+    fn apply_project_root_discovery(
         &mut self,
-        data: ProjectDiscoverySetData,
-    ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
-        LoadingApplyOutcome::Applied(self.db.apply_project_discovery_data(data))
+        data: ProjectRootDiscoveryUpdate,
+    ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult> {
+        LoadingApplyOutcome::Applied(self.db.apply_project_root_discovery(data))
     }
 
     fn observe_python_source_index(
@@ -111,12 +111,12 @@ impl LoadingEffects for CliLoadingExecutor<'_> {
     fn apply_partitioned_source_file_patch(
         &mut self,
         patch: PartitionedSourceFilePatch,
-    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+    ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
         let current = ProjectDb::project(self.db)
             .source_inventory(self.db)
             .ready();
         let update = merge_partitioned_source_file_patch(current.as_ref(), patch);
-        LoadingApplyOutcome::Applied(self.db.apply_project_source_files(update))
+        LoadingApplyOutcome::Applied(self.db.apply_source_files(update))
     }
 
     fn load_project_enrichment(&mut self) -> ProjectEnrichment {

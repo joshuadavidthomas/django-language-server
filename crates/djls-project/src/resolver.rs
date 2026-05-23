@@ -3,10 +3,10 @@ use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::FileKind;
 
+use crate::project::Project;
+use crate::root_discovery::ProjectRootDiscovery;
+use crate::source_files::SourceFileInventory;
 use crate::Db;
-use crate::Project;
-use crate::ProjectDiscovery;
-use crate::ProjectSourceInventory;
 use crate::PyModuleName;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -102,7 +102,7 @@ pub enum ModuleResolutionError {
 pub fn import_roots(db: &dyn Db, project: Project) -> Vec<ImportRoot> {
     let mut roots = Vec::new();
 
-    if let ProjectSourceInventory::Ready(files) = project.source_inventory(db) {
+    if let SourceFileInventory::Ready(files) = project.source_inventory(db) {
         for entry in files.merged().data(db).roots() {
             push_import_root(
                 &mut roots,
@@ -122,7 +122,7 @@ pub fn import_roots(db: &dyn Db, project: Project) -> Vec<ImportRoot> {
         }
     }
 
-    if let ProjectDiscovery::Ready(discovery) = project.discovery(db) {
+    if let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) {
         for root in discovery.roots() {
             for pythonpath in root.pythonpath(db) {
                 push_import_root(&mut roots, pythonpath.clone(), ImportRootKind::PythonPath);
@@ -175,7 +175,7 @@ pub fn resolve_module(db: &dyn Db, project: Project, requested: PyModuleName) ->
         };
     }
 
-    let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
+    let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
         let root = roots
             .first()
             .map(|root| root.path.clone())
@@ -308,12 +308,12 @@ mod tests {
     use djls_source::SourceRootId;
 
     use super::*;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectEnrichment;
-    use crate::ProjectEnvVars;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ReadyProjectSourceFiles;
-    use crate::RootDiscoveryInput;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     #[derive(Default)]
@@ -350,10 +350,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -361,7 +361,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, roots: &[&str], paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, roots: &[&str], paths: &[&str]) -> SourceFileInventory {
         let source_roots = roots
             .iter()
             .map(|root| {
@@ -391,13 +391,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(root_entries, files).expect("test data should be valid");
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             SourceFileSet::new(db, data),
         ))
     }
 
-    fn discovery(db: &TestDb, root: &str, pythonpath: Vec<Utf8PathBuf>) -> ProjectDiscovery {
+    fn discovery(db: &TestDb, root: &str, pythonpath: Vec<Utf8PathBuf>) -> ProjectRootDiscovery {
         let root = RootDiscoveryInput::new(
             db,
             Utf8PathBuf::from(root),
@@ -408,20 +408,20 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         )
     }
 
     #[test]
     fn resolver_import_roots_include_source_src_convention_and_pythonpath() {
         let mut db = TestDb::with_project();
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &["/workspace/src/app/models.py"],
         ));
-        db.set_project_discovery(discovery(
+        db.set_project_root_discovery(discovery(
             &db,
             "/workspace",
             vec![Utf8PathBuf::from("/workspace/libs")],
@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn resolver_resolves_module_file_and_package_init() {
         let mut db = TestDb::with_project();
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &[
@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn resolver_reports_ambiguous_modules_across_roots() {
         let mut db = TestDb::with_project();
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace/a", "/workspace/b"],
             &["/workspace/a/app/models.py", "/workspace/b/app/models.py"],
@@ -502,12 +502,12 @@ mod tests {
     #[test]
     fn resolver_defers_not_found_when_known_pythonpath_root_is_unloaded() {
         let mut db = TestDb::with_project();
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &["/workspace/app/models.py"],
         ));
-        db.set_project_discovery(discovery(
+        db.set_project_root_discovery(discovery(
             &db,
             "/workspace",
             vec![Utf8PathBuf::from("/external/libs")],
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn resolver_defers_when_import_roots_known_but_sources_unloaded() {
         let mut db = TestDb::with_project();
-        db.set_project_discovery(discovery(
+        db.set_project_root_discovery(discovery(
             &db,
             "/workspace",
             vec![Utf8PathBuf::from("/workspace/libs")],

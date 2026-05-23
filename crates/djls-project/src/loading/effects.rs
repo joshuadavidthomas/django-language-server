@@ -2,14 +2,14 @@ use super::plan::MilestoneId;
 use super::plan::MilestoneTerminalStatus;
 use super::plan::NodeId;
 use super::plan::NodeTerminalStatus;
+use crate::enrichment::ProjectEnrichment;
+use crate::root_discovery::ProjectRootDiscoveryApplyResult;
+use crate::root_discovery::ProjectRootDiscoveryUpdate;
+use crate::source_files::FirstPartySourceFilePatch;
+use crate::source_files::PartitionedSourceFileLoadOutcome;
+use crate::source_files::PartitionedSourceFilePatch;
+use crate::source_files::SourceFilesApplyResult;
 use crate::DjangoEnvironmentCandidatesOutcome;
-use crate::FirstPartySourceFilePatch;
-use crate::PartitionedSourceFileLoadOutcome;
-use crate::PartitionedSourceFilePatch;
-use crate::ProjectDiscoveryApplyResult;
-use crate::ProjectDiscoverySetData;
-use crate::ProjectEnrichment;
-use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,12 +43,12 @@ pub trait LoadingEffects {
     fn apply_source_file_patch(
         &mut self,
         patch: FirstPartySourceFilePatch,
-    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult>;
-    fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData;
-    fn apply_project_discovery_data(
+    ) -> LoadingApplyOutcome<SourceFilesApplyResult>;
+    fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate;
+    fn apply_project_root_discovery(
         &mut self,
-        data: ProjectDiscoverySetData,
-    ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult>;
+        data: ProjectRootDiscoveryUpdate,
+    ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult>;
     fn observe_python_source_index(
         &mut self,
     ) -> LoadingObservationOutcome<PythonSourceIndexOutcome>;
@@ -60,7 +60,7 @@ pub trait LoadingEffects {
     fn apply_partitioned_source_file_patch(
         &mut self,
         patch: PartitionedSourceFilePatch,
-    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult>;
+    ) -> LoadingApplyOutcome<SourceFilesApplyResult>;
     fn load_project_enrichment(&mut self) -> ProjectEnrichment;
     fn apply_project_enrichment(
         &mut self,

@@ -1,19 +1,19 @@
 use djls_source::File;
 
-use crate::discovery::DjangoSettingsModuleSeed;
 use crate::layout::project_layout_index;
 use crate::layout::ProjectLayoutIndex;
 use crate::layout::ProjectLayoutIndexOutcome;
 use crate::layout::ProjectLayoutIssue;
+use crate::project::Project;
 use crate::provenance::Origin;
 use crate::provenance::OriginSet;
 use crate::python::python_source_model;
 use crate::python::PythonSourceParseStatus;
 use crate::python::StaticValue;
 use crate::resolver::module_name_for_path;
+use crate::root_discovery::DjangoSettingsModuleSeed;
+use crate::root_discovery::ProjectRootDiscovery;
 use crate::Db;
-use crate::Project;
-use crate::ProjectDiscovery;
 use crate::PyModuleName;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -134,7 +134,7 @@ fn collect_discovery_candidates(
     candidates: &mut Vec<SettingsCandidate>,
     issues: &mut Vec<SettingsCandidateIssue>,
 ) {
-    let ProjectDiscovery::Ready(discovery) = project.discovery(db) else {
+    let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
         return;
     };
 
@@ -291,15 +291,15 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::discovery::DjangoEnvironmentSeed;
-    use crate::discovery::DjangoSettingsModuleSeed;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectEnrichment;
-    use crate::ProjectEnvVars;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ProjectSourceInventory;
-    use crate::ReadyProjectSourceFiles;
-    use crate::RootDiscoveryInput;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::root_discovery::DjangoEnvironmentSeed;
+    use crate::root_discovery::DjangoSettingsModuleSeed;
+    use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFileInventory;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     #[derive(Default)]
@@ -337,10 +337,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -354,7 +354,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, paths: &[&str]) -> SourceFileInventory {
         let root_path = Utf8PathBuf::from("/workspace");
         let root_id = SourceRootId::new(root_path.clone());
         let root = SourceRoot::new(root_id.clone(), root_path, FileRootKind::Project);
@@ -368,8 +368,8 @@ mod tests {
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
         let set = SourceFileSet::new(db, data);
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             set,
         ))
     }
@@ -396,7 +396,7 @@ mod tests {
             "import os\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'manage.settings')\n",
         );
         db.set_file("/workspace/config/settings.py", "SECRET_KEY = 'x'\n");
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace/manage.py", "/workspace/config/settings.py"],
         ));
@@ -418,8 +418,8 @@ mod tests {
             .expect("env vars should be valid"),
             Vec::new(),
         );
-        db.set_project_discovery(ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
         let SettingsCandidateOutcome::Ready { candidates, issues } =
@@ -453,10 +453,7 @@ mod tests {
     fn settings_candidates_strip_src_layout_prefix_for_conventional_modules() {
         let mut db = TestDb::with_project();
         db.set_file("/workspace/src/config/settings.py", "SECRET_KEY = 'x'\n");
-        db.set_project_source_inventory(ready_inventory(
-            &db,
-            &["/workspace/src/config/settings.py"],
-        ));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/src/config/settings.py"]));
 
         let SettingsCandidateOutcome::Ready { candidates, issues } =
             settings_candidates(&db, db.project());
@@ -482,8 +479,8 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        db.set_project_discovery(ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
         let SettingsCandidateOutcome::Ready { candidates, issues } =
@@ -499,7 +496,7 @@ mod tests {
     #[test]
     fn settings_candidates_report_invalid_module_values() {
         let mut db = TestDb::with_project();
-        db.set_project_source_inventory(ready_inventory(&db, &[]));
+        db.set_source_file_inventory(ready_inventory(&db, &[]));
         let root = RootDiscoveryInput::new(
             &db,
             Utf8PathBuf::from("/workspace"),
@@ -510,8 +507,8 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        db.set_project_discovery(ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
 
         let SettingsCandidateOutcome::Ready { candidates, issues } =

@@ -25,12 +25,12 @@ use djls_project::MilestoneId;
 use djls_project::MilestoneTerminalStatus;
 use djls_project::NodeId;
 use djls_project::NodeTerminalStatus;
-use djls_project::ProjectDiscoveryApplyResult;
-use djls_project::ProjectDiscoveryLoadRequest;
-use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectEnrichment;
-use djls_project::ProjectSourceFilesApplyResult;
+use djls_project::ProjectRootDiscoveryApplyResult;
+use djls_project::ProjectRootDiscoveryLoadRequest;
+use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::PythonSourceIndexOutcome;
+use djls_project::SourceFilesApplyResult;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
 use tokio::sync::mpsc;
@@ -903,7 +903,7 @@ impl LoadingEffects for LspLoadingExecutor {
     fn apply_source_file_patch(
         &mut self,
         patch: FirstPartySourceFilePatch,
-    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+    ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -914,7 +914,7 @@ impl LoadingEffects for LspLoadingExecutor {
                     return Err(reason);
                 }
                 let update = merge_first_party_source_file_patch(current.as_ref(), patch);
-                Ok(session.db_mut().apply_project_source_files(update))
+                Ok(session.db_mut().apply_source_files(update))
             }));
 
         match outcome {
@@ -924,26 +924,26 @@ impl LoadingEffects for LspLoadingExecutor {
         }
     }
 
-    fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
+    fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate {
         let roots = build_source_roots(self.roots.clone())
             .roots()
             .iter()
             .map(|root| root.path().to_owned())
             .collect();
-        djls_project::build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+        djls_project::load_project_root_discovery(ProjectRootDiscoveryLoadRequest::new(
             roots,
             self.inputs.snapshot().settings().clone(),
         ))
     }
 
-    fn apply_project_discovery_data(
+    fn apply_project_root_discovery(
         &mut self,
-        data: ProjectDiscoverySetData,
-    ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
+        data: ProjectRootDiscoveryUpdate,
+    ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
-                Ok(session.db_mut().apply_project_discovery_data(data))
+                Ok(session.db_mut().apply_project_root_discovery(data))
             }));
 
         match outcome {
@@ -1032,7 +1032,7 @@ impl LoadingEffects for LspLoadingExecutor {
     fn apply_partitioned_source_file_patch(
         &mut self,
         patch: djls_project::PartitionedSourceFilePatch,
-    ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+    ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -1041,7 +1041,7 @@ impl LoadingEffects for LspLoadingExecutor {
                     .ready();
                 let update =
                     djls_project::merge_partitioned_source_file_patch(current.as_ref(), patch);
-                Ok(session.db_mut().apply_project_source_files(update))
+                Ok(session.db_mut().apply_source_files(update))
             }));
 
         match outcome {
@@ -1082,8 +1082,8 @@ mod startup_generation {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
 
-    use djls_project::ProjectDiscovery;
-    use djls_project::ProjectSourceInventory;
+    use djls_project::ProjectRootDiscovery;
+    use djls_project::SourceFileInventory;
     use djls_source::Db as _;
     use tower_lsp_server::ls_types;
 
@@ -1106,7 +1106,7 @@ mod startup_generation {
     async fn seed_ready_source_inventory(
         session: Arc<Mutex<Session>>,
         controller: &StartupController,
-    ) -> ProjectSourceInventory {
+    ) -> SourceFileInventory {
         let inputs = {
             let session = session.lock().await;
             StartupRunInputs::capture(&session, controller.start_generation().await)
@@ -1117,7 +1117,7 @@ mod startup_generation {
         );
         let session = session.lock().await;
         let inventory = ProjectDb::project(session.db()).source_inventory(session.db());
-        assert!(matches!(inventory, ProjectSourceInventory::Ready(_)));
+        assert!(matches!(inventory, SourceFileInventory::Ready(_)));
         inventory
     }
 
@@ -1430,11 +1430,11 @@ mod startup_generation {
         let session = session.lock().await;
         assert!(matches!(
             ProjectDb::project(session.db()).source_inventory(session.db()),
-            ProjectSourceInventory::Unavailable { .. }
+            SourceFileInventory::Unavailable { .. }
         ));
         assert!(matches!(
-            ProjectDb::project(session.db()).discovery(session.db()),
-            ProjectDiscovery::Ready(_)
+            ProjectDb::project(session.db()).root_discovery(session.db()),
+            ProjectRootDiscovery::Ready(_)
         ));
     }
 
@@ -1736,7 +1736,7 @@ mod startup_generation {
         let discovery_before = {
             let session = session.lock().await;
             ProjectDb::project(session.db())
-                .discovery(session.db())
+                .root_discovery(session.db())
                 .clone()
         };
 
@@ -1784,7 +1784,7 @@ mod startup_generation {
             before
         );
         assert_eq!(
-            ProjectDb::project(session.db()).discovery(session.db()),
+            ProjectDb::project(session.db()).root_discovery(session.db()),
             &discovery_before
         );
     }
@@ -1873,9 +1873,9 @@ mod startup_generation {
                     node: NodeId::SourceFileSet,
                     status: NodeTerminalStatus::Unavailable,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::ProjectDiscoverySet),
+                StartupProgressEvent::NodeStarted(NodeId::ProjectRootDiscoverySet),
                 StartupProgressEvent::NodeFinished {
-                    node: NodeId::ProjectDiscoverySet,
+                    node: NodeId::ProjectRootDiscoverySet,
                     status: NodeTerminalStatus::Succeeded,
                 },
                 StartupProgressEvent::NodeStarted(NodeId::PythonSourceModels),
@@ -1960,7 +1960,7 @@ mod startup_generation {
 
         assert!(matches!(
             outcome,
-            ApplyOutcome::Applied(ProjectSourceInventory::Unavailable { .. })
+            ApplyOutcome::Applied(SourceFileInventory::Unavailable { .. })
         ));
     }
 }

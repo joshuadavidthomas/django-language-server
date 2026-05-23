@@ -8,12 +8,12 @@ use djls_source::SourceRoot;
 use djls_source::SourceRootEntry;
 use djls_source::SourceRootId;
 
+use crate::root_discovery::ProjectEnvVars;
+use crate::root_discovery::ProjectRootDiscoverySet;
+use crate::root_discovery::RootDiscoveryInput;
+use crate::source_files::ReadySourceFiles;
+use crate::source_files::SourceFileInventory;
 use crate::Db;
-use crate::ProjectDiscoverySet;
-use crate::ProjectEnvVars;
-use crate::ProjectSourceInventory;
-use crate::ReadyProjectSourceFiles;
-use crate::RootDiscoveryInput;
 
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
@@ -41,7 +41,7 @@ pub fn ready_source_inventory_for_test(
     db: &dyn Db,
     root: impl Into<Utf8PathBuf>,
     paths: impl IntoIterator<Item = Utf8PathBuf>,
-) -> ProjectSourceInventory {
+) -> SourceFileInventory {
     ready_source_inventory_with_roots_for_test(db, vec![root.into()], paths)
 }
 
@@ -51,7 +51,7 @@ pub fn ready_source_inventory_with_roots_for_test(
     db: &dyn Db,
     roots: Vec<Utf8PathBuf>,
     paths: impl IntoIterator<Item = Utf8PathBuf>,
-) -> ProjectSourceInventory {
+) -> SourceFileInventory {
     let roots = roots
         .into_iter()
         .map(|root_path| {
@@ -84,8 +84,8 @@ pub fn ready_source_inventory_with_roots_for_test(
         .collect::<Vec<_>>();
     let data =
         SourceFileSetData::new(root_entries, files).expect("test source file set should be valid");
-    ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-        crate::loading::files::ProjectFileSetPartitions::default(),
+    SourceFileInventory::Ready(ReadySourceFiles::new(
+        crate::source_files::SourceFileSetPartitions::default(),
         SourceFileSet::new(db, data),
     ))
 }
@@ -95,7 +95,7 @@ pub fn ready_source_inventory_with_roots_for_test(
 pub fn project_discovery_set_for_test(
     db: &dyn Db,
     root: impl Into<Utf8PathBuf>,
-) -> ProjectDiscoverySet {
+) -> ProjectRootDiscoverySet {
     let root = RootDiscoveryInput::new(
         db,
         root.into(),
@@ -106,7 +106,7 @@ pub fn project_discovery_set_for_test(
         ProjectEnvVars::default(),
         Vec::new(),
     );
-    ProjectDiscoverySet::new(vec![root]).expect("test discovery should have one root")
+    ProjectRootDiscoverySet::new(vec![root]).expect("test discovery should have one root")
 }
 
 #[must_use]
@@ -141,10 +141,10 @@ mod tests {
     use djls_source::SourceFiles;
 
     use super::*;
-    use crate::Project;
-    use crate::ProjectDiscovery;
-    use crate::ProjectEnrichment;
-    use crate::ProjectSourceFilesIssue;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::project::Project;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     #[derive(Default)]
@@ -181,10 +181,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -206,7 +206,7 @@ mod tests {
         let inventory = ready_source_inventory_for_test(&db, root.clone(), paths);
         let discovery = project_discovery_set_for_test(&db, root.clone());
 
-        let ProjectSourceInventory::Ready(files) = inventory else {
+        let SourceFileInventory::Ready(files) = inventory else {
             panic!("source inventory should be ready");
         };
         assert_eq!(files.merged().data(&db).files().len(), 4);

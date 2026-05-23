@@ -7,7 +7,7 @@ use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
 
 use crate::django_environment_candidates;
-use crate::loading::build_source_roots_with_kind;
+use crate::project::Project;
 use crate::python::python_source_model;
 use crate::python::Assignment;
 use crate::python::ClassDef;
@@ -18,13 +18,13 @@ use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
 use crate::settings::PartialListSegment;
 use crate::settings::SettingsIssue;
+use crate::source_files::build_source_roots_with_kind;
+use crate::source_files::PartitionedSourceFileLoadOutcome;
+use crate::source_files::PartitionedSourceFilePatch;
+use crate::source_files::SourceFilesIssue;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::DjangoEnvironmentId;
-use crate::PartitionedSourceFileLoadOutcome;
-use crate::PartitionedSourceFilePatch;
-use crate::Project;
-use crate::ProjectSourceFilesIssue;
 use crate::PyModuleName;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -254,14 +254,14 @@ pub fn installed_app_file_load_outcome(
     match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
             return PartitionedSourceFileLoadOutcome::Deferred {
-                issue: ProjectSourceFilesIssue::InstalledAppGap {
+                issue: SourceFilesIssue::InstalledAppGap {
                     entry: "<environment-discovery>".to_string(),
                 },
             };
         }
         DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
             return PartitionedSourceFileLoadOutcome::Unavailable {
-                issue: ProjectSourceFilesIssue::InstalledAppGap {
+                issue: SourceFilesIssue::InstalledAppGap {
                     entry: "<environment-discovery>".to_string(),
                 },
             };
@@ -282,7 +282,7 @@ pub fn installed_app_file_load_outcome(
 fn installed_app_file_roots_and_issues(
     db: &dyn Db,
     project: Project,
-) -> (Vec<Utf8PathBuf>, Vec<ProjectSourceFilesIssue>) {
+) -> (Vec<Utf8PathBuf>, Vec<SourceFilesIssue>) {
     let mut roots = Vec::new();
     let mut issues = Vec::new();
     let candidates = match django_environment_candidates(db, project) {
@@ -308,7 +308,7 @@ fn installed_app_file_roots_and_issues(
                     }
                 }
                 InstalledAppResolution::Unresolved(_) => {
-                    issues.push(ProjectSourceFilesIssue::InstalledAppGap {
+                    issues.push(SourceFilesIssue::InstalledAppGap {
                         entry: app.entry().to_string(),
                     });
                 }
@@ -394,17 +394,17 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::django_environment_candidates;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::root_discovery::DjangoSettingsModuleSeed;
+    use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFileInventory;
+    use crate::source_files::SourceFilesIssue;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::ProjectDiscovery;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectEnrichment;
-    use crate::ProjectEnvVars;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ProjectSourceInventory;
-    use crate::ReadyProjectSourceFiles;
-    use crate::RootDiscoveryInput;
 
     #[salsa::db]
     #[derive(Default)]
@@ -442,10 +442,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -459,7 +459,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, paths: &[&str]) -> SourceFileInventory {
         let root_path = Utf8PathBuf::from("/workspace");
         let root_id = SourceRootId::new(root_path.clone());
         let root = SourceRoot::new(root_id.clone(), root_path, FileRootKind::Project);
@@ -472,13 +472,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             SourceFileSet::new(db, data),
         ))
     }
 
-    fn discovery(db: &TestDb) -> ProjectDiscovery {
+    fn discovery(db: &TestDb) -> ProjectRootDiscovery {
         let root = RootDiscoveryInput::new(
             db,
             Utf8PathBuf::from("/workspace"),
@@ -489,8 +489,8 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         )
     }
 
@@ -550,7 +550,7 @@ mod tests {
         );
         db.set_file("/workspace/django/contrib/auth/__init__.py", "");
         db.set_file("/workspace/blog/__init__.py", "");
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &[
                 "/workspace/project/settings.py",
@@ -558,7 +558,7 @@ mod tests {
                 "/workspace/blog/__init__.py",
             ],
         ));
-        db.set_project_discovery(discovery(&db));
+        db.set_project_root_discovery(discovery(&db));
         let env = single_env_id(&db);
 
         let apps = installed_apps(&db, db.project(), env);
@@ -579,14 +579,14 @@ mod tests {
             "INSTALLED_APPS = ['known', UNKNOWN]\n",
         );
         db.set_file("/workspace/known/__init__.py", "");
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &[
                 "/workspace/project/settings.py",
                 "/workspace/known/__init__.py",
             ],
         ));
-        db.set_project_discovery(discovery(&db));
+        db.set_project_root_discovery(discovery(&db));
         let env = single_env_id(&db);
 
         let apps = installed_apps(&db, db.project(), env);
@@ -610,11 +610,11 @@ mod tests {
             "/workspace/blog/apps.py",
             "from django.apps import AppConfig\nclass OtherConfig(AppConfig):\n    name = 'wrong'\n    label = 'wrong'\nclass BlogConfig(AppConfig):\n    name = 'blog'\n    label = 'weblog'\n    path = '/srv/blog'\n",
         );
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace/project/settings.py", "/workspace/blog/apps.py"],
         ));
-        db.set_project_discovery(discovery(&db));
+        db.set_project_root_discovery(discovery(&db));
         let env = single_env_id(&db);
 
         let apps = installed_apps(&db, db.project(), env);
@@ -637,7 +637,7 @@ mod tests {
             "/workspace/project/settings.py",
             "INSTALLED_APPS = ['external.apps.ExternalConfig']\n",
         );
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
         let root = RootDiscoveryInput::new(
             &db,
             Utf8PathBuf::from("/workspace"),
@@ -648,8 +648,8 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        db.set_project_discovery(ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         ));
         let env = single_env_id(&db);
 

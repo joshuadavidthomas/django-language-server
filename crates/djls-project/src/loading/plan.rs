@@ -1,19 +1,19 @@
+use crate::enrichment::ProjectEnrichment;
 use crate::enrichment::ProjectEnrichmentIssue;
-use crate::loading::state::ProjectSourceFilesIssue;
-use crate::loading::ProjectFilePartitionReadiness;
-use crate::loading::ProjectSourceFilesApplied;
 use crate::python::source::PythonSourceIndexIssue;
+use crate::root_discovery::ProjectRootDiscovery;
+use crate::root_discovery::ProjectRootDiscoveryApplyResult;
+use crate::source_files::SourceFilePartitionReadiness;
+use crate::source_files::SourceFilesApplied;
+use crate::source_files::SourceFilesApplyResult;
+use crate::source_files::SourceFilesIssue;
 use crate::DjangoEnvironmentCandidatesOutcome;
-use crate::ProjectDiscovery;
-use crate::ProjectDiscoveryApplyResult;
-use crate::ProjectEnrichment;
-use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NodeId {
     SourceFileSet,
-    ProjectDiscoverySet,
+    ProjectRootDiscoverySet,
     PythonSourceModels,
     EnvironmentDiscovery,
     InstalledAppFiles,
@@ -98,7 +98,7 @@ impl LoadingPlan {
         Self {
             nodes: &[
                 NodeId::SourceFileSet,
-                NodeId::ProjectDiscoverySet,
+                NodeId::ProjectRootDiscoverySet,
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
                 NodeId::InstalledAppFiles,
@@ -156,43 +156,43 @@ impl LoadingReadiness for ProjectEnrichment {
     }
 }
 
-impl LoadingReadiness for ProjectSourceFilesApplyResult {
+impl LoadingReadiness for SourceFilesApplyResult {
     fn terminal_status(&self) -> NodeTerminalStatus {
         match self {
-            ProjectSourceFilesApplyResult::Applied(applied) => {
+            SourceFilesApplyResult::Applied(applied) => {
                 node_status_from_project_source_files_applied(applied)
             }
-            ProjectSourceFilesApplyResult::Deferred { .. } => NodeTerminalStatus::Deferred,
-            ProjectSourceFilesApplyResult::Unavailable { .. } => NodeTerminalStatus::Unavailable,
-            ProjectSourceFilesApplyResult::Failed { .. } => NodeTerminalStatus::Failed,
+            SourceFilesApplyResult::Deferred { .. } => NodeTerminalStatus::Deferred,
+            SourceFilesApplyResult::Unavailable { .. } => NodeTerminalStatus::Unavailable,
+            SourceFilesApplyResult::Failed { .. } => NodeTerminalStatus::Failed,
         }
     }
 }
 
-impl LoadingReadiness for ProjectDiscoveryApplyResult {
+impl LoadingReadiness for ProjectRootDiscoveryApplyResult {
     fn terminal_status(&self) -> NodeTerminalStatus {
         match self {
-            ProjectDiscoveryApplyResult::Applied {
-                discovery: ProjectDiscovery::Ready(_),
+            ProjectRootDiscoveryApplyResult::Applied {
+                discovery: ProjectRootDiscovery::Ready(_),
                 has_issues: false,
             } => NodeTerminalStatus::Succeeded,
-            ProjectDiscoveryApplyResult::Applied {
-                discovery: ProjectDiscovery::Ready(_),
+            ProjectRootDiscoveryApplyResult::Applied {
+                discovery: ProjectRootDiscovery::Ready(_),
                 has_issues: true,
             } => NodeTerminalStatus::Degraded,
-            ProjectDiscoveryApplyResult::Applied {
-                discovery: ProjectDiscovery::Absent,
+            ProjectRootDiscoveryApplyResult::Applied {
+                discovery: ProjectRootDiscovery::Absent,
                 ..
             }
-            | ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Absent) => {
+            | ProjectRootDiscoveryApplyResult::Unavailable(ProjectRootDiscovery::Absent) => {
                 NodeTerminalStatus::Deferred
             }
-            ProjectDiscoveryApplyResult::Applied {
-                discovery: ProjectDiscovery::Unavailable { .. },
+            ProjectRootDiscoveryApplyResult::Applied {
+                discovery: ProjectRootDiscovery::Unavailable { .. },
                 ..
             }
-            | ProjectDiscoveryApplyResult::Unavailable(
-                ProjectDiscovery::Unavailable { .. } | ProjectDiscovery::Ready(_),
+            | ProjectRootDiscoveryApplyResult::Unavailable(
+                ProjectRootDiscovery::Unavailable { .. } | ProjectRootDiscovery::Ready(_),
             ) => NodeTerminalStatus::Unavailable,
         }
     }
@@ -222,9 +222,7 @@ impl LoadingReadiness for PythonSourceIndexOutcome {
                 NodeTerminalStatus::Skipped
             }
             PythonSourceIndexOutcome::Unindexed(
-                PythonSourceIndexIssue::SourceInventoryUnavailable(
-                    ProjectSourceFilesIssue::NotLoaded,
-                ),
+                PythonSourceIndexIssue::SourceInventoryUnavailable(SourceFilesIssue::NotLoaded),
             ) => NodeTerminalStatus::Deferred,
             PythonSourceIndexOutcome::Unindexed(
                 PythonSourceIndexIssue::LayoutUnavailable
@@ -236,22 +234,22 @@ impl LoadingReadiness for PythonSourceIndexOutcome {
 
 #[must_use]
 pub fn node_status_from_project_source_files_applied(
-    applied: &ProjectSourceFilesApplied,
+    applied: &SourceFilesApplied,
 ) -> NodeTerminalStatus {
     node_status_from_file_partition_readiness(applied.transition().readiness())
 }
 
 #[must_use]
 pub fn node_status_from_file_partition_readiness(
-    readiness: &ProjectFilePartitionReadiness,
+    readiness: &SourceFilePartitionReadiness,
 ) -> NodeTerminalStatus {
     match readiness {
-        ProjectFilePartitionReadiness::Ready { .. } => NodeTerminalStatus::Succeeded,
-        ProjectFilePartitionReadiness::Skipped { .. } => NodeTerminalStatus::Skipped,
-        ProjectFilePartitionReadiness::Unavailable { .. } => NodeTerminalStatus::Unavailable,
-        ProjectFilePartitionReadiness::Loading
-        | ProjectFilePartitionReadiness::Deferred { .. }
-        | ProjectFilePartitionReadiness::Stale { .. } => NodeTerminalStatus::Deferred,
+        SourceFilePartitionReadiness::Ready { .. } => NodeTerminalStatus::Succeeded,
+        SourceFilePartitionReadiness::Skipped { .. } => NodeTerminalStatus::Skipped,
+        SourceFilePartitionReadiness::Unavailable { .. } => NodeTerminalStatus::Unavailable,
+        SourceFilePartitionReadiness::Loading
+        | SourceFilePartitionReadiness::Deferred { .. }
+        | SourceFilePartitionReadiness::Stale { .. } => NodeTerminalStatus::Deferred,
     }
 }
 
@@ -263,18 +261,18 @@ mod tests {
     use djls_source::SourceFileSetData;
     use djls_source::SourceFiles;
 
-    use super::super::files::ProjectFileSetPartitions;
     use super::*;
     use crate::environments::DjangoEnvironmentCandidate;
     use crate::environments::EnvironmentCandidatesIssue;
     use crate::python::source::PythonSourceIndex;
     use crate::python::source::PythonSourceIndexIssue;
-    use crate::ProjectDiscoveryIssue;
-    use crate::ProjectDiscoveryIssues;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ReadyProjectSourceFiles;
-    use crate::RootDiscoveryInput;
+    use crate::root_discovery::ProjectRootDiscoveryIssue;
+    use crate::root_discovery::ProjectRootDiscoveryIssues;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFileSetPartitions;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     #[derive(Default)]
@@ -356,7 +354,7 @@ mod tests {
             LoadingPlan::phase3().nodes(),
             &[
                 NodeId::SourceFileSet,
-                NodeId::ProjectDiscoverySet,
+                NodeId::ProjectRootDiscoverySet,
                 NodeId::PythonSourceModels,
                 NodeId::EnvironmentDiscovery,
                 NodeId::InstalledAppFiles,
@@ -368,41 +366,41 @@ mod tests {
 
     #[test]
     fn file_partition_readiness_projection_covers_table_classes() {
-        let issue = ProjectSourceFilesIssue::NotLoaded;
+        let issue = SourceFilesIssue::NotLoaded;
         let cases = [
             (
-                ProjectFilePartitionReadiness::Loading,
+                SourceFilePartitionReadiness::Loading,
                 NodeTerminalStatus::Deferred,
             ),
             (
-                ProjectFilePartitionReadiness::Ready {
+                SourceFilePartitionReadiness::Ready {
                     summary: djls_source::FileSetSummary::new(1),
                 },
                 NodeTerminalStatus::Succeeded,
             ),
             (
-                ProjectFilePartitionReadiness::Deferred {
+                SourceFilePartitionReadiness::Deferred {
                     issue: issue.clone(),
                     previous: None,
                 },
                 NodeTerminalStatus::Deferred,
             ),
             (
-                ProjectFilePartitionReadiness::Skipped {
+                SourceFilePartitionReadiness::Skipped {
                     issue: issue.clone(),
                     previous: None,
                 },
                 NodeTerminalStatus::Skipped,
             ),
             (
-                ProjectFilePartitionReadiness::Unavailable {
+                SourceFilePartitionReadiness::Unavailable {
                     issue,
                     previous: None,
                 },
                 NodeTerminalStatus::Unavailable,
             ),
             (
-                ProjectFilePartitionReadiness::Stale { previous: None },
+                SourceFilePartitionReadiness::Stale { previous: None },
                 NodeTerminalStatus::Deferred,
             ),
         ];
@@ -436,17 +434,17 @@ mod tests {
             Vec::new(),
             Vec::new(),
             crate::ProjectEnvVars::default(),
-            vec![ProjectDiscoveryIssue::NoWorkspaceRoots],
+            vec![ProjectRootDiscoveryIssue::NoWorkspaceRoots],
         );
         let unavailable_issues =
-            ProjectDiscoveryIssues::new(vec![ProjectDiscoveryIssue::NoWorkspaceRoots])
+            ProjectRootDiscoveryIssues::new(vec![ProjectRootDiscoveryIssue::NoWorkspaceRoots])
                 .expect("test issue list is non-empty");
 
         let cases = [
             (
-                ProjectDiscoveryApplyResult::Applied {
-                    discovery: ProjectDiscovery::Ready(
-                        ProjectDiscoverySet::new(vec![clean_root])
+                ProjectRootDiscoveryApplyResult::Applied {
+                    discovery: ProjectRootDiscovery::Ready(
+                        ProjectRootDiscoverySet::new(vec![clean_root])
                             .expect("test root set is non-empty"),
                     ),
                     has_issues: false,
@@ -454,9 +452,9 @@ mod tests {
                 NodeTerminalStatus::Succeeded,
             ),
             (
-                ProjectDiscoveryApplyResult::Applied {
-                    discovery: ProjectDiscovery::Ready(
-                        ProjectDiscoverySet::new(vec![issue_root])
+                ProjectRootDiscoveryApplyResult::Applied {
+                    discovery: ProjectRootDiscovery::Ready(
+                        ProjectRootDiscoverySet::new(vec![issue_root])
                             .expect("test root set is non-empty"),
                     ),
                     has_issues: true,
@@ -464,14 +462,14 @@ mod tests {
                 NodeTerminalStatus::Degraded,
             ),
             (
-                ProjectDiscoveryApplyResult::Applied {
-                    discovery: ProjectDiscovery::Absent,
+                ProjectRootDiscoveryApplyResult::Applied {
+                    discovery: ProjectRootDiscovery::Absent,
                     has_issues: false,
                 },
                 NodeTerminalStatus::Deferred,
             ),
             (
-                ProjectDiscoveryApplyResult::Unavailable(ProjectDiscovery::Unavailable {
+                ProjectRootDiscoveryApplyResult::Unavailable(ProjectRootDiscovery::Unavailable {
                     issues: unavailable_issues,
                 }),
                 NodeTerminalStatus::Unavailable,
@@ -532,9 +530,7 @@ mod tests {
             ),
             (
                 PythonSourceIndexOutcome::Unindexed(
-                    PythonSourceIndexIssue::SourceInventoryUnavailable(
-                        ProjectSourceFilesIssue::NotLoaded,
-                    ),
+                    PythonSourceIndexIssue::SourceInventoryUnavailable(SourceFilesIssue::NotLoaded),
                 ),
                 NodeTerminalStatus::Deferred,
             ),
@@ -553,17 +549,17 @@ mod tests {
     fn applied_source_files_project_through_partition_transition() {
         let db = TestDb::default();
         let source_file_set = SourceFileSet::new(&db, SourceFileSetData::default());
-        let files = ReadyProjectSourceFiles::materialized_for_test(
-            ProjectFileSetPartitions::default(),
+        let files = ReadySourceFiles::materialized_for_test(
+            SourceFileSetPartitions::default(),
             source_file_set,
         );
-        let applied = ProjectSourceFilesApplied::for_test(
+        let applied = SourceFilesApplied::for_test(
             files,
-            ProjectFilePartitionReadiness::Ready {
+            SourceFilePartitionReadiness::Ready {
                 summary: djls_source::FileSetSummary::new(0),
             },
         );
-        let result = ProjectSourceFilesApplyResult::Applied(applied);
+        let result = SourceFilesApplyResult::Applied(applied);
 
         assert_eq!(
             node_status_from_readiness(&result),

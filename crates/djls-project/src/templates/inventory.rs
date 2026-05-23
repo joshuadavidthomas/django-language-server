@@ -6,19 +6,19 @@ use djls_source::File;
 
 use crate::apps::installed_apps;
 use crate::apps::InstalledAppResolution;
-use crate::loading::FileSetPartitionId;
-use crate::loading::ProjectFilePartitionReadiness;
+use crate::project::Project;
 use crate::resolver::resolve_module;
 use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
 use crate::settings::SettingsIssue;
+use crate::source_files::FileSetPartitionId;
+use crate::source_files::SourceFileInventory;
+use crate::source_files::SourceFilePartitionReadiness;
+use crate::source_files::SourceFilesIssue;
 use crate::Db;
 use crate::DjangoEnvironmentId;
 use crate::LibraryName;
-use crate::Project;
-use crate::ProjectSourceFilesIssue;
-use crate::ProjectSourceInventory;
 use crate::PyModuleName;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,7 +56,7 @@ pub enum TemplateDirectoryEntry {
     },
     Unavailable {
         directory: TemplateDirectory,
-        issue: ProjectSourceFilesIssue,
+        issue: SourceFilesIssue,
     },
     Stale {
         directory: TemplateDirectory,
@@ -242,7 +242,7 @@ pub fn template_files(
 ) -> TemplateFileInventory {
     let directories = template_directory_entries(db, project, env);
     let mut templates = Vec::new();
-    let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
+    let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
         return TemplateFileInventory {
             templates,
             directories: directories
@@ -298,7 +298,7 @@ pub fn template_tag_libraries(
     env: DjangoEnvironmentId,
 ) -> TemplateTagLibraryInventory {
     let mut libraries = django_builtin_libraries();
-    let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
+    let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
         return TemplateTagLibraryInventory { libraries };
     };
     for root in installed_app_roots(db, project, env.clone()) {
@@ -380,7 +380,7 @@ pub fn loadable_template_libraries(
 }
 
 fn directory_entry_with_readiness(
-    files: &crate::ReadyProjectSourceFiles,
+    files: &crate::ReadySourceFiles,
     loaded_roots: &[Utf8PathBuf],
     entry: TemplateDirectoryEntry,
 ) -> TemplateDirectoryEntry {
@@ -402,28 +402,28 @@ fn directory_entry_with_readiness(
             }),
     };
     match partition_readiness {
-        Some(ProjectFilePartitionReadiness::Ready { .. }) => {
+        Some(SourceFilePartitionReadiness::Ready { .. }) => {
             TemplateDirectoryEntry::Discovered(directory)
         }
         None if directory_fallback_loaded(files, &directory, loaded_roots) => {
             TemplateDirectoryEntry::Discovered(directory)
         }
         Some(
-            ProjectFilePartitionReadiness::Deferred { .. } | ProjectFilePartitionReadiness::Loading,
+            SourceFilePartitionReadiness::Deferred { .. } | SourceFilePartitionReadiness::Loading,
         )
         | None => TemplateDirectoryEntry::Deferred { directory },
         Some(
-            ProjectFilePartitionReadiness::Unavailable { issue, .. }
-            | ProjectFilePartitionReadiness::Skipped { issue, .. },
+            SourceFilePartitionReadiness::Unavailable { issue, .. }
+            | SourceFilePartitionReadiness::Skipped { issue, .. },
         ) => TemplateDirectoryEntry::Unavailable { directory, issue },
-        Some(ProjectFilePartitionReadiness::Stale { .. }) => {
+        Some(SourceFilePartitionReadiness::Stale { .. }) => {
             TemplateDirectoryEntry::Stale { directory }
         }
     }
 }
 
 fn directory_fallback_loaded(
-    files: &crate::ReadyProjectSourceFiles,
+    files: &crate::ReadySourceFiles,
     directory: &TemplateDirectory,
     loaded_roots: &[Utf8PathBuf],
 ) -> bool {
@@ -584,16 +584,16 @@ mod tests {
     use salsa::Setter;
 
     use super::*;
-    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::django_environment_candidates;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::root_discovery::DjangoSettingsModuleSeed;
+    use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFilesIssue;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::ProjectDiscovery;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectEnrichment;
-    use crate::ProjectEnvVars;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ReadyProjectSourceFiles;
-    use crate::RootDiscoveryInput;
 
     #[salsa::db]
     #[derive(Default)]
@@ -631,10 +631,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -647,7 +647,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, roots: &[&str], paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, roots: &[&str], paths: &[&str]) -> SourceFileInventory {
         let roots = roots
             .iter()
             .map(|root| {
@@ -679,8 +679,8 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             SourceFileSet::new(
                 db,
                 SourceFileSetData::new(root_entries, files).expect("test data should be valid"),
@@ -688,7 +688,7 @@ mod tests {
         ))
     }
 
-    fn discovery(db: &TestDb) -> ProjectDiscovery {
+    fn discovery(db: &TestDb) -> ProjectRootDiscovery {
         let root = RootDiscoveryInput::new(
             db,
             Utf8PathBuf::from("/workspace"),
@@ -699,8 +699,8 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         )
     }
 
@@ -720,8 +720,8 @@ mod tests {
             "/workspace/project/settings.py",
             "TEMPLATES = [{'DIRS': ['/workspace/emails']}]\n",
         );
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &["/workspace/project/settings.py"],
@@ -743,8 +743,8 @@ mod tests {
             "/workspace/project/settings.py",
             "TEMPLATES = [{'DIRS': ['/workspace/emails']}]\n",
         );
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace", "/workspace/emails"],
             &[
@@ -766,8 +766,8 @@ mod tests {
             "/workspace/project/settings.py",
             "TEMPLATES = [{'DIRS': [UNKNOWN]}]\n",
         );
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &["/workspace/project/settings.py"],
@@ -789,8 +789,8 @@ mod tests {
             "/workspace/project/settings.py",
             "TEMPLATES = [{'DIRS': ['/workspace/partials']}]\n",
         );
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace", "/workspace/partials"],
             &["/workspace/project/settings.py"],
@@ -814,8 +814,8 @@ mod tests {
             "TEMPLATES = [{'APP_DIRS': True}]\nINSTALLED_APPS = ['blog']\n",
         );
         db.set_file("/workspace/blog/__init__.py", "");
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &[
@@ -845,8 +845,8 @@ mod tests {
             "TEMPLATES = [{'OPTIONS': {'libraries': {'ui': 'blog.templatetags.ui'}}}]\n",
         );
         db.set_file("/workspace/blog/templatetags/ui.py", "");
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &[
@@ -880,8 +880,8 @@ mod tests {
     fn loadable_template_libraries_include_runtime_fallbacks() {
         let mut db = TestDb::with_project();
         db.set_file("/workspace/project/settings.py", "TEMPLATES = [{}]\n");
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &["/workspace/project/settings.py"],
@@ -918,8 +918,8 @@ mod tests {
             "TEMPLATES = [{'OPTIONS': {'libraries': {'ui': 'blog.templatetags.ui'}}}]\n",
         );
         db.set_file("/workspace/blog/templatetags/ui.py", "");
-        db.set_project_discovery(discovery(&db));
-        db.set_project_source_inventory(ready_inventory(
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace"],
             &[

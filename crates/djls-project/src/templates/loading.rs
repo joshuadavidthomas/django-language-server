@@ -6,14 +6,14 @@ use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
 
 use crate::django_environment_candidates;
-use crate::loading::build_source_roots_with_kind;
+use crate::project::Project;
 use crate::settings::django_settings;
+use crate::source_files::build_source_roots_with_kind;
+use crate::source_files::PartitionedSourceFileLoadOutcome;
+use crate::source_files::PartitionedSourceFilePatch;
+use crate::source_files::SourceFilesIssue;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
-use crate::PartitionedSourceFileLoadOutcome;
-use crate::PartitionedSourceFilePatch;
-use crate::Project;
-use crate::ProjectSourceFilesIssue;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TemplateDirectoryFilesLoadRequest {
@@ -84,12 +84,12 @@ pub fn template_directory_file_load_outcome(
     match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
             return PartitionedSourceFileLoadOutcome::Deferred {
-                issue: ProjectSourceFilesIssue::TemplateDirectoryGap,
+                issue: SourceFilesIssue::TemplateDirectoryGap,
             };
         }
         DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
             return PartitionedSourceFileLoadOutcome::Unavailable {
-                issue: ProjectSourceFilesIssue::TemplateDirectoryGap,
+                issue: SourceFilesIssue::TemplateDirectoryGap,
             };
         }
         DjangoEnvironmentCandidatesOutcome::Ready { .. }

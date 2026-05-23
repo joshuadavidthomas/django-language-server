@@ -1,4 +1,5 @@
 use crate::django_environment_candidates;
+use crate::project::Project;
 use crate::python::python_source_model;
 use crate::python::AssignmentKind;
 use crate::python::ImportStatement;
@@ -13,7 +14,6 @@ use crate::resolver::ModuleResolutionOutcome;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::DjangoEnvironmentId;
-use crate::Project;
 use crate::PyModuleName;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -484,15 +484,15 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::discovery::DjangoSettingsModuleSeed;
-    use crate::ProjectDiscovery;
-    use crate::ProjectDiscoverySet;
-    use crate::ProjectEnrichment;
-    use crate::ProjectEnvVars;
-    use crate::ProjectSourceFilesIssue;
-    use crate::ProjectSourceInventory;
-    use crate::ReadyProjectSourceFiles;
-    use crate::RootDiscoveryInput;
+    use crate::enrichment::ProjectEnrichment;
+    use crate::root_discovery::DjangoSettingsModuleSeed;
+    use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::root_discovery::ProjectRootDiscoverySet;
+    use crate::root_discovery::RootDiscoveryInput;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFileInventory;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     #[derive(Default)]
@@ -530,10 +530,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -547,7 +547,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, paths: &[&str]) -> SourceFileInventory {
         let root_path = Utf8PathBuf::from("/workspace");
         let root_id = SourceRootId::new(root_path.clone());
         let root = SourceRoot::new(root_id.clone(), root_path, FileRootKind::Project);
@@ -560,13 +560,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             SourceFileSet::new(db, data),
         ))
     }
 
-    fn discovery(db: &TestDb, settings_module: &str) -> ProjectDiscovery {
+    fn discovery(db: &TestDb, settings_module: &str) -> ProjectRootDiscovery {
         let root = RootDiscoveryInput::new(
             db,
             Utf8PathBuf::from("/workspace"),
@@ -577,8 +577,8 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        ProjectDiscovery::Ready(
-            ProjectDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
         )
     }
 
@@ -598,8 +598,8 @@ mod tests {
             "/workspace/project/settings.py",
             "INSTALLED_APPS = ['django.contrib.auth', UNKNOWN, 'blog']\n",
         );
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
-        db.set_project_discovery(discovery(&db, "project.settings"));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_root_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
         let settings = django_settings(&db, db.project(), env);
@@ -620,8 +620,8 @@ mod tests {
             "/workspace/project/settings.py",
             "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['templates'], 'APP_DIRS': True}]\n",
         );
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
-        db.set_project_discovery(discovery(&db, "project.settings"));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_root_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
         let settings = django_settings(&db, db.project(), env);
@@ -645,8 +645,8 @@ mod tests {
             "/workspace/project/settings.py",
             "INSTALLED_APPS = []\nINSTALLED_APPS.append('temporary')\nINSTALLED_APPS = ['final']\n",
         );
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
-        db.set_project_discovery(discovery(&db, "project.settings"));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_root_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
         let settings = django_settings(&db, db.project(), env);
@@ -672,14 +672,14 @@ mod tests {
             "/workspace/project/settings.py",
             "from .base import *\nINSTALLED_APPS += ['local_app']\n",
         );
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &[
                 "/workspace/project/base.py",
                 "/workspace/project/settings.py",
             ],
         ));
-        db.set_project_discovery(discovery(&db, "project.settings"));
+        db.set_project_root_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
         let settings = django_settings(&db, db.project(), env);
@@ -701,8 +701,8 @@ mod tests {
             "/workspace/project/settings.py",
             "INSTALLED_APPS = BASE_APPS + ['local_app']\n",
         );
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
-        db.set_project_discovery(discovery(&db, "project.settings"));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
+        db.set_project_root_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
         let settings = django_settings(&db, db.project(), env);
@@ -720,11 +720,11 @@ mod tests {
             "/workspace/project/settings.py",
             "import base\nINSTALLED_APPS = ['local_app'] + ['concat_app']\nINSTALLED_APPS += ['aug_app']\nINSTALLED_APPS.append('tail_app')\n",
         );
-        db.set_project_source_inventory(ready_inventory(
+        db.set_source_file_inventory(ready_inventory(
             &db,
             &["/workspace/base.py", "/workspace/project/settings.py"],
         ));
-        db.set_project_discovery(discovery(&db, "project.settings"));
+        db.set_project_root_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
         let settings = django_settings(&db, db.project(), env);

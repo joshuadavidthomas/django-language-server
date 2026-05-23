@@ -9,10 +9,10 @@ use ruff_python_ast::Stmt;
 
 use crate::layout::project_layout_index;
 use crate::layout::ProjectLayoutIndexOutcome;
+use crate::project::Project;
+use crate::source_files::SourceFileInventory;
+use crate::source_files::SourceFilesIssue;
 use crate::Db;
-use crate::Project;
-use crate::ProjectSourceFilesIssue;
-use crate::ProjectSourceInventory;
 use crate::PyModuleName;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,7 +121,7 @@ pub enum PythonSourceIndexOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PythonSourceIndexIssue {
     NoPythonFiles,
-    SourceInventoryUnavailable(ProjectSourceFilesIssue),
+    SourceInventoryUnavailable(SourceFilesIssue),
     LayoutUnavailable,
 }
 
@@ -393,17 +393,15 @@ pub fn python_source_model(db: &dyn Db, file: File) -> PythonSourceModel {
 #[salsa::tracked(returns(ref))]
 pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOutcome {
     let files = match project.source_inventory(db) {
-        ProjectSourceInventory::Ready(files) => files,
-        ProjectSourceInventory::Unavailable {
-            issue: ProjectSourceFilesIssue::NotLoaded,
+        SourceFileInventory::Ready(files) => files,
+        SourceFileInventory::Unavailable {
+            issue: SourceFilesIssue::NotLoaded,
         } => {
             return PythonSourceIndexOutcome::Unindexed(
-                PythonSourceIndexIssue::SourceInventoryUnavailable(
-                    ProjectSourceFilesIssue::NotLoaded,
-                ),
+                PythonSourceIndexIssue::SourceInventoryUnavailable(SourceFilesIssue::NotLoaded),
             );
         }
-        ProjectSourceInventory::Unavailable { issue } => {
+        SourceFileInventory::Unavailable { issue } => {
             return PythonSourceIndexOutcome::Unindexed(
                 PythonSourceIndexIssue::SourceInventoryUnavailable(issue),
             );
@@ -1034,27 +1032,27 @@ mod tests {
     use salsa::Database;
 
     use super::*;
-    use crate::build_project_discovery_data;
     use crate::build_source_roots;
+    use crate::enrichment::ProjectEnrichment;
     use crate::first_party_discovery_files_request;
     use crate::first_party_source_files_load_request;
+    use crate::load_project_root_discovery;
     use crate::merge_first_party_source_file_patch;
+    use crate::root_discovery::ProjectRootDiscovery;
+    use crate::root_discovery::ProjectRootDiscoveryApplyResult;
+    use crate::root_discovery::ProjectRootDiscoveryLoadRequest;
+    use crate::root_discovery::ProjectRootDiscoveryUpdate;
     use crate::run_loading_plan;
+    use crate::source_files::FirstPartySourceFilePatch;
+    use crate::source_files::ReadySourceFiles;
+    use crate::source_files::SourceFilesApplyResult;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::FirstPartySourceFilePatch;
     use crate::LoadingApplyOutcome;
     use crate::LoadingEffects;
     use crate::LoadingObservationOutcome;
     use crate::LoadingPlan;
     use crate::LoadingRunControl;
     use crate::NoopLoadingObserver;
-    use crate::ProjectDiscovery;
-    use crate::ProjectDiscoveryApplyResult;
-    use crate::ProjectDiscoveryLoadRequest;
-    use crate::ProjectDiscoverySetData;
-    use crate::ProjectEnrichment;
-    use crate::ProjectSourceFilesApplyResult;
-    use crate::ReadyProjectSourceFiles;
 
     #[salsa::db]
     struct TestDb {
@@ -1114,10 +1112,10 @@ mod tests {
             db.project
                 .set(Project::new(
                     &db,
-                    ProjectSourceInventory::Unavailable {
-                        issue: ProjectSourceFilesIssue::NotLoaded,
+                    SourceFileInventory::Unavailable {
+                        issue: SourceFilesIssue::NotLoaded,
                     },
-                    ProjectDiscovery::Absent,
+                    ProjectRootDiscovery::Absent,
                     ProjectEnrichment::Absent,
                 ))
                 .expect("project should initialize once");
@@ -1166,29 +1164,29 @@ mod tests {
         fn apply_source_file_patch(
             &mut self,
             patch: FirstPartySourceFilePatch,
-        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+        ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
             let update = merge_first_party_source_file_patch(None, patch);
             let transition = update.applied_transition().clone();
-            LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Deferred {
+            LoadingApplyOutcome::Applied(SourceFilesApplyResult::Deferred {
                 transition,
-                issue: ProjectSourceFilesIssue::NotLoaded,
+                issue: SourceFilesIssue::NotLoaded,
                 previous: None,
             })
         }
 
-        fn load_project_discovery_set(&mut self) -> ProjectDiscoverySetData {
-            build_project_discovery_data(ProjectDiscoveryLoadRequest::new(
+        fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate {
+            load_project_root_discovery(ProjectRootDiscoveryLoadRequest::new(
                 Vec::new(),
                 djls_conf::Settings::default(),
             ))
         }
 
-        fn apply_project_discovery_data(
+        fn apply_project_root_discovery(
             &mut self,
-            _data: ProjectDiscoverySetData,
-        ) -> LoadingApplyOutcome<ProjectDiscoveryApplyResult> {
-            LoadingApplyOutcome::Applied(ProjectDiscoveryApplyResult::Unavailable(
-                ProjectDiscovery::Absent,
+            _data: ProjectRootDiscoveryUpdate,
+        ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult> {
+            LoadingApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Unavailable(
+                ProjectRootDiscovery::Absent,
             ))
         }
 
@@ -1222,7 +1220,7 @@ mod tests {
         fn apply_partitioned_source_file_patch(
             &mut self,
             _patch: crate::PartitionedSourceFilePatch,
-        ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult> {
+        ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
             unreachable!("test effects return no partitioned patches")
         }
 
@@ -1238,7 +1236,7 @@ mod tests {
         }
     }
 
-    fn ready_inventory(db: &TestDb, paths: &[&str]) -> ProjectSourceInventory {
+    fn ready_inventory(db: &TestDb, paths: &[&str]) -> SourceFileInventory {
         let root_path = Utf8PathBuf::from("/workspace");
         let root_id = SourceRootId::new(root_path.clone());
         let root = SourceRoot::new(root_id.clone(), root_path, FileRootKind::Project);
@@ -1253,8 +1251,8 @@ mod tests {
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
         let set = SourceFileSet::new(db, data);
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
-            crate::loading::files::ProjectFileSetPartitions::default(),
+        SourceFileInventory::Ready(ReadySourceFiles::new(
+            crate::source_files::SourceFileSetPartitions::default(),
             set,
         ))
     }
@@ -1301,7 +1299,7 @@ async def build():
     fn python_source_index_reuse_after_loading_python_source_models_ready() {
         let mut db = TestDb::with_project();
         db.set_file("/workspace/app/models.py", "class Book:\n    pass\n");
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
 
         let mut effects = PythonSourceLoadingEffects { db: &db };
         let result = run_loading_plan(
@@ -1329,20 +1327,18 @@ async def build():
         assert!(matches!(
             python_source_index(&db, db.project()),
             PythonSourceIndexOutcome::Unindexed(
-                PythonSourceIndexIssue::SourceInventoryUnavailable(
-                    ProjectSourceFilesIssue::NotLoaded
-                )
+                PythonSourceIndexIssue::SourceInventoryUnavailable(SourceFilesIssue::NotLoaded)
             )
         ));
 
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/templates/index.html"]));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/templates/index.html"]));
         assert_eq!(
             python_source_index(&db, db.project()).clone(),
             PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles)
         );
 
         db.set_file("/workspace/app/models.py", "class Book:\n    pass\n");
-        db.set_project_source_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
+        db.set_source_file_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
         let PythonSourceIndexOutcome::Ready(index) = python_source_index(&db, db.project()) else {
             panic!("python source index should be ready");
         };

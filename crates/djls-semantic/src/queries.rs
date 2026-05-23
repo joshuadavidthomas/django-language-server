@@ -96,7 +96,7 @@ mod tests {
     use djls_project::testing::ready_source_inventory_with_roots_for_test;
     use djls_project::testing::settings_file_path;
     use djls_project::Db as ProjectFactsDb;
-    use djls_project::ProjectDiscovery;
+    use djls_project::ProjectRootDiscovery;
 
     use super::*;
     use crate::testing::TestDatabase;
@@ -114,7 +114,7 @@ mod tests {
             "/workspace/blog/models.py",
             "from django.db import models\nclass Post(models.Model):\n    pass\n",
         );
-        db.set_project_source_inventory(ready_source_inventory_with_roots_for_test(
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
             &db,
             vec![root.clone()],
             vec![
@@ -125,7 +125,7 @@ mod tests {
                 root.join("blog/models.py"),
             ],
         ));
-        db.set_project_discovery(ProjectDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
             &db,
             root.clone(),
         )));

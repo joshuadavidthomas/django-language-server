@@ -17,14 +17,120 @@ use djls_workspace::WalkOptions;
 use djls_workspace::WorkspaceRootIssue;
 
 use crate::Db;
-use crate::ProjectSourceFilesIssue;
-use crate::ProjectSourceInventory;
-use crate::ReadyProjectSourceFiles;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SourceFileInventory {
+    Ready(ReadySourceFiles),
+    Unavailable { issue: SourceFilesIssue },
+}
+
+impl SourceFileInventory {
+    #[must_use]
+    pub fn ready(&self) -> Option<ReadySourceFiles> {
+        match self {
+            Self::Ready(files) => Some(files.clone()),
+            Self::Unavailable { .. } => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadySourceFiles {
+    pub(crate) partitions: SourceFileSetPartitions,
+    merged: SourceFileSet,
+}
+
+impl ReadySourceFiles {
+    #[must_use]
+    pub(crate) fn new(partitions: SourceFileSetPartitions, merged: SourceFileSet) -> Self {
+        Self { partitions, merged }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn materialized_for_test(
+        partitions: SourceFileSetPartitions,
+        merged: SourceFileSet,
+    ) -> Self {
+        Self::new(partitions, merged)
+    }
+
+    #[must_use]
+    pub fn merged(&self) -> SourceFileSet {
+        self.merged
+    }
+
+    #[must_use]
+    pub(crate) fn discovered_data(&self) -> MergedDiscoveredSourceFileSetData {
+        self.partitions.merged_discovered_data()
+    }
+
+    #[must_use]
+    pub fn summary(&self, db: &dyn djls_source::Db) -> FileSetSummary {
+        *self.merged.data(db).summary()
+    }
+
+    #[must_use]
+    pub fn root_readiness_for_partition(
+        &self,
+        path: &Utf8Path,
+        matches_partition: impl Fn(&FileSetPartitionId) -> bool,
+    ) -> Option<SourceFilePartitionReadiness> {
+        self.partitions
+            .root_readiness_for_partition(path, matches_partition)
+    }
+
+    #[must_use]
+    pub fn has_partition_readiness(&self) -> bool {
+        self.partitions.has_partitions()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SourceFilesIssue {
+    NotLoaded,
+    MissingRoot {
+        root: SourceRootId,
+        path: Utf8PathBuf,
+    },
+    DuplicateRoot {
+        root: SourceRootId,
+        duplicate_path: Utf8PathBuf,
+    },
+    WalkFailed {
+        root: SourceRootId,
+        path: Utf8PathBuf,
+        error_kind: std::io::ErrorKind,
+    },
+    PartitionConflict {
+        path: Utf8PathBuf,
+        winner: FileSetPartitionId,
+        shadowed: FileSetPartitionId,
+    },
+    FixtureUnavailable {
+        surface: SourceFilesFixtureSurface,
+    },
+    MaterializationFailed {
+        path: Utf8PathBuf,
+        error_kind: std::io::ErrorKind,
+    },
+    InstalledAppGap {
+        entry: String,
+    },
+    TemplateDirectoryGap,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SourceFilesFixtureSurface {
+    SourceFiles,
+    Partitions,
+    Materialization,
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SourceRootsPlan {
     roots: Vec<SourceRoot>,
-    issues: Vec<ProjectSourceFilesIssue>,
+    issues: Vec<SourceFilesIssue>,
 }
 
 impl SourceRootsPlan {
@@ -34,7 +140,7 @@ impl SourceRootsPlan {
     }
 
     #[must_use]
-    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+    pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
     }
 }
@@ -60,7 +166,7 @@ pub fn build_source_roots_with_kind(
             .unwrap_or_else(|| raw_path.clone());
         let id = SourceRootId::new(path.clone());
         if !seen.insert(id.clone()) {
-            issues.push(ProjectSourceFilesIssue::DuplicateRoot {
+            issues.push(SourceFilesIssue::DuplicateRoot {
                 root: id,
                 duplicate_path: raw_path,
             });
@@ -75,7 +181,7 @@ pub fn build_source_roots_with_kind(
 
 pub struct SourceFilesLoadRequest {
     roots: Vec<SourceRoot>,
-    root_issues: Vec<ProjectSourceFilesIssue>,
+    root_issues: Vec<SourceFilesIssue>,
     predicate: FileLoadPredicate,
     options: WalkOptions,
 }
@@ -83,7 +189,7 @@ pub struct SourceFilesLoadRequest {
 impl SourceFilesLoadRequest {
     fn new(
         roots: Vec<SourceRoot>,
-        root_issues: Vec<ProjectSourceFilesIssue>,
+        root_issues: Vec<SourceFilesIssue>,
         predicate: FileLoadPredicate,
         options: WalkOptions,
     ) -> Self {
@@ -141,7 +247,7 @@ pub fn first_party_source_files_load_request(plan: SourceRootsPlan) -> SourceFil
 #[must_use]
 pub fn first_party_discovery_files_request(
     request: SourceFilesLoadRequest,
-) -> (Vec<ProjectSourceFilesIssue>, FilesForRootsRequest) {
+) -> (Vec<SourceFilesIssue>, FilesForRootsRequest) {
     let files_request =
         FilesForRootsRequest::new(request.roots, request.predicate, request.options);
     (request.root_issues, files_request)
@@ -197,21 +303,21 @@ impl FileSetPartition {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectFilePartitionReadiness {
+pub enum SourceFilePartitionReadiness {
     Loading,
     Ready {
         summary: FileSetSummary,
     },
     Deferred {
-        issue: ProjectSourceFilesIssue,
+        issue: SourceFilesIssue,
         previous: Option<FileSetSummary>,
     },
     Skipped {
-        issue: ProjectSourceFilesIssue,
+        issue: SourceFilesIssue,
         previous: Option<FileSetSummary>,
     },
     Unavailable {
-        issue: ProjectSourceFilesIssue,
+        issue: SourceFilesIssue,
         previous: Option<FileSetSummary>,
     },
     Stale {
@@ -220,20 +326,20 @@ pub enum ProjectFilePartitionReadiness {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ProjectFileSetPartitionSnapshot {
+pub(crate) struct SourceFileSetPartitionSnapshot {
     partition: FileSetPartition,
     roots: Vec<SourceRoot>,
     files: Vec<DiscoveredSourceFile>,
     summary: FileSetSummary,
-    readiness: ProjectFilePartitionReadiness,
+    readiness: SourceFilePartitionReadiness,
 }
 
-impl ProjectFileSetPartitionSnapshot {
+impl SourceFileSetPartitionSnapshot {
     fn new(
         partition: FileSetPartition,
         roots: Vec<SourceRoot>,
         files: Vec<DiscoveredSourceFile>,
-        readiness: ProjectFilePartitionReadiness,
+        readiness: SourceFilePartitionReadiness,
     ) -> Self {
         let summary = FileSetSummary::new(files.len());
         Self {
@@ -247,19 +353,19 @@ impl ProjectFileSetPartitionSnapshot {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ProjectFileSetPartitions {
-    partitions: Vec<ProjectFileSetPartitionSnapshot>,
+pub(crate) struct SourceFileSetPartitions {
+    partitions: Vec<SourceFileSetPartitionSnapshot>,
 }
 
-impl ProjectFileSetPartitions {
+impl SourceFileSetPartitions {
     #[cfg(test)]
-    fn with_first_party(snapshot: ProjectFileSetPartitionSnapshot) -> Self {
+    fn with_first_party(snapshot: SourceFileSetPartitionSnapshot) -> Self {
         Self {
             partitions: vec![snapshot],
         }
     }
 
-    fn replace_partition(&self, snapshot: ProjectFileSetPartitionSnapshot) -> Self {
+    fn replace_partition(&self, snapshot: SourceFileSetPartitionSnapshot) -> Self {
         let mut partitions = self
             .partitions
             .iter()
@@ -281,7 +387,7 @@ impl ProjectFileSetPartitions {
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn first_party_readiness(&self) -> Option<&ProjectFilePartitionReadiness> {
+    pub(crate) fn first_party_readiness(&self) -> Option<&SourceFilePartitionReadiness> {
         self.partitions
             .iter()
             .find(|partition| partition.partition.id() == &FileSetPartitionId::FirstParty)
@@ -293,7 +399,7 @@ impl ProjectFileSetPartitions {
         &self,
         path: &Utf8Path,
         matches_partition: impl Fn(&FileSetPartitionId) -> bool,
-    ) -> Option<ProjectFilePartitionReadiness> {
+    ) -> Option<SourceFilePartitionReadiness> {
         self.partitions
             .iter()
             .find(|partition| {
@@ -342,7 +448,7 @@ pub struct FirstPartySourceFilePatch {
     roots: Vec<SourceRoot>,
     files: Vec<DiscoveredSourceFile>,
     summary: FileSetSummary,
-    issues: Vec<ProjectSourceFilesIssue>,
+    issues: Vec<SourceFilesIssue>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -350,13 +456,13 @@ pub enum PartitionedSourceFileLoadOutcome {
     Ready(Vec<PartitionedSourceFilePatch>),
     Degraded {
         patches: Vec<PartitionedSourceFilePatch>,
-        issues: Vec<ProjectSourceFilesIssue>,
+        issues: Vec<SourceFilesIssue>,
     },
     Deferred {
-        issue: ProjectSourceFilesIssue,
+        issue: SourceFilesIssue,
     },
     Unavailable {
-        issue: ProjectSourceFilesIssue,
+        issue: SourceFilesIssue,
     },
 }
 
@@ -366,7 +472,7 @@ pub struct PartitionedSourceFilePatch {
     roots: Vec<SourceRoot>,
     files: Vec<DiscoveredSourceFile>,
     summary: FileSetSummary,
-    issues: Vec<ProjectSourceFilesIssue>,
+    issues: Vec<SourceFilesIssue>,
 }
 
 impl PartitionedSourceFilePatch {
@@ -391,7 +497,7 @@ impl PartitionedSourceFilePatch {
     }
 
     #[must_use]
-    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+    pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
     }
 }
@@ -439,7 +545,7 @@ impl FirstPartySourceFilePatch {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
     pub fn first_party(
-        root_plan_issues: Vec<ProjectSourceFilesIssue>,
+        root_plan_issues: Vec<SourceFilesIssue>,
         result: FilesForRootsResult,
     ) -> Self {
         let roots = result.roots().to_vec();
@@ -466,7 +572,7 @@ impl FirstPartySourceFilePatch {
     }
 
     #[must_use]
-    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+    pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
     }
 }
@@ -496,7 +602,7 @@ impl MergedDiscoveredSourceFileSetData {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectSourceFilesMaterializationPatch {
+pub struct SourceFilesMaterializationPatch {
     changed_roots: Vec<SourceRootEntry>,
     removed_roots: Vec<SourceRootId>,
     upserted_files: Vec<DiscoveredSourceFile>,
@@ -504,7 +610,7 @@ pub struct ProjectSourceFilesMaterializationPatch {
     summary: FileSetSummary,
 }
 
-impl ProjectSourceFilesMaterializationPatch {
+impl SourceFilesMaterializationPatch {
     #[must_use]
     pub fn changed_roots(&self) -> &[SourceRootEntry] {
         &self.changed_roots
@@ -532,50 +638,50 @@ impl ProjectSourceFilesMaterializationPatch {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectFileLoadingTransition {
+pub struct SourceFilePartitionTransition {
     partition: FileSetPartition,
-    readiness: ProjectFilePartitionReadiness,
+    readiness: SourceFilePartitionReadiness,
 }
 
-impl ProjectFileLoadingTransition {
+impl SourceFilePartitionTransition {
     #[must_use]
     pub fn partition(&self) -> &FileSetPartition {
         &self.partition
     }
 
     #[must_use]
-    pub fn readiness(&self) -> &ProjectFilePartitionReadiness {
+    pub fn readiness(&self) -> &SourceFilePartitionReadiness {
         &self.readiness
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectSourceFilesUpdate {
-    partitions: ProjectFileSetPartitions,
-    materialization: ProjectSourceFilesMaterializationPatch,
-    applied_transition: ProjectFileLoadingTransition,
-    issues: Vec<ProjectSourceFilesIssue>,
+pub struct SourceFilesUpdate {
+    partitions: SourceFileSetPartitions,
+    materialization: SourceFilesMaterializationPatch,
+    applied_transition: SourceFilePartitionTransition,
+    issues: Vec<SourceFilesIssue>,
 }
 
-impl ProjectSourceFilesUpdate {
+impl SourceFilesUpdate {
     #[must_use]
-    pub fn materialization(&self) -> &ProjectSourceFilesMaterializationPatch {
+    pub fn materialization(&self) -> &SourceFilesMaterializationPatch {
         &self.materialization
     }
 
     #[must_use]
-    pub fn applied_transition(&self) -> &ProjectFileLoadingTransition {
+    pub fn applied_transition(&self) -> &SourceFilePartitionTransition {
         &self.applied_transition
     }
 
     #[must_use]
-    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+    pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
     }
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn partitions(&self) -> &ProjectFileSetPartitions {
+    pub(crate) fn partitions(&self) -> &SourceFileSetPartitions {
         &self.partitions
     }
 }
@@ -665,42 +771,42 @@ pub enum SourceFileMaterializationIssue {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectSourceFilesApplyResult {
-    Applied(ProjectSourceFilesApplied),
+pub enum SourceFilesApplyResult {
+    Applied(SourceFilesApplied),
     Deferred {
-        transition: ProjectFileLoadingTransition,
-        issue: ProjectSourceFilesIssue,
-        previous: Option<ReadyProjectSourceFiles>,
+        transition: SourceFilePartitionTransition,
+        issue: SourceFilesIssue,
+        previous: Option<ReadySourceFiles>,
     },
     Unavailable {
-        transition: ProjectFileLoadingTransition,
-        issue: ProjectSourceFilesIssue,
-        previous: Option<ReadyProjectSourceFiles>,
+        transition: SourceFilePartitionTransition,
+        issue: SourceFilesIssue,
+        previous: Option<ReadySourceFiles>,
     },
     Failed {
-        transition: ProjectFileLoadingTransition,
-        issue: ProjectSourceFilesIssue,
-        previous: Option<ReadyProjectSourceFiles>,
+        transition: SourceFilePartitionTransition,
+        issue: SourceFilesIssue,
+        previous: Option<ReadySourceFiles>,
     },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectSourceFilesApplied {
-    files: ReadyProjectSourceFiles,
-    transition: ProjectFileLoadingTransition,
-    issues: Vec<ProjectSourceFilesIssue>,
+pub struct SourceFilesApplied {
+    files: ReadySourceFiles,
+    transition: SourceFilePartitionTransition,
+    issues: Vec<SourceFilesIssue>,
 }
 
-impl ProjectSourceFilesApplied {
+impl SourceFilesApplied {
     #[cfg(test)]
     #[must_use]
     pub(crate) fn for_test(
-        files: ReadyProjectSourceFiles,
-        readiness: ProjectFilePartitionReadiness,
+        files: ReadySourceFiles,
+        readiness: SourceFilePartitionReadiness,
     ) -> Self {
         Self {
             files,
-            transition: ProjectFileLoadingTransition {
+            transition: SourceFilePartitionTransition {
                 partition: FileSetPartition::first_party(),
                 readiness,
             },
@@ -709,17 +815,17 @@ impl ProjectSourceFilesApplied {
     }
 
     #[must_use]
-    pub fn files(&self) -> &ReadyProjectSourceFiles {
+    pub fn files(&self) -> &ReadySourceFiles {
         &self.files
     }
 
     #[must_use]
-    pub fn transition(&self) -> &ProjectFileLoadingTransition {
+    pub fn transition(&self) -> &SourceFilePartitionTransition {
         &self.transition
     }
 
     #[must_use]
-    pub fn issues(&self) -> &[ProjectSourceFilesIssue] {
+    pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
     }
 }
@@ -727,10 +833,10 @@ impl ProjectSourceFilesApplied {
 #[allow(clippy::needless_pass_by_value)]
 pub fn finalize_project_source_files(
     db: &mut dyn Db,
-    previous: Option<ReadyProjectSourceFiles>,
-    update: ProjectSourceFilesUpdate,
+    previous: Option<ReadySourceFiles>,
+    update: SourceFilesUpdate,
     materialized: SourceFileSetMaterialized,
-) -> ProjectSourceFilesApplyResult {
+) -> SourceFilesApplyResult {
     if let Some(issue) = first_fatal_update_issue(&update.issues) {
         return terminal_source_files_apply_result(
             db,
@@ -756,7 +862,7 @@ pub fn finalize_project_source_files(
     }
 
     if !materialized_source_file_set_matches_update(db, &update, materialized.source_file_set) {
-        let issue = ProjectSourceFilesIssue::MaterializationFailed {
+        let issue = SourceFilesIssue::MaterializationFailed {
             path: Utf8PathBuf::from("<source-file-set>"),
             error_kind: std::io::ErrorKind::InvalidData,
         };
@@ -769,19 +875,19 @@ pub fn finalize_project_source_files(
         );
     }
 
-    let files = ReadyProjectSourceFiles::new(update.partitions, materialized.source_file_set);
-    db.set_project_source_inventory(ProjectSourceInventory::Ready(files.clone()));
-    ProjectSourceFilesApplyResult::Applied(ProjectSourceFilesApplied {
+    let files = ReadySourceFiles::new(update.partitions, materialized.source_file_set);
+    db.set_source_file_inventory(SourceFileInventory::Ready(files.clone()));
+    SourceFilesApplyResult::Applied(SourceFilesApplied {
         files,
         transition: update.applied_transition,
         issues: update.issues,
     })
 }
 
-fn first_fatal_update_issue(issues: &[ProjectSourceFilesIssue]) -> Option<ProjectSourceFilesIssue> {
+fn first_fatal_update_issue(issues: &[SourceFilesIssue]) -> Option<SourceFilesIssue> {
     issues
         .iter()
-        .find(|issue| !matches!(issue, ProjectSourceFilesIssue::PartitionConflict { .. }))
+        .find(|issue| !matches!(issue, SourceFilesIssue::PartitionConflict { .. }))
         .cloned()
 }
 
@@ -793,19 +899,19 @@ enum TerminalSourceFilesAvailability {
 #[allow(clippy::needless_pass_by_value)]
 fn terminal_source_files_apply_result(
     db: &mut dyn Db,
-    transition: ProjectFileLoadingTransition,
-    issue: ProjectSourceFilesIssue,
-    previous: Option<ReadyProjectSourceFiles>,
+    transition: SourceFilePartitionTransition,
+    issue: SourceFilesIssue,
+    previous: Option<ReadySourceFiles>,
     availability: TerminalSourceFilesAvailability,
-) -> ProjectSourceFilesApplyResult {
+) -> SourceFilesApplyResult {
     match availability {
         TerminalSourceFilesAvailability::Unavailable => {
             if previous.is_none() {
-                db.set_project_source_inventory(ProjectSourceInventory::Unavailable {
+                db.set_source_file_inventory(SourceFileInventory::Unavailable {
                     issue: issue.clone(),
                 });
             }
-            ProjectSourceFilesApplyResult::Unavailable {
+            SourceFilesApplyResult::Unavailable {
                 transition,
                 issue,
                 previous,
@@ -813,11 +919,11 @@ fn terminal_source_files_apply_result(
         }
         TerminalSourceFilesAvailability::Failed => {
             if previous.is_none() {
-                db.set_project_source_inventory(ProjectSourceInventory::Unavailable {
+                db.set_source_file_inventory(SourceFileInventory::Unavailable {
                     issue: issue.clone(),
                 });
             }
-            ProjectSourceFilesApplyResult::Failed {
+            SourceFilesApplyResult::Failed {
                 transition,
                 issue,
                 previous,
@@ -828,7 +934,7 @@ fn terminal_source_files_apply_result(
 
 fn materialized_source_file_set_matches_update(
     db: &dyn djls_source::Db,
-    update: &ProjectSourceFilesUpdate,
+    update: &SourceFilesUpdate,
     source_file_set: SourceFileSet,
 ) -> bool {
     let expected = update.partitions.merged_discovered_data();
@@ -866,16 +972,14 @@ fn materialized_source_file_set_matches_update(
 
 fn project_issue_from_materialization_issue(
     issue: &SourceFileMaterializationIssue,
-) -> ProjectSourceFilesIssue {
+) -> SourceFilesIssue {
     match issue {
-        SourceFileMaterializationIssue::MissingRoot { root } => {
-            ProjectSourceFilesIssue::MissingRoot {
-                root: root.clone(),
-                path: root.as_path().to_owned(),
-            }
-        }
+        SourceFileMaterializationIssue::MissingRoot { root } => SourceFilesIssue::MissingRoot {
+            root: root.clone(),
+            path: root.as_path().to_owned(),
+        },
         SourceFileMaterializationIssue::MaterializationFailed { path, error_kind } => {
-            ProjectSourceFilesIssue::MaterializationFailed {
+            SourceFilesIssue::MaterializationFailed {
                 path: path.clone(),
                 error_kind: *error_kind,
             }
@@ -885,11 +989,11 @@ fn project_issue_from_materialization_issue(
 
 #[must_use]
 pub fn merge_partitioned_source_file_patch(
-    current: Option<&ReadyProjectSourceFiles>,
+    current: Option<&ReadySourceFiles>,
     patch: PartitionedSourceFilePatch,
-) -> ProjectSourceFilesUpdate {
+) -> SourceFilesUpdate {
     let readiness = partition_readiness(current, &patch);
-    let snapshot = ProjectFileSetPartitionSnapshot::new(
+    let snapshot = SourceFileSetPartitionSnapshot::new(
         patch.partition.clone(),
         patch.roots.clone(),
         patch.files.clone(),
@@ -900,16 +1004,16 @@ pub fn merge_partitioned_source_file_patch(
         .unwrap_or_default();
     let partitions = current_partitions.replace_partition(snapshot);
     let merged = partitions.merged_discovered_data();
-    let previous = current.map(ReadyProjectSourceFiles::discovered_data);
+    let previous = current.map(ReadySourceFiles::discovered_data);
     let materialization = materialization_patch(previous.as_ref(), &merged);
-    let applied_transition = ProjectFileLoadingTransition {
+    let applied_transition = SourceFilePartitionTransition {
         partition: patch.partition,
         readiness,
     };
     let mut issues = patch.issues;
     issues.extend(partition_conflicts(&partitions));
 
-    ProjectSourceFilesUpdate {
+    SourceFilesUpdate {
         partitions,
         materialization,
         applied_transition,
@@ -918,28 +1022,28 @@ pub fn merge_partitioned_source_file_patch(
 }
 
 fn partition_readiness(
-    current: Option<&ReadyProjectSourceFiles>,
+    current: Option<&ReadySourceFiles>,
     patch: &PartitionedSourceFilePatch,
-) -> ProjectFilePartitionReadiness {
+) -> SourceFilePartitionReadiness {
     if let Some(issue) = patch.issues.first() {
-        return ProjectFilePartitionReadiness::Unavailable {
+        return SourceFilePartitionReadiness::Unavailable {
             issue: issue.clone(),
             previous: current.map(|files| files.discovered_data().summary()),
         };
     }
 
-    ProjectFilePartitionReadiness::Ready {
+    SourceFilePartitionReadiness::Ready {
         summary: patch.summary,
     }
 }
 
-fn partition_conflicts(partitions: &ProjectFileSetPartitions) -> Vec<ProjectSourceFilesIssue> {
+fn partition_conflicts(partitions: &SourceFileSetPartitions) -> Vec<SourceFilesIssue> {
     let mut winners = BTreeMap::<Utf8PathBuf, FileSetPartitionId>::new();
     let mut issues = Vec::new();
     for partition in &partitions.partitions {
         for file in &partition.files {
             if let Some(winner) = winners.get(file.path()) {
-                issues.push(ProjectSourceFilesIssue::PartitionConflict {
+                issues.push(SourceFilesIssue::PartitionConflict {
                     path: file.path().to_owned(),
                     winner: winner.clone(),
                     shadowed: partition.partition.id().clone(),
@@ -954,11 +1058,11 @@ fn partition_conflicts(partitions: &ProjectFileSetPartitions) -> Vec<ProjectSour
 
 #[must_use]
 pub fn merge_first_party_source_file_patch(
-    current: Option<&ReadyProjectSourceFiles>,
+    current: Option<&ReadySourceFiles>,
     patch: FirstPartySourceFilePatch,
-) -> ProjectSourceFilesUpdate {
+) -> SourceFilesUpdate {
     let readiness = first_party_readiness(current, &patch);
-    let snapshot = ProjectFileSetPartitionSnapshot::new(
+    let snapshot = SourceFileSetPartitionSnapshot::new(
         patch.partition.clone(),
         patch.roots.clone(),
         patch.files.clone(),
@@ -969,14 +1073,14 @@ pub fn merge_first_party_source_file_patch(
         .unwrap_or_default();
     let partitions = current_partitions.replace_partition(snapshot);
     let merged = partitions.merged_discovered_data();
-    let previous = current.map(ReadyProjectSourceFiles::discovered_data);
+    let previous = current.map(ReadySourceFiles::discovered_data);
     let materialization = materialization_patch(previous.as_ref(), &merged);
-    let applied_transition = ProjectFileLoadingTransition {
+    let applied_transition = SourceFilePartitionTransition {
         partition: patch.partition,
         readiness,
     };
 
-    ProjectSourceFilesUpdate {
+    SourceFilesUpdate {
         partitions,
         materialization,
         applied_transition,
@@ -985,17 +1089,17 @@ pub fn merge_first_party_source_file_patch(
 }
 
 fn first_party_readiness(
-    current: Option<&ReadyProjectSourceFiles>,
+    current: Option<&ReadySourceFiles>,
     patch: &FirstPartySourceFilePatch,
-) -> ProjectFilePartitionReadiness {
+) -> SourceFilePartitionReadiness {
     if let Some(issue) = patch.issues.first() {
-        return ProjectFilePartitionReadiness::Unavailable {
+        return SourceFilePartitionReadiness::Unavailable {
             issue: issue.clone(),
             previous: current.map(|files| files.discovered_data().summary()),
         };
     }
 
-    ProjectFilePartitionReadiness::Ready {
+    SourceFilePartitionReadiness::Ready {
         summary: patch.summary,
     }
 }
@@ -1003,7 +1107,7 @@ fn first_party_readiness(
 fn materialization_patch(
     previous: Option<&MergedDiscoveredSourceFileSetData>,
     merged: &MergedDiscoveredSourceFileSetData,
-) -> ProjectSourceFilesMaterializationPatch {
+) -> SourceFilesMaterializationPatch {
     let previous_roots = previous
         .map(|data| {
             data.roots()
@@ -1059,7 +1163,7 @@ fn materialization_patch(
         .cloned()
         .collect();
 
-    ProjectSourceFilesMaterializationPatch {
+    SourceFilesMaterializationPatch {
         changed_roots,
         removed_roots,
         upserted_files,
@@ -1090,9 +1194,9 @@ fn longest_prefix_root<'a>(path: &Utf8Path, roots: &'a [SourceRoot]) -> Option<&
         .max_by_key(|root| root.path().as_str().len())
 }
 
-fn project_issue_from_workspace_issue(issue: &WorkspaceRootIssue) -> ProjectSourceFilesIssue {
+fn project_issue_from_workspace_issue(issue: &WorkspaceRootIssue) -> SourceFilesIssue {
     match issue {
-        WorkspaceRootIssue::MissingRoot { root, path } => ProjectSourceFilesIssue::MissingRoot {
+        WorkspaceRootIssue::MissingRoot { root, path } => SourceFilesIssue::MissingRoot {
             root: root.clone(),
             path: path.clone(),
         },
@@ -1100,7 +1204,7 @@ fn project_issue_from_workspace_issue(issue: &WorkspaceRootIssue) -> ProjectSour
             root,
             path,
             error_kind,
-        } => ProjectSourceFilesIssue::WalkFailed {
+        } => SourceFilesIssue::WalkFailed {
             root: root.clone(),
             path: path.clone(),
             error_kind: *error_kind,
@@ -1136,7 +1240,7 @@ mod tests {
 
     fn load_first_party_files(
         plan: SourceRootsPlan,
-    ) -> (Vec<ProjectSourceFilesIssue>, FilesForRootsResult) {
+    ) -> (Vec<SourceFilesIssue>, FilesForRootsResult) {
         let (root_issues, request) =
             first_party_discovery_files_request(first_party_source_files_load_request(plan));
         (root_issues, load_files_for_roots(request))
@@ -1213,13 +1317,10 @@ mod tests {
 
         let result = finalize_project_source_files(&mut db, None, update, materialized);
 
-        assert!(matches!(
-            result,
-            ProjectSourceFilesApplyResult::Failed { .. }
-        ));
+        assert!(matches!(result, SourceFilesApplyResult::Failed { .. }));
         assert!(matches!(
             db.project().source_inventory(&db),
-            ProjectSourceInventory::Unavailable { .. }
+            SourceFileInventory::Unavailable { .. }
         ));
     }
 
@@ -1233,7 +1334,7 @@ mod tests {
         assert_eq!(plan.roots().len(), 1);
         assert_eq!(
             plan.issues(),
-            &[ProjectSourceFilesIssue::DuplicateRoot {
+            &[SourceFilesIssue::DuplicateRoot {
                 root: SourceRootId::new(Utf8PathBuf::from("/workspace")),
                 duplicate_path: Utf8PathBuf::from("/workspace"),
             }]
@@ -1249,7 +1350,7 @@ mod tests {
         assert_eq!(plan.roots().len(), 1);
         assert_eq!(
             plan.issues(),
-            &[ProjectSourceFilesIssue::DuplicateRoot {
+            &[SourceFilesIssue::DuplicateRoot {
                 root: SourceRootId::new(root.clone()),
                 duplicate_path: root.join("."),
             }]
@@ -1282,7 +1383,7 @@ mod tests {
 
         assert_eq!(
             update.issues(),
-            &[ProjectSourceFilesIssue::DuplicateRoot {
+            &[SourceFilesIssue::DuplicateRoot {
                 root: SourceRootId::new(root.clone()),
                 duplicate_path: root,
             }]
@@ -1316,7 +1417,7 @@ mod tests {
 
         assert_eq!(
             patch.issues(),
-            &[ProjectSourceFilesIssue::MissingRoot {
+            &[SourceFilesIssue::MissingRoot {
                 root: missing.id().clone(),
                 path: missing.path().to_owned(),
             }]
@@ -1384,16 +1485,16 @@ mod tests {
             vec![loaded_file],
         )
         .unwrap();
-        let previous_partition = ProjectFileSetPartitionSnapshot::new(
+        let previous_partition = SourceFileSetPartitionSnapshot::new(
             FileSetPartition::first_party(),
             vec![removed.clone()],
             vec![previous_file],
-            ProjectFilePartitionReadiness::Ready {
+            SourceFilePartitionReadiness::Ready {
                 summary: FileSetSummary::new(1),
             },
         );
-        let previous = ReadyProjectSourceFiles::materialized_for_test(
-            ProjectFileSetPartitions::with_first_party(previous_partition),
+        let previous = ReadySourceFiles::materialized_for_test(
+            SourceFileSetPartitions::with_first_party(previous_partition),
             SourceFileSet::new(&db, set_data),
         );
         let (root_issues, result) = load_first_party_files(SourceRootsPlan {
@@ -1454,16 +1555,16 @@ mod tests {
             vec![loaded_file],
         )
         .unwrap();
-        let previous_partition = ProjectFileSetPartitionSnapshot::new(
+        let previous_partition = SourceFileSetPartitionSnapshot::new(
             FileSetPartition::first_party(),
             vec![kept.clone(), removed.clone()],
             vec![kept_file.clone()],
-            ProjectFilePartitionReadiness::Ready {
+            SourceFilePartitionReadiness::Ready {
                 summary: FileSetSummary::new(1),
             },
         );
-        let previous = ReadyProjectSourceFiles::materialized_for_test(
-            ProjectFileSetPartitions::with_first_party(previous_partition),
+        let previous = ReadySourceFiles::materialized_for_test(
+            SourceFileSetPartitions::with_first_party(previous_partition),
             SourceFileSet::new(&db, set_data),
         );
         let result = load_first_party_files(SourceRootsPlan {
@@ -1502,8 +1603,8 @@ mod tests {
 
         assert_eq!(
             update.applied_transition().readiness(),
-            &ProjectFilePartitionReadiness::Unavailable {
-                issue: ProjectSourceFilesIssue::MissingRoot {
+            &SourceFilePartitionReadiness::Unavailable {
+                issue: SourceFilesIssue::MissingRoot {
                     root: missing.id().clone(),
                     path: missing.path().to_owned(),
                 },
@@ -1532,7 +1633,7 @@ mod tests {
             issues: Vec::new(),
         };
         let first_update = merge_first_party_source_file_patch(None, first_party_patch);
-        let previous = ReadyProjectSourceFiles::materialized_for_test(
+        let previous = ReadySourceFiles::materialized_for_test(
             first_update.partitions().clone(),
             empty_source_file_set(),
         );
@@ -1549,7 +1650,7 @@ mod tests {
         assert_eq!(update.materialization().summary(), FileSetSummary::new(1));
         assert!(update
             .issues()
-            .contains(&ProjectSourceFilesIssue::PartitionConflict {
+            .contains(&SourceFilesIssue::PartitionConflict {
                 path: shared_path,
                 winner: FileSetPartitionId::FirstParty,
                 shadowed: FileSetPartitionId::InstalledApp(installed.id().clone()),
@@ -1576,7 +1677,7 @@ mod tests {
             issues: Vec::new(),
         };
         let first_update = merge_first_party_source_file_patch(None, first_party_patch);
-        let with_first = ReadyProjectSourceFiles::materialized_for_test(
+        let with_first = ReadySourceFiles::materialized_for_test(
             first_update.partitions().clone(),
             empty_source_file_set(),
         );
@@ -1589,7 +1690,7 @@ mod tests {
         };
         let installed_update =
             merge_partitioned_source_file_patch(Some(&with_first), installed_patch);
-        let with_both = ReadyProjectSourceFiles::materialized_for_test(
+        let with_both = ReadySourceFiles::materialized_for_test(
             installed_update.partitions().clone(),
             empty_source_file_set(),
         );
@@ -1633,7 +1734,7 @@ mod tests {
             issues: Vec::new(),
         };
         let configured_update = merge_partitioned_source_file_patch(None, configured_patch);
-        let with_configured = ReadyProjectSourceFiles::materialized_for_test(
+        let with_configured = ReadySourceFiles::materialized_for_test(
             configured_update.partitions().clone(),
             empty_source_file_set(),
         );
@@ -1646,7 +1747,7 @@ mod tests {
         };
         let installed_update =
             merge_partitioned_source_file_patch(Some(&with_configured), installed_patch);
-        let with_both = ReadyProjectSourceFiles::materialized_for_test(
+        let with_both = ReadySourceFiles::materialized_for_test(
             installed_update.partitions().clone(),
             empty_source_file_set(),
         );
@@ -1717,13 +1818,13 @@ mod tests {
         );
         assert_eq!(
             update.applied_transition().readiness(),
-            &ProjectFilePartitionReadiness::Ready {
+            &SourceFilePartitionReadiness::Ready {
                 summary: FileSetSummary::new(1),
             }
         );
         assert_eq!(
             update.partitions().first_party_readiness(),
-            Some(&ProjectFilePartitionReadiness::Ready {
+            Some(&SourceFilePartitionReadiness::Ready {
                 summary: FileSetSummary::new(1),
             })
         );

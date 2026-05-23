@@ -398,7 +398,7 @@ mod tests {
 
         assert!(matches!(
             djls_project::Db::project(session.db()).source_inventory(session.db()),
-            djls_project::ProjectSourceInventory::Unavailable { .. }
+            djls_project::SourceFileInventory::Unavailable { .. }
         ));
     }
 
@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(settings.django_settings_module(), Some("client.settings"));
         assert!(matches!(
             djls_project::Db::project(session.db()).source_inventory(session.db()),
-            djls_project::ProjectSourceInventory::Unavailable { .. }
+            djls_project::SourceFileInventory::Unavailable { .. }
         ));
     }
 
@@ -501,13 +501,13 @@ S100 = "warning"
         let db = session.db();
         assert!(matches!(
             djls_project::Db::project(db).source_inventory(db),
-            djls_project::ProjectSourceInventory::Unavailable {
-                issue: djls_project::ProjectSourceFilesIssue::NotLoaded,
+            djls_project::SourceFileInventory::Unavailable {
+                issue: djls_project::SourceFilesIssue::NotLoaded,
             }
         ));
         assert!(matches!(
-            djls_project::Db::project(db).discovery(db),
-            djls_project::ProjectDiscovery::Absent,
+            djls_project::Db::project(db).root_discovery(db),
+            djls_project::ProjectRootDiscovery::Absent,
         ));
 
         let file = db.get_or_create_file(&path);
@@ -547,19 +547,19 @@ S100 = "warning"
                 .to_string(),
         };
         session.open_document(&text_document);
-        let issues = djls_project::ProjectDiscoveryIssues::new(vec![
-            djls_project::ProjectDiscoveryIssue::FixtureDoesNotModelDiscovery,
+        let issues = djls_project::ProjectRootDiscoveryIssues::new(vec![
+            djls_project::ProjectRootDiscoveryIssue::FixtureDoesNotModelDiscovery,
         ])
         .expect("test issue list should be non-empty");
-        djls_project::Db::set_project_discovery(
+        djls_project::Db::set_project_root_discovery(
             session.db_mut(),
-            djls_project::ProjectDiscovery::Unavailable { issues },
+            djls_project::ProjectRootDiscovery::Unavailable { issues },
         );
 
         let db = session.db();
         assert!(matches!(
-            djls_project::Db::project(db).discovery(db),
-            djls_project::ProjectDiscovery::Unavailable { .. }
+            djls_project::Db::project(db).root_discovery(db),
+            djls_project::ProjectRootDiscovery::Unavailable { .. }
         ));
 
         let file = db.get_or_create_file(&path);
@@ -601,8 +601,8 @@ S100 = "warning"
             djls_project::Db::project(snapshot.db()).source_inventory(snapshot.db())
         );
         assert_eq!(
-            djls_project::Db::project(session.db()).discovery(session.db()),
-            djls_project::Db::project(snapshot.db()).discovery(snapshot.db())
+            djls_project::Db::project(session.db()).root_discovery(session.db()),
+            djls_project::Db::project(snapshot.db()).root_discovery(snapshot.db())
         );
     }
 }

@@ -2,7 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 
-use crate::discovery::EnvFileLoadIssueKind;
+use crate::root_discovery::EnvFileLoadIssueKind;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnvFileLoadOutcome {
