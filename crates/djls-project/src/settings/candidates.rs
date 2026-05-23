@@ -70,145 +70,136 @@ pub enum SettingsCandidateSource {
 
 #[salsa::tracked(returns(ref))]
 pub fn settings_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate> {
-    SettingsCandidates::default()
-        .with_discovery_candidates(db, project)
-        .with_layout_candidates(db, project)
-        .into_sorted_vec()
+    let mut candidates = discovery_candidates(db, project);
+
+    if let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) {
+        candidates.extend(manage_py_candidates(db, layout));
+        candidates.extend(conventional_candidates(db, project, layout));
+    }
+
+    candidates.sort_by(|left, right| {
+        source_rank(&left.source)
+            .cmp(&source_rank(&right.source))
+            .then_with(|| left.module.as_str().cmp(right.module.as_str()))
+    });
+
+    candidates
 }
 
-#[derive(Default)]
-struct SettingsCandidates(Vec<SettingsCandidate>);
+fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate> {
+    let mut candidates = Vec::new();
+    let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
+        return candidates;
+    };
 
-impl SettingsCandidates {
-    fn with_discovery_candidates(mut self, db: &dyn Db, project: Project) -> Self {
-        let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
-            return self;
-        };
-
-        for root in discovery.roots() {
-            if let Some(seed) = root.settings_module_seed(db) {
-                self.push_candidate(
-                    seed.as_str(),
+    for root in discovery.roots() {
+        if let Some(seed) = root.settings_module_seed(db) {
+            candidates.extend(settings_candidate(
+                seed.as_str(),
+                None,
+                SettingsCandidateSource::ExplicitConfig,
+                OriginSet::single(Origin::Config {
+                    root: root.root(db).clone(),
+                }),
+            ));
+        }
+        for environment in root.configured_environment_seeds(db) {
+            let seed = environment.settings_module();
+            candidates.extend(settings_candidate(
+                seed.as_str(),
+                None,
+                SettingsCandidateSource::ConfiguredEnvironment,
+                OriginSet::single(Origin::ConfiguredEnvironment {
+                    root: environment.root().cloned(),
+                    name: environment.name().map(str::to_string),
+                }),
+            ));
+        }
+        for (name, value) in root.env_vars(db).entries() {
+            if name == "DJANGO_SETTINGS_MODULE" {
+                candidates.extend(settings_candidate(
+                    value,
                     None,
-                    SettingsCandidateSource::ExplicitConfig,
-                    OriginSet::single(Origin::Config {
+                    SettingsCandidateSource::EnvironmentVariable,
+                    OriginSet::single(Origin::Environment {
                         root: root.root(db).clone(),
+                        name: name.clone(),
                     }),
-                );
-            }
-            for environment in root.configured_environment_seeds(db) {
-                let seed = environment.settings_module();
-                self.push_candidate(
-                    seed.as_str(),
-                    None,
-                    SettingsCandidateSource::ConfiguredEnvironment,
-                    OriginSet::single(Origin::ConfiguredEnvironment {
-                        root: environment.root().cloned(),
-                        name: environment.name().map(str::to_string),
-                    }),
-                );
-            }
-            for (name, value) in root.env_vars(db).entries() {
-                if name == "DJANGO_SETTINGS_MODULE" {
-                    self.push_candidate(
-                        value,
-                        None,
-                        SettingsCandidateSource::EnvironmentVariable,
-                        OriginSet::single(Origin::Environment {
-                            root: root.root(db).clone(),
-                            name: name.clone(),
-                        }),
-                    );
-                }
-            }
-        }
-        self
-    }
-
-    fn with_layout_candidates(mut self, db: &dyn Db, project: Project) -> Self {
-        let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) else {
-            return self;
-        };
-
-        self.push_manage_py_candidates(db, layout);
-        self.push_conventional_candidates(db, project, layout);
-        self
-    }
-
-    fn push_manage_py_candidates(&mut self, db: &dyn Db, layout: &ProjectLayoutIndex) {
-        for file in layout.files_by_name("manage.py") {
-            let model = python_source_model(db, file);
-            if model.parse_status() != &PythonSourceParseStatus::Parsed {
-                continue;
-            }
-            for call in model.calls() {
-                let Some(callee) = call.callee() else {
-                    continue;
-                };
-                if callee.as_dotted() != "os.environ.setdefault" {
-                    continue;
-                }
-                let [StaticValue::String(name), StaticValue::String(module), ..] = call.arguments()
-                else {
-                    continue;
-                };
-                if name != "DJANGO_SETTINGS_MODULE" {
-                    continue;
-                }
-                self.push_candidate(
-                    module,
-                    Some(file),
-                    SettingsCandidateSource::ManagePyDefault,
-                    OriginSet::single(Origin::PythonSource { file }),
-                );
+                ));
             }
         }
     }
 
-    fn push_conventional_candidates(
-        &mut self,
-        db: &dyn Db,
-        project: Project,
-        layout: &ProjectLayoutIndex,
-    ) {
-        for file in layout.files_by_name("settings.py") {
-            let Some(path) = layout.file_path(file) else {
+    candidates
+}
+
+fn manage_py_candidates(db: &dyn Db, layout: &ProjectLayoutIndex) -> Vec<SettingsCandidate> {
+    let mut candidates = Vec::new();
+    for file in layout.files_by_name("manage.py") {
+        let model = python_source_model(db, file);
+        if model.parse_status() != &PythonSourceParseStatus::Parsed {
+            continue;
+        }
+        for call in model.calls() {
+            let Some(callee) = call.callee() else {
                 continue;
             };
-            let Some(module) = module_name_for_path(db, project, path) else {
+            if callee.as_dotted() != "os.environ.setdefault" {
+                continue;
+            }
+            let [StaticValue::String(name), StaticValue::String(module), ..] = call.arguments()
+            else {
                 continue;
             };
-            self.0.push(SettingsCandidate::new(
-                module.clone(),
+            if name != "DJANGO_SETTINGS_MODULE" {
+                continue;
+            }
+            candidates.extend(settings_candidate(
+                module,
                 Some(file),
-                SettingsCandidateSource::ConventionalModule,
-                OriginSet::single(Origin::Convention { file }),
+                SettingsCandidateSource::ManagePyDefault,
+                OriginSet::single(Origin::PythonSource { file }),
             ));
         }
     }
+    candidates
+}
 
-    fn push_candidate(
-        &mut self,
-        value: &str,
-        file: Option<File>,
-        source: SettingsCandidateSource,
-        origin: OriginSet,
-    ) {
-        let Ok(module) = PyModuleName::parse(value) else {
-            return;
+fn conventional_candidates(
+    db: &dyn Db,
+    project: Project,
+    layout: &ProjectLayoutIndex,
+) -> Vec<SettingsCandidate> {
+    let mut candidates = Vec::new();
+    for file in layout.files_by_name("settings.py") {
+        let Some(path) = layout.file_path(file) else {
+            continue;
         };
-        self.0
-            .push(SettingsCandidate::new(module, file, source, origin));
+        let Some(module) = module_name_for_path(db, project, path) else {
+            continue;
+        };
+        candidates.push(SettingsCandidate::new(
+            module.clone(),
+            Some(file),
+            SettingsCandidateSource::ConventionalModule,
+            OriginSet::single(Origin::Convention { file }),
+        ));
     }
+    candidates
+}
 
-    fn into_sorted_vec(mut self) -> Vec<SettingsCandidate> {
-        self.0.sort_by(|left, right| {
-            source_rank(&left.source)
-                .cmp(&source_rank(&right.source))
-                .then_with(|| left.module.as_str().cmp(right.module.as_str()))
-        });
-        self.0
-    }
+fn settings_candidate(
+    value: &str,
+    file: Option<File>,
+    source: SettingsCandidateSource,
+    origin: OriginSet,
+) -> Option<SettingsCandidate> {
+    Some(SettingsCandidate::new(
+        PyModuleName::parse(value).ok()?,
+        file,
+        source,
+        origin,
+    ))
 }
 
 fn source_rank(source: &SettingsCandidateSource) -> u8 {
