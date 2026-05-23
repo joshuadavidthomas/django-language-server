@@ -17,10 +17,10 @@ use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TemplateDirectoryFileRootsDiscovery {
+pub enum TemplateDirectoryFileRootsOutcome {
     Ready(TemplateDirectoryFileRoots),
-    WaitingForDjangoEnvironments,
-    DjangoEnvironmentsUnavailable,
+    Deferred,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,16 +67,16 @@ fn template_directory_files_request(roots: Vec<Utf8PathBuf>) -> FilesForRootsReq
 pub fn template_directory_file_roots_discovery(
     db: &dyn Db,
     project: Project,
-) -> TemplateDirectoryFileRootsDiscovery {
+) -> TemplateDirectoryFileRootsOutcome {
     let mut roots = Vec::new();
     let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
         | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
         DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
-            return TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments;
+            return TemplateDirectoryFileRootsOutcome::Deferred;
         }
         DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-            return TemplateDirectoryFileRootsDiscovery::DjangoEnvironmentsUnavailable;
+            return TemplateDirectoryFileRootsOutcome::Unavailable;
         }
     };
 
@@ -92,7 +92,7 @@ pub fn template_directory_file_roots_discovery(
     }
     roots.sort();
     roots.dedup();
-    TemplateDirectoryFileRootsDiscovery::Ready(TemplateDirectoryFileRoots::new(roots))
+    TemplateDirectoryFileRootsOutcome::Ready(TemplateDirectoryFileRoots::new(roots))
 }
 
 fn template_directory_walk_options() -> WalkOptions {

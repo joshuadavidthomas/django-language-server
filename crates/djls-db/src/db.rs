@@ -408,7 +408,7 @@ mod source_file_set_tests {
     use djls_project::DiscoveryObservationOutcome;
     use djls_project::DjangoDiscoveryRequest;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
-    use djls_project::InstalledAppFileRootsDiscovery;
+    use djls_project::InstalledAppFileRootsOutcome;
     use djls_project::ProjectEnrichment;
     use djls_project::ProjectRootDiscoveryApplyResult;
     use djls_project::ProjectRootDiscoveryUpdate;
@@ -420,7 +420,7 @@ mod source_file_set_tests {
     use djls_project::SourceFilesApplyResult;
     use djls_project::SourceFilesIssue;
     use djls_project::SourceFilesUpdate;
-    use djls_project::TemplateDirectoryFileRootsDiscovery;
+    use djls_project::TemplateDirectoryFileRootsOutcome;
     use djls_source::Db as SourceDb;
     use djls_workspace::load_files_for_roots;
     use djls_workspace::FilesForRootsRequest;
@@ -512,18 +512,14 @@ mod source_file_set_tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsDiscovery> {
-            DiscoveryObservationOutcome::Observed(
-                InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments,
-            )
+        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
+            DiscoveryObservationOutcome::Observed(InstalledAppFileRootsOutcome::Deferred)
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsDiscovery> {
-            DiscoveryObservationOutcome::Observed(
-                TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments,
-            )
+        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
+            DiscoveryObservationOutcome::Observed(TemplateDirectoryFileRootsOutcome::Deferred)
         }
 
         fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {

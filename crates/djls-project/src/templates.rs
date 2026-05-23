@@ -8,4 +8,4 @@ pub use inventory::LoadableTemplateLibrary;
 pub use inventory::TemplateDirectoryEntry;
 pub use loading::template_directory_file_roots_discovery;
 pub use loading::TemplateDirectoryFileRoots;
-pub use loading::TemplateDirectoryFileRootsDiscovery;
+pub use loading::TemplateDirectoryFileRootsOutcome;

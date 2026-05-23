@@ -21,7 +21,7 @@ mod testing;
 
 pub use apps::installed_app_file_roots_discovery;
 pub use apps::InstalledAppFileRoots;
-pub use apps::InstalledAppFileRootsDiscovery;
+pub use apps::InstalledAppFileRootsOutcome;
 pub use db::Db;
 pub use discovery_run::run_django_discovery;
 pub use discovery_run::DiscoveryApplyOutcome;
@@ -92,7 +92,7 @@ pub use templates::template_files;
 pub use templates::LoadableTemplateLibrary;
 pub use templates::TemplateDirectoryEntry;
 pub use templates::TemplateDirectoryFileRoots;
-pub use templates::TemplateDirectoryFileRootsDiscovery;
+pub use templates::TemplateDirectoryFileRootsOutcome;
 #[cfg(any(test, feature = "testing"))]
 pub use testing::app_dir;
 #[cfg(any(test, feature = "testing"))]

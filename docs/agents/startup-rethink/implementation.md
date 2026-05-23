@@ -39,7 +39,7 @@
 ### Divergence: installed-app/template directory discovery uses typed root discoveries
 - Planned: the target host sketch included direct stage callbacks for loading installed-app and template-directory file patches.
 - Found: that kept Django choreography in the runtime hosts or pushed toward a rejected status/request cross-product. Ousterhout and Lamport review flagged the raw request/status shape as leaky and weak on invariants.
-- Decision: add project-owned `InstalledAppFileRootsDiscovery` and `TemplateDirectoryFileRootsDiscovery` observations. Their ready payloads have private fields and own request lowering/result-to-update conversion. The discovery driver observes roots, asks the host only to walk files, then applies one stage-level `SourceFilesUpdate`.
+- Decision: add project-owned `InstalledAppFileRootsOutcome` and `TemplateDirectoryFileRootsOutcome` observations. Their ready payloads have private fields and own request lowering/result-to-update conversion. The discovery driver observes roots, asks the host only to walk files, then applies one stage-level `SourceFilesUpdate`.
 - Why this remains in scope: `djls-project` owns sequencing, root/predicate/partition policy, and Source File Inventory update construction; CLI/server only own cancellation, walking, observation, and apply callbacks.
 - Verification impact: discovery-run tests prove stage order, milestones, enrichment-last behavior, and cancellation before/after file load; server/CLI tests prove host integration.
 

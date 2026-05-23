@@ -223,10 +223,10 @@ pub(crate) fn installed_apps(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InstalledAppFileRootsDiscovery {
+pub enum InstalledAppFileRootsOutcome {
     Ready(InstalledAppFileRoots),
-    WaitingForDjangoEnvironments,
-    DjangoEnvironmentsUnavailable,
+    Deferred,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -289,13 +289,13 @@ impl InstalledAppFileRoots {
 pub fn installed_app_file_roots_discovery(
     db: &dyn Db,
     project: Project,
-) -> InstalledAppFileRootsDiscovery {
+) -> InstalledAppFileRootsOutcome {
     let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
-            return InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments;
+            return InstalledAppFileRootsOutcome::Deferred;
         }
         DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-            return InstalledAppFileRootsDiscovery::DjangoEnvironmentsUnavailable;
+            return InstalledAppFileRootsOutcome::Unavailable;
         }
         DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
         | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
@@ -320,7 +320,7 @@ pub fn installed_app_file_roots_discovery(
     }
     roots.sort();
     roots.dedup();
-    InstalledAppFileRootsDiscovery::Ready(InstalledAppFileRoots::new(roots, issues))
+    InstalledAppFileRootsOutcome::Ready(InstalledAppFileRoots::new(roots, issues))
 }
 
 fn app_root_for_file(db: &dyn Db, file: File) -> Option<Utf8PathBuf> {

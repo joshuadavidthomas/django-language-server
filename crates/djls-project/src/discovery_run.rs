@@ -3,7 +3,7 @@ use djls_conf::Settings;
 use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
 
-use crate::apps::InstalledAppFileRootsDiscovery;
+use crate::apps::InstalledAppFileRootsOutcome;
 use crate::enrichment::ProjectEnrichment;
 use crate::enrichment::ProjectEnrichmentIssue;
 use crate::python::PythonSourceIndexIssue;
@@ -24,7 +24,7 @@ use crate::source_files::SourceFilesApplyResult;
 use crate::source_files::SourceFilesIssue;
 use crate::source_files::SourceFilesUpdate;
 use crate::templates::TemplateDirectoryFileRoots;
-use crate::templates::TemplateDirectoryFileRootsDiscovery;
+use crate::templates::TemplateDirectoryFileRootsOutcome;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::PythonSourceIndexOutcome;
 
@@ -141,11 +141,11 @@ pub trait DiscoveryHost {
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsDiscovery>;
+    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome>;
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsDiscovery>;
+    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome>;
 
     fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation>;
 
@@ -671,7 +671,7 @@ fn run_installed_app_files_stage(
         }
     };
     let (applied, status) = match discovery {
-        InstalledAppFileRootsDiscovery::Ready(roots) => {
+        InstalledAppFileRootsOutcome::Ready(roots) => {
             let result = load_files_for_roots(host, roots.files_request(), stage, observer)?;
             checkpoint(host, stage, observer)?;
             let previous = host.current_source_files();
@@ -680,10 +680,8 @@ fn run_installed_app_files_stage(
             let status = stage_status_with_discovery_issues(&applied, roots.issues());
             (vec![applied], status)
         }
-        InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments => {
-            (Vec::new(), DiscoveryStageStatus::Deferred)
-        }
-        InstalledAppFileRootsDiscovery::DjangoEnvironmentsUnavailable => {
+        InstalledAppFileRootsOutcome::Deferred => (Vec::new(), DiscoveryStageStatus::Deferred),
+        InstalledAppFileRootsOutcome::Unavailable => {
             (Vec::new(), DiscoveryStageStatus::Unavailable)
         }
     };
@@ -707,7 +705,7 @@ fn run_template_directory_files_stage(
         }
     };
     let (applied, status) = match discovery {
-        TemplateDirectoryFileRootsDiscovery::Ready(roots) => {
+        TemplateDirectoryFileRootsOutcome::Ready(roots) => {
             let result = load_files_for_roots(host, roots.files_request(), stage, observer)?;
             checkpoint(host, stage, observer)?;
             let previous = host.current_source_files();
@@ -716,10 +714,8 @@ fn run_template_directory_files_stage(
             let status = stage_status_from_readiness(&applied);
             (vec![applied], status)
         }
-        TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments => {
-            (Vec::new(), DiscoveryStageStatus::Deferred)
-        }
-        TemplateDirectoryFileRootsDiscovery::DjangoEnvironmentsUnavailable => {
+        TemplateDirectoryFileRootsOutcome::Deferred => (Vec::new(), DiscoveryStageStatus::Deferred),
+        TemplateDirectoryFileRootsOutcome::Unavailable => {
             (Vec::new(), DiscoveryStageStatus::Unavailable)
         }
     };
@@ -1040,26 +1036,26 @@ mod tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsDiscovery> {
+        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
             if self.installed_app_deferred {
                 return DiscoveryObservationOutcome::Observed(
-                    InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments,
+                    InstalledAppFileRootsOutcome::Deferred,
                 );
             }
-            DiscoveryObservationOutcome::Observed(InstalledAppFileRootsDiscovery::Ready(
+            DiscoveryObservationOutcome::Observed(InstalledAppFileRootsOutcome::Ready(
                 crate::apps::InstalledAppFileRoots::new(Vec::new(), Vec::new()),
             ))
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsDiscovery> {
+        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
             if self.template_directory_deferred {
                 return DiscoveryObservationOutcome::Observed(
-                    TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments,
+                    TemplateDirectoryFileRootsOutcome::Deferred,
                 );
             }
-            DiscoveryObservationOutcome::Observed(TemplateDirectoryFileRootsDiscovery::Ready(
+            DiscoveryObservationOutcome::Observed(TemplateDirectoryFileRootsOutcome::Ready(
                 crate::templates::TemplateDirectoryFileRoots::new(Vec::new()),
             ))
         }

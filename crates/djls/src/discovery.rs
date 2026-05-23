@@ -7,7 +7,7 @@ use djls_project::DiscoveryCancellation;
 use djls_project::DiscoveryHost;
 use djls_project::DiscoveryObservationOutcome;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
-use djls_project::InstalledAppFileRootsDiscovery;
+use djls_project::InstalledAppFileRootsOutcome;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscoveryApplyResult;
 use djls_project::ProjectRootDiscoveryUpdate;
@@ -15,7 +15,7 @@ use djls_project::PythonSourceIndexOutcome;
 use djls_project::ReadySourceFiles;
 use djls_project::SourceFilesApplyResult;
 use djls_project::SourceFilesUpdate;
-use djls_project::TemplateDirectoryFileRootsDiscovery;
+use djls_project::TemplateDirectoryFileRootsOutcome;
 use djls_workspace::load_files_for_roots;
 use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
@@ -82,14 +82,14 @@ impl DiscoveryHost for CliDiscoveryHost<'_> {
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsDiscovery> {
+    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
         let project = ProjectDb::project(self.db);
         DiscoveryObservationOutcome::Observed(installed_app_file_roots_discovery(self.db, project))
     }
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsDiscovery> {
+    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
         let project = ProjectDb::project(self.db);
         DiscoveryObservationOutcome::Observed(template_directory_file_roots_discovery(
             self.db, project,
