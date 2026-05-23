@@ -94,8 +94,11 @@ fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate>
 
     for root in discovery.roots() {
         if let Some(seed) = root.settings_module_seed(db) {
-            candidates.extend(settings_candidate(
-                seed.as_str(),
+            let Ok(module) = PyModuleName::parse(seed.as_str()) else {
+                continue;
+            };
+            candidates.push(SettingsCandidate::new(
+                module,
                 None,
                 SettingsCandidateSource::ExplicitConfig,
                 OriginSet::single(Origin::Config {
@@ -105,8 +108,11 @@ fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate>
         }
         for environment in root.configured_environment_seeds(db) {
             let seed = environment.settings_module();
-            candidates.extend(settings_candidate(
-                seed.as_str(),
+            let Ok(module) = PyModuleName::parse(seed.as_str()) else {
+                continue;
+            };
+            candidates.push(SettingsCandidate::new(
+                module,
                 None,
                 SettingsCandidateSource::ConfiguredEnvironment,
                 OriginSet::single(Origin::ConfiguredEnvironment {
@@ -117,8 +123,11 @@ fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate>
         }
         for (name, value) in root.env_vars(db).entries() {
             if name == "DJANGO_SETTINGS_MODULE" {
-                candidates.extend(settings_candidate(
-                    value,
+                let Ok(module) = PyModuleName::parse(value) else {
+                    continue;
+                };
+                candidates.push(SettingsCandidate::new(
+                    module,
                     None,
                     SettingsCandidateSource::EnvironmentVariable,
                     OriginSet::single(Origin::Environment {
@@ -154,7 +163,10 @@ fn manage_py_candidates(db: &dyn Db, layout: &ProjectLayoutIndex) -> Vec<Setting
             if name != "DJANGO_SETTINGS_MODULE" {
                 continue;
             }
-            candidates.extend(settings_candidate(
+            let Ok(module) = PyModuleName::parse(module) else {
+                continue;
+            };
+            candidates.push(SettingsCandidate::new(
                 module,
                 Some(file),
                 SettingsCandidateSource::ManagePyDefault,
@@ -186,20 +198,6 @@ fn conventional_candidates(
         ));
     }
     candidates
-}
-
-fn settings_candidate(
-    value: &str,
-    file: Option<File>,
-    source: SettingsCandidateSource,
-    origin: OriginSet,
-) -> Option<SettingsCandidate> {
-    Some(SettingsCandidate::new(
-        PyModuleName::parse(value).ok()?,
-        file,
-        source,
-        origin,
-    ))
 }
 
 fn source_rank(source: &SettingsCandidateSource) -> u8 {
