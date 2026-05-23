@@ -14,18 +14,29 @@ pub struct Project {
     pub root_discovery: ProjectRootDiscovery,
     #[returns(ref)]
     pub enrichment: ProjectEnrichment,
+    #[default]
+    #[returns(ref)]
+    pub tag_specs_config: djls_conf::TagSpecDef,
 }
 
 impl Project {
     pub fn virtual_project(db: &dyn crate::Db) -> Self {
-        Self::new(
-            db,
+        Self::virtual_project_with_tag_specs_config(db, djls_conf::TagSpecDef::default())
+    }
+
+    pub fn virtual_project_with_tag_specs_config(
+        db: &dyn crate::Db,
+        tag_specs_config: djls_conf::TagSpecDef,
+    ) -> Self {
+        Self::builder(
             SourceFileInventory::Unavailable {
                 issue: SourceFilesIssue::NotLoaded,
             },
             ProjectRootDiscovery::Absent,
             ProjectEnrichment::Absent,
         )
+        .tag_specs_config(tag_specs_config)
+        .new(db)
     }
 
     #[allow(clippy::missing_panics_doc)]

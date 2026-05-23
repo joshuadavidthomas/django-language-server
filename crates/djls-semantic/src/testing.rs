@@ -11,7 +11,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_project::Project as ProjectFacts;
+use djls_project::Project;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -23,7 +23,6 @@ use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
 use crate::db::Db as SemanticDb;
-use crate::db::SemanticSettingsRevision;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::project::Knowledge;
@@ -149,8 +148,7 @@ pub(crate) struct TestDatabase {
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
-    project_facts: Arc<OnceLock<ProjectFacts>>,
-    semantic_settings_revision: Arc<OnceLock<SemanticSettingsRevision>>,
+    project: Arc<OnceLock<Project>>,
 }
 
 impl TestDatabase {
@@ -163,21 +161,12 @@ impl TestDatabase {
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
-            project_facts: Arc::new(OnceLock::new()),
-            semantic_settings_revision: Arc::new(OnceLock::new()),
+            project: Arc::new(OnceLock::new()),
         };
-        let project_facts = ProjectFacts::fixture_unavailable(&db);
-        db.project_facts
-            .set(project_facts)
-            .expect("project facts should initialize once");
-        let initialized = db
-            .semantic_settings_revision
-            .set(SemanticSettingsRevision::new(&db, 0))
-            .is_ok();
-        assert!(
-            initialized,
-            "semantic settings revision should initialize once"
-        );
+        let project = Project::fixture_unavailable(&db);
+        db.project
+            .set(project)
+            .expect("project should initialize once");
         db
     }
 
@@ -225,11 +214,8 @@ impl salsa::Database for TestDatabase {}
 
 #[salsa::db]
 impl djls_project::Db for TestDatabase {
-    fn project(&self) -> ProjectFacts {
-        *self
-            .project_facts
-            .get()
-            .expect("project facts should be initialized")
+    fn project(&self) -> Project {
+        *self.project.get().expect("project should be initialized")
     }
 }
 
@@ -248,17 +234,6 @@ impl djls_source::Db for TestDatabase {
 impl SemanticDb for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn semantic_settings_revision(&self) -> SemanticSettingsRevision {
-        *self
-            .semantic_settings_revision
-            .get()
-            .expect("semantic settings revision should be initialized")
-    }
-
-    fn tag_specs_config(&self) -> djls_conf::TagSpecDef {
-        djls_conf::TagSpecDef::default()
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

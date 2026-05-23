@@ -6,21 +6,10 @@ use crate::python::ModelGraph;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::TagSpecs;
 
-#[salsa::input]
-pub struct SemanticSettingsRevision {
-    pub revision: u64,
-}
-
 #[salsa::db]
 pub trait Db: djls_project::Db {
     /// Get the computed Django tag specifications for semantic analysis.
     fn tag_specs(&self) -> &TagSpecs;
-
-    /// Get the tracked semantic settings revision.
-    fn semantic_settings_revision(&self) -> SemanticSettingsRevision;
-
-    /// Get the configured fallback tag specifications.
-    fn tag_specs_config(&self) -> djls_conf::TagSpecDef;
 
     /// Get the diagnostics configuration.
     fn diagnostics_config(&self) -> DiagnosticsConfig;

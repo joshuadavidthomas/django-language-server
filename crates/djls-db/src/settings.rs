@@ -1,6 +1,5 @@
 use djls_conf::Settings;
-use djls_semantic::Db as SemanticDb;
-use salsa::Setter;
+use djls_project::Db as ProjectDb;
 
 use crate::db::DjangoDatabase;
 
@@ -34,9 +33,7 @@ impl DjangoDatabase {
         let current = self.settings();
 
         if previous.tagspecs() != current.tagspecs() {
-            let revision = self.semantic_settings_revision();
-            let next_revision = revision.revision(self) + 1;
-            revision.set_revision(self).to(next_revision);
+            ProjectDb::set_tag_specs_config(self, current.tagspecs().clone());
         }
 
         SettingsUpdate {

@@ -16,7 +16,6 @@ mod validation;
 mod testing;
 
 pub use db::Db;
-pub use db::SemanticSettingsRevision;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
 pub use project::load_env_file;

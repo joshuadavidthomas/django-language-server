@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use camino::Utf8Path;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
-use djls_project::Project as ProjectFacts;
+use djls_project::Project;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscovery;
 use djls_project::ProjectRootDiscoveryApplyResult;
@@ -32,7 +32,6 @@ use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::SemanticSettingsRevision;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
@@ -64,11 +63,8 @@ pub struct DjangoDatabase {
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
 
-    /// Stable Salsa-visible project facts root.
-    pub(crate) project_facts: Arc<OnceLock<ProjectFacts>>,
-
-    /// Salsa-visible revision for semantic settings read from infrastructure config.
-    pub(crate) semantic_settings_revision: Arc<OnceLock<SemanticSettingsRevision>>,
+    /// Stable Salsa-visible project input.
+    pub(crate) project: Arc<OnceLock<Project>>,
 
     pub(crate) storage: salsa::Storage<Self>,
 }
@@ -84,8 +80,7 @@ impl Default for DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
             settings: Arc::new(Mutex::new(Settings::default())),
-            project_facts: Arc::new(OnceLock::new()),
-            semantic_settings_revision: Arc::new(OnceLock::new()),
+            project: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -100,18 +95,10 @@ impl Default for DjangoDatabase {
                 }
             }))),
         };
-        let project = ProjectFacts::virtual_project(&db);
-        db.project_facts
+        let project = Project::virtual_project(&db);
+        db.project
             .set(project)
-            .expect("project facts should initialize once");
-        let initialized = db
-            .semantic_settings_revision
-            .set(SemanticSettingsRevision::new(&db, 0))
-            .is_ok();
-        assert!(
-            initialized,
-            "semantic settings revision should initialize once"
-        );
+            .expect("project should initialize once");
         db
     }
 }
@@ -124,22 +111,14 @@ impl DjangoDatabase {
             fs: file_system,
             files: SourceFiles::default(),
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_facts: Arc::new(OnceLock::new()),
-            semantic_settings_revision: Arc::new(OnceLock::new()),
+            project: Arc::new(OnceLock::new()),
             storage: salsa::Storage::new(None),
         };
-        let project = ProjectFacts::virtual_project(&db);
-        db.project_facts
+        let project =
+            Project::virtual_project_with_tag_specs_config(&db, settings.tagspecs().clone());
+        db.project
             .set(project)
-            .expect("project facts should initialize once");
-        let initialized = db
-            .semantic_settings_revision
-            .set(SemanticSettingsRevision::new(&db, 0))
-            .is_ok();
-        assert!(
-            initialized,
-            "semantic settings revision should initialize once"
-        );
+            .expect("project should initialize once");
         db
     }
 
@@ -379,11 +358,8 @@ impl salsa::Database for DjangoDatabase {}
 
 #[salsa::db]
 impl djls_project::Db for DjangoDatabase {
-    fn project(&self) -> ProjectFacts {
-        *self
-            .project_facts
-            .get()
-            .expect("project facts should be initialized")
+    fn project(&self) -> Project {
+        *self.project.get().expect("project should be initialized")
     }
 }
 
@@ -402,17 +378,6 @@ impl SourceDb for DjangoDatabase {
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         compute_tag_specs(self, ProjectDb::project(self))
-    }
-
-    fn semantic_settings_revision(&self) -> SemanticSettingsRevision {
-        *self
-            .semantic_settings_revision
-            .get()
-            .expect("semantic settings revision should be initialized")
-    }
-
-    fn tag_specs_config(&self) -> djls_conf::TagSpecDef {
-        self.settings.lock().unwrap().tagspecs().clone()
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -805,7 +770,6 @@ mod invalidation_tests {
 
     use djls_conf::Settings;
     use djls_semantic::Db as SemanticDb;
-    use djls_semantic::SemanticSettingsRevision;
     use djls_source::SourceFiles;
     use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
@@ -846,8 +810,7 @@ mod invalidation_tests {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_facts: Arc::new(std::sync::OnceLock::new()),
-            semantic_settings_revision: Arc::new(std::sync::OnceLock::new()),
+            project: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -855,18 +818,10 @@ mod invalidation_tests {
                 }
             }))),
         };
-        let project_facts = djls_project::Project::fixture_unavailable(&db);
-        db.project_facts
-            .set(project_facts)
-            .expect("project facts should initialize once");
-        let initialized = db
-            .semantic_settings_revision
-            .set(SemanticSettingsRevision::new(&db, 0))
-            .is_ok();
-        assert!(
-            initialized,
-            "semantic settings revision should initialize once"
-        );
+        let project = djls_project::Project::fixture_unavailable(&db);
+        db.project
+            .set(project)
+            .expect("project should initialize once");
 
         (db, event_log)
     }
@@ -889,6 +844,28 @@ mod invalidation_tests {
         assert!(
             !was_executed(&db, &events, "compute_tag_specs"),
             "compute_tag_specs should NOT re-execute on second call (cached)"
+        );
+    }
+
+    #[test]
+    fn tag_specs_recompute_when_project_tag_specs_config_changes() {
+        let (mut db, event_log) = test_db_with_project();
+        let _ = db.tag_specs();
+        event_log.take();
+
+        djls_project::Db::set_tag_specs_config(
+            &mut db,
+            djls_conf::TagSpecDef {
+                version: "changed".to_string(),
+                ..djls_conf::TagSpecDef::default()
+            },
+        );
+
+        let _ = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should re-execute after project tag-spec config changes"
         );
     }
 
@@ -986,8 +963,7 @@ def my_filter(value, arg):
             fs: Arc::new(fs),
             files: SourceFiles::default(),
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_facts: Arc::new(std::sync::OnceLock::new()),
-            semantic_settings_revision: Arc::new(std::sync::OnceLock::new()),
+            project: Arc::new(std::sync::OnceLock::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -995,18 +971,10 @@ def my_filter(value, arg):
                 }
             }))),
         };
-        let project_facts = djls_project::Project::fixture_unavailable(&db);
-        db.project_facts
-            .set(project_facts)
-            .expect("project facts should initialize once");
-        let initialized = db
-            .semantic_settings_revision
-            .set(SemanticSettingsRevision::new(&db, 0))
-            .is_ok();
-        assert!(
-            initialized,
-            "semantic settings revision should initialize once"
-        );
+        let project = djls_project::Project::fixture_unavailable(&db);
+        db.project
+            .set(project)
+            .expect("project should initialize once");
 
         let file = djls_source::Db::get_or_create_file(
             &db,

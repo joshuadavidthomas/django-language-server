@@ -21,4 +21,11 @@ pub trait Db: djls_source::Db {
             project.set_root_discovery(self).to(discovery);
         }
     }
+
+    fn set_tag_specs_config(&mut self, tag_specs_config: djls_conf::TagSpecDef) {
+        let project = self.project();
+        if project.tag_specs_config(self) != &tag_specs_config {
+            project.set_tag_specs_config(self).to(tag_specs_config);
+        }
+    }
 }

@@ -19,8 +19,7 @@ use crate::specs::tags::TagSpecs;
 /// Does NOT read from `Arc<Mutex<Settings>>`.
 #[salsa::tracked(returns(ref))]
 pub fn compute_tag_specs(db: &dyn Db, project: djls_project::Project) -> TagSpecs {
-    let _settings_revision = db.semantic_settings_revision().revision(db);
-    let tagspecs = db.tag_specs_config();
+    let tagspecs = project.tag_specs_config(db);
 
     let mut specs = builtin_tag_specs();
 
@@ -38,7 +37,7 @@ pub fn compute_tag_specs(db: &dyn Db, project: djls_project::Project) -> TagSpec
     }
 
     if !tagspecs.libraries.is_empty() {
-        let fallback = TagSpecs::from_tagspec_def(&tagspecs);
+        let fallback = TagSpecs::from_tagspec_def(tagspecs);
         specs.merge_fallback(fallback);
     }
 
@@ -95,7 +94,7 @@ mod tests {
     use djls_project::project_discovery_set_for_test;
     use djls_project::ready_source_inventory_with_roots_for_test;
     use djls_project::settings_file_path;
-    use djls_project::Db as ProjectFactsDb;
+    use djls_project::Db as ProjectDb;
     use djls_project::ProjectRootDiscovery;
 
     use super::*;

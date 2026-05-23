@@ -108,10 +108,10 @@ pub fn resolve_template<'db>(
             };
         }
     };
-    let project_facts = djls_project::Db::project(db);
-    match djls_project::environment_for_file(db, project_facts, source) {
+    let project = djls_project::Db::project(db);
+    match djls_project::environment_for_file(db, project, source) {
         djls_project::EnvironmentSelection::Selected(env) => {
-            resolve_static_template(db, project_facts, env.clone(), name)
+            resolve_static_template(db, project, env.clone(), name)
         }
         djls_project::EnvironmentSelection::Unknown { issues }
         | djls_project::EnvironmentSelection::Ambiguous { issues, .. } => {
@@ -205,7 +205,7 @@ mod tests {
     use djls_project::ready_source_inventory_with_roots_for_test;
     use djls_project::settings_file_path;
     use djls_project::template_path;
-    use djls_project::Db as ProjectFactsDb;
+    use djls_project::Db as ProjectDb;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
     use djls_project::LibraryName;
     use djls_project::ProjectRootDiscovery;
