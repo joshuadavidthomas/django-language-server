@@ -93,11 +93,6 @@ impl ReadyProjectSourceFiles {
     }
 
     #[must_use]
-    pub(crate) fn merged_for_test(merged: SourceFileSet) -> Self {
-        Self::new(ProjectFileSetPartitions::empty(), merged)
-    }
-
-    #[must_use]
     pub fn merged(&self) -> SourceFileSet {
         self.merged
     }
@@ -260,7 +255,7 @@ mod tests {
         let data = SourceFileSetData::new(vec![SourceRootEntry::new(root)], vec![loaded])
             .expect("source file set should be coherent");
         let set = SourceFileSet::new(db, data);
-        ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set)
+        ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::default(), set)
     }
 
     #[test]
@@ -309,8 +304,10 @@ mod tests {
             .expect("source file set should be coherent");
         let set = SourceFileSet::new(&db, data);
 
-        let files =
-            ReadyProjectSourceFiles::materialized_for_test(ProjectFileSetPartitions::empty(), set);
+        let files = ReadyProjectSourceFiles::materialized_for_test(
+            ProjectFileSetPartitions::default(),
+            set,
+        );
 
         assert_eq!(files.summary(&db), FileSetSummary::new(1));
     }

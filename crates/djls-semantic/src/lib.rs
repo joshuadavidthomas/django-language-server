@@ -53,7 +53,6 @@ pub use queries::compute_filter_arity_specs;
 pub use queries::compute_model_graph;
 pub use queries::compute_tag_specs;
 pub use resolution::find_references_to_template;
-pub use resolution::resolve_static_template;
 pub use resolution::resolve_template;
 pub use resolution::template_libraries_for_file;
 pub use resolution::TemplateInventoryIssue;

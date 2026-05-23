@@ -2,12 +2,13 @@ use crate::django_environment_candidates;
 use crate::python::python_source_model;
 use crate::python::AssignmentKind;
 use crate::python::ImportStatement;
-use crate::python::PythonSourceModelStatus;
 use crate::python::PythonSourceOperation;
+use crate::python::PythonSourceParseStatus;
 use crate::python::QualifiedName;
 use crate::python::StaticValue;
 use crate::python::StaticValueIssue;
 use crate::resolver::resolve_module;
+use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
@@ -198,19 +199,23 @@ fn django_settings_for_module(
 
     let file = match resolve_module(db, project, module.clone()).outcome() {
         ModuleResolutionOutcome::Resolved(resolved) => resolved.location().file(),
-        ModuleResolutionOutcome::Ambiguous { .. } => {
+        ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
             return DjangoSettings {
                 issues: vec![SettingsIssue::SettingsModuleAmbiguous { module }],
                 ..DjangoSettings::default()
             };
         }
-        ModuleResolutionOutcome::Deferred { .. } => {
+        ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_)) => {
             return DjangoSettings {
                 issues: vec![SettingsIssue::SettingsModuleDeferred { module }],
                 ..DjangoSettings::default()
             };
         }
-        ModuleResolutionOutcome::NotFound { .. } => {
+        ModuleResolutionOutcome::Unresolved(
+            ModuleResolutionError::NoImportRoots
+            | ModuleResolutionError::NotFound
+            | ModuleResolutionError::UnsupportedModuleName,
+        ) => {
             return DjangoSettings {
                 issues: vec![SettingsIssue::SettingsModuleNotResolved { module }],
                 ..DjangoSettings::default()
@@ -219,7 +224,7 @@ fn django_settings_for_module(
     };
 
     let model = python_source_model(db, file);
-    if !matches!(model.status(), PythonSourceModelStatus::Parsed) {
+    if !matches!(model.parse_status(), PythonSourceParseStatus::Parsed) {
         return DjangoSettings {
             issues: vec![SettingsIssue::SettingsModuleParseError],
             ..DjangoSettings::default()
@@ -555,7 +560,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
             SourceFileSet::new(db, data),
         ))
     }

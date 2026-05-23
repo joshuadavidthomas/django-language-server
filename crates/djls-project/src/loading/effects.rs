@@ -9,7 +9,6 @@ use crate::PartitionedSourceFilePatch;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectDiscoverySetData;
 use crate::ProjectEnrichment;
-use crate::ProjectEnrichmentDraft;
 use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
 
@@ -62,10 +61,10 @@ pub trait LoadingEffects {
         &mut self,
         patch: PartitionedSourceFilePatch,
     ) -> LoadingApplyOutcome<ProjectSourceFilesApplyResult>;
-    fn load_project_enrichment(&mut self) -> ProjectEnrichmentDraft;
+    fn load_project_enrichment(&mut self) -> ProjectEnrichment;
     fn apply_project_enrichment(
         &mut self,
-        draft: ProjectEnrichmentDraft,
+        enrichment: ProjectEnrichment,
     ) -> LoadingApplyOutcome<ProjectEnrichment>;
 }
 

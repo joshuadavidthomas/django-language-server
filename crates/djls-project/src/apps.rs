@@ -13,6 +13,7 @@ use crate::python::Assignment;
 use crate::python::ClassDef;
 use crate::python::StaticValue;
 use crate::resolver::resolve_module;
+use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
 use crate::settings::PartialListSegment;
@@ -84,15 +85,23 @@ impl InstalledApp {
                 module,
                 file: resolved.location().file(),
             },
-            ModuleResolutionOutcome::NotFound { .. } => InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::ModuleNotFound(module),
-            ),
-            ModuleResolutionOutcome::Ambiguous { .. } => InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::ModuleAmbiguous(module),
-            ),
-            ModuleResolutionOutcome::Deferred { .. } => InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::ModuleDeferred(module),
-            ),
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
+                InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleAmbiguous(
+                    module,
+                ))
+            }
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_)) => {
+                InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleDeferred(
+                    module,
+                ))
+            }
+            ModuleResolutionOutcome::Unresolved(
+                ModuleResolutionError::NoImportRoots
+                | ModuleResolutionError::NotFound
+                | ModuleResolutionError::UnsupportedModuleName,
+            ) => InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleNotFound(
+                module,
+            )),
         }
     }
 
@@ -129,15 +138,23 @@ impl InstalledApp {
                     file,
                 }
             }
-            ModuleResolutionOutcome::NotFound { .. } => InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::ModuleNotFound(module),
-            ),
-            ModuleResolutionOutcome::Ambiguous { .. } => InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::ModuleAmbiguous(module),
-            ),
-            ModuleResolutionOutcome::Deferred { .. } => InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::AppConfigDetailsDeferred(module),
-            ),
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
+                InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleAmbiguous(
+                    module,
+                ))
+            }
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_)) => {
+                InstalledAppResolution::Unresolved(
+                    InstalledAppResolutionError::AppConfigDetailsDeferred(module),
+                )
+            }
+            ModuleResolutionOutcome::Unresolved(
+                ModuleResolutionError::NoImportRoots
+                | ModuleResolutionError::NotFound
+                | ModuleResolutionError::UnsupportedModuleName,
+            ) => InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleNotFound(
+                module,
+            )),
         }
     }
 
@@ -455,7 +472,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
             SourceFileSet::new(db, data),
         ))
     }

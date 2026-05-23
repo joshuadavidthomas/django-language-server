@@ -8,7 +8,7 @@ use crate::layout::ProjectLayoutIssue;
 use crate::provenance::Origin;
 use crate::provenance::OriginSet;
 use crate::python::python_source_model;
-use crate::python::PythonSourceModelStatus;
+use crate::python::PythonSourceParseStatus;
 use crate::python::StaticValue;
 use crate::resolver::module_name_for_path;
 use crate::Db;
@@ -191,7 +191,7 @@ fn collect_manage_py_candidates(
 ) {
     for file in layout.files_by_name("manage.py") {
         let model = python_source_model(db, file);
-        if model.status() != &PythonSourceModelStatus::Parsed {
+        if model.parse_status() != &PythonSourceParseStatus::Parsed {
             continue;
         }
         for call in model.calls() {
@@ -368,7 +368,10 @@ mod tests {
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
         let set = SourceFileSet::new(db, data);
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(set))
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
+            set,
+        ))
     }
 
     fn sources_by_module(

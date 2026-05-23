@@ -84,7 +84,8 @@ pub fn ready_source_inventory_with_roots_for_test(
         .collect::<Vec<_>>();
     let data =
         SourceFileSetData::new(root_entries, files).expect("test source file set should be valid");
-    ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
+    ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+        crate::loading::files::ProjectFileSetPartitions::default(),
         SourceFileSet::new(db, data),
     ))
 }

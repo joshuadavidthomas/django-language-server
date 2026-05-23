@@ -32,9 +32,7 @@ pub fn goto_definition(
                         },
                     ))
                 }
-                TemplateLookupResult::Deferred { .. } | TemplateLookupResult::Ambiguous { .. } => {
-                    None
-                }
+                TemplateLookupResult::Deferred { .. } => None,
                 TemplateLookupResult::NotFound { tried, .. } => {
                     tracing::warn!("Template '{}' not found. Tried: {:?}", template_name, tried);
                     None

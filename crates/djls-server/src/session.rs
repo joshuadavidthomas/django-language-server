@@ -113,10 +113,6 @@ impl Session {
         self.db.clone()
     }
 
-    pub(crate) fn project_facts_availability(&self) -> djls_project::ProjectFactsAvailability {
-        djls_project::project_facts_availability(&self.db)
-    }
-
     pub(crate) fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
         self.db.set_settings(settings)
     }
@@ -401,8 +397,8 @@ mod tests {
         let session = Session::default();
 
         assert!(matches!(
-            session.project_facts_availability().source_files,
-            djls_project::ProjectFactStatus::Unavailable { .. }
+            djls_project::Db::project(session.db()).source_inventory(session.db()),
+            djls_project::ProjectSourceInventory::Unavailable { .. }
         ));
     }
 
@@ -451,8 +447,8 @@ mod tests {
         assert!(settings.debug());
         assert_eq!(settings.django_settings_module(), Some("client.settings"));
         assert!(matches!(
-            session.project_facts_availability().source_files,
-            djls_project::ProjectFactStatus::Unavailable { .. }
+            djls_project::Db::project(session.db()).source_inventory(session.db()),
+            djls_project::ProjectSourceInventory::Unavailable { .. }
         ));
     }
 
@@ -503,17 +499,16 @@ S100 = "warning"
         session.open_document(&text_document);
 
         let db = session.db();
-        assert_eq!(
-            session.project_facts_availability(),
-            djls_project::ProjectFactsAvailability {
-                source_files: djls_project::ProjectFactStatus::Unavailable {
-                    issue: djls_project::ProjectSourceFilesIssue::NotLoaded,
-                },
-                discovery: djls_project::ProjectFactStatus::Unavailable {
-                    issue: djls_project::ProjectDiscoveryUnavailableReason::NotLoaded,
-                },
+        assert!(matches!(
+            djls_project::Db::project(db).source_inventory(db),
+            djls_project::ProjectSourceInventory::Unavailable {
+                issue: djls_project::ProjectSourceFilesIssue::NotLoaded,
             }
-        );
+        ));
+        assert!(matches!(
+            djls_project::Db::project(db).discovery(db),
+            djls_project::ProjectDiscovery::Absent,
+        ));
 
         let file = db.get_or_create_file(&path);
         let diagnostics = djls_ide::collect_diagnostics(db, file);
@@ -563,10 +558,8 @@ S100 = "warning"
 
         let db = session.db();
         assert!(matches!(
-            session.project_facts_availability().discovery,
-            djls_project::ProjectFactStatus::Unavailable {
-                issue: djls_project::ProjectDiscoveryUnavailableReason::Failed { .. }
-            }
+            djls_project::Db::project(db).discovery(db),
+            djls_project::ProjectDiscovery::Unavailable { .. }
         ));
 
         let file = db.get_or_create_file(&path);
@@ -604,8 +597,12 @@ S100 = "warning"
             snapshot.client_info().position_encoding()
         );
         assert_eq!(
-            session.project_facts_availability(),
-            djls_project::project_facts_availability(snapshot.db())
+            djls_project::Db::project(session.db()).source_inventory(session.db()),
+            djls_project::Db::project(snapshot.db()).source_inventory(snapshot.db())
+        );
+        assert_eq!(
+            djls_project::Db::project(session.db()).discovery(session.db()),
+            djls_project::Db::project(snapshot.db()).discovery(snapshot.db())
         );
     }
 }

@@ -16,12 +16,14 @@ use tempfile::NamedTempFile;
 use wait_timeout::ChildExt;
 
 use crate::enrichment::RuntimeUnavailableKind;
+use crate::names::LibraryName;
+use crate::names::PyModuleName;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::Interpreter;
 use crate::Project;
 use crate::ProjectDiscovery;
-use crate::ProjectEnrichmentDraft;
+use crate::ProjectEnrichment;
 use crate::ProjectEnrichmentIssue;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,11 +41,20 @@ pub(crate) struct InspectorEnrichment {
     template_libraries: BTreeMap<String, String>,
 }
 
-impl From<InspectorEnrichment> for ProjectEnrichmentDraft {
+impl From<InspectorEnrichment> for ProjectEnrichment {
     fn from(enrichment: InspectorEnrichment) -> Self {
-        Self::Fresh(crate::ProjectEnrichmentHints::new(
-            enrichment.template_libraries,
-        ))
+        Self::Fresh(
+            enrichment
+                .template_libraries
+                .into_iter()
+                .filter_map(|(name, module)| {
+                    Some((
+                        LibraryName::parse(&name).ok()?,
+                        PyModuleName::parse(&module).ok()?,
+                    ))
+                })
+                .collect(),
+        )
     }
 }
 
@@ -61,10 +72,10 @@ impl From<InspectorEnrichment> for ProjectEnrichmentDraft {
         status,
     )
 )]
-pub fn load_runtime_project_enrichment(db: &dyn Db, project: Project) -> ProjectEnrichmentDraft {
+pub fn load_runtime_project_enrichment(db: &dyn Db, project: Project) -> ProjectEnrichment {
     let request = match runtime_enrichment_request(db, project) {
         Ok(request) => request,
-        Err(issue) => return ProjectEnrichmentDraft::Unavailable { issue },
+        Err(issue) => return ProjectEnrichment::Unresolved(issue),
     };
     let span = tracing::Span::current();
     span.record("project_root", request.project_root.as_str());
@@ -86,9 +97,9 @@ pub fn load_runtime_project_enrichment(db: &dyn Db, project: Project) -> Project
         Err(kind) => {
             tracing::Span::current().record("outcome", "failed");
             tracing::warn!(failure = ?kind, "Runtime enrichment provider failed");
-            crate::ProjectEnrichmentDraft::Failed {
-                issue: crate::ProjectEnrichmentIssue::InspectorFailed { kind },
-            }
+            crate::ProjectEnrichment::Unresolved(crate::ProjectEnrichmentIssue::InspectorFailed(
+                kind,
+            ))
         }
     }
 }
@@ -532,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn enrichment_provider_translates_inspector_enrichment_to_project_draft() {
+    fn enrichment_provider_translates_inspector_enrichment_to_project_enrichment() {
         let inspector_enrichment = InspectorEnrichment {
             template_libraries: BTreeMap::from([(
                 "ui".to_string(),
@@ -540,29 +551,27 @@ mod tests {
             )]),
         };
 
-        let crate::ProjectEnrichmentDraft::Fresh(hints) = inspector_enrichment.into() else {
-            panic!("inspector enrichment should produce fresh enrichment draft");
+        let crate::ProjectEnrichment::Fresh(template_libraries) = inspector_enrichment.into()
+        else {
+            panic!("inspector enrichment should produce fresh project enrichment");
         };
 
         assert_eq!(
-            hints.runtime_template_libraries().get("ui"),
-            Some(&"blog.templatetags.ui".to_string())
+            template_libraries.get(&LibraryName::parse("ui").unwrap()),
+            Some(&PyModuleName::parse("blog.templatetags.ui").unwrap())
         );
     }
 
     #[test]
     fn enrichment_provider_translates_failure_to_typed_issue() {
-        let draft = crate::ProjectEnrichmentDraft::Failed {
-            issue: crate::ProjectEnrichmentIssue::InspectorFailed {
-                kind: crate::InspectorFailureKind::SubprocessFailed { status: None },
-            },
-        };
+        let enrichment =
+            crate::ProjectEnrichment::Unresolved(crate::ProjectEnrichmentIssue::InspectorFailed(
+                crate::InspectorFailureKind::SubprocessFailed { status: None },
+            ));
 
         assert!(matches!(
-            draft,
-            crate::ProjectEnrichmentDraft::Failed {
-                issue: crate::ProjectEnrichmentIssue::InspectorFailed { .. }
-            }
+            enrichment,
+            crate::ProjectEnrichment::Unresolved(crate::ProjectEnrichmentIssue::InspectorFailed(_))
         ));
     }
 

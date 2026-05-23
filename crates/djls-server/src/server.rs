@@ -252,8 +252,6 @@ impl LanguageServer for DjangoLanguageServer {
                     &params.text_document_position.text_document,
                     "completion",
                 )?;
-                let availability = session.project_facts_availability();
-                tracing::debug!(?availability, "completion project facts availability");
                 let db = session.db();
                 let path = file.path(db);
                 let source = file.source(db);
@@ -321,8 +319,6 @@ impl LanguageServer for DjangoLanguageServer {
                     params.text_document_position_params.position,
                     "hover",
                 )?;
-                let availability = session.project_facts_availability();
-                tracing::debug!(?availability, "hover project facts availability");
                 let db = session.db();
 
                 if *file.source(db).kind() != FileKind::Template {
@@ -352,8 +348,6 @@ impl LanguageServer for DjangoLanguageServer {
                 else {
                     return Vec::new();
                 };
-                let availability = session.project_facts_availability();
-                tracing::debug!(?availability, "diagnostic project facts availability");
                 let db = session.db();
 
                 if *file.source(db).kind() != FileKind::Template {
@@ -436,8 +430,6 @@ impl LanguageServer for DjangoLanguageServer {
                     params.text_document_position_params.position,
                     "goto definition",
                 )?;
-                let availability = session.project_facts_availability();
-                tracing::debug!(?availability, "goto definition project facts availability");
                 let db = session.db();
 
                 if *file.source(db).kind() != FileKind::Template {
@@ -462,8 +454,6 @@ impl LanguageServer for DjangoLanguageServer {
                     params.text_document_position.position,
                     "references",
                 )?;
-                let availability = session.project_facts_availability();
-                tracing::debug!(?availability, "references project facts availability");
                 let db = session.db();
 
                 if *file.source(db).kind() != FileKind::Template {

@@ -1,5 +1,4 @@
 mod apps;
-mod availability;
 mod db;
 mod discovery;
 mod enrichment;
@@ -19,10 +18,6 @@ mod templates;
 pub mod testing;
 
 pub use apps::installed_app_file_load_outcome;
-pub use availability::project_facts_availability;
-pub use availability::ProjectDiscoveryUnavailableReason;
-pub use availability::ProjectFactStatus;
-pub use availability::ProjectFactsAvailability;
 pub use db::Db;
 pub use discovery::ProjectDiscovery;
 pub use discovery::ProjectDiscoveryApplyResult;
@@ -34,9 +29,8 @@ pub use discovery::RootDiscoveryInput;
 pub use enrichment::load_runtime_project_enrichment;
 pub use enrichment::InspectorFailureKind;
 pub use enrichment::ProjectEnrichment;
-pub use enrichment::ProjectEnrichmentDraft;
-pub use enrichment::ProjectEnrichmentHints;
 pub use enrichment::ProjectEnrichmentIssue;
+pub use enrichment::RuntimeTemplateLibraries;
 pub use env::load_env_file;
 pub use environments::django_environment_candidates;
 pub use environments::environment_for_file;

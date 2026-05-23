@@ -20,7 +20,7 @@ use djls_project::ProjectDiscoveryIssue;
 use djls_project::ProjectDiscoveryIssues;
 use djls_project::ProjectDiscoverySet;
 use djls_project::ProjectDiscoverySetData;
-use djls_project::ProjectEnrichmentDraft;
+use djls_project::ProjectEnrichment;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::ProjectSourceFilesMaterializationPatch;
 use djls_project::ProjectSourceFilesUpdate;
@@ -142,7 +142,7 @@ impl DjangoDatabase {
         db
     }
 
-    pub fn load_project_enrichment(&self) -> ProjectEnrichmentDraft {
+    pub fn load_project_enrichment(&self) -> ProjectEnrichment {
         let project = LoadingDb::project(self);
         djls_project::load_runtime_project_enrichment(self, project)
     }
@@ -150,10 +150,10 @@ impl DjangoDatabase {
     #[tracing::instrument(level = "info", skip_all, fields(changed))]
     pub fn apply_enrichment(
         &mut self,
-        draft: ProjectEnrichmentDraft,
+        enrichment: ProjectEnrichment,
     ) -> djls_project::ProjectEnrichment {
         let project = LoadingDb::project(self);
-        let next = draft.into_enrichment();
+        let next = enrichment;
         let changed = project.enrichment(self) != &next;
         if changed {
             project.set_enrichment(self).to(next.clone());
@@ -920,17 +920,15 @@ def my_filter(value, arg):
     #[test]
     fn database_apply_enrichment_updates_project_facts() {
         let (mut db, _event_log) = test_db_with_project();
-        let issue = djls_project::ProjectEnrichmentIssue::InspectorFailed {
-            kind: djls_project::InspectorFailureKind::InvalidJson,
-        };
+        let issue = djls_project::ProjectEnrichmentIssue::InspectorFailed(
+            djls_project::InspectorFailureKind::InvalidJson,
+        );
 
-        db.apply_enrichment(djls_project::ProjectEnrichmentDraft::Failed {
-            issue: issue.clone(),
-        });
+        db.apply_enrichment(djls_project::ProjectEnrichment::Unresolved(issue.clone()));
 
         assert_eq!(
             *djls_project::Db::project(&db).enrichment(&db),
-            djls_project::ProjectEnrichment::Failed { issue }
+            djls_project::ProjectEnrichment::Unresolved(issue)
         );
     }
 
@@ -938,13 +936,13 @@ def my_filter(value, arg):
     fn database_load_enrichment_reports_unavailable_without_environment() {
         let db = DjangoDatabase::default();
 
-        let draft = db.load_project_enrichment();
+        let enrichment = db.load_project_enrichment();
 
         assert!(matches!(
-            draft,
-            djls_project::ProjectEnrichmentDraft::Unavailable {
-                issue: djls_project::ProjectEnrichmentIssue::RuntimeUnavailable { .. }
-            }
+            enrichment,
+            djls_project::ProjectEnrichment::Unresolved(
+                djls_project::ProjectEnrichmentIssue::RuntimeUnavailable { .. }
+            )
         ));
     }
 

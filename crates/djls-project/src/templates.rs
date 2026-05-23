@@ -6,5 +6,4 @@ pub use inventory::template_files;
 pub(crate) use inventory::template_tag_libraries;
 pub use inventory::LoadableTemplateLibrary;
 pub use inventory::TemplateDirectoryEntry;
-pub(crate) use inventory::TemplateTagLibraryResolution;
 pub use loading::template_directory_file_load_outcome;

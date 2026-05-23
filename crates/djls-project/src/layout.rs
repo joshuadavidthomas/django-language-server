@@ -260,7 +260,10 @@ mod tests {
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
         let set = SourceFileSet::new(db, data);
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(set))
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
+            set,
+        ))
     }
 
     #[test]

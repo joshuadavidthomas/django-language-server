@@ -29,7 +29,6 @@ use djls_project::ProjectDiscoveryApplyResult;
 use djls_project::ProjectDiscoveryLoadRequest;
 use djls_project::ProjectDiscoverySetData;
 use djls_project::ProjectEnrichment;
-use djls_project::ProjectEnrichmentDraft;
 use djls_project::ProjectSourceFilesApplyResult;
 use djls_project::PythonSourceIndexOutcome;
 use djls_source::File;
@@ -1052,7 +1051,7 @@ impl LoadingEffects for LspLoadingExecutor {
         }
     }
 
-    fn load_project_enrichment(&mut self) -> ProjectEnrichmentDraft {
+    fn load_project_enrichment(&mut self) -> ProjectEnrichment {
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
@@ -1062,12 +1061,12 @@ impl LoadingEffects for LspLoadingExecutor {
 
     fn apply_project_enrichment(
         &mut self,
-        draft: ProjectEnrichmentDraft,
+        enrichment: ProjectEnrichment,
     ) -> LoadingApplyOutcome<ProjectEnrichment> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
-                Ok(session.db_mut().apply_enrichment(draft))
+                Ok(session.db_mut().apply_enrichment(enrichment))
             }));
 
         match outcome {

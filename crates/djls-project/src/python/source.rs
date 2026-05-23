@@ -19,7 +19,7 @@ use crate::PyModuleName;
 pub struct PythonSourceModel {
     file: File,
     module: PyModuleNameResolution,
-    status: PythonSourceModelStatus,
+    parse_status: PythonSourceParseStatus,
     imports: Vec<ImportStatement>,
     assignments: Vec<Assignment>,
     calls: Vec<CallExpression>,
@@ -40,8 +40,8 @@ impl PythonSourceModel {
     }
 
     #[must_use]
-    pub fn status(&self) -> &PythonSourceModelStatus {
-        &self.status
+    pub fn parse_status(&self) -> &PythonSourceParseStatus {
+        &self.parse_status
     }
 
     #[must_use]
@@ -81,14 +81,9 @@ impl PythonSourceModel {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PythonSourceModelStatus {
+pub enum PythonSourceParseStatus {
     Parsed,
-    ParseError { issue: PythonSourceModelIssue },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PythonSourceModelIssue {
-    ParseError,
+    InvalidSyntax,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -120,29 +115,27 @@ impl PythonSourceIndex {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PythonSourceIndexOutcome {
     Ready(PythonSourceIndex),
-    Skipped { issue: PythonSourceIndexIssue },
-    Unavailable { issue: PythonSourceIndexIssue },
-    Deferred { issue: PythonSourceIndexIssue },
+    Unindexed(PythonSourceIndexIssue),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PythonSourceIndexIssue {
     NoPythonFiles,
-    SourceInventoryUnavailable { issue: ProjectSourceFilesIssue },
+    SourceInventoryUnavailable(ProjectSourceFilesIssue),
     LayoutUnavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PyModuleNameResolution {
     Resolved(PyModuleName),
-    Unknown { issue: ModuleNameIssue },
+    Unknown(ModuleNameIssue),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModuleNameIssue {
-    NonPythonFile { path: Utf8PathBuf },
-    OutsideImportRoots { path: Utf8PathBuf },
-    InvalidModuleName { path: Utf8PathBuf },
+    NonPythonFile(Utf8PathBuf),
+    OutsideImportRoots(Utf8PathBuf),
+    InvalidModuleName(Utf8PathBuf),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,20 +350,15 @@ pub enum StaticValueIssue {
 #[salsa::tracked(returns(ref))]
 pub fn python_source_model(db: &dyn Db, file: File) -> PythonSourceModel {
     let source = file.source(db);
-    let module_resolution = PyModuleNameResolution::Unknown {
-        issue: ModuleNameIssue::OutsideImportRoots {
-            path: file.path(db).clone(),
-        },
-    };
+    let module_resolution =
+        PyModuleNameResolution::Unknown(ModuleNameIssue::OutsideImportRoots(file.path(db).clone()));
     if *source.kind() != FileKind::Python {
         return PythonSourceModel {
             file,
-            module: PyModuleNameResolution::Unknown {
-                issue: ModuleNameIssue::NonPythonFile {
-                    path: file.path(db).clone(),
-                },
-            },
-            status: PythonSourceModelStatus::Parsed,
+            module: PyModuleNameResolution::Unknown(ModuleNameIssue::NonPythonFile(
+                file.path(db).clone(),
+            )),
+            parse_status: PythonSourceParseStatus::Parsed,
             imports: Vec::new(),
             assignments: Vec::new(),
             calls: Vec::new(),
@@ -386,9 +374,7 @@ pub fn python_source_model(db: &dyn Db, file: File) -> PythonSourceModel {
             return PythonSourceModel {
                 file,
                 module: module_resolution,
-                status: PythonSourceModelStatus::ParseError {
-                    issue: PythonSourceModelIssue::ParseError,
-                },
+                parse_status: PythonSourceParseStatus::InvalidSyntax,
                 imports: Vec::new(),
                 assignments: Vec::new(),
                 calls: Vec::new(),
@@ -411,23 +397,21 @@ pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOu
         ProjectSourceInventory::Unavailable {
             issue: ProjectSourceFilesIssue::NotLoaded,
         } => {
-            return PythonSourceIndexOutcome::Deferred {
-                issue: PythonSourceIndexIssue::SourceInventoryUnavailable {
-                    issue: ProjectSourceFilesIssue::NotLoaded,
-                },
-            };
+            return PythonSourceIndexOutcome::Unindexed(
+                PythonSourceIndexIssue::SourceInventoryUnavailable(
+                    ProjectSourceFilesIssue::NotLoaded,
+                ),
+            );
         }
         ProjectSourceInventory::Unavailable { issue } => {
-            return PythonSourceIndexOutcome::Unavailable {
-                issue: PythonSourceIndexIssue::SourceInventoryUnavailable { issue },
-            };
+            return PythonSourceIndexOutcome::Unindexed(
+                PythonSourceIndexIssue::SourceInventoryUnavailable(issue),
+            );
         }
     };
 
     let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) else {
-        return PythonSourceIndexOutcome::Unavailable {
-            issue: PythonSourceIndexIssue::LayoutUnavailable,
-        };
+        return PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::LayoutUnavailable);
     };
 
     let models = files
@@ -438,10 +422,10 @@ pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOu
         .filter(|file| file.kind() == FileKind::Python)
         .filter_map(|file| {
             let module = layout.module_name_for_path(file.path()).map_or_else(
-                || PyModuleNameResolution::Unknown {
-                    issue: ModuleNameIssue::OutsideImportRoots {
-                        path: file.path().to_owned(),
-                    },
+                || {
+                    PyModuleNameResolution::Unknown(ModuleNameIssue::OutsideImportRoots(
+                        file.path().to_owned(),
+                    ))
                 },
                 PyModuleNameResolution::Resolved,
             );
@@ -452,9 +436,7 @@ pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOu
         .collect::<Vec<_>>();
 
     if models.is_empty() {
-        PythonSourceIndexOutcome::Skipped {
-            issue: PythonSourceIndexIssue::NoPythonFiles,
-        }
+        PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles)
     } else {
         PythonSourceIndexOutcome::Ready(PythonSourceIndex::new(models))
     }
@@ -867,7 +849,7 @@ impl PythonSourceCollector {
         PythonSourceModel {
             file: self.file,
             module: self.module,
-            status: PythonSourceModelStatus::Parsed,
+            parse_status: PythonSourceParseStatus::Parsed,
             imports: self.imports,
             assignments: self.assignments,
             calls: self.calls,
@@ -1244,15 +1226,15 @@ mod tests {
             unreachable!("test effects return no partitioned patches")
         }
 
-        fn load_project_enrichment(&mut self) -> crate::ProjectEnrichmentDraft {
-            crate::ProjectEnrichmentDraft::Disabled
+        fn load_project_enrichment(&mut self) -> crate::ProjectEnrichment {
+            crate::ProjectEnrichment::Disabled
         }
 
         fn apply_project_enrichment(
             &mut self,
-            draft: crate::ProjectEnrichmentDraft,
+            enrichment: crate::ProjectEnrichment,
         ) -> LoadingApplyOutcome<crate::ProjectEnrichment> {
-            LoadingApplyOutcome::Applied(draft.into_enrichment())
+            LoadingApplyOutcome::Applied(enrichment)
         }
     }
 
@@ -1271,7 +1253,10 @@ mod tests {
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(roots, files).expect("test data should be valid");
         let set = SourceFileSet::new(db, data);
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(set))
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
+            set,
+        ))
     }
 
     #[test]
@@ -1297,11 +1282,9 @@ async def build():
 
         assert!(matches!(
             model.module(),
-            PyModuleNameResolution::Unknown {
-                issue: ModuleNameIssue::OutsideImportRoots { .. }
-            }
+            PyModuleNameResolution::Unknown(ModuleNameIssue::OutsideImportRoots(_))
         ));
-        assert_eq!(model.status(), &PythonSourceModelStatus::Parsed);
+        assert_eq!(model.parse_status(), &PythonSourceParseStatus::Parsed);
         assert_eq!(model.imports().len(), 2);
         assert_eq!(model.assignments().len(), 2);
         assert_eq!(model.calls().len(), 1);
@@ -1345,15 +1328,17 @@ async def build():
 
         assert!(matches!(
             python_source_index(&db, db.project()),
-            PythonSourceIndexOutcome::Deferred { .. }
+            PythonSourceIndexOutcome::Unindexed(
+                PythonSourceIndexIssue::SourceInventoryUnavailable(
+                    ProjectSourceFilesIssue::NotLoaded
+                )
+            )
         ));
 
         db.set_project_source_inventory(ready_inventory(&db, &["/workspace/templates/index.html"]));
         assert_eq!(
             python_source_index(&db, db.project()).clone(),
-            PythonSourceIndexOutcome::Skipped {
-                issue: PythonSourceIndexIssue::NoPythonFiles,
-            }
+            PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles)
         );
 
         db.set_file("/workspace/app/models.py", "class Book:\n    pass\n");
@@ -1376,10 +1361,8 @@ async def build():
         let model = python_source_model(&db, file);
 
         assert_eq!(
-            model.status(),
-            &PythonSourceModelStatus::ParseError {
-                issue: PythonSourceModelIssue::ParseError,
-            }
+            model.parse_status(),
+            &PythonSourceParseStatus::InvalidSyntax
         );
         assert!(model.imports().is_empty());
     }

@@ -10,25 +10,6 @@ use crate::project::PyModuleName;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateLibrary;
 
-#[salsa::tracked]
-pub(crate) fn discover_templates(
-    db: &dyn SemanticDb,
-    project: djls_project::Project,
-    env: djls_project::DjangoEnvironmentId,
-) -> Vec<Template<'_>> {
-    djls_project::template_files(db, project, env)
-        .templates()
-        .iter()
-        .map(|template| {
-            Template::new(
-                db,
-                InternedTemplateName::new(db, template.name().to_string()),
-                template.file(),
-            )
-        })
-        .collect()
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, salsa::Update)]
 pub enum TemplateLookupIssue {
     Environment(Vec<djls_project::EnvironmentSelectionIssue>),
@@ -51,10 +32,6 @@ pub enum TemplateLookupResult<'db> {
         name: djls_project::TemplateName,
         tried: Vec<Utf8PathBuf>,
     },
-    Ambiguous {
-        name: djls_project::TemplateName,
-        candidates: Vec<Template<'db>>,
-    },
     Deferred {
         name: Option<djls_project::TemplateName>,
         issue: TemplateLookupIssue,
@@ -66,7 +43,7 @@ impl<'db> TemplateLookupResult<'db> {
     pub fn ok(self) -> Option<Template<'db>> {
         match self {
             Self::Found(t) => Some(t),
-            Self::NotFound { .. } | Self::Ambiguous { .. } | Self::Deferred { .. } => None,
+            Self::NotFound { .. } | Self::Deferred { .. } => None,
         }
     }
 
@@ -76,21 +53,24 @@ impl<'db> TemplateLookupResult<'db> {
     }
 }
 
-pub fn resolve_static_template(
+#[salsa::tracked]
+pub(crate) fn resolve_static_template(
     db: &dyn SemanticDb,
     project: djls_project::Project,
     env: djls_project::DjangoEnvironmentId,
     name: djls_project::TemplateName,
 ) -> TemplateLookupResult<'_> {
-    let template_name = InternedTemplateName::new(db, name.as_str().to_string());
-    let inventory = djls_project::template_files(db, project, env.clone());
-    let templates = discover_templates(db, project, env);
-    if let Some(template) = templates
+    let inventory = djls_project::template_files(db, project, env);
+    if let Some(template) = inventory
+        .templates()
         .iter()
-        .find(|template| template.name(db) == template_name)
-        .copied()
+        .find(|template| template.name() == name.as_str())
     {
-        return TemplateLookupResult::Found(template);
+        return TemplateLookupResult::Found(Template::new(
+            db,
+            InternedTemplateName::new(db, template.name().to_string()),
+            template.file(),
+        ));
     }
 
     if let Some(issue) = inventory_issue(inventory.directories()) {
@@ -330,10 +310,10 @@ mod tests {
         project
             .set_enrichment(&mut db)
             .to(djls_project::ProjectEnrichment::Fresh(
-                djls_project::ProjectEnrichmentHints::new(std::collections::BTreeMap::from([(
-                    "runtime_ui".to_string(),
-                    "blog.templatetags.runtime_ui".to_string(),
-                )])),
+                std::collections::BTreeMap::from([(
+                    LibraryName::parse("runtime_ui").unwrap(),
+                    PyModuleName::parse("blog.templatetags.runtime_ui").unwrap(),
+                )]),
             ));
         let source = db.create_file(&template_path(&root, "base.html"));
 
@@ -466,9 +446,14 @@ fn static_template_reference_index(
     env: djls_project::DjangoEnvironmentId,
 ) -> Vec<TemplateReference<'_>> {
     let mut references = Vec::new();
-    let templates = discover_templates(db, project, env);
+    let inventory = djls_project::template_files(db, project, env);
 
-    for template in templates {
+    for project_template in inventory.templates() {
+        let template = Template::new(
+            db,
+            InternedTemplateName::new(db, project_template.name().to_string()),
+            project_template.file(),
+        );
         for tag in template.tags(db) {
             let tag_name = tag.name();
             if tag_name == "extends" || tag_name == "include" {

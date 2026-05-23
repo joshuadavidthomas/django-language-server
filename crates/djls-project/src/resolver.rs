@@ -86,24 +86,15 @@ impl ModuleResolution {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModuleResolutionOutcome {
     Resolved(ResolvedModule),
-    NotFound {
-        issues: Vec<ModuleResolutionIssue>,
-    },
-    Ambiguous {
-        candidates: Vec<ResolvedModule>,
-        issues: Vec<ModuleResolutionIssue>,
-    },
-    Deferred {
-        issue: ModuleResolutionIssue,
-    },
+    Unresolved(ModuleResolutionError),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ModuleResolutionIssue {
+pub enum ModuleResolutionError {
     NoImportRoots,
-    RootUnavailable { root: Utf8PathBuf },
+    RootUnavailable(Utf8PathBuf),
     NotFound,
-    MultipleCandidates,
+    MultipleCandidates(Vec<ResolvedModule>),
     UnsupportedModuleName,
 }
 
@@ -180,9 +171,7 @@ pub fn resolve_module(db: &dyn Db, project: Project, requested: PyModuleName) ->
     if roots.is_empty() {
         return ModuleResolution {
             requested,
-            outcome: ModuleResolutionOutcome::NotFound {
-                issues: vec![ModuleResolutionIssue::NoImportRoots],
-            },
+            outcome: ModuleResolutionOutcome::Unresolved(ModuleResolutionError::NoImportRoots),
         };
     }
 
@@ -193,18 +182,18 @@ pub fn resolve_module(db: &dyn Db, project: Project, requested: PyModuleName) ->
             .unwrap_or_default();
         return ModuleResolution {
             requested,
-            outcome: ModuleResolutionOutcome::Deferred {
-                issue: ModuleResolutionIssue::RootUnavailable { root },
-            },
+            outcome: ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(
+                root,
+            )),
         };
     };
 
     let Some(module_relative) = module_relative_path(&requested) else {
         return ModuleResolution {
             requested,
-            outcome: ModuleResolutionOutcome::NotFound {
-                issues: vec![ModuleResolutionIssue::UnsupportedModuleName],
-            },
+            outcome: ModuleResolutionOutcome::Unresolved(
+                ModuleResolutionError::UnsupportedModuleName,
+            ),
         };
     };
 
@@ -267,20 +256,15 @@ pub fn resolve_module(db: &dyn Db, project: Project, requested: PyModuleName) ->
     let outcome = match candidates.len() {
         0 => {
             if let Some(root) = deferred_roots.into_iter().next() {
-                ModuleResolutionOutcome::Deferred {
-                    issue: ModuleResolutionIssue::RootUnavailable { root },
-                }
+                ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(root))
             } else {
-                ModuleResolutionOutcome::NotFound {
-                    issues: vec![ModuleResolutionIssue::NotFound],
-                }
+                ModuleResolutionOutcome::Unresolved(ModuleResolutionError::NotFound)
             }
         }
         1 => ModuleResolutionOutcome::Resolved(candidates.remove(0)),
-        _ => ModuleResolutionOutcome::Ambiguous {
+        _ => ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(
             candidates,
-            issues: vec![ModuleResolutionIssue::MultipleCandidates],
-        },
+        )),
     };
 
     ModuleResolution { requested, outcome }
@@ -407,7 +391,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let data = SourceFileSetData::new(root_entries, files).expect("test data should be valid");
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
             SourceFileSet::new(db, data),
         ))
     }
@@ -509,7 +494,8 @@ mod tests {
 
         assert!(matches!(
             resolution.outcome(),
-            ModuleResolutionOutcome::Ambiguous { candidates, .. } if candidates.len() == 2
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(candidates))
+                if candidates.len() == 2
         ));
     }
 
@@ -535,9 +521,8 @@ mod tests {
 
         assert!(matches!(
             resolution.outcome(),
-            ModuleResolutionOutcome::Deferred {
-                issue: ModuleResolutionIssue::RootUnavailable { root },
-            } if root == &Utf8PathBuf::from("/external/libs")
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(root))
+                if root == &Utf8PathBuf::from("/external/libs")
         ));
     }
 
@@ -558,9 +543,7 @@ mod tests {
 
         assert!(matches!(
             resolution.outcome(),
-            ModuleResolutionOutcome::Deferred {
-                issue: ModuleResolutionIssue::RootUnavailable { .. },
-            }
+            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_))
         ));
     }
 }

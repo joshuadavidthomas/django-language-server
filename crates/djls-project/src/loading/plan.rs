@@ -1,5 +1,8 @@
+use crate::enrichment::ProjectEnrichmentIssue;
+use crate::loading::state::ProjectSourceFilesIssue;
 use crate::loading::ProjectFilePartitionReadiness;
 use crate::loading::ProjectSourceFilesApplied;
+use crate::python::source::PythonSourceIndexIssue;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::ProjectDiscovery;
 use crate::ProjectDiscoveryApplyResult;
@@ -142,8 +145,13 @@ impl LoadingReadiness for ProjectEnrichment {
         match self {
             ProjectEnrichment::Absent | ProjectEnrichment::Disabled => NodeTerminalStatus::Skipped,
             ProjectEnrichment::Fresh(_) => NodeTerminalStatus::Succeeded,
-            ProjectEnrichment::Failed { .. } => NodeTerminalStatus::Failed,
-            ProjectEnrichment::Unavailable { .. } => NodeTerminalStatus::Unavailable,
+            ProjectEnrichment::Unresolved(ProjectEnrichmentIssue::InspectorFailed(_)) => {
+                NodeTerminalStatus::Failed
+            }
+            ProjectEnrichment::Unresolved(
+                ProjectEnrichmentIssue::RuntimeUnavailable { .. }
+                | ProjectEnrichmentIssue::FixtureDoesNotModelEnrichment,
+            ) => NodeTerminalStatus::Unavailable,
         }
     }
 }
@@ -210,9 +218,18 @@ impl LoadingReadiness for PythonSourceIndexOutcome {
     fn terminal_status(&self) -> NodeTerminalStatus {
         match self {
             PythonSourceIndexOutcome::Ready(_) => NodeTerminalStatus::Succeeded,
-            PythonSourceIndexOutcome::Skipped { .. } => NodeTerminalStatus::Skipped,
-            PythonSourceIndexOutcome::Unavailable { .. } => NodeTerminalStatus::Unavailable,
-            PythonSourceIndexOutcome::Deferred { .. } => NodeTerminalStatus::Deferred,
+            PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles) => {
+                NodeTerminalStatus::Skipped
+            }
+            PythonSourceIndexOutcome::Unindexed(
+                PythonSourceIndexIssue::SourceInventoryUnavailable(
+                    ProjectSourceFilesIssue::NotLoaded,
+                ),
+            ) => NodeTerminalStatus::Deferred,
+            PythonSourceIndexOutcome::Unindexed(
+                PythonSourceIndexIssue::LayoutUnavailable
+                | PythonSourceIndexIssue::SourceInventoryUnavailable(_),
+            ) => NodeTerminalStatus::Unavailable,
         }
     }
 }
@@ -510,21 +527,19 @@ mod tests {
                 NodeTerminalStatus::Succeeded,
             ),
             (
-                PythonSourceIndexOutcome::Skipped {
-                    issue: PythonSourceIndexIssue::NoPythonFiles,
-                },
+                PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles),
                 NodeTerminalStatus::Skipped,
             ),
             (
-                PythonSourceIndexOutcome::Deferred {
-                    issue: PythonSourceIndexIssue::NoPythonFiles,
-                },
+                PythonSourceIndexOutcome::Unindexed(
+                    PythonSourceIndexIssue::SourceInventoryUnavailable(
+                        ProjectSourceFilesIssue::NotLoaded,
+                    ),
+                ),
                 NodeTerminalStatus::Deferred,
             ),
             (
-                PythonSourceIndexOutcome::Unavailable {
-                    issue: PythonSourceIndexIssue::LayoutUnavailable,
-                },
+                PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::LayoutUnavailable),
                 NodeTerminalStatus::Unavailable,
             ),
         ];
@@ -539,7 +554,7 @@ mod tests {
         let db = TestDb::default();
         let source_file_set = SourceFileSet::new(&db, SourceFileSetData::default());
         let files = ReadyProjectSourceFiles::materialized_for_test(
-            ProjectFileSetPartitions::empty(),
+            ProjectFileSetPartitions::default(),
             source_file_set,
         );
         let applied = ProjectSourceFilesApplied::for_test(

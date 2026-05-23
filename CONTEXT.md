@@ -18,6 +18,10 @@ _Avoid_: Project, repository, workspace folder
 The static, derived, and enrichment information the language server has about a **Project**. Static facts are authoritative for core readiness; runtime facts are enrichment.
 _Avoid_: Project Model, Project Context, Project Knowledge, Project State
 
+**Source File Inventory**:
+The **Project Fact** that records which source files are known for a **Project** and whether that inventory is ready or unavailable.
+_Avoid_: file list, loading state, workspace files
+
 **Django Environment**:
 A path-scoped Django analysis context within a **Project**, rooted at a directory and configured by a **Django Settings Module**.
 _Avoid_: Python environment, virtual environment, OS environment, workspace
@@ -29,6 +33,14 @@ _Avoid_: Settings, DJLS settings, environment
 **Django Discovery**:
 The process of building **Project Facts** for a **Project**.
 _Avoid_: Project Model, analysis mode, environment
+
+**Project Root Discovery**:
+The **Project Fact** that records per-root discovery inputs such as interpreter, settings module seeds, Python paths, and environment variables.
+_Avoid_: Project Configuration, root config, workspace discovery
+
+**Django Discovery Run**:
+A single execution of **Django Discovery** that advances **Project Facts** toward readiness for a **Project**.
+_Avoid_: loading run, startup load, project load
 
 **Protocol Ready**:
 The state after the LSP handshake can answer protocol requests without having completed **Django Discovery**.

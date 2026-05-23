@@ -294,8 +294,8 @@ pub fn run_loading_plan(
             }
             NodeId::Enrichment => {
                 observer.node_started(*node);
-                let draft = effects.load_project_enrichment();
-                let applied = match effects.apply_project_enrichment(draft) {
+                let enrichment = effects.load_project_enrichment();
+                let applied = match effects.apply_project_enrichment(enrichment) {
                     LoadingApplyOutcome::Applied(applied) => applied,
                     LoadingApplyOutcome::Superseded => {
                         observer.node_finished(*node, NodeTerminalStatus::Superseded);
@@ -469,7 +469,6 @@ mod tests {
     use crate::ProjectDiscoveryLoadRequest;
     use crate::ProjectDiscoverySetData;
     use crate::ProjectEnrichment;
-    use crate::ProjectEnrichmentDraft;
     use crate::ProjectSourceFilesApplyResult;
     use crate::PythonSourceIndexOutcome;
 
@@ -534,7 +533,10 @@ mod tests {
             if self.source_ready {
                 let db = TestDb::default();
                 let set = SourceFileSet::new(&db, SourceFileSetData::default());
-                let files = crate::ReadyProjectSourceFiles::merged_for_test(set);
+                let files = crate::ReadyProjectSourceFiles::new(
+                    crate::loading::files::ProjectFileSetPartitions::default(),
+                    set,
+                );
                 return LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Applied(
                     ProjectSourceFilesApplied::for_test(
                         files,
@@ -588,9 +590,9 @@ mod tests {
         ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
             self.python_observe_count += 1;
             if self.python_skipped {
-                return LoadingObservationOutcome::Observed(PythonSourceIndexOutcome::Skipped {
-                    issue: PythonSourceIndexIssue::NoPythonFiles,
-                });
+                return LoadingObservationOutcome::Observed(PythonSourceIndexOutcome::Unindexed(
+                    PythonSourceIndexIssue::NoPythonFiles,
+                ));
             }
             LoadingObservationOutcome::Observed(PythonSourceIndexOutcome::Ready(
                 PythonSourceIndex::default(),
@@ -639,15 +641,15 @@ mod tests {
             unreachable!("fake effects return no partitioned patches")
         }
 
-        fn load_project_enrichment(&mut self) -> ProjectEnrichmentDraft {
-            ProjectEnrichmentDraft::Disabled
+        fn load_project_enrichment(&mut self) -> ProjectEnrichment {
+            ProjectEnrichment::Disabled
         }
 
         fn apply_project_enrichment(
             &mut self,
-            draft: ProjectEnrichmentDraft,
+            enrichment: ProjectEnrichment,
         ) -> LoadingApplyOutcome<ProjectEnrichment> {
-            LoadingApplyOutcome::Applied(draft.into_enrichment())
+            LoadingApplyOutcome::Applied(enrichment)
         }
     }
 

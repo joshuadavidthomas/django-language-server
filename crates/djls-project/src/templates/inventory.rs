@@ -9,6 +9,7 @@ use crate::apps::InstalledAppResolution;
 use crate::loading::FileSetPartitionId;
 use crate::loading::ProjectFilePartitionReadiness;
 use crate::resolver::resolve_module;
+use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
 use crate::settings::SettingsIssue;
@@ -164,6 +165,19 @@ impl TemplateTagLibraryInventory {
     #[must_use]
     pub fn libraries(&self) -> &[TemplateTagLibrary] {
         &self.libraries
+    }
+
+    #[must_use]
+    pub(crate) fn resolved_files(&self) -> Vec<File> {
+        self.libraries
+            .iter()
+            .filter_map(|library| match library.resolution() {
+                TemplateTagLibraryResolution::Resolved { file } => Some(*file),
+                TemplateTagLibraryResolution::Builtin
+                | TemplateTagLibraryResolution::Unresolved { .. }
+                | TemplateTagLibraryResolution::Ambiguous { .. } => None,
+            })
+            .collect()
     }
 }
 
@@ -349,17 +363,14 @@ pub fn loadable_template_libraries(
         });
     }
 
-    let crate::ProjectEnrichment::Fresh(hints) = project.enrichment(db) else {
+    let crate::ProjectEnrichment::Fresh(template_libraries) = project.enrichment(db) else {
         return LoadableTemplateLibraryInventory { libraries };
     };
-    for (name, module) in hints.runtime_template_libraries() {
-        let (Ok(name), Ok(module)) = (LibraryName::parse(name), PyModuleName::parse(module)) else {
-            continue;
-        };
+    for (name, module) in template_libraries {
         if known_names.insert(name.clone()) {
             libraries.push(LoadableTemplateLibrary {
-                name,
-                module: Some(module),
+                name: name.clone(),
+                module: Some(module.clone()),
                 source: LoadableTemplateLibrarySource::Runtime,
             });
         }
@@ -520,14 +531,19 @@ fn resolve_template_library_module(
         ModuleResolutionOutcome::Resolved(resolved) => TemplateTagLibraryResolution::Resolved {
             file: resolved.location().file(),
         },
-        ModuleResolutionOutcome::Ambiguous { .. } => TemplateTagLibraryResolution::Ambiguous {
-            issue: TemplateTagLibraryIssue::Ambiguous { module },
-        },
-        ModuleResolutionOutcome::NotFound { .. } | ModuleResolutionOutcome::Deferred { .. } => {
-            TemplateTagLibraryResolution::Unresolved {
-                issue: TemplateTagLibraryIssue::NotFound { module },
+        ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
+            TemplateTagLibraryResolution::Ambiguous {
+                issue: TemplateTagLibraryIssue::Ambiguous { module },
             }
         }
+        ModuleResolutionOutcome::Unresolved(
+            ModuleResolutionError::NoImportRoots
+            | ModuleResolutionError::RootUnavailable(_)
+            | ModuleResolutionError::NotFound
+            | ModuleResolutionError::UnsupportedModuleName,
+        ) => TemplateTagLibraryResolution::Unresolved {
+            issue: TemplateTagLibraryIssue::NotFound { module },
+        },
     }
 }
 
@@ -574,7 +590,6 @@ mod tests {
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;
-    use crate::ProjectEnrichmentHints;
     use crate::ProjectEnvVars;
     use crate::ProjectSourceFilesIssue;
     use crate::ReadyProjectSourceFiles;
@@ -664,7 +679,8 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::merged_for_test(
+        ProjectSourceInventory::Ready(ReadyProjectSourceFiles::new(
+            crate::loading::files::ProjectFileSetPartitions::default(),
             SourceFileSet::new(
                 db,
                 SourceFileSetData::new(root_entries, files).expect("test data should be valid"),
@@ -872,11 +888,11 @@ mod tests {
         ));
         db.project()
             .set_enrichment(&mut db)
-            .to(ProjectEnrichment::Fresh(ProjectEnrichmentHints::new(
-                std::collections::BTreeMap::from([(
-                    "runtime_ui".to_string(),
-                    "blog.templatetags.runtime_ui".to_string(),
-                )]),
+            .to(ProjectEnrichment::Fresh(std::collections::BTreeMap::from(
+                [(
+                    LibraryName::parse("runtime_ui").unwrap(),
+                    PyModuleName::parse("blog.templatetags.runtime_ui").unwrap(),
+                )],
             )));
         let env = env(&db);
 
@@ -913,11 +929,11 @@ mod tests {
         ));
         db.project()
             .set_enrichment(&mut db)
-            .to(ProjectEnrichment::Fresh(ProjectEnrichmentHints::new(
-                std::collections::BTreeMap::from([(
-                    "ui".to_string(),
-                    "runtime.templatetags.ui".to_string(),
-                )]),
+            .to(ProjectEnrichment::Fresh(std::collections::BTreeMap::from(
+                [(
+                    LibraryName::parse("ui").unwrap(),
+                    PyModuleName::parse("runtime.templatetags.ui").unwrap(),
+                )],
             )));
         let env = env(&db);
 

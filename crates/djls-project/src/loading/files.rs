@@ -54,7 +54,10 @@ pub fn build_source_roots_with_kind(
     let mut seen = BTreeSet::new();
 
     for raw_path in raw_roots {
-        let path = canonical_root_path(&raw_path);
+        let path = dunce::canonicalize(&raw_path)
+            .ok()
+            .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
+            .unwrap_or_else(|| raw_path.clone());
         let id = SourceRootId::new(path.clone());
         if !seen.insert(id.clone()) {
             issues.push(ProjectSourceFilesIssue::DuplicateRoot {
@@ -68,13 +71,6 @@ pub fn build_source_roots_with_kind(
     }
 
     SourceRootsPlan { roots, issues }
-}
-
-fn canonical_root_path(path: &Utf8Path) -> Utf8PathBuf {
-    dunce::canonicalize(path)
-        .ok()
-        .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
-        .unwrap_or_else(|| path.to_owned())
 }
 
 pub struct SourceFilesLoadRequest {
@@ -256,11 +252,6 @@ pub(crate) struct ProjectFileSetPartitions {
 }
 
 impl ProjectFileSetPartitions {
-    #[must_use]
-    pub(crate) fn empty() -> Self {
-        Self::default()
-    }
-
     #[cfg(test)]
     fn with_first_party(snapshot: ProjectFileSetPartitionSnapshot) -> Self {
         Self {

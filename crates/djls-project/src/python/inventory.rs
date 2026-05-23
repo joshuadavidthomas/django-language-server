@@ -11,23 +11,11 @@ use crate::provenance::Origin;
 use crate::provenance::OriginSet;
 use crate::resolver::module_name_for_path;
 use crate::templates::template_tag_libraries;
-use crate::templates::TemplateTagLibraryResolution;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PythonModuleRole {
-    Model,
-    TemplateTag,
-    AppConfig,
-    Urls,
-    Admin,
-    Forms,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PythonModule {
     module: PyModuleName,
     file: File,
-    roles: Vec<PythonModuleRole>,
     origin: OriginSet,
 }
 
@@ -50,19 +38,6 @@ impl PythonModule {
 
 #[salsa::tracked(returns(ref))]
 pub fn model_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
-    python_modules_with_role(db, project, PythonModuleRole::Model)
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn template_tag_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
-    python_modules_with_role(db, project, PythonModuleRole::TemplateTag)
-}
-
-fn python_modules_with_role(
-    db: &dyn Db,
-    project: Project,
-    role: PythonModuleRole,
-) -> Vec<PythonModule> {
     let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
         return Vec::new();
     };
@@ -76,33 +51,17 @@ fn python_modules_with_role(
     let mut modules = Vec::new();
 
     for env in crate::environments::known_django_environment_ids(db, project) {
-        let template_tag_files = template_tag_library_files(db, project, env.clone());
         for entry in data.files() {
             let path = entry.path();
-            if path.extension() != Some("py") {
+            if !is_model_module_candidate(path, &all_paths) {
                 continue;
             }
             let Some(module) = installed_app_module_name_for_path(db, project, &env, path)
                 .or_else(|| module_name_for_path(db, project, path))
-                .and_then(|module| normalize_init_module(module, path))
             else {
                 continue;
             };
-            let roles =
-                roles_for_path(path, &all_paths, template_tag_files.contains(&entry.file()));
-            if !roles.contains(&role)
-                || modules
-                    .iter()
-                    .any(|existing: &PythonModule| existing.module() == &module)
-            {
-                continue;
-            }
-            modules.push(PythonModule {
-                module,
-                file: entry.file(),
-                roles,
-                origin: OriginSet::single(Origin::Convention { file: entry.file() }),
-            });
+            push_python_module(&mut modules, module, entry.file());
         }
     }
 
@@ -110,13 +69,46 @@ fn python_modules_with_role(
     modules
 }
 
-fn normalize_init_module(module: PyModuleName, path: &camino::Utf8Path) -> Option<PyModuleName> {
-    if path.file_name() != Some("__init__.py") {
-        return Some(module);
+#[salsa::tracked(returns(ref))]
+pub fn template_tag_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
+    let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
+        return Vec::new();
+    };
+
+    let data = files.merged().data(db);
+    let mut modules = Vec::new();
+
+    for env in crate::environments::known_django_environment_ids(db, project) {
+        let template_tag_files = template_tag_libraries(db, project, env.clone()).resolved_files();
+        for entry in data.files() {
+            if !template_tag_files.contains(&entry.file()) {
+                continue;
+            }
+            let Some(module) = installed_app_module_name_for_path(db, project, &env, entry.path())
+                .or_else(|| module_name_for_path(db, project, entry.path()))
+            else {
+                continue;
+            };
+            push_python_module(&mut modules, module, entry.file());
+        }
     }
-    let module = module.as_str();
-    let stripped = module.strip_suffix(".__init__").unwrap_or(module);
-    PyModuleName::parse(stripped).ok()
+
+    modules.sort_by(|left, right| left.module.cmp(&right.module));
+    modules
+}
+
+fn push_python_module(modules: &mut Vec<PythonModule>, module: PyModuleName, file: File) {
+    if modules
+        .iter()
+        .any(|existing: &PythonModule| existing.module() == &module)
+    {
+        return;
+    }
+    modules.push(PythonModule {
+        module,
+        file,
+        origin: OriginSet::single(Origin::Convention { file }),
+    });
 }
 
 fn installed_app_module_name_for_path(
@@ -138,7 +130,7 @@ fn installed_app_module_name_for_path(
                 let module = config
                     .name()
                     .and_then(|name| PyModuleName::parse(name).ok())
-                    .or_else(|| parent_module(config.module()))?;
+                    .or_else(|| config.module().parent())?;
                 (root, module)
             }
             InstalledAppResolution::Unresolved(_) => continue,
@@ -171,52 +163,10 @@ fn app_root_for_file(db: &dyn Db, file: File) -> Option<camino::Utf8PathBuf> {
     parent.parent().map(camino::Utf8Path::to_owned)
 }
 
-fn parent_module(module: &PyModuleName) -> Option<PyModuleName> {
-    let parent = module.as_str().rsplit_once('.')?.0;
-    PyModuleName::parse(parent).ok()
-}
-
-fn template_tag_library_files(
-    db: &dyn Db,
-    project: Project,
-    env: DjangoEnvironmentId,
-) -> Vec<File> {
-    template_tag_libraries(db, project, env)
-        .libraries()
-        .iter()
-        .filter_map(|library| match library.resolution() {
-            TemplateTagLibraryResolution::Resolved { file } => Some(*file),
-            TemplateTagLibraryResolution::Builtin
-            | TemplateTagLibraryResolution::Unresolved { .. }
-            | TemplateTagLibraryResolution::Ambiguous { .. } => None,
-        })
-        .collect()
-}
-
-fn roles_for_path(
-    path: &camino::Utf8Path,
-    all_paths: &[camino::Utf8PathBuf],
-    is_template_tag_file: bool,
-) -> Vec<PythonModuleRole> {
-    let mut roles = Vec::new();
-    match path.file_name() {
-        Some("models.py") => roles.push(PythonModuleRole::Model),
-        Some("apps.py") => roles.push(PythonModuleRole::AppConfig),
-        Some("urls.py") => roles.push(PythonModuleRole::Urls),
-        Some("admin.py") => roles.push(PythonModuleRole::Admin),
-        Some("forms.py") => roles.push(PythonModuleRole::Forms),
-        Some("__init__.py" | _) | None => {}
+fn is_model_module_candidate(path: &camino::Utf8Path, all_paths: &[camino::Utf8PathBuf]) -> bool {
+    if path.file_name() == Some("models.py") {
+        return true;
     }
-    if is_model_package_file(path, all_paths) && !roles.contains(&PythonModuleRole::Model) {
-        roles.push(PythonModuleRole::Model);
-    }
-    if is_template_tag_file && !roles.contains(&PythonModuleRole::TemplateTag) {
-        roles.push(PythonModuleRole::TemplateTag);
-    }
-    roles
-}
-
-fn is_model_package_file(path: &camino::Utf8Path, all_paths: &[camino::Utf8PathBuf]) -> bool {
     if path.extension() != Some("py") {
         return false;
     }

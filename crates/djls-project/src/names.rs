@@ -166,6 +166,12 @@ impl PyModuleName {
         Ok(Self(trimmed.to_string()))
     }
 
+    #[must_use]
+    pub fn parent(&self) -> Option<Self> {
+        let parent = self.0.rsplit_once('.')?.0;
+        Self::parse(parent).ok()
+    }
+
     pub fn from_relative_package(path: &Utf8Path) -> Result<Self, InvalidName> {
         if path.is_absolute() {
             return Err(InvalidName::ModuleIsAbsolute(path.to_string()));
@@ -186,7 +192,12 @@ impl PyModuleName {
         }
 
         let module_path = path.with_extension("");
-        Self::from_relative_package(module_path.as_path())
+        let module_path = if module_path.file_name() == Some("__init__") {
+            module_path.parent().unwrap_or(module_path.as_path())
+        } else {
+            module_path.as_path()
+        };
+        Self::from_relative_package(module_path)
     }
 
     #[must_use]
@@ -241,6 +252,21 @@ mod tests {
             PyModuleName::from_relative_python_module(Utf8Path::new("pkg/module.txt")),
             Err(InvalidName::ModuleMustHavePyExtension)
         );
+        assert_eq!(
+            PyModuleName::from_relative_python_module(Utf8Path::new("pkg/__init__.py"))
+                .unwrap()
+                .as_str(),
+            "pkg"
+        );
+        assert_eq!(
+            PyModuleName::parse("pkg.module")
+                .unwrap()
+                .parent()
+                .unwrap()
+                .as_str(),
+            "pkg"
+        );
+        assert_eq!(PyModuleName::parse("pkg").unwrap().parent(), None);
     }
 
     #[test]

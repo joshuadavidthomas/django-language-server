@@ -1,6 +1,6 @@
 mod driver;
 mod effects;
-mod files;
+pub(crate) mod files;
 mod plan;
 mod settings;
 pub(crate) mod state;
