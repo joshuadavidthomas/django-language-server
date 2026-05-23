@@ -325,9 +325,7 @@ fn apply_settings_operations(
                 }
             }
             PythonSourceOperation::Call(call) => {
-                let Some(callee) = call
-                    .callee()
-                    .map(super::super::python::source::QualifiedName::as_dotted)
+                let Some(callee) = call.callee().map(crate::python::QualifiedName::as_dotted)
                 else {
                     continue;
                 };
@@ -485,7 +483,6 @@ mod tests {
 
     use super::*;
     use crate::enrichment::ProjectEnrichment;
-    use crate::root_discovery::DjangoSettingsModuleSeed;
     use crate::root_discovery::ProjectEnvVars;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::root_discovery::ProjectRootDiscoverySet;
@@ -571,7 +568,7 @@ mod tests {
             db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new(settings_module)),
+            Some(settings_module.to_string()),
             Vec::new(),
             Vec::new(),
             ProjectEnvVars::default(),

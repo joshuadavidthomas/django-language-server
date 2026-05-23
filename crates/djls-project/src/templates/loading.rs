@@ -9,29 +9,64 @@ use crate::django_environment_candidates;
 use crate::project::Project;
 use crate::settings::django_settings;
 use crate::source_files::build_source_roots_with_kind;
-use crate::source_files::PartitionedSourceFileLoadOutcome;
-use crate::source_files::PartitionedSourceFilePatch;
+use crate::source_files::merge_partitioned_source_file_patch_set;
+use crate::source_files::PartitionedSourceFilePatchSet;
+use crate::source_files::ReadySourceFiles;
 use crate::source_files::SourceFilesIssue;
+use crate::source_files::SourceFilesUpdate;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TemplateDirectoryFilesLoadRequest {
-    roots: Vec<Utf8PathBuf>,
+pub enum TemplateDirectoryFileRootsDiscovery {
+    Ready(TemplateDirectoryFileRoots),
+    WaitingForDjangoEnvironments,
+    DjangoEnvironmentsUnavailable,
 }
 
-impl TemplateDirectoryFilesLoadRequest {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateDirectoryFileRoots {
+    roots: Vec<Utf8PathBuf>,
+    issues: Vec<SourceFilesIssue>,
+}
+
+impl TemplateDirectoryFileRoots {
+    pub(crate) fn new(roots: Vec<Utf8PathBuf>, issues: Vec<SourceFilesIssue>) -> Self {
+        Self { roots, issues }
+    }
+
     #[must_use]
-    pub fn new(roots: Vec<Utf8PathBuf>) -> Self {
-        Self { roots }
+    pub fn roots(&self) -> &[Utf8PathBuf] {
+        &self.roots
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[SourceFilesIssue] {
+        &self.issues
+    }
+
+    pub(crate) fn files_request(&self) -> FilesForRootsRequest {
+        template_directory_files_request(self.roots.clone())
+    }
+
+    pub(crate) fn source_files_update(
+        &self,
+        current: Option<&ReadySourceFiles>,
+        result: FilesForRootsResult,
+    ) -> SourceFilesUpdate {
+        merge_partitioned_source_file_patch_set(
+            current,
+            PartitionedSourceFilePatchSet::configured_template_directories(
+                result,
+                self.issues.clone(),
+            ),
+        )
     }
 }
 
 #[must_use]
-pub fn template_directory_files_request(
-    request: TemplateDirectoryFilesLoadRequest,
-) -> FilesForRootsRequest {
-    let plan = build_source_roots_with_kind(request.roots, FileRootKind::Project);
+fn template_directory_files_request(roots: Vec<Utf8PathBuf>) -> FilesForRootsRequest {
+    let plan = build_source_roots_with_kind(roots, FileRootKind::Project);
     FilesForRootsRequest::new(
         plan.roots().to_vec(),
         Box::new(template_file_predicate),
@@ -40,24 +75,19 @@ pub fn template_directory_files_request(
 }
 
 #[must_use]
-pub fn load_template_directory_files(
-    request: TemplateDirectoryFilesLoadRequest,
-) -> FilesForRootsResult {
-    djls_workspace::load_files_for_roots(template_directory_files_request(request))
-}
-
-#[must_use]
-pub fn template_directory_file_roots(
+pub fn template_directory_file_roots_discovery(
     db: &dyn Db,
     project: Project,
-) -> TemplateDirectoryFilesLoadRequest {
+) -> TemplateDirectoryFileRootsDiscovery {
     let mut roots = Vec::new();
     let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
         | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. }
-        | DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
-            return TemplateDirectoryFilesLoadRequest::new(roots);
+        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
+            return TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments;
+        }
+        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
+            return TemplateDirectoryFileRootsDiscovery::DjangoEnvironmentsUnavailable;
         }
     };
 
@@ -73,34 +103,7 @@ pub fn template_directory_file_roots(
     }
     roots.sort();
     roots.dedup();
-    TemplateDirectoryFilesLoadRequest::new(roots)
-}
-
-#[must_use]
-pub fn template_directory_file_load_outcome(
-    db: &dyn Db,
-    project: Project,
-) -> PartitionedSourceFileLoadOutcome {
-    match django_environment_candidates(db, project) {
-        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
-            return PartitionedSourceFileLoadOutcome::Deferred {
-                issue: SourceFilesIssue::TemplateDirectoryGap,
-            };
-        }
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-            return PartitionedSourceFileLoadOutcome::Unavailable {
-                issue: SourceFilesIssue::TemplateDirectoryGap,
-            };
-        }
-        DjangoEnvironmentCandidatesOutcome::Ready { .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => {}
-    }
-    let request = template_directory_file_roots(db, project);
-    PartitionedSourceFileLoadOutcome::Ready(
-        PartitionedSourceFilePatch::configured_template_directory(load_template_directory_files(
-            request,
-        )),
-    )
+    TemplateDirectoryFileRootsDiscovery::Ready(TemplateDirectoryFileRoots::new(roots, Vec::new()))
 }
 
 fn template_directory_walk_options() -> WalkOptions {
@@ -137,8 +140,9 @@ mod tests {
             .expect("text template should be written");
         std::fs::write(root.join("notes.py"), "").expect("python file should be written");
 
-        let result =
-            load_template_directory_files(TemplateDirectoryFilesLoadRequest::new(vec![root]));
+        let result = djls_workspace::load_files_for_roots(
+            TemplateDirectoryFileRoots::new(vec![root], Vec::new()).files_request(),
+        );
         let loaded = result
             .files()
             .iter()

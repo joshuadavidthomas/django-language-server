@@ -5,34 +5,34 @@ use std::sync::Mutex as StdMutex;
 
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
-use djls_project::build_source_roots;
-use djls_project::first_party_discovery_files_request;
-use djls_project::first_party_source_files_load_request;
-use djls_project::merge_first_party_source_file_patch;
-use djls_project::run_loading_plan;
+use djls_project::run_django_discovery;
 use djls_project::Db as ProjectDb;
+use djls_project::DiscoveryApplyOutcome;
+use djls_project::DiscoveryCancellation;
+use djls_project::DiscoveryExecutionOutcome;
+use djls_project::DiscoveryHost;
+use djls_project::DiscoveryMilestone;
+use djls_project::DiscoveryMilestoneStatus;
+use djls_project::DiscoveryObservationOutcome;
+use djls_project::DiscoveryObserver;
+use djls_project::DiscoveryRunResult;
+use djls_project::DiscoveryStage;
+use djls_project::DiscoveryStageStatus;
+use djls_project::DjangoDiscoveryRequest;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
-use djls_project::FirstPartySourceFilePatch;
-use djls_project::LoadingApplyOutcome;
-use djls_project::LoadingEffects;
-use djls_project::LoadingExecutionOutcome;
-use djls_project::LoadingObservationOutcome;
-use djls_project::LoadingObserver;
-use djls_project::LoadingPlan;
-use djls_project::LoadingRunControl;
-use djls_project::LoadingRunResult;
-use djls_project::MilestoneId;
-use djls_project::MilestoneTerminalStatus;
-use djls_project::NodeId;
-use djls_project::NodeTerminalStatus;
+use djls_project::InstalledAppFileRootsDiscovery;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscoveryApplyResult;
-use djls_project::ProjectRootDiscoveryLoadRequest;
 use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::PythonSourceIndexOutcome;
+use djls_project::ReadySourceFiles;
 use djls_project::SourceFilesApplyResult;
+use djls_project::SourceFilesUpdate;
+use djls_project::TemplateDirectoryFileRootsDiscovery;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
+use djls_workspace::FilesForRootsRequest;
+use djls_workspace::FilesForRootsResult;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Mutex;
@@ -225,13 +225,13 @@ impl CapturedDocumentSnapshot {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ProjectLoadingSnapshot {
+pub(crate) struct DjangoDiscoverySnapshot {
     workspace_roots: Vec<Utf8PathBuf>,
     settings: Settings,
     open_documents: Vec<CapturedDocumentSnapshot>,
 }
 
-impl ProjectLoadingSnapshot {
+impl DjangoDiscoverySnapshot {
     #[must_use]
     pub(crate) fn capture(session: &Session) -> Self {
         let open_documents = session
@@ -296,7 +296,7 @@ impl ProjectLoadingSnapshot {
 
 #[derive(Clone, Debug)]
 pub(crate) struct StartupRunInputs {
-    snapshot: ProjectLoadingSnapshot,
+    snapshot: DjangoDiscoverySnapshot,
     guard: GenerationGuard,
     progress: StartupProgress,
 }
@@ -315,14 +315,14 @@ impl StartupRunInputs {
         progress: StartupProgress,
     ) -> Self {
         Self {
-            snapshot: ProjectLoadingSnapshot::capture(session),
+            snapshot: DjangoDiscoverySnapshot::capture(session),
             guard,
             progress,
         }
     }
 
     #[must_use]
-    pub(crate) fn snapshot(&self) -> &ProjectLoadingSnapshot {
+    pub(crate) fn snapshot(&self) -> &DjangoDiscoverySnapshot {
         &self.snapshot
     }
 
@@ -348,14 +348,14 @@ pub(crate) enum StartupRunOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum StartupProgressEvent {
     Begin,
-    NodeStarted(NodeId),
-    NodeFinished {
-        node: NodeId,
-        status: NodeTerminalStatus,
+    StageStarted(DiscoveryStage),
+    StageFinished {
+        stage: DiscoveryStage,
+        status: DiscoveryStageStatus,
     },
     MilestoneReached {
-        milestone: MilestoneId,
-        status: MilestoneTerminalStatus,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
     },
     Finish(StartupRunOutcome),
 }
@@ -402,24 +402,24 @@ impl StartupProgress {
         self.reporter.begin(handle);
     }
 
-    fn report_node_started(&self, handle: &tokio::runtime::Handle, node: NodeId) {
-        self.reporter.node_started(handle, node);
+    fn report_stage_started(&self, handle: &tokio::runtime::Handle, stage: DiscoveryStage) {
+        self.reporter.stage_started(handle, stage);
     }
 
-    fn report_node_finished(
+    fn report_stage_finished(
         &self,
         handle: &tokio::runtime::Handle,
-        node: NodeId,
-        status: NodeTerminalStatus,
+        stage: DiscoveryStage,
+        status: DiscoveryStageStatus,
     ) {
-        self.reporter.node_finished(handle, node, status);
+        self.reporter.stage_finished(handle, stage, status);
     }
 
     fn report_milestone_reached(
         &self,
         handle: &tokio::runtime::Handle,
-        milestone: MilestoneId,
-        status: MilestoneTerminalStatus,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
     ) {
         self.reporter.milestone_reached(handle, milestone, status);
     }
@@ -431,18 +431,18 @@ impl StartupProgress {
 
 trait StartupProgressReporter: Send + Sync + std::fmt::Debug {
     fn begin(&self, handle: &tokio::runtime::Handle);
-    fn node_started(&self, handle: &tokio::runtime::Handle, node: NodeId);
-    fn node_finished(
+    fn stage_started(&self, handle: &tokio::runtime::Handle, stage: DiscoveryStage);
+    fn stage_finished(
         &self,
         handle: &tokio::runtime::Handle,
-        node: NodeId,
-        status: NodeTerminalStatus,
+        stage: DiscoveryStage,
+        status: DiscoveryStageStatus,
     );
     fn milestone_reached(
         &self,
         handle: &tokio::runtime::Handle,
-        milestone: MilestoneId,
-        status: MilestoneTerminalStatus,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
     );
     fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome);
 }
@@ -452,33 +452,33 @@ struct LogStartupProgressReporter;
 
 impl StartupProgressReporter for LogStartupProgressReporter {
     fn begin(&self, _handle: &tokio::runtime::Handle) {
-        tracing::info!("Starting Django project loading");
+        tracing::info!("Starting Django discovery run");
     }
 
-    fn node_started(&self, _handle: &tokio::runtime::Handle, node: NodeId) {
-        tracing::info!(node = ?node, "Started Django project loading task");
+    fn stage_started(&self, _handle: &tokio::runtime::Handle, stage: DiscoveryStage) {
+        tracing::info!(stage = ?stage, "Started Django discovery stage");
     }
 
-    fn node_finished(
+    fn stage_finished(
         &self,
         _handle: &tokio::runtime::Handle,
-        node: NodeId,
-        status: NodeTerminalStatus,
+        stage: DiscoveryStage,
+        status: DiscoveryStageStatus,
     ) {
-        tracing::info!(node = ?node, status = ?status, "Finished Django project loading task");
+        tracing::info!(stage = ?stage, status = ?status, "Finished Django discovery stage");
     }
 
     fn milestone_reached(
         &self,
         _handle: &tokio::runtime::Handle,
-        milestone: MilestoneId,
-        status: MilestoneTerminalStatus,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
     ) {
-        tracing::info!(milestone = ?milestone, status = ?status, "Reached Django project loading milestone");
+        tracing::info!(milestone = ?milestone, status = ?status, "Reached Django discovery milestone");
     }
 
     fn finish(&self, _handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome) {
-        tracing::info!(outcome = ?outcome, "Finished Django project loading");
+        tracing::info!(outcome = ?outcome, "Finished Django discovery run");
     }
 }
 
@@ -502,9 +502,9 @@ impl WorkDoneStartupProgressReporter {
 
     fn message_for_outcome(outcome: &StartupRunOutcome) -> &'static str {
         match outcome {
-            StartupRunOutcome::Succeeded => "Django project loading complete",
-            StartupRunOutcome::Failed => "Django project loading failed",
-            StartupRunOutcome::Superseded { .. } => "Django project loading superseded",
+            StartupRunOutcome::Succeeded => "Django discovery run complete",
+            StartupRunOutcome::Failed => "Django discovery run failed",
+            StartupRunOutcome::Superseded { .. } => "Django discovery run superseded",
         }
     }
 
@@ -533,26 +533,28 @@ impl StartupProgressReporter for WorkDoneStartupProgressReporter {
         let _ = sender.send(WorkDoneProgressCommand::Begin);
     }
 
-    fn node_started(&self, _handle: &tokio::runtime::Handle, node: NodeId) {
-        self.send(WorkDoneProgressCommand::Report(format!("Started {node:?}")));
+    fn stage_started(&self, _handle: &tokio::runtime::Handle, stage: DiscoveryStage) {
+        self.send(WorkDoneProgressCommand::Report(format!(
+            "Started {stage:?}"
+        )));
     }
 
-    fn node_finished(
+    fn stage_finished(
         &self,
         _handle: &tokio::runtime::Handle,
-        node: NodeId,
-        status: NodeTerminalStatus,
+        stage: DiscoveryStage,
+        status: DiscoveryStageStatus,
     ) {
         self.send(WorkDoneProgressCommand::Report(format!(
-            "Finished {node:?}: {status:?}"
+            "Finished {stage:?}: {status:?}"
         )));
     }
 
     fn milestone_reached(
         &self,
         _handle: &tokio::runtime::Handle,
-        milestone: MilestoneId,
-        status: MilestoneTerminalStatus,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
     ) {
         self.send(WorkDoneProgressCommand::Report(format!(
             "Reached {milestone:?}: {status:?}"
@@ -607,7 +609,7 @@ impl WorkDoneProgressMachine {
             token: self.token.clone(),
             value: ls_types::ProgressParamsValue::WorkDone(ls_types::WorkDoneProgress::Begin(
                 ls_types::WorkDoneProgressBegin {
-                    title: "Loading Django project".to_string(),
+                    title: "Discovering Django project".to_string(),
                     cancellable: Some(false),
                     message: Some("Starting".to_string()),
                     percentage: None,
@@ -696,22 +698,26 @@ struct GuardedStartupProgressObserver {
     guard: GenerationGuard,
 }
 
-impl LoadingObserver for GuardedStartupProgressObserver {
-    fn node_started(&mut self, node: NodeId) {
+impl DiscoveryObserver for GuardedStartupProgressObserver {
+    fn stage_started(&mut self, stage: DiscoveryStage) {
         if self.guard.is_current() {
             self.progress
-                .report_node_started(&tokio::runtime::Handle::current(), node);
+                .report_stage_started(&tokio::runtime::Handle::current(), stage);
         }
     }
 
-    fn node_finished(&mut self, node: NodeId, status: NodeTerminalStatus) {
-        if self.guard.is_current() || status == NodeTerminalStatus::Superseded {
+    fn stage_finished(&mut self, stage: DiscoveryStage, status: DiscoveryStageStatus) {
+        if self.guard.is_current() || status == DiscoveryStageStatus::Superseded {
             self.progress
-                .report_node_finished(&tokio::runtime::Handle::current(), node, status);
+                .report_stage_finished(&tokio::runtime::Handle::current(), stage, status);
         }
     }
 
-    fn milestone_reached(&mut self, milestone: MilestoneId, status: MilestoneTerminalStatus) {
+    fn milestone_reached(
+        &mut self,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
+    ) {
         if self.guard.is_current() {
             self.progress.report_milestone_reached(
                 &tokio::runtime::Handle::current(),
@@ -737,30 +743,30 @@ impl StartupProgressReporter for RecordingStartupProgressReporter {
             .push(StartupProgressEvent::Begin);
     }
 
-    fn node_started(&self, _handle: &tokio::runtime::Handle, node: NodeId) {
+    fn stage_started(&self, _handle: &tokio::runtime::Handle, stage: DiscoveryStage) {
         self.events
             .lock()
             .expect("startup progress events mutex poisoned")
-            .push(StartupProgressEvent::NodeStarted(node));
+            .push(StartupProgressEvent::StageStarted(stage));
     }
 
-    fn node_finished(
+    fn stage_finished(
         &self,
         _handle: &tokio::runtime::Handle,
-        node: NodeId,
-        status: NodeTerminalStatus,
+        stage: DiscoveryStage,
+        status: DiscoveryStageStatus,
     ) {
         self.events
             .lock()
             .expect("startup progress events mutex poisoned")
-            .push(StartupProgressEvent::NodeFinished { node, status });
+            .push(StartupProgressEvent::StageFinished { stage, status });
     }
 
     fn milestone_reached(
         &self,
         _handle: &tokio::runtime::Handle,
-        milestone: MilestoneId,
-        status: MilestoneTerminalStatus,
+        milestone: DiscoveryMilestone,
+        status: DiscoveryMilestoneStatus,
     ) {
         self.events
             .lock()
@@ -813,7 +819,11 @@ async fn run_startup_source_files_with_all_gates(
         let progress = inputs.progress();
         let observer_guard = inputs.guard().clone();
         progress.begin(&handle);
-        let mut effects = LspLoadingExecutor::new(
+        let discovery_request = DjangoDiscoveryRequest::new(
+            inputs.snapshot().workspace_roots().to_vec(),
+            inputs.snapshot().settings().clone(),
+        );
+        let mut host = LspDiscoveryHost::new(
             handle.clone(),
             session,
             inputs,
@@ -825,8 +835,8 @@ async fn run_startup_source_files_with_all_gates(
             progress: progress.clone(),
             guard: observer_guard,
         };
-        let result = run_loading_plan(LoadingPlan::phase3(), &mut effects, &mut observer);
-        let outcome = effects.finish(result);
+        let result = run_django_discovery(&discovery_request, &mut host, &mut observer);
+        let outcome = host.finish(result);
         progress.finish(&handle, &outcome);
         outcome
     })
@@ -834,17 +844,16 @@ async fn run_startup_source_files_with_all_gates(
     .unwrap_or(StartupRunOutcome::Failed)
 }
 
-struct LspLoadingExecutor {
+struct LspDiscoveryHost {
     handle: tokio::runtime::Handle,
     session: Arc<Mutex<Session>>,
     inputs: StartupRunInputs,
-    roots: Vec<Utf8PathBuf>,
     load_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     python_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     environment_observe_gate: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-impl LspLoadingExecutor {
+impl LspDiscoveryHost {
     fn new(
         handle: tokio::runtime::Handle,
         session: Arc<Mutex<Session>>,
@@ -856,7 +865,6 @@ impl LspLoadingExecutor {
         Self {
             handle,
             session,
-            roots: inputs.snapshot().workspace_roots().to_vec(),
             inputs,
             load_gate,
             python_observe_gate,
@@ -865,204 +873,219 @@ impl LspLoadingExecutor {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn finish(self, result: LoadingRunResult) -> StartupRunOutcome {
+    fn finish(self, result: DiscoveryRunResult) -> StartupRunOutcome {
         if !self.inputs.guard().is_current() {
             return StartupRunOutcome::Superseded {
                 generation: self.inputs.guard().generation(),
             };
         }
         match result.execution_outcome() {
-            Some(LoadingExecutionOutcome::Superseded) => StartupRunOutcome::Superseded {
+            Some(DiscoveryExecutionOutcome::Superseded) => StartupRunOutcome::Superseded {
                 generation: self.inputs.guard().generation(),
             },
-            Some(LoadingExecutionOutcome::RejectedApply) => StartupRunOutcome::Failed,
+            Some(DiscoveryExecutionOutcome::StaleSnapshot) => StartupRunOutcome::Failed,
             None => StartupRunOutcome::Succeeded,
         }
     }
 }
 
-impl LoadingEffects for LspLoadingExecutor {
-    fn begin_loading_run(&mut self) -> LoadingRunControl {
+impl DiscoveryHost for LspDiscoveryHost {
+    fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
         if self.inputs.guard().is_current() {
-            LoadingRunControl::Continue
+            Ok(())
         } else {
-            LoadingRunControl::Abort(LoadingExecutionOutcome::Superseded)
+            Err(DiscoveryCancellation::Superseded)
         }
     }
 
-    fn load_source_file_set(&mut self) -> FirstPartySourceFilePatch {
+    fn load_files_for_roots(
+        &mut self,
+        request: FilesForRootsRequest,
+    ) -> Result<FilesForRootsResult, DiscoveryCancellation> {
+        if !self.inputs.guard().is_current() {
+            return Err(DiscoveryCancellation::Superseded);
+        }
         if let Some(load_gate) = &self.load_gate {
             load_gate();
         }
-        let plan = build_source_roots(self.roots.clone());
-        let (root_issues, request) =
-            first_party_discovery_files_request(first_party_source_files_load_request(plan));
-        FirstPartySourceFilePatch::first_party(root_issues, load_files_for_roots(request))
+        if !self.inputs.guard().is_current() {
+            return Err(DiscoveryCancellation::Superseded);
+        }
+        Ok(load_files_for_roots(request))
     }
 
-    fn apply_source_file_patch(
+    fn current_source_files(&mut self) -> Option<ReadySourceFiles> {
+        self.handle.block_on(async {
+            let session = self.session.lock().await;
+            ProjectDb::project(session.db())
+                .source_inventory(session.db())
+                .ready()
+        })
+    }
+
+    fn apply_source_files(
         &mut self,
-        patch: FirstPartySourceFilePatch,
-    ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
+        update: SourceFilesUpdate,
+    ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
-                let current = ProjectDb::project(session.db())
-                    .source_inventory(session.db())
-                    .ready();
                 if let Some(reason) = self.inputs.snapshot().stale_document_rejection(session) {
                     return Err(reason);
                 }
-                let update = merge_first_party_source_file_patch(current.as_ref(), patch);
                 Ok(session.db_mut().apply_source_files(update))
             }));
 
         match outcome {
-            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
-            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+            ApplyOutcome::Applied(applied) => DiscoveryApplyOutcome::Applied(applied),
+            ApplyOutcome::Superseded => {
+                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::Superseded)
+            }
+            ApplyOutcome::Rejected { .. } => {
+                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::StaleSnapshot)
+            }
         }
-    }
-
-    fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate {
-        let roots = build_source_roots(self.roots.clone())
-            .roots()
-            .iter()
-            .map(|root| root.path().to_owned())
-            .collect();
-        djls_project::load_project_root_discovery(ProjectRootDiscoveryLoadRequest::new(
-            roots,
-            self.inputs.snapshot().settings().clone(),
-        ))
     }
 
     fn apply_project_root_discovery(
         &mut self,
-        data: ProjectRootDiscoveryUpdate,
-    ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult> {
+        update: ProjectRootDiscoveryUpdate,
+    ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
-                Ok(session.db_mut().apply_project_root_discovery(data))
+                Ok(session.db_mut().apply_project_root_discovery(update))
             }));
 
         match outcome {
-            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
-            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+            ApplyOutcome::Applied(applied) => DiscoveryApplyOutcome::Applied(applied),
+            ApplyOutcome::Superseded => {
+                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::Superseded)
+            }
+            ApplyOutcome::Rejected { .. } => {
+                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::StaleSnapshot)
+            }
         }
     }
 
     fn observe_python_source_index(
         &mut self,
-    ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
+    ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
         if let Some(gate) = &self.python_observe_gate {
             gate();
         }
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::python_source_index(&db, project).clone();
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
-        LoadingObservationOutcome::Observed(outcome)
+        DiscoveryObservationOutcome::Observed(outcome)
     }
 
     fn observe_django_environment_candidates(
         &mut self,
-    ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+    ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
         if let Some(gate) = &self.environment_observe_gate {
             gate();
         }
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::django_environment_candidates(&db, project).clone();
         if !self.inputs.guard().is_current() {
-            return LoadingObservationOutcome::Superseded;
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
-        LoadingObservationOutcome::Observed(outcome)
+        DiscoveryObservationOutcome::Observed(outcome)
     }
 
-    fn load_installed_app_file_patches(
+    fn observe_installed_app_file_roots(
         &mut self,
-    ) -> djls_project::PartitionedSourceFileLoadOutcome {
-        let db = self.handle.block_on(async {
-            let session = self.session.lock().await;
-            session.project_db_snapshot_for_observation()
-        });
-        let project = ProjectDb::project(&db);
-        djls_project::installed_app_file_load_outcome(&db, project)
-    }
-
-    fn load_template_directory_file_patches(
-        &mut self,
-    ) -> djls_project::PartitionedSourceFileLoadOutcome {
-        let db = self.handle.block_on(async {
-            let session = self.session.lock().await;
-            session.project_db_snapshot_for_observation()
-        });
-        let project = ProjectDb::project(&db);
-        djls_project::template_directory_file_load_outcome(&db, project)
-    }
-
-    fn apply_partitioned_source_file_patch(
-        &mut self,
-        patch: djls_project::PartitionedSourceFilePatch,
-    ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
-        let outcome = self
-            .handle
-            .block_on(self.inputs.guard().apply(&self.session, |session| {
-                let current = ProjectDb::project(session.db())
-                    .source_inventory(session.db())
-                    .ready();
-                let update =
-                    djls_project::merge_partitioned_source_file_patch(current.as_ref(), patch);
-                Ok(session.db_mut().apply_source_files(update))
-            }));
-
-        match outcome {
-            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
-            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsDiscovery> {
+        if !self.inputs.guard().is_current() {
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
         }
-    }
-
-    fn load_project_enrichment(&mut self) -> ProjectEnrichment {
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
-        db.load_project_enrichment()
+        if !self.inputs.guard().is_current() {
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+        }
+        let project = ProjectDb::project(&db);
+        let discovery = djls_project::installed_app_file_roots_discovery(&db, project);
+        if !self.inputs.guard().is_current() {
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+        }
+        DiscoveryObservationOutcome::Observed(discovery)
+    }
+
+    fn observe_template_directory_file_roots(
+        &mut self,
+    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsDiscovery> {
+        if !self.inputs.guard().is_current() {
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+        }
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        if !self.inputs.guard().is_current() {
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+        }
+        let project = ProjectDb::project(&db);
+        let discovery = djls_project::template_directory_file_roots_discovery(&db, project);
+        if !self.inputs.guard().is_current() {
+            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+        }
+        DiscoveryObservationOutcome::Observed(discovery)
+    }
+
+    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
+        if !self.inputs.guard().is_current() {
+            return Err(DiscoveryCancellation::Superseded);
+        }
+        let db = self.handle.block_on(async {
+            let session = self.session.lock().await;
+            session.project_db_snapshot_for_observation()
+        });
+        if !self.inputs.guard().is_current() {
+            return Err(DiscoveryCancellation::Superseded);
+        }
+        let enrichment = db.load_project_enrichment();
+        if !self.inputs.guard().is_current() {
+            return Err(DiscoveryCancellation::Superseded);
+        }
+        Ok(enrichment)
     }
 
     fn apply_project_enrichment(
         &mut self,
         enrichment: ProjectEnrichment,
-    ) -> LoadingApplyOutcome<ProjectEnrichment> {
+    ) -> DiscoveryApplyOutcome<ProjectEnrichment> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -1070,9 +1093,13 @@ impl LoadingEffects for LspLoadingExecutor {
             }));
 
         match outcome {
-            ApplyOutcome::Applied(applied) => LoadingApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => LoadingApplyOutcome::Superseded,
-            ApplyOutcome::Rejected { .. } => LoadingApplyOutcome::RejectedApply,
+            ApplyOutcome::Applied(applied) => DiscoveryApplyOutcome::Applied(applied),
+            ApplyOutcome::Superseded => {
+                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::Superseded)
+            }
+            ApplyOutcome::Rejected { .. } => {
+                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::StaleSnapshot)
+            }
         }
     }
 }
@@ -1414,7 +1441,7 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn startup_source_files_runs_source_file_set_through_loading_plan() {
+    async fn startup_source_files_runs_source_file_set_through_discovery_run() {
         let session = Arc::new(Mutex::new(initialized_session_with_root(
             "/tmp/djls-startup-source-files-missing",
         )));
@@ -1439,7 +1466,7 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn startup_request_while_loading_does_not_wait_for_source_file_node() {
+    async fn startup_request_while_discovery_runs_does_not_wait_for_source_files() {
         let session = Arc::new(Mutex::new(initialized_session_with_root(
             "/tmp/djls-startup-source-files-blocked",
         )));
@@ -1618,7 +1645,7 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn startup_source_files_superseded_reset_stops_before_loading() {
+    async fn startup_source_files_superseded_reset_stops_before_discovery() {
         let root = Utf8PathBuf::from(format!(
             "/tmp/djls-startup-source-files-superseded-{}",
             std::process::id()
@@ -1844,7 +1871,7 @@ mod startup_generation {
     }
 
     #[tokio::test]
-    async fn python_source_models_startup_progress_reports_lifecycle_over_loading_events() {
+    async fn python_source_models_startup_progress_reports_lifecycle_over_discovery_events() {
         let session = Arc::new(Mutex::new(initialized_session_with_root(
             "/tmp/djls-startup-progress",
         )));
@@ -1868,40 +1895,40 @@ mod startup_generation {
                 .expect("startup progress events mutex poisoned"),
             vec![
                 StartupProgressEvent::Begin,
-                StartupProgressEvent::NodeStarted(NodeId::SourceFileSet),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::SourceFileSet,
-                    status: NodeTerminalStatus::Unavailable,
+                StartupProgressEvent::StageStarted(DiscoveryStage::SourceFiles),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::SourceFiles,
+                    status: DiscoveryStageStatus::Unavailable,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::ProjectRootDiscoverySet),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::ProjectRootDiscoverySet,
-                    status: NodeTerminalStatus::Succeeded,
+                StartupProgressEvent::StageStarted(DiscoveryStage::ProjectRootDiscovery),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::ProjectRootDiscovery,
+                    status: DiscoveryStageStatus::Succeeded,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::PythonSourceModels),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::PythonSourceModels,
-                    status: NodeTerminalStatus::Unavailable,
+                StartupProgressEvent::StageStarted(DiscoveryStage::PythonSourceModels),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::PythonSourceModels,
+                    status: DiscoveryStageStatus::Unavailable,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::EnvironmentDiscovery),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::EnvironmentDiscovery,
-                    status: NodeTerminalStatus::Unavailable,
+                StartupProgressEvent::StageStarted(DiscoveryStage::DjangoEnvironments),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::DjangoEnvironments,
+                    status: DiscoveryStageStatus::Unavailable,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::InstalledAppFiles),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::InstalledAppFiles,
-                    status: NodeTerminalStatus::Unavailable,
+                StartupProgressEvent::StageStarted(DiscoveryStage::InstalledAppFiles),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::InstalledAppFiles,
+                    status: DiscoveryStageStatus::Unavailable,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::TemplateDirectoryFiles),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::TemplateDirectoryFiles,
-                    status: NodeTerminalStatus::Unavailable,
+                StartupProgressEvent::StageStarted(DiscoveryStage::TemplateDirectoryFiles),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::TemplateDirectoryFiles,
+                    status: DiscoveryStageStatus::Unavailable,
                 },
-                StartupProgressEvent::NodeStarted(NodeId::Enrichment),
-                StartupProgressEvent::NodeFinished {
-                    node: NodeId::Enrichment,
-                    status: NodeTerminalStatus::Unavailable,
+                StartupProgressEvent::StageStarted(DiscoveryStage::Enrichment),
+                StartupProgressEvent::StageFinished {
+                    stage: DiscoveryStage::Enrichment,
+                    status: DiscoveryStageStatus::Unavailable,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),
             ]

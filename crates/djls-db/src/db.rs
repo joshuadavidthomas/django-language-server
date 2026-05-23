@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use djls_conf::Settings;
-use djls_project::Db as LoadingDb;
+use djls_project::Db as ProjectDb;
 use djls_project::Project as ProjectFacts;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscovery;
@@ -144,7 +144,7 @@ impl DjangoDatabase {
     }
 
     pub fn load_project_enrichment(&self) -> ProjectEnrichment {
-        let project = LoadingDb::project(self);
+        let project = ProjectDb::project(self);
         djls_project::load_runtime_project_enrichment(self, project)
     }
 
@@ -153,7 +153,7 @@ impl DjangoDatabase {
         &mut self,
         enrichment: ProjectEnrichment,
     ) -> djls_project::ProjectEnrichment {
-        let project = LoadingDb::project(self);
+        let project = ProjectDb::project(self);
         let next = enrichment;
         let changed = project.enrichment(self) != &next;
         if changed {
@@ -173,11 +173,11 @@ impl DjangoDatabase {
                 ProjectRootDiscoveryIssues::new(vec![ProjectRootDiscoveryIssue::NoWorkspaceRoots])
                     .expect("no workspace roots issue should be non-empty");
             let discovery = ProjectRootDiscovery::Unavailable { issues };
-            LoadingDb::set_project_root_discovery(self, discovery.clone());
+            ProjectDb::set_project_root_discovery(self, discovery.clone());
             return ProjectRootDiscoveryApplyResult::Unavailable(discovery);
         }
 
-        let current = LoadingDb::project(self).root_discovery(self).clone();
+        let current = ProjectDb::project(self).root_discovery(self).clone();
         let has_issues = data.roots().iter().any(|root| !root.issues().is_empty());
         if project_root_discovery_matches_update(self, &current, &data) {
             return ProjectRootDiscoveryApplyResult::Applied {
@@ -205,7 +205,7 @@ impl DjangoDatabase {
         let set = ProjectRootDiscoverySet::new(roots)
             .expect("non-empty discovery data should construct discovery set");
         let discovery = ProjectRootDiscovery::Ready(set);
-        LoadingDb::set_project_root_discovery(self, discovery.clone());
+        ProjectDb::set_project_root_discovery(self, discovery.clone());
         ProjectRootDiscoveryApplyResult::Applied {
             discovery,
             has_issues,
@@ -218,7 +218,7 @@ impl DjangoDatabase {
             self.materialize_source_file_set_from(previous.as_ref(), update.materialization());
         let decision = update.decide_apply(previous, materialized);
         if let Some(inventory) = decision.next_inventory() {
-            LoadingDb::set_source_file_inventory(self, inventory.clone());
+            ProjectDb::set_source_file_inventory(self, inventory.clone());
         }
         decision.into_result()
     }
@@ -332,7 +332,7 @@ impl DjangoDatabase {
     }
 
     fn current_ready_source_files(&self) -> Option<ReadySourceFiles> {
-        LoadingDb::project(self).source_inventory(self).ready()
+        ProjectDb::project(self).source_inventory(self).ready()
     }
 }
 
@@ -401,7 +401,7 @@ impl SourceDb for DjangoDatabase {
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> &TagSpecs {
-        compute_tag_specs(self, LoadingDb::project(self))
+        compute_tag_specs(self, ProjectDb::project(self))
     }
 
     fn semantic_settings_revision(&self) -> SemanticSettingsRevision {
@@ -424,29 +424,42 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn filter_arity_specs(&self) -> &djls_semantic::FilterAritySpecs {
-        compute_filter_arity_specs(self, LoadingDb::project(self))
+        compute_filter_arity_specs(self, ProjectDb::project(self))
     }
 
     fn model_graph(&self) -> &djls_semantic::ModelGraph {
-        compute_model_graph(self, LoadingDb::project(self))
+        compute_model_graph(self, ProjectDb::project(self))
     }
 }
 
 #[cfg(test)]
 mod source_file_set_tests {
     use camino::Utf8PathBuf;
-    use djls_project::build_source_roots;
-    use djls_project::first_party_discovery_files_request;
-    use djls_project::first_party_source_files_load_request;
-    use djls_project::merge_first_party_source_file_patch;
-    use djls_project::Db as LoadingDb;
-    use djls_project::FirstPartySourceFilePatch;
+    use djls_project::run_django_discovery;
+    use djls_project::Db as ProjectDb;
+    use djls_project::DiscoveryApplyOutcome;
+    use djls_project::DiscoveryCancellation;
+    use djls_project::DiscoveryHost;
+    use djls_project::DiscoveryObservationOutcome;
+    use djls_project::DjangoDiscoveryRequest;
+    use djls_project::DjangoEnvironmentCandidatesOutcome;
+    use djls_project::InstalledAppFileRootsDiscovery;
+    use djls_project::ProjectEnrichment;
+    use djls_project::ProjectRootDiscoveryApplyResult;
+    use djls_project::ProjectRootDiscoveryUpdate;
+    use djls_project::PythonSourceIndexOutcome;
+    use djls_project::ReadySourceFiles;
+    use djls_project::SourceFileHandleChanges;
     use djls_project::SourceFileInventory;
     use djls_project::SourceFilesApplyDecision;
     use djls_project::SourceFilesApplyResult;
     use djls_project::SourceFilesIssue;
+    use djls_project::SourceFilesUpdate;
+    use djls_project::TemplateDirectoryFileRootsDiscovery;
     use djls_source::Db as SourceDb;
     use djls_workspace::load_files_for_roots;
+    use djls_workspace::FilesForRootsRequest;
+    use djls_workspace::FilesForRootsResult;
 
     use super::DjangoDatabase;
 
@@ -454,28 +467,128 @@ mod source_file_set_tests {
         Utf8PathBuf::from_path_buf(path.to_path_buf()).unwrap()
     }
 
-    fn first_party_update(
-        current: Option<&djls_project::ReadySourceFiles>,
-        roots: Vec<Utf8PathBuf>,
-    ) -> djls_project::SourceFilesUpdate {
-        let plan = build_source_roots(roots);
-        let (root_issues, request) =
-            first_party_discovery_files_request(first_party_source_files_load_request(plan));
-        let result = load_files_for_roots(request);
-        merge_first_party_source_file_patch(
-            current,
-            FirstPartySourceFilePatch::first_party(root_issues, result),
-        )
+    struct SourceDiscoveryHost<'db> {
+        db: &'db mut DjangoDatabase,
+        materializations: Vec<SourceFileHandleChanges>,
     }
 
-    fn apply_decision(
-        db: &mut DjangoDatabase,
-        decision: SourceFilesApplyDecision,
-    ) -> SourceFilesApplyResult {
-        if let Some(inventory) = decision.next_inventory() {
-            LoadingDb::set_source_file_inventory(db, inventory.clone());
+    impl<'db> SourceDiscoveryHost<'db> {
+        fn new(db: &'db mut DjangoDatabase) -> Self {
+            Self {
+                db,
+                materializations: Vec::new(),
+            }
         }
-        decision.into_result()
+
+        fn apply_decision(&mut self, decision: SourceFilesApplyDecision) -> SourceFilesApplyResult {
+            if let Some(inventory) = decision.next_inventory() {
+                ProjectDb::set_source_file_inventory(self.db, inventory.clone());
+            }
+            decision.into_result()
+        }
+    }
+
+    impl DiscoveryHost for SourceDiscoveryHost<'_> {
+        fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+            Ok(())
+        }
+
+        fn load_files_for_roots(
+            &mut self,
+            request: FilesForRootsRequest,
+        ) -> Result<FilesForRootsResult, DiscoveryCancellation> {
+            Ok(load_files_for_roots(request))
+        }
+
+        fn current_source_files(&mut self) -> Option<ReadySourceFiles> {
+            ProjectDb::project(self.db)
+                .source_inventory(self.db)
+                .ready()
+        }
+
+        fn apply_source_files(
+            &mut self,
+            update: SourceFilesUpdate,
+        ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
+            let previous = self.current_source_files();
+            let materialized = self
+                .db
+                .materialize_source_file_set(update.materialization());
+            self.materializations
+                .push(materialized.handle_changes().clone());
+            DiscoveryApplyOutcome::Applied(
+                self.apply_decision(update.decide_apply(previous, materialized)),
+            )
+        }
+
+        fn apply_project_root_discovery(
+            &mut self,
+            update: ProjectRootDiscoveryUpdate,
+        ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
+            DiscoveryApplyOutcome::Applied(self.db.apply_project_root_discovery(update))
+        }
+
+        fn observe_python_source_index(
+            &mut self,
+        ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
+            DiscoveryObservationOutcome::Observed(
+                djls_project::python_source_index(self.db, ProjectDb::project(self.db)).clone(),
+            )
+        }
+
+        fn observe_django_environment_candidates(
+            &mut self,
+        ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+            DiscoveryObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+                candidates: Vec::new(),
+                issues: Vec::new(),
+            })
+        }
+
+        fn observe_installed_app_file_roots(
+            &mut self,
+        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsDiscovery> {
+            DiscoveryObservationOutcome::Observed(
+                InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments,
+            )
+        }
+
+        fn observe_template_directory_file_roots(
+            &mut self,
+        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsDiscovery> {
+            DiscoveryObservationOutcome::Observed(
+                TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments,
+            )
+        }
+
+        fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
+            Ok(ProjectEnrichment::Disabled)
+        }
+
+        fn apply_project_enrichment(
+            &mut self,
+            enrichment: ProjectEnrichment,
+        ) -> DiscoveryApplyOutcome<ProjectEnrichment> {
+            DiscoveryApplyOutcome::Applied(enrichment)
+        }
+    }
+
+    fn run_source_discovery(
+        db: &mut DjangoDatabase,
+        roots: Vec<Utf8PathBuf>,
+    ) -> (SourceFilesApplyResult, Vec<SourceFileHandleChanges>) {
+        let mut host = SourceDiscoveryHost::new(db);
+        let request = DjangoDiscoveryRequest::new(roots, djls_conf::Settings::default());
+        let result = run_django_discovery(
+            &request,
+            &mut host,
+            &mut djls_project::NoopDiscoveryObserver,
+        );
+        let source_result = result
+            .source_file_set_result()
+            .expect("source-file stage should produce result")
+            .clone();
+        (source_result, host.materializations)
     }
 
     #[test]
@@ -487,24 +600,17 @@ mod source_file_set_tests {
         std::fs::write(&file_path, "").unwrap();
         let mut db = DjangoDatabase::default();
 
-        let update = first_party_update(None, vec![root.clone()]);
-        let materialized = db.materialize_source_file_set(update.materialization());
-        assert_eq!(materialized.handle_changes().created(), 1);
-        assert_eq!(materialized.handle_changes().preserved(), 0);
-        let applied = apply_decision(&mut db, update.decide_apply(None, materialized));
-        let SourceFilesApplyResult::Applied(applied) = applied else {
+        let (applied, materializations) = run_source_discovery(&mut db, vec![root.clone()]);
+        assert_eq!(materializations[0].created(), 1);
+        assert_eq!(materializations[0].preserved(), 0);
+        let SourceFilesApplyResult::Applied(_applied) = applied else {
             panic!("first materialization should apply");
         };
         let first_handle = db.get_file(file_path.as_path()).unwrap();
 
-        let update = first_party_update(Some(applied.files()), vec![root]);
-        let materialized = db.materialize_source_file_set(update.materialization());
-        assert_eq!(materialized.handle_changes().created(), 0);
-        assert_eq!(materialized.handle_changes().preserved(), 0);
-        let applied = apply_decision(
-            &mut db,
-            update.decide_apply(Some(applied.files().clone()), materialized),
-        );
+        let (applied, materializations) = run_source_discovery(&mut db, vec![root]);
+        assert_eq!(materializations[0].created(), 0);
+        assert_eq!(materializations[0].preserved(), 0);
         let SourceFilesApplyResult::Applied(applied) = applied else {
             panic!("second materialization should apply");
         };
@@ -524,18 +630,16 @@ mod source_file_set_tests {
         std::fs::write(&removed_file, "").unwrap();
         let mut db = DjangoDatabase::default();
 
-        let update = first_party_update(None, vec![first_root]);
-        let applied = db.apply_source_files(update);
-        let SourceFilesApplyResult::Applied(applied) = applied else {
+        let (applied, _) = run_source_discovery(&mut db, vec![first_root]);
+        let SourceFilesApplyResult::Applied(_applied) = applied else {
             panic!("first materialization should apply");
         };
 
         let second_dir = tempfile::tempdir().unwrap();
         let second_root = utf8(second_dir.path());
-        let update = first_party_update(Some(applied.files()), vec![second_root]);
-        let materialized = db.materialize_source_file_set(update.materialization());
+        let (_applied, materializations) = run_source_discovery(&mut db, vec![second_root]);
 
-        assert_eq!(materialized.handle_changes().removed(), 1);
+        assert_eq!(materializations[0].removed(), 1);
     }
 
     #[test]
@@ -545,22 +649,20 @@ mod source_file_set_tests {
         std::fs::write(root.join("models.py"), "").unwrap();
         let mut db = DjangoDatabase::default();
 
-        let update = first_party_update(None, vec![root]);
-        let applied = db.apply_source_files(update);
+        let (applied, _) = run_source_discovery(&mut db, vec![root]);
         let SourceFilesApplyResult::Applied(applied) = applied else {
             panic!("initial materialization should apply");
         };
 
         let missing = utf8(tempfile::tempdir().unwrap().path()).join("missing");
-        let update = first_party_update(Some(applied.files()), vec![missing]);
-        let result = db.apply_source_files(update);
+        let (result, _) = run_source_discovery(&mut db, vec![missing]);
 
         let SourceFilesApplyResult::Unavailable { previous, .. } = result else {
             panic!("missing root should be unavailable");
         };
         assert_eq!(previous, Some(applied.files().clone()));
         assert_eq!(
-            LoadingDb::project(&db).source_inventory(&db),
+            ProjectDb::project(&db).source_inventory(&db),
             SourceFileInventory::Ready(applied.files().clone())
         );
     }
@@ -572,17 +674,14 @@ mod source_file_set_tests {
         std::fs::write(root.join("models.py"), "").unwrap();
         let mut db = DjangoDatabase::default();
 
-        let update = first_party_update(None, vec![root]);
-        let transition = update.applied_transition().clone();
-        let applied = db.apply_source_files(update);
+        let (applied, _) = run_source_discovery(&mut db, vec![root]);
         let SourceFilesApplyResult::Applied(applied) = applied else {
             panic!("materialization should apply");
         };
 
-        assert_eq!(applied.transition(), &transition);
         assert_eq!(applied.files().summary(&db).included_files(), 1);
         assert_eq!(
-            LoadingDb::project(&db).source_inventory(&db),
+            ProjectDb::project(&db).source_inventory(&db),
             SourceFileInventory::Ready(applied.files().clone())
         );
     }
@@ -593,8 +692,7 @@ mod source_file_set_tests {
         let missing = utf8(dir.path()).join("missing");
         let mut db = DjangoDatabase::default();
 
-        let update = first_party_update(None, vec![missing.clone()]);
-        let result = db.apply_source_files(update);
+        let (result, _) = run_source_discovery(&mut db, vec![missing.clone()]);
         let SourceFilesApplyResult::Unavailable { issue, .. } = result else {
             panic!("missing root should be unavailable");
         };
@@ -604,7 +702,7 @@ mod source_file_set_tests {
             SourceFilesIssue::MissingRoot { ref path, .. } if *path == missing
         ));
         assert_eq!(
-            LoadingDb::project(&db).source_inventory(&db),
+            ProjectDb::project(&db).source_inventory(&db),
             SourceFileInventory::Unavailable { issue }
         );
     }

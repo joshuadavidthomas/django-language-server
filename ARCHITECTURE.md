@@ -48,16 +48,16 @@ The LSP server. This is the crate that wires everything together at runtime.
 `Session` owns the `DjangoDatabase` and all document state. It's behind a `tokio::Mutex`, and request handlers access it through helper methods:
 
 - `with_session` / `with_session_mut` — lock the session and run a synchronous closure for request handling.
-- Startup loading uses a generation-guarded controller. Work such as filesystem discovery, Python source observation, environment discovery, installed-app/template-directory file loading, and optional enrichment is scheduled outside long session locks, then applied through short guarded updates.
+- The Django Discovery Run uses a generation-guarded controller. Work such as filesystem discovery, Python source observation, environment discovery, installed-app/template-directory file discovery, and optional enrichment is scheduled outside long session locks, then applied through short guarded updates.
 
 Startup has explicit readiness phases:
 
-- **protocol-ready**: `initialize` returns capabilities without loading project facts.
+- **protocol-ready**: `initialize` returns capabilities before Project Facts discovery completes.
 - **workspace-ready**: source files, Python source models, and environment candidates are usable enough for degraded requests.
-- **django-apps-ready**: installed-app and template-directory file loading has reached a terminal static state.
+- **django-apps-ready**: installed-app and template-directory file discovery has reached a terminal static state.
 - **enriched**: optional runtime Project Introspection has produced fresh, stale-cache, failed, unavailable, or disabled enrichment facts.
 
-Static readiness is derived from typed Project Facts and loading-node outcomes. Runtime enrichment failures do not make `workspace-ready` or `django-apps-ready` fail.
+Static readiness is derived from typed Project Facts and discovery-stage outcomes. Runtime enrichment failures do not make `workspace-ready` or `django-apps-ready` fail.
 
 **Architecture Invariant:** `djls-server` is the only crate that speaks the LSP protocol — handling requests, managing the session, pushing notifications.
 
@@ -79,7 +79,7 @@ It lexes and parses template source into a flat `NodeList` — the same represen
 
 ### `crates/djls-project`
 
-Django Discovery and Project Facts. This crate owns the stable `Project` Salsa input, the tracked queries that derive project-level facts from source files, and the explicit runtime enrichment provider used by the loading effect:
+Django Discovery and Project Facts. This crate owns the stable `Project` Salsa input, the Django Discovery Run that advances Project Facts, the tracked queries that derive project-level facts from source files, and the explicit runtime enrichment provider used by the discovery host:
 
 - source-file inventory and project layout indexes
 - Python source models and module resolution
@@ -89,7 +89,7 @@ Django Discovery and Project Facts. This crate owns the stable `Project` Salsa i
 - Python module inventories for model and templatetag extraction inputs
 - runtime enrichment domain types, inspector provider, and project-owned static/runtime loadable-library projections
 
-`djls-project` does not speak LSP. Its runtime inspector is an explicit loading effect, not a tracked query: callers invoke it through `LoadingEffects::load_project_enrichment`, then `djls-db` applies the returned draft to the stable `Project` input. Loading effects in `djls`/`djls-server`/`djls-db` feed it typed inputs and apply typed outcomes.
+`djls-project` does not speak LSP. Its runtime inspector is an explicit discovery host operation, not a tracked query: `run_django_discovery` asks the host to load enrichment, then `djls-db` applies the returned facts to the stable `Project` input. Discovery hosts in `djls` and `djls-server` provide runtime policy — cancellation, file walking, DB observation, and guarded apply callbacks — while `djls-project` owns stage sequencing and domain update construction.
 
 ### `crates/djls-semantic`
 
@@ -164,7 +164,7 @@ Template parsing does not need its own database trait. `parse_template` depends 
 - Concrete database structs own storage and runtime infrastructure. They should not become semantic service objects.
 - Database traits describe capabilities: file access, stable Project Facts access, or semantic fixture access.
 - Tracked queries compute values from Salsa inputs and tracked files. They should not query subprocesses, write caches, or mutate inputs.
-- Loading effects perform imperative synchronization from the outside world into Salsa inputs: discovering source files, loading project discovery data, materializing file sets, and applying enrichment drafts. They update `Project` facts through typed setters or database apply helpers.
+- Discovery hosts perform imperative synchronization from the outside world into Salsa inputs: walking source files, observing project facts, materializing file sets through `djls-db`, and applying enrichment facts. They update `Project` facts through typed setters or database apply helpers, while `djls-project` owns the discovery-stage algorithm.
 - Durability follows the same split: first-party file revisions and source inventories are low durability; project discovery/configuration facts are higher durability; stable file identity is high durability.
 
 ## How Knowledge Gets In
@@ -232,7 +232,7 @@ The server uses `tracing` with a custom `LspLayer` subscriber that routes a sing
 
 ### Configurability
 
-`djls-conf` merges settings from multiple sources (user config, project TOML files, LSP client options) into a single `Settings` type. When settings change at runtime via `didChangeConfiguration`, the server stores the new settings, detects whether environment-sensitive inputs changed, and restarts the startup loading graph. Project Facts are updated by loading nodes rather than by mutating a separate semantic project bag.
+`djls-conf` merges settings from multiple sources (user config, project TOML files, LSP client options) into a single `Settings` type. When settings change at runtime via `didChangeConfiguration`, the server stores the new settings, detects whether environment-sensitive inputs changed, and restarts the Django Discovery Run. Project Facts are updated by discovery stages rather than by mutating a separate semantic project bag.
 
 ## Testing
 

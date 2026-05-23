@@ -394,7 +394,6 @@ mod tests {
     use super::*;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::DjangoEnvironmentSeed;
-    use crate::root_discovery::DjangoSettingsModuleSeed;
     use crate::root_discovery::ProjectEnvVars;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::root_discovery::ProjectRootDiscoverySet;
@@ -475,7 +474,7 @@ mod tests {
             &db,
             root.clone(),
             Some(Interpreter::InterpreterPath(python.as_str().to_string())),
-            Some(DjangoSettingsModuleSeed::new("project.settings")),
+            Some("project.settings".to_string()),
             Vec::new(),
             pythonpath.clone(),
             env_vars.clone(),
@@ -519,7 +518,7 @@ mod tests {
             None,
             vec![DjangoEnvironmentSeed::from_settings_module(
                 Some("external".to_string()),
-                DjangoSettingsModuleSeed::new("external.settings"),
+                "external.settings".to_string(),
                 Some(other_root),
             )],
             Vec::new(),

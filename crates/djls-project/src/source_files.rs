@@ -137,6 +137,7 @@ impl SourceRootsPlan {
         &self.roots
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
@@ -198,11 +199,6 @@ impl SourceFilesLoadRequest {
             options,
         }
     }
-
-    #[must_use]
-    pub fn roots(&self) -> &[SourceRoot] {
-        &self.roots
-    }
 }
 
 #[must_use]
@@ -251,11 +247,30 @@ pub fn first_party_discovery_files_request(
     (request.root_issues, files_request)
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FileSetPartitionGroup {
+    FirstParty,
+    ConfiguredTemplateDirectory,
+    InstalledApp,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum FileSetPartitionId {
     FirstParty,
     ConfiguredTemplateDirectory(SourceRootId),
     InstalledApp(SourceRootId),
+}
+
+impl FileSetPartitionId {
+    fn group(&self) -> FileSetPartitionGroup {
+        match self {
+            Self::FirstParty => FileSetPartitionGroup::FirstParty,
+            Self::ConfiguredTemplateDirectory(_) => {
+                FileSetPartitionGroup::ConfiguredTemplateDirectory
+            }
+            Self::InstalledApp(_) => FileSetPartitionGroup::InstalledApp,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -364,13 +379,21 @@ impl SourceFileSetPartitions {
     }
 
     fn replace_partition(&self, snapshot: SourceFileSetPartitionSnapshot) -> Self {
+        self.replace_partition_group(snapshot.partition.id().group(), vec![snapshot])
+    }
+
+    fn replace_partition_group(
+        &self,
+        group: FileSetPartitionGroup,
+        snapshots: Vec<SourceFileSetPartitionSnapshot>,
+    ) -> Self {
         let mut partitions = self
             .partitions
             .iter()
-            .filter(|partition| partition.partition.id() != snapshot.partition.id())
+            .filter(|partition| partition.partition.id().group() != group)
             .cloned()
             .collect::<Vec<_>>();
-        partitions.push(snapshot);
+        partitions.extend(snapshots);
         partitions.sort_by(|left, right| {
             right
                 .partition
@@ -445,21 +468,6 @@ pub struct FirstPartySourceFilePatch {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PartitionedSourceFileLoadOutcome {
-    Ready(Vec<PartitionedSourceFilePatch>),
-    Degraded {
-        patches: Vec<PartitionedSourceFilePatch>,
-        issues: Vec<SourceFilesIssue>,
-    },
-    Deferred {
-        issue: SourceFilesIssue,
-    },
-    Unavailable {
-        issue: SourceFilesIssue,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartitionedSourceFilePatch {
     partition: FileSetPartition,
     roots: Vec<SourceRoot>,
@@ -478,20 +486,35 @@ impl PartitionedSourceFilePatch {
     pub fn configured_template_directory(result: FilesForRootsResult) -> Vec<Self> {
         partitioned_patches(result, FileSetPartition::configured_template_directory)
     }
+}
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartitionedSourceFilePatchSet {
+    group: FileSetPartitionGroup,
+    patches: Vec<PartitionedSourceFilePatch>,
+    issues: Vec<SourceFilesIssue>,
+}
+
+impl PartitionedSourceFilePatchSet {
     #[must_use]
-    pub fn partition(&self) -> &FileSetPartition {
-        &self.partition
+    pub fn installed_apps(result: FilesForRootsResult, issues: Vec<SourceFilesIssue>) -> Self {
+        Self {
+            group: FileSetPartitionGroup::InstalledApp,
+            patches: PartitionedSourceFilePatch::installed_app(result),
+            issues,
+        }
     }
 
     #[must_use]
-    pub fn summary(&self) -> FileSetSummary {
-        self.summary
-    }
-
-    #[must_use]
-    pub fn issues(&self) -> &[SourceFilesIssue] {
-        &self.issues
+    pub fn configured_template_directories(
+        result: FilesForRootsResult,
+        issues: Vec<SourceFilesIssue>,
+    ) -> Self {
+        Self {
+            group: FileSetPartitionGroup::ConfiguredTemplateDirectory,
+            patches: PartitionedSourceFilePatch::configured_template_directory(result),
+            issues,
+        }
     }
 }
 
@@ -559,11 +582,7 @@ impl FirstPartySourceFilePatch {
         }
     }
 
-    #[must_use]
-    pub fn summary(&self) -> FileSetSummary {
-        self.summary
-    }
-
+    #[cfg(test)]
     #[must_use]
     pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
@@ -641,14 +660,19 @@ impl SourceFilesMaterializationPatch {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceFilePartitionTransition {
-    partition: FileSetPartition,
+    partitions: Vec<FileSetPartition>,
     readiness: SourceFilePartitionReadiness,
 }
 
 impl SourceFilePartitionTransition {
     #[must_use]
-    pub fn partition(&self) -> &FileSetPartition {
-        &self.partition
+    pub fn partition(&self) -> Option<&FileSetPartition> {
+        self.partitions.first()
+    }
+
+    #[must_use]
+    pub fn partitions(&self) -> &[FileSetPartition] {
+        &self.partitions
     }
 
     #[must_use]
@@ -663,6 +687,7 @@ pub struct SourceFilesUpdate {
     materialization: SourceFilesMaterializationPatch,
     applied_transition: SourceFilePartitionTransition,
     issues: Vec<SourceFilesIssue>,
+    apply_blocking_issues: Vec<SourceFilesIssue>,
 }
 
 impl SourceFilesUpdate {
@@ -688,7 +713,7 @@ impl SourceFilesUpdate {
         previous: Option<ReadySourceFiles>,
         materialized: SourceFileSetMaterialized,
     ) -> SourceFilesApplyDecision {
-        if let Some(issue) = first_fatal_update_issue(&self.issues) {
+        if let Some(issue) = first_fatal_update_issue(&self.apply_blocking_issues) {
             return terminal_source_files_apply_decision(
                 self.applied_transition,
                 issue,
@@ -896,7 +921,7 @@ impl SourceFilesApplied {
         Self {
             files,
             transition: SourceFilePartitionTransition {
-                partition: FileSetPartition::first_party(),
+                partitions: vec![FileSetPartition::first_party()],
                 readiness,
             },
             issues: Vec::new(),
@@ -1013,30 +1038,57 @@ fn project_issue_from_materialization_issue(
     }
 }
 
+#[cfg(test)]
 #[must_use]
 pub fn merge_partitioned_source_file_patch(
     current: Option<&ReadySourceFiles>,
     patch: PartitionedSourceFilePatch,
 ) -> SourceFilesUpdate {
-    let readiness = partition_readiness(current, &patch);
-    let snapshot = SourceFileSetPartitionSnapshot::new(
-        patch.partition.clone(),
-        patch.roots.clone(),
-        patch.files.clone(),
-        readiness.clone(),
-    );
+    merge_partitioned_source_file_patch_set(
+        current,
+        PartitionedSourceFilePatchSet {
+            group: patch.partition.id().group(),
+            patches: vec![patch],
+            issues: Vec::new(),
+        },
+    )
+}
+
+#[must_use]
+pub fn merge_partitioned_source_file_patch_set(
+    current: Option<&ReadySourceFiles>,
+    patch_set: PartitionedSourceFilePatchSet,
+) -> SourceFilesUpdate {
+    let readiness = partition_set_readiness(current, &patch_set);
+    let snapshots = patch_set
+        .patches
+        .iter()
+        .map(|patch| {
+            SourceFileSetPartitionSnapshot::new(
+                patch.partition.clone(),
+                patch.roots.clone(),
+                patch.files.clone(),
+                patch_readiness(current, patch),
+            )
+        })
+        .collect::<Vec<_>>();
     let current_partitions = current
         .map(|files| files.partitions.clone())
         .unwrap_or_default();
-    let partitions = current_partitions.replace_partition(snapshot);
+    let partitions = current_partitions.replace_partition_group(patch_set.group, snapshots);
     let merged = partitions.merged_discovered_files();
     let previous = current.map(ReadySourceFiles::discovered_files);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = SourceFilePartitionTransition {
-        partition: patch.partition,
+        partitions: patch_set
+            .patches
+            .iter()
+            .map(|patch| patch.partition.clone())
+            .collect(),
         readiness,
     };
-    let mut issues = patch.issues;
+    let mut issues = patch_set.issues;
+    issues.extend(patch_set.patches.into_iter().flat_map(|patch| patch.issues));
     issues.extend(partition_conflicts(&partitions));
 
     SourceFilesUpdate {
@@ -1044,10 +1096,38 @@ pub fn merge_partitioned_source_file_patch(
         materialization,
         applied_transition,
         issues,
+        apply_blocking_issues: Vec::new(),
     }
 }
 
-fn partition_readiness(
+fn partition_set_readiness(
+    current: Option<&ReadySourceFiles>,
+    patch_set: &PartitionedSourceFilePatchSet,
+) -> SourceFilePartitionReadiness {
+    if let Some(issue) = patch_set
+        .patches
+        .iter()
+        .flat_map(|patch| patch.issues.iter())
+        .next()
+    {
+        return SourceFilePartitionReadiness::Unavailable {
+            issue: issue.clone(),
+            previous: current.map(|files| files.discovered_files().summary()),
+        };
+    }
+
+    SourceFilePartitionReadiness::Ready {
+        summary: FileSetSummary::new(
+            patch_set
+                .patches
+                .iter()
+                .map(|patch| patch.summary.included_files())
+                .sum(),
+        ),
+    }
+}
+
+fn patch_readiness(
     current: Option<&ReadySourceFiles>,
     patch: &PartitionedSourceFilePatch,
 ) -> SourceFilePartitionReadiness {
@@ -1102,7 +1182,7 @@ pub fn merge_first_party_source_file_patch(
     let previous = current.map(ReadySourceFiles::discovered_files);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = SourceFilePartitionTransition {
-        partition: patch.partition,
+        partitions: vec![patch.partition],
         readiness,
     };
 
@@ -1110,7 +1190,8 @@ pub fn merge_first_party_source_file_patch(
         partitions,
         materialization,
         applied_transition,
-        issues: patch.issues,
+        issues: patch.issues.clone(),
+        apply_blocking_issues: patch.issues,
     }
 }
 
@@ -1515,6 +1596,52 @@ mod tests {
         };
         assert_eq!(kept, &Some(previous));
         assert_eq!(decision.next_inventory(), None);
+    }
+
+    #[test]
+    fn partition_patch_set_publishes_successful_siblings_with_root_issues() {
+        let db = TestDb::with_project();
+        let first_party_root = root("/workspace");
+        let previous_update = merge_first_party_source_file_patch(
+            None,
+            FirstPartySourceFilePatch {
+                partition: FileSetPartition::first_party(),
+                roots: vec![first_party_root],
+                files: Vec::new(),
+                summary: FileSetSummary::new(0),
+                issues: Vec::new(),
+            },
+        );
+        let previous = ready_files_for_update(&db, previous_update);
+        let ok_dir = tempfile::tempdir().expect("tempdir should be created");
+        let ok_root = root_path(utf8(ok_dir.path()).join("templates"));
+        std::fs::create_dir_all(ok_root.path()).expect("template root should be created");
+        std::fs::write(ok_root.path().join("index.html"), "").expect("template should be written");
+        let missing_root = root_path(utf8(ok_dir.path()).join("missing"));
+        let result = load_files_for_roots(FilesForRootsRequest::new(
+            vec![ok_root, missing_root],
+            Box::new(|_| true),
+            WalkOptions::default(),
+        ));
+        let update = merge_partitioned_source_file_patch_set(
+            Some(&previous),
+            PartitionedSourceFilePatchSet::configured_template_directories(result, Vec::new()),
+        );
+        let materialized = materialized_for_update(&db, &update);
+
+        let decision = update.decide_apply(Some(previous), materialized);
+
+        let SourceFilesApplyResult::Applied(applied) = decision.result() else {
+            panic!("partition root issues should not abort the whole patch set");
+        };
+        assert!(matches!(
+            applied.transition().readiness(),
+            SourceFilePartitionReadiness::Unavailable { .. }
+        ));
+        assert!(matches!(
+            decision.next_inventory(),
+            Some(SourceFileInventory::Ready(_))
+        ));
     }
 
     #[test]
@@ -2006,7 +2133,11 @@ mod tests {
         );
 
         assert_eq!(
-            update.applied_transition().partition().id(),
+            update
+                .applied_transition()
+                .partition()
+                .expect("single partition transition")
+                .id(),
             &FileSetPartitionId::FirstParty
         );
         assert_eq!(

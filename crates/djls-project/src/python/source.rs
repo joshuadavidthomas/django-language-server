@@ -1032,27 +1032,20 @@ mod tests {
     use salsa::Database;
 
     use super::*;
-    use crate::build_source_roots;
     use crate::enrichment::ProjectEnrichment;
-    use crate::first_party_discovery_files_request;
-    use crate::first_party_source_files_load_request;
-    use crate::load_project_root_discovery;
-    use crate::merge_first_party_source_file_patch;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::root_discovery::ProjectRootDiscoveryApplyResult;
-    use crate::root_discovery::ProjectRootDiscoveryLoadRequest;
     use crate::root_discovery::ProjectRootDiscoveryUpdate;
-    use crate::run_loading_plan;
-    use crate::source_files::FirstPartySourceFilePatch;
+    use crate::run_django_discovery;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFilesApplyResult;
+    use crate::DiscoveryApplyOutcome;
+    use crate::DiscoveryCancellation;
+    use crate::DiscoveryHost;
+    use crate::DiscoveryObservationOutcome;
+    use crate::DjangoDiscoveryRequest;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::LoadingApplyOutcome;
-    use crate::LoadingEffects;
-    use crate::LoadingObservationOutcome;
-    use crate::LoadingPlan;
-    use crate::LoadingRunControl;
-    use crate::NoopLoadingObserver;
+    use crate::NoopDiscoveryObserver;
 
     #[salsa::db]
     struct TestDb {
@@ -1142,97 +1135,93 @@ mod tests {
         }
     }
 
-    struct PythonSourceLoadingEffects<'db> {
+    struct PythonSourceDiscoveryHost<'db> {
         db: &'db TestDb,
     }
 
-    impl LoadingEffects for PythonSourceLoadingEffects<'_> {
-        fn begin_loading_run(&mut self) -> LoadingRunControl {
-            LoadingRunControl::Continue
+    impl DiscoveryHost for PythonSourceDiscoveryHost<'_> {
+        fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+            Ok(())
         }
 
-        fn load_source_file_set(&mut self) -> FirstPartySourceFilePatch {
-            let plan = build_source_roots(Vec::new());
-            let (root_issues, request) =
-                first_party_discovery_files_request(first_party_source_files_load_request(plan));
-            FirstPartySourceFilePatch::first_party(
-                root_issues,
-                djls_workspace::load_files_for_roots(request),
-            )
-        }
-
-        fn apply_source_file_patch(
+        fn load_files_for_roots(
             &mut self,
-            patch: FirstPartySourceFilePatch,
-        ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
-            let update = merge_first_party_source_file_patch(None, patch);
+            request: djls_workspace::FilesForRootsRequest,
+        ) -> Result<djls_workspace::FilesForRootsResult, DiscoveryCancellation> {
+            Ok(djls_workspace::load_files_for_roots(request))
+        }
+
+        fn current_source_files(&mut self) -> Option<ReadySourceFiles> {
+            None
+        }
+
+        fn apply_source_files(
+            &mut self,
+            update: crate::SourceFilesUpdate,
+        ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
             let transition = update.applied_transition().clone();
-            LoadingApplyOutcome::Applied(SourceFilesApplyResult::Deferred {
+            DiscoveryApplyOutcome::Applied(SourceFilesApplyResult::Deferred {
                 transition,
                 issue: SourceFilesIssue::NotLoaded,
                 previous: None,
             })
         }
 
-        fn load_project_discovery_set(&mut self) -> ProjectRootDiscoveryUpdate {
-            load_project_root_discovery(ProjectRootDiscoveryLoadRequest::new(
-                Vec::new(),
-                djls_conf::Settings::default(),
-            ))
-        }
-
         fn apply_project_root_discovery(
             &mut self,
-            _data: ProjectRootDiscoveryUpdate,
-        ) -> LoadingApplyOutcome<ProjectRootDiscoveryApplyResult> {
-            LoadingApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Unavailable(
+            _update: ProjectRootDiscoveryUpdate,
+        ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
+            DiscoveryApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Unavailable(
                 ProjectRootDiscovery::Absent,
             ))
         }
 
         fn observe_python_source_index(
             &mut self,
-        ) -> LoadingObservationOutcome<PythonSourceIndexOutcome> {
-            LoadingObservationOutcome::Observed(
+        ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
+            DiscoveryObservationOutcome::Observed(
                 python_source_index(self.db, self.db.project()).clone(),
             )
         }
 
         fn observe_django_environment_candidates(
             &mut self,
-        ) -> LoadingObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
-            LoadingObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+        ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+            DiscoveryObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
                 candidates: Vec::new(),
                 issues: Vec::new(),
             })
         }
 
-        fn load_installed_app_file_patches(&mut self) -> crate::PartitionedSourceFileLoadOutcome {
-            crate::PartitionedSourceFileLoadOutcome::Ready(Vec::new())
-        }
-
-        fn load_template_directory_file_patches(
+        fn observe_installed_app_file_roots(
             &mut self,
-        ) -> crate::PartitionedSourceFileLoadOutcome {
-            crate::PartitionedSourceFileLoadOutcome::Ready(Vec::new())
+        ) -> DiscoveryObservationOutcome<crate::InstalledAppFileRootsDiscovery> {
+            DiscoveryObservationOutcome::Observed(crate::InstalledAppFileRootsDiscovery::Ready(
+                crate::InstalledAppFileRoots::new(Vec::new(), Vec::new()),
+            ))
         }
 
-        fn apply_partitioned_source_file_patch(
+        fn observe_template_directory_file_roots(
             &mut self,
-            _patch: crate::PartitionedSourceFilePatch,
-        ) -> LoadingApplyOutcome<SourceFilesApplyResult> {
-            unreachable!("test effects return no partitioned patches")
+        ) -> DiscoveryObservationOutcome<crate::TemplateDirectoryFileRootsDiscovery> {
+            DiscoveryObservationOutcome::Observed(
+                crate::TemplateDirectoryFileRootsDiscovery::Ready(
+                    crate::TemplateDirectoryFileRoots::new(Vec::new(), Vec::new()),
+                ),
+            )
         }
 
-        fn load_project_enrichment(&mut self) -> crate::ProjectEnrichment {
-            crate::ProjectEnrichment::Disabled
+        fn load_project_enrichment(
+            &mut self,
+        ) -> Result<crate::ProjectEnrichment, DiscoveryCancellation> {
+            Ok(crate::ProjectEnrichment::Disabled)
         }
 
         fn apply_project_enrichment(
             &mut self,
             enrichment: crate::ProjectEnrichment,
-        ) -> LoadingApplyOutcome<crate::ProjectEnrichment> {
-            LoadingApplyOutcome::Applied(enrichment)
+        ) -> DiscoveryApplyOutcome<crate::ProjectEnrichment> {
+            DiscoveryApplyOutcome::Applied(enrichment)
         }
     }
 
@@ -1301,12 +1290,9 @@ async def build():
         db.set_file("/workspace/app/models.py", "class Book:\n    pass\n");
         db.set_source_file_inventory(ready_inventory(&db, &["/workspace/app/models.py"]));
 
-        let mut effects = PythonSourceLoadingEffects { db: &db };
-        let result = run_loading_plan(
-            LoadingPlan::phase3(),
-            &mut effects,
-            &mut NoopLoadingObserver,
-        );
+        let mut host = PythonSourceDiscoveryHost { db: &db };
+        let request = DjangoDiscoveryRequest::new(Vec::new(), djls_conf::Settings::default());
+        let result = run_django_discovery(&request, &mut host, &mut NoopDiscoveryObserver);
         assert!(result.execution_outcome().is_none());
         let events = db.take_events();
         assert!(db.tracked_query_executed(&events, "python_source_index"));

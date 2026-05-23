@@ -31,18 +31,6 @@ pub struct DjangoEnvironmentCandidate {
 }
 
 impl DjangoEnvironmentCandidate {
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn for_test() -> Self {
-        Self {
-            id: DjangoEnvironmentId("test:config:/workspace".to_string()),
-            settings: crate::PyModuleName::parse("test.settings")
-                .expect("test module should be valid"),
-            root: Some(camino::Utf8PathBuf::from("/workspace")),
-            source: EnvironmentCandidateSource::ExplicitConfig,
-        }
-    }
-
     #[must_use]
     pub fn id(&self) -> &DjangoEnvironmentId {
         &self.id
@@ -352,7 +340,6 @@ mod tests {
     use super::*;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::DjangoEnvironmentSeed;
-    use crate::root_discovery::DjangoSettingsModuleSeed;
     use crate::root_discovery::ProjectEnvVars;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::root_discovery::ProjectRootDiscoverySet;
@@ -478,7 +465,7 @@ mod tests {
             db,
             Utf8PathBuf::from(root),
             None,
-            settings.map(DjangoSettingsModuleSeed::new),
+            settings.map(str::to_string),
             environments,
             Vec::new(),
             ProjectEnvVars::default(),
@@ -502,10 +489,10 @@ mod tests {
             &db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("explicit.settings")),
+            Some("explicit.settings".to_string()),
             vec![DjangoEnvironmentSeed::from_settings_module(
                 Some("default".to_string()),
-                DjangoSettingsModuleSeed::new("environment.settings"),
+                "environment.settings".to_string(),
                 Some(Utf8PathBuf::from("/workspace")),
             )],
             Vec::new(),
@@ -542,7 +529,7 @@ mod tests {
             &db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("explicit.settings")),
+            Some("explicit.settings".to_string()),
             Vec::new(),
             Vec::new(),
             ProjectEnvVars::from_resolved_entries(vec![(

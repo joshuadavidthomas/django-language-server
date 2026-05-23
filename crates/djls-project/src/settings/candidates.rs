@@ -293,7 +293,6 @@ mod tests {
     use super::*;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::DjangoEnvironmentSeed;
-    use crate::root_discovery::DjangoSettingsModuleSeed;
     use crate::root_discovery::ProjectEnvVars;
     use crate::root_discovery::ProjectRootDiscoverySet;
     use crate::root_discovery::RootDiscoveryInput;
@@ -404,10 +403,10 @@ mod tests {
             &db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("explicit.settings")),
+            Some("explicit.settings".to_string()),
             vec![DjangoEnvironmentSeed::from_settings_module(
                 Some("default".to_string()),
-                DjangoSettingsModuleSeed::new("environment.settings"),
+                "environment.settings".to_string(),
                 Some(Utf8PathBuf::from("/workspace")),
             )],
             Vec::new(),
@@ -473,7 +472,7 @@ mod tests {
             &db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("explicit.settings")),
+            Some("explicit.settings".to_string()),
             Vec::new(),
             Vec::new(),
             ProjectEnvVars::default(),
@@ -501,7 +500,7 @@ mod tests {
             &db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("not a module")),
+            Some("not a module".to_string()),
             Vec::new(),
             Vec::new(),
             ProjectEnvVars::default(),

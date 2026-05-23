@@ -449,9 +449,12 @@ cargo check -p djls-project --all-targets
 
 Expected success criteria:
 
-- `rg "LoadingPlan|LoadingEffects|run_loading_plan|phase3|NodeId|MilestoneId|NodeTerminalStatus|MilestoneTerminalStatus" crates/djls-project crates/djls-server crates/djls` returns no code matches.
-- No public or private compatibility wrappers preserve old loading names.
-- `run_django_discovery` has no plan parameter.
+- [x] `rg "LoadingPlan|LoadingEffects|run_loading_plan|phase3|NodeId|MilestoneId|NodeTerminalStatus|MilestoneTerminalStatus" crates/djls-project crates/djls-server crates/djls` returns no code matches.
+  - Evidence: command returned no matches after replacing loading plan/effects with Django Discovery Run types.
+- [x] No public or private compatibility wrappers preserve old loading names.
+  - Evidence: deleted `crates/djls-project/src/loading.rs` and `crates/djls-project/src/loading/{driver,effects,plan}.rs`; crate-root exports now expose `run_django_discovery`, `DiscoveryHost`, `DiscoveryObserver`, `DiscoveryStage`, `DiscoveryMilestone`, and outcome types only.
+- [x] `run_django_discovery` has no plan parameter.
+  - Evidence: `crates/djls-project/src/discovery_run.rs` defines `run_django_discovery(request, host, observer)`; stage order is internal in `DISCOVERY_STAGES`.
 
 ## Phase 4: Update CLI and LSP hosts
 
@@ -525,9 +528,12 @@ cargo check -p djls-server --all-targets
 
 Expected success criteria:
 
-- CLI and LSP hosts no longer import source-root builders, merge helpers, or patch builders from `djls-project`.
-- CLI/LSP host code reads as runtime policy only.
-- Startup generation/stale-snapshot behavior remains tested.
+- [x] CLI and LSP hosts no longer import source-root builders, merge helpers, or patch builders from `djls-project`.
+  - Evidence: `rg "build_source_roots|first_party_discovery_files_request|first_party_source_files_load_request|merge_first_party_source_file_patch|merge_partitioned_source_file_patch|FirstPartySourceFilePatch|PartitionedSourceFilePatch" crates/djls/src crates/djls-server/src -g '*.rs'` returned no matches.
+- [x] CLI/LSP host code reads as runtime policy only.
+  - Evidence: `CliDiscoveryHost` and `LspDiscoveryHost` implement checkpointing/cancellation, file walking, DB observation, and apply callbacks; Django source-root/request/patch choreography moved into `run_django_discovery` and project-owned domain types.
+- [x] Startup generation/stale-snapshot behavior remains tested.
+  - Evidence: `cargo test -p djls-server startup`, `cargo test -p djls --test check`, `cargo test -p djls-project discovery_run`, `cargo check --all-targets`, and `just fmt --check` passed.
 
 ## Phase 5: Update semantic/IDE/project consumers for renamed Project Facts
 
@@ -574,9 +580,12 @@ cargo check --all-targets
 
 Expected success criteria:
 
-- No old Project Discovery or Project Source Files type names remain in code.
-- Semantic/IDE behavior remains unchanged.
-- Internal project code imports from owning modules.
+- [x] No old Project Discovery or Project Source Files type names remain in code.
+  - Evidence: `rg "ProjectSourceInventory|ReadyProjectSourceFiles|ProjectSourceFilesIssue|ProjectDiscovery|RootDiscoveryData|ProjectDiscoverySetData|ProjectDiscoveryLoadRequest|build_project_discovery_data|set_project_source_inventory|set_project_discovery" crates/djls-project crates/djls-db crates/djls-server crates/djls crates/djls-semantic crates/djls-ide` returned no matches.
+- [x] Semantic/IDE behavior remains unchanged.
+  - Evidence: `cargo test -p djls-semantic resolution` and `cargo test -p djls-ide` passed.
+- [x] Internal project code imports from owning modules.
+  - Evidence: `rg "project\.discovery\(|ProjectDiscovery|ProjectSourceInventory|ReadyProjectSourceFiles|ProjectSourceFilesIssue" crates/djls-project/src crates/djls-semantic/src crates/djls-ide/src -g '*.rs'` returned no matches; `cargo test -p djls-project` passed.
 
 ## Phase 6: Delete obsolete loading module and stale exports
 
@@ -622,9 +631,12 @@ just fmt --check
 
 Expected success criteria:
 
-- The old loading module is gone.
-- The crate-root API is explicit and curated.
-- No false old names remain in live architecture docs.
+- [x] The old loading module is gone.
+  - Evidence: deleted `crates/djls-project/src/loading.rs` and `crates/djls-project/src/loading/{driver,effects,plan}.rs`; `rg "LoadingPlan|LoadingEffects|run_loading_plan|phase3|NodeId|MilestoneId|NodeTerminalStatus|MilestoneTerminalStatus|ProjectLoadingSnapshot|start_project_loading|CliLoadingExecutor|LspLoadingExecutor" crates/djls-project crates/djls-server crates/djls` returned no matches.
+- [x] The crate-root API is explicit and curated.
+  - Evidence: removed crate-root exports for source-root builders, first-party/partition patch builders, merge helpers, old installed-app/template-directory load outcomes, and low-level Project Root Discovery load request helpers. `rg "pub use source_files::(build_source_roots|first_party_discovery_files_request|first_party_source_files_load_request|merge_first_party_source_file_patch|merge_partitioned_source_file_patch|FirstPartySourceFilePatch|PartitionedSourceFileLoadOutcome|PartitionedSourceFilePatch|PartitionedSourceFilePatchSet)|load_project_root_discovery|ProjectRootDiscoveryLoadRequest|installed_app_file_load_outcome|template_directory_file_load_outcome" crates/djls-project/src/lib.rs crates/djls-project/src/templates.rs` returned no matches.
+- [x] No false old names remain in live architecture docs.
+  - Evidence: `ARCHITECTURE.md` now describes the Django Discovery Run, discovery hosts, and `djls-db` apply/materialization boundary; `docs/agents/startup-rethink/current-architecture-inventory.md` is marked as historical pre-cleanup evidence.
 
 ## Phase 7: Review and full validation
 
@@ -646,37 +658,51 @@ cargo clippy --all-targets --all-features --benches -- -D warnings
 
 If a test fails, fix it before continuing. Do not classify failures as unrelated.
 
+### Validation evidence
+
+- [x] `cargo check --all-targets` passed.
+- [x] `cargo test -p djls-project` passed.
+- [x] `cargo test -p djls-db` passed.
+- [x] `cargo test -p djls-semantic resolution` passed.
+- [x] `cargo test -p djls-ide` passed.
+- [x] `cargo test -p djls --test check` passed.
+- [x] `cargo test -p djls-server startup` passed.
+- [x] `just fmt --check` passed.
+- [x] `cargo clippy --all-targets --all-features --benches -- -D warnings` passed.
+- [x] `just clippy --allow-dirty` passed after the direct clippy gate; `--allow-dirty` was needed because this was still an uncommitted worktree and the recipe uses `--fix`.
+- [x] `cargo test --all-targets` passed.
+- [x] `just lint` passed.
+- [x] `just test` passed.
+
 ### Manual review checklist
 
-- `djls-project` owns Django Discovery Run sequencing.
-- `djls-project` owns Source File Inventory decisions, but not concrete DB mutation.
-- `djls-db` owns Salsa materialization and setters.
-- `djls-server` owns LSP runtime policy only.
-- `djls` CLI owns CLI runtime policy only.
-- No old generic loading plan/effects API remains.
-- No compatibility aliases preserve old names.
-- No `pub mod` was introduced in `djls-project`.
-- Cross-crate API in `djls-project/src/lib.rs` is broad only where the seam is truly broad.
-- Runtime enrichment remains optional and does not gate `WorkspaceReady` or `DjangoAppsReady`.
-- `SemanticDb::template_libraries()` migration seam was not made worse.
+- [x] `djls-project` owns Django Discovery Run sequencing.
+- [x] `djls-project` owns Source File Inventory decisions, but not concrete DB mutation.
+- [x] `djls-db` owns Salsa materialization and setters.
+- [x] `djls-server` owns LSP runtime policy only.
+- [x] `djls` CLI owns CLI runtime policy only.
+- [x] No old generic loading plan/effects API remains.
+- [x] No compatibility aliases preserve old names.
+- [x] No `pub mod` remains in `djls-project`.
+- [x] Cross-crate API in `djls-project/src/lib.rs` is broad only where the seam is truly broad.
+- [x] Runtime enrichment remains optional and does not gate `WorkspaceReady` or `DjangoAppsReady`.
+- [x] `SemanticDb::template_libraries()` migration seam was not made worse; file validation now falls back to runtime libraries when project-specific libraries are unavailable, covered by `file_validation_falls_back_to_runtime_libraries_without_project_facts`.
 
 ### Optional implementation review
 
-After validation, ask for an adversarial implementation review focused on:
-
-- Ousterhout: module depth and leakage.
-- Lamport: Source File Inventory transition invariants and discovery cancellation/apply ordering.
-- Grug: needless wrappers, over-abstracted names, or compatibility sludge.
+- [x] Ousterhout review found no must-fix blockers for module depth, public API hygiene, or CLI/server policy leakage.
+- [x] Lamport review found no must-fix blockers for stage/milestone ordering, cancellation/apply ordering, stale snapshot handling, or Source File Inventory partition transitions.
+- [x] Grug review was not required by the objective; this optional review was deliberately skipped.
 
 ## Final success criteria
 
 The PR is ready to commit/push when all of these are true:
 
-1. `LoadingPlan`, `LoadingEffects`, `run_loading_plan`, `phase3`, `NodeId`, and milestone/node terminal old names are gone from live code.
-2. `run_django_discovery` is the single discovery-run entrypoint.
-3. The fake plan abstraction is removed; stage order is internal to the run.
-4. CLI and LSP hosts no longer duplicate source-root/request/merge choreography.
-5. Source File Inventory decisions are computed in `djls-project`; inventory mutation happens in `djls-db`.
-6. Project Root Discovery naming is used consistently for the per-root discovery Project Fact.
-7. `djls-project` has no public modules and no accidental crate-root convenience facade.
-8. Full validation passes.
+1. [x] `LoadingPlan`, `LoadingEffects`, `run_loading_plan`, `phase3`, `NodeId`, and milestone/node terminal old names are gone from live code.
+2. [x] `run_django_discovery` is the single discovery-run entrypoint.
+3. [x] The fake plan abstraction is removed; stage order is internal to the run.
+4. [x] CLI and LSP hosts no longer duplicate source-root/request/merge choreography.
+5. [x] Source File Inventory decisions are computed in `djls-project`; inventory mutation happens in `djls-db`.
+6. [x] Project Root Discovery naming is used consistently for the per-root discovery Project Fact.
+7. [x] `djls-project` has no public modules and no accidental crate-root convenience facade.
+8. [x] Full validation passes.

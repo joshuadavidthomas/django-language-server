@@ -112,20 +112,7 @@ impl DjangoEnvironmentSeed {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DjangoSettingsModuleSeed(String);
-
-impl DjangoSettingsModuleSeed {
-    #[must_use]
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+pub type DjangoSettingsModuleSeed = String;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProjectEnvVars(Vec<(String, String)>);
@@ -425,7 +412,7 @@ mod tests {
     fn environment_seed_requires_settings_module() {
         let seed = DjangoEnvironmentSeed::from_settings_module(
             Some("default".to_string()),
-            DjangoSettingsModuleSeed::new("project.settings"),
+            "project.settings".to_string(),
             Some(Utf8PathBuf::from("/workspace")),
         );
 
@@ -436,28 +423,18 @@ mod tests {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProjectRootDiscoveryLoadRequest {
+pub(crate) struct ProjectRootDiscoveryLoadRequest {
     roots: Vec<Utf8PathBuf>,
     client_settings: Settings,
 }
 
 impl ProjectRootDiscoveryLoadRequest {
     #[must_use]
-    pub fn new(roots: Vec<Utf8PathBuf>, client_settings: Settings) -> Self {
+    pub(crate) fn new(roots: Vec<Utf8PathBuf>, client_settings: Settings) -> Self {
         Self {
             roots,
             client_settings,
         }
-    }
-
-    #[must_use]
-    pub fn roots(&self) -> &[Utf8PathBuf] {
-        &self.roots
-    }
-
-    #[must_use]
-    pub fn client_settings(&self) -> &Settings {
-        &self.client_settings
     }
 }
 
@@ -549,7 +526,7 @@ impl RootDiscoveryUpdate {
 }
 
 #[must_use]
-pub fn load_project_root_discovery(
+pub(crate) fn load_project_root_discovery(
     request: ProjectRootDiscoveryLoadRequest,
 ) -> ProjectRootDiscoveryUpdate {
     let roots = request
@@ -576,9 +553,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDis
     };
 
     let interpreter = Some(Interpreter::discover(settings.venv_path()));
-    let settings_module_seed = settings
-        .django_settings_module()
-        .map(DjangoSettingsModuleSeed::new);
+    let settings_module_seed = settings.django_settings_module().map(ToString::to_string);
     let configured_environment_seeds = settings
         .django_environments()
         .iter()
@@ -586,7 +561,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDis
             environment.django_settings_module().map(|settings_module| {
                 DjangoEnvironmentSeed::from_settings_module(
                     None,
-                    DjangoSettingsModuleSeed::new(settings_module),
+                    settings_module.to_string(),
                     Some(root.join(environment.root())),
                 )
             })
@@ -703,9 +678,7 @@ django_settings_module = "blog.settings"
         let root_data = &data.roots()[0];
 
         assert_eq!(
-            root_data
-                .settings_module_seed()
-                .map(DjangoSettingsModuleSeed::as_str),
+            root_data.settings_module_seed().map(String::as_str),
             Some("project.settings")
         );
         assert_eq!(root_data.pythonpath(), &[root.join("src")]);

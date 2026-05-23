@@ -22,8 +22,8 @@ impl DjangoDatabase {
 
     /// Store new settings and report which startup-sensitive settings changed.
     ///
-    /// Project Facts are updated by the loading graph, not by mutating the old
-    /// semantic Project input from this settings boundary.
+    /// Project Facts are updated by the Django Discovery Run, not by mutating
+    /// the old semantic Project input from this settings boundary.
     ///
     /// # Panics
     ///

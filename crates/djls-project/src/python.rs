@@ -1,5 +1,5 @@
-pub mod inventory;
-pub mod source;
+mod inventory;
+mod source;
 
 pub use inventory::model_modules;
 pub use inventory::template_tag_modules;
@@ -10,6 +10,9 @@ pub(crate) use source::Assignment;
 pub(crate) use source::AssignmentKind;
 pub(crate) use source::ClassDef;
 pub(crate) use source::ImportStatement;
+#[cfg(test)]
+pub(crate) use source::PythonSourceIndex;
+pub(crate) use source::PythonSourceIndexIssue;
 pub use source::PythonSourceIndexOutcome;
 pub(crate) use source::PythonSourceOperation;
 pub(crate) use source::PythonSourceParseStatus;

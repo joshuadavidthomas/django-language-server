@@ -586,7 +586,6 @@ mod tests {
     use super::*;
     use crate::django_environment_candidates;
     use crate::enrichment::ProjectEnrichment;
-    use crate::root_discovery::DjangoSettingsModuleSeed;
     use crate::root_discovery::ProjectEnvVars;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::root_discovery::ProjectRootDiscoverySet;
@@ -693,7 +692,7 @@ mod tests {
             db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("project.settings")),
+            Some("project.settings".to_string()),
             Vec::new(),
             Vec::new(),
             ProjectEnvVars::default(),

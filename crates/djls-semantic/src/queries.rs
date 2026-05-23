@@ -90,11 +90,11 @@ fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePat
 #[cfg(test)]
 mod tests {
     use camino::Utf8PathBuf;
-    use djls_project::testing::manage_py_path;
-    use djls_project::testing::package_init_path;
-    use djls_project::testing::project_discovery_set_for_test;
-    use djls_project::testing::ready_source_inventory_with_roots_for_test;
-    use djls_project::testing::settings_file_path;
+    use djls_project::manage_py_path;
+    use djls_project::package_init_path;
+    use djls_project::project_discovery_set_for_test;
+    use djls_project::ready_source_inventory_with_roots_for_test;
+    use djls_project::settings_file_path;
     use djls_project::Db as ProjectFactsDb;
     use djls_project::ProjectRootDiscovery;
 

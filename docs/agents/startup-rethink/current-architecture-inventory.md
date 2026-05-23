@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is a current-branch inventory of the startup-rethink work. It is separate from the earlier research document and is scoped to the code that exists now.
+This is a historical current-branch inventory captured before the Django Discovery Run cleanup in `docs/agents/startup-rethink/discovery-run-cleanup-plan.md`. It preserves evidence about the old loading graph shape and should not be read as the live code architecture after the cleanup.
 
 The question here is not “what should we implement next?” It is:
 

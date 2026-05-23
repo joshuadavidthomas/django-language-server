@@ -19,9 +19,11 @@ use crate::settings::django_settings;
 use crate::settings::PartialListSegment;
 use crate::settings::SettingsIssue;
 use crate::source_files::build_source_roots_with_kind;
-use crate::source_files::PartitionedSourceFileLoadOutcome;
-use crate::source_files::PartitionedSourceFilePatch;
+use crate::source_files::merge_partitioned_source_file_patch_set;
+use crate::source_files::PartitionedSourceFilePatchSet;
+use crate::source_files::ReadySourceFiles;
 use crate::source_files::SourceFilesIssue;
+use crate::source_files::SourceFilesUpdate;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::DjangoEnvironmentId;
@@ -225,58 +227,72 @@ pub(crate) fn installed_apps(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct InstalledAppFilesLoadRequest {
-    roots: Vec<Utf8PathBuf>,
+pub enum InstalledAppFileRootsDiscovery {
+    Ready(InstalledAppFileRoots),
+    WaitingForDjangoEnvironments,
+    DjangoEnvironmentsUnavailable,
 }
 
-impl InstalledAppFilesLoadRequest {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstalledAppFileRoots {
+    roots: Vec<Utf8PathBuf>,
+    issues: Vec<SourceFilesIssue>,
+}
+
+impl InstalledAppFileRoots {
+    pub(crate) fn new(roots: Vec<Utf8PathBuf>, issues: Vec<SourceFilesIssue>) -> Self {
+        Self { roots, issues }
+    }
+
     #[must_use]
-    fn new(roots: Vec<Utf8PathBuf>) -> Self {
-        Self { roots }
+    pub fn roots(&self) -> &[Utf8PathBuf] {
+        &self.roots
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[SourceFilesIssue] {
+        &self.issues
+    }
+
+    pub(crate) fn files_request(&self) -> FilesForRootsRequest {
+        let plan =
+            build_source_roots_with_kind(self.roots.clone(), FileRootKind::LibrarySearchPath);
+        FilesForRootsRequest::new(
+            plan.roots().to_vec(),
+            Box::new(installed_app_file_predicate),
+            django_app_walk_options(),
+        )
+    }
+
+    pub(crate) fn source_files_update(
+        &self,
+        current: Option<&ReadySourceFiles>,
+        result: FilesForRootsResult,
+    ) -> SourceFilesUpdate {
+        merge_partitioned_source_file_patch_set(
+            current,
+            PartitionedSourceFilePatchSet::installed_apps(result, self.issues.clone()),
+        )
     }
 }
 
 #[must_use]
-fn load_installed_app_files(request: InstalledAppFilesLoadRequest) -> FilesForRootsResult {
-    let plan = build_source_roots_with_kind(request.roots, FileRootKind::LibrarySearchPath);
-    djls_workspace::load_files_for_roots(FilesForRootsRequest::new(
-        plan.roots().to_vec(),
-        Box::new(installed_app_file_predicate),
-        django_app_walk_options(),
-    ))
-}
-
-#[must_use]
-pub fn installed_app_file_load_outcome(
+pub fn installed_app_file_roots_discovery(
     db: &dyn Db,
     project: Project,
-) -> PartitionedSourceFileLoadOutcome {
+) -> InstalledAppFileRootsDiscovery {
     match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
-            return PartitionedSourceFileLoadOutcome::Deferred {
-                issue: SourceFilesIssue::InstalledAppGap {
-                    entry: "<environment-discovery>".to_string(),
-                },
-            };
+            return InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments;
         }
         DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-            return PartitionedSourceFileLoadOutcome::Unavailable {
-                issue: SourceFilesIssue::InstalledAppGap {
-                    entry: "<environment-discovery>".to_string(),
-                },
-            };
+            return InstalledAppFileRootsDiscovery::DjangoEnvironmentsUnavailable;
         }
         DjangoEnvironmentCandidatesOutcome::Ready { .. }
         | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => {}
     }
     let (roots, issues) = installed_app_file_roots_and_issues(db, project);
-    let result = load_installed_app_files(InstalledAppFilesLoadRequest::new(roots));
-    let patches = PartitionedSourceFilePatch::installed_app(result);
-    if issues.is_empty() {
-        PartitionedSourceFileLoadOutcome::Ready(patches)
-    } else {
-        PartitionedSourceFileLoadOutcome::Degraded { patches, issues }
-    }
+    InstalledAppFileRootsDiscovery::Ready(InstalledAppFileRoots::new(roots, issues))
 }
 
 fn installed_app_file_roots_and_issues(
@@ -396,7 +412,6 @@ mod tests {
     use super::*;
     use crate::django_environment_candidates;
     use crate::enrichment::ProjectEnrichment;
-    use crate::root_discovery::DjangoSettingsModuleSeed;
     use crate::root_discovery::ProjectEnvVars;
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::root_discovery::ProjectRootDiscoverySet;
@@ -483,7 +498,7 @@ mod tests {
             db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("project.settings")),
+            Some("project.settings".to_string()),
             Vec::new(),
             Vec::new(),
             ProjectEnvVars::default(),
@@ -522,7 +537,9 @@ mod tests {
         std::fs::write(root.join("migrations/0001_initial.py"), "")
             .expect("migration should be written");
 
-        let result = load_installed_app_files(InstalledAppFilesLoadRequest::new(vec![root]));
+        let result = djls_workspace::load_files_for_roots(
+            InstalledAppFileRoots::new(vec![root], Vec::new()).files_request(),
+        );
         let loaded = result
             .files()
             .iter()
@@ -642,7 +659,7 @@ mod tests {
             &db,
             Utf8PathBuf::from("/workspace"),
             None,
-            Some(DjangoSettingsModuleSeed::new("project.settings")),
+            Some("project.settings".to_string()),
             Vec::new(),
             vec![Utf8PathBuf::from("/external")],
             ProjectEnvVars::default(),

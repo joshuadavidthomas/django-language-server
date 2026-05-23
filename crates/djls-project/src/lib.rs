@@ -1,11 +1,11 @@
 mod apps;
 mod db;
+mod discovery_run;
 mod enrichment;
 mod env;
 mod environments;
 mod interpreter;
 mod layout;
-mod loading;
 mod names;
 mod project;
 mod provenance;
@@ -17,10 +17,28 @@ mod source_files;
 mod system;
 mod templates;
 #[cfg(any(test, feature = "testing"))]
-pub mod testing;
+mod testing;
 
-pub use apps::installed_app_file_load_outcome;
+pub use apps::installed_app_file_roots_discovery;
+pub use apps::InstalledAppFileRoots;
+pub use apps::InstalledAppFileRootsDiscovery;
 pub use db::Db;
+pub use discovery_run::run_django_discovery;
+pub use discovery_run::DiscoveryApplyOutcome;
+pub use discovery_run::DiscoveryCancellation;
+pub use discovery_run::DiscoveryExecutionOutcome;
+pub use discovery_run::DiscoveryHost;
+pub use discovery_run::DiscoveryMilestone;
+pub use discovery_run::DiscoveryMilestoneResult;
+pub use discovery_run::DiscoveryMilestoneStatus;
+pub use discovery_run::DiscoveryObservationOutcome;
+pub use discovery_run::DiscoveryObserver;
+pub use discovery_run::DiscoveryRunResult;
+pub use discovery_run::DiscoveryStage;
+pub use discovery_run::DiscoveryStageResult;
+pub use discovery_run::DiscoveryStageStatus;
+pub use discovery_run::DjangoDiscoveryRequest;
+pub use discovery_run::NoopDiscoveryObserver;
 pub use enrichment::load_runtime_project_enrichment;
 pub use enrichment::InspectorFailureKind;
 pub use enrichment::ProjectEnrichment;
@@ -34,20 +52,6 @@ pub use environments::DjangoEnvironmentId;
 pub use environments::EnvironmentSelection;
 pub use environments::EnvironmentSelectionIssue;
 pub use interpreter::Interpreter;
-pub use loading::run_loading_plan;
-pub use loading::LoadingApplyOutcome;
-pub use loading::LoadingEffects;
-pub use loading::LoadingExecutionOutcome;
-pub use loading::LoadingObservationOutcome;
-pub use loading::LoadingObserver;
-pub use loading::LoadingPlan;
-pub use loading::LoadingRunControl;
-pub use loading::LoadingRunResult;
-pub use loading::MilestoneId;
-pub use loading::MilestoneTerminalStatus;
-pub use loading::NodeId;
-pub use loading::NodeTerminalStatus;
-pub use loading::NoopLoadingObserver;
 pub use names::InvalidName;
 pub use names::LibraryName;
 pub use names::PyModuleName;
@@ -59,25 +63,20 @@ pub use python::python_source_index;
 pub use python::template_tag_modules;
 pub use python::PythonModule;
 pub use python::PythonSourceIndexOutcome;
-pub use root_discovery::load_project_root_discovery;
+pub use root_discovery::DjangoEnvironmentSeed;
+pub use root_discovery::DjangoSettingsModuleSeed;
+pub use root_discovery::EnvFileLoadIssueKind;
+pub use root_discovery::InterpreterDiscoveryIssueKind;
+pub use root_discovery::ProjectConfigLoadError;
 pub use root_discovery::ProjectEnvVars;
 pub use root_discovery::ProjectRootDiscovery;
 pub use root_discovery::ProjectRootDiscoveryApplyResult;
 pub use root_discovery::ProjectRootDiscoveryIssue;
 pub use root_discovery::ProjectRootDiscoveryIssues;
-pub use root_discovery::ProjectRootDiscoveryLoadRequest;
 pub use root_discovery::ProjectRootDiscoverySet;
 pub use root_discovery::ProjectRootDiscoveryUpdate;
 pub use root_discovery::RootDiscoveryInput;
 pub use root_discovery::RootDiscoveryUpdate;
-pub use source_files::build_source_roots;
-pub use source_files::first_party_discovery_files_request;
-pub use source_files::first_party_source_files_load_request;
-pub use source_files::merge_first_party_source_file_patch;
-pub use source_files::merge_partitioned_source_file_patch;
-pub use source_files::FirstPartySourceFilePatch;
-pub use source_files::PartitionedSourceFileLoadOutcome;
-pub use source_files::PartitionedSourceFilePatch;
 pub use source_files::ReadySourceFiles;
 pub use source_files::SourceFileHandleChanges;
 pub use source_files::SourceFileInventory;
@@ -89,7 +88,27 @@ pub use source_files::SourceFilesIssue;
 pub use source_files::SourceFilesMaterializationPatch;
 pub use source_files::SourceFilesUpdate;
 pub use templates::loadable_template_libraries;
-pub use templates::template_directory_file_load_outcome;
+pub use templates::template_directory_file_roots_discovery;
 pub use templates::template_files;
 pub use templates::LoadableTemplateLibrary;
 pub use templates::TemplateDirectoryEntry;
+pub use templates::TemplateDirectoryFileRoots;
+pub use templates::TemplateDirectoryFileRootsDiscovery;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::app_dir;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::manage_py_path;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::package_init_path;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::project_discovery_set_for_test;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::ready_source_inventory_for_test;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::ready_source_inventory_with_roots_for_test;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::settings_file_path;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::source_file_set_for_test;
+#[cfg(any(test, feature = "testing"))]
+pub use testing::template_path;

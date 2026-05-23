@@ -93,9 +93,8 @@ pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
 
     let _template_tree = build_template_tree(db, nodelist);
     let opaque_regions = compute_opaque_regions(db, nodelist);
-    let Some(template_libraries) = template_libraries_for_file(db, file) else {
-        return;
-    };
+    let template_libraries =
+        template_libraries_for_file(db, file).unwrap_or_else(|| db.template_libraries().clone());
     validate_nodelist_with_template_libraries(db, nodelist, &opaque_regions, &template_libraries);
 }
 
@@ -150,6 +149,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fmt::Write;
 
+    use camino::Utf8Path;
     use camino::Utf8PathBuf;
 
     use crate::specs::filters::FilterAritySpecs;
@@ -251,6 +251,22 @@ mod tests {
     }
 
     // Integration: Mixed diagnostics
+
+    #[test]
+    fn file_validation_falls_back_to_runtime_libraries_without_project_facts() {
+        let db = standard_db();
+        db.add_file("test.html", "{{ value|truncatewords }}\n");
+        let file = db.create_file(Utf8Path::new("test.html"));
+
+        crate::validate_template_file(&db, file);
+        let errors = crate::validate_template_file::accumulated::<crate::ValidationErrorAccumulator>(
+            &db, file,
+        );
+
+        assert!(errors
+            .iter()
+            .any(|error| matches!(error.0, ValidationError::FilterMissingArgument { .. })));
+    }
 
     #[test]
     fn mixed_expression_and_filter_arity_errors() {

@@ -2,8 +2,8 @@
 mod args;
 mod cli;
 mod commands;
+mod discovery;
 mod exit;
-mod loading;
 
 use anyhow::Result;
 

@@ -53,7 +53,7 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
-    async fn start_project_loading(
+    async fn start_project_discovery(
         &self,
     ) -> tokio::task::JoinHandle<crate::startup::StartupRunOutcome> {
         let guard = self.startup.start_generation().await;
@@ -70,7 +70,7 @@ impl DjangoLanguageServer {
         let session = Arc::clone(&self.session);
         tokio::spawn(async move {
             let outcome = run_startup_source_files(session, inputs).await;
-            tracing::debug!(?outcome, "Project loading run finished");
+            tracing::debug!(?outcome, "Django discovery run finished");
             outcome
         })
     }
@@ -195,7 +195,7 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
-        let _loading = self.start_project_loading().await;
+        let _discovery = self.start_project_discovery().await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -523,14 +523,14 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        let loading = if settings_update.env_changed {
-            Some(self.start_project_loading().await)
+        let discovery = if settings_update.env_changed {
+            Some(self.start_project_discovery().await)
         } else {
             None
         };
 
-        if let Some(loading) = loading {
-            let _outcome = loading.await;
+        if let Some(discovery) = discovery {
+            let _outcome = discovery.await;
         }
 
         if settings_update.env_changed || settings_update.diagnostics_changed {
