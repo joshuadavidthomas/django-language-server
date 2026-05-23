@@ -78,8 +78,8 @@ pub fn settings_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandida
     }
 
     candidates.sort_by(|left, right| {
-        source_rank(&left.source)
-            .cmp(&source_rank(&right.source))
+        left.source
+            .cmp(&right.source)
             .then_with(|| left.module.as_str().cmp(right.module.as_str()))
     });
 
@@ -198,16 +198,6 @@ fn conventional_candidates(
         ));
     }
     candidates
-}
-
-fn source_rank(source: &SettingsCandidateSource) -> u8 {
-    match source {
-        SettingsCandidateSource::ExplicitConfig => 0,
-        SettingsCandidateSource::ConfiguredEnvironment => 1,
-        SettingsCandidateSource::EnvironmentVariable => 2,
-        SettingsCandidateSource::ManagePyDefault => 3,
-        SettingsCandidateSource::ConventionalModule => 4,
-    }
 }
 
 #[cfg(test)]
