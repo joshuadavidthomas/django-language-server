@@ -2,10 +2,10 @@ use djls_db::DjangoDatabase;
 use djls_project::installed_app_file_roots_discovery;
 use djls_project::template_directory_file_roots_discovery;
 use djls_project::Db as ProjectDb;
-use djls_project::DiscoveryApplyOutcome;
+use djls_project::DiscoveryApply;
 use djls_project::DiscoveryCancellation;
 use djls_project::DiscoveryHost;
-use djls_project::DiscoveryObservationOutcome;
+use djls_project::DiscoveryObservation;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
 use djls_project::InstalledAppFileRootsOutcome;
 use djls_project::ProjectEnrichment;
@@ -51,49 +51,41 @@ impl DiscoveryHost for CliDiscoveryHost<'_> {
     fn apply_source_files(
         &mut self,
         update: SourceFilesUpdate,
-    ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
-        DiscoveryApplyOutcome::Applied(self.db.apply_source_files(update))
+    ) -> DiscoveryApply<SourceFilesApplyResult> {
+        Ok(self.db.apply_source_files(update))
     }
 
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
-        DiscoveryApplyOutcome::Applied(self.db.apply_project_root_discovery(update))
+    ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+        Ok(self.db.apply_project_root_discovery(update))
     }
 
-    fn observe_python_source_index(
-        &mut self,
-    ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
+    fn observe_python_source_index(&mut self) -> DiscoveryObservation<PythonSourceIndexOutcome> {
         let project = ProjectDb::project(self.db);
-        DiscoveryObservationOutcome::Observed(
-            djls_project::python_source_index(self.db, project).clone(),
-        )
+        Ok(djls_project::python_source_index(self.db, project).clone())
     }
 
     fn observe_django_environment_candidates(
         &mut self,
-    ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+    ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
         let project = ProjectDb::project(self.db);
-        DiscoveryObservationOutcome::Observed(
-            djls_project::django_environment_candidates(self.db, project).clone(),
-        )
+        Ok(djls_project::django_environment_candidates(self.db, project).clone())
     }
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
+    ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
         let project = ProjectDb::project(self.db);
-        DiscoveryObservationOutcome::Observed(installed_app_file_roots_discovery(self.db, project))
+        Ok(installed_app_file_roots_discovery(self.db, project))
     }
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
+    ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
         let project = ProjectDb::project(self.db);
-        DiscoveryObservationOutcome::Observed(template_directory_file_roots_discovery(
-            self.db, project,
-        ))
+        Ok(template_directory_file_roots_discovery(self.db, project))
     }
 
     fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
@@ -103,7 +95,7 @@ impl DiscoveryHost for CliDiscoveryHost<'_> {
     fn apply_project_enrichment(
         &mut self,
         enrichment: ProjectEnrichment,
-    ) -> DiscoveryApplyOutcome<ProjectEnrichment> {
-        DiscoveryApplyOutcome::Applied(self.db.apply_enrichment(enrichment))
+    ) -> DiscoveryApply<ProjectEnrichment> {
+        Ok(self.db.apply_enrichment(enrichment))
     }
 }

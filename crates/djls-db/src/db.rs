@@ -402,10 +402,10 @@ mod source_file_set_tests {
     use camino::Utf8PathBuf;
     use djls_project::run_django_discovery;
     use djls_project::Db as ProjectDb;
-    use djls_project::DiscoveryApplyOutcome;
+    use djls_project::DiscoveryApply;
     use djls_project::DiscoveryCancellation;
     use djls_project::DiscoveryHost;
-    use djls_project::DiscoveryObservationOutcome;
+    use djls_project::DiscoveryObservation;
     use djls_project::DjangoDiscoveryRequest;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
     use djls_project::InstalledAppFileRootsOutcome;
@@ -435,6 +435,7 @@ mod source_file_set_tests {
     struct SourceDiscoveryHost<'db> {
         db: &'db mut DjangoDatabase,
         materializations: Vec<SourceFileHandleChanges>,
+        source_result: Option<SourceFilesApplyResult>,
     }
 
     impl<'db> SourceDiscoveryHost<'db> {
@@ -442,6 +443,7 @@ mod source_file_set_tests {
             Self {
                 db,
                 materializations: Vec::new(),
+                source_result: None,
             }
         }
 
@@ -474,37 +476,35 @@ mod source_file_set_tests {
         fn apply_source_files(
             &mut self,
             update: SourceFilesUpdate,
-        ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
+        ) -> DiscoveryApply<SourceFilesApplyResult> {
             let previous = self.current_source_files();
             let materialized = self
                 .db
                 .materialize_source_file_set(update.materialization());
             self.materializations
                 .push(materialized.handle_changes().clone());
-            DiscoveryApplyOutcome::Applied(
-                self.apply_decision(update.decide_apply(previous, materialized)),
-            )
+            let result = self.apply_decision(update.decide_apply(previous, materialized));
+            self.source_result = Some(result.clone());
+            Ok(result)
         }
 
         fn apply_project_root_discovery(
             &mut self,
             update: ProjectRootDiscoveryUpdate,
-        ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
-            DiscoveryApplyOutcome::Applied(self.db.apply_project_root_discovery(update))
+        ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+            Ok(self.db.apply_project_root_discovery(update))
         }
 
         fn observe_python_source_index(
             &mut self,
-        ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
-            DiscoveryObservationOutcome::Observed(
-                djls_project::python_source_index(self.db, ProjectDb::project(self.db)).clone(),
-            )
+        ) -> DiscoveryObservation<PythonSourceIndexOutcome> {
+            Ok(djls_project::python_source_index(self.db, ProjectDb::project(self.db)).clone())
         }
 
         fn observe_django_environment_candidates(
             &mut self,
-        ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
-            DiscoveryObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+        ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
+            Ok(DjangoEnvironmentCandidatesOutcome::Ready {
                 candidates: Vec::new(),
                 issues: Vec::new(),
             })
@@ -512,14 +512,14 @@ mod source_file_set_tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
-            DiscoveryObservationOutcome::Observed(InstalledAppFileRootsOutcome::Deferred)
+        ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
+            Ok(InstalledAppFileRootsOutcome::Deferred)
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
-            DiscoveryObservationOutcome::Observed(TemplateDirectoryFileRootsOutcome::Deferred)
+        ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
+            Ok(TemplateDirectoryFileRootsOutcome::Deferred)
         }
 
         fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
@@ -529,8 +529,8 @@ mod source_file_set_tests {
         fn apply_project_enrichment(
             &mut self,
             enrichment: ProjectEnrichment,
-        ) -> DiscoveryApplyOutcome<ProjectEnrichment> {
-            DiscoveryApplyOutcome::Applied(enrichment)
+        ) -> DiscoveryApply<ProjectEnrichment> {
+            Ok(enrichment)
         }
     }
 
@@ -545,10 +545,10 @@ mod source_file_set_tests {
             &mut host,
             &mut djls_project::NoopDiscoveryObserver,
         );
-        let source_result = result
-            .source_file_set_result()
-            .expect("source-file stage should produce result")
-            .clone();
+        assert_eq!(result.execution_outcome(), None);
+        let source_result = host
+            .source_result
+            .expect("source-file stage should produce result");
         (source_result, host.materializations)
     }
 

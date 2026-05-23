@@ -99,17 +99,8 @@ pub enum DiscoveryExecutionOutcome {
     StaleSnapshot,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DiscoveryApplyOutcome<T> {
-    Applied(T),
-    Aborted(DiscoveryExecutionOutcome),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DiscoveryObservationOutcome<T> {
-    Observed(T),
-    Cancelled(DiscoveryCancellation),
-}
+pub type DiscoveryApply<T> = Result<T, DiscoveryExecutionOutcome>;
+pub type DiscoveryObservation<T> = Result<T, DiscoveryCancellation>;
 
 pub trait DiscoveryHost {
     fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation>;
@@ -124,35 +115,33 @@ pub trait DiscoveryHost {
     fn apply_source_files(
         &mut self,
         update: SourceFilesUpdate,
-    ) -> DiscoveryApplyOutcome<SourceFilesApplyResult>;
+    ) -> DiscoveryApply<SourceFilesApplyResult>;
 
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult>;
+    ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult>;
 
-    fn observe_python_source_index(
-        &mut self,
-    ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome>;
+    fn observe_python_source_index(&mut self) -> DiscoveryObservation<PythonSourceIndexOutcome>;
 
     fn observe_django_environment_candidates(
         &mut self,
-    ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome>;
+    ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome>;
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome>;
+    ) -> DiscoveryObservation<InstalledAppFileRootsOutcome>;
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome>;
+    ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome>;
 
     fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation>;
 
     fn apply_project_enrichment(
         &mut self,
         enrichment: ProjectEnrichment,
-    ) -> DiscoveryApplyOutcome<ProjectEnrichment>;
+    ) -> DiscoveryApply<ProjectEnrichment>;
 }
 
 pub trait DiscoveryObserver {
@@ -173,18 +162,11 @@ impl DiscoveryObserver for NoopDiscoveryObserver {
     fn stage_started(&mut self, _stage: DiscoveryStage) {}
 
     fn stage_finished(&mut self, _stage: DiscoveryStage, _status: DiscoveryStageStatus) {}
-
-    fn milestone_reached(
-        &mut self,
-        _milestone: DiscoveryMilestone,
-        _status: DiscoveryMilestoneStatus,
-    ) {
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveryRunResult {
-    stage_results: Vec<DiscoveryStageResult>,
+    stage_records: Vec<DiscoveryStageRecord>,
     milestone_results: Vec<DiscoveryMilestoneResult>,
     execution_outcome: Option<DiscoveryExecutionOutcome>,
 }
@@ -192,11 +174,11 @@ pub struct DiscoveryRunResult {
 impl DiscoveryRunResult {
     #[must_use]
     pub fn completed(
-        stage_results: Vec<DiscoveryStageResult>,
+        stage_records: Vec<DiscoveryStageRecord>,
         milestone_results: Vec<DiscoveryMilestoneResult>,
     ) -> Self {
         Self {
-            stage_results,
+            stage_records,
             milestone_results,
             execution_outcome: None,
         }
@@ -204,20 +186,20 @@ impl DiscoveryRunResult {
 
     #[must_use]
     pub fn aborted(
-        stage_results: Vec<DiscoveryStageResult>,
+        stage_records: Vec<DiscoveryStageRecord>,
         milestone_results: Vec<DiscoveryMilestoneResult>,
         execution_outcome: DiscoveryExecutionOutcome,
     ) -> Self {
         Self {
-            stage_results,
+            stage_records,
             milestone_results,
             execution_outcome: Some(execution_outcome),
         }
     }
 
     #[must_use]
-    pub fn stage_results(&self) -> &[DiscoveryStageResult] {
-        &self.stage_results
+    pub fn stage_records(&self) -> &[DiscoveryStageRecord] {
+        &self.stage_records
     }
 
     #[must_use]
@@ -228,19 +210,6 @@ impl DiscoveryRunResult {
     #[must_use]
     pub fn execution_outcome(&self) -> Option<&DiscoveryExecutionOutcome> {
         self.execution_outcome.as_ref()
-    }
-
-    #[must_use]
-    pub fn source_file_set_result(&self) -> Option<&SourceFilesApplyResult> {
-        self.stage_results.iter().find_map(|result| match result {
-            DiscoveryStageResult::SourceFiles { applied, .. } => Some(applied),
-            DiscoveryStageResult::ProjectRootDiscovery { .. }
-            | DiscoveryStageResult::PythonSourceModels { .. }
-            | DiscoveryStageResult::DjangoEnvironments { .. }
-            | DiscoveryStageResult::InstalledAppFiles { .. }
-            | DiscoveryStageResult::TemplateDirectoryFiles { .. }
-            | DiscoveryStageResult::Enrichment { .. } => None,
-        })
     }
 }
 
@@ -263,62 +232,25 @@ impl DiscoveryMilestoneResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DiscoveryStageResult {
-    SourceFiles {
-        applied: SourceFilesApplyResult,
-        status: DiscoveryStageStatus,
-    },
-    ProjectRootDiscovery {
-        applied: ProjectRootDiscoveryApplyResult,
-        status: DiscoveryStageStatus,
-    },
-    PythonSourceModels {
-        observed: PythonSourceIndexOutcome,
-        status: DiscoveryStageStatus,
-    },
-    DjangoEnvironments {
-        observed: DjangoEnvironmentCandidatesOutcome,
-        status: DiscoveryStageStatus,
-    },
-    InstalledAppFiles {
-        applied: Vec<SourceFilesApplyResult>,
-        status: DiscoveryStageStatus,
-    },
-    TemplateDirectoryFiles {
-        applied: Vec<SourceFilesApplyResult>,
-        status: DiscoveryStageStatus,
-    },
-    Enrichment {
-        applied: ProjectEnrichment,
-        status: DiscoveryStageStatus,
-    },
+pub struct DiscoveryStageRecord {
+    stage: DiscoveryStage,
+    status: DiscoveryStageStatus,
 }
 
-impl DiscoveryStageResult {
+impl DiscoveryStageRecord {
+    #[must_use]
+    pub fn new(stage: DiscoveryStage, status: DiscoveryStageStatus) -> Self {
+        Self { stage, status }
+    }
+
     #[must_use]
     pub fn stage(&self) -> DiscoveryStage {
-        match self {
-            Self::SourceFiles { .. } => DiscoveryStage::SourceFiles,
-            Self::ProjectRootDiscovery { .. } => DiscoveryStage::ProjectRootDiscovery,
-            Self::PythonSourceModels { .. } => DiscoveryStage::PythonSourceModels,
-            Self::DjangoEnvironments { .. } => DiscoveryStage::DjangoEnvironments,
-            Self::InstalledAppFiles { .. } => DiscoveryStage::InstalledAppFiles,
-            Self::TemplateDirectoryFiles { .. } => DiscoveryStage::TemplateDirectoryFiles,
-            Self::Enrichment { .. } => DiscoveryStage::Enrichment,
-        }
+        self.stage
     }
 
     #[must_use]
     pub fn status(&self) -> &DiscoveryStageStatus {
-        match self {
-            Self::SourceFiles { status, .. }
-            | Self::ProjectRootDiscovery { status, .. }
-            | Self::PythonSourceModels { status, .. }
-            | Self::DjangoEnvironments { status, .. }
-            | Self::InstalledAppFiles { status, .. }
-            | Self::TemplateDirectoryFiles { status, .. }
-            | Self::Enrichment { status, .. } => status,
-        }
+        &self.status
     }
 }
 
@@ -389,120 +321,91 @@ const MILESTONE_SPECS: &[MilestoneSpec] = &[
     },
 ];
 
-pub trait DiscoveryReadiness {
-    fn stage_status(&self) -> DiscoveryStageStatus;
-}
-
-#[must_use]
-pub fn stage_status_from_readiness(result: &impl DiscoveryReadiness) -> DiscoveryStageStatus {
-    result.stage_status()
-}
-
-impl DiscoveryReadiness for ProjectEnrichment {
-    fn stage_status(&self) -> DiscoveryStageStatus {
-        match self {
-            ProjectEnrichment::Absent | ProjectEnrichment::Disabled => {
-                DiscoveryStageStatus::Skipped
-            }
-            ProjectEnrichment::Fresh(_) => DiscoveryStageStatus::Succeeded,
-            ProjectEnrichment::Unresolved(ProjectEnrichmentIssue::InspectorFailed(_)) => {
-                DiscoveryStageStatus::Failed
-            }
-            ProjectEnrichment::Unresolved(
-                ProjectEnrichmentIssue::RuntimeUnavailable { .. }
-                | ProjectEnrichmentIssue::FixtureDoesNotModelEnrichment,
-            ) => DiscoveryStageStatus::Unavailable,
+fn enrichment_status(enrichment: &ProjectEnrichment) -> DiscoveryStageStatus {
+    match enrichment {
+        ProjectEnrichment::Absent | ProjectEnrichment::Disabled => DiscoveryStageStatus::Skipped,
+        ProjectEnrichment::Fresh(_) => DiscoveryStageStatus::Succeeded,
+        ProjectEnrichment::Unresolved(ProjectEnrichmentIssue::InspectorFailed(_)) => {
+            DiscoveryStageStatus::Failed
         }
+        ProjectEnrichment::Unresolved(
+            ProjectEnrichmentIssue::RuntimeUnavailable { .. }
+            | ProjectEnrichmentIssue::FixtureDoesNotModelEnrichment,
+        ) => DiscoveryStageStatus::Unavailable,
     }
 }
 
-impl DiscoveryReadiness for SourceFilesApplyResult {
-    fn stage_status(&self) -> DiscoveryStageStatus {
-        match self {
-            SourceFilesApplyResult::Applied(applied) => {
-                stage_status_from_project_source_files_applied(applied)
-            }
-            SourceFilesApplyResult::Deferred { .. } => DiscoveryStageStatus::Deferred,
-            SourceFilesApplyResult::Unavailable { .. } => DiscoveryStageStatus::Unavailable,
-            SourceFilesApplyResult::Failed { .. } => DiscoveryStageStatus::Failed,
-        }
+fn source_files_status(result: &SourceFilesApplyResult) -> DiscoveryStageStatus {
+    match result {
+        SourceFilesApplyResult::Applied(applied) => source_files_applied_status(applied),
+        SourceFilesApplyResult::Deferred { .. } => DiscoveryStageStatus::Deferred,
+        SourceFilesApplyResult::Unavailable { .. } => DiscoveryStageStatus::Unavailable,
+        SourceFilesApplyResult::Failed { .. } => DiscoveryStageStatus::Failed,
     }
 }
 
-impl DiscoveryReadiness for ProjectRootDiscoveryApplyResult {
-    fn stage_status(&self) -> DiscoveryStageStatus {
-        match self {
-            ProjectRootDiscoveryApplyResult::Applied {
-                discovery: ProjectRootDiscovery::Ready(_),
-                has_issues: false,
-            } => DiscoveryStageStatus::Succeeded,
-            ProjectRootDiscoveryApplyResult::Applied {
-                discovery: ProjectRootDiscovery::Ready(_),
-                has_issues: true,
-            } => DiscoveryStageStatus::Degraded,
-            ProjectRootDiscoveryApplyResult::Applied {
-                discovery: ProjectRootDiscovery::Absent,
-                ..
-            }
-            | ProjectRootDiscoveryApplyResult::Unavailable(ProjectRootDiscovery::Absent) => {
-                DiscoveryStageStatus::Deferred
-            }
-            ProjectRootDiscoveryApplyResult::Applied {
-                discovery: ProjectRootDiscovery::Unavailable { .. },
-                ..
-            }
-            | ProjectRootDiscoveryApplyResult::Unavailable(
-                ProjectRootDiscovery::Unavailable { .. } | ProjectRootDiscovery::Ready(_),
-            ) => DiscoveryStageStatus::Unavailable,
+fn project_root_discovery_status(result: &ProjectRootDiscoveryApplyResult) -> DiscoveryStageStatus {
+    match result {
+        ProjectRootDiscoveryApplyResult::Applied {
+            discovery: ProjectRootDiscovery::Ready(_),
+            has_issues: false,
+        } => DiscoveryStageStatus::Succeeded,
+        ProjectRootDiscoveryApplyResult::Applied {
+            discovery: ProjectRootDiscovery::Ready(_),
+            has_issues: true,
+        } => DiscoveryStageStatus::Degraded,
+        ProjectRootDiscoveryApplyResult::Applied {
+            discovery: ProjectRootDiscovery::Absent,
+            ..
         }
+        | ProjectRootDiscoveryApplyResult::Unavailable(ProjectRootDiscovery::Absent) => {
+            DiscoveryStageStatus::Deferred
+        }
+        ProjectRootDiscoveryApplyResult::Applied {
+            discovery: ProjectRootDiscovery::Unavailable { .. },
+            ..
+        }
+        | ProjectRootDiscoveryApplyResult::Unavailable(
+            ProjectRootDiscovery::Unavailable { .. } | ProjectRootDiscovery::Ready(_),
+        ) => DiscoveryStageStatus::Unavailable,
     }
 }
 
-impl DiscoveryReadiness for DjangoEnvironmentCandidatesOutcome {
-    fn stage_status(&self) -> DiscoveryStageStatus {
-        match self {
-            DjangoEnvironmentCandidatesOutcome::Ready { issues, .. } if issues.is_empty() => {
-                DiscoveryStageStatus::Succeeded
-            }
-            DjangoEnvironmentCandidatesOutcome::Ready { .. }
-            | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => {
-                DiscoveryStageStatus::Degraded
-            }
-            DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
-                DiscoveryStageStatus::Unavailable
-            }
-            DjangoEnvironmentCandidatesOutcome::Deferred { .. } => DiscoveryStageStatus::Deferred,
-        }
-    }
-}
-
-impl DiscoveryReadiness for PythonSourceIndexOutcome {
-    fn stage_status(&self) -> DiscoveryStageStatus {
-        match self {
-            PythonSourceIndexOutcome::Ready(_) => DiscoveryStageStatus::Succeeded,
-            PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles) => {
-                DiscoveryStageStatus::Skipped
-            }
-            PythonSourceIndexOutcome::Unindexed(
-                PythonSourceIndexIssue::SourceInventoryUnavailable(SourceFilesIssue::NotLoaded),
-            ) => DiscoveryStageStatus::Deferred,
-            PythonSourceIndexOutcome::Unindexed(
-                PythonSourceIndexIssue::LayoutUnavailable
-                | PythonSourceIndexIssue::SourceInventoryUnavailable(_),
-            ) => DiscoveryStageStatus::Unavailable,
-        }
-    }
-}
-
-#[must_use]
-pub fn stage_status_from_project_source_files_applied(
-    applied: &SourceFilesApplied,
+fn django_environment_candidates_status(
+    result: &DjangoEnvironmentCandidatesOutcome,
 ) -> DiscoveryStageStatus {
-    stage_status_from_file_partition_readiness(applied.transition().readiness())
+    match result {
+        DjangoEnvironmentCandidatesOutcome::Ready { issues, .. } if issues.is_empty() => {
+            DiscoveryStageStatus::Succeeded
+        }
+        DjangoEnvironmentCandidatesOutcome::Ready { .. }
+        | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => DiscoveryStageStatus::Degraded,
+        DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => DiscoveryStageStatus::Unavailable,
+        DjangoEnvironmentCandidatesOutcome::Deferred { .. } => DiscoveryStageStatus::Deferred,
+    }
 }
 
-#[must_use]
-pub fn stage_status_from_file_partition_readiness(
+fn python_source_index_status(result: &PythonSourceIndexOutcome) -> DiscoveryStageStatus {
+    match result {
+        PythonSourceIndexOutcome::Ready(_) => DiscoveryStageStatus::Succeeded,
+        PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::NoPythonFiles) => {
+            DiscoveryStageStatus::Skipped
+        }
+        PythonSourceIndexOutcome::Unindexed(
+            PythonSourceIndexIssue::SourceInventoryUnavailable(SourceFilesIssue::NotLoaded),
+        ) => DiscoveryStageStatus::Deferred,
+        PythonSourceIndexOutcome::Unindexed(
+            PythonSourceIndexIssue::LayoutUnavailable
+            | PythonSourceIndexIssue::SourceInventoryUnavailable(_),
+        ) => DiscoveryStageStatus::Unavailable,
+    }
+}
+
+fn source_files_applied_status(applied: &SourceFilesApplied) -> DiscoveryStageStatus {
+    file_partition_readiness_status(applied.transition().readiness())
+}
+
+fn file_partition_readiness_status(
     readiness: &SourceFilePartitionReadiness,
 ) -> DiscoveryStageStatus {
     match readiness {
@@ -521,12 +424,12 @@ pub fn run_django_discovery(
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
 ) -> DiscoveryRunResult {
-    let mut stage_results = Vec::with_capacity(DISCOVERY_STAGES.len());
+    let mut stage_records = Vec::with_capacity(DISCOVERY_STAGES.len());
     let mut milestone_results = Vec::with_capacity(MILESTONE_SPECS.len());
 
     if let Err(cancellation) = host.checkpoint() {
         return DiscoveryRunResult::aborted(
-            stage_results,
+            stage_records,
             milestone_results,
             execution_outcome_from_cancellation(cancellation),
         );
@@ -547,44 +450,43 @@ pub fn run_django_discovery(
             DiscoveryStage::Enrichment => run_enrichment_stage(host, observer),
         };
         match result {
-            Ok(result) => stage_results.push(result),
+            Ok(result) => stage_records.push(result),
             Err(outcome) => {
-                return DiscoveryRunResult::aborted(stage_results, milestone_results, outcome)
+                return DiscoveryRunResult::aborted(stage_records, milestone_results, outcome)
             }
         }
-        advance_milestones(&stage_results, &mut milestone_results, observer);
+        advance_milestones(&stage_records, &mut milestone_results, observer);
     }
 
-    DiscoveryRunResult::completed(stage_results, milestone_results)
+    DiscoveryRunResult::completed(stage_records, milestone_results)
 }
 
 fn run_source_files_stage(
     request: &DjangoDiscoveryRequest,
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::SourceFiles;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
     let plan = build_source_roots(request.workspace_roots.clone());
     let (root_issues, files_request) =
         first_party_discovery_files_request(first_party_source_files_load_request(plan));
-    let files = load_files_for_roots(host, files_request, stage, observer)?;
-    checkpoint(host, stage, observer)?;
-    let patch = FirstPartySourceFilePatch::first_party(root_issues, files);
-    let previous = host.current_source_files();
-    let update = merge_first_party_source_file_patch(previous.as_ref(), patch);
-    let applied = apply_source_files(host, update, stage, observer)?;
-    let status = stage_status_from_readiness(&applied);
+    let applied =
+        load_and_apply_source_files(host, files_request, stage, observer, |previous, files| {
+            let patch = FirstPartySourceFilePatch::first_party(root_issues, files);
+            merge_first_party_source_file_patch(previous, patch)
+        })?;
+    let status = source_files_status(&applied);
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::SourceFiles { applied, status })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn run_project_root_discovery_stage(
     request: &DjangoDiscoveryRequest,
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::ProjectRootDiscovery;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
@@ -597,158 +499,112 @@ fn run_project_root_discovery_stage(
         roots,
         request.client_settings.clone(),
     ));
-    let applied = match host.apply_project_root_discovery(update) {
-        DiscoveryApplyOutcome::Applied(applied) => applied,
-        DiscoveryApplyOutcome::Aborted(outcome) => {
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
-    let status = stage_status_from_readiness(&applied);
+    let applied = apply_or_abort(stage, observer, || {
+        host.apply_project_root_discovery(update)
+    })?;
+    let status = project_root_discovery_status(&applied);
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::ProjectRootDiscovery { applied, status })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn run_python_source_models_stage(
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::PythonSourceModels;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
-    let source_index = match host.observe_python_source_index() {
-        DiscoveryObservationOutcome::Observed(outcome) => outcome,
-        DiscoveryObservationOutcome::Cancelled(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
-    let status = stage_status_from_readiness(&source_index);
+    let source_index = observe_or_abort(stage, observer, || host.observe_python_source_index())?;
+    let status = python_source_index_status(&source_index);
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::PythonSourceModels {
-        observed: source_index,
-        status,
-    })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn run_django_environments_stage(
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::DjangoEnvironments;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
-    let environment_candidates = match host.observe_django_environment_candidates() {
-        DiscoveryObservationOutcome::Observed(candidates) => candidates,
-        DiscoveryObservationOutcome::Cancelled(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
-    let status = stage_status_from_readiness(&environment_candidates);
+    let environment_candidates = observe_or_abort(stage, observer, || {
+        host.observe_django_environment_candidates()
+    })?;
+    let status = django_environment_candidates_status(&environment_candidates);
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::DjangoEnvironments {
-        observed: environment_candidates,
-        status,
-    })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn run_installed_app_files_stage(
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::InstalledAppFiles;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
-    let discovery = match host.observe_installed_app_file_roots() {
-        DiscoveryObservationOutcome::Observed(discovery) => discovery,
-        DiscoveryObservationOutcome::Cancelled(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
-    let (applied, status) = match discovery {
+    let discovery = observe_or_abort(stage, observer, || host.observe_installed_app_file_roots())?;
+    let status = match discovery {
         InstalledAppFileRootsOutcome::Ready(roots) => {
-            let result = load_files_for_roots(host, roots.files_request(), stage, observer)?;
-            checkpoint(host, stage, observer)?;
-            let previous = host.current_source_files();
-            let update = roots.source_files_update(previous.as_ref(), result);
-            let applied = apply_source_files(host, update, stage, observer)?;
-            let status = stage_status_with_discovery_issues(&applied, roots.issues());
-            (vec![applied], status)
+            let issues = roots.issues().to_vec();
+            let applied = load_and_apply_source_files(
+                host,
+                roots.files_request(),
+                stage,
+                observer,
+                |previous, result| roots.source_files_update(previous, result),
+            )?;
+            stage_status_with_discovery_issues(&applied, &issues)
         }
-        InstalledAppFileRootsOutcome::Deferred => (Vec::new(), DiscoveryStageStatus::Deferred),
-        InstalledAppFileRootsOutcome::Unavailable => {
-            (Vec::new(), DiscoveryStageStatus::Unavailable)
-        }
+        InstalledAppFileRootsOutcome::Deferred => DiscoveryStageStatus::Deferred,
+        InstalledAppFileRootsOutcome::Unavailable => DiscoveryStageStatus::Unavailable,
     };
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::InstalledAppFiles { applied, status })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn run_template_directory_files_stage(
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::TemplateDirectoryFiles;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
-    let discovery = match host.observe_template_directory_file_roots() {
-        DiscoveryObservationOutcome::Observed(discovery) => discovery,
-        DiscoveryObservationOutcome::Cancelled(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
-    let (applied, status) = match discovery {
+    let discovery = observe_or_abort(stage, observer, || {
+        host.observe_template_directory_file_roots()
+    })?;
+    let status = match discovery {
         TemplateDirectoryFileRootsOutcome::Ready(roots) => {
-            let result = load_files_for_roots(host, roots.files_request(), stage, observer)?;
-            checkpoint(host, stage, observer)?;
-            let previous = host.current_source_files();
-            let update = TemplateDirectoryFileRoots::source_files_update(previous.as_ref(), result);
-            let applied = apply_source_files(host, update, stage, observer)?;
-            let status = stage_status_from_readiness(&applied);
-            (vec![applied], status)
+            let applied = load_and_apply_source_files(
+                host,
+                roots.files_request(),
+                stage,
+                observer,
+                TemplateDirectoryFileRoots::source_files_update,
+            )?;
+            source_files_status(&applied)
         }
-        TemplateDirectoryFileRootsOutcome::Deferred => (Vec::new(), DiscoveryStageStatus::Deferred),
-        TemplateDirectoryFileRootsOutcome::Unavailable => {
-            (Vec::new(), DiscoveryStageStatus::Unavailable)
-        }
+        TemplateDirectoryFileRootsOutcome::Deferred => DiscoveryStageStatus::Deferred,
+        TemplateDirectoryFileRootsOutcome::Unavailable => DiscoveryStageStatus::Unavailable,
     };
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::TemplateDirectoryFiles { applied, status })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn run_enrichment_stage(
     host: &mut impl DiscoveryHost,
     observer: &mut impl DiscoveryObserver,
-) -> Result<DiscoveryStageResult, DiscoveryExecutionOutcome> {
+) -> Result<DiscoveryStageRecord, DiscoveryExecutionOutcome> {
     let stage = DiscoveryStage::Enrichment;
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
-    let enrichment = match host.load_project_enrichment() {
-        Ok(enrichment) => enrichment,
-        Err(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
+    let enrichment = observe_or_abort(stage, observer, || host.load_project_enrichment())?;
     checkpoint(host, stage, observer)?;
-    let applied = match host.apply_project_enrichment(enrichment) {
-        DiscoveryApplyOutcome::Applied(applied) => applied,
-        DiscoveryApplyOutcome::Aborted(outcome) => {
-            finish_aborted_stage(stage, &outcome, observer);
-            return Err(outcome);
-        }
-    };
-    let status = stage_status_from_readiness(&applied);
+    let applied = apply_or_abort(stage, observer, || {
+        host.apply_project_enrichment(enrichment)
+    })?;
+    let status = enrichment_status(&applied);
     observer.stage_finished(stage, status.clone());
-    Ok(DiscoveryStageResult::Enrichment { applied, status })
+    Ok(DiscoveryStageRecord::new(stage, status))
 }
 
 fn checkpoint(
@@ -766,13 +622,12 @@ fn checkpoint(
     }
 }
 
-fn load_files_for_roots(
-    host: &mut impl DiscoveryHost,
-    request: FilesForRootsRequest,
+fn observe_or_abort<T>(
     stage: DiscoveryStage,
     observer: &mut impl DiscoveryObserver,
-) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome> {
-    match host.load_files_for_roots(request) {
+    observe: impl FnOnce() -> DiscoveryObservation<T>,
+) -> Result<T, DiscoveryExecutionOutcome> {
+    match observe() {
         Ok(result) => Ok(result),
         Err(cancellation) => {
             let outcome = execution_outcome_from_cancellation(cancellation);
@@ -782,26 +637,48 @@ fn load_files_for_roots(
     }
 }
 
-fn apply_source_files(
-    host: &mut impl DiscoveryHost,
-    update: SourceFilesUpdate,
+fn apply_or_abort<T>(
     stage: DiscoveryStage,
     observer: &mut impl DiscoveryObserver,
-) -> Result<SourceFilesApplyResult, DiscoveryExecutionOutcome> {
-    match host.apply_source_files(update) {
-        DiscoveryApplyOutcome::Applied(applied) => Ok(applied),
-        DiscoveryApplyOutcome::Aborted(outcome) => {
+    apply: impl FnOnce() -> DiscoveryApply<T>,
+) -> Result<T, DiscoveryExecutionOutcome> {
+    match apply() {
+        Ok(result) => Ok(result),
+        Err(outcome) => {
             finish_aborted_stage(stage, &outcome, observer);
             Err(outcome)
         }
     }
 }
 
+fn load_files_for_roots(
+    host: &mut impl DiscoveryHost,
+    request: FilesForRootsRequest,
+    stage: DiscoveryStage,
+    observer: &mut impl DiscoveryObserver,
+) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome> {
+    observe_or_abort(stage, observer, || host.load_files_for_roots(request))
+}
+
+fn load_and_apply_source_files(
+    host: &mut impl DiscoveryHost,
+    request: FilesForRootsRequest,
+    stage: DiscoveryStage,
+    observer: &mut impl DiscoveryObserver,
+    update: impl FnOnce(Option<&ReadySourceFiles>, FilesForRootsResult) -> SourceFilesUpdate,
+) -> Result<SourceFilesApplyResult, DiscoveryExecutionOutcome> {
+    let result = load_files_for_roots(host, request, stage, observer)?;
+    checkpoint(host, stage, observer)?;
+    let previous = host.current_source_files();
+    let update = update(previous.as_ref(), result);
+    apply_or_abort(stage, observer, || host.apply_source_files(update))
+}
+
 fn stage_status_with_discovery_issues(
     applied: &SourceFilesApplyResult,
     issues: &[SourceFilesIssue],
 ) -> DiscoveryStageStatus {
-    let status = stage_status_from_readiness(applied);
+    let status = source_files_status(applied);
     if issues.is_empty() {
         return status;
     }
@@ -814,7 +691,7 @@ fn stage_status_with_discovery_issues(
 }
 
 fn advance_milestones(
-    stage_results: &[DiscoveryStageResult],
+    stage_records: &[DiscoveryStageRecord],
     milestone_results: &mut Vec<DiscoveryMilestoneResult>,
     observer: &mut impl DiscoveryObserver,
 ) {
@@ -829,10 +706,10 @@ fn advance_milestones(
             .prerequisites
             .iter()
             .map(|prerequisite| {
-                stage_results
+                stage_records
                     .iter()
-                    .find(|result| result.stage() == prerequisite.stage)
-                    .map(DiscoveryStageResult::status)
+                    .find(|record| record.stage() == prerequisite.stage)
+                    .map(DiscoveryStageRecord::status)
                     .filter(|status| prerequisite.acceptable_statuses.contains(status))
             })
             .collect::<Option<Vec<_>>>();
@@ -955,7 +832,7 @@ mod tests {
         fn apply_source_files(
             &mut self,
             update: SourceFilesUpdate,
-        ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
+        ) -> DiscoveryApply<SourceFilesApplyResult> {
             self.apply_count += 1;
             if self.source_ready || update.applied_transition().partitions().is_empty() {
                 self.applied_updates.push(update);
@@ -965,7 +842,7 @@ mod tests {
                     crate::source_files::SourceFileSetPartitions::default(),
                     set,
                 );
-                return DiscoveryApplyOutcome::Applied(SourceFilesApplyResult::Applied(
+                return Ok(SourceFilesApplyResult::Applied(
                     SourceFilesApplied::for_test(
                         files,
                         crate::source_files::SourceFilePartitionReadiness::Ready {
@@ -981,7 +858,7 @@ mod tests {
                 .cloned()
                 .unwrap_or(crate::SourceFilesIssue::NotLoaded);
             self.applied_updates.push(update);
-            DiscoveryApplyOutcome::Applied(SourceFilesApplyResult::Unavailable {
+            Ok(SourceFilesApplyResult::Unavailable {
                 transition,
                 issue,
                 previous: None,
@@ -991,14 +868,14 @@ mod tests {
         fn apply_project_root_discovery(
             &mut self,
             update: ProjectRootDiscoveryUpdate,
-        ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
+        ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
             self.discovery_apply_count += 1;
             if update.roots().is_empty() {
-                DiscoveryApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Unavailable(
+                Ok(ProjectRootDiscoveryApplyResult::Unavailable(
                     ProjectRootDiscovery::Absent,
                 ))
             } else {
-                DiscoveryApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Applied {
+                Ok(ProjectRootDiscoveryApplyResult::Applied {
                     discovery: ProjectRootDiscovery::Absent,
                     has_issues: false,
                 })
@@ -1007,28 +884,26 @@ mod tests {
 
         fn observe_python_source_index(
             &mut self,
-        ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
+        ) -> DiscoveryObservation<PythonSourceIndexOutcome> {
             self.python_observe_count += 1;
             if self.python_skipped {
-                return DiscoveryObservationOutcome::Observed(PythonSourceIndexOutcome::Unindexed(
+                return Ok(PythonSourceIndexOutcome::Unindexed(
                     PythonSourceIndexIssue::NoPythonFiles,
                 ));
             }
-            DiscoveryObservationOutcome::Observed(PythonSourceIndexOutcome::Ready(
-                PythonSourceIndex::default(),
-            ))
+            Ok(PythonSourceIndexOutcome::Ready(PythonSourceIndex::default()))
         }
 
         fn observe_django_environment_candidates(
             &mut self,
-        ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+        ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
             self.environment_observe_count += 1;
             let issues = if self.environment_degraded {
                 vec![EnvironmentCandidatesIssue::NoSettingsCandidates]
             } else {
                 Vec::new()
             };
-            DiscoveryObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+            Ok(DjangoEnvironmentCandidatesOutcome::Ready {
                 candidates: Vec::<DjangoEnvironmentCandidate>::new(),
                 issues,
             })
@@ -1036,26 +911,22 @@ mod tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
+        ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
             if self.installed_app_deferred {
-                return DiscoveryObservationOutcome::Observed(
-                    InstalledAppFileRootsOutcome::Deferred,
-                );
+                return Ok(InstalledAppFileRootsOutcome::Deferred);
             }
-            DiscoveryObservationOutcome::Observed(InstalledAppFileRootsOutcome::Ready(
+            Ok(InstalledAppFileRootsOutcome::Ready(
                 crate::apps::InstalledAppFileRoots::new(Vec::new(), Vec::new()),
             ))
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
+        ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
             if self.template_directory_deferred {
-                return DiscoveryObservationOutcome::Observed(
-                    TemplateDirectoryFileRootsOutcome::Deferred,
-                );
+                return Ok(TemplateDirectoryFileRootsOutcome::Deferred);
             }
-            DiscoveryObservationOutcome::Observed(TemplateDirectoryFileRootsOutcome::Ready(
+            Ok(TemplateDirectoryFileRootsOutcome::Ready(
                 crate::templates::TemplateDirectoryFileRoots::new(Vec::new()),
             ))
         }
@@ -1067,8 +938,8 @@ mod tests {
         fn apply_project_enrichment(
             &mut self,
             enrichment: ProjectEnrichment,
-        ) -> DiscoveryApplyOutcome<ProjectEnrichment> {
-            DiscoveryApplyOutcome::Applied(enrichment)
+        ) -> DiscoveryApply<ProjectEnrichment> {
+            Ok(enrichment)
         }
     }
 
@@ -1160,19 +1031,19 @@ mod tests {
             ]
         );
         assert_eq!(
-            result.stage_results()[0].stage(),
+            result.stage_records()[0].stage(),
             DiscoveryStage::SourceFiles
         );
         assert_eq!(
-            result.stage_results()[1].stage(),
+            result.stage_records()[1].stage(),
             DiscoveryStage::ProjectRootDiscovery,
         );
         assert_eq!(
-            result.stage_results()[2].stage(),
+            result.stage_records()[2].stage(),
             DiscoveryStage::PythonSourceModels,
         );
         assert_eq!(
-            result.stage_results()[3].stage(),
+            result.stage_records()[3].stage(),
             DiscoveryStage::DjangoEnvironments,
         );
         assert_eq!(
@@ -1238,11 +1109,11 @@ mod tests {
         let (result, observer) = run_fake_discovery(&mut host);
 
         assert_eq!(
-            result.stage_results().last().unwrap().stage(),
+            result.stage_records().last().unwrap().stage(),
             DiscoveryStage::Enrichment,
         );
         assert_eq!(
-            result.stage_results().last().unwrap().status(),
+            result.stage_records().last().unwrap().status(),
             &DiscoveryStageStatus::Skipped,
         );
         assert!(observer

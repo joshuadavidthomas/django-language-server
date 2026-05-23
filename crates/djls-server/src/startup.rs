@@ -7,13 +7,13 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::run_django_discovery;
 use djls_project::Db as ProjectDb;
-use djls_project::DiscoveryApplyOutcome;
+use djls_project::DiscoveryApply;
 use djls_project::DiscoveryCancellation;
 use djls_project::DiscoveryExecutionOutcome;
 use djls_project::DiscoveryHost;
 use djls_project::DiscoveryMilestone;
 use djls_project::DiscoveryMilestoneStatus;
-use djls_project::DiscoveryObservationOutcome;
+use djls_project::DiscoveryObservation;
 use djls_project::DiscoveryObserver;
 use djls_project::DiscoveryRunResult;
 use djls_project::DiscoveryStage;
@@ -926,7 +926,7 @@ impl DiscoveryHost for LspDiscoveryHost {
     fn apply_source_files(
         &mut self,
         update: SourceFilesUpdate,
-    ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
+    ) -> DiscoveryApply<SourceFilesApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -937,20 +937,16 @@ impl DiscoveryHost for LspDiscoveryHost {
             }));
 
         match outcome {
-            ApplyOutcome::Applied(applied) => DiscoveryApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => {
-                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::Superseded)
-            }
-            ApplyOutcome::Rejected { .. } => {
-                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::StaleSnapshot)
-            }
+            ApplyOutcome::Applied(applied) => Ok(applied),
+            ApplyOutcome::Superseded => Err(DiscoveryExecutionOutcome::Superseded),
+            ApplyOutcome::Rejected { .. } => Err(DiscoveryExecutionOutcome::StaleSnapshot),
         }
     }
 
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
+    ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -958,110 +954,104 @@ impl DiscoveryHost for LspDiscoveryHost {
             }));
 
         match outcome {
-            ApplyOutcome::Applied(applied) => DiscoveryApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => {
-                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::Superseded)
-            }
-            ApplyOutcome::Rejected { .. } => {
-                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::StaleSnapshot)
-            }
+            ApplyOutcome::Applied(applied) => Ok(applied),
+            ApplyOutcome::Superseded => Err(DiscoveryExecutionOutcome::Superseded),
+            ApplyOutcome::Rejected { .. } => Err(DiscoveryExecutionOutcome::StaleSnapshot),
         }
     }
 
-    fn observe_python_source_index(
-        &mut self,
-    ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
+    fn observe_python_source_index(&mut self) -> DiscoveryObservation<PythonSourceIndexOutcome> {
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         if let Some(gate) = &self.python_observe_gate {
             gate();
         }
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::python_source_index(&db, project).clone();
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
-        DiscoveryObservationOutcome::Observed(outcome)
+        Ok(outcome)
     }
 
     fn observe_django_environment_candidates(
         &mut self,
-    ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
+    ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         if let Some(gate) = &self.environment_observe_gate {
             gate();
         }
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::django_environment_candidates(&db, project).clone();
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
-        DiscoveryObservationOutcome::Observed(outcome)
+        Ok(outcome)
     }
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<InstalledAppFileRootsOutcome> {
+    ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let project = ProjectDb::project(&db);
         let discovery = djls_project::installed_app_file_roots_discovery(&db, project);
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
-        DiscoveryObservationOutcome::Observed(discovery)
+        Ok(discovery)
     }
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservationOutcome<TemplateDirectoryFileRootsOutcome> {
+    ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
         let project = ProjectDb::project(&db);
         let discovery = djls_project::template_directory_file_roots_discovery(&db, project);
         if !self.inputs.guard().is_current() {
-            return DiscoveryObservationOutcome::Cancelled(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryCancellation::Superseded);
         }
-        DiscoveryObservationOutcome::Observed(discovery)
+        Ok(discovery)
     }
 
     fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
@@ -1085,7 +1075,7 @@ impl DiscoveryHost for LspDiscoveryHost {
     fn apply_project_enrichment(
         &mut self,
         enrichment: ProjectEnrichment,
-    ) -> DiscoveryApplyOutcome<ProjectEnrichment> {
+    ) -> DiscoveryApply<ProjectEnrichment> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -1093,13 +1083,9 @@ impl DiscoveryHost for LspDiscoveryHost {
             }));
 
         match outcome {
-            ApplyOutcome::Applied(applied) => DiscoveryApplyOutcome::Applied(applied),
-            ApplyOutcome::Superseded => {
-                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::Superseded)
-            }
-            ApplyOutcome::Rejected { .. } => {
-                DiscoveryApplyOutcome::Aborted(DiscoveryExecutionOutcome::StaleSnapshot)
-            }
+            ApplyOutcome::Applied(applied) => Ok(applied),
+            ApplyOutcome::Superseded => Err(DiscoveryExecutionOutcome::Superseded),
+            ApplyOutcome::Rejected { .. } => Err(DiscoveryExecutionOutcome::StaleSnapshot),
         }
     }
 }

@@ -123,14 +123,14 @@ pub enum SourceFilesFixtureSurface {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct SourceRootsPlan {
+pub(crate) struct SourceRootsPlan {
     roots: Vec<SourceRoot>,
     issues: Vec<SourceFilesIssue>,
 }
 
 impl SourceRootsPlan {
     #[must_use]
-    pub fn roots(&self) -> &[SourceRoot] {
+    pub(crate) fn roots(&self) -> &[SourceRoot] {
         &self.roots
     }
 
@@ -142,12 +142,14 @@ impl SourceRootsPlan {
 }
 
 #[must_use]
-pub fn build_source_roots(raw_roots: impl IntoIterator<Item = Utf8PathBuf>) -> SourceRootsPlan {
+pub(crate) fn build_source_roots(
+    raw_roots: impl IntoIterator<Item = Utf8PathBuf>,
+) -> SourceRootsPlan {
     build_source_roots_with_kind(raw_roots, FileRootKind::Project)
 }
 
 #[must_use]
-pub fn build_source_roots_with_kind(
+pub(crate) fn build_source_roots_with_kind(
     raw_roots: impl IntoIterator<Item = Utf8PathBuf>,
     kind: FileRootKind,
 ) -> SourceRootsPlan {
@@ -175,7 +177,7 @@ pub fn build_source_roots_with_kind(
     SourceRootsPlan { roots, issues }
 }
 
-pub struct SourceFilesLoadRequest {
+pub(crate) struct SourceFilesLoadRequest {
     roots: Vec<SourceRoot>,
     root_issues: Vec<SourceFilesIssue>,
     predicate: FileLoadPredicate,
@@ -226,7 +228,9 @@ fn first_party_walk_options() -> WalkOptions {
 }
 
 #[must_use]
-pub fn first_party_source_files_load_request(plan: SourceRootsPlan) -> SourceFilesLoadRequest {
+pub(crate) fn first_party_source_files_load_request(
+    plan: SourceRootsPlan,
+) -> SourceFilesLoadRequest {
     SourceFilesLoadRequest::new(
         plan.roots,
         plan.issues,
@@ -236,7 +240,7 @@ pub fn first_party_source_files_load_request(plan: SourceRootsPlan) -> SourceFil
 }
 
 #[must_use]
-pub fn first_party_discovery_files_request(
+pub(crate) fn first_party_discovery_files_request(
     request: SourceFilesLoadRequest,
 ) -> (Vec<SourceFilesIssue>, FilesForRootsRequest) {
     let files_request =
@@ -456,7 +460,7 @@ impl SourceFileSetPartitions {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FirstPartySourceFilePatch {
+pub(crate) struct FirstPartySourceFilePatch {
     partition: FileSetPartition,
     roots: Vec<SourceRoot>,
     files: Vec<DiscoveredSourceFile>,
@@ -465,7 +469,7 @@ pub struct FirstPartySourceFilePatch {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PartitionedSourceFilePatch {
+pub(crate) struct PartitionedSourceFilePatch {
     partition: FileSetPartition,
     roots: Vec<SourceRoot>,
     files: Vec<DiscoveredSourceFile>,
@@ -475,18 +479,18 @@ pub struct PartitionedSourceFilePatch {
 
 impl PartitionedSourceFilePatch {
     #[must_use]
-    pub fn installed_app(result: FilesForRootsResult) -> Vec<Self> {
+    pub(crate) fn installed_app(result: FilesForRootsResult) -> Vec<Self> {
         partitioned_patches(result, FileSetPartition::installed_app)
     }
 
     #[must_use]
-    pub fn configured_template_directory(result: FilesForRootsResult) -> Vec<Self> {
+    pub(crate) fn configured_template_directory(result: FilesForRootsResult) -> Vec<Self> {
         partitioned_patches(result, FileSetPartition::configured_template_directory)
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PartitionedSourceFilePatchSet {
+pub(crate) struct PartitionedSourceFilePatchSet {
     group: FileSetPartitionGroup,
     patches: Vec<PartitionedSourceFilePatch>,
     issues: Vec<SourceFilesIssue>,
@@ -494,7 +498,10 @@ pub struct PartitionedSourceFilePatchSet {
 
 impl PartitionedSourceFilePatchSet {
     #[must_use]
-    pub fn installed_apps(result: FilesForRootsResult, issues: Vec<SourceFilesIssue>) -> Self {
+    pub(crate) fn installed_apps(
+        result: FilesForRootsResult,
+        issues: Vec<SourceFilesIssue>,
+    ) -> Self {
         Self {
             group: FileSetPartitionGroup::InstalledApp,
             patches: PartitionedSourceFilePatch::installed_app(result),
@@ -503,7 +510,7 @@ impl PartitionedSourceFilePatchSet {
     }
 
     #[must_use]
-    pub fn configured_template_directories(result: FilesForRootsResult) -> Self {
+    pub(crate) fn configured_template_directories(result: FilesForRootsResult) -> Self {
         Self {
             group: FileSetPartitionGroup::ConfiguredTemplateDirectory,
             patches: PartitionedSourceFilePatch::configured_template_directory(result),
@@ -554,7 +561,7 @@ fn workspace_issue_root(issue: &WorkspaceRootIssue) -> &SourceRootId {
 impl FirstPartySourceFilePatch {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn first_party(
+    pub(crate) fn first_party(
         root_plan_issues: Vec<SourceFilesIssue>,
         result: FilesForRootsResult,
     ) -> Self {
@@ -1034,7 +1041,7 @@ fn project_issue_from_materialization_issue(
 
 #[cfg(test)]
 #[must_use]
-pub fn merge_partitioned_source_file_patch(
+fn merge_partitioned_source_file_patch(
     current: Option<&ReadySourceFiles>,
     patch: PartitionedSourceFilePatch,
 ) -> SourceFilesUpdate {
@@ -1049,7 +1056,7 @@ pub fn merge_partitioned_source_file_patch(
 }
 
 #[must_use]
-pub fn merge_partitioned_source_file_patch_set(
+pub(crate) fn merge_partitioned_source_file_patch_set(
     current: Option<&ReadySourceFiles>,
     patch_set: PartitionedSourceFilePatchSet,
 ) -> SourceFilesUpdate {
@@ -1157,7 +1164,7 @@ fn partition_conflicts(partitions: &SourceFileSetPartitions) -> Vec<SourceFilesI
 }
 
 #[must_use]
-pub fn merge_first_party_source_file_patch(
+pub(crate) fn merge_first_party_source_file_patch(
     current: Option<&ReadySourceFiles>,
     patch: FirstPartySourceFilePatch,
 ) -> SourceFilesUpdate {

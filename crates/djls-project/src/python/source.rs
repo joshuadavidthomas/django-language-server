@@ -1024,10 +1024,10 @@ mod tests {
     use crate::run_django_discovery;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFilesApplyResult;
-    use crate::DiscoveryApplyOutcome;
+    use crate::DiscoveryApply;
     use crate::DiscoveryCancellation;
     use crate::DiscoveryHost;
-    use crate::DiscoveryObservationOutcome;
+    use crate::DiscoveryObservation;
     use crate::DjangoDiscoveryRequest;
     use crate::DjangoEnvironmentCandidatesOutcome;
     use crate::NoopDiscoveryObserver;
@@ -1143,9 +1143,9 @@ mod tests {
         fn apply_source_files(
             &mut self,
             update: crate::SourceFilesUpdate,
-        ) -> DiscoveryApplyOutcome<SourceFilesApplyResult> {
+        ) -> DiscoveryApply<SourceFilesApplyResult> {
             let transition = update.applied_transition().clone();
-            DiscoveryApplyOutcome::Applied(SourceFilesApplyResult::Deferred {
+            Ok(SourceFilesApplyResult::Deferred {
                 transition,
                 issue: SourceFilesIssue::NotLoaded,
                 previous: None,
@@ -1155,24 +1155,22 @@ mod tests {
         fn apply_project_root_discovery(
             &mut self,
             _update: ProjectRootDiscoveryUpdate,
-        ) -> DiscoveryApplyOutcome<ProjectRootDiscoveryApplyResult> {
-            DiscoveryApplyOutcome::Applied(ProjectRootDiscoveryApplyResult::Unavailable(
+        ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+            Ok(ProjectRootDiscoveryApplyResult::Unavailable(
                 ProjectRootDiscovery::Absent,
             ))
         }
 
         fn observe_python_source_index(
             &mut self,
-        ) -> DiscoveryObservationOutcome<PythonSourceIndexOutcome> {
-            DiscoveryObservationOutcome::Observed(
-                python_source_index(self.db, self.db.project()).clone(),
-            )
+        ) -> DiscoveryObservation<PythonSourceIndexOutcome> {
+            Ok(python_source_index(self.db, self.db.project()).clone())
         }
 
         fn observe_django_environment_candidates(
             &mut self,
-        ) -> DiscoveryObservationOutcome<DjangoEnvironmentCandidatesOutcome> {
-            DiscoveryObservationOutcome::Observed(DjangoEnvironmentCandidatesOutcome::Ready {
+        ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
+            Ok(DjangoEnvironmentCandidatesOutcome::Ready {
                 candidates: Vec::new(),
                 issues: Vec::new(),
             })
@@ -1180,16 +1178,16 @@ mod tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<crate::InstalledAppFileRootsOutcome> {
-            DiscoveryObservationOutcome::Observed(crate::InstalledAppFileRootsOutcome::Ready(
+        ) -> DiscoveryObservation<crate::InstalledAppFileRootsOutcome> {
+            Ok(crate::InstalledAppFileRootsOutcome::Ready(
                 crate::InstalledAppFileRoots::new(Vec::new(), Vec::new()),
             ))
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservationOutcome<crate::TemplateDirectoryFileRootsOutcome> {
-            DiscoveryObservationOutcome::Observed(crate::TemplateDirectoryFileRootsOutcome::Ready(
+        ) -> DiscoveryObservation<crate::TemplateDirectoryFileRootsOutcome> {
+            Ok(crate::TemplateDirectoryFileRootsOutcome::Ready(
                 crate::TemplateDirectoryFileRoots::new(Vec::new()),
             ))
         }
@@ -1203,8 +1201,8 @@ mod tests {
         fn apply_project_enrichment(
             &mut self,
             enrichment: crate::ProjectEnrichment,
-        ) -> DiscoveryApplyOutcome<crate::ProjectEnrichment> {
-            DiscoveryApplyOutcome::Applied(enrichment)
+        ) -> DiscoveryApply<crate::ProjectEnrichment> {
+            Ok(enrichment)
         }
     }
 
