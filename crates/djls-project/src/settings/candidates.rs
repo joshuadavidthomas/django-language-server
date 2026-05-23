@@ -70,19 +70,16 @@ pub enum SettingsCandidateSource {
 
 #[salsa::tracked(returns(ref))]
 pub fn settings_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate> {
-    SettingsCandidates::discover(db, project).into_sorted_vec()
+    SettingsCandidates::default()
+        .with_discovery_candidates(db, project)
+        .with_layout_candidates(db, project)
+        .into_sorted_vec()
 }
 
 #[derive(Default)]
 struct SettingsCandidates(Vec<SettingsCandidate>);
 
 impl SettingsCandidates {
-    fn discover(db: &dyn Db, project: Project) -> Self {
-        Self::default()
-            .with_discovery_candidates(db, project)
-            .with_layout_candidates(db, project)
-    }
-
     fn with_discovery_candidates(mut self, db: &dyn Db, project: Project) -> Self {
         let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
             return self;
