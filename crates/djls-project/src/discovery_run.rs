@@ -23,6 +23,7 @@ use crate::source_files::SourceFilesApplied;
 use crate::source_files::SourceFilesApplyResult;
 use crate::source_files::SourceFilesIssue;
 use crate::source_files::SourceFilesUpdate;
+use crate::templates::TemplateDirectoryFileRoots;
 use crate::templates::TemplateDirectoryFileRootsDiscovery;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::PythonSourceIndexOutcome;
@@ -710,9 +711,9 @@ fn run_template_directory_files_stage(
             let result = load_files_for_roots(host, roots.files_request(), stage, observer)?;
             checkpoint(host, stage, observer)?;
             let previous = host.current_source_files();
-            let update = roots.source_files_update(previous.as_ref(), result);
+            let update = TemplateDirectoryFileRoots::source_files_update(previous.as_ref(), result);
             let applied = apply_source_files(host, update, stage, observer)?;
-            let status = stage_status_with_discovery_issues(&applied, roots.issues());
+            let status = stage_status_from_readiness(&applied);
             (vec![applied], status)
         }
         TemplateDirectoryFileRootsDiscovery::WaitingForDjangoEnvironments => {
@@ -1059,7 +1060,7 @@ mod tests {
                 );
             }
             DiscoveryObservationOutcome::Observed(TemplateDirectoryFileRootsDiscovery::Ready(
-                crate::templates::TemplateDirectoryFileRoots::new(Vec::new(), Vec::new()),
+                crate::templates::TemplateDirectoryFileRoots::new(Vec::new()),
             ))
         }
 

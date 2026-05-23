@@ -54,8 +54,6 @@ pub use queries::compute_tag_specs;
 pub use resolution::find_references_to_template;
 pub use resolution::resolve_template;
 pub use resolution::template_libraries_for_file;
-pub use resolution::TemplateInventoryIssue;
-pub use resolution::TemplateLookupIssue;
 pub use resolution::TemplateLookupResult;
 pub use scoping::available_symbols_at;
 pub use scoping::AvailableSymbols;

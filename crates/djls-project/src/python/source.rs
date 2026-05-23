@@ -1,4 +1,3 @@
-use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::FileKind;
 use ruff_python_ast::Comprehension;
@@ -128,14 +127,7 @@ pub enum PythonSourceIndexIssue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PyModuleNameResolution {
     Resolved(PyModuleName),
-    Unknown(ModuleNameIssue),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ModuleNameIssue {
-    NonPythonFile(Utf8PathBuf),
-    OutsideImportRoots(Utf8PathBuf),
-    InvalidModuleName(Utf8PathBuf),
+    Unknown,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -350,14 +342,11 @@ pub enum StaticValueIssue {
 #[salsa::tracked(returns(ref))]
 pub fn python_source_model(db: &dyn Db, file: File) -> PythonSourceModel {
     let source = file.source(db);
-    let module_resolution =
-        PyModuleNameResolution::Unknown(ModuleNameIssue::OutsideImportRoots(file.path(db).clone()));
+    let module_resolution = PyModuleNameResolution::Unknown;
     if *source.kind() != FileKind::Python {
         return PythonSourceModel {
             file,
-            module: PyModuleNameResolution::Unknown(ModuleNameIssue::NonPythonFile(
-                file.path(db).clone(),
-            )),
+            module: PyModuleNameResolution::Unknown,
             parse_status: PythonSourceParseStatus::Parsed,
             imports: Vec::new(),
             assignments: Vec::new(),
@@ -419,12 +408,8 @@ pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOu
         .iter()
         .filter(|file| file.kind() == FileKind::Python)
         .filter_map(|file| {
-            let module = layout.module_name_for_path(file.path()).map_or_else(
-                || {
-                    PyModuleNameResolution::Unknown(ModuleNameIssue::OutsideImportRoots(
-                        file.path().to_owned(),
-                    ))
-                },
+            let module = layout.module_name_for_path(file.path()).map_or(
+                PyModuleNameResolution::Unknown,
                 PyModuleNameResolution::Resolved,
             );
             layout
@@ -1206,7 +1191,7 @@ mod tests {
         ) -> DiscoveryObservationOutcome<crate::TemplateDirectoryFileRootsDiscovery> {
             DiscoveryObservationOutcome::Observed(
                 crate::TemplateDirectoryFileRootsDiscovery::Ready(
-                    crate::TemplateDirectoryFileRoots::new(Vec::new(), Vec::new()),
+                    crate::TemplateDirectoryFileRoots::new(Vec::new()),
                 ),
             )
         }
@@ -1267,10 +1252,7 @@ async def build():
 
         let model = python_source_model(&db, file);
 
-        assert!(matches!(
-            model.module(),
-            PyModuleNameResolution::Unknown(ModuleNameIssue::OutsideImportRoots(_))
-        ));
+        assert!(matches!(model.module(), PyModuleNameResolution::Unknown));
         assert_eq!(model.parse_status(), &PythonSourceParseStatus::Parsed);
         assert_eq!(model.imports().len(), 2);
         assert_eq!(model.assignments().len(), 2);

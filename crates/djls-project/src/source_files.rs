@@ -112,10 +112,7 @@ pub enum SourceFilesIssue {
         path: Utf8PathBuf,
         error_kind: std::io::ErrorKind,
     },
-    InstalledAppGap {
-        entry: String,
-    },
-    TemplateDirectoryGap,
+    InstalledAppGap,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -506,14 +503,11 @@ impl PartitionedSourceFilePatchSet {
     }
 
     #[must_use]
-    pub fn configured_template_directories(
-        result: FilesForRootsResult,
-        issues: Vec<SourceFilesIssue>,
-    ) -> Self {
+    pub fn configured_template_directories(result: FilesForRootsResult) -> Self {
         Self {
             group: FileSetPartitionGroup::ConfiguredTemplateDirectory,
             patches: PartitionedSourceFilePatch::configured_template_directory(result),
-            issues,
+            issues: Vec::new(),
         }
     }
 }
@@ -1625,7 +1619,7 @@ mod tests {
         ));
         let update = merge_partitioned_source_file_patch_set(
             Some(&previous),
-            PartitionedSourceFilePatchSet::configured_template_directories(result, Vec::new()),
+            PartitionedSourceFilePatchSet::configured_template_directories(result),
         );
         let materialized = materialized_for_update(&db, &update);
 

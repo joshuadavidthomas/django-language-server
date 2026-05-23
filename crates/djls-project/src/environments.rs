@@ -84,7 +84,6 @@ pub enum EnvironmentCandidatesIssue {
     NoSettingsCandidates,
     SettingsCandidatesUnavailable { issues: Vec<SettingsCandidateIssue> },
     SettingsCandidateIssues { issues: Vec<SettingsCandidateIssue> },
-    AmbiguousSettingsCandidates,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,7 +100,6 @@ pub enum EnvironmentSelection {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EnvironmentSelectionIssue {
-    NoEnvironmentCandidates,
     MultipleCandidatesForFile,
     NoCandidateForFile,
     CandidatesUnavailable { issue: EnvironmentCandidatesIssue },

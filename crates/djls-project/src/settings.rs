@@ -8,4 +8,3 @@ pub(crate) use candidates::SettingsCandidateOutcome;
 pub(crate) use candidates::SettingsCandidateSource;
 pub(crate) use composition::django_settings;
 pub(crate) use composition::PartialListSegment;
-pub(crate) use composition::SettingsIssue;

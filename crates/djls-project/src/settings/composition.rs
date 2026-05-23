@@ -7,7 +7,6 @@ use crate::python::PythonSourceOperation;
 use crate::python::PythonSourceParseStatus;
 use crate::python::QualifiedName;
 use crate::python::StaticValue;
-use crate::python::StaticValueIssue;
 use crate::resolver::resolve_module;
 use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
@@ -20,7 +19,6 @@ use crate::PyModuleName;
 pub struct DjangoSettings {
     installed_apps: PartialList<String>,
     templates: TemplateSettingsResolution,
-    issues: Vec<SettingsIssue>,
 }
 
 impl DjangoSettings {
@@ -56,61 +54,54 @@ impl<T> PartialList<T> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PartialListSegment<T> {
-    value: Option<T>,
-    issue: Option<SettingsIssue>,
+pub enum PartialListSegment<T> {
+    Known(T),
+    Unknown,
 }
 
 impl<T> PartialListSegment<T> {
     fn known(value: T) -> Self {
-        Self {
-            value: Some(value),
-            issue: None,
-        }
+        Self::Known(value)
     }
 
-    fn unknown(issue: SettingsIssue) -> Self {
-        Self {
-            value: None,
-            issue: Some(issue),
-        }
+    fn unknown() -> Self {
+        Self::Unknown
     }
 
     #[must_use]
     pub fn value(&self) -> Option<&T> {
-        self.value.as_ref()
+        match self {
+            Self::Known(value) => Some(value),
+            Self::Unknown => None,
+        }
     }
 
     #[must_use]
-    pub fn issue(&self) -> Option<&SettingsIssue> {
-        self.issue.as_ref()
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SettingsIssue {
-    EnvironmentCandidateUnavailable,
-    EnvironmentNotFound { id: DjangoEnvironmentId },
-    SettingsModuleNotResolved { module: PyModuleName },
-    SettingsModuleAmbiguous { module: PyModuleName },
-    SettingsModuleDeferred { module: PyModuleName },
-    SettingsModuleParseError,
-    UnsupportedInstalledAppsValue { issue: StaticValueIssue },
-    UnsupportedTemplatesValue { issue: StaticValueIssue },
-    UnsupportedListOperation { operation: &'static str },
-    ImportNotResolved { module: PyModuleName },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TemplateSettingsResolution {
     backends: Vec<TemplateBackend>,
-    issues: Vec<SettingsIssue>,
+    has_unknown: bool,
 }
 
 impl TemplateSettingsResolution {
     #[must_use]
     pub fn backends(&self) -> &[TemplateBackend] {
         &self.backends
+    }
+
+    #[must_use]
+    pub fn has_unknown(&self) -> bool {
+        self.has_unknown
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.backends.extend(other.backends);
+        self.has_unknown |= other.has_unknown;
     }
 }
 
@@ -158,15 +149,13 @@ impl TemplateLibraryAlias {
 }
 
 #[salsa::tracked(returns(ref))]
+#[allow(clippy::needless_pass_by_value)]
 pub fn django_settings(db: &dyn Db, project: Project, env: DjangoEnvironmentId) -> DjangoSettings {
     let Some(settings_module) = settings_module_for_env(db, project, &env) else {
-        return DjangoSettings {
-            issues: vec![SettingsIssue::EnvironmentNotFound { id: env }],
-            ..DjangoSettings::default()
-        };
+        return DjangoSettings::default();
     };
     let mut visited = Vec::new();
-    django_settings_for_module(db, project, settings_module, &mut visited)
+    django_settings_for_module(db, project, &settings_module, &mut visited)
 }
 
 fn settings_module_for_env(
@@ -189,53 +178,35 @@ fn settings_module_for_env(
 fn django_settings_for_module(
     db: &dyn Db,
     project: Project,
-    module: PyModuleName,
+    module: &PyModuleName,
     visited: &mut Vec<PyModuleName>,
 ) -> DjangoSettings {
-    if visited.contains(&module) {
+    if visited.contains(module) {
         return DjangoSettings::default();
     }
     visited.push(module.clone());
 
     let file = match resolve_module(db, project, module.clone()).outcome() {
         ModuleResolutionOutcome::Resolved(resolved) => resolved.location().file(),
-        ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
-            return DjangoSettings {
-                issues: vec![SettingsIssue::SettingsModuleAmbiguous { module }],
-                ..DjangoSettings::default()
-            };
-        }
-        ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_)) => {
-            return DjangoSettings {
-                issues: vec![SettingsIssue::SettingsModuleDeferred { module }],
-                ..DjangoSettings::default()
-            };
-        }
         ModuleResolutionOutcome::Unresolved(
-            ModuleResolutionError::NoImportRoots
+            ModuleResolutionError::MultipleCandidates(_)
+            | ModuleResolutionError::RootUnavailable(_)
+            | ModuleResolutionError::NoImportRoots
             | ModuleResolutionError::NotFound
             | ModuleResolutionError::UnsupportedModuleName,
-        ) => {
-            return DjangoSettings {
-                issues: vec![SettingsIssue::SettingsModuleNotResolved { module }],
-                ..DjangoSettings::default()
-            };
-        }
+        ) => return DjangoSettings::default(),
     };
 
     let model = python_source_model(db, file);
     if !matches!(model.parse_status(), PythonSourceParseStatus::Parsed) {
-        return DjangoSettings {
-            issues: vec![SettingsIssue::SettingsModuleParseError],
-            ..DjangoSettings::default()
-        };
+        return DjangoSettings::default();
     }
 
     let mut settings = DjangoSettings::default();
     apply_settings_operations(
         db,
         project,
-        &module,
+        module,
         &mut settings,
         model.operations(),
         visited,
@@ -246,9 +217,7 @@ fn django_settings_for_module(
 impl DjangoSettings {
     fn merge(&mut self, other: DjangoSettings) {
         self.installed_apps.extend(other.installed_apps.segments);
-        self.templates.backends.extend(other.templates.backends);
-        self.templates.issues.extend(other.templates.issues);
-        self.issues.extend(other.issues);
+        self.templates.merge(other.templates);
     }
 }
 
@@ -302,7 +271,7 @@ fn apply_settings_operations(
             PythonSourceOperation::Import(import) => {
                 if let Some(imported) = imported_settings_module(current_module, import) {
                     let imported_settings =
-                        django_settings_for_module(db, project, imported, visited);
+                        django_settings_for_module(db, project, &imported, visited);
                     settings.merge(imported_settings);
                 }
             }
@@ -313,9 +282,7 @@ fn apply_settings_operations(
                     .map(|target| target.name().as_dotted())
                     .collect::<Vec<_>>();
                 if target_names.iter().any(|target| target == "INSTALLED_APPS") {
-                    let segments = partial_string_list_from_value(assignment.value(), |issue| {
-                        SettingsIssue::UnsupportedInstalledAppsValue { issue }
-                    });
+                    let segments = partial_string_list_from_value(assignment.value());
                     match assignment.kind() {
                         AssignmentKind::Assign => settings.installed_apps.replace(segments),
                         AssignmentKind::AugAdd => settings.installed_apps.extend(segments),
@@ -341,9 +308,7 @@ fn apply_settings_operations(
                         if let Some(value) = call.arguments().first() {
                             settings
                                 .installed_apps
-                                .extend(partial_string_list_from_value(value, |issue| {
-                                    SettingsIssue::UnsupportedInstalledAppsValue { issue }
-                                }));
+                                .extend(partial_string_list_from_value(value));
                         }
                     }
                     _ => {}
@@ -353,33 +318,16 @@ fn apply_settings_operations(
     }
 }
 
-fn partial_string_list_from_value(
-    value: &StaticValue,
-    issue: impl Fn(StaticValueIssue) -> SettingsIssue,
-) -> Vec<PartialListSegment<String>> {
+fn partial_string_list_from_value(value: &StaticValue) -> Vec<PartialListSegment<String>> {
     match value {
         StaticValue::StringList(segments) => segments
             .iter()
-            .map(|segment| match (segment.value(), segment.issue()) {
-                (Some(value), None) => PartialListSegment::known(value.clone()),
-                (_, Some(static_issue)) => PartialListSegment::unknown(issue(static_issue.clone())),
-                (None, None) => {
-                    PartialListSegment::unknown(SettingsIssue::UnsupportedListOperation {
-                        operation: "unknown-list-segment",
-                    })
-                }
+            .map(|segment| match segment.value() {
+                Some(value) => PartialListSegment::known(value.clone()),
+                None => PartialListSegment::unknown(),
             })
             .collect(),
-        StaticValue::Unknown {
-            issue: static_issue,
-        } => {
-            vec![PartialListSegment::unknown(issue(static_issue.clone()))]
-        }
-        _ => vec![PartialListSegment::unknown(
-            SettingsIssue::UnsupportedListOperation {
-                operation: "non-list",
-            },
-        )],
+        _ => vec![PartialListSegment::unknown()],
     }
 }
 
@@ -394,25 +342,11 @@ fn template_settings_from_value(value: &StaticValue) -> TemplateSettingsResoluti
                             .backends
                             .push(template_backend_from_dict(entries));
                     }
-                    StaticValue::Unknown { issue } => {
-                        resolution
-                            .issues
-                            .push(SettingsIssue::UnsupportedTemplatesValue {
-                                issue: issue.clone(),
-                            });
-                    }
-                    _ => {}
+                    _ => resolution.has_unknown = true,
                 }
             }
         }
-        StaticValue::Unknown { issue } => {
-            resolution
-                .issues
-                .push(SettingsIssue::UnsupportedTemplatesValue {
-                    issue: issue.clone(),
-                });
-        }
-        _ => {}
+        _ => resolution.has_unknown = true,
     }
     resolution
 }
@@ -429,9 +363,7 @@ fn template_backend_from_dict(entries: &[(String, StaticValue)]) -> TemplateBack
             ("BACKEND", StaticValue::String(name)) => backend.backend = Some(name.clone()),
             ("DIRS", value) => {
                 backend.dirs = PartialList {
-                    segments: partial_string_list_from_value(value, |issue| {
-                        SettingsIssue::UnsupportedTemplatesValue { issue }
-                    }),
+                    segments: partial_string_list_from_value(value),
                 }
             }
             ("APP_DIRS", StaticValue::Bool(value)) => backend.app_dirs = Some(*value),
@@ -606,7 +538,7 @@ mod tests {
             segments[0].value(),
             Some(&"django.contrib.auth".to_string())
         );
-        assert!(segments[1].issue().is_some());
+        assert!(segments[1].is_unknown());
         assert_eq!(segments[2].value(), Some(&"blog".to_string()));
     }
 
@@ -705,7 +637,7 @@ mod tests {
         let settings = django_settings(&db, db.project(), env);
         let segments = settings.installed_app_entries().segments();
 
-        assert!(segments[0].issue().is_some());
+        assert!(segments[0].is_unknown());
         assert_eq!(segments[1].value(), Some(&"local_app".to_string()));
     }
 

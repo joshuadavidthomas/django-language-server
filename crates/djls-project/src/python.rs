@@ -18,4 +18,3 @@ pub(crate) use source::PythonSourceOperation;
 pub(crate) use source::PythonSourceParseStatus;
 pub(crate) use source::QualifiedName;
 pub(crate) use source::StaticValue;
-pub(crate) use source::StaticValueIssue;

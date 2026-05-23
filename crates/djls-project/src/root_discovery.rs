@@ -177,10 +177,6 @@ pub enum ProjectRootDiscoveryIssue {
         root: Utf8PathBuf,
         error: ProjectConfigLoadError,
     },
-    InterpreterDiscoveryFailed {
-        root: Utf8PathBuf,
-        kind: InterpreterDiscoveryIssueKind,
-    },
     EnvFileLoadFailed {
         root: Utf8PathBuf,
         source: Utf8PathBuf,
@@ -214,13 +210,6 @@ impl From<djls_conf::SettingsLoadError> for ProjectConfigLoadError {
             }
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InterpreterDiscoveryIssueKind {
-    NotFound,
-    InvalidPath,
-    ExecutionFailed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -478,7 +478,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
 ### Python module inventory extraction inputs
 - Bookmark: `startup-rethink` still points to `ltouroxq`; move it to `mtlvxvsx` after describing this verified slice.
 - Current change: `mtlvxvsx`.
-- Scope: added `djls_project::python_module_inventory` with `PythonModuleRole`, `PythonModule`, and `PythonModuleInventory`; derives model, templatetag, AppConfig, urls, admin, and forms roles from loaded source inventory, resolved installed apps, static template tag library inventory, and Django conventions; includes `models.py` and `models/` package files; limits templatetag extraction inputs to installed-app/static-library modules rather than arbitrary directories; migrates semantic model/tag/filter/block extraction queries to the static inventory; handles multiple ready environments by iterating and deduplicating; removes the legacy `ProjectPythonIndex`/`ProjectPythonModule` input, helper queries, and refresh path; and adds `crates/djls-db/src/scanning.rs` as the infrastructure scanning boundary.
+- Scope: added `djls_project::python_module_inventory` with `PythonModuleRole`, `PythonModule`, and `PythonModuleInventory`; derives model, templatetag, AppConfig, urls, admin, and forms roles from loaded source inventory, resolved installed apps, static template tag library inventory, and Django conventions; includes `models.py` and `models/` package files; limits templatetag extraction inputs to installed-app/static-library modules rather than arbitrary directories; migrates semantic model/tag/filter/block extraction queries to the static inventory; handles multiple ready environments by iterating and deduplicating; and removes the legacy `ProjectPythonIndex`/`ProjectPythonModule` input, helper queries, and refresh path.
 - Validation:
   - `just fmt --check` passed.
   - `cargo test -p djls-project python_module_inventory` passed: 1 test.
@@ -491,7 +491,7 @@ Do not keep placeholder slice headings in this live log. If an example is needed
   - Hickey review required package-style Django model files, settings-registered workspace template libraries, and multiple environment candidates to keep working; addressed by model-package role classification, `template_tag_libraries`-derived templatetag roles, and multi-environment deduplication.
   - Rust specialist required avoiding arbitrary non-installed `templatetags` extraction, making the legacy/static project boundary explicit, and not disabling workspace extraction for multiple environments; addressed by scoping templatetag role assignment to static inventory, filtering environment candidates by legacy project root while iterating multiples, and deduplicating results.
   - Librarian found no major divergence from rust-analyzer/Ruff/ty. It confirmed queryable project-scoped module inventories, source-root/search-path scoping, multi-candidate deduplication, and removal of legacy indexes are idiomatic.
-- Follow-ups/blockers: Phase 9 should move remaining external extraction maps and runtime inspector behavior behind typed enrichment hints; `crates/djls-db/src/scanning.rs` is intentionally a new boundary placeholder until Phase 9 infrastructure-owned provider work fills it in.
+- Follow-ups/blockers: Phase 9 should move remaining external extraction maps and runtime inspector behavior behind typed enrichment hints. The temporary `crates/djls-db/src/scanning.rs` boundary was later deleted because no imperative scanning helpers remained.
 
 ### Runtime enrichment hints
 - Bookmark: `startup-rethink` still points to `mtlvxvsx`; move it to `rkpmtosy` after describing this verified slice.
@@ -2370,13 +2370,12 @@ pub struct PythonModule {
 - Workspace and installed-app files should be read through tracked `File` inputs.
 - Preserve Salsa incremental behavior: editing one templatetag file invalidates extraction for that file, not the whole inventory.
 
-#### 3. Add database scanning boundary for loaded installed-app files
-**File**: `crates/djls-db/src/scanning.rs`
+#### 3. Avoid a database scanning boundary unless real helpers need it
+**File**: `crates/djls-db/src/lib.rs`
 
 **Edits**:
-- Add the file and export it from `crates/djls-db/src/lib.rs` if needed.
-- Move imperative apply helpers for installed-app file-set updates here if `db.rs` is getting too large.
 - Do not recreate `refresh_external_data` as a monolithic pipeline.
+- Do not keep an empty scanning module. Add a `djls-db` scanning boundary only if concrete database-owned scanning helpers reappear.
 
 #### 4. Delete or quarantine old Python index/external map refresh paths
 **Files**:

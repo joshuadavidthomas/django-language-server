@@ -5,13 +5,10 @@ use camino::Utf8PathBuf;
 use djls_source::File;
 
 use crate::apps::installed_apps;
-use crate::apps::InstalledAppResolution;
 use crate::project::Project;
 use crate::resolver::resolve_module;
-use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
-use crate::settings::SettingsIssue;
 use crate::source_files::FileSetPartitionId;
 use crate::source_files::SourceFileInventory;
 use crate::source_files::SourceFilePartitionReadiness;
@@ -48,9 +45,7 @@ pub enum TemplateDirectorySource {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TemplateDirectoryEntry {
     Discovered(TemplateDirectory),
-    UnknownSettingsDir {
-        issue: SettingsIssue,
-    },
+    UnknownSettingsDir,
     Deferred {
         directory: TemplateDirectory,
     },
@@ -119,7 +114,6 @@ impl TemplateFileInventory {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TemplateTagLibrary {
     name: String,
-    source: TemplateTagLibrarySource,
     resolution: TemplateTagLibraryResolution,
 }
 
@@ -136,24 +130,9 @@ impl TemplateTagLibrary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TemplateTagLibrarySource {
-    DjangoBuiltin,
-    InstalledApp,
-    SettingsLibraries,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TemplateTagLibraryResolution {
     Resolved { file: File },
     Builtin,
-    Unresolved { issue: TemplateTagLibraryIssue },
-    Ambiguous { issue: TemplateTagLibraryIssue },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TemplateTagLibraryIssue {
-    NotFound { module: PyModuleName },
-    Ambiguous { module: PyModuleName },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -173,9 +152,7 @@ impl TemplateTagLibraryInventory {
             .iter()
             .filter_map(|library| match library.resolution() {
                 TemplateTagLibraryResolution::Resolved { file } => Some(*file),
-                TemplateTagLibraryResolution::Builtin
-                | TemplateTagLibraryResolution::Unresolved { .. }
-                | TemplateTagLibraryResolution::Ambiguous { .. } => None,
+                TemplateTagLibraryResolution::Builtin => None,
             })
             .collect()
     }
@@ -315,7 +292,6 @@ pub fn template_tag_libraries(
                     .unwrap_or_default();
                 libraries.push(TemplateTagLibrary {
                     name,
-                    source: TemplateTagLibrarySource::InstalledApp,
                     resolution: TemplateTagLibraryResolution::Resolved { file: file.file() },
                 });
             }
@@ -324,11 +300,12 @@ pub fn template_tag_libraries(
     let settings = django_settings(db, project, env);
     for backend in settings.templates().backends() {
         for alias in backend.libraries() {
-            libraries.push(TemplateTagLibrary {
-                name: alias.name().to_string(),
-                source: TemplateTagLibrarySource::SettingsLibraries,
-                resolution: resolve_template_library_module(db, project, alias.module().clone()),
-            });
+            if let Some(file) = resolve_template_library_file(db, project, alias.module().clone()) {
+                libraries.push(TemplateTagLibrary {
+                    name: alias.name().to_string(),
+                    resolution: TemplateTagLibraryResolution::Resolved { file },
+                });
+            }
         }
     }
     TemplateTagLibraryInventory { libraries }
@@ -345,22 +322,16 @@ pub fn loadable_template_libraries(
     let mut known_names = BTreeSet::new();
 
     for library in static_inventory.libraries() {
-        if matches!(
-            library.resolution(),
-            TemplateTagLibraryResolution::Unresolved { .. }
-                | TemplateTagLibraryResolution::Ambiguous { .. }
-        ) {
-            continue;
-        }
         let Ok(name) = LibraryName::parse(library.name()) else {
             continue;
         };
-        known_names.insert(name.clone());
-        libraries.push(LoadableTemplateLibrary {
-            name,
-            module: None,
-            source: LoadableTemplateLibrarySource::Static,
-        });
+        if known_names.insert(name.clone()) {
+            libraries.push(LoadableTemplateLibrary {
+                name,
+                module: None,
+                source: LoadableTemplateLibrarySource::Static,
+            });
+        }
     }
 
     let crate::ProjectEnrichment::Fresh(template_libraries) = project.enrichment(db) else {
@@ -449,24 +420,23 @@ fn template_directory_entries(
 ) -> Vec<TemplateDirectoryEntry> {
     let settings = django_settings(db, project, env.clone());
     let mut entries = Vec::new();
+    if settings.templates().has_unknown() {
+        entries.push(TemplateDirectoryEntry::UnknownSettingsDir);
+    }
     for backend in settings.templates().backends() {
         for segment in backend.dirs().segments() {
-            match (segment.value(), segment.issue()) {
-                (Some(path), None) => {
-                    entries.push(TemplateDirectoryEntry::Discovered(TemplateDirectory {
-                        path: Utf8PathBuf::from(path),
-                        source: TemplateDirectorySource::SettingsDirs,
-                    }));
-                }
-                (_, Some(issue)) => entries.push(TemplateDirectoryEntry::UnknownSettingsDir {
-                    issue: issue.clone(),
-                }),
-                (None, None) => {}
+            if let Some(path) = segment.value() {
+                entries.push(TemplateDirectoryEntry::Discovered(TemplateDirectory {
+                    path: Utf8PathBuf::from(path),
+                    source: TemplateDirectorySource::SettingsDirs,
+                }));
+            } else if segment.is_unknown() {
+                entries.push(TemplateDirectoryEntry::UnknownSettingsDir);
             }
         }
         if backend.app_dirs() == Some(true) {
             for app in installed_apps(db, project, env.clone()) {
-                if let Some(path) = installed_app_template_dir(db, app.resolution()) {
+                if let Some(path) = app.template_dir(db) {
                     entries.push(TemplateDirectoryEntry::Discovered(TemplateDirectory {
                         path,
                         source: TemplateDirectorySource::InstalledApp {
@@ -477,7 +447,36 @@ fn template_directory_entries(
             }
         }
     }
-    entries
+    dedup_template_directory_entries(entries)
+}
+
+fn dedup_template_directory_entries(
+    entries: Vec<TemplateDirectoryEntry>,
+) -> Vec<TemplateDirectoryEntry> {
+    let mut directory_paths = Vec::<Utf8PathBuf>::new();
+    let mut deduped = Vec::new();
+    for entry in entries {
+        if let Some(path) = template_directory_entry_path(&entry) {
+            if directory_paths.iter().any(|seen| seen.as_path() == path) {
+                continue;
+            }
+            directory_paths.push(path.to_owned());
+        } else if deduped.contains(&entry) {
+            continue;
+        }
+        deduped.push(entry);
+    }
+    deduped
+}
+
+fn template_directory_entry_path(entry: &TemplateDirectoryEntry) -> Option<&Utf8Path> {
+    match entry {
+        TemplateDirectoryEntry::Discovered(directory)
+        | TemplateDirectoryEntry::Deferred { directory }
+        | TemplateDirectoryEntry::Unavailable { directory, .. }
+        | TemplateDirectoryEntry::Stale { directory } => Some(directory.path()),
+        TemplateDirectoryEntry::UnknownSettingsDir => None,
+    }
 }
 
 fn installed_app_roots(
@@ -487,63 +486,18 @@ fn installed_app_roots(
 ) -> Vec<Utf8PathBuf> {
     installed_apps(db, project, env)
         .iter()
-        .filter_map(|app| match app.resolution() {
-            InstalledAppResolution::Package { file, .. } => app_root_for_file(db, *file),
-            InstalledAppResolution::AppConfig { config, file } => config
-                .path()
-                .map(Utf8Path::to_owned)
-                .or_else(|| app_root_for_file(db, *file)),
-            InstalledAppResolution::Unresolved(_) => None,
-        })
+        .filter_map(|app| app.root(db))
         .collect()
 }
 
-fn installed_app_template_dir(
-    db: &dyn Db,
-    resolution: &InstalledAppResolution,
-) -> Option<Utf8PathBuf> {
-    let root = match resolution {
-        InstalledAppResolution::Package { file, .. } => app_root_for_file(db, *file)?,
-        InstalledAppResolution::AppConfig { config, file } => config
-            .path()
-            .map(Utf8Path::to_owned)
-            .or_else(|| app_root_for_file(db, *file))?,
-        InstalledAppResolution::Unresolved(_) => return None,
-    };
-    Some(root.join("templates"))
-}
-
-fn app_root_for_file(db: &dyn Db, file: File) -> Option<Utf8PathBuf> {
-    let path = file.path(db);
-    let parent = path.parent()?;
-    if path.file_name() == Some("__init__.py") || path.file_name() == Some("apps.py") {
-        return Some(parent.to_owned());
-    }
-    parent.parent().map(Utf8Path::to_owned)
-}
-
-fn resolve_template_library_module(
+fn resolve_template_library_file(
     db: &dyn Db,
     project: Project,
     module: PyModuleName,
-) -> TemplateTagLibraryResolution {
-    match resolve_module(db, project, module.clone()).outcome() {
-        ModuleResolutionOutcome::Resolved(resolved) => TemplateTagLibraryResolution::Resolved {
-            file: resolved.location().file(),
-        },
-        ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
-            TemplateTagLibraryResolution::Ambiguous {
-                issue: TemplateTagLibraryIssue::Ambiguous { module },
-            }
-        }
-        ModuleResolutionOutcome::Unresolved(
-            ModuleResolutionError::NoImportRoots
-            | ModuleResolutionError::RootUnavailable(_)
-            | ModuleResolutionError::NotFound
-            | ModuleResolutionError::UnsupportedModuleName,
-        ) => TemplateTagLibraryResolution::Unresolved {
-            issue: TemplateTagLibraryIssue::NotFound { module },
-        },
+) -> Option<File> {
+    match resolve_module(db, project, module).outcome() {
+        ModuleResolutionOutcome::Resolved(resolved) => Some(resolved.location().file()),
+        ModuleResolutionOutcome::Unresolved(_) => None,
     }
 }
 
@@ -552,7 +506,6 @@ fn django_builtin_libraries() -> Vec<TemplateTagLibrary> {
         .into_iter()
         .map(|name| TemplateTagLibrary {
             name: name.to_string(),
-            source: TemplateTagLibrarySource::DjangoBuiltin,
             resolution: TemplateTagLibraryResolution::Builtin,
         })
         .collect()
@@ -777,7 +730,27 @@ mod tests {
 
         assert!(matches!(
             inventory.entries[0],
-            TemplateDirectoryEntry::UnknownSettingsDir { .. }
+            TemplateDirectoryEntry::UnknownSettingsDir
+        ));
+    }
+
+    #[test]
+    fn template_inventory_preserves_unknown_templates_value() {
+        let mut db = TestDb::with_project();
+        db.set_file("/workspace/project/settings.py", "TEMPLATES = UNKNOWN\n");
+        db.set_project_root_discovery(discovery(&db));
+        db.set_source_file_inventory(ready_inventory(
+            &db,
+            &["/workspace"],
+            &["/workspace/project/settings.py"],
+        ));
+        let env = env(&db);
+
+        let inventory = template_directories(&db, db.project(), env);
+
+        assert!(matches!(
+            inventory.entries[0],
+            TemplateDirectoryEntry::UnknownSettingsDir
         ));
     }
 
@@ -859,16 +832,9 @@ mod tests {
         let library = inventory
             .libraries()
             .iter()
-            .find(|library| {
-                library.name() == "ui"
-                    && matches!(&library.source, TemplateTagLibrarySource::SettingsLibraries)
-            })
+            .find(|library| library.name() == "ui")
             .expect("settings library should be present");
 
-        assert!(matches!(
-            &library.source,
-            TemplateTagLibrarySource::SettingsLibraries
-        ));
         assert!(matches!(
             library.resolution(),
             TemplateTagLibraryResolution::Resolved { .. }

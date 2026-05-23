@@ -339,8 +339,8 @@ This phase proves workspace and installed-app Python extraction can run from `dj
 - `crates/djls-semantic/src/queries.rs`:
   - Workspace model and templatetag collection query `python_module_inventory` instead of `project_model_modules` / `project_templatetag_modules`.
   - External extraction maps are derived from installed app `File` inputs and high-durability source roots, not stored on `Project`.
-- `crates/djls-db/src/scanning.rs`:
-  - New imperative boundary for applying installed app file-set updates; no broad `refresh_external_data` orchestration.
+- `djls-db`:
+  - No broad `refresh_external_data` orchestration. Add an imperative scanning boundary only if concrete database-owned scanning helpers reappear.
 - `crates/djls-semantic/src/project/sync.rs`:
   - `refresh_external_data` and old cache/write helpers are deleted or quarantined behind the Phase 9 enrichment path only.
 

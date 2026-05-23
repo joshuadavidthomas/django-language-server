@@ -1,7 +1,6 @@
 use djls_source::File;
 
 use crate::apps::installed_apps;
-use crate::apps::InstalledAppResolution;
 use crate::db::Db;
 use crate::environments::DjangoEnvironmentId;
 use crate::names::PyModuleName;
@@ -117,50 +116,9 @@ fn installed_app_module_name_for_path(
     env: &DjangoEnvironmentId,
     path: &camino::Utf8Path,
 ) -> Option<PyModuleName> {
-    for app in installed_apps(db, project, env.clone()) {
-        let (root, base_module) = match app.resolution() {
-            InstalledAppResolution::Package { module, file } => {
-                (app_root_for_file(db, *file)?, module.clone())
-            }
-            InstalledAppResolution::AppConfig { config, file } => {
-                let root = config
-                    .path()
-                    .map(camino::Utf8Path::to_owned)
-                    .or_else(|| app_root_for_file(db, *file))?;
-                let module = config
-                    .name()
-                    .and_then(|name| PyModuleName::parse(name).ok())
-                    .or_else(|| config.module().parent())?;
-                (root, module)
-            }
-            InstalledAppResolution::Unresolved(_) => continue,
-        };
-        if !path.starts_with(root.as_path()) {
-            continue;
-        }
-        let relative = path.strip_prefix(root.as_path()).ok()?.with_extension("");
-        let relative = relative
-            .components()
-            .map(|component| component.as_str())
-            .collect::<Vec<_>>()
-            .join(".");
-        let module = if relative.is_empty() || relative == "__init__" {
-            base_module.as_str().to_string()
-        } else {
-            format!("{}.{}", base_module.as_str(), relative)
-        };
-        return PyModuleName::parse(&module).ok();
-    }
-    None
-}
-
-fn app_root_for_file(db: &dyn Db, file: File) -> Option<camino::Utf8PathBuf> {
-    let path = file.path(db);
-    let parent = path.parent()?;
-    if path.file_name() == Some("__init__.py") || path.file_name() == Some("apps.py") {
-        return Some(parent.to_owned());
-    }
-    parent.parent().map(camino::Utf8Path::to_owned)
+    installed_apps(db, project, env.clone())
+        .iter()
+        .find_map(|app| app.module_name_for_path(db, path))
 }
 
 fn is_model_module_candidate(path: &camino::Utf8Path, all_paths: &[camino::Utf8PathBuf]) -> bool {

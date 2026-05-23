@@ -10,21 +10,6 @@ use crate::project::PyModuleName;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateLibrary;
 
-#[derive(Clone, Debug, Eq, PartialEq, salsa::Update)]
-pub enum TemplateLookupIssue {
-    Environment(Vec<djls_project::EnvironmentSelectionIssue>),
-    Inventory(TemplateInventoryIssue),
-    InvalidTemplateName(djls_project::InvalidName),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, salsa::Update)]
-pub enum TemplateInventoryIssue {
-    Deferred,
-    Unavailable,
-    Stale,
-    UnknownSettingsDir,
-}
-
 #[derive(Clone, PartialEq, salsa::Update)]
 pub enum TemplateLookupResult<'db> {
     Found(Template<'db>),
@@ -32,10 +17,7 @@ pub enum TemplateLookupResult<'db> {
         name: djls_project::TemplateName,
         tried: Vec<Utf8PathBuf>,
     },
-    Deferred {
-        name: Option<djls_project::TemplateName>,
-        issue: TemplateLookupIssue,
-    },
+    Deferred,
 }
 
 impl<'db> TemplateLookupResult<'db> {
@@ -43,7 +25,7 @@ impl<'db> TemplateLookupResult<'db> {
     pub fn ok(self) -> Option<Template<'db>> {
         match self {
             Self::Found(t) => Some(t),
-            Self::NotFound { .. } | Self::Deferred { .. } => None,
+            Self::NotFound { .. } | Self::Deferred => None,
         }
     }
 
@@ -73,11 +55,8 @@ pub(crate) fn resolve_static_template(
         ));
     }
 
-    if let Some(issue) = inventory_issue(inventory.directories()) {
-        return TemplateLookupResult::Deferred {
-            name: Some(name),
-            issue: TemplateLookupIssue::Inventory(issue),
-        };
+    if inventory_is_unready(inventory.directories()) {
+        return TemplateLookupResult::Deferred;
     }
 
     let tried = inventory
@@ -99,27 +78,16 @@ pub fn resolve_template<'db>(
     source: File,
     name: &str,
 ) -> TemplateLookupResult<'db> {
-    let name = match djls_project::TemplateName::parse(name) {
-        Ok(name) => name,
-        Err(err) => {
-            return TemplateLookupResult::Deferred {
-                name: None,
-                issue: TemplateLookupIssue::InvalidTemplateName(err),
-            };
-        }
+    let Ok(name) = djls_project::TemplateName::parse(name) else {
+        return TemplateLookupResult::Deferred;
     };
     let project = djls_project::Db::project(db);
     match djls_project::environment_for_file(db, project, source) {
         djls_project::EnvironmentSelection::Selected(env) => {
             resolve_static_template(db, project, env.clone(), name)
         }
-        djls_project::EnvironmentSelection::Unknown { issues }
-        | djls_project::EnvironmentSelection::Ambiguous { issues, .. } => {
-            TemplateLookupResult::Deferred {
-                name: Some(name),
-                issue: TemplateLookupIssue::Environment(issues.clone()),
-            }
-        }
+        djls_project::EnvironmentSelection::Unknown { .. }
+        | djls_project::EnvironmentSelection::Ambiguous { .. } => TemplateLookupResult::Deferred,
     }
 }
 
@@ -164,21 +132,15 @@ fn static_template_library_module() -> PyModuleName {
         .expect("static template library module name should be valid")
 }
 
-fn inventory_issue(
-    entries: &[djls_project::TemplateDirectoryEntry],
-) -> Option<TemplateInventoryIssue> {
-    entries.iter().find_map(|entry| match entry {
-        djls_project::TemplateDirectoryEntry::Deferred { .. } => {
-            Some(TemplateInventoryIssue::Deferred)
-        }
-        djls_project::TemplateDirectoryEntry::Unavailable { .. } => {
-            Some(TemplateInventoryIssue::Unavailable)
-        }
-        djls_project::TemplateDirectoryEntry::Stale { .. } => Some(TemplateInventoryIssue::Stale),
-        djls_project::TemplateDirectoryEntry::UnknownSettingsDir { .. } => {
-            Some(TemplateInventoryIssue::UnknownSettingsDir)
-        }
-        djls_project::TemplateDirectoryEntry::Discovered(_) => None,
+fn inventory_is_unready(entries: &[djls_project::TemplateDirectoryEntry]) -> bool {
+    entries.iter().any(|entry| {
+        matches!(
+            entry,
+            djls_project::TemplateDirectoryEntry::Deferred { .. }
+                | djls_project::TemplateDirectoryEntry::Unavailable { .. }
+                | djls_project::TemplateDirectoryEntry::Stale { .. }
+                | djls_project::TemplateDirectoryEntry::UnknownSettingsDir
+        )
     })
 }
 
@@ -240,7 +202,7 @@ mod tests {
         let source = db.create_file(&template_path(&root, "base.html"));
         let result = resolve_template(&db, source, "emails/welcome.html");
 
-        assert!(matches!(result, TemplateLookupResult::Deferred { .. }));
+        assert!(matches!(result, TemplateLookupResult::Deferred));
         assert!(matches!(
             djls_project::django_environment_candidates(&db, project),
             DjangoEnvironmentCandidatesOutcome::Ready { .. }

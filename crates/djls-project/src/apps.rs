@@ -13,11 +13,9 @@ use crate::python::Assignment;
 use crate::python::ClassDef;
 use crate::python::StaticValue;
 use crate::resolver::resolve_module;
-use crate::resolver::ModuleResolutionError;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
 use crate::settings::PartialListSegment;
-use crate::settings::SettingsIssue;
 use crate::source_files::build_source_roots_with_kind;
 use crate::source_files::merge_partitioned_source_file_patch_set;
 use crate::source_files::PartitionedSourceFilePatchSet;
@@ -32,132 +30,119 @@ use crate::PyModuleName;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InstalledApp {
     entry: String,
-    resolution: InstalledAppResolution,
+    module: PyModuleName,
+    file: File,
+    config: Option<AppConfig>,
 }
 
 impl InstalledApp {
     #[must_use]
-    pub fn entry(&self) -> &str {
+    pub(crate) fn entry(&self) -> &str {
         &self.entry
     }
 
     #[must_use]
-    pub fn resolution(&self) -> &InstalledAppResolution {
-        &self.resolution
+    pub(crate) fn module(&self) -> &PyModuleName {
+        &self.module
+    }
+
+    #[must_use]
+    pub(crate) fn file(&self) -> File {
+        self.file
+    }
+
+    #[must_use]
+    pub(crate) fn config(&self) -> Option<&AppConfig> {
+        self.config.as_ref()
+    }
+
+    #[must_use]
+    pub(crate) fn root(&self, db: &dyn Db) -> Option<Utf8PathBuf> {
+        self.config()
+            .and_then(AppConfig::path)
+            .map(Utf8Path::to_owned)
+            .or_else(|| app_root_for_file(db, self.file()))
+    }
+
+    #[must_use]
+    pub(crate) fn template_dir(&self, db: &dyn Db) -> Option<Utf8PathBuf> {
+        Some(self.root(db)?.join("templates"))
+    }
+
+    #[must_use]
+    pub(crate) fn module_name_for_path(
+        &self,
+        db: &dyn Db,
+        path: &Utf8Path,
+    ) -> Option<PyModuleName> {
+        let root = self.root(db)?;
+        if !path.starts_with(root.as_path()) {
+            return None;
+        }
+        let relative = path.strip_prefix(root.as_path()).ok()?.with_extension("");
+        let relative = relative
+            .components()
+            .map(|component| component.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+        let module = if relative.is_empty() || relative == "__init__" {
+            self.module().as_str().to_string()
+        } else {
+            format!("{}.{}", self.module().as_str(), relative)
+        };
+        PyModuleName::parse(&module).ok()
     }
 
     fn from_settings_segment(
         db: &dyn Db,
         project: Project,
         segment: &PartialListSegment<String>,
-    ) -> Self {
-        match segment.value() {
-            Some(entry) => Self {
-                entry: entry.clone(),
-                resolution: Self::resolve_entry(db, project, entry),
-            },
-            None => Self {
-                entry: String::new(),
-                resolution: InstalledAppResolution::Unresolved(
-                    InstalledAppResolutionError::UnknownInstalledAppSegment(
-                        segment.issue().cloned().unwrap_or(
-                            SettingsIssue::UnsupportedListOperation {
-                                operation: "unknown-installed-app-segment",
-                            },
-                        ),
-                    ),
-                ),
-            },
-        }
+    ) -> Option<Self> {
+        Self::resolve_entry(db, project, segment.value()?)
     }
 
-    fn resolve_entry(db: &dyn Db, project: Project, entry: &str) -> InstalledAppResolution {
+    fn resolve_entry(db: &dyn Db, project: Project, entry: &str) -> Option<Self> {
         if let Some((module, class_name)) = Self::split_app_config_entry(entry) {
-            return Self::resolve_app_config(db, project, module, class_name);
+            return Self::resolve_app_config(db, project, entry, module, class_name);
         }
 
-        let Ok(module) = PyModuleName::parse(entry) else {
-            return InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::InvalidModuleName(entry.to_string()),
-            );
+        let module = PyModuleName::parse(entry).ok()?;
+        let resolved = match resolve_module(db, project, module.clone()).outcome() {
+            ModuleResolutionOutcome::Resolved(resolved) => resolved,
+            ModuleResolutionOutcome::Unresolved(_) => return None,
         };
-
-        match resolve_module(db, project, module.clone()).outcome() {
-            ModuleResolutionOutcome::Resolved(resolved) => InstalledAppResolution::Package {
-                module,
-                file: resolved.location().file(),
-            },
-            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
-                InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleAmbiguous(
-                    module,
-                ))
-            }
-            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_)) => {
-                InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleDeferred(
-                    module,
-                ))
-            }
-            ModuleResolutionOutcome::Unresolved(
-                ModuleResolutionError::NoImportRoots
-                | ModuleResolutionError::NotFound
-                | ModuleResolutionError::UnsupportedModuleName,
-            ) => InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleNotFound(
-                module,
-            )),
-        }
+        Some(Self {
+            entry: entry.to_string(),
+            module,
+            file: resolved.location().file(),
+            config: None,
+        })
     }
 
     fn resolve_app_config(
         db: &dyn Db,
         project: Project,
-        module: PyModuleName,
+        entry: &str,
+        config_module: PyModuleName,
         class_name: &str,
-    ) -> InstalledAppResolution {
-        match resolve_module(db, project, module.clone()).outcome() {
-            ModuleResolutionOutcome::Resolved(resolved) => {
-                let file = resolved.location().file();
-                let model = python_source_model(db, file);
-                InstalledAppResolution::AppConfig {
-                    config: AppConfig {
-                        module,
-                        name: static_app_config_string_assignment(
-                            model.class_defs(),
-                            class_name,
-                            "name",
-                        ),
-                        label: static_app_config_string_assignment(
-                            model.class_defs(),
-                            class_name,
-                            "label",
-                        ),
-                        path: static_app_config_string_assignment(
-                            model.class_defs(),
-                            class_name,
-                            "path",
-                        )
-                        .map(Utf8PathBuf::from),
-                    },
-                    file,
-                }
-            }
-            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::MultipleCandidates(_)) => {
-                InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleAmbiguous(
-                    module,
-                ))
-            }
-            ModuleResolutionOutcome::Unresolved(ModuleResolutionError::RootUnavailable(_)) => {
-                InstalledAppResolution::Unresolved(
-                    InstalledAppResolutionError::AppConfigDetailsDeferred(module),
-                )
-            }
-            ModuleResolutionOutcome::Unresolved(
-                ModuleResolutionError::NoImportRoots
-                | ModuleResolutionError::NotFound
-                | ModuleResolutionError::UnsupportedModuleName,
-            ) => InstalledAppResolution::Unresolved(InstalledAppResolutionError::ModuleNotFound(
-                module,
-            )),
-        }
+    ) -> Option<Self> {
+        let resolved = match resolve_module(db, project, config_module.clone()).outcome() {
+            ModuleResolutionOutcome::Resolved(resolved) => resolved,
+            ModuleResolutionOutcome::Unresolved(_) => return None,
+        };
+        let file = resolved.location().file();
+        let model = python_source_model(db, file);
+        let config = AppConfig::from_class_defs(config_module, model.class_defs(), class_name);
+        let module = config
+            .name()
+            .and_then(|name| PyModuleName::parse(name).ok())
+            .or_else(|| config.module().parent())?;
+        Some(Self {
+            entry: entry.to_string(),
+            module,
+            file,
+            config: Some(config),
+        })
     }
 
     fn split_app_config_entry(entry: &str) -> Option<(PyModuleName, &str)> {
@@ -171,7 +156,7 @@ impl InstalledApp {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AppConfig {
+pub(crate) struct AppConfig {
     module: PyModuleName,
     name: Option<String>,
     label: Option<String>,
@@ -179,37 +164,48 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    fn from_class_defs(module: PyModuleName, classes: &[ClassDef], class_name: &str) -> Self {
+        let class = classes.iter().find(|class| class.name() == class_name);
+        Self {
+            module,
+            name: class.and_then(|class| Self::string_assignment(class.assignments(), "name")),
+            label: class.and_then(|class| Self::string_assignment(class.assignments(), "label")),
+            path: class
+                .and_then(|class| Self::string_assignment(class.assignments(), "path"))
+                .map(Utf8PathBuf::from),
+        }
+    }
+
     #[must_use]
-    pub fn module(&self) -> &PyModuleName {
+    pub(crate) fn module(&self) -> &PyModuleName {
         &self.module
     }
 
     #[must_use]
-    pub fn name(&self) -> Option<&str> {
+    pub(crate) fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
     #[must_use]
-    pub fn path(&self) -> Option<&camino::Utf8Path> {
+    pub(crate) fn path(&self) -> Option<&Utf8Path> {
         self.path.as_deref()
     }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum InstalledAppResolution {
-    Package { module: PyModuleName, file: File },
-    AppConfig { config: AppConfig, file: File },
-    Unresolved(InstalledAppResolutionError),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum InstalledAppResolutionError {
-    UnknownInstalledAppSegment(SettingsIssue),
-    InvalidModuleName(String),
-    ModuleNotFound(PyModuleName),
-    ModuleAmbiguous(PyModuleName),
-    ModuleDeferred(PyModuleName),
-    AppConfigDetailsDeferred(PyModuleName),
+    fn string_assignment(assignments: &[Assignment], name: &str) -> Option<String> {
+        assignments.iter().find_map(|assignment| {
+            let matches_name = assignment
+                .targets()
+                .iter()
+                .any(|target| target.name().as_dotted() == name);
+            if !matches_name {
+                return None;
+            }
+            match assignment.value() {
+                StaticValue::String(value) => Some(value.clone()),
+                _ => None,
+            }
+        })
+    }
 }
 
 #[salsa::tracked(returns(ref))]
@@ -222,7 +218,7 @@ pub(crate) fn installed_apps(
         .installed_app_entries()
         .segments()
         .iter()
-        .map(|segment| InstalledApp::from_settings_segment(db, project, segment))
+        .filter_map(|segment| InstalledApp::from_settings_segment(db, project, segment))
         .collect()
 }
 
@@ -259,8 +255,21 @@ impl InstalledAppFileRoots {
             build_source_roots_with_kind(self.roots.clone(), FileRootKind::LibrarySearchPath);
         FilesForRootsRequest::new(
             plan.roots().to_vec(),
-            Box::new(installed_app_file_predicate),
-            django_app_walk_options(),
+            Box::new(|path| {
+                matches!(
+                    path.file_name(),
+                    Some("apps.py" | "models.py" | "admin.py" | "urls.py" | "forms.py")
+                ) || path.components().any(|component| {
+                    matches!(component.as_str(), "models" | "templates" | "templatetags")
+                })
+            }),
+            WalkOptions {
+                hidden: false,
+                globs: vec!["!**/__pycache__/**".to_string()],
+                no_ignore: false,
+                follow_links: false,
+                max_depth: None,
+            },
         )
     }
 
@@ -281,59 +290,37 @@ pub fn installed_app_file_roots_discovery(
     db: &dyn Db,
     project: Project,
 ) -> InstalledAppFileRootsDiscovery {
-    match django_environment_candidates(db, project) {
+    let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Deferred { .. } => {
             return InstalledAppFileRootsDiscovery::WaitingForDjangoEnvironments;
         }
         DjangoEnvironmentCandidatesOutcome::Unavailable { .. } => {
             return InstalledAppFileRootsDiscovery::DjangoEnvironmentsUnavailable;
         }
-        DjangoEnvironmentCandidatesOutcome::Ready { .. }
-        | DjangoEnvironmentCandidatesOutcome::Ambiguous { .. } => {}
-    }
-    let (roots, issues) = installed_app_file_roots_and_issues(db, project);
-    InstalledAppFileRootsDiscovery::Ready(InstalledAppFileRoots::new(roots, issues))
-}
-
-fn installed_app_file_roots_and_issues(
-    db: &dyn Db,
-    project: Project,
-) -> (Vec<Utf8PathBuf>, Vec<SourceFilesIssue>) {
-    let mut roots = Vec::new();
-    let mut issues = Vec::new();
-    let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
         | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. } => candidates,
-        DjangoEnvironmentCandidatesOutcome::Unavailable { .. }
-        | DjangoEnvironmentCandidatesOutcome::Deferred { .. } => return (roots, issues),
     };
+    let mut roots = Vec::new();
+    let mut issues = Vec::new();
 
     for candidate in candidates {
-        for app in installed_apps(db, project, candidate.id().clone()) {
-            match app.resolution() {
-                InstalledAppResolution::Package { file, .. } => {
-                    if let Some(root) = app_root_for_file(db, *file) {
+        for segment in django_settings(db, project, candidate.id().clone())
+            .installed_app_entries()
+            .segments()
+        {
+            match InstalledApp::from_settings_segment(db, project, segment) {
+                Some(app) => {
+                    if let Some(root) = app.root(db) {
                         roots.push(root);
                     }
                 }
-                InstalledAppResolution::AppConfig { config, file } => {
-                    if let Some(path) = config.path() {
-                        roots.push(path.to_owned());
-                    } else if let Some(root) = app_root_for_file(db, *file) {
-                        roots.push(root);
-                    }
-                }
-                InstalledAppResolution::Unresolved(_) => {
-                    issues.push(SourceFilesIssue::InstalledAppGap {
-                        entry: app.entry().to_string(),
-                    });
-                }
+                None => issues.push(SourceFilesIssue::InstalledAppGap),
             }
         }
     }
     roots.sort();
     roots.dedup();
-    (roots, issues)
+    InstalledAppFileRootsDiscovery::Ready(InstalledAppFileRoots::new(roots, issues))
 }
 
 fn app_root_for_file(db: &dyn Db, file: File) -> Option<Utf8PathBuf> {
@@ -343,53 +330,6 @@ fn app_root_for_file(db: &dyn Db, file: File) -> Option<Utf8PathBuf> {
         return Some(parent.to_owned());
     }
     parent.parent().map(Utf8Path::to_owned)
-}
-
-fn django_app_walk_options() -> WalkOptions {
-    WalkOptions {
-        hidden: false,
-        globs: vec!["!**/__pycache__/**".to_string()],
-        no_ignore: false,
-        follow_links: false,
-        max_depth: None,
-    }
-}
-
-fn installed_app_file_predicate(path: &Utf8Path) -> bool {
-    if matches!(
-        path.file_name(),
-        Some("apps.py" | "models.py" | "admin.py" | "urls.py" | "forms.py")
-    ) {
-        return true;
-    }
-
-    path.components()
-        .any(|component| matches!(component.as_str(), "models" | "templates" | "templatetags"))
-}
-
-fn static_app_config_string_assignment(
-    classes: &[ClassDef],
-    class_name: &str,
-    name: &str,
-) -> Option<String> {
-    let class = classes.iter().find(|class| class.name() == class_name)?;
-    static_string_assignment(class.assignments(), name)
-}
-
-fn static_string_assignment(assignments: &[Assignment], name: &str) -> Option<String> {
-    assignments.iter().find_map(|assignment| {
-        let matches_name = assignment
-            .targets()
-            .iter()
-            .any(|target| target.name().as_dotted() == name);
-        if !matches_name {
-            return None;
-        }
-        match assignment.value() {
-            StaticValue::String(value) => Some(value.clone()),
-            _ => None,
-        }
-    })
 }
 
 #[cfg(test)]
@@ -582,14 +522,12 @@ mod tests {
 
         assert_eq!(apps[0].entry(), "django.contrib.auth");
         assert_eq!(apps[1].entry(), "blog");
-        assert!(matches!(
-            apps[0].resolution(),
-            InstalledAppResolution::Package { .. }
-        ));
+        assert_eq!(apps[0].module().as_str(), "django.contrib.auth");
+        assert!(apps[0].config().is_none());
     }
 
     #[test]
-    fn installed_apps_preserve_unknown_segment_issue() {
+    fn installed_apps_skip_unknown_segments() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/project/settings.py",
@@ -608,12 +546,8 @@ mod tests {
 
         let apps = installed_apps(&db, db.project(), env);
 
-        assert!(matches!(
-            apps[1].resolution(),
-            InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::UnknownInstalledAppSegment(_),
-            )
-        ));
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].entry(), "known");
     }
 
     #[test]
@@ -636,9 +570,8 @@ mod tests {
 
         let apps = installed_apps(&db, db.project(), env);
 
-        let InstalledAppResolution::AppConfig { config, .. } = apps[0].resolution() else {
-            panic!("app config should resolve");
-        };
+        let config = apps[0].config().expect("app config should resolve");
+        assert_eq!(apps[0].module().as_str(), "blog");
         assert_eq!(config.name(), Some("blog"));
         assert_eq!(config.label.as_deref(), Some("weblog"));
         assert_eq!(
@@ -672,11 +605,6 @@ mod tests {
 
         let apps = installed_apps(&db, db.project(), env);
 
-        assert!(matches!(
-            apps[0].resolution(),
-            InstalledAppResolution::Unresolved(
-                InstalledAppResolutionError::AppConfigDetailsDeferred(_),
-            )
-        ));
+        assert!(apps.is_empty());
     }
 }

@@ -66,7 +66,6 @@ pub use python::PythonSourceIndexOutcome;
 pub use root_discovery::DjangoEnvironmentSeed;
 pub use root_discovery::DjangoSettingsModuleSeed;
 pub use root_discovery::EnvFileLoadIssueKind;
-pub use root_discovery::InterpreterDiscoveryIssueKind;
 pub use root_discovery::ProjectConfigLoadError;
 pub use root_discovery::ProjectEnvVars;
 pub use root_discovery::ProjectRootDiscovery;

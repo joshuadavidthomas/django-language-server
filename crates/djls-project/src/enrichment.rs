@@ -30,7 +30,6 @@ pub enum ProjectEnrichmentIssue {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeUnavailableKind {
     MissingPython,
-    DjangoImportFailed,
     EnvironmentNotConfigured,
 }
 
