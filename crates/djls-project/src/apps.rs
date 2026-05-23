@@ -6,24 +6,28 @@ use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
 
-use crate::build_source_roots_with_kind;
 use crate::django_environment_candidates;
-use crate::effective_settings;
-use crate::resolve_module;
+use crate::loading::build_source_roots_with_kind;
+use crate::python::python_source_model;
+use crate::python::Assignment;
+use crate::python::ClassDef;
+use crate::python::StaticValue;
+use crate::resolver::resolve_module;
+use crate::resolver::ModuleResolutionOutcome;
+use crate::settings::django_settings;
+use crate::settings::PartialListSegment;
+use crate::settings::SettingsIssue;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::DjangoEnvironmentId;
-use crate::ModuleResolutionOutcome;
 use crate::PartitionedSourceFileLoadOutcome;
 use crate::PartitionedSourceFilePatch;
 use crate::Project;
 use crate::ProjectSourceFilesIssue;
 use crate::PyModuleName;
-use crate::SettingsIssue;
-use crate::StaticValue;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InstalledApp {
+pub(crate) struct InstalledApp {
     entry: String,
     resolution: InstalledAppResolution,
 }
@@ -37,6 +41,113 @@ impl InstalledApp {
     #[must_use]
     pub fn resolution(&self) -> &InstalledAppResolution {
         &self.resolution
+    }
+
+    fn from_settings_segment(
+        db: &dyn Db,
+        project: Project,
+        segment: &PartialListSegment<String>,
+    ) -> Self {
+        match segment.value() {
+            Some(entry) => Self {
+                entry: entry.clone(),
+                resolution: Self::resolve_entry(db, project, entry),
+            },
+            None => Self {
+                entry: String::new(),
+                resolution: InstalledAppResolution::Unresolved(
+                    InstalledAppResolutionError::UnknownInstalledAppSegment(
+                        segment.issue().cloned().unwrap_or(
+                            SettingsIssue::UnsupportedListOperation {
+                                operation: "unknown-installed-app-segment",
+                            },
+                        ),
+                    ),
+                ),
+            },
+        }
+    }
+
+    fn resolve_entry(db: &dyn Db, project: Project, entry: &str) -> InstalledAppResolution {
+        if let Some((module, class_name)) = Self::split_app_config_entry(entry) {
+            return Self::resolve_app_config(db, project, module, class_name);
+        }
+
+        let Ok(module) = PyModuleName::parse(entry) else {
+            return InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::InvalidModuleName(entry.to_string()),
+            );
+        };
+
+        match resolve_module(db, project, module.clone()).outcome() {
+            ModuleResolutionOutcome::Resolved(resolved) => InstalledAppResolution::Package {
+                module,
+                file: resolved.location().file(),
+            },
+            ModuleResolutionOutcome::NotFound { .. } => InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::ModuleNotFound(module),
+            ),
+            ModuleResolutionOutcome::Ambiguous { .. } => InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::ModuleAmbiguous(module),
+            ),
+            ModuleResolutionOutcome::Deferred { .. } => InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::ModuleDeferred(module),
+            ),
+        }
+    }
+
+    fn resolve_app_config(
+        db: &dyn Db,
+        project: Project,
+        module: PyModuleName,
+        class_name: &str,
+    ) -> InstalledAppResolution {
+        match resolve_module(db, project, module.clone()).outcome() {
+            ModuleResolutionOutcome::Resolved(resolved) => {
+                let file = resolved.location().file();
+                let model = python_source_model(db, file);
+                InstalledAppResolution::AppConfig {
+                    config: AppConfig {
+                        module,
+                        name: static_app_config_string_assignment(
+                            model.class_defs(),
+                            class_name,
+                            "name",
+                        ),
+                        label: static_app_config_string_assignment(
+                            model.class_defs(),
+                            class_name,
+                            "label",
+                        ),
+                        path: static_app_config_string_assignment(
+                            model.class_defs(),
+                            class_name,
+                            "path",
+                        )
+                        .map(Utf8PathBuf::from),
+                    },
+                    file,
+                }
+            }
+            ModuleResolutionOutcome::NotFound { .. } => InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::ModuleNotFound(module),
+            ),
+            ModuleResolutionOutcome::Ambiguous { .. } => InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::ModuleAmbiguous(module),
+            ),
+            ModuleResolutionOutcome::Deferred { .. } => InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::AppConfigDetailsDeferred(module),
+            ),
+        }
+    }
+
+    fn split_app_config_entry(entry: &str) -> Option<(PyModuleName, &str)> {
+        let (module, class_name) = entry.rsplit_once('.')?;
+        let last = class_name.chars().next()?;
+        if !last.is_uppercase() {
+            return None;
+        }
+        Some((PyModuleName::parse(module).ok()?, class_name))
     }
 }
 
@@ -60,190 +171,62 @@ impl AppConfig {
     }
 
     #[must_use]
-    pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
-    }
-
-    #[must_use]
     pub fn path(&self) -> Option<&camino::Utf8Path> {
         self.path.as_deref()
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InstalledAppResolution {
+pub(crate) enum InstalledAppResolution {
     Package { module: PyModuleName, file: File },
     AppConfig { config: AppConfig, file: File },
-    Missing { issue: InstalledAppIssue },
-    Ambiguous { issue: InstalledAppIssue },
-    Deferred { issue: InstalledAppIssue },
+    Unresolved(InstalledAppResolutionError),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InstalledAppIssue {
-    UnknownInstalledAppSegment { issue: SettingsIssue },
-    InvalidModuleName { value: String },
-    ModuleNotFound { module: PyModuleName },
-    ModuleAmbiguous { module: PyModuleName },
-    ModuleDeferred { module: PyModuleName },
-    AppConfigDetailsDeferred { module: PyModuleName },
+pub(crate) enum InstalledAppResolutionError {
+    UnknownInstalledAppSegment(SettingsIssue),
+    InvalidModuleName(String),
+    ModuleNotFound(PyModuleName),
+    ModuleAmbiguous(PyModuleName),
+    ModuleDeferred(PyModuleName),
+    AppConfigDetailsDeferred(PyModuleName),
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn installed_apps(
+pub(crate) fn installed_apps(
     db: &dyn Db,
     project: Project,
     env: DjangoEnvironmentId,
 ) -> Vec<InstalledApp> {
-    effective_settings(db, project, env)
-        .installed_apps()
+    django_settings(db, project, env)
+        .installed_app_entries()
         .segments()
         .iter()
-        .map(|segment| match segment.value() {
-            Some(entry) => InstalledApp {
-                entry: entry.clone(),
-                resolution: resolve_installed_app_entry(db, project, entry),
-            },
-            None => InstalledApp {
-                entry: String::new(),
-                resolution: InstalledAppResolution::Missing {
-                    issue: InstalledAppIssue::UnknownInstalledAppSegment {
-                        issue: segment.issue().cloned().unwrap_or(
-                            SettingsIssue::UnsupportedListOperation {
-                                operation: "unknown-installed-app-segment",
-                            },
-                        ),
-                    },
-                },
-            },
-        })
+        .map(|segment| InstalledApp::from_settings_segment(db, project, segment))
         .collect()
 }
 
-fn resolve_installed_app_entry(
-    db: &dyn Db,
-    project: Project,
-    entry: &str,
-) -> InstalledAppResolution {
-    if let Some((module, class_name)) = split_app_config_entry(entry) {
-        return resolve_app_config(db, project, module, class_name);
-    }
-
-    let Ok(module) = PyModuleName::parse(entry) else {
-        return InstalledAppResolution::Missing {
-            issue: InstalledAppIssue::InvalidModuleName {
-                value: entry.to_string(),
-            },
-        };
-    };
-
-    match resolve_module(db, project, module.clone()).outcome() {
-        ModuleResolutionOutcome::Resolved(resolved) => InstalledAppResolution::Package {
-            module,
-            file: resolved.location().file(),
-        },
-        ModuleResolutionOutcome::NotFound { .. } => InstalledAppResolution::Missing {
-            issue: InstalledAppIssue::ModuleNotFound { module },
-        },
-        ModuleResolutionOutcome::Ambiguous { .. } => InstalledAppResolution::Ambiguous {
-            issue: InstalledAppIssue::ModuleAmbiguous { module },
-        },
-        ModuleResolutionOutcome::Deferred { .. } => InstalledAppResolution::Deferred {
-            issue: InstalledAppIssue::ModuleDeferred { module },
-        },
-    }
-}
-
-fn resolve_app_config(
-    db: &dyn Db,
-    project: Project,
-    module: PyModuleName,
-    class_name: &str,
-) -> InstalledAppResolution {
-    match resolve_module(db, project, module.clone()).outcome() {
-        ModuleResolutionOutcome::Resolved(resolved) => {
-            let file = resolved.location().file();
-            let model = crate::python_source_model(db, file);
-            InstalledAppResolution::AppConfig {
-                config: AppConfig {
-                    module,
-                    name: static_app_config_string_assignment(
-                        model.class_defs(),
-                        class_name,
-                        "name",
-                    ),
-                    label: static_app_config_string_assignment(
-                        model.class_defs(),
-                        class_name,
-                        "label",
-                    ),
-                    path: static_app_config_string_assignment(
-                        model.class_defs(),
-                        class_name,
-                        "path",
-                    )
-                    .map(Utf8PathBuf::from),
-                },
-                file,
-            }
-        }
-        ModuleResolutionOutcome::NotFound { .. } => InstalledAppResolution::Missing {
-            issue: InstalledAppIssue::ModuleNotFound { module },
-        },
-        ModuleResolutionOutcome::Ambiguous { .. } => InstalledAppResolution::Ambiguous {
-            issue: InstalledAppIssue::ModuleAmbiguous { module },
-        },
-        ModuleResolutionOutcome::Deferred { .. } => InstalledAppResolution::Deferred {
-            issue: InstalledAppIssue::AppConfigDetailsDeferred { module },
-        },
-    }
-}
-
-fn split_app_config_entry(entry: &str) -> Option<(PyModuleName, &str)> {
-    let (module, class_name) = entry.rsplit_once('.')?;
-    let last = class_name.chars().next()?;
-    if !last.is_uppercase() {
-        return None;
-    }
-    Some((PyModuleName::parse(module).ok()?, class_name))
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InstalledAppFilesLoadRequest {
+struct InstalledAppFilesLoadRequest {
     roots: Vec<Utf8PathBuf>,
 }
 
 impl InstalledAppFilesLoadRequest {
     #[must_use]
-    pub fn new(roots: Vec<Utf8PathBuf>) -> Self {
+    fn new(roots: Vec<Utf8PathBuf>) -> Self {
         Self { roots }
-    }
-
-    #[must_use]
-    pub fn roots(&self) -> &[Utf8PathBuf] {
-        &self.roots
     }
 }
 
 #[must_use]
-pub fn installed_app_files_request(request: InstalledAppFilesLoadRequest) -> FilesForRootsRequest {
+fn load_installed_app_files(request: InstalledAppFilesLoadRequest) -> FilesForRootsResult {
     let plan = build_source_roots_with_kind(request.roots, FileRootKind::LibrarySearchPath);
-    FilesForRootsRequest::new(
+    djls_workspace::load_files_for_roots(FilesForRootsRequest::new(
         plan.roots().to_vec(),
         Box::new(installed_app_file_predicate),
         django_app_walk_options(),
-    )
-}
-
-#[must_use]
-pub fn load_installed_app_files(request: InstalledAppFilesLoadRequest) -> FilesForRootsResult {
-    djls_workspace::load_files_for_roots(installed_app_files_request(request))
-}
-
-#[must_use]
-pub fn installed_app_file_roots(db: &dyn Db, project: Project) -> InstalledAppFilesLoadRequest {
-    let (roots, _) = installed_app_file_roots_and_issues(db, project);
-    InstalledAppFilesLoadRequest::new(roots)
+    ))
 }
 
 #[must_use]
@@ -307,9 +290,7 @@ fn installed_app_file_roots_and_issues(
                         roots.push(root);
                     }
                 }
-                InstalledAppResolution::Missing { .. }
-                | InstalledAppResolution::Ambiguous { .. }
-                | InstalledAppResolution::Deferred { .. } => {
+                InstalledAppResolution::Unresolved(_) => {
                     issues.push(ProjectSourceFilesIssue::InstalledAppGap {
                         entry: app.entry().to_string(),
                     });
@@ -354,7 +335,7 @@ fn installed_app_file_predicate(path: &Utf8Path) -> bool {
 }
 
 fn static_app_config_string_assignment(
-    classes: &[crate::ClassDef],
+    classes: &[ClassDef],
     class_name: &str,
     name: &str,
 ) -> Option<String> {
@@ -362,7 +343,7 @@ fn static_app_config_string_assignment(
     static_string_assignment(class.assignments(), name)
 }
 
-fn static_string_assignment(assignments: &[crate::Assignment], name: &str) -> Option<String> {
+fn static_string_assignment(assignments: &[Assignment], name: &str) -> Option<String> {
     assignments.iter().find_map(|assignment| {
         let matches_name = assignment
             .targets()
@@ -396,9 +377,9 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
+    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::django_environment_candidates;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::DjangoSettingsModuleSeed;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;
@@ -594,9 +575,9 @@ mod tests {
 
         assert!(matches!(
             apps[1].resolution(),
-            InstalledAppResolution::Missing {
-                issue: InstalledAppIssue::UnknownInstalledAppSegment { .. },
-            }
+            InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::UnknownInstalledAppSegment(_),
+            )
         ));
     }
 
@@ -624,7 +605,7 @@ mod tests {
             panic!("app config should resolve");
         };
         assert_eq!(config.name(), Some("blog"));
-        assert_eq!(config.label(), Some("weblog"));
+        assert_eq!(config.label.as_deref(), Some("weblog"));
         assert_eq!(
             config.path().map(camino::Utf8Path::as_str),
             Some("/srv/blog")
@@ -658,9 +639,9 @@ mod tests {
 
         assert!(matches!(
             apps[0].resolution(),
-            InstalledAppResolution::Deferred {
-                issue: InstalledAppIssue::AppConfigDetailsDeferred { .. },
-            }
+            InstalledAppResolution::Unresolved(
+                InstalledAppResolutionError::AppConfigDetailsDeferred(_),
+            )
         ));
     }
 }

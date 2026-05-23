@@ -64,11 +64,6 @@ impl ProjectLayoutIndex {
     }
 
     #[must_use]
-    pub fn source_roots(&self) -> &[Utf8PathBuf] {
-        &self.roots
-    }
-
-    #[must_use]
     pub fn file_path(&self, file: File) -> Option<&Utf8Path> {
         self.files
             .iter()
@@ -82,68 +77,12 @@ impl ProjectLayoutIndex {
     }
 
     #[must_use]
-    pub fn children(&self, dir: &Utf8Path) -> Vec<File> {
-        self.files
-            .iter()
-            .filter(|entry| entry.path.parent() == Some(dir))
-            .map(|entry| entry.file)
-            .collect()
-    }
-
-    #[must_use]
-    pub fn descendant_files(&self, dir: &Utf8Path) -> Vec<File> {
-        self.files
-            .iter()
-            .filter(|entry| entry.path.starts_with(dir))
-            .map(|entry| entry.file)
-            .collect()
-    }
-
-    #[must_use]
     pub fn files_by_name(&self, name: &str) -> Vec<File> {
         self.files
             .iter()
             .filter(|entry| entry.path.file_name() == Some(name))
             .map(|entry| entry.file)
             .collect()
-    }
-
-    #[must_use]
-    pub fn files_by_extension(&self, extension: &str) -> Vec<File> {
-        self.files
-            .iter()
-            .filter(|entry| entry.path.extension() == Some(extension))
-            .map(|entry| entry.file)
-            .collect()
-    }
-
-    #[must_use]
-    pub fn dirs_by_name(&self, name: &str) -> Vec<Utf8PathBuf> {
-        let mut dirs = self
-            .files
-            .iter()
-            .filter_map(|entry| entry.path.parent())
-            .flat_map(ancestors)
-            .filter(|dir| dir.file_name() == Some(name))
-            .map(Utf8Path::to_owned)
-            .collect::<Vec<_>>();
-        dirs.sort();
-        dirs.dedup();
-        dirs
-    }
-
-    #[must_use]
-    pub fn python_package_dirs(&self) -> Vec<Utf8PathBuf> {
-        let mut dirs = self
-            .files
-            .iter()
-            .filter(|entry| entry.path.file_name() == Some("__init__.py"))
-            .filter_map(|entry| entry.path.parent())
-            .map(Utf8Path::to_owned)
-            .collect::<Vec<_>>();
-        dirs.sort();
-        dirs.dedup();
-        dirs
     }
 
     #[must_use]
@@ -163,27 +102,12 @@ impl ProjectLayoutIndex {
         }
         crate::PyModuleName::parse(&components.join(".")).ok()
     }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.files.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct LayoutFile {
     path: Utf8PathBuf,
     file: File,
-}
-
-fn ancestors(path: &Utf8Path) -> impl Iterator<Item = &Utf8Path> {
-    path.ancestors()
-        .filter(|ancestor| !ancestor.as_str().is_empty())
 }
 
 #[salsa::tracked(returns(ref))]
@@ -251,6 +175,7 @@ mod tests {
     use salsa::Setter;
 
     use super::*;
+    use crate::loading::state::ProjectSourceFilesFixtureSurface;
     use crate::ProjectEnrichment;
     use crate::ReadyProjectSourceFiles;
 
@@ -351,7 +276,7 @@ mod tests {
 
         db.set_project_source_inventory(ProjectSourceInventory::Unavailable {
             issue: ProjectSourceFilesIssue::FixtureUnavailable {
-                surface: crate::ProjectSourceFilesFixtureSurface::SourceFiles,
+                surface: ProjectSourceFilesFixtureSurface::SourceFiles,
             },
         });
 
@@ -360,7 +285,7 @@ mod tests {
             ProjectLayoutIndexOutcome::Unavailable {
                 issue: ProjectLayoutIssue::SourceInventoryUnavailable {
                     issue: ProjectSourceFilesIssue::FixtureUnavailable {
-                        surface: crate::ProjectSourceFilesFixtureSurface::SourceFiles,
+                        surface: ProjectSourceFilesFixtureSurface::SourceFiles,
                     },
                 },
             }
@@ -392,22 +317,6 @@ mod tests {
             Some(Utf8Path::new("/workspace/app/models.py"))
         );
         assert_eq!(index.files_by_name("models.py"), vec![models]);
-        assert_eq!(index.files_by_extension("html").len(), 1);
-        assert_eq!(index.children(Utf8Path::new("/workspace/app")).len(), 2);
-        assert_eq!(
-            index
-                .descendant_files(Utf8Path::new("/workspace/app"))
-                .len(),
-            3
-        );
-        assert_eq!(
-            index.dirs_by_name("templates"),
-            vec![Utf8PathBuf::from("/workspace/app/templates")]
-        );
-        assert_eq!(
-            index.python_package_dirs(),
-            vec![Utf8PathBuf::from("/workspace/app")]
-        );
     }
 
     #[test]
@@ -461,7 +370,7 @@ mod tests {
     #[salsa::tracked]
     fn project_layout_file_count(db: &dyn crate::Db, project: Project) -> usize {
         match project_layout_index(db, project) {
-            ProjectLayoutIndexOutcome::Ready(index) => index.len(),
+            ProjectLayoutIndexOutcome::Ready(index) => index.files.len(),
             ProjectLayoutIndexOutcome::Absent { .. }
             | ProjectLayoutIndexOutcome::Unavailable { .. } => 0,
         }

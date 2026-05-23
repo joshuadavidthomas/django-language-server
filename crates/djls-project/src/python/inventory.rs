@@ -1,18 +1,20 @@
 use djls_source::File;
 
-use crate::installed_apps;
-use crate::template_tag_libraries;
-use crate::Db;
-use crate::DjangoEnvironmentId;
-use crate::InstalledAppResolution;
-use crate::Origin;
-use crate::OriginSet;
-use crate::Project;
-use crate::ProjectSourceInventory;
-use crate::PyModuleName;
+use crate::apps::installed_apps;
+use crate::apps::InstalledAppResolution;
+use crate::db::Db;
+use crate::environments::DjangoEnvironmentId;
+use crate::loading::state::Project;
+use crate::loading::state::ProjectSourceInventory;
+use crate::names::PyModuleName;
+use crate::provenance::Origin;
+use crate::provenance::OriginSet;
+use crate::resolver::module_name_for_path;
+use crate::templates::template_tag_libraries;
+use crate::templates::TemplateTagLibraryResolution;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PythonModuleRole {
+pub(crate) enum PythonModuleRole {
     Model,
     TemplateTag,
     AppConfig,
@@ -41,42 +43,28 @@ impl PythonModule {
     }
 
     #[must_use]
-    pub fn roles(&self) -> &[PythonModuleRole] {
-        &self.roles
-    }
-
-    #[must_use]
-    pub fn has_role(&self, role: PythonModuleRole) -> bool {
-        self.roles.contains(&role)
-    }
-
-    #[must_use]
     pub fn origin(&self) -> &OriginSet {
         &self.origin
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct PythonModuleInventory {
-    modules: Vec<PythonModule>,
-}
-
-impl PythonModuleInventory {
-    #[must_use]
-    pub fn modules(&self) -> &[PythonModule] {
-        &self.modules
-    }
+#[salsa::tracked(returns(ref))]
+pub fn model_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
+    python_modules_with_role(db, project, PythonModuleRole::Model)
 }
 
 #[salsa::tracked(returns(ref))]
-#[allow(clippy::needless_pass_by_value)]
-pub fn python_module_inventory(
+pub fn template_tag_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> {
+    python_modules_with_role(db, project, PythonModuleRole::TemplateTag)
+}
+
+fn python_modules_with_role(
     db: &dyn Db,
     project: Project,
-    env: DjangoEnvironmentId,
-) -> PythonModuleInventory {
+    role: PythonModuleRole,
+) -> Vec<PythonModule> {
     let ProjectSourceInventory::Ready(files) = project.source_inventory(db) else {
-        return PythonModuleInventory::default();
+        return Vec::new();
     };
 
     let data = files.merged().data(db);
@@ -85,43 +73,41 @@ pub fn python_module_inventory(
         .iter()
         .map(|entry| entry.path().to_owned())
         .collect::<Vec<_>>();
-    let template_tag_files = template_tag_library_files(db, project, env.clone());
-    let mut modules = data
-        .files()
-        .iter()
-        .filter_map(|entry| {
+    let mut modules = Vec::new();
+
+    for env in crate::environments::known_django_environment_ids(db, project) {
+        let template_tag_files = template_tag_library_files(db, project, env.clone());
+        for entry in data.files() {
             let path = entry.path();
             if path.extension() != Some("py") {
-                return None;
+                continue;
             }
-            let module = module_name_for_inventory_path(db, project, &env, path)?;
+            let Some(module) = installed_app_module_name_for_path(db, project, &env, path)
+                .or_else(|| module_name_for_path(db, project, path))
+                .and_then(|module| normalize_init_module(module, path))
+            else {
+                continue;
+            };
             let roles =
                 roles_for_path(path, &all_paths, template_tag_files.contains(&entry.file()));
-            if roles.is_empty() {
-                return None;
+            if !roles.contains(&role)
+                || modules
+                    .iter()
+                    .any(|existing: &PythonModule| existing.module() == &module)
+            {
+                continue;
             }
-            Some(PythonModule {
+            modules.push(PythonModule {
                 module,
                 file: entry.file(),
                 roles,
                 origin: OriginSet::single(Origin::Convention { file: entry.file() }),
-            })
-        })
-        .collect::<Vec<_>>();
+            });
+        }
+    }
 
     modules.sort_by(|left, right| left.module.cmp(&right.module));
-    PythonModuleInventory { modules }
-}
-
-fn module_name_for_inventory_path(
-    db: &dyn Db,
-    project: Project,
-    env: &DjangoEnvironmentId,
-    path: &camino::Utf8Path,
-) -> Option<PyModuleName> {
-    installed_app_module_name_for_path(db, project, env, path)
-        .or_else(|| crate::module_name_for_path(db, project, path))
-        .and_then(|module| normalize_init_module(module, path))
+    modules
 }
 
 fn normalize_init_module(module: PyModuleName, path: &camino::Utf8Path) -> Option<PyModuleName> {
@@ -155,9 +141,7 @@ fn installed_app_module_name_for_path(
                     .or_else(|| parent_module(config.module()))?;
                 (root, module)
             }
-            InstalledAppResolution::Missing { .. }
-            | InstalledAppResolution::Ambiguous { .. }
-            | InstalledAppResolution::Deferred { .. } => continue,
+            InstalledAppResolution::Unresolved(_) => continue,
         };
         if !path.starts_with(root.as_path()) {
             continue;
@@ -201,10 +185,10 @@ fn template_tag_library_files(
         .libraries()
         .iter()
         .filter_map(|library| match library.resolution() {
-            crate::TemplateTagLibraryResolution::Resolved { file } => Some(*file),
-            crate::TemplateTagLibraryResolution::Builtin
-            | crate::TemplateTagLibraryResolution::Unresolved { .. }
-            | crate::TemplateTagLibraryResolution::Ambiguous { .. } => None,
+            TemplateTagLibraryResolution::Resolved { file } => Some(*file),
+            TemplateTagLibraryResolution::Builtin
+            | TemplateTagLibraryResolution::Unresolved { .. }
+            | TemplateTagLibraryResolution::Ambiguous { .. } => None,
         })
         .collect()
 }
@@ -264,7 +248,6 @@ mod tests {
     use crate::testing::project_discovery_set_for_test;
     use crate::testing::ready_source_inventory_with_roots_for_test;
     use crate::testing::settings_file_path;
-    use crate::DjangoEnvironmentCandidatesOutcome;
     use crate::ProjectDiscovery;
 
     #[salsa::db]
@@ -321,15 +304,6 @@ mod tests {
         }
     }
 
-    fn env(db: &TestDb) -> DjangoEnvironmentId {
-        let DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. } =
-            crate::django_environment_candidates(db, db.project())
-        else {
-            panic!("environment candidates should be ready");
-        };
-        candidates[0].id().clone()
-    }
-
     #[test]
     fn python_module_inventory_classifies_workspace_modules() {
         let mut db = TestDb::with_project();
@@ -362,34 +336,22 @@ mod tests {
             &db, root,
         )));
 
-        let inventory = python_module_inventory(&db, db.project(), env(&db));
-        let models = inventory
-            .modules()
-            .iter()
-            .find(|module| module.module().as_str() == "blog.models")
-            .expect("models module should be indexed");
-        let model_package = inventory
-            .modules()
-            .iter()
-            .find(|module| module.module().as_str() == "blog.models.post")
-            .expect("model package module should be indexed");
-        let tags = inventory
-            .modules()
-            .iter()
-            .find(|module| module.module().as_str() == "blog.templatetags.blog_tags")
-            .expect("installed templatetag module should be indexed");
-        let alias = inventory
-            .modules()
-            .iter()
-            .find(|module| module.module().as_str() == "blog.ui_tags")
-            .expect("settings library alias module should be indexed");
+        let models = model_modules(&db, db.project());
+        let template_tags = template_tag_modules(&db, db.project());
 
-        assert!(models.has_role(PythonModuleRole::Model));
-        assert!(model_package.has_role(PythonModuleRole::Model));
-        assert!(tags.has_role(PythonModuleRole::TemplateTag));
-        assert!(alias.has_role(PythonModuleRole::TemplateTag));
-        assert!(inventory
-            .modules()
+        assert!(models
+            .iter()
+            .any(|module| module.module().as_str() == "blog.models"));
+        assert!(models
+            .iter()
+            .any(|module| module.module().as_str() == "blog.models.post"));
+        assert!(template_tags
+            .iter()
+            .any(|module| module.module().as_str() == "blog.templatetags.blog_tags"));
+        assert!(template_tags
+            .iter()
+            .any(|module| module.module().as_str() == "blog.ui_tags"));
+        assert!(template_tags
             .iter()
             .all(|module| module.module().as_str() != "shop.templatetags.unused"));
     }

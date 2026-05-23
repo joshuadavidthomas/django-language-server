@@ -1,16 +1,16 @@
 use camino::Utf8Path;
 use djls_source::File;
 
-use crate::settings_candidates;
+use crate::provenance::Origin;
+use crate::settings::settings_candidates;
+use crate::settings::SettingsCandidate;
+use crate::settings::SettingsCandidateIssue;
+use crate::settings::SettingsCandidateOutcome;
+use crate::settings::SettingsCandidateSource;
 use crate::Db;
-use crate::Origin;
 use crate::Project;
 use crate::ProjectDiscovery;
 use crate::ProjectSourceInventory;
-use crate::SettingsCandidate;
-use crate::SettingsCandidateIssue;
-use crate::SettingsCandidateOutcome;
-use crate::SettingsCandidateSource;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DjangoEnvironmentId(String);
@@ -148,6 +148,23 @@ pub fn django_environment_candidates(
         candidates: env_candidates,
         issues: environment_issues_from_settings_issues(issues),
     }
+}
+
+#[must_use]
+pub(crate) fn known_django_environment_ids(
+    db: &dyn Db,
+    project: Project,
+) -> Vec<DjangoEnvironmentId> {
+    let (DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
+    | DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. }) =
+        django_environment_candidates(db, project)
+    else {
+        return Vec::new();
+    };
+    candidates
+        .iter()
+        .map(|candidate| candidate.id().clone())
+        .collect()
 }
 
 #[salsa::tracked(returns(ref))]
@@ -333,8 +350,8 @@ mod tests {
     use salsa::Database;
 
     use super::*;
-    use crate::DjangoEnvironmentSeed;
-    use crate::DjangoSettingsModuleSeed;
+    use crate::discovery::DjangoEnvironmentSeed;
+    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;

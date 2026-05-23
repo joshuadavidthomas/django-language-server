@@ -1,9 +1,9 @@
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 
-use crate::load_env_file_outcome;
-use crate::DjangoEnvironmentSeed;
-use crate::DjangoSettingsModuleSeed;
+use crate::discovery::DjangoEnvironmentSeed;
+use crate::discovery::DjangoSettingsModuleSeed;
+use crate::env::load_env_file_outcome;
 use crate::Interpreter;
 use crate::ProjectDiscoveryIssue;
 use crate::ProjectEnvVars;
@@ -247,7 +247,7 @@ mod tests {
             data.roots()[0].issues(),
             &[ProjectDiscoveryIssue::ConfigLoadFailed {
                 root,
-                error: crate::ProjectConfigLoadError::Parse(source),
+                error: crate::discovery::ProjectConfigLoadError::Parse(source),
             }]
         );
     }
@@ -311,7 +311,7 @@ django_settings_module = "blog.settings"
             .contains(&ProjectDiscoveryIssue::EnvFileLoadFailed {
                 root: root.clone(),
                 source: root.join("missing.env"),
-                kind: crate::EnvFileLoadIssueKind::Missing,
+                kind: crate::discovery::EnvFileLoadIssueKind::Missing,
             },));
     }
 

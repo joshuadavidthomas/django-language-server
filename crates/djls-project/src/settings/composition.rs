@@ -1,39 +1,36 @@
 use crate::django_environment_candidates;
-use crate::resolve_module;
-use crate::AssignmentKind;
+use crate::python::python_source_model;
+use crate::python::AssignmentKind;
+use crate::python::ImportStatement;
+use crate::python::PythonSourceModelStatus;
+use crate::python::PythonSourceOperation;
+use crate::python::QualifiedName;
+use crate::python::StaticValue;
+use crate::python::StaticValueIssue;
+use crate::resolver::resolve_module;
+use crate::resolver::ModuleResolutionOutcome;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::DjangoEnvironmentId;
-use crate::ImportStatement;
-use crate::ModuleResolutionOutcome;
 use crate::Project;
 use crate::PyModuleName;
-use crate::PythonSourceModelStatus;
-use crate::PythonSourceOperation;
-use crate::StaticValue;
-use crate::StaticValueIssue;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct EffectiveSettings {
+pub struct DjangoSettings {
     installed_apps: PartialList<String>,
     templates: TemplateSettingsResolution,
     issues: Vec<SettingsIssue>,
 }
 
-impl EffectiveSettings {
+impl DjangoSettings {
     #[must_use]
-    pub fn installed_apps(&self) -> &PartialList<String> {
+    pub fn installed_app_entries(&self) -> &PartialList<String> {
         &self.installed_apps
     }
 
     #[must_use]
     pub fn templates(&self) -> &TemplateSettingsResolution {
         &self.templates
-    }
-
-    #[must_use]
-    pub fn issues(&self) -> &[SettingsIssue] {
-        &self.issues
     }
 }
 
@@ -114,11 +111,6 @@ impl TemplateSettingsResolution {
     pub fn backends(&self) -> &[TemplateBackend] {
         &self.backends
     }
-
-    #[must_use]
-    pub fn issues(&self) -> &[SettingsIssue] {
-        &self.issues
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -130,11 +122,6 @@ pub struct TemplateBackend {
 }
 
 impl TemplateBackend {
-    #[must_use]
-    pub fn backend(&self) -> Option<&str> {
-        self.backend.as_deref()
-    }
-
     #[must_use]
     pub fn dirs(&self) -> &PartialList<String> {
         &self.dirs
@@ -170,19 +157,15 @@ impl TemplateLibraryAlias {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn effective_settings(
-    db: &dyn Db,
-    project: Project,
-    env: DjangoEnvironmentId,
-) -> EffectiveSettings {
+pub fn django_settings(db: &dyn Db, project: Project, env: DjangoEnvironmentId) -> DjangoSettings {
     let Some(settings_module) = settings_module_for_env(db, project, &env) else {
-        return EffectiveSettings {
+        return DjangoSettings {
             issues: vec![SettingsIssue::EnvironmentNotFound { id: env }],
-            ..EffectiveSettings::default()
+            ..DjangoSettings::default()
         };
     };
     let mut visited = Vec::new();
-    effective_settings_for_module(db, project, settings_module, &mut visited)
+    django_settings_for_module(db, project, settings_module, &mut visited)
 }
 
 fn settings_module_for_env(
@@ -202,48 +185,48 @@ fn settings_module_for_env(
         .map(|candidate| candidate.settings().clone())
 }
 
-fn effective_settings_for_module(
+fn django_settings_for_module(
     db: &dyn Db,
     project: Project,
     module: PyModuleName,
     visited: &mut Vec<PyModuleName>,
-) -> EffectiveSettings {
+) -> DjangoSettings {
     if visited.contains(&module) {
-        return EffectiveSettings::default();
+        return DjangoSettings::default();
     }
     visited.push(module.clone());
 
     let file = match resolve_module(db, project, module.clone()).outcome() {
         ModuleResolutionOutcome::Resolved(resolved) => resolved.location().file(),
         ModuleResolutionOutcome::Ambiguous { .. } => {
-            return EffectiveSettings {
+            return DjangoSettings {
                 issues: vec![SettingsIssue::SettingsModuleAmbiguous { module }],
-                ..EffectiveSettings::default()
+                ..DjangoSettings::default()
             };
         }
         ModuleResolutionOutcome::Deferred { .. } => {
-            return EffectiveSettings {
+            return DjangoSettings {
                 issues: vec![SettingsIssue::SettingsModuleDeferred { module }],
-                ..EffectiveSettings::default()
+                ..DjangoSettings::default()
             };
         }
         ModuleResolutionOutcome::NotFound { .. } => {
-            return EffectiveSettings {
+            return DjangoSettings {
                 issues: vec![SettingsIssue::SettingsModuleNotResolved { module }],
-                ..EffectiveSettings::default()
+                ..DjangoSettings::default()
             };
         }
     };
 
-    let model = crate::python_source_model(db, file);
+    let model = python_source_model(db, file);
     if !matches!(model.status(), PythonSourceModelStatus::Parsed) {
-        return EffectiveSettings {
+        return DjangoSettings {
             issues: vec![SettingsIssue::SettingsModuleParseError],
-            ..EffectiveSettings::default()
+            ..DjangoSettings::default()
         };
     }
 
-    let mut settings = EffectiveSettings::default();
+    let mut settings = DjangoSettings::default();
     apply_settings_operations(
         db,
         project,
@@ -255,8 +238,8 @@ fn effective_settings_for_module(
     settings
 }
 
-impl EffectiveSettings {
-    fn merge(&mut self, other: EffectiveSettings) {
+impl DjangoSettings {
+    fn merge(&mut self, other: DjangoSettings) {
         self.installed_apps.extend(other.installed_apps.segments);
         self.templates.backends.extend(other.templates.backends);
         self.templates.issues.extend(other.templates.issues);
@@ -282,7 +265,7 @@ fn imported_settings_module(
 
 fn import_from_module_name(
     current_module: &PyModuleName,
-    module: Option<&crate::QualifiedName>,
+    module: Option<&QualifiedName>,
     level: u32,
 ) -> Option<PyModuleName> {
     if level == 0 {
@@ -305,7 +288,7 @@ fn apply_settings_operations(
     db: &dyn Db,
     project: Project,
     current_module: &PyModuleName,
-    settings: &mut EffectiveSettings,
+    settings: &mut DjangoSettings,
     operations: &[PythonSourceOperation],
     visited: &mut Vec<PyModuleName>,
 ) {
@@ -314,7 +297,7 @@ fn apply_settings_operations(
             PythonSourceOperation::Import(import) => {
                 if let Some(imported) = imported_settings_module(current_module, import) {
                     let imported_settings =
-                        effective_settings_for_module(db, project, imported, visited);
+                        django_settings_for_module(db, project, imported, visited);
                     settings.merge(imported_settings);
                 }
             }
@@ -496,7 +479,7 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::DjangoSettingsModuleSeed;
+    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;
@@ -603,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn effective_settings_preserve_installed_apps_order_with_unknown_gaps() {
+    fn django_settings_preserve_installed_apps_order_with_unknown_gaps() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/project/settings.py",
@@ -613,8 +596,8 @@ mod tests {
         db.set_project_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
-        let settings = effective_settings(&db, db.project(), env);
-        let segments = settings.installed_apps().segments();
+        let settings = django_settings(&db, db.project(), env);
+        let segments = settings.installed_app_entries().segments();
 
         assert_eq!(
             segments[0].value(),
@@ -625,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn effective_settings_extract_template_backend_settings() {
+    fn django_settings_extract_template_backend_settings() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/project/settings.py",
@@ -635,11 +618,11 @@ mod tests {
         db.set_project_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
-        let settings = effective_settings(&db, db.project(), env);
+        let settings = django_settings(&db, db.project(), env);
         let backend = &settings.templates().backends()[0];
 
         assert_eq!(
-            backend.backend(),
+            backend.backend.as_deref(),
             Some("django.template.backends.django.DjangoTemplates")
         );
         assert_eq!(
@@ -650,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn effective_settings_apply_operations_in_source_order() {
+    fn django_settings_apply_operations_in_source_order() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/project/settings.py",
@@ -660,9 +643,9 @@ mod tests {
         db.set_project_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
-        let settings = effective_settings(&db, db.project(), env);
+        let settings = django_settings(&db, db.project(), env);
         let values = settings
-            .installed_apps()
+            .installed_app_entries()
             .segments()
             .iter()
             .filter_map(PartialListSegment::value)
@@ -673,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn effective_settings_support_relative_star_imports() {
+    fn django_settings_support_relative_star_imports() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/project/base.py",
@@ -693,9 +676,9 @@ mod tests {
         db.set_project_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
-        let settings = effective_settings(&db, db.project(), env);
+        let settings = django_settings(&db, db.project(), env);
         let values = settings
-            .installed_apps()
+            .installed_app_entries()
             .segments()
             .iter()
             .filter_map(PartialListSegment::value)
@@ -706,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn effective_settings_preserve_known_concat_tail_after_unknown_prefix() {
+    fn django_settings_preserve_known_concat_tail_after_unknown_prefix() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/project/settings.py",
@@ -716,15 +699,15 @@ mod tests {
         db.set_project_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
-        let settings = effective_settings(&db, db.project(), env);
-        let segments = settings.installed_apps().segments();
+        let settings = django_settings(&db, db.project(), env);
+        let segments = settings.installed_app_entries().segments();
 
         assert!(segments[0].issue().is_some());
         assert_eq!(segments[1].value(), Some(&"local_app".to_string()));
     }
 
     #[test]
-    fn effective_settings_imports_apply_before_current_file_appends() {
+    fn django_settings_imports_apply_before_current_file_appends() {
         let mut db = TestDb::with_project();
         db.set_file("/workspace/base.py", "INSTALLED_APPS = ['base_app']\n");
         db.set_file(
@@ -738,9 +721,9 @@ mod tests {
         db.set_project_discovery(discovery(&db, "project.settings"));
         let env = single_env_id(&db);
 
-        let settings = effective_settings(&db, db.project(), env);
+        let settings = django_settings(&db, db.project(), env);
         let values = settings
-            .installed_apps()
+            .installed_app_entries()
             .segments()
             .iter()
             .filter_map(PartialListSegment::value)

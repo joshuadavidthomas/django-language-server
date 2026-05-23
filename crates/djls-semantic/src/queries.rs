@@ -5,11 +5,8 @@ use crate::python::extract_block_specs;
 use crate::python::extract_filter_arities;
 use crate::python::extract_model_graph;
 use crate::python::extract_tag_rules;
-use crate::python::BlockSpecs;
-use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
-use crate::python::TagRuleMap;
 use crate::specs::filters::FilterAritySpecs;
 use crate::specs::tags::builtin_tag_specs;
 use crate::specs::tags::TagSpecs;
@@ -27,13 +24,17 @@ pub fn compute_tag_specs(db: &dyn Db, project: djls_project::Project) -> TagSpec
 
     let mut specs = builtin_tag_specs();
 
-    let workspace_block_specs = collect_workspace_block_specs(db, project);
-    for (_module_path, block_specs) in workspace_block_specs {
-        specs.merge_block_specs(block_specs);
-    }
-    let workspace_tag_rules = collect_workspace_tag_rules(db, project);
-    for (_module_path, tag_rules) in workspace_tag_rules {
-        specs.merge_tag_rules(tag_rules);
+    for module in djls_project::template_tag_modules(db, project) {
+        let module_path = ModulePath::new(module.module().as_str().to_string());
+        let block_specs = extract_block_specs(db, module.file(), module_path.clone());
+        if !block_specs.is_empty() {
+            specs.merge_block_specs(block_specs);
+        }
+
+        let tag_rules = extract_tag_rules(db, module.file(), module_path);
+        if !tag_rules.is_empty() {
+            specs.merge_tag_rules(tag_rules);
+        }
     }
 
     if !tagspecs.libraries.is_empty() {
@@ -52,9 +53,12 @@ pub fn compute_tag_specs(db: &dyn Db, project: djls_project::Project) -> TagSpec
 pub fn compute_filter_arity_specs(db: &dyn Db, project: djls_project::Project) -> FilterAritySpecs {
     let mut specs = FilterAritySpecs::new();
 
-    let workspace_results = collect_workspace_filter_arities(db, project);
-    for (_module_path, filter_arities) in workspace_results {
-        specs.merge_filter_arities(filter_arities);
+    for module in djls_project::template_tag_modules(db, project) {
+        let module_path = ModulePath::new(module.module().as_str().to_string());
+        let filter_arities = extract_filter_arities(db, module.file(), module_path);
+        if !filter_arities.is_empty() {
+            specs.merge_filter_arities(filter_arities);
+        }
     }
 
     specs
@@ -65,38 +69,15 @@ pub fn compute_filter_arity_specs(db: &dyn Db, project: djls_project::Project) -
 pub fn compute_model_graph(db: &dyn Db, project: djls_project::Project) -> ModelGraph {
     let mut graph = ModelGraph::new();
 
-    for (_module_path, model_graph) in collect_workspace_models(db, project) {
-        graph.merge(model_graph.clone());
-    }
-
-    graph
-}
-
-#[salsa::tracked(returns(ref))]
-fn collect_workspace_models(
-    db: &dyn Db,
-    project: djls_project::Project,
-) -> Vec<(ModulePath, ModelGraph)> {
-    let mut results = Vec::new();
-
-    for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project, env)
-            .modules()
-            .iter()
-            .filter(|module| module.has_role(djls_project::PythonModuleRole::Model))
-        {
-            let module_path = ModulePath::new(module.module().as_str().to_string());
-            if results.iter().any(|(existing, _)| existing == &module_path) {
-                continue;
-            }
-            let graph = extract_workspace_model_graph(db, module.file(), module_path.clone());
-            if !graph.is_empty() {
-                results.push((module_path, graph));
-            }
+    for module in djls_project::model_modules(db, project) {
+        let module_path = ModulePath::new(module.module().as_str().to_string());
+        let model_graph = extract_workspace_model_graph(db, module.file(), module_path);
+        if !model_graph.is_empty() {
+            graph.merge(model_graph.clone());
         }
     }
 
-    results
+    graph
 }
 
 #[salsa::tracked]
@@ -104,112 +85,6 @@ fn extract_workspace_model_graph(db: &dyn Db, file: File, module_path: ModulePat
     let source = file.source(db);
     let module_path = module_path.into_string();
     extract_model_graph(source.as_ref(), &module_path)
-}
-
-#[salsa::tracked(returns(ref))]
-fn collect_workspace_tag_rules(
-    db: &dyn Db,
-    project: djls_project::Project,
-) -> Vec<(String, TagRuleMap)> {
-    let mut results = Vec::new();
-
-    for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project, env)
-            .modules()
-            .iter()
-            .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
-        {
-            let module_name = module.module().as_str().to_string();
-            if results.iter().any(|(existing, _)| existing == &module_name) {
-                continue;
-            }
-            let file = module.file();
-            let module_path = ModulePath::new(module_name.clone());
-            let tag_rules = extract_tag_rules(db, file, module_path);
-
-            if !tag_rules.is_empty() {
-                results.push((module_name, tag_rules.clone()));
-            }
-        }
-    }
-
-    results
-}
-
-#[salsa::tracked(returns(ref))]
-fn collect_workspace_filter_arities(
-    db: &dyn Db,
-    project: djls_project::Project,
-) -> Vec<(String, FilterArityMap)> {
-    let mut results = Vec::new();
-
-    for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project, env)
-            .modules()
-            .iter()
-            .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
-        {
-            let module_name = module.module().as_str().to_string();
-            if results.iter().any(|(existing, _)| existing == &module_name) {
-                continue;
-            }
-            let file = module.file();
-            let module_path = ModulePath::new(module_name.clone());
-            let filter_arities = extract_filter_arities(db, file, module_path);
-
-            if !filter_arities.is_empty() {
-                results.push((module_name, filter_arities.clone()));
-            }
-        }
-    }
-
-    results
-}
-
-#[salsa::tracked(returns(ref))]
-fn collect_workspace_block_specs(
-    db: &dyn Db,
-    project: djls_project::Project,
-) -> Vec<(String, BlockSpecs)> {
-    let mut results = Vec::new();
-
-    for env in ready_static_environments(db, project) {
-        for module in djls_project::python_module_inventory(db, project, env)
-            .modules()
-            .iter()
-            .filter(|module| module.has_role(djls_project::PythonModuleRole::TemplateTag))
-        {
-            let module_name = module.module().as_str().to_string();
-            if results.iter().any(|(existing, _)| existing == &module_name) {
-                continue;
-            }
-            let file = module.file();
-            let module_path = ModulePath::new(module_name.clone());
-            let block_specs = extract_block_specs(db, file, module_path);
-
-            if !block_specs.is_empty() {
-                results.push((module_name, block_specs.clone()));
-            }
-        }
-    }
-
-    results
-}
-
-fn ready_static_environments(
-    db: &dyn Db,
-    project: djls_project::Project,
-) -> Vec<djls_project::DjangoEnvironmentId> {
-    let (djls_project::DjangoEnvironmentCandidatesOutcome::Ready { candidates, .. }
-    | djls_project::DjangoEnvironmentCandidatesOutcome::Ambiguous { candidates, .. }) =
-        djls_project::django_environment_candidates(db, project)
-    else {
-        return Vec::new();
-    };
-    candidates
-        .iter()
-        .map(|candidate| candidate.id().clone())
-        .collect()
 }
 
 #[cfg(test)]

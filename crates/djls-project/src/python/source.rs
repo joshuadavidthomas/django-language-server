@@ -7,10 +7,10 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 
-use crate::project_layout_index;
+use crate::layout::project_layout_index;
+use crate::layout::ProjectLayoutIndexOutcome;
 use crate::Db;
 use crate::Project;
-use crate::ProjectLayoutIndexOutcome;
 use crate::ProjectSourceFilesIssue;
 use crate::ProjectSourceInventory;
 use crate::PyModuleName;

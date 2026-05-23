@@ -1,9 +1,9 @@
+use crate::loading::ProjectFilePartitionReadiness;
+use crate::loading::ProjectSourceFilesApplied;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::ProjectDiscovery;
 use crate::ProjectDiscoveryApplyResult;
 use crate::ProjectEnrichment;
-use crate::ProjectFilePartitionReadiness;
-use crate::ProjectSourceFilesApplied;
 use crate::ProjectSourceFilesApplyResult;
 use crate::PythonSourceIndexOutcome;
 
@@ -16,24 +16,6 @@ pub enum NodeId {
     InstalledAppFiles,
     TemplateDirectoryFiles,
     Enrichment,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReadinessSourceKind {
-    SourceFilePartition,
-    ProjectDiscovery,
-    PythonSourceIndex,
-    EnvironmentCandidates,
-    InstalledAppFiles,
-    TemplateDirectoryFiles,
-    Enrichment,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NodeSpec {
-    pub id: NodeId,
-    pub prerequisites: &'static [NodeId],
-    pub readiness_source: ReadinessSourceKind,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -59,58 +41,6 @@ pub enum MilestoneTerminalStatus {
     Succeeded,
     Degraded,
 }
-
-pub const NODE_SPECS: &[NodeSpec] = &[
-    NodeSpec {
-        id: NodeId::SourceFileSet,
-        prerequisites: &[],
-        readiness_source: ReadinessSourceKind::SourceFilePartition,
-    },
-    NodeSpec {
-        id: NodeId::ProjectDiscoverySet,
-        prerequisites: &[NodeId::SourceFileSet],
-        readiness_source: ReadinessSourceKind::ProjectDiscovery,
-    },
-    NodeSpec {
-        id: NodeId::PythonSourceModels,
-        prerequisites: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
-        readiness_source: ReadinessSourceKind::PythonSourceIndex,
-    },
-    NodeSpec {
-        id: NodeId::EnvironmentDiscovery,
-        prerequisites: &[
-            NodeId::SourceFileSet,
-            NodeId::ProjectDiscoverySet,
-            NodeId::PythonSourceModels,
-        ],
-        readiness_source: ReadinessSourceKind::EnvironmentCandidates,
-    },
-    NodeSpec {
-        id: NodeId::InstalledAppFiles,
-        prerequisites: &[
-            NodeId::SourceFileSet,
-            NodeId::ProjectDiscoverySet,
-            NodeId::PythonSourceModels,
-            NodeId::EnvironmentDiscovery,
-        ],
-        readiness_source: ReadinessSourceKind::InstalledAppFiles,
-    },
-    NodeSpec {
-        id: NodeId::TemplateDirectoryFiles,
-        prerequisites: &[
-            NodeId::SourceFileSet,
-            NodeId::ProjectDiscoverySet,
-            NodeId::PythonSourceModels,
-            NodeId::EnvironmentDiscovery,
-        ],
-        readiness_source: ReadinessSourceKind::TemplateDirectoryFiles,
-    },
-    NodeSpec {
-        id: NodeId::Enrichment,
-        prerequisites: &[NodeId::InstalledAppFiles, NodeId::TemplateDirectoryFiles],
-        readiness_source: ReadinessSourceKind::Enrichment,
-    },
-];
 
 pub const MILESTONE_SPECS: &[MilestoneSpec] = &[
     MilestoneSpec {
@@ -231,13 +161,6 @@ impl LoadingReadiness for ProjectSourceFilesApplyResult {
     }
 }
 
-#[must_use]
-pub fn node_status_from_discovery_readiness(
-    result: &ProjectDiscoveryApplyResult,
-) -> NodeTerminalStatus {
-    node_status_from_readiness(result)
-}
-
 impl LoadingReadiness for ProjectDiscoveryApplyResult {
     fn terminal_status(&self) -> NodeTerminalStatus {
         match self {
@@ -325,14 +248,14 @@ mod tests {
 
     use super::super::files::ProjectFileSetPartitions;
     use super::*;
-    use crate::DjangoEnvironmentCandidate;
-    use crate::EnvironmentCandidatesIssue;
+    use crate::environments::DjangoEnvironmentCandidate;
+    use crate::environments::EnvironmentCandidatesIssue;
+    use crate::python::source::PythonSourceIndex;
+    use crate::python::source::PythonSourceIndexIssue;
     use crate::ProjectDiscoveryIssue;
     use crate::ProjectDiscoveryIssues;
     use crate::ProjectDiscoverySet;
     use crate::ProjectSourceFilesIssue;
-    use crate::PythonSourceIndex;
-    use crate::PythonSourceIndexIssue;
     use crate::ReadyProjectSourceFiles;
     use crate::RootDiscoveryInput;
 
@@ -355,64 +278,6 @@ mod tests {
         fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
             Ok(String::new())
         }
-    }
-
-    #[test]
-    fn node_specs_contains_source_file_and_discovery_nodes_in_phase3() {
-        assert_eq!(
-            NODE_SPECS,
-            &[
-                NodeSpec {
-                    id: NodeId::SourceFileSet,
-                    prerequisites: &[],
-                    readiness_source: ReadinessSourceKind::SourceFilePartition,
-                },
-                NodeSpec {
-                    id: NodeId::ProjectDiscoverySet,
-                    prerequisites: &[NodeId::SourceFileSet],
-                    readiness_source: ReadinessSourceKind::ProjectDiscovery,
-                },
-                NodeSpec {
-                    id: NodeId::PythonSourceModels,
-                    prerequisites: &[NodeId::SourceFileSet, NodeId::ProjectDiscoverySet],
-                    readiness_source: ReadinessSourceKind::PythonSourceIndex,
-                },
-                NodeSpec {
-                    id: NodeId::EnvironmentDiscovery,
-                    prerequisites: &[
-                        NodeId::SourceFileSet,
-                        NodeId::ProjectDiscoverySet,
-                        NodeId::PythonSourceModels,
-                    ],
-                    readiness_source: ReadinessSourceKind::EnvironmentCandidates,
-                },
-                NodeSpec {
-                    id: NodeId::InstalledAppFiles,
-                    prerequisites: &[
-                        NodeId::SourceFileSet,
-                        NodeId::ProjectDiscoverySet,
-                        NodeId::PythonSourceModels,
-                        NodeId::EnvironmentDiscovery,
-                    ],
-                    readiness_source: ReadinessSourceKind::InstalledAppFiles,
-                },
-                NodeSpec {
-                    id: NodeId::TemplateDirectoryFiles,
-                    prerequisites: &[
-                        NodeId::SourceFileSet,
-                        NodeId::ProjectDiscoverySet,
-                        NodeId::PythonSourceModels,
-                        NodeId::EnvironmentDiscovery,
-                    ],
-                    readiness_source: ReadinessSourceKind::TemplateDirectoryFiles,
-                },
-                NodeSpec {
-                    id: NodeId::Enrichment,
-                    prerequisites: &[NodeId::InstalledAppFiles, NodeId::TemplateDirectoryFiles],
-                    readiness_source: ReadinessSourceKind::Enrichment,
-                },
-            ]
-        );
     }
 
     #[test]
@@ -597,7 +462,7 @@ mod tests {
         ];
 
         for (result, expected) in cases {
-            assert_eq!(node_status_from_discovery_readiness(&result), expected);
+            assert_eq!(node_status_from_readiness(&result), expected);
         }
     }
 

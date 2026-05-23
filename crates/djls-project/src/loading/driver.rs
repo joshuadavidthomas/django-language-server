@@ -454,12 +454,15 @@ mod tests {
 
     use super::*;
     use crate::build_source_roots;
+    use crate::environments::DjangoEnvironmentCandidate;
+    use crate::environments::EnvironmentCandidatesIssue;
     use crate::first_party_discovery_files_request;
     use crate::first_party_source_files_load_request;
+    use crate::loading::ProjectSourceFilesApplied;
     use crate::merge_first_party_source_file_patch;
-    use crate::DjangoEnvironmentCandidate;
+    use crate::python::source::PythonSourceIndex;
+    use crate::python::source::PythonSourceIndexIssue;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::EnvironmentCandidatesIssue;
     use crate::FirstPartySourceFilePatch;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoveryApplyResult;
@@ -467,9 +470,7 @@ mod tests {
     use crate::ProjectDiscoverySetData;
     use crate::ProjectEnrichment;
     use crate::ProjectEnrichmentDraft;
-    use crate::ProjectSourceFilesApplied;
     use crate::ProjectSourceFilesApplyResult;
-    use crate::PythonSourceIndex;
     use crate::PythonSourceIndexOutcome;
 
     #[salsa::db]
@@ -537,7 +538,7 @@ mod tests {
                 return LoadingApplyOutcome::Applied(ProjectSourceFilesApplyResult::Applied(
                     ProjectSourceFilesApplied::for_test(
                         files,
-                        crate::ProjectFilePartitionReadiness::Ready {
+                        crate::loading::ProjectFilePartitionReadiness::Ready {
                             summary: FileSetSummary::new(0),
                         },
                     ),
@@ -588,7 +589,7 @@ mod tests {
             self.python_observe_count += 1;
             if self.python_skipped {
                 return LoadingObservationOutcome::Observed(PythonSourceIndexOutcome::Skipped {
-                    issue: crate::PythonSourceIndexIssue::NoPythonFiles,
+                    issue: PythonSourceIndexIssue::NoPythonFiles,
                 });
             }
             LoadingObservationOutcome::Observed(PythonSourceIndexOutcome::Ready(

@@ -4,21 +4,21 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
 
-use crate::effective_settings;
-use crate::installed_apps;
-use crate::resolve_module;
+use crate::apps::installed_apps;
+use crate::apps::InstalledAppResolution;
+use crate::loading::FileSetPartitionId;
+use crate::loading::ProjectFilePartitionReadiness;
+use crate::resolver::resolve_module;
+use crate::resolver::ModuleResolutionOutcome;
+use crate::settings::django_settings;
+use crate::settings::SettingsIssue;
 use crate::Db;
 use crate::DjangoEnvironmentId;
-use crate::FileSetPartitionId;
-use crate::InstalledAppResolution;
 use crate::LibraryName;
-use crate::ModuleResolutionOutcome;
 use crate::Project;
-use crate::ProjectFilePartitionReadiness;
 use crate::ProjectSourceFilesIssue;
 use crate::ProjectSourceInventory;
 use crate::PyModuleName;
-use crate::SettingsIssue;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TemplateDirectory {
@@ -65,13 +65,6 @@ pub enum TemplateDirectoryEntry {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TemplateDirectoryInventory {
     entries: Vec<TemplateDirectoryEntry>,
-}
-
-impl TemplateDirectoryInventory {
-    #[must_use]
-    pub fn entries(&self) -> &[TemplateDirectoryEntry] {
-        &self.entries
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -133,11 +126,6 @@ impl TemplateTagLibrary {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    #[must_use]
-    pub fn source(&self) -> &TemplateTagLibrarySource {
-        &self.source
     }
 
     #[must_use]
@@ -319,7 +307,7 @@ pub fn template_tag_libraries(
             }
         }
     }
-    let settings = effective_settings(db, project, env);
+    let settings = django_settings(db, project, env);
     for backend in settings.templates().backends() {
         for alias in backend.libraries() {
             libraries.push(TemplateTagLibrary {
@@ -448,7 +436,7 @@ fn template_directory_entries(
     project: Project,
     env: DjangoEnvironmentId,
 ) -> Vec<TemplateDirectoryEntry> {
-    let settings = effective_settings(db, project, env.clone());
+    let settings = django_settings(db, project, env.clone());
     let mut entries = Vec::new();
     for backend in settings.templates().backends() {
         for segment in backend.dirs().segments() {
@@ -494,9 +482,7 @@ fn installed_app_roots(
                 .path()
                 .map(Utf8Path::to_owned)
                 .or_else(|| app_root_for_file(db, *file)),
-            InstalledAppResolution::Missing { .. }
-            | InstalledAppResolution::Ambiguous { .. }
-            | InstalledAppResolution::Deferred { .. } => None,
+            InstalledAppResolution::Unresolved(_) => None,
         })
         .collect()
 }
@@ -511,9 +497,7 @@ fn installed_app_template_dir(
             .path()
             .map(Utf8Path::to_owned)
             .or_else(|| app_root_for_file(db, *file))?,
-        InstalledAppResolution::Missing { .. }
-        | InstalledAppResolution::Ambiguous { .. }
-        | InstalledAppResolution::Deferred { .. } => return None,
+        InstalledAppResolution::Unresolved(_) => return None,
     };
     Some(root.join("templates"))
 }
@@ -584,9 +568,9 @@ mod tests {
     use salsa::Setter;
 
     use super::*;
+    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::django_environment_candidates;
     use crate::DjangoEnvironmentCandidatesOutcome;
-    use crate::DjangoSettingsModuleSeed;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;
@@ -777,7 +761,7 @@ mod tests {
         let inventory = template_directories(&db, db.project(), env);
 
         assert!(matches!(
-            inventory.entries()[0],
+            inventory.entries[0],
             TemplateDirectoryEntry::UnknownSettingsDir { .. }
         ));
     }
@@ -862,15 +846,12 @@ mod tests {
             .iter()
             .find(|library| {
                 library.name() == "ui"
-                    && matches!(
-                        library.source(),
-                        TemplateTagLibrarySource::SettingsLibraries
-                    )
+                    && matches!(&library.source, TemplateTagLibrarySource::SettingsLibraries)
             })
             .expect("settings library should be present");
 
         assert!(matches!(
-            library.source(),
+            &library.source,
             TemplateTagLibrarySource::SettingsLibraries
         ));
         assert!(matches!(

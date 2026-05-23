@@ -15,6 +15,7 @@ use serde_json::json;
 use tempfile::NamedTempFile;
 use wait_timeout::ChildExt;
 
+use crate::enrichment::RuntimeUnavailableKind;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::Interpreter;
@@ -22,7 +23,6 @@ use crate::Project;
 use crate::ProjectDiscovery;
 use crate::ProjectEnrichmentDraft;
 use crate::ProjectEnrichmentIssue;
-use crate::RuntimeUnavailableKind;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RuntimeEnrichmentRequest {
@@ -381,8 +381,8 @@ mod tests {
     use salsa::Setter;
 
     use super::*;
-    use crate::DjangoEnvironmentSeed;
-    use crate::DjangoSettingsModuleSeed;
+    use crate::discovery::DjangoEnvironmentSeed;
+    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::ProjectDiscovery;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;

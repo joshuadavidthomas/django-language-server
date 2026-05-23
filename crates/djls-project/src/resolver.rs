@@ -25,11 +25,6 @@ impl ImportRoot {
     pub fn path(&self) -> &Utf8Path {
         self.path.as_path()
     }
-
-    #[must_use]
-    pub fn kind(&self) -> ImportRootKind {
-        self.kind
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -47,11 +42,6 @@ pub struct ResolvedModule {
 }
 
 impl ResolvedModule {
-    #[must_use]
-    pub fn module(&self) -> &PyModuleName {
-        &self.module
-    }
-
     #[must_use]
     pub fn location(&self) -> &ModuleLocation {
         &self.location
@@ -87,11 +77,6 @@ pub struct ModuleResolution {
 }
 
 impl ModuleResolution {
-    #[must_use]
-    pub fn requested(&self) -> &PyModuleName {
-        &self.requested
-    }
-
     #[must_use]
     pub fn outcome(&self) -> &ModuleResolutionOutcome {
         &self.outcome
@@ -460,15 +445,15 @@ mod tests {
         let roots = import_roots(&db, db.project());
 
         assert!(roots.iter().any(|root| {
-            root.path() == Utf8Path::new("/workspace") && root.kind() == ImportRootKind::SourceRoot
+            root.path() == Utf8Path::new("/workspace") && root.kind == ImportRootKind::SourceRoot
         }));
         assert!(roots.iter().any(|root| {
             root.path() == Utf8Path::new("/workspace/src")
-                && root.kind() == ImportRootKind::SrcConvention
+                && root.kind == ImportRootKind::SrcConvention
         }));
         assert!(roots.iter().any(|root| {
             root.path() == Utf8Path::new("/workspace/libs")
-                && root.kind() == ImportRootKind::PythonPath
+                && root.kind == ImportRootKind::PythonPath
         }));
     }
 

@@ -1,19 +1,20 @@
 use djls_source::File;
 
-use crate::module_name_for_path;
-use crate::project_layout_index;
+use crate::discovery::DjangoSettingsModuleSeed;
+use crate::layout::project_layout_index;
+use crate::layout::ProjectLayoutIndex;
+use crate::layout::ProjectLayoutIndexOutcome;
+use crate::layout::ProjectLayoutIssue;
+use crate::provenance::Origin;
+use crate::provenance::OriginSet;
+use crate::python::python_source_model;
+use crate::python::PythonSourceModelStatus;
+use crate::python::StaticValue;
+use crate::resolver::module_name_for_path;
 use crate::Db;
-use crate::DjangoSettingsModuleSeed;
-use crate::Origin;
-use crate::OriginSet;
 use crate::Project;
 use crate::ProjectDiscovery;
-use crate::ProjectLayoutIndex;
-use crate::ProjectLayoutIndexOutcome;
-use crate::ProjectLayoutIssue;
 use crate::PyModuleName;
-use crate::PythonSourceModelStatus;
-use crate::StaticValue;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SettingsCandidate {
@@ -189,7 +190,7 @@ fn collect_manage_py_candidates(
     issues: &mut Vec<SettingsCandidateIssue>,
 ) {
     for file in layout.files_by_name("manage.py") {
-        let model = crate::python_source_model(db, file);
+        let model = python_source_model(db, file);
         if model.status() != &PythonSourceModelStatus::Parsed {
             continue;
         }
@@ -290,8 +291,8 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::DjangoEnvironmentSeed;
-    use crate::DjangoSettingsModuleSeed;
+    use crate::discovery::DjangoEnvironmentSeed;
+    use crate::discovery::DjangoSettingsModuleSeed;
     use crate::ProjectDiscoverySet;
     use crate::ProjectEnrichment;
     use crate::ProjectEnvVars;

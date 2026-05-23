@@ -5,9 +5,9 @@ use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
 
-use crate::build_source_roots_with_kind;
 use crate::django_environment_candidates;
-use crate::effective_settings;
+use crate::loading::build_source_roots_with_kind;
+use crate::settings::django_settings;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::PartitionedSourceFileLoadOutcome;
@@ -24,11 +24,6 @@ impl TemplateDirectoryFilesLoadRequest {
     #[must_use]
     pub fn new(roots: Vec<Utf8PathBuf>) -> Self {
         Self { roots }
-    }
-
-    #[must_use]
-    pub fn roots(&self) -> &[Utf8PathBuf] {
-        &self.roots
     }
 }
 
@@ -67,7 +62,7 @@ pub fn template_directory_file_roots(
     };
 
     for candidate in candidates {
-        let settings = effective_settings(db, project, candidate.id().clone());
+        let settings = django_settings(db, project, candidate.id().clone());
         for backend in settings.templates().backends() {
             for segment in backend.dirs().segments() {
                 if let Some(dir) = segment.value() {
