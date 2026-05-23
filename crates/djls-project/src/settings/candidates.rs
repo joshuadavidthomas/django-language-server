@@ -61,11 +61,11 @@ impl SettingsCandidate {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SettingsCandidateSource {
-    ExplicitConfig,
-    ConfiguredEnvironment,
-    EnvironmentVariable,
-    ManagePyDefault,
-    ConventionalModule,
+    ProjectConfig,
+    DjangoEnvironmentConfig,
+    DjangoSettingsModuleEnvVar,
+    ManagePySetDefault,
+    SettingsPyConvention,
 }
 
 #[salsa::tracked(returns(ref))]
@@ -100,7 +100,7 @@ fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate>
             candidates.push(SettingsCandidate::new(
                 module,
                 None,
-                SettingsCandidateSource::ExplicitConfig,
+                SettingsCandidateSource::ProjectConfig,
                 OriginSet::single(Origin::Config {
                     root: root.root(db).clone(),
                 }),
@@ -114,7 +114,7 @@ fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate>
             candidates.push(SettingsCandidate::new(
                 module,
                 None,
-                SettingsCandidateSource::ConfiguredEnvironment,
+                SettingsCandidateSource::DjangoEnvironmentConfig,
                 OriginSet::single(Origin::ConfiguredEnvironment {
                     root: environment.root().cloned(),
                     name: environment.name().map(str::to_string),
@@ -129,7 +129,7 @@ fn discovery_candidates(db: &dyn Db, project: Project) -> Vec<SettingsCandidate>
                 candidates.push(SettingsCandidate::new(
                     module,
                     None,
-                    SettingsCandidateSource::EnvironmentVariable,
+                    SettingsCandidateSource::DjangoSettingsModuleEnvVar,
                     OriginSet::single(Origin::Environment {
                         root: root.root(db).clone(),
                         name: name.clone(),
@@ -169,7 +169,7 @@ fn manage_py_candidates(db: &dyn Db, layout: &ProjectLayoutIndex) -> Vec<Setting
             candidates.push(SettingsCandidate::new(
                 module,
                 Some(file),
-                SettingsCandidateSource::ManagePyDefault,
+                SettingsCandidateSource::ManagePySetDefault,
                 OriginSet::single(Origin::PythonSource { file }),
             ));
         }
@@ -193,7 +193,7 @@ fn conventional_candidates(
         candidates.push(SettingsCandidate::new(
             module.clone(),
             Some(file),
-            SettingsCandidateSource::ConventionalModule,
+            SettingsCandidateSource::SettingsPyConvention,
             OriginSet::single(Origin::Convention { file }),
         ));
     }
@@ -354,23 +354,23 @@ mod tests {
 
         assert!(sources.contains(&(
             "explicit.settings".to_string(),
-            SettingsCandidateSource::ExplicitConfig,
+            SettingsCandidateSource::ProjectConfig,
         )));
         assert!(sources.contains(&(
             "environment.settings".to_string(),
-            SettingsCandidateSource::ConfiguredEnvironment,
+            SettingsCandidateSource::DjangoEnvironmentConfig,
         )));
         assert!(sources.contains(&(
             "env.settings".to_string(),
-            SettingsCandidateSource::EnvironmentVariable,
+            SettingsCandidateSource::DjangoSettingsModuleEnvVar,
         )));
         assert!(sources.contains(&(
             "manage.settings".to_string(),
-            SettingsCandidateSource::ManagePyDefault,
+            SettingsCandidateSource::ManagePySetDefault,
         )));
         assert!(sources.contains(&(
             "config.settings".to_string(),
-            SettingsCandidateSource::ConventionalModule,
+            SettingsCandidateSource::SettingsPyConvention,
         )));
     }
 
@@ -385,7 +385,7 @@ mod tests {
 
         assert!(sources.contains(&(
             "config.settings".to_string(),
-            SettingsCandidateSource::ConventionalModule,
+            SettingsCandidateSource::SettingsPyConvention,
         )));
     }
 

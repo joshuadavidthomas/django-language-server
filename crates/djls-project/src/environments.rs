@@ -52,11 +52,11 @@ impl DjangoEnvironmentCandidate {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum EnvironmentCandidateSource {
-    ExplicitConfig,
-    ConfiguredEnvironment,
-    EnvironmentVariable,
-    ManagePyDefault,
-    ConventionalModule,
+    ProjectConfig,
+    DjangoEnvironmentConfig,
+    DjangoSettingsModuleEnvVar,
+    ManagePySetDefault,
+    SettingsPyConvention,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,16 +154,18 @@ fn environment_candidate(
 ) -> DjangoEnvironmentCandidate {
     let root = candidate_root(db, project, candidate);
     let source = match candidate.source() {
-        SettingsCandidateSource::ExplicitConfig => EnvironmentCandidateSource::ExplicitConfig,
-        SettingsCandidateSource::ConfiguredEnvironment => {
-            EnvironmentCandidateSource::ConfiguredEnvironment
+        SettingsCandidateSource::ProjectConfig => EnvironmentCandidateSource::ProjectConfig,
+        SettingsCandidateSource::DjangoEnvironmentConfig => {
+            EnvironmentCandidateSource::DjangoEnvironmentConfig
         }
-        SettingsCandidateSource::EnvironmentVariable => {
-            EnvironmentCandidateSource::EnvironmentVariable
+        SettingsCandidateSource::DjangoSettingsModuleEnvVar => {
+            EnvironmentCandidateSource::DjangoSettingsModuleEnvVar
         }
-        SettingsCandidateSource::ManagePyDefault => EnvironmentCandidateSource::ManagePyDefault,
-        SettingsCandidateSource::ConventionalModule => {
-            EnvironmentCandidateSource::ConventionalModule
+        SettingsCandidateSource::ManagePySetDefault => {
+            EnvironmentCandidateSource::ManagePySetDefault
+        }
+        SettingsCandidateSource::SettingsPyConvention => {
+            EnvironmentCandidateSource::SettingsPyConvention
         }
     };
     DjangoEnvironmentCandidate {
@@ -229,11 +231,11 @@ fn owning_root_for_path(
 
 fn source_slug(source: &EnvironmentCandidateSource) -> &'static str {
     match source {
-        EnvironmentCandidateSource::ExplicitConfig => "config",
-        EnvironmentCandidateSource::ConfiguredEnvironment => "environment",
-        EnvironmentCandidateSource::EnvironmentVariable => "env",
-        EnvironmentCandidateSource::ManagePyDefault => "manage",
-        EnvironmentCandidateSource::ConventionalModule => "convention",
+        EnvironmentCandidateSource::ProjectConfig => "config",
+        EnvironmentCandidateSource::DjangoEnvironmentConfig => "environment",
+        EnvironmentCandidateSource::DjangoSettingsModuleEnvVar => "env",
+        EnvironmentCandidateSource::ManagePySetDefault => "manage",
+        EnvironmentCandidateSource::SettingsPyConvention => "convention",
     }
 }
 
