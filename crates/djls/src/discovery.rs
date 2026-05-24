@@ -3,13 +3,13 @@ use djls_project::installed_app_file_roots_discovery;
 use djls_project::template_directory_file_roots_discovery;
 use djls_project::Db as ProjectDb;
 use djls_project::DiscoveryApply;
-use djls_project::DiscoveryCancellation;
+use djls_project::DiscoveryExecutionOutcome;
 use djls_project::DiscoveryHost;
 use djls_project::DiscoveryObservation;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
 use djls_project::InstalledAppFileRootsOutcome;
 use djls_project::ProjectEnrichment;
-use djls_project::ProjectRootDiscoveryApplyResult;
+use djls_project::ProjectRootDiscovery;
 use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::PythonSourceIndexOutcome;
 use djls_project::ReadySourceFiles;
@@ -31,14 +31,14 @@ impl<'db> CliDiscoveryHost<'db> {
 }
 
 impl DiscoveryHost for CliDiscoveryHost<'_> {
-    fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+    fn checkpoint(&mut self) -> Result<(), DiscoveryExecutionOutcome> {
         Ok(())
     }
 
     fn load_files_for_roots(
         &mut self,
         request: FilesForRootsRequest,
-    ) -> Result<FilesForRootsResult, DiscoveryCancellation> {
+    ) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome> {
         Ok(load_files_for_roots(request))
     }
 
@@ -58,7 +58,7 @@ impl DiscoveryHost for CliDiscoveryHost<'_> {
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+    ) -> DiscoveryApply<ProjectRootDiscovery> {
         Ok(self.db.apply_project_root_discovery(update))
     }
 
@@ -88,7 +88,7 @@ impl DiscoveryHost for CliDiscoveryHost<'_> {
         Ok(template_directory_file_roots_discovery(self.db, project))
     }
 
-    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
+    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome> {
         Ok(self.db.load_project_enrichment())
     }
 

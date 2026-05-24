@@ -4,7 +4,6 @@ use djls_source::File;
 
 use crate::layout::project_layout_index;
 use crate::layout::ProjectLayoutIndex;
-use crate::layout::ProjectLayoutIndexOutcome;
 use crate::project::Project;
 use crate::python::python_source_model;
 use crate::python::PythonSourceParseStatus;
@@ -70,7 +69,7 @@ pub fn django_environment_candidates(
     let mut candidates = Vec::new();
     add_discovery_environment_candidates(db, project, &mut candidates);
 
-    if let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) {
+    if let Some(layout) = project_layout_index(db, project) {
         add_manage_py_environment_candidates(db, project, layout, &mut candidates);
         add_conventional_environment_candidates(db, project, layout, &mut candidates);
     }
@@ -150,14 +149,14 @@ fn add_discovery_environment_candidates(
 
     for root in roots {
         if let Some(seed) = root.settings_module_seed() {
-            let Ok(settings) = PyModuleName::parse(seed.as_str()) else {
+            let Ok(settings) = PyModuleName::parse(seed) else {
                 continue;
             };
             add_environment_candidate(candidates, settings, Some(root.root().clone()));
         }
         for environment in root.configured_environment_seeds() {
             let seed = environment.settings_module();
-            let Ok(settings) = PyModuleName::parse(seed.as_str()) else {
+            let Ok(settings) = PyModuleName::parse(seed) else {
                 continue;
             };
             add_environment_candidate(candidates, settings, environment.root().cloned());
@@ -445,8 +444,7 @@ mod tests {
             Utf8PathBuf::from("/workspace"),
             None,
             Some("explicit.settings".to_string()),
-            vec![DjangoEnvironmentSeed::from_settings_module(
-                Some("default".to_string()),
+            vec![DjangoEnvironmentSeed::new(
                 "environment.settings".to_string(),
                 Some(Utf8PathBuf::from("/workspace")),
             )],

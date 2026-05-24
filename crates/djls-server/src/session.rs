@@ -547,19 +547,15 @@ S100 = "warning"
                 .to_string(),
         };
         session.open_document(&text_document);
-        let issues = djls_project::ProjectRootDiscoveryIssues::new(vec![
-            djls_project::ProjectRootDiscoveryIssue::FixtureDoesNotModelDiscovery,
-        ])
-        .expect("test issue list should be non-empty");
         djls_project::Db::set_project_root_discovery(
             session.db_mut(),
-            djls_project::ProjectRootDiscovery::Unavailable { issues },
+            djls_project::ProjectRootDiscovery::FixtureDoesNotModelDiscovery,
         );
 
         let db = session.db();
         assert!(matches!(
             djls_project::Db::project(db).root_discovery(db),
-            djls_project::ProjectRootDiscovery::Unavailable { .. }
+            djls_project::ProjectRootDiscovery::FixtureDoesNotModelDiscovery
         ));
 
         let file = db.get_or_create_file(&path);

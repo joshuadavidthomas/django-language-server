@@ -5,11 +5,9 @@ use djls_workspace::FilesForRootsResult;
 
 use crate::apps::InstalledAppFileRootsOutcome;
 use crate::enrichment::ProjectEnrichment;
-use crate::enrichment::ProjectEnrichmentIssue;
 use crate::python::PythonSourceIndexIssue;
 use crate::root_discovery::load_project_root_discovery;
 use crate::root_discovery::ProjectRootDiscovery;
-use crate::root_discovery::ProjectRootDiscoveryApplyResult;
 use crate::root_discovery::ProjectRootDiscoveryLoadRequest;
 use crate::root_discovery::ProjectRootDiscoveryUpdate;
 use crate::source_files::build_source_roots;
@@ -71,7 +69,7 @@ pub enum DiscoveryMilestone {
     DjangoAppsReady,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiscoveryStageStatus {
     Succeeded,
     Degraded,
@@ -82,17 +80,6 @@ pub enum DiscoveryStageStatus {
     Superseded,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DiscoveryMilestoneStatus {
-    Succeeded,
-    Degraded,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DiscoveryCancellation {
-    Superseded,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DiscoveryExecutionOutcome {
     Superseded,
@@ -100,15 +87,15 @@ pub enum DiscoveryExecutionOutcome {
 }
 
 pub type DiscoveryApply<T> = Result<T, DiscoveryExecutionOutcome>;
-pub type DiscoveryObservation<T> = Result<T, DiscoveryCancellation>;
+pub type DiscoveryObservation<T> = Result<T, DiscoveryExecutionOutcome>;
 
 pub trait DiscoveryHost {
-    fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation>;
+    fn checkpoint(&mut self) -> Result<(), DiscoveryExecutionOutcome>;
 
     fn load_files_for_roots(
         &mut self,
         request: FilesForRootsRequest,
-    ) -> Result<FilesForRootsResult, DiscoveryCancellation>;
+    ) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome>;
 
     fn current_source_files(&mut self) -> Option<ReadySourceFiles>;
 
@@ -120,7 +107,7 @@ pub trait DiscoveryHost {
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult>;
+    ) -> DiscoveryApply<ProjectRootDiscovery>;
 
     fn observe_python_source_index(&mut self) -> DiscoveryObservation<PythonSourceIndexOutcome>;
 
@@ -136,7 +123,7 @@ pub trait DiscoveryHost {
         &mut self,
     ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome>;
 
-    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation>;
+    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome>;
 
     fn apply_project_enrichment(
         &mut self,
@@ -147,11 +134,7 @@ pub trait DiscoveryHost {
 pub trait DiscoveryObserver {
     fn stage_started(&mut self, stage: DiscoveryStage);
     fn stage_finished(&mut self, stage: DiscoveryStage, status: DiscoveryStageStatus);
-    fn milestone_reached(
-        &mut self,
-        _milestone: DiscoveryMilestone,
-        _status: DiscoveryMilestoneStatus,
-    ) {
+    fn milestone_reached(&mut self, _milestone: DiscoveryMilestone, _status: DiscoveryStageStatus) {
     }
 }
 
@@ -216,7 +199,7 @@ impl DiscoveryRunResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveryMilestoneResult {
     milestone: DiscoveryMilestone,
-    status: DiscoveryMilestoneStatus,
+    status: DiscoveryStageStatus,
 }
 
 impl DiscoveryMilestoneResult {
@@ -226,7 +209,7 @@ impl DiscoveryMilestoneResult {
     }
 
     #[must_use]
-    pub fn status(&self) -> DiscoveryMilestoneStatus {
+    pub fn status(&self) -> DiscoveryStageStatus {
         self.status
     }
 }
@@ -323,15 +306,11 @@ const MILESTONE_SPECS: &[MilestoneSpec] = &[
 
 fn enrichment_status(enrichment: &ProjectEnrichment) -> DiscoveryStageStatus {
     match enrichment {
-        ProjectEnrichment::Absent | ProjectEnrichment::Disabled => DiscoveryStageStatus::Skipped,
-        ProjectEnrichment::Fresh(_) => DiscoveryStageStatus::Succeeded,
-        ProjectEnrichment::Unresolved(ProjectEnrichmentIssue::InspectorFailed(_)) => {
-            DiscoveryStageStatus::Failed
+        ProjectEnrichment::Absent | ProjectEnrichment::RuntimeUnavailable => {
+            DiscoveryStageStatus::Skipped
         }
-        ProjectEnrichment::Unresolved(
-            ProjectEnrichmentIssue::RuntimeUnavailable { .. }
-            | ProjectEnrichmentIssue::FixtureDoesNotModelEnrichment,
-        ) => DiscoveryStageStatus::Unavailable,
+        ProjectEnrichment::Fresh(_) => DiscoveryStageStatus::Succeeded,
+        ProjectEnrichment::InspectorFailed => DiscoveryStageStatus::Failed,
     }
 }
 
@@ -344,30 +323,17 @@ fn source_files_status(result: &SourceFilesApplyResult) -> DiscoveryStageStatus 
     }
 }
 
-fn project_root_discovery_status(result: &ProjectRootDiscoveryApplyResult) -> DiscoveryStageStatus {
-    match result {
-        ProjectRootDiscoveryApplyResult::Applied {
-            discovery: ProjectRootDiscovery::Ready(_),
-            has_issues: false,
-        } => DiscoveryStageStatus::Succeeded,
-        ProjectRootDiscoveryApplyResult::Applied {
-            discovery: ProjectRootDiscovery::Ready(_),
-            has_issues: true,
-        } => DiscoveryStageStatus::Degraded,
-        ProjectRootDiscoveryApplyResult::Applied {
-            discovery: ProjectRootDiscovery::Absent,
-            ..
+fn project_root_discovery_status(discovery: &ProjectRootDiscovery) -> DiscoveryStageStatus {
+    match discovery {
+        ProjectRootDiscovery::Ready(roots)
+            if roots.iter().any(|root| !root.issues().is_empty()) =>
+        {
+            DiscoveryStageStatus::Degraded
         }
-        | ProjectRootDiscoveryApplyResult::Unavailable(ProjectRootDiscovery::Absent) => {
-            DiscoveryStageStatus::Deferred
-        }
-        ProjectRootDiscoveryApplyResult::Applied {
-            discovery: ProjectRootDiscovery::Unavailable { .. },
-            ..
-        }
-        | ProjectRootDiscoveryApplyResult::Unavailable(
-            ProjectRootDiscovery::Unavailable { .. } | ProjectRootDiscovery::Ready(_),
-        ) => DiscoveryStageStatus::Unavailable,
+        ProjectRootDiscovery::Ready(_) => DiscoveryStageStatus::Succeeded,
+        ProjectRootDiscovery::Absent => DiscoveryStageStatus::Deferred,
+        ProjectRootDiscovery::NoWorkspaceRoots
+        | ProjectRootDiscovery::FixtureDoesNotModelDiscovery => DiscoveryStageStatus::Unavailable,
     }
 }
 
@@ -422,12 +388,8 @@ pub fn run_django_discovery(
     let mut stage_records = Vec::with_capacity(DISCOVERY_STAGES.len());
     let mut milestone_results = Vec::with_capacity(MILESTONE_SPECS.len());
 
-    if let Err(cancellation) = host.checkpoint() {
-        return DiscoveryRunResult::aborted(
-            stage_records,
-            milestone_results,
-            execution_outcome_from_cancellation(cancellation),
-        );
+    if let Err(outcome) = host.checkpoint() {
+        return DiscoveryRunResult::aborted(stage_records, milestone_results, outcome);
     }
 
     for stage in DISCOVERY_STAGES {
@@ -607,8 +569,7 @@ fn checkpoint(
 ) -> Result<(), DiscoveryExecutionOutcome> {
     match host.checkpoint() {
         Ok(()) => Ok(()),
-        Err(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
+        Err(outcome) => {
             finish_aborted_stage(stage, &outcome, observer);
             Err(outcome)
         }
@@ -622,8 +583,7 @@ fn observe_or_abort<T>(
 ) -> Result<T, DiscoveryExecutionOutcome> {
     match observe() {
         Ok(result) => Ok(result),
-        Err(cancellation) => {
-            let outcome = execution_outcome_from_cancellation(cancellation);
+        Err(outcome) => {
             finish_aborted_stage(stage, &outcome, observer);
             Err(outcome)
         }
@@ -711,9 +671,9 @@ fn advance_milestones(
                 .iter()
                 .all(|status| **status == DiscoveryStageStatus::Succeeded)
             {
-                DiscoveryMilestoneStatus::Succeeded
+                DiscoveryStageStatus::Succeeded
             } else {
-                DiscoveryMilestoneStatus::Degraded
+                DiscoveryStageStatus::Degraded
             };
             milestone_results.push(DiscoveryMilestoneResult {
                 milestone: milestone.milestone,
@@ -731,14 +691,6 @@ fn finish_aborted_stage(
 ) {
     if matches!(outcome, DiscoveryExecutionOutcome::Superseded) {
         observer.stage_finished(stage, DiscoveryStageStatus::Superseded);
-    }
-}
-
-fn execution_outcome_from_cancellation(
-    cancellation: DiscoveryCancellation,
-) -> DiscoveryExecutionOutcome {
-    match cancellation {
-        DiscoveryCancellation::Superseded => DiscoveryExecutionOutcome::Superseded,
     }
 }
 
@@ -796,10 +748,10 @@ mod tests {
     }
 
     impl DiscoveryHost for FakeHost {
-        fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+        fn checkpoint(&mut self) -> Result<(), DiscoveryExecutionOutcome> {
             self.checkpoint_count += 1;
             if self.cancel_on_checkpoint == Some(self.checkpoint_count) {
-                return Err(DiscoveryCancellation::Superseded);
+                return Err(DiscoveryExecutionOutcome::Superseded);
             }
             Ok(())
         }
@@ -807,10 +759,10 @@ mod tests {
         fn load_files_for_roots(
             &mut self,
             request: FilesForRootsRequest,
-        ) -> Result<FilesForRootsResult, DiscoveryCancellation> {
+        ) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome> {
             self.load_count += 1;
             if self.cancel_on_file_load {
-                return Err(DiscoveryCancellation::Superseded);
+                return Err(DiscoveryExecutionOutcome::Superseded);
             }
             Ok(load_files_for_roots(request))
         }
@@ -858,17 +810,12 @@ mod tests {
         fn apply_project_root_discovery(
             &mut self,
             update: ProjectRootDiscoveryUpdate,
-        ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+        ) -> DiscoveryApply<ProjectRootDiscovery> {
             self.discovery_apply_count += 1;
             if update.roots().is_empty() {
-                Ok(ProjectRootDiscoveryApplyResult::Unavailable(
-                    ProjectRootDiscovery::Absent,
-                ))
+                Ok(ProjectRootDiscovery::NoWorkspaceRoots)
             } else {
-                Ok(ProjectRootDiscoveryApplyResult::Applied {
-                    discovery: ProjectRootDiscovery::Absent,
-                    has_issues: false,
-                })
+                Ok(ProjectRootDiscovery::Absent)
             }
         }
 
@@ -913,8 +860,10 @@ mod tests {
             ))
         }
 
-        fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
-            Ok(ProjectEnrichment::Disabled)
+        fn load_project_enrichment(
+            &mut self,
+        ) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome> {
+            Ok(ProjectEnrichment::RuntimeUnavailable)
         }
 
         fn apply_project_enrichment(
@@ -928,7 +877,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingObserver {
         events: Vec<(DiscoveryStage, DiscoveryStageStatus)>,
-        milestones: Vec<(DiscoveryMilestone, DiscoveryMilestoneStatus)>,
+        milestones: Vec<(DiscoveryMilestone, DiscoveryStageStatus)>,
         started: Vec<DiscoveryStage>,
     }
 
@@ -944,7 +893,7 @@ mod tests {
         fn milestone_reached(
             &mut self,
             milestone: DiscoveryMilestone,
-            status: DiscoveryMilestoneStatus,
+            status: DiscoveryStageStatus,
         ) {
             self.milestones.push((milestone, status));
         }
@@ -1033,11 +982,11 @@ mod tests {
             vec![
                 (
                     DiscoveryMilestone::WorkspaceReady,
-                    DiscoveryMilestoneStatus::Succeeded,
+                    DiscoveryStageStatus::Succeeded,
                 ),
                 (
                     DiscoveryMilestone::DjangoAppsReady,
-                    DiscoveryMilestoneStatus::Succeeded,
+                    DiscoveryStageStatus::Succeeded,
                 ),
             ]
         );
@@ -1047,7 +996,7 @@ mod tests {
         );
         assert_eq!(
             result.milestone_results()[0].status(),
-            DiscoveryMilestoneStatus::Succeeded,
+            DiscoveryStageStatus::Succeeded,
         );
     }
 
@@ -1066,17 +1015,17 @@ mod tests {
             vec![
                 (
                     DiscoveryMilestone::WorkspaceReady,
-                    DiscoveryMilestoneStatus::Degraded,
+                    DiscoveryStageStatus::Degraded,
                 ),
                 (
                     DiscoveryMilestone::DjangoAppsReady,
-                    DiscoveryMilestoneStatus::Succeeded,
+                    DiscoveryStageStatus::Succeeded,
                 ),
             ]
         );
         assert_eq!(
             result.milestone_results()[0].status(),
-            DiscoveryMilestoneStatus::Degraded,
+            DiscoveryStageStatus::Degraded,
         );
     }
 
@@ -1140,7 +1089,7 @@ mod tests {
             observer.milestones,
             vec![(
                 DiscoveryMilestone::DjangoAppsReady,
-                DiscoveryMilestoneStatus::Succeeded,
+                DiscoveryStageStatus::Succeeded,
             )]
         );
         assert_eq!(result.milestone_results().len(), 1);

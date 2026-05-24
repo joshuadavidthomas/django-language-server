@@ -10,27 +10,19 @@ use crate::Interpreter;
 pub enum ProjectRootDiscovery {
     Absent,
     Ready(Vec<ProjectRoot>),
-    Unavailable { issues: ProjectRootDiscoveryIssues },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectRootDiscoveryApplyResult {
-    Applied {
-        discovery: ProjectRootDiscovery,
-        has_issues: bool,
-    },
-    Unavailable(ProjectRootDiscovery),
+    NoWorkspaceRoots,
+    FixtureDoesNotModelDiscovery,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectRoot {
     root: Utf8PathBuf,
     interpreter: Option<Interpreter>,
-    settings_module_seed: Option<DjangoSettingsModuleSeed>,
+    settings_module_seed: Option<String>,
     configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
     pythonpath: Vec<Utf8PathBuf>,
     env_vars: ProjectEnvVars,
-    issues: Vec<ProjectRootDiscoveryIssue>,
+    issues: Vec<ProjectRootIssue>,
 }
 
 impl ProjectRoot {
@@ -39,11 +31,11 @@ impl ProjectRoot {
     pub fn new(
         root: Utf8PathBuf,
         interpreter: Option<Interpreter>,
-        settings_module_seed: Option<DjangoSettingsModuleSeed>,
+        settings_module_seed: Option<String>,
         configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
         pythonpath: Vec<Utf8PathBuf>,
         env_vars: ProjectEnvVars,
-        issues: Vec<ProjectRootDiscoveryIssue>,
+        issues: Vec<ProjectRootIssue>,
     ) -> Self {
         Self {
             root,
@@ -67,8 +59,8 @@ impl ProjectRoot {
     }
 
     #[must_use]
-    pub fn settings_module_seed(&self) -> Option<&DjangoSettingsModuleSeed> {
-        self.settings_module_seed.as_ref()
+    pub fn settings_module_seed(&self) -> Option<&str> {
+        self.settings_module_seed.as_deref()
     }
 
     #[must_use]
@@ -87,71 +79,46 @@ impl ProjectRoot {
     }
 
     #[must_use]
-    pub fn issues(&self) -> &[ProjectRootDiscoveryIssue] {
+    pub fn issues(&self) -> &[ProjectRootIssue] {
         &self.issues
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DjangoEnvironmentSeed {
-    SettingsModule {
-        name: Option<String>,
-        settings_module: DjangoSettingsModuleSeed,
-        root: Option<Utf8PathBuf>,
-    },
+pub struct DjangoEnvironmentSeed {
+    settings_module: String,
+    root: Option<Utf8PathBuf>,
 }
 
 impl DjangoEnvironmentSeed {
     #[must_use]
-    pub fn from_settings_module(
-        name: Option<String>,
-        settings_module: DjangoSettingsModuleSeed,
-        root: Option<Utf8PathBuf>,
-    ) -> Self {
-        Self::SettingsModule {
-            name,
+    pub fn new(settings_module: String, root: Option<Utf8PathBuf>) -> Self {
+        Self {
             settings_module,
             root,
         }
     }
 
     #[must_use]
-    pub fn name(&self) -> Option<&str> {
-        match self {
-            Self::SettingsModule { name, .. } => name.as_deref(),
-        }
-    }
-
-    #[must_use]
-    pub fn settings_module(&self) -> &DjangoSettingsModuleSeed {
-        match self {
-            Self::SettingsModule {
-                settings_module, ..
-            } => settings_module,
-        }
+    pub fn settings_module(&self) -> &str {
+        &self.settings_module
     }
 
     #[must_use]
     pub fn root(&self) -> Option<&Utf8PathBuf> {
-        match self {
-            Self::SettingsModule { root, .. } => root.as_ref(),
-        }
+        self.root.as_ref()
     }
 }
-
-pub type DjangoSettingsModuleSeed = String;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProjectEnvVars(Vec<(String, String)>);
 
 impl ProjectEnvVars {
-    pub fn from_resolved_entries(
-        mut entries: Vec<(String, String)>,
-    ) -> Result<Self, DuplicateEnvVarName> {
+    pub fn from_resolved_entries(mut entries: Vec<(String, String)>) -> Result<Self, String> {
         let mut seen = BTreeSet::new();
         for (name, _value) in &entries {
             if !seen.insert(name.clone()) {
-                return Err(DuplicateEnvVarName { name: name.clone() });
+                return Err(name.clone());
             }
         }
         entries.sort_by(|left, right| left.0.cmp(&right.0));
@@ -165,78 +132,16 @@ impl ProjectEnvVars {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DuplicateEnvVarName {
-    name: String,
-}
-
-impl DuplicateEnvVarName {
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectRootDiscoveryIssues(Vec<ProjectRootDiscoveryIssue>);
-
-impl ProjectRootDiscoveryIssues {
-    pub fn new(
-        issues: Vec<ProjectRootDiscoveryIssue>,
-    ) -> Result<Self, EmptyProjectRootDiscoveryIssues> {
-        if issues.is_empty() {
-            return Err(EmptyProjectRootDiscoveryIssues);
-        }
-        Ok(Self(issues))
-    }
-
-    #[must_use]
-    pub fn as_slice(&self) -> &[ProjectRootDiscoveryIssue] {
-        &self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EmptyProjectRootDiscoveryIssues;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectRootDiscoveryIssue {
-    ConfigLoadFailed {
-        root: Utf8PathBuf,
-        error: ProjectConfigLoadError,
-    },
+pub enum ProjectRootIssue {
+    ConfigLoadFailed(djls_conf::SettingsLoadError),
     EnvFileLoadFailed {
-        root: Utf8PathBuf,
         source: Utf8PathBuf,
         kind: EnvFileLoadIssueKind,
     },
     DuplicateEnvVar {
-        root: Utf8PathBuf,
         source: Utf8PathBuf,
         name: String,
     },
-    NoWorkspaceRoots,
-    FixtureDoesNotModelDiscovery,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectConfigLoadError {
-    Io(Utf8PathBuf),
-    Parse(Utf8PathBuf),
-    Schema(Option<Utf8PathBuf>),
-    Unsupported(Utf8PathBuf),
-}
-
-impl From<djls_conf::SettingsLoadError> for ProjectConfigLoadError {
-    fn from(error: djls_conf::SettingsLoadError) -> Self {
-        match error {
-            djls_conf::SettingsLoadError::Io(source_path) => Self::Io(source_path),
-            djls_conf::SettingsLoadError::Parse(source_path) => Self::Parse(source_path),
-            djls_conf::SettingsLoadError::Schema(source_path) => Self::Schema(source_path),
-            djls_conf::SettingsLoadError::Unsupported(source_path) => {
-                Self::Unsupported(source_path)
-            }
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -328,18 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_discovery_requires_at_least_one_issue() {
-        assert_eq!(
-            ProjectRootDiscoveryIssues::new(Vec::new()),
-            Err(EmptyProjectRootDiscoveryIssues)
-        );
-        assert!(
-            ProjectRootDiscoveryIssues::new(vec![ProjectRootDiscoveryIssue::NoWorkspaceRoots])
-                .is_ok()
-        );
-    }
-
-    #[test]
     fn env_vars_are_canonicalized_after_duplicate_resolution() {
         let vars = ProjectEnvVars::from_resolved_entries(vec![
             (
@@ -376,14 +269,16 @@ mod tests {
         ])
         .expect_err("duplicate env var names should be resolved before construction");
 
-        assert_eq!(duplicate.name(), "DJANGO_SETTINGS_MODULE");
+        assert_eq!(duplicate, "DJANGO_SETTINGS_MODULE");
     }
 
     #[salsa::tracked]
     fn discovery_root_count(db: &dyn crate::Db) -> Option<usize> {
         match db.project().root_discovery(db) {
             ProjectRootDiscovery::Ready(roots) => Some(roots.len()),
-            ProjectRootDiscovery::Absent | ProjectRootDiscovery::Unavailable { .. } => None,
+            ProjectRootDiscovery::Absent
+            | ProjectRootDiscovery::NoWorkspaceRoots
+            | ProjectRootDiscovery::FixtureDoesNotModelDiscovery => None,
         }
     }
 
@@ -409,14 +304,12 @@ mod tests {
 
     #[test]
     fn environment_seed_requires_settings_module() {
-        let seed = DjangoEnvironmentSeed::from_settings_module(
-            Some("default".to_string()),
+        let seed = DjangoEnvironmentSeed::new(
             "project.settings".to_string(),
             Some(Utf8PathBuf::from("/workspace")),
         );
 
-        assert_eq!(seed.name(), Some("default"));
-        assert_eq!(seed.settings_module().as_str(), "project.settings");
+        assert_eq!(seed.settings_module(), "project.settings");
         assert_eq!(seed.root(), Some(&Utf8PathBuf::from("/workspace")));
     }
 }
@@ -471,12 +364,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> Project
     let settings = match djls_conf::Settings::load(&root, Some(client_settings.clone())) {
         Ok(settings) => settings,
         Err(errors) => {
-            issues.extend(errors.into_iter().map(|error| {
-                ProjectRootDiscoveryIssue::ConfigLoadFailed {
-                    root: root.clone(),
-                    error: error.into(),
-                }
-            }));
+            issues.extend(errors.into_iter().map(ProjectRootIssue::ConfigLoadFailed));
             client_settings.clone()
         }
     };
@@ -488,8 +376,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> Project
         .iter()
         .filter_map(|environment| {
             environment.django_settings_module().map(|settings_module| {
-                DjangoEnvironmentSeed::from_settings_module(
-                    None,
+                DjangoEnvironmentSeed::new(
                     settings_module.to_string(),
                     Some(root.join(environment.root())),
                 )
@@ -503,14 +390,12 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> Project
         .collect();
     let env_outcome = load_env_file_outcome(&root, &settings);
     if let Some(kind) = env_outcome.issue() {
-        issues.push(ProjectRootDiscoveryIssue::EnvFileLoadFailed {
-            root: root.clone(),
+        issues.push(ProjectRootIssue::EnvFileLoadFailed {
             source: env_outcome.source().to_owned(),
             kind,
         });
     }
     let (env_entries, duplicate_issues) = resolve_env_vars(
-        &root,
         env_outcome.source().to_owned(),
         env_outcome.entries().to_vec(),
     );
@@ -531,16 +416,14 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> Project
 
 #[allow(clippy::needless_pass_by_value)]
 fn resolve_env_vars(
-    root: &Utf8PathBuf,
     source: Utf8PathBuf,
     entries: Vec<(String, String)>,
-) -> (Vec<(String, String)>, Vec<ProjectRootDiscoveryIssue>) {
+) -> (Vec<(String, String)>, Vec<ProjectRootIssue>) {
     let mut resolved = std::collections::BTreeMap::new();
     let mut issues = Vec::new();
     for (name, value) in entries {
         if resolved.insert(name.clone(), value).is_some() {
-            issues.push(ProjectRootDiscoveryIssue::DuplicateEnvVar {
-                root: root.clone(),
+            issues.push(ProjectRootIssue::DuplicateEnvVar {
                 source: source.clone(),
                 name,
             });
@@ -576,10 +459,9 @@ mod settings_tests {
         assert_eq!(data.roots().len(), 1);
         assert_eq!(
             data.roots()[0].issues(),
-            &[ProjectRootDiscoveryIssue::ConfigLoadFailed {
-                root,
-                error: crate::root_discovery::ProjectConfigLoadError::Parse(source),
-            }]
+            &[ProjectRootIssue::ConfigLoadFailed(
+                djls_conf::SettingsLoadError::Parse(source)
+            )]
         );
     }
 
@@ -606,16 +488,11 @@ django_settings_module = "blog.settings"
         ));
         let root_data = &data.roots()[0];
 
-        assert_eq!(
-            root_data.settings_module_seed().map(String::as_str),
-            Some("project.settings")
-        );
+        assert_eq!(root_data.settings_module_seed(), Some("project.settings"));
         assert_eq!(root_data.pythonpath(), &[root.join("src")]);
         assert_eq!(root_data.configured_environment_seeds().len(), 1);
         assert_eq!(
-            root_data.configured_environment_seeds()[0]
-                .settings_module()
-                .as_str(),
+            root_data.configured_environment_seeds()[0].settings_module(),
             "blog.settings"
         );
         assert_eq!(
@@ -637,8 +514,7 @@ django_settings_module = "blog.settings"
 
         assert!(data.roots()[0]
             .issues()
-            .contains(&ProjectRootDiscoveryIssue::EnvFileLoadFailed {
-                root: root.clone(),
+            .contains(&ProjectRootIssue::EnvFileLoadFailed {
                 source: root.join("missing.env"),
                 kind: crate::root_discovery::EnvFileLoadIssueKind::Missing,
             },));
@@ -665,8 +541,7 @@ django_settings_module = "blog.settings"
         );
         assert!(data.roots()[0]
             .issues()
-            .contains(&ProjectRootDiscoveryIssue::DuplicateEnvVar {
-                root: root.clone(),
+            .contains(&ProjectRootIssue::DuplicateEnvVar {
                 source: root.join(".env"),
                 name: "DJANGO_SETTINGS_MODULE".to_string(),
             },));

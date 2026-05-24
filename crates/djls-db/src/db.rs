@@ -16,9 +16,6 @@ use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscovery;
-use djls_project::ProjectRootDiscoveryApplyResult;
-use djls_project::ProjectRootDiscoveryIssue;
-use djls_project::ProjectRootDiscoveryIssues;
 use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::ReadySourceFiles;
 use djls_project::SourceFileHandleChanges;
@@ -145,31 +142,20 @@ impl DjangoDatabase {
     pub fn apply_project_root_discovery(
         &mut self,
         data: ProjectRootDiscoveryUpdate,
-    ) -> ProjectRootDiscoveryApplyResult {
+    ) -> ProjectRootDiscovery {
         if data.roots().is_empty() {
-            let issues =
-                ProjectRootDiscoveryIssues::new(vec![ProjectRootDiscoveryIssue::NoWorkspaceRoots])
-                    .expect("no workspace roots issue should be non-empty");
-            let discovery = ProjectRootDiscovery::Unavailable { issues };
-            ProjectDb::set_project_root_discovery(self, discovery.clone());
-            return ProjectRootDiscoveryApplyResult::Unavailable(discovery);
+            ProjectDb::set_project_root_discovery(self, ProjectRootDiscovery::NoWorkspaceRoots);
+            return ProjectRootDiscovery::NoWorkspaceRoots;
         }
 
         let current = ProjectDb::project(self).root_discovery(self).clone();
-        let has_issues = data.roots().iter().any(|root| !root.issues().is_empty());
         if project_root_discovery_matches_update(&current, &data) {
-            return ProjectRootDiscoveryApplyResult::Applied {
-                discovery: current,
-                has_issues,
-            };
+            return current;
         }
 
         let discovery = ProjectRootDiscovery::Ready(data.roots().to_vec());
         ProjectDb::set_project_root_discovery(self, discovery.clone());
-        ProjectRootDiscoveryApplyResult::Applied {
-            discovery,
-            has_issues,
-        }
+        discovery
     }
 
     pub fn apply_source_files(&mut self, update: SourceFilesUpdate) -> SourceFilesApplyResult {
@@ -370,14 +356,14 @@ mod source_file_set_tests {
     use djls_project::run_django_discovery;
     use djls_project::Db as ProjectDb;
     use djls_project::DiscoveryApply;
-    use djls_project::DiscoveryCancellation;
+    use djls_project::DiscoveryExecutionOutcome;
     use djls_project::DiscoveryHost;
     use djls_project::DiscoveryObservation;
     use djls_project::DjangoDiscoveryRequest;
     use djls_project::DjangoEnvironmentCandidatesOutcome;
     use djls_project::InstalledAppFileRootsOutcome;
     use djls_project::ProjectEnrichment;
-    use djls_project::ProjectRootDiscoveryApplyResult;
+    use djls_project::ProjectRootDiscovery;
     use djls_project::ProjectRootDiscoveryUpdate;
     use djls_project::PythonSourceIndexOutcome;
     use djls_project::ReadySourceFiles;
@@ -423,14 +409,14 @@ mod source_file_set_tests {
     }
 
     impl DiscoveryHost for SourceDiscoveryHost<'_> {
-        fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+        fn checkpoint(&mut self) -> Result<(), DiscoveryExecutionOutcome> {
             Ok(())
         }
 
         fn load_files_for_roots(
             &mut self,
             request: FilesForRootsRequest,
-        ) -> Result<FilesForRootsResult, DiscoveryCancellation> {
+        ) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome> {
             Ok(load_files_for_roots(request))
         }
 
@@ -458,7 +444,7 @@ mod source_file_set_tests {
         fn apply_project_root_discovery(
             &mut self,
             update: ProjectRootDiscoveryUpdate,
-        ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+        ) -> DiscoveryApply<ProjectRootDiscovery> {
             Ok(self.db.apply_project_root_discovery(update))
         }
 
@@ -486,8 +472,10 @@ mod source_file_set_tests {
             Ok(TemplateDirectoryFileRootsOutcome::Deferred)
         }
 
-        fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
-            Ok(ProjectEnrichment::Disabled)
+        fn load_project_enrichment(
+            &mut self,
+        ) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome> {
+            Ok(ProjectEnrichment::RuntimeUnavailable)
         }
 
         fn apply_project_enrichment(
@@ -640,8 +628,6 @@ mod project_discovery_tests {
     use djls_project::ProjectEnvVars;
     use djls_project::ProjectRoot;
     use djls_project::ProjectRootDiscovery;
-    use djls_project::ProjectRootDiscoveryApplyResult;
-    use djls_project::ProjectRootDiscoveryIssue;
     use djls_project::ProjectRootDiscoveryUpdate;
 
     use super::DjangoDatabase;
@@ -666,10 +652,7 @@ mod project_discovery_tests {
                 "/workspace",
             )]));
 
-        assert!(matches!(
-            result,
-            ProjectRootDiscoveryApplyResult::Applied { .. }
-        ));
+        assert!(matches!(result, ProjectRootDiscovery::Ready(_)));
         let ProjectRootDiscovery::Ready(roots) = ProjectDb::project(&db).root_discovery(&db) else {
             panic!("discovery should be ready");
         };
@@ -685,24 +668,10 @@ mod project_discovery_tests {
         )]));
         let result = db.apply_project_root_discovery(ProjectRootDiscoveryUpdate::new(Vec::new()));
 
-        let ProjectRootDiscoveryApplyResult::Unavailable(ProjectRootDiscovery::Unavailable {
-            issues,
-        }) = result
-        else {
-            panic!("empty discovery data should be unavailable");
-        };
+        assert_eq!(result, ProjectRootDiscovery::NoWorkspaceRoots);
         assert_eq!(
-            issues.as_slice(),
-            &[ProjectRootDiscoveryIssue::NoWorkspaceRoots]
-        );
-        let ProjectRootDiscovery::Unavailable { issues } =
-            ProjectDb::project(&db).root_discovery(&db)
-        else {
-            panic!("empty discovery data should replace previous ready facts");
-        };
-        assert_eq!(
-            issues.as_slice(),
-            &[ProjectRootDiscoveryIssue::NoWorkspaceRoots]
+            ProjectDb::project(&db).root_discovery(&db),
+            &ProjectRootDiscovery::NoWorkspaceRoots
         );
     }
 }
@@ -963,15 +932,12 @@ def my_filter(value, arg):
     #[test]
     fn database_apply_enrichment_updates_project_facts() {
         let (mut db, _event_log) = test_db_with_project();
-        let issue = djls_project::ProjectEnrichmentIssue::InspectorFailed(
-            djls_project::InspectorFailureKind::InvalidJson,
-        );
 
-        db.apply_enrichment(djls_project::ProjectEnrichment::Unresolved(issue.clone()));
+        db.apply_enrichment(djls_project::ProjectEnrichment::InspectorFailed);
 
         assert_eq!(
             *djls_project::Db::project(&db).enrichment(&db),
-            djls_project::ProjectEnrichment::Unresolved(issue)
+            djls_project::ProjectEnrichment::InspectorFailed
         );
     }
 
@@ -981,12 +947,10 @@ def my_filter(value, arg):
 
         let enrichment = db.load_project_enrichment();
 
-        assert!(matches!(
+        assert_eq!(
             enrichment,
-            djls_project::ProjectEnrichment::Unresolved(
-                djls_project::ProjectEnrichmentIssue::RuntimeUnavailable { .. }
-            )
-        ));
+            djls_project::ProjectEnrichment::RuntimeUnavailable
+        );
     }
 
     #[test]

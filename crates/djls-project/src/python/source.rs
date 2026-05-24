@@ -7,7 +7,6 @@ use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 
 use crate::layout::project_layout_index;
-use crate::layout::ProjectLayoutIndexOutcome;
 use crate::project::Project;
 use crate::source_files::SourceFileInventory;
 use crate::source_files::SourceFilesIssue;
@@ -397,7 +396,7 @@ pub fn python_source_index(db: &dyn Db, project: Project) -> PythonSourceIndexOu
         }
     };
 
-    let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) else {
+    let Some(layout) = project_layout_index(db, project) else {
         return PythonSourceIndexOutcome::Unindexed(PythonSourceIndexIssue::LayoutUnavailable);
     };
 
@@ -1019,13 +1018,12 @@ mod tests {
     use super::*;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::ProjectRootDiscovery;
-    use crate::root_discovery::ProjectRootDiscoveryApplyResult;
     use crate::root_discovery::ProjectRootDiscoveryUpdate;
     use crate::run_django_discovery;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFilesApplyResult;
     use crate::DiscoveryApply;
-    use crate::DiscoveryCancellation;
+    use crate::DiscoveryExecutionOutcome;
     use crate::DiscoveryHost;
     use crate::DiscoveryObservation;
     use crate::DjangoDiscoveryRequest;
@@ -1125,14 +1123,14 @@ mod tests {
     }
 
     impl DiscoveryHost for PythonSourceDiscoveryHost<'_> {
-        fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+        fn checkpoint(&mut self) -> Result<(), DiscoveryExecutionOutcome> {
             Ok(())
         }
 
         fn load_files_for_roots(
             &mut self,
             request: djls_workspace::FilesForRootsRequest,
-        ) -> Result<djls_workspace::FilesForRootsResult, DiscoveryCancellation> {
+        ) -> Result<djls_workspace::FilesForRootsResult, DiscoveryExecutionOutcome> {
             Ok(djls_workspace::load_files_for_roots(request))
         }
 
@@ -1155,10 +1153,8 @@ mod tests {
         fn apply_project_root_discovery(
             &mut self,
             _update: ProjectRootDiscoveryUpdate,
-        ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
-            Ok(ProjectRootDiscoveryApplyResult::Unavailable(
-                ProjectRootDiscovery::Absent,
-            ))
+        ) -> DiscoveryApply<ProjectRootDiscovery> {
+            Ok(ProjectRootDiscovery::NoWorkspaceRoots)
         }
 
         fn observe_python_source_index(
@@ -1191,8 +1187,8 @@ mod tests {
 
         fn load_project_enrichment(
             &mut self,
-        ) -> Result<crate::ProjectEnrichment, DiscoveryCancellation> {
-            Ok(crate::ProjectEnrichment::Disabled)
+        ) -> Result<crate::ProjectEnrichment, DiscoveryExecutionOutcome> {
+            Ok(crate::ProjectEnrichment::RuntimeUnavailable)
         }
 
         fn apply_project_enrichment(

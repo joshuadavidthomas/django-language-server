@@ -1,7 +1,5 @@
 use crate::enrichment::ProjectEnrichment;
 use crate::root_discovery::ProjectRootDiscovery;
-use crate::root_discovery::ProjectRootDiscoveryIssue;
-use crate::root_discovery::ProjectRootDiscoveryIssues;
 use crate::source_files::SourceFileInventory;
 use crate::source_files::SourceFilesFixtureSurface;
 use crate::source_files::SourceFilesIssue;
@@ -48,12 +46,7 @@ impl Project {
                     surface: SourceFilesFixtureSurface::SourceFiles,
                 },
             },
-            ProjectRootDiscovery::Unavailable {
-                issues: ProjectRootDiscoveryIssues::new(vec![
-                    ProjectRootDiscoveryIssue::FixtureDoesNotModelDiscovery,
-                ])
-                .expect("fixture discovery issue should be non-empty"),
-            },
+            ProjectRootDiscovery::FixtureDoesNotModelDiscovery,
             ProjectEnrichment::Absent,
         )
     }
@@ -137,12 +130,7 @@ mod tests {
         );
         assert_eq!(
             *project.root_discovery(&db),
-            ProjectRootDiscovery::Unavailable {
-                issues: ProjectRootDiscoveryIssues::new(vec![
-                    ProjectRootDiscoveryIssue::FixtureDoesNotModelDiscovery,
-                ])
-                .expect("fixture discovery issue should be non-empty"),
-            }
+            ProjectRootDiscovery::FixtureDoesNotModelDiscovery
         );
         assert_eq!(*project.enrichment(&db), ProjectEnrichment::Absent);
     }

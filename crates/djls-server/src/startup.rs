@@ -8,11 +8,9 @@ use djls_conf::Settings;
 use djls_project::run_django_discovery;
 use djls_project::Db as ProjectDb;
 use djls_project::DiscoveryApply;
-use djls_project::DiscoveryCancellation;
 use djls_project::DiscoveryExecutionOutcome;
 use djls_project::DiscoveryHost;
 use djls_project::DiscoveryMilestone;
-use djls_project::DiscoveryMilestoneStatus;
 use djls_project::DiscoveryObservation;
 use djls_project::DiscoveryObserver;
 use djls_project::DiscoveryRunResult;
@@ -22,7 +20,7 @@ use djls_project::DjangoDiscoveryRequest;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
 use djls_project::InstalledAppFileRootsOutcome;
 use djls_project::ProjectEnrichment;
-use djls_project::ProjectRootDiscoveryApplyResult;
+use djls_project::ProjectRootDiscovery;
 use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::PythonSourceIndexOutcome;
 use djls_project::ReadySourceFiles;
@@ -129,22 +127,6 @@ impl GenerationGuard {
             Err(reason) => ApplyOutcome::Rejected { reason },
         }
     }
-
-    #[cfg(test)]
-    pub(crate) async fn observe<T>(
-        &self,
-        session: &Arc<Mutex<Session>>,
-        observe: impl FnOnce(&Session) -> T,
-    ) -> ObservationOutcome<T> {
-        let _generation_lock = self.generation_lock.lock().await;
-        if !self.is_current() {
-            return ObservationOutcome::Superseded;
-        }
-
-        let session = session.lock().await;
-
-        ObservationOutcome::Observed(observe(&session))
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -152,13 +134,6 @@ pub(crate) enum ApplyOutcome<T> {
     Applied(T),
     Superseded,
     Rejected { reason: ApplyRejection },
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ObservationOutcome<T> {
-    Observed(T),
-    Superseded,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -355,7 +330,7 @@ pub(crate) enum StartupProgressEvent {
     },
     MilestoneReached {
         milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
+        status: DiscoveryStageStatus,
     },
     Finish(StartupRunOutcome),
 }
@@ -384,7 +359,6 @@ impl StartupProgress {
         }
     }
 
-    #[cfg(test)]
     #[cfg(test)]
     #[must_use]
     fn recording(events: Arc<StdMutex<Vec<StartupProgressEvent>>>) -> Self {
@@ -419,7 +393,7 @@ impl StartupProgress {
         &self,
         handle: &tokio::runtime::Handle,
         milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
+        status: DiscoveryStageStatus,
     ) {
         self.reporter.milestone_reached(handle, milestone, status);
     }
@@ -442,7 +416,7 @@ trait StartupProgressReporter: Send + Sync + std::fmt::Debug {
         &self,
         handle: &tokio::runtime::Handle,
         milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
+        status: DiscoveryStageStatus,
     );
     fn finish(&self, handle: &tokio::runtime::Handle, outcome: &StartupRunOutcome);
 }
@@ -472,7 +446,7 @@ impl StartupProgressReporter for LogStartupProgressReporter {
         &self,
         _handle: &tokio::runtime::Handle,
         milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
+        status: DiscoveryStageStatus,
     ) {
         tracing::info!(milestone = ?milestone, status = ?status, "Reached Django discovery milestone");
     }
@@ -554,7 +528,7 @@ impl StartupProgressReporter for WorkDoneStartupProgressReporter {
         &self,
         _handle: &tokio::runtime::Handle,
         milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
+        status: DiscoveryStageStatus,
     ) {
         self.send(WorkDoneProgressCommand::Report(format!(
             "Reached {milestone:?}: {status:?}"
@@ -713,11 +687,7 @@ impl DiscoveryObserver for GuardedStartupProgressObserver {
         }
     }
 
-    fn milestone_reached(
-        &mut self,
-        milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
-    ) {
+    fn milestone_reached(&mut self, milestone: DiscoveryMilestone, status: DiscoveryStageStatus) {
         if self.guard.is_current() {
             self.progress.report_milestone_reached(
                 &tokio::runtime::Handle::current(),
@@ -766,7 +736,7 @@ impl StartupProgressReporter for RecordingStartupProgressReporter {
         &self,
         _handle: &tokio::runtime::Handle,
         milestone: DiscoveryMilestone,
-        status: DiscoveryMilestoneStatus,
+        status: DiscoveryStageStatus,
     ) {
         self.events
             .lock()
@@ -890,26 +860,26 @@ impl LspDiscoveryHost {
 }
 
 impl DiscoveryHost for LspDiscoveryHost {
-    fn checkpoint(&mut self) -> Result<(), DiscoveryCancellation> {
+    fn checkpoint(&mut self) -> Result<(), DiscoveryExecutionOutcome> {
         if self.inputs.guard().is_current() {
             Ok(())
         } else {
-            Err(DiscoveryCancellation::Superseded)
+            Err(DiscoveryExecutionOutcome::Superseded)
         }
     }
 
     fn load_files_for_roots(
         &mut self,
         request: FilesForRootsRequest,
-    ) -> Result<FilesForRootsResult, DiscoveryCancellation> {
+    ) -> Result<FilesForRootsResult, DiscoveryExecutionOutcome> {
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         if let Some(load_gate) = &self.load_gate {
             load_gate();
         }
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         Ok(load_files_for_roots(request))
     }
@@ -946,7 +916,7 @@ impl DiscoveryHost for LspDiscoveryHost {
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApply<ProjectRootDiscoveryApplyResult> {
+    ) -> DiscoveryApply<ProjectRootDiscovery> {
         let outcome = self
             .handle
             .block_on(self.inputs.guard().apply(&self.session, |session| {
@@ -962,25 +932,25 @@ impl DiscoveryHost for LspDiscoveryHost {
 
     fn observe_python_source_index(&mut self) -> DiscoveryObservation<PythonSourceIndexOutcome> {
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         if let Some(gate) = &self.python_observe_gate {
             gate();
         }
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::python_source_index(&db, project).clone();
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         Ok(outcome)
     }
@@ -989,25 +959,25 @@ impl DiscoveryHost for LspDiscoveryHost {
         &mut self,
     ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome> {
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         if let Some(gate) = &self.environment_observe_gate {
             gate();
         }
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let project = ProjectDb::project(&db);
         let outcome = djls_project::django_environment_candidates(&db, project).clone();
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         Ok(outcome)
     }
@@ -1016,19 +986,19 @@ impl DiscoveryHost for LspDiscoveryHost {
         &mut self,
     ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let project = ProjectDb::project(&db);
         let discovery = djls_project::installed_app_file_roots_discovery(&db, project);
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         Ok(discovery)
     }
@@ -1037,37 +1007,37 @@ impl DiscoveryHost for LspDiscoveryHost {
         &mut self,
     ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let project = ProjectDb::project(&db);
         let discovery = djls_project::template_directory_file_roots_discovery(&db, project);
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         Ok(discovery)
     }
 
-    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryCancellation> {
+    fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome> {
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let db = self.handle.block_on(async {
             let session = self.session.lock().await;
             session.project_db_snapshot_for_observation()
         });
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         let enrichment = db.load_project_enrichment();
         if !self.inputs.guard().is_current() {
-            return Err(DiscoveryCancellation::Superseded);
+            return Err(DiscoveryExecutionOutcome::Superseded);
         }
         Ok(enrichment)
     }
@@ -1211,18 +1181,6 @@ mod startup_generation {
         let outcome = old.apply(&session, |_session| Ok(())).await;
 
         assert_eq!(outcome, ApplyOutcome::Superseded);
-    }
-
-    #[tokio::test]
-    async fn guarded_observation_returns_superseded() {
-        let session = Arc::new(Mutex::new(initialized_session()));
-        let controller = StartupController::new();
-        let old = controller.start_generation().await;
-        let _new = controller.start_generation().await;
-
-        let outcome = old.observe(&session, |_session| 1usize).await;
-
-        assert_eq!(outcome, ObservationOutcome::Superseded);
     }
 
     #[tokio::test]
@@ -1914,7 +1872,7 @@ mod startup_generation {
                 StartupProgressEvent::StageStarted(DiscoveryStage::Enrichment),
                 StartupProgressEvent::StageFinished {
                     stage: DiscoveryStage::Enrichment,
-                    status: DiscoveryStageStatus::Unavailable,
+                    status: DiscoveryStageStatus::Skipped,
                 },
                 StartupProgressEvent::Finish(StartupRunOutcome::Succeeded),
             ]

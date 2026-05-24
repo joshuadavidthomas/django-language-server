@@ -5,27 +5,7 @@ use rustc_hash::FxHashMap;
 
 use crate::project::Project;
 use crate::source_files::SourceFileInventory;
-use crate::source_files::SourceFilesIssue;
 use crate::Db;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectLayoutIndexOutcome {
-    Ready(ProjectLayoutIndex),
-    Absent { issue: ProjectLayoutIssue },
-    Unavailable { issue: ProjectLayoutIssue },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectLayoutIssue {
-    SourceInventoryAbsent,
-    SourceInventoryUnavailable { issue: SourceFilesIssue },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SettingsModuleCandidatesOutcome {
-    Ready(Vec<String>),
-    LayoutUnavailable { issue: ProjectLayoutIssue },
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectLayoutIndex {
@@ -111,48 +91,11 @@ struct LayoutFile {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn project_layout_index(db: &dyn Db, project: Project) -> ProjectLayoutIndexOutcome {
-    match project.source_inventory(db) {
-        SourceFileInventory::Ready(files) => {
-            let data = files.merged().data(db);
-            ProjectLayoutIndexOutcome::Ready(ProjectLayoutIndex::new(data))
-        }
-        SourceFileInventory::Unavailable {
-            issue: SourceFilesIssue::NotLoaded,
-        } => ProjectLayoutIndexOutcome::Absent {
-            issue: ProjectLayoutIssue::SourceInventoryAbsent,
-        },
-        SourceFileInventory::Unavailable { issue } => ProjectLayoutIndexOutcome::Unavailable {
-            issue: ProjectLayoutIssue::SourceInventoryUnavailable { issue },
-        },
-    }
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn settings_module_candidates(
-    db: &dyn Db,
-    project: Project,
-) -> SettingsModuleCandidatesOutcome {
-    let layout = match project_layout_index(db, project) {
-        ProjectLayoutIndexOutcome::Ready(layout) => layout,
-        ProjectLayoutIndexOutcome::Absent { issue }
-        | ProjectLayoutIndexOutcome::Unavailable { issue } => {
-            return SettingsModuleCandidatesOutcome::LayoutUnavailable {
-                issue: issue.clone(),
-            };
-        }
+pub fn project_layout_index(db: &dyn Db, project: Project) -> Option<ProjectLayoutIndex> {
+    let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
+        return None;
     };
-
-    let mut candidates = layout
-        .files_by_name("settings.py")
-        .into_iter()
-        .filter_map(|file| layout.file_path(file))
-        .filter_map(|path| layout.module_name_for_path(path))
-        .map(|module| module.as_str().to_string())
-        .collect::<Vec<_>>();
-    candidates.sort();
-    candidates.dedup();
-    SettingsModuleCandidatesOutcome::Ready(candidates)
+    Some(ProjectLayoutIndex::new(files.merged().data(db)))
 }
 
 #[cfg(test)]
@@ -178,6 +121,7 @@ mod tests {
     use crate::enrichment::ProjectEnrichment;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFilesFixtureSurface;
+    use crate::source_files::SourceFilesIssue;
 
     #[salsa::db]
     struct TestDb {
@@ -267,15 +211,10 @@ mod tests {
     }
 
     #[test]
-    fn layout_reports_absent_and_unavailable_source_inventory() {
+    fn layout_returns_none_without_ready_source_inventory() {
         let mut db = TestDb::default();
 
-        assert_eq!(
-            project_layout_index(&db, db.project()).clone(),
-            ProjectLayoutIndexOutcome::Absent {
-                issue: ProjectLayoutIssue::SourceInventoryAbsent,
-            }
-        );
+        assert_eq!(project_layout_index(&db, db.project()).clone(), None);
 
         db.set_source_file_inventory(SourceFileInventory::Unavailable {
             issue: SourceFilesIssue::FixtureUnavailable {
@@ -283,16 +222,7 @@ mod tests {
             },
         });
 
-        assert_eq!(
-            project_layout_index(&db, db.project()).clone(),
-            ProjectLayoutIndexOutcome::Unavailable {
-                issue: ProjectLayoutIssue::SourceInventoryUnavailable {
-                    issue: SourceFilesIssue::FixtureUnavailable {
-                        surface: SourceFilesFixtureSurface::SourceFiles,
-                    },
-                },
-            }
-        );
+        assert_eq!(project_layout_index(&db, db.project()).clone(), None);
     }
 
     #[test]
@@ -308,10 +238,9 @@ mod tests {
             ],
         ));
 
-        let ProjectLayoutIndexOutcome::Ready(index) = project_layout_index(&db, db.project())
-        else {
-            panic!("layout should be ready");
-        };
+        let index = project_layout_index(&db, db.project())
+            .as_ref()
+            .expect("layout should be ready");
         let models = index
             .file_for_path(Utf8Path::new("/workspace/app/models.py"))
             .expect("models.py should be indexed");
@@ -323,34 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn settings_module_candidates_do_not_treat_unavailable_layout_as_empty() {
-        let mut db = TestDb::default();
-
-        assert_eq!(
-            settings_module_candidates(&db, db.project()).clone(),
-            SettingsModuleCandidatesOutcome::LayoutUnavailable {
-                issue: ProjectLayoutIssue::SourceInventoryAbsent,
-            }
-        );
-
-        db.set_source_file_inventory(ready_inventory(
-            &db,
-            &[
-                "/workspace/project/settings.py",
-                "/workspace/project/dev/settings.py",
-            ],
-        ));
-
-        assert_eq!(
-            settings_module_candidates(&db, db.project()).clone(),
-            SettingsModuleCandidatesOutcome::Ready(vec![
-                "project.dev.settings".to_string(),
-                "project.settings".to_string(),
-            ])
-        );
-    }
-
-    #[test]
     fn layout_invalidates_for_source_inventory_but_not_enrichment() {
         let mut db = TestDb::default();
 
@@ -359,7 +260,7 @@ mod tests {
 
         db.project()
             .set_enrichment(&mut db)
-            .to(ProjectEnrichment::Disabled);
+            .to(ProjectEnrichment::RuntimeUnavailable);
         assert_eq!(project_layout_file_count(&db, db.project()), 0);
         let events = db.take_events();
         assert!(!db.tracked_query_executed(&events, "project_layout_index"));
@@ -372,10 +273,9 @@ mod tests {
 
     #[salsa::tracked]
     fn project_layout_file_count(db: &dyn crate::Db, project: Project) -> usize {
-        match project_layout_index(db, project) {
-            ProjectLayoutIndexOutcome::Ready(index) => index.files.len(),
-            ProjectLayoutIndexOutcome::Absent { .. }
-            | ProjectLayoutIndexOutcome::Unavailable { .. } => 0,
-        }
+        project_layout_index(db, project)
+            .as_ref()
+            .map(|index| index.files.len())
+            .unwrap_or(0)
     }
 }
