@@ -9,7 +9,7 @@ use crate::Interpreter;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectRootDiscovery {
     Absent,
-    Ready(ProjectRootDiscoverySet),
+    Ready(Vec<ProjectRoot>),
     Unavailable { issues: ProjectRootDiscoveryIssues },
 }
 
@@ -23,46 +23,73 @@ pub enum ProjectRootDiscoveryApplyResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjectRootDiscoverySet {
-    roots: Vec<RootDiscoveryInput>,
+pub struct ProjectRoot {
+    root: Utf8PathBuf,
+    interpreter: Option<Interpreter>,
+    settings_module_seed: Option<DjangoSettingsModuleSeed>,
+    configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
+    pythonpath: Vec<Utf8PathBuf>,
+    env_vars: ProjectEnvVars,
+    issues: Vec<ProjectRootDiscoveryIssue>,
 }
 
-impl ProjectRootDiscoverySet {
-    pub fn new(roots: Vec<RootDiscoveryInput>) -> Result<Self, ProjectRootDiscoverySetError> {
-        if roots.is_empty() {
-            return Err(ProjectRootDiscoverySetError::NoWorkspaceRoots);
+impl ProjectRoot {
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        root: Utf8PathBuf,
+        interpreter: Option<Interpreter>,
+        settings_module_seed: Option<DjangoSettingsModuleSeed>,
+        configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
+        pythonpath: Vec<Utf8PathBuf>,
+        env_vars: ProjectEnvVars,
+        issues: Vec<ProjectRootDiscoveryIssue>,
+    ) -> Self {
+        Self {
+            root,
+            interpreter,
+            settings_module_seed,
+            configured_environment_seeds,
+            pythonpath,
+            env_vars,
+            issues,
         }
-        Ok(Self { roots })
     }
 
     #[must_use]
-    pub fn roots(&self) -> &[RootDiscoveryInput] {
-        &self.roots
+    pub fn root(&self) -> &Utf8PathBuf {
+        &self.root
     }
-}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProjectRootDiscoverySetError {
-    NoWorkspaceRoots,
-}
+    #[must_use]
+    pub fn interpreter(&self) -> Option<&Interpreter> {
+        self.interpreter.as_ref()
+    }
 
-#[salsa::input]
-#[derive(Debug)]
-pub struct RootDiscoveryInput {
-    #[returns(ref)]
-    pub root: Utf8PathBuf,
-    #[returns(ref)]
-    pub interpreter: Option<Interpreter>,
-    #[returns(ref)]
-    pub settings_module_seed: Option<DjangoSettingsModuleSeed>,
-    #[returns(ref)]
-    pub configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
-    #[returns(ref)]
-    pub pythonpath: Vec<Utf8PathBuf>,
-    #[returns(ref)]
-    pub env_vars: ProjectEnvVars,
-    #[returns(ref)]
-    pub issues: Vec<ProjectRootDiscoveryIssue>,
+    #[must_use]
+    pub fn settings_module_seed(&self) -> Option<&DjangoSettingsModuleSeed> {
+        self.settings_module_seed.as_ref()
+    }
+
+    #[must_use]
+    pub fn configured_environment_seeds(&self) -> &[DjangoEnvironmentSeed] {
+        &self.configured_environment_seeds
+    }
+
+    #[must_use]
+    pub fn pythonpath(&self) -> &[Utf8PathBuf] {
+        &self.pythonpath
+    }
+
+    #[must_use]
+    pub fn env_vars(&self) -> &ProjectEnvVars {
+        &self.env_vars
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[ProjectRootDiscoveryIssue] {
+        &self.issues
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -272,10 +299,8 @@ mod tests {
     }
 
     #[test]
-    fn discovery_set_preserves_multiple_roots_without_primary_selection() {
-        let db = TestDb::default();
-        let first = RootDiscoveryInput::new(
-            &db,
+    fn discovery_preserves_multiple_roots_without_primary_selection() {
+        let first = ProjectRoot::new(
             Utf8PathBuf::from("/workspace/a"),
             None,
             None,
@@ -284,8 +309,7 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        let second = RootDiscoveryInput::new(
-            &db,
+        let second = ProjectRoot::new(
             Utf8PathBuf::from("/workspace/b"),
             None,
             None,
@@ -295,23 +319,12 @@ mod tests {
             Vec::new(),
         );
 
-        let discovery = ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![first, second])
-                .expect("non-empty roots should construct discovery set"),
-        );
-        let ProjectRootDiscovery::Ready(set) = discovery else {
+        let discovery = ProjectRootDiscovery::Ready(vec![first.clone(), second.clone()]);
+        let ProjectRootDiscovery::Ready(roots) = discovery else {
             panic!("discovery should be ready");
         };
 
-        assert_eq!(set.roots(), &[first, second]);
-    }
-
-    #[test]
-    fn discovery_set_rejects_empty_roots() {
-        assert_eq!(
-            ProjectRootDiscoverySet::new(Vec::new()),
-            Err(ProjectRootDiscoverySetError::NoWorkspaceRoots)
-        );
+        assert_eq!(roots, vec![first, second]);
     }
 
     #[test]
@@ -369,7 +382,7 @@ mod tests {
     #[salsa::tracked]
     fn discovery_root_count(db: &dyn crate::Db) -> Option<usize> {
         match db.project().root_discovery(db) {
-            ProjectRootDiscovery::Ready(discovery) => Some(discovery.roots().len()),
+            ProjectRootDiscovery::Ready(roots) => Some(roots.len()),
             ProjectRootDiscovery::Absent | ProjectRootDiscovery::Unavailable { .. } => None,
         }
     }
@@ -379,8 +392,7 @@ mod tests {
         let mut db = TestDb::new_with_project();
         assert_eq!(discovery_root_count(&db), None);
 
-        let root = RootDiscoveryInput::new(
-            &db,
+        let root = ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             None,
@@ -389,9 +401,7 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        let discovery = ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should construct discovery set"),
-        );
+        let discovery = ProjectRootDiscovery::Ready(vec![root]);
         db.set_project_root_discovery(discovery);
 
         assert_eq!(discovery_root_count(&db), Some(1));
@@ -429,88 +439,18 @@ impl ProjectRootDiscoveryLoadRequest {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectRootDiscoveryUpdate {
-    roots: Vec<RootDiscoveryUpdate>,
+    roots: Vec<ProjectRoot>,
 }
 
 impl ProjectRootDiscoveryUpdate {
     #[must_use]
-    pub fn new(roots: Vec<RootDiscoveryUpdate>) -> Self {
+    pub fn new(roots: Vec<ProjectRoot>) -> Self {
         Self { roots }
     }
 
     #[must_use]
-    pub fn roots(&self) -> &[RootDiscoveryUpdate] {
+    pub fn roots(&self) -> &[ProjectRoot] {
         &self.roots
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RootDiscoveryUpdate {
-    root: Utf8PathBuf,
-    interpreter: Option<Interpreter>,
-    settings_module_seed: Option<DjangoSettingsModuleSeed>,
-    configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
-    pythonpath: Vec<Utf8PathBuf>,
-    env_vars: ProjectEnvVars,
-    issues: Vec<ProjectRootDiscoveryIssue>,
-}
-
-impl RootDiscoveryUpdate {
-    #[allow(clippy::too_many_arguments)]
-    #[must_use]
-    pub fn new(
-        root: Utf8PathBuf,
-        interpreter: Option<Interpreter>,
-        settings_module_seed: Option<DjangoSettingsModuleSeed>,
-        configured_environment_seeds: Vec<DjangoEnvironmentSeed>,
-        pythonpath: Vec<Utf8PathBuf>,
-        env_vars: ProjectEnvVars,
-        issues: Vec<ProjectRootDiscoveryIssue>,
-    ) -> Self {
-        Self {
-            root,
-            interpreter,
-            settings_module_seed,
-            configured_environment_seeds,
-            pythonpath,
-            env_vars,
-            issues,
-        }
-    }
-
-    #[must_use]
-    pub fn root(&self) -> &Utf8PathBuf {
-        &self.root
-    }
-
-    #[must_use]
-    pub fn interpreter(&self) -> Option<&Interpreter> {
-        self.interpreter.as_ref()
-    }
-
-    #[must_use]
-    pub fn settings_module_seed(&self) -> Option<&DjangoSettingsModuleSeed> {
-        self.settings_module_seed.as_ref()
-    }
-
-    #[must_use]
-    pub fn configured_environment_seeds(&self) -> &[DjangoEnvironmentSeed] {
-        &self.configured_environment_seeds
-    }
-
-    #[must_use]
-    pub fn pythonpath(&self) -> &[Utf8PathBuf] {
-        &self.pythonpath
-    }
-
-    #[must_use]
-    pub fn env_vars(&self) -> &ProjectEnvVars {
-        &self.env_vars
-    }
-
-    #[must_use]
-    pub fn issues(&self) -> &[ProjectRootDiscoveryIssue] {
-        &self.issues
     }
 }
 
@@ -526,7 +466,7 @@ pub(crate) fn load_project_root_discovery(
     ProjectRootDiscoveryUpdate::new(roots)
 }
 
-fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDiscoveryUpdate {
+fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> ProjectRoot {
     let mut issues = Vec::new();
     let settings = match djls_conf::Settings::load(&root, Some(client_settings.clone())) {
         Ok(settings) => settings,
@@ -578,7 +518,7 @@ fn root_discovery_data(root: Utf8PathBuf, client_settings: &Settings) -> RootDis
     let env_vars = ProjectEnvVars::from_resolved_entries(env_entries)
         .expect("env var duplicate names should be resolved before construction");
 
-    RootDiscoveryUpdate::new(
+    ProjectRoot::new(
         root,
         interpreter,
         settings_module_seed,

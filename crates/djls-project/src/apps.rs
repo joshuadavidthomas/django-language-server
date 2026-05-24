@@ -348,9 +348,8 @@ mod tests {
     use crate::django_environment_candidates;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRoot;
     use crate::root_discovery::ProjectRootDiscovery;
-    use crate::root_discovery::ProjectRootDiscoverySet;
-    use crate::root_discovery::RootDiscoveryInput;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFileInventory;
     use crate::source_files::SourceFilesIssue;
@@ -428,9 +427,8 @@ mod tests {
         ))
     }
 
-    fn discovery(db: &TestDb) -> ProjectRootDiscovery {
-        let root = RootDiscoveryInput::new(
-            db,
+    fn discovery(_db: &TestDb) -> ProjectRootDiscovery {
+        ProjectRootDiscovery::Ready(vec![ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             Some("project.settings".to_string()),
@@ -438,10 +436,7 @@ mod tests {
             Vec::new(),
             ProjectEnvVars::default(),
             Vec::new(),
-        );
-        ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        )
+        )])
     }
 
     fn single_env_id(db: &TestDb) -> DjangoEnvironmentId {
@@ -583,8 +578,7 @@ mod tests {
             "INSTALLED_APPS = ['external.apps.ExternalConfig']\n",
         );
         db.set_source_file_inventory(ready_inventory(&db, &["/workspace/project/settings.py"]));
-        let root = RootDiscoveryInput::new(
-            &db,
+        let root = ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             Some("project.settings".to_string()),
@@ -593,9 +587,7 @@ mod tests {
             ProjectEnvVars::default(),
             Vec::new(),
         );
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(vec![root]));
         let env = single_env_id(&db);
 
         let apps = installed_apps(&db, db.project(), env);

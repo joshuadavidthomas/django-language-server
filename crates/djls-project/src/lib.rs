@@ -66,14 +66,12 @@ pub use root_discovery::DjangoSettingsModuleSeed;
 pub use root_discovery::EnvFileLoadIssueKind;
 pub use root_discovery::ProjectConfigLoadError;
 pub use root_discovery::ProjectEnvVars;
+pub use root_discovery::ProjectRoot;
 pub use root_discovery::ProjectRootDiscovery;
 pub use root_discovery::ProjectRootDiscoveryApplyResult;
 pub use root_discovery::ProjectRootDiscoveryIssue;
 pub use root_discovery::ProjectRootDiscoveryIssues;
-pub use root_discovery::ProjectRootDiscoverySet;
 pub use root_discovery::ProjectRootDiscoveryUpdate;
-pub use root_discovery::RootDiscoveryInput;
-pub use root_discovery::RootDiscoveryUpdate;
 pub use source_files::ReadySourceFiles;
 pub use source_files::SourceFileHandleChanges;
 pub use source_files::SourceFileInventory;
@@ -98,7 +96,7 @@ pub use testing::manage_py_path;
 #[cfg(any(test, feature = "testing"))]
 pub use testing::package_init_path;
 #[cfg(any(test, feature = "testing"))]
-pub use testing::project_discovery_set_for_test;
+pub use testing::project_roots_for_test;
 #[cfg(any(test, feature = "testing"))]
 pub use testing::ready_source_inventory_for_test;
 #[cfg(any(test, feature = "testing"))]

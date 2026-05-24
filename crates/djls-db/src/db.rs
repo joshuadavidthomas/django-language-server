@@ -19,7 +19,6 @@ use djls_project::ProjectRootDiscovery;
 use djls_project::ProjectRootDiscoveryApplyResult;
 use djls_project::ProjectRootDiscoveryIssue;
 use djls_project::ProjectRootDiscoveryIssues;
-use djls_project::ProjectRootDiscoverySet;
 use djls_project::ProjectRootDiscoveryUpdate;
 use djls_project::ReadySourceFiles;
 use djls_project::SourceFileHandleChanges;
@@ -158,32 +157,14 @@ impl DjangoDatabase {
 
         let current = ProjectDb::project(self).root_discovery(self).clone();
         let has_issues = data.roots().iter().any(|root| !root.issues().is_empty());
-        if project_root_discovery_matches_update(self, &current, &data) {
+        if project_root_discovery_matches_update(&current, &data) {
             return ProjectRootDiscoveryApplyResult::Applied {
                 discovery: current,
                 has_issues,
             };
         }
 
-        let roots = data
-            .roots()
-            .iter()
-            .map(|root| {
-                djls_project::RootDiscoveryInput::new(
-                    self,
-                    root.root().clone(),
-                    root.interpreter().cloned(),
-                    root.settings_module_seed().cloned(),
-                    root.configured_environment_seeds().to_vec(),
-                    root.pythonpath().to_vec(),
-                    root.env_vars().clone(),
-                    root.issues().to_vec(),
-                )
-            })
-            .collect();
-        let set = ProjectRootDiscoverySet::new(roots)
-            .expect("non-empty discovery data should construct discovery set");
-        let discovery = ProjectRootDiscovery::Ready(set);
+        let discovery = ProjectRootDiscovery::Ready(data.roots().to_vec());
         ProjectDb::set_project_root_discovery(self, discovery.clone());
         ProjectRootDiscoveryApplyResult::Applied {
             discovery,
@@ -316,24 +297,10 @@ impl DjangoDatabase {
 }
 
 fn project_root_discovery_matches_update(
-    db: &dyn djls_project::Db,
     discovery: &ProjectRootDiscovery,
     data: &ProjectRootDiscoveryUpdate,
 ) -> bool {
-    let ProjectRootDiscovery::Ready(discovery) = discovery else {
-        return false;
-    };
-    let roots = discovery.roots();
-    roots.len() == data.roots().len()
-        && roots.iter().zip(data.roots()).all(|(input, data)| {
-            input.root(db) == data.root()
-                && input.interpreter(db).as_ref() == data.interpreter()
-                && input.settings_module_seed(db).as_ref() == data.settings_module_seed()
-                && input.configured_environment_seeds(db) == data.configured_environment_seeds()
-                && input.pythonpath(db) == data.pythonpath()
-                && input.env_vars(db) == data.env_vars()
-                && input.issues(db) == data.issues()
-        })
+    matches!(discovery, ProjectRootDiscovery::Ready(roots) if roots.as_slice() == data.roots())
 }
 
 fn materialization_issue_from_invariant_error(
@@ -671,16 +638,16 @@ mod project_discovery_tests {
     use camino::Utf8PathBuf;
     use djls_project::Db as ProjectDb;
     use djls_project::ProjectEnvVars;
+    use djls_project::ProjectRoot;
     use djls_project::ProjectRootDiscovery;
     use djls_project::ProjectRootDiscoveryApplyResult;
     use djls_project::ProjectRootDiscoveryIssue;
     use djls_project::ProjectRootDiscoveryUpdate;
-    use djls_project::RootDiscoveryUpdate;
 
     use super::DjangoDatabase;
 
-    fn root_data(path: &str) -> RootDiscoveryUpdate {
-        RootDiscoveryUpdate::new(
+    fn root_data(path: &str) -> ProjectRoot {
+        ProjectRoot::new(
             Utf8PathBuf::from(path),
             None,
             None,
@@ -703,15 +670,11 @@ mod project_discovery_tests {
             result,
             ProjectRootDiscoveryApplyResult::Applied { .. }
         ));
-        let ProjectRootDiscovery::Ready(discovery) = ProjectDb::project(&db).root_discovery(&db)
-        else {
+        let ProjectRootDiscovery::Ready(roots) = ProjectDb::project(&db).root_discovery(&db) else {
             panic!("discovery should be ready");
         };
-        assert_eq!(discovery.roots().len(), 1);
-        assert_eq!(
-            discovery.roots()[0].root(&db),
-            &Utf8PathBuf::from("/workspace")
-        );
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].root(), &Utf8PathBuf::from("/workspace"));
     }
 
     #[test]

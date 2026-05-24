@@ -9,8 +9,7 @@ use djls_source::SourceRootEntry;
 use djls_source::SourceRootId;
 
 use crate::root_discovery::ProjectEnvVars;
-use crate::root_discovery::ProjectRootDiscoverySet;
-use crate::root_discovery::RootDiscoveryInput;
+use crate::root_discovery::ProjectRoot;
 use crate::source_files::ReadySourceFiles;
 use crate::source_files::SourceFileInventory;
 use crate::Db;
@@ -92,12 +91,8 @@ pub fn ready_source_inventory_with_roots_for_test(
 
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
-pub fn project_discovery_set_for_test(
-    db: &dyn Db,
-    root: impl Into<Utf8PathBuf>,
-) -> ProjectRootDiscoverySet {
-    let root = RootDiscoveryInput::new(
-        db,
+pub fn project_roots_for_test(_db: &dyn Db, root: impl Into<Utf8PathBuf>) -> Vec<ProjectRoot> {
+    vec![ProjectRoot::new(
         root.into(),
         None,
         None,
@@ -105,8 +100,7 @@ pub fn project_discovery_set_for_test(
         Vec::new(),
         ProjectEnvVars::default(),
         Vec::new(),
-    );
-    ProjectRootDiscoverySet::new(vec![root]).expect("test discovery should have one root")
+    )]
 }
 
 #[must_use]
@@ -204,13 +198,13 @@ mod tests {
         ];
 
         let inventory = ready_source_inventory_for_test(&db, root.clone(), paths);
-        let discovery = project_discovery_set_for_test(&db, root.clone());
+        let discovery = project_roots_for_test(&db, root.clone());
 
         let SourceFileInventory::Ready(files) = inventory else {
             panic!("source inventory should be ready");
         };
         assert_eq!(files.merged().data(&db).files().len(), 4);
-        assert_eq!(discovery.roots()[0].root(&db), &root);
+        assert_eq!(discovery[0].root(), &root);
         assert_eq!(app_dir(&root, "blog"), Utf8PathBuf::from("/workspace/blog"));
     }
 }

@@ -142,7 +142,7 @@ mod tests {
     use crate::root_discovery::ProjectRootDiscovery;
     use crate::testing::manage_py_path;
     use crate::testing::package_init_path;
-    use crate::testing::project_discovery_set_for_test;
+    use crate::testing::project_roots_for_test;
     use crate::testing::ready_source_inventory_with_roots_for_test;
     use crate::testing::settings_file_path;
 
@@ -228,7 +228,7 @@ mod tests {
                 root.join("shop/templatetags/unused.py"),
             ],
         ));
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_discovery_set_for_test(
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_roots_for_test(
             &db, root,
         )));
 

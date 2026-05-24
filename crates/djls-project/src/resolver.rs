@@ -122,13 +122,13 @@ pub fn import_roots(db: &dyn Db, project: Project) -> Vec<ImportRoot> {
         }
     }
 
-    if let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) {
-        for root in discovery.roots() {
-            for pythonpath in root.pythonpath(db) {
+    if let ProjectRootDiscovery::Ready(discovery_roots) = project.root_discovery(db) {
+        for root in discovery_roots {
+            for pythonpath in root.pythonpath() {
                 push_import_root(&mut roots, pythonpath.clone(), ImportRootKind::PythonPath);
             }
-            if let Some(interpreter) = root.interpreter(db) {
-                if let Some(python) = interpreter.python_path(root.root(db)) {
+            if let Some(interpreter) = root.interpreter() {
+                if let Some(python) = interpreter.python_path(root.root()) {
                     if let Some(prefix) = python.parent().and_then(Utf8Path::parent) {
                         push_import_root(
                             &mut roots,
@@ -310,8 +310,7 @@ mod tests {
     use super::*;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::ProjectEnvVars;
-    use crate::root_discovery::ProjectRootDiscoverySet;
-    use crate::root_discovery::RootDiscoveryInput;
+    use crate::root_discovery::ProjectRoot;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFilesIssue;
 
@@ -397,9 +396,8 @@ mod tests {
         ))
     }
 
-    fn discovery(db: &TestDb, root: &str, pythonpath: Vec<Utf8PathBuf>) -> ProjectRootDiscovery {
-        let root = RootDiscoveryInput::new(
-            db,
+    fn discovery(_db: &TestDb, root: &str, pythonpath: Vec<Utf8PathBuf>) -> ProjectRootDiscovery {
+        ProjectRootDiscovery::Ready(vec![ProjectRoot::new(
             Utf8PathBuf::from(root),
             None,
             None,
@@ -407,10 +405,7 @@ mod tests {
             pythonpath,
             ProjectEnvVars::default(),
             Vec::new(),
-        );
-        ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        )
+        )])
     }
 
     #[test]

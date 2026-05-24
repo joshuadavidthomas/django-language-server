@@ -540,9 +540,8 @@ mod tests {
     use crate::django_environment_candidates;
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRoot;
     use crate::root_discovery::ProjectRootDiscovery;
-    use crate::root_discovery::ProjectRootDiscoverySet;
-    use crate::root_discovery::RootDiscoveryInput;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFilesIssue;
     use crate::DjangoEnvironmentCandidatesOutcome;
@@ -640,9 +639,8 @@ mod tests {
         ))
     }
 
-    fn discovery(db: &TestDb) -> ProjectRootDiscovery {
-        let root = RootDiscoveryInput::new(
-            db,
+    fn discovery(_db: &TestDb) -> ProjectRootDiscovery {
+        ProjectRootDiscovery::Ready(vec![ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             Some("project.settings".to_string()),
@@ -650,10 +648,7 @@ mod tests {
             Vec::new(),
             ProjectEnvVars::default(),
             Vec::new(),
-        );
-        ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        )
+        )])
     }
 
     fn env(db: &TestDb) -> DjangoEnvironmentId {

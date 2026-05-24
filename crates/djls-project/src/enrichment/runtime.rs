@@ -110,7 +110,7 @@ fn runtime_enrichment_request(
     project: Project,
 ) -> Result<RuntimeEnrichmentRequest, ProjectEnrichmentIssue> {
     let discovery = project.root_discovery(db);
-    let ProjectRootDiscovery::Ready(discovery) = discovery else {
+    let ProjectRootDiscovery::Ready(discovery_roots) = discovery else {
         tracing::Span::current().record("outcome", "environment_not_configured");
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
             interpreter: None,
@@ -133,13 +133,19 @@ fn runtime_enrichment_request(
             kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
         });
     };
-    let root = candidate
+    let Some(root) = candidate
         .root()
-        .and_then(|path| discovery.roots().iter().find(|root| root.root(db) == path))
-        .or_else(|| discovery.roots().first())
-        .expect("ready discovery has at least one root");
-    let project_root = root.root(db).clone();
-    let interpreter = root.interpreter(db).clone().unwrap_or(Interpreter::Auto);
+        .and_then(|path| discovery_roots.iter().find(|root| root.root() == path))
+        .or_else(|| discovery_roots.first())
+    else {
+        tracing::Span::current().record("outcome", "environment_not_configured");
+        return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
+            interpreter: None,
+            kind: RuntimeUnavailableKind::EnvironmentNotConfigured,
+        });
+    };
+    let project_root = root.root().clone();
+    let interpreter = root.interpreter().cloned().unwrap_or(Interpreter::Auto);
     let Some(python) = interpreter.python_path(&project_root) else {
         tracing::Span::current().record("outcome", "missing_python");
         return Err(ProjectEnrichmentIssue::RuntimeUnavailable {
@@ -152,8 +158,8 @@ fn runtime_enrichment_request(
         python,
         project_root,
         django_settings_module: Some(candidate.settings().as_str().to_string()),
-        pythonpath: root.pythonpath(db).clone(),
-        env_vars: root.env_vars(db).entries().to_vec(),
+        pythonpath: root.pythonpath().to_vec(),
+        env_vars: root.env_vars().entries().to_vec(),
     };
     tracing::Span::current().record("outcome", "ready");
     Ok(request)
@@ -395,9 +401,8 @@ mod tests {
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::DjangoEnvironmentSeed;
     use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRoot;
     use crate::root_discovery::ProjectRootDiscovery;
-    use crate::root_discovery::ProjectRootDiscoverySet;
-    use crate::root_discovery::RootDiscoveryInput;
     use crate::source_files::SourceFileInventory;
     use crate::source_files::SourceFilesIssue;
 
@@ -470,8 +475,7 @@ mod tests {
             ("DJLS_TEST".to_string(), "1".to_string()),
         ])
         .expect("env vars should be valid");
-        let discovery = ProjectRootDiscoverySet::new(vec![RootDiscoveryInput::new(
-            &db,
+        let discovery = ProjectRootDiscovery::Ready(vec![ProjectRoot::new(
             root.clone(),
             Some(Interpreter::InterpreterPath(python.as_str().to_string())),
             Some("project.settings".to_string()),
@@ -479,11 +483,8 @@ mod tests {
             pythonpath.clone(),
             env_vars.clone(),
             Vec::new(),
-        )])
-        .expect("discovery should be valid");
-        db.project()
-            .set_root_discovery(&mut db)
-            .to(ProjectRootDiscovery::Ready(discovery));
+        )]);
+        db.project().set_root_discovery(&mut db).to(discovery);
 
         let request = runtime_enrichment_request(&db, db.project())
             .expect("request should be built from configured project facts");
@@ -511,8 +512,7 @@ mod tests {
             .expect("temp path should be utf8")
             .to_owned();
         let python = executable_python(&root);
-        let discovery = ProjectRootDiscoverySet::new(vec![RootDiscoveryInput::new(
-            &db,
+        let discovery = ProjectRootDiscovery::Ready(vec![ProjectRoot::new(
             root.clone(),
             Some(Interpreter::InterpreterPath(python.as_str().to_string())),
             None,
@@ -524,11 +524,8 @@ mod tests {
             Vec::new(),
             ProjectEnvVars::default(),
             Vec::new(),
-        )])
-        .expect("discovery should be valid");
-        db.project()
-            .set_root_discovery(&mut db)
-            .to(ProjectRootDiscovery::Ready(discovery));
+        )]);
+        db.project().set_root_discovery(&mut db).to(discovery);
 
         let request = runtime_enrichment_request(&db, db.project())
             .expect("request should fall back to the first discovered root");

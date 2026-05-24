@@ -144,30 +144,30 @@ fn add_discovery_environment_candidates(
     project: Project,
     candidates: &mut Vec<DjangoEnvironmentCandidate>,
 ) {
-    let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
+    let ProjectRootDiscovery::Ready(roots) = project.root_discovery(db) else {
         return;
     };
 
-    for root in discovery.roots() {
-        if let Some(seed) = root.settings_module_seed(db) {
+    for root in roots {
+        if let Some(seed) = root.settings_module_seed() {
             let Ok(settings) = PyModuleName::parse(seed.as_str()) else {
                 continue;
             };
-            add_environment_candidate(candidates, settings, Some(root.root(db).clone()));
+            add_environment_candidate(candidates, settings, Some(root.root().clone()));
         }
-        for environment in root.configured_environment_seeds(db) {
+        for environment in root.configured_environment_seeds() {
             let seed = environment.settings_module();
             let Ok(settings) = PyModuleName::parse(seed.as_str()) else {
                 continue;
             };
             add_environment_candidate(candidates, settings, environment.root().cloned());
         }
-        for (name, value) in root.env_vars(db).entries() {
+        for (name, value) in root.env_vars().entries() {
             if name == "DJANGO_SETTINGS_MODULE" {
                 let Ok(settings) = PyModuleName::parse(value) else {
                     continue;
                 };
-                add_environment_candidate(candidates, settings, Some(root.root(db).clone()));
+                add_environment_candidate(candidates, settings, Some(root.root().clone()));
             }
         }
     }
@@ -266,8 +266,8 @@ fn owning_root_for_path(db: &dyn Db, project: Project, path: &Utf8Path) -> Optio
                 .map(|entry| entry.root().path().to_owned()),
         );
     }
-    if let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) {
-        roots.extend(discovery.roots().iter().map(|root| root.root(db).clone()));
+    if let ProjectRootDiscovery::Ready(discovery_roots) = project.root_discovery(db) {
+        roots.extend(discovery_roots.iter().map(|root| root.root().clone()));
     }
     roots
         .into_iter()
@@ -299,9 +299,8 @@ mod tests {
     use crate::enrichment::ProjectEnrichment;
     use crate::root_discovery::DjangoEnvironmentSeed;
     use crate::root_discovery::ProjectEnvVars;
+    use crate::root_discovery::ProjectRoot;
     use crate::root_discovery::ProjectRootDiscovery;
-    use crate::root_discovery::ProjectRootDiscoverySet;
-    use crate::root_discovery::RootDiscoveryInput;
     use crate::source_files::ReadySourceFiles;
     use crate::source_files::SourceFileInventory;
     use crate::source_files::SourceFilesIssue;
@@ -414,13 +413,12 @@ mod tests {
     }
 
     fn discovery_root(
-        db: &TestDb,
+        _db: &TestDb,
         root: &str,
         settings: Option<&str>,
         environments: Vec<DjangoEnvironmentSeed>,
-    ) -> RootDiscoveryInput {
-        RootDiscoveryInput::new(
-            db,
+    ) -> ProjectRoot {
+        ProjectRoot::new(
             Utf8PathBuf::from(root),
             None,
             settings.map(str::to_string),
@@ -443,8 +441,7 @@ mod tests {
             &db,
             &["/workspace/manage.py", "/workspace/config/settings.py"],
         ));
-        let root = RootDiscoveryInput::new(
-            &db,
+        let root = ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             Some("explicit.settings".to_string()),
@@ -461,9 +458,7 @@ mod tests {
             .expect("env vars should be valid"),
             Vec::new(),
         );
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(vec![root]));
 
         let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
@@ -487,8 +482,7 @@ mod tests {
     fn environments_deduplicate_same_settings_and_root() {
         let mut db = TestDb::with_project();
         db.set_source_file_inventory(ready_inventory(&db, &[]));
-        let root = RootDiscoveryInput::new(
-            &db,
+        let root = ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             Some("project.settings".to_string()),
@@ -501,9 +495,7 @@ mod tests {
             .expect("env vars should be valid"),
             Vec::new(),
         );
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(vec![root]));
 
         let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
@@ -518,8 +510,7 @@ mod tests {
     fn environments_ignore_invalid_settings_candidate_values_with_valid_candidates() {
         let mut db = TestDb::with_project();
         db.set_source_file_inventory(ready_inventory(&db, &[]));
-        let root = RootDiscoveryInput::new(
-            &db,
+        let root = ProjectRoot::new(
             Utf8PathBuf::from("/workspace"),
             None,
             Some("explicit.settings".to_string()),
@@ -532,9 +523,7 @@ mod tests {
             .expect("env vars should be valid"),
             Vec::new(),
         );
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(vec![root]));
 
         let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
@@ -572,9 +561,7 @@ mod tests {
         let mut db = TestDb::with_project();
         let root = discovery_root(&db, "/workspace", Some("project.settings"), Vec::new());
         db.set_source_file_inventory(ready_inventory(&db, &[]));
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
-        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(vec![root]));
 
         let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
             django_environment_candidates(&db, db.project())
@@ -615,10 +602,7 @@ mod tests {
             Some("site_b.settings"),
             Vec::new(),
         );
-        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
-            ProjectRootDiscoverySet::new(vec![site_a, site_b])
-                .expect("roots should create discovery"),
-        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(vec![site_a, site_b]));
 
         let EnvironmentSelection::Selected(selected) =
             environment_for_file(&db, db.project(), file)
