@@ -5,8 +5,6 @@ use crate::db::Db;
 use crate::environments::DjangoEnvironmentId;
 use crate::names::PyModuleName;
 use crate::project::Project;
-use crate::provenance::Origin;
-use crate::provenance::OriginSet;
 use crate::resolver::module_name_for_path;
 use crate::source_files::SourceFileInventory;
 use crate::templates::template_tag_libraries;
@@ -15,7 +13,6 @@ use crate::templates::template_tag_libraries;
 pub struct PythonModule {
     module: PyModuleName,
     file: File,
-    origin: OriginSet,
 }
 
 impl PythonModule {
@@ -27,11 +24,6 @@ impl PythonModule {
     #[must_use]
     pub fn file(&self) -> File {
         self.file
-    }
-
-    #[must_use]
-    pub fn origin(&self) -> &OriginSet {
-        &self.origin
     }
 }
 
@@ -103,11 +95,7 @@ fn push_python_module(modules: &mut Vec<PythonModule>, module: PyModuleName, fil
     {
         return;
     }
-    modules.push(PythonModule {
-        module,
-        file,
-        origin: OriginSet::single(Origin::Convention { file }),
-    });
+    modules.push(PythonModule { module, file });
 }
 
 fn installed_app_module_name_for_path(

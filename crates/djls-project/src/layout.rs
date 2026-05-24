@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_candidates_do_not_treat_unavailable_layout_as_empty() {
+    fn settings_module_candidates_do_not_treat_unavailable_layout_as_empty() {
         let mut db = TestDb::default();
 
         assert_eq!(

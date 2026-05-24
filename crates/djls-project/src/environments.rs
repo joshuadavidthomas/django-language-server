@@ -1,14 +1,19 @@
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_source::File;
 
+use crate::layout::project_layout_index;
+use crate::layout::ProjectLayoutIndex;
+use crate::layout::ProjectLayoutIndexOutcome;
 use crate::project::Project;
-use crate::provenance::Origin;
+use crate::python::python_source_model;
+use crate::python::PythonSourceParseStatus;
+use crate::python::StaticValue;
+use crate::resolver::module_name_for_path;
 use crate::root_discovery::ProjectRootDiscovery;
-use crate::settings::settings_candidates;
-use crate::settings::SettingsCandidate;
-use crate::settings::SettingsCandidateSource;
 use crate::source_files::SourceFileInventory;
 use crate::Db;
+use crate::PyModuleName;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DjangoEnvironmentId(String);
@@ -23,9 +28,8 @@ impl DjangoEnvironmentId {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DjangoEnvironmentCandidate {
     id: DjangoEnvironmentId,
-    settings: crate::PyModuleName,
-    root: Option<camino::Utf8PathBuf>,
-    source: EnvironmentCandidateSource,
+    settings: PyModuleName,
+    root: Option<Utf8PathBuf>,
 }
 
 impl DjangoEnvironmentCandidate {
@@ -35,7 +39,7 @@ impl DjangoEnvironmentCandidate {
     }
 
     #[must_use]
-    pub fn settings(&self) -> &crate::PyModuleName {
+    pub fn settings(&self) -> &PyModuleName {
         &self.settings
     }
 
@@ -43,20 +47,6 @@ impl DjangoEnvironmentCandidate {
     pub fn root(&self) -> Option<&Utf8Path> {
         self.root.as_deref()
     }
-
-    #[must_use]
-    pub fn source(&self) -> &EnvironmentCandidateSource {
-        &self.source
-    }
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum EnvironmentCandidateSource {
-    ProjectConfig,
-    DjangoEnvironmentConfig,
-    DjangoSettingsModuleEnvVar,
-    ManagePySetDefault,
-    SettingsPyConvention,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,17 +67,19 @@ pub fn django_environment_candidates(
     db: &dyn Db,
     project: Project,
 ) -> DjangoEnvironmentCandidatesOutcome {
-    let candidates = settings_candidates(db, project);
-    let env_candidates = candidates
-        .iter()
-        .map(|candidate| environment_candidate(db, project, candidate))
-        .collect::<Vec<_>>();
+    let mut candidates = Vec::new();
+    add_discovery_environment_candidates(db, project, &mut candidates);
 
-    if env_candidates.is_empty() {
+    if let ProjectLayoutIndexOutcome::Ready(layout) = project_layout_index(db, project) {
+        add_manage_py_environment_candidates(db, project, layout, &mut candidates);
+        add_conventional_environment_candidates(db, project, layout, &mut candidates);
+    }
+
+    if candidates.is_empty() {
         return DjangoEnvironmentCandidatesOutcome::Deferred;
     }
 
-    DjangoEnvironmentCandidatesOutcome::Ready(env_candidates)
+    DjangoEnvironmentCandidatesOutcome::Ready(candidates)
 }
 
 #[must_use]
@@ -147,68 +139,122 @@ pub fn environment_for_file(db: &dyn Db, project: Project, file: File) -> Enviro
     EnvironmentSelection::Ambiguous(matching)
 }
 
-fn environment_candidate(
+fn add_discovery_environment_candidates(
     db: &dyn Db,
     project: Project,
-    candidate: &SettingsCandidate,
-) -> DjangoEnvironmentCandidate {
-    let root = candidate_root(db, project, candidate);
-    let source = match candidate.source() {
-        SettingsCandidateSource::ProjectConfig => EnvironmentCandidateSource::ProjectConfig,
-        SettingsCandidateSource::DjangoEnvironmentConfig => {
-            EnvironmentCandidateSource::DjangoEnvironmentConfig
-        }
-        SettingsCandidateSource::DjangoSettingsModuleEnvVar => {
-            EnvironmentCandidateSource::DjangoSettingsModuleEnvVar
-        }
-        SettingsCandidateSource::ManagePySetDefault => {
-            EnvironmentCandidateSource::ManagePySetDefault
-        }
-        SettingsCandidateSource::SettingsPyConvention => {
-            EnvironmentCandidateSource::SettingsPyConvention
-        }
+    candidates: &mut Vec<DjangoEnvironmentCandidate>,
+) {
+    let ProjectRootDiscovery::Ready(discovery) = project.root_discovery(db) else {
+        return;
     };
-    DjangoEnvironmentCandidate {
+
+    for root in discovery.roots() {
+        if let Some(seed) = root.settings_module_seed(db) {
+            let Ok(settings) = PyModuleName::parse(seed.as_str()) else {
+                continue;
+            };
+            add_environment_candidate(candidates, settings, Some(root.root(db).clone()));
+        }
+        for environment in root.configured_environment_seeds(db) {
+            let seed = environment.settings_module();
+            let Ok(settings) = PyModuleName::parse(seed.as_str()) else {
+                continue;
+            };
+            add_environment_candidate(candidates, settings, environment.root().cloned());
+        }
+        for (name, value) in root.env_vars(db).entries() {
+            if name == "DJANGO_SETTINGS_MODULE" {
+                let Ok(settings) = PyModuleName::parse(value) else {
+                    continue;
+                };
+                add_environment_candidate(candidates, settings, Some(root.root(db).clone()));
+            }
+        }
+    }
+}
+
+fn add_manage_py_environment_candidates(
+    db: &dyn Db,
+    project: Project,
+    layout: &ProjectLayoutIndex,
+    candidates: &mut Vec<DjangoEnvironmentCandidate>,
+) {
+    for file in layout.files_by_name("manage.py") {
+        let model = python_source_model(db, file);
+        if model.parse_status() != &PythonSourceParseStatus::Parsed {
+            continue;
+        }
+        for call in model.calls() {
+            let Some(callee) = call.callee() else {
+                continue;
+            };
+            if callee.as_dotted() != "os.environ.setdefault" {
+                continue;
+            }
+            let [StaticValue::String(name), StaticValue::String(module), ..] = call.arguments()
+            else {
+                continue;
+            };
+            if name != "DJANGO_SETTINGS_MODULE" {
+                continue;
+            }
+            let Ok(settings) = PyModuleName::parse(module) else {
+                continue;
+            };
+            add_environment_candidate(
+                candidates,
+                settings,
+                owning_root_for_path(db, project, file.path(db)),
+            );
+        }
+    }
+}
+
+fn add_conventional_environment_candidates(
+    db: &dyn Db,
+    project: Project,
+    layout: &ProjectLayoutIndex,
+    candidates: &mut Vec<DjangoEnvironmentCandidate>,
+) {
+    for file in layout.files_by_name("settings.py") {
+        let Some(path) = layout.file_path(file) else {
+            continue;
+        };
+        let Some(settings) = module_name_for_path(db, project, path) else {
+            continue;
+        };
+        add_environment_candidate(
+            candidates,
+            settings,
+            owning_root_for_path(db, project, file.path(db)),
+        );
+    }
+}
+
+fn add_environment_candidate(
+    candidates: &mut Vec<DjangoEnvironmentCandidate>,
+    settings: PyModuleName,
+    root: Option<Utf8PathBuf>,
+) {
+    if candidates
+        .iter()
+        .any(|candidate| candidate.settings == settings && candidate.root == root)
+    {
+        return;
+    }
+
+    candidates.push(DjangoEnvironmentCandidate {
         id: DjangoEnvironmentId(format!(
-            "{}:{}:{}",
-            candidate.module().as_str(),
-            source_slug(&source),
+            "{}:{}",
+            settings.as_str(),
             root.as_ref().map_or("", |root| root.as_str()),
         )),
-        settings: candidate.module().clone(),
+        settings,
         root,
-        source,
-    }
+    });
 }
 
-fn candidate_root(
-    db: &dyn Db,
-    project: Project,
-    candidate: &SettingsCandidate,
-) -> Option<camino::Utf8PathBuf> {
-    for origin in candidate.origin().origins() {
-        match origin {
-            Origin::Config { root }
-            | Origin::Environment { root, .. }
-            | Origin::ConfiguredEnvironment {
-                root: Some(root), ..
-            } => return Some(root.clone()),
-            Origin::PythonSource { file } | Origin::Convention { file } => {
-                return owning_root_for_path(db, project, file.path(db));
-            }
-            Origin::ConfiguredEnvironment { root: None, .. } => {}
-        }
-    }
-    candidate
-        .file()
-        .and_then(|file| owning_root_for_path(db, project, file.path(db)))
-}
-
-fn owning_root_for_path(
-    db: &dyn Db,
-    project: Project,
-    path: &Utf8Path,
-) -> Option<camino::Utf8PathBuf> {
+fn owning_root_for_path(db: &dyn Db, project: Project, path: &Utf8Path) -> Option<Utf8PathBuf> {
     let mut roots = Vec::new();
     if let SourceFileInventory::Ready(files) = project.source_inventory(db) {
         roots.extend(
@@ -227,16 +273,6 @@ fn owning_root_for_path(
         .into_iter()
         .filter(|root| path.starts_with(root.as_path()))
         .max_by_key(|root| root.as_str().len())
-}
-
-fn source_slug(source: &EnvironmentCandidateSource) -> &'static str {
-    match source {
-        EnvironmentCandidateSource::ProjectConfig => "config",
-        EnvironmentCandidateSource::DjangoEnvironmentConfig => "environment",
-        EnvironmentCandidateSource::DjangoSettingsModuleEnvVar => "env",
-        EnvironmentCandidateSource::ManagePySetDefault => "manage",
-        EnvironmentCandidateSource::SettingsPyConvention => "convention",
-    }
 }
 
 #[cfg(test)]
@@ -396,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn environments_create_candidates_from_every_settings_candidate_source() {
+    fn environments_create_candidates_from_every_settings_source() {
         let mut db = TestDb::with_project();
         db.set_file(
             "/workspace/manage.py",
@@ -434,12 +470,48 @@ mod tests {
         else {
             panic!("multiple discoverable candidates should be ready");
         };
-        let sources = candidates
+        let settings = candidates
             .iter()
-            .map(|candidate| candidate.source().clone())
+            .map(|candidate| candidate.settings().as_str().to_string())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(sources.len(), 5);
+        assert_eq!(settings.len(), 5);
+        assert!(settings.contains("explicit.settings"));
+        assert!(settings.contains("environment.settings"));
+        assert!(settings.contains("env.settings"));
+        assert!(settings.contains("manage.settings"));
+        assert!(settings.contains("config.settings"));
+    }
+
+    #[test]
+    fn environments_deduplicate_same_settings_and_root() {
+        let mut db = TestDb::with_project();
+        db.set_source_file_inventory(ready_inventory(&db, &[]));
+        let root = RootDiscoveryInput::new(
+            &db,
+            Utf8PathBuf::from("/workspace"),
+            None,
+            Some("project.settings".to_string()),
+            Vec::new(),
+            Vec::new(),
+            ProjectEnvVars::from_resolved_entries(vec![(
+                "DJANGO_SETTINGS_MODULE".to_string(),
+                "project.settings".to_string(),
+            )])
+            .expect("env vars should be valid"),
+            Vec::new(),
+        );
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(
+            ProjectRootDiscoverySet::new(vec![root]).expect("root should create discovery"),
+        ));
+
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
+            django_environment_candidates(&db, db.project())
+        else {
+            panic!("valid candidates should be ready");
+        };
+
+        assert_eq!(candidates.len(), 1);
     }
 
     #[test]

@@ -8,7 +8,6 @@ mod interpreter;
 mod layout;
 mod names;
 mod project;
-mod provenance;
 mod python;
 mod resolver;
 mod root_discovery;
