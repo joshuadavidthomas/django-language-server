@@ -18,7 +18,7 @@ use djls_project::DiscoveryStage;
 use djls_project::DiscoveryStageStatus;
 use djls_project::DjangoDiscoveryRequest;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
-use djls_project::InstalledAppFileRootsOutcome;
+use djls_project::InstalledAppFileRoots;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscovery;
 use djls_project::ProjectRootDiscoveryUpdate;
@@ -26,7 +26,6 @@ use djls_project::PythonSourceIndexOutcome;
 use djls_project::ReadySourceFiles;
 use djls_project::SourceFilesApplyResult;
 use djls_project::SourceFilesUpdate;
-use djls_project::TemplateDirectoryFileRootsOutcome;
 use djls_source::File;
 use djls_workspace::load_files_for_roots;
 use djls_workspace::FilesForRootsRequest;
@@ -984,7 +983,7 @@ impl DiscoveryHost for LspDiscoveryHost {
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
+    ) -> DiscoveryObservation<Option<InstalledAppFileRoots>> {
         if !self.inputs.guard().is_current() {
             return Err(DiscoveryExecutionOutcome::Superseded);
         }
@@ -1005,7 +1004,7 @@ impl DiscoveryHost for LspDiscoveryHost {
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
+    ) -> DiscoveryObservation<Option<Vec<Utf8PathBuf>>> {
         if !self.inputs.guard().is_current() {
             return Err(DiscoveryExecutionOutcome::Superseded);
         }

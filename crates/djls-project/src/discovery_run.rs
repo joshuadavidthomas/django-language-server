@@ -3,7 +3,7 @@ use djls_conf::Settings;
 use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
 
-use crate::apps::InstalledAppFileRootsOutcome;
+use crate::apps::InstalledAppFileRoots;
 use crate::enrichment::ProjectEnrichment;
 use crate::python::PythonSourceIndexIssue;
 use crate::root_discovery::load_project_root_discovery;
@@ -12,17 +12,15 @@ use crate::root_discovery::ProjectRootDiscoveryLoadRequest;
 use crate::root_discovery::ProjectRootDiscoveryUpdate;
 use crate::source_files::build_source_roots;
 use crate::source_files::first_party_discovery_files_request;
-use crate::source_files::first_party_source_files_load_request;
-use crate::source_files::merge_first_party_source_file_patch;
-use crate::source_files::FirstPartySourceFilePatch;
+use crate::source_files::source_files_update_from_first_party_patch;
 use crate::source_files::ReadySourceFiles;
+use crate::source_files::SourceFilePartitionPatch;
 use crate::source_files::SourceFilePartitionReadiness;
-use crate::source_files::SourceFilesApplied;
 use crate::source_files::SourceFilesApplyResult;
 use crate::source_files::SourceFilesIssue;
 use crate::source_files::SourceFilesUpdate;
-use crate::templates::TemplateDirectoryFileRoots;
-use crate::templates::TemplateDirectoryFileRootsOutcome;
+use crate::templates::template_directory_files_request;
+use crate::templates::template_directory_source_files_update;
 use crate::DjangoEnvironmentCandidatesOutcome;
 use crate::PythonSourceIndexOutcome;
 
@@ -80,7 +78,7 @@ pub enum DiscoveryStageStatus {
     Superseded,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiscoveryExecutionOutcome {
     Superseded,
     StaleSnapshot,
@@ -102,33 +100,35 @@ pub trait DiscoveryHost {
     fn apply_source_files(
         &mut self,
         update: SourceFilesUpdate,
-    ) -> DiscoveryApply<SourceFilesApplyResult>;
+    ) -> Result<SourceFilesApplyResult, DiscoveryExecutionOutcome>;
 
     fn apply_project_root_discovery(
         &mut self,
         update: ProjectRootDiscoveryUpdate,
-    ) -> DiscoveryApply<ProjectRootDiscovery>;
+    ) -> Result<ProjectRootDiscovery, DiscoveryExecutionOutcome>;
 
-    fn observe_python_source_index(&mut self) -> DiscoveryObservation<PythonSourceIndexOutcome>;
+    fn observe_python_source_index(
+        &mut self,
+    ) -> Result<PythonSourceIndexOutcome, DiscoveryExecutionOutcome>;
 
     fn observe_django_environment_candidates(
         &mut self,
-    ) -> DiscoveryObservation<DjangoEnvironmentCandidatesOutcome>;
+    ) -> Result<DjangoEnvironmentCandidatesOutcome, DiscoveryExecutionOutcome>;
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservation<InstalledAppFileRootsOutcome>;
+    ) -> Result<Option<InstalledAppFileRoots>, DiscoveryExecutionOutcome>;
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome>;
+    ) -> Result<Option<Vec<Utf8PathBuf>>, DiscoveryExecutionOutcome>;
 
     fn load_project_enrichment(&mut self) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome>;
 
     fn apply_project_enrichment(
         &mut self,
         enrichment: ProjectEnrichment,
-    ) -> DiscoveryApply<ProjectEnrichment>;
+    ) -> Result<ProjectEnrichment, DiscoveryExecutionOutcome>;
 }
 
 pub trait DiscoveryObserver {
@@ -316,7 +316,9 @@ fn enrichment_status(enrichment: &ProjectEnrichment) -> DiscoveryStageStatus {
 
 fn source_files_status(result: &SourceFilesApplyResult) -> DiscoveryStageStatus {
     match result {
-        SourceFilesApplyResult::Applied(applied) => source_files_applied_status(applied),
+        SourceFilesApplyResult::Applied(applied) => {
+            file_partition_readiness_status(applied.transition().readiness())
+        }
         SourceFilesApplyResult::Deferred { .. } => DiscoveryStageStatus::Deferred,
         SourceFilesApplyResult::Unavailable { .. } => DiscoveryStageStatus::Unavailable,
         SourceFilesApplyResult::Failed { .. } => DiscoveryStageStatus::Failed,
@@ -360,10 +362,6 @@ fn python_source_index_status(result: &PythonSourceIndexOutcome) -> DiscoverySta
             | PythonSourceIndexIssue::SourceInventoryUnavailable(_),
         ) => DiscoveryStageStatus::Unavailable,
     }
-}
-
-fn source_files_applied_status(applied: &SourceFilesApplied) -> DiscoveryStageStatus {
-    file_partition_readiness_status(applied.transition().readiness())
 }
 
 fn file_partition_readiness_status(
@@ -427,12 +425,11 @@ fn run_source_files_stage(
     observer.stage_started(stage);
     checkpoint(host, stage, observer)?;
     let plan = build_source_roots(request.workspace_roots.clone());
-    let (root_issues, files_request) =
-        first_party_discovery_files_request(first_party_source_files_load_request(plan));
+    let (root_issues, files_request) = first_party_discovery_files_request(plan);
     let applied =
         load_and_apply_source_files(host, files_request, stage, observer, |previous, files| {
-            let patch = FirstPartySourceFilePatch::first_party(root_issues, files);
-            merge_first_party_source_file_patch(previous, patch)
+            let patch = SourceFilePartitionPatch::first_party(root_issues, files);
+            source_files_update_from_first_party_patch(previous, patch)
         })?;
     let status = source_files_status(&applied);
     observer.stage_finished(stage, status.clone());
@@ -501,7 +498,7 @@ fn run_installed_app_files_stage(
     checkpoint(host, stage, observer)?;
     let discovery = observe_or_abort(stage, observer, || host.observe_installed_app_file_roots())?;
     let status = match discovery {
-        InstalledAppFileRootsOutcome::Ready(roots) => {
+        Some(roots) => {
             let issues = roots.issues().to_vec();
             let applied = load_and_apply_source_files(
                 host,
@@ -512,7 +509,7 @@ fn run_installed_app_files_stage(
             )?;
             stage_status_with_discovery_issues(&applied, &issues)
         }
-        InstalledAppFileRootsOutcome::Deferred => DiscoveryStageStatus::Deferred,
+        None => DiscoveryStageStatus::Deferred,
     };
     observer.stage_finished(stage, status.clone());
     Ok(DiscoveryStageRecord::new(stage, status))
@@ -529,17 +526,17 @@ fn run_template_directory_files_stage(
         host.observe_template_directory_file_roots()
     })?;
     let status = match discovery {
-        TemplateDirectoryFileRootsOutcome::Ready(roots) => {
+        Some(roots) => {
             let applied = load_and_apply_source_files(
                 host,
-                roots.files_request(),
+                template_directory_files_request(roots),
                 stage,
                 observer,
-                TemplateDirectoryFileRoots::source_files_update,
+                template_directory_source_files_update,
             )?;
             source_files_status(&applied)
         }
-        TemplateDirectoryFileRootsOutcome::Deferred => DiscoveryStageStatus::Deferred,
+        None => DiscoveryStageStatus::Deferred,
     };
     observer.stage_finished(stage, status.clone());
     Ok(DiscoveryStageRecord::new(stage, status))
@@ -840,24 +837,23 @@ mod tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
+        ) -> DiscoveryObservation<Option<InstalledAppFileRoots>> {
             if self.installed_app_deferred {
-                return Ok(InstalledAppFileRootsOutcome::Deferred);
+                return Ok(None);
             }
-            Ok(InstalledAppFileRootsOutcome::Ready(
-                crate::apps::InstalledAppFileRoots::new(Vec::new(), Vec::new()),
-            ))
+            Ok(Some(crate::apps::InstalledAppFileRoots::new(
+                Vec::new(),
+                Vec::new(),
+            )))
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
+        ) -> DiscoveryObservation<Option<Vec<Utf8PathBuf>>> {
             if self.template_directory_deferred {
-                return Ok(TemplateDirectoryFileRootsOutcome::Deferred);
+                return Ok(None);
             }
-            Ok(TemplateDirectoryFileRootsOutcome::Ready(
-                crate::templates::TemplateDirectoryFileRoots::new(Vec::new()),
-            ))
+            Ok(Some(Vec::new()))
         }
 
         fn load_project_enrichment(

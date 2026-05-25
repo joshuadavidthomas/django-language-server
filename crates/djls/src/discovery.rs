@@ -7,7 +7,7 @@ use djls_project::DiscoveryExecutionOutcome;
 use djls_project::DiscoveryHost;
 use djls_project::DiscoveryObservation;
 use djls_project::DjangoEnvironmentCandidatesOutcome;
-use djls_project::InstalledAppFileRootsOutcome;
+use djls_project::InstalledAppFileRoots;
 use djls_project::ProjectEnrichment;
 use djls_project::ProjectRootDiscovery;
 use djls_project::ProjectRootDiscoveryUpdate;
@@ -15,7 +15,6 @@ use djls_project::PythonSourceIndexOutcome;
 use djls_project::ReadySourceFiles;
 use djls_project::SourceFilesApplyResult;
 use djls_project::SourceFilesUpdate;
-use djls_project::TemplateDirectoryFileRootsOutcome;
 use djls_workspace::load_files_for_roots;
 use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
@@ -76,14 +75,14 @@ impl DiscoveryHost for CliDiscoveryHost<'_> {
 
     fn observe_installed_app_file_roots(
         &mut self,
-    ) -> DiscoveryObservation<InstalledAppFileRootsOutcome> {
+    ) -> DiscoveryObservation<Option<InstalledAppFileRoots>> {
         let project = ProjectDb::project(self.db);
         Ok(installed_app_file_roots_discovery(self.db, project))
     }
 
     fn observe_template_directory_file_roots(
         &mut self,
-    ) -> DiscoveryObservation<TemplateDirectoryFileRootsOutcome> {
+    ) -> DiscoveryObservation<Option<Vec<camino::Utf8PathBuf>>> {
         let project = ProjectDb::project(self.db);
         Ok(template_directory_file_roots_discovery(self.db, project))
     }

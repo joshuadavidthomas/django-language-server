@@ -171,7 +171,8 @@ impl Command for Check {
         let mut observer = djls_project::NoopDiscoveryObserver;
         let discovery_request =
             djls_project::DjangoDiscoveryRequest::new(vec![project_root.clone()], settings.clone());
-        djls_project::run_django_discovery(&discovery_request, &mut discovery, &mut observer);
+        let _ =
+            djls_project::run_django_discovery(&discovery_request, &mut discovery, &mut observer);
 
         let walk_options = WalkOptions {
             hidden: self.hidden,

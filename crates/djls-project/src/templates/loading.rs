@@ -1,4 +1,3 @@
-use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_workspace::FilesForRootsRequest;
@@ -8,71 +7,24 @@ use djls_workspace::WalkOptions;
 use crate::django_environment_candidates;
 use crate::project::Project;
 use crate::settings::django_settings;
-use crate::source_files::build_source_roots_with_kind;
-use crate::source_files::merge_partitioned_source_file_patch_set;
-use crate::source_files::PartitionedSourceFilePatchSet;
+use crate::source_files::build_source_roots_plan;
+use crate::source_files::source_files_update_from_partition_patches;
+use crate::source_files::FileSetPartitionGroup;
 use crate::source_files::ReadySourceFiles;
+use crate::source_files::SourceFilePartitionPatch;
 use crate::source_files::SourceFilesUpdate;
 use crate::Db;
 use crate::DjangoEnvironmentCandidatesOutcome;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TemplateDirectoryFileRootsOutcome {
-    Ready(TemplateDirectoryFileRoots),
-    Deferred,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TemplateDirectoryFileRoots {
-    roots: Vec<Utf8PathBuf>,
-}
-
-impl TemplateDirectoryFileRoots {
-    pub(crate) fn new(roots: Vec<Utf8PathBuf>) -> Self {
-        Self { roots }
-    }
-
-    #[must_use]
-    pub fn roots(&self) -> &[Utf8PathBuf] {
-        &self.roots
-    }
-
-    pub(crate) fn files_request(&self) -> FilesForRootsRequest {
-        template_directory_files_request(self.roots.clone())
-    }
-
-    pub(crate) fn source_files_update(
-        current: Option<&ReadySourceFiles>,
-        result: FilesForRootsResult,
-    ) -> SourceFilesUpdate {
-        merge_partitioned_source_file_patch_set(
-            current,
-            PartitionedSourceFilePatchSet::configured_template_directories(result),
-        )
-    }
-}
-
-#[must_use]
-fn template_directory_files_request(roots: Vec<Utf8PathBuf>) -> FilesForRootsRequest {
-    let plan = build_source_roots_with_kind(roots, FileRootKind::Project);
-    FilesForRootsRequest::new(
-        plan.roots().to_vec(),
-        Box::new(template_file_predicate),
-        template_directory_walk_options(),
-    )
-}
 
 #[must_use]
 pub fn template_directory_file_roots_discovery(
     db: &dyn Db,
     project: Project,
-) -> TemplateDirectoryFileRootsOutcome {
+) -> Option<Vec<Utf8PathBuf>> {
     let mut roots = Vec::new();
     let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Ready(candidates) => candidates,
-        DjangoEnvironmentCandidatesOutcome::Deferred => {
-            return TemplateDirectoryFileRootsOutcome::Deferred;
-        }
+        DjangoEnvironmentCandidatesOutcome::Deferred => return None,
     };
 
     for candidate in candidates {
@@ -87,23 +39,38 @@ pub fn template_directory_file_roots_discovery(
     }
     roots.sort();
     roots.dedup();
-    TemplateDirectoryFileRootsOutcome::Ready(TemplateDirectoryFileRoots::new(roots))
+    Some(roots)
 }
 
-fn template_directory_walk_options() -> WalkOptions {
-    WalkOptions {
-        hidden: false,
-        globs: vec!["!**/__pycache__/**".to_string()],
-        no_ignore: false,
-        follow_links: false,
-        max_depth: None,
-    }
+pub(crate) fn template_directory_files_request(roots: Vec<Utf8PathBuf>) -> FilesForRootsRequest {
+    let plan = build_source_roots_plan(roots, FileRootKind::Project);
+    FilesForRootsRequest::new(
+        plan.roots().to_vec(),
+        Box::new(|path| {
+            matches!(
+                path.extension(),
+                Some("html" | "htm" | "txt" | "jinja" | "jinja2")
+            )
+        }),
+        WalkOptions {
+            hidden: false,
+            globs: vec!["!**/__pycache__/**".to_string()],
+            no_ignore: false,
+            follow_links: false,
+            max_depth: None,
+        },
+    )
 }
 
-fn template_file_predicate(path: &Utf8Path) -> bool {
-    matches!(
-        path.extension(),
-        Some("html" | "htm" | "txt" | "jinja" | "jinja2")
+pub(crate) fn template_directory_source_files_update(
+    current: Option<&ReadySourceFiles>,
+    result: FilesForRootsResult,
+) -> SourceFilesUpdate {
+    source_files_update_from_partition_patches(
+        current,
+        FileSetPartitionGroup::ConfiguredTemplateDirectory,
+        SourceFilePartitionPatch::configured_template_directory(result),
+        Vec::new(),
     )
 }
 
@@ -124,9 +91,8 @@ mod tests {
             .expect("text template should be written");
         std::fs::write(root.join("notes.py"), "").expect("python file should be written");
 
-        let result = djls_workspace::load_files_for_roots(
-            TemplateDirectoryFileRoots::new(vec![root]).files_request(),
-        );
+        let result =
+            djls_workspace::load_files_for_roots(template_directory_files_request(vec![root]));
         let loaded = result
             .files()
             .iter()

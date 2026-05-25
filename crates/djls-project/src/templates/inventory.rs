@@ -58,11 +58,6 @@ pub enum TemplateDirectoryEntry {
     },
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct TemplateDirectoryInventory {
-    entries: Vec<TemplateDirectoryEntry>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectTemplate {
     path: Utf8PathBuf,
@@ -127,47 +122,20 @@ impl TemplateTagLibrary {
     pub fn resolution(&self) -> &TemplateTagLibraryResolution {
         &self.resolution
     }
+
+    #[must_use]
+    pub(crate) fn resolved_file(&self) -> Option<File> {
+        match self.resolution() {
+            TemplateTagLibraryResolution::Resolved { file } => Some(*file),
+            TemplateTagLibraryResolution::Builtin => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TemplateTagLibraryResolution {
     Resolved { file: File },
     Builtin,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct TemplateTagLibraryInventory {
-    libraries: Vec<TemplateTagLibrary>,
-}
-
-impl TemplateTagLibraryInventory {
-    #[must_use]
-    pub fn libraries(&self) -> &[TemplateTagLibrary] {
-        &self.libraries
-    }
-
-    #[must_use]
-    pub(crate) fn resolved_files(&self) -> Vec<File> {
-        self.libraries
-            .iter()
-            .filter_map(|library| match library.resolution() {
-                TemplateTagLibraryResolution::Resolved { file } => Some(*file),
-                TemplateTagLibraryResolution::Builtin => None,
-            })
-            .collect()
-    }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct LoadableTemplateLibraryInventory {
-    libraries: Vec<LoadableTemplateLibrary>,
-}
-
-impl LoadableTemplateLibraryInventory {
-    #[must_use]
-    pub fn libraries(&self) -> &[LoadableTemplateLibrary] {
-        &self.libraries
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -198,17 +166,6 @@ impl LoadableTemplateLibrary {
 pub enum LoadableTemplateLibrarySource {
     Static,
     Runtime,
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn template_directories(
-    db: &dyn Db,
-    project: Project,
-    env: DjangoEnvironmentId,
-) -> TemplateDirectoryInventory {
-    TemplateDirectoryInventory {
-        entries: template_directory_entries(db, project, env),
-    }
 }
 
 #[salsa::tracked(returns(ref))]
@@ -273,10 +230,10 @@ pub fn template_tag_libraries(
     db: &dyn Db,
     project: Project,
     env: DjangoEnvironmentId,
-) -> TemplateTagLibraryInventory {
+) -> Vec<TemplateTagLibrary> {
     let mut libraries = django_builtin_libraries();
     let SourceFileInventory::Ready(files) = project.source_inventory(db) else {
-        return TemplateTagLibraryInventory { libraries };
+        return libraries;
     };
     for root in installed_app_roots(db, project, env.clone()) {
         let tag_root = root.join("templatetags");
@@ -308,7 +265,19 @@ pub fn template_tag_libraries(
             }
         }
     }
-    TemplateTagLibraryInventory { libraries }
+    libraries
+}
+
+#[must_use]
+pub(crate) fn resolved_template_tag_library_files(
+    db: &dyn Db,
+    project: Project,
+    env: DjangoEnvironmentId,
+) -> Vec<File> {
+    template_tag_libraries(db, project, env)
+        .iter()
+        .filter_map(TemplateTagLibrary::resolved_file)
+        .collect()
 }
 
 #[salsa::tracked(returns(ref))]
@@ -316,12 +285,12 @@ pub fn loadable_template_libraries(
     db: &dyn Db,
     project: Project,
     env: DjangoEnvironmentId,
-) -> LoadableTemplateLibraryInventory {
+) -> Vec<LoadableTemplateLibrary> {
     let static_inventory = template_tag_libraries(db, project, env);
     let mut libraries = Vec::new();
     let mut known_names = BTreeSet::new();
 
-    for library in static_inventory.libraries() {
+    for library in static_inventory {
         let Ok(name) = LibraryName::parse(library.name()) else {
             continue;
         };
@@ -335,7 +304,7 @@ pub fn loadable_template_libraries(
     }
 
     let crate::ProjectEnrichment::Fresh(template_libraries) = project.enrichment(db) else {
-        return LoadableTemplateLibraryInventory { libraries };
+        return libraries;
     };
     for (name, module) in template_libraries {
         if known_names.insert(name.clone()) {
@@ -347,7 +316,7 @@ pub fn loadable_template_libraries(
         }
     }
 
-    LoadableTemplateLibraryInventory { libraries }
+    libraries
 }
 
 fn directory_entry_with_readiness(
@@ -721,10 +690,10 @@ mod tests {
         ));
         let env = env(&db);
 
-        let inventory = template_directories(&db, db.project(), env);
+        let inventory = template_files(&db, db.project(), env);
 
         assert!(matches!(
-            inventory.entries[0],
+            inventory.directories()[0],
             TemplateDirectoryEntry::UnknownSettingsDir
         ));
     }
@@ -741,10 +710,10 @@ mod tests {
         ));
         let env = env(&db);
 
-        let inventory = template_directories(&db, db.project(), env);
+        let inventory = template_files(&db, db.project(), env);
 
         assert!(matches!(
-            inventory.entries[0],
+            inventory.directories()[0],
             TemplateDirectoryEntry::UnknownSettingsDir
         ));
     }
@@ -795,7 +764,6 @@ mod tests {
 
         let inventory = template_tag_libraries(&db, db.project(), env);
         let names = inventory
-            .libraries()
             .iter()
             .map(TemplateTagLibrary::name)
             .collect::<Vec<_>>();
@@ -825,7 +793,6 @@ mod tests {
 
         let inventory = template_tag_libraries(&db, db.project(), env);
         let library = inventory
-            .libraries()
             .iter()
             .find(|library| library.name() == "ui")
             .expect("settings library should be present");
@@ -858,7 +825,6 @@ mod tests {
 
         let inventory = loadable_template_libraries(&db, db.project(), env);
         let library = inventory
-            .libraries()
             .iter()
             .find(|library| library.name().as_str() == "runtime_ui")
             .expect("runtime library should fill a static gap");
@@ -899,7 +865,6 @@ mod tests {
 
         let inventory = loadable_template_libraries(&db, db.project(), env);
         let ui_libraries = inventory
-            .libraries()
             .iter()
             .filter(|library| library.name().as_str() == "ui")
             .collect::<Vec<_>>();

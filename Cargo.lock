@@ -894,6 +894,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-workspace",
+ "dunce",
  "rustc-hash",
  "salsa",
  "tempfile",

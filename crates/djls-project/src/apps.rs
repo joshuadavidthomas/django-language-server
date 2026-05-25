@@ -15,11 +15,11 @@ use crate::python::StaticValue;
 use crate::resolver::resolve_module;
 use crate::resolver::ModuleResolutionOutcome;
 use crate::settings::django_settings;
-use crate::settings::PartialListSegment;
-use crate::source_files::build_source_roots_with_kind;
-use crate::source_files::merge_partitioned_source_file_patch_set;
-use crate::source_files::PartitionedSourceFilePatchSet;
+use crate::source_files::build_source_roots_plan;
+use crate::source_files::source_files_update_from_partition_patches;
+use crate::source_files::FileSetPartitionGroup;
 use crate::source_files::ReadySourceFiles;
+use crate::source_files::SourceFilePartitionPatch;
 use crate::source_files::SourceFilesIssue;
 use crate::source_files::SourceFilesUpdate;
 use crate::Db;
@@ -42,26 +42,12 @@ impl InstalledApp {
     }
 
     #[must_use]
-    pub(crate) fn module(&self) -> &PyModuleName {
-        &self.module
-    }
-
-    #[must_use]
-    pub(crate) fn file(&self) -> File {
-        self.file
-    }
-
-    #[must_use]
-    pub(crate) fn config(&self) -> Option<&AppConfig> {
-        self.config.as_ref()
-    }
-
-    #[must_use]
     pub(crate) fn root(&self, db: &dyn Db) -> Option<Utf8PathBuf> {
-        self.config()
-            .and_then(AppConfig::path)
+        self.config
+            .as_ref()
+            .and_then(|config| config.path.as_deref())
             .map(Utf8Path::to_owned)
-            .or_else(|| app_root_for_file(db, self.file()))
+            .or_else(|| app_root_for_file(db, self.file))
     }
 
     #[must_use]
@@ -86,24 +72,42 @@ impl InstalledApp {
             .collect::<Vec<_>>()
             .join(".");
         let module = if relative.is_empty() || relative == "__init__" {
-            self.module().as_str().to_string()
+            self.module.as_str().to_string()
         } else {
-            format!("{}.{}", self.module().as_str(), relative)
+            format!("{}.{}", self.module.as_str(), relative)
         };
         PyModuleName::parse(&module).ok()
     }
 
-    fn from_settings_segment(
-        db: &dyn Db,
-        project: Project,
-        segment: &PartialListSegment<String>,
-    ) -> Option<Self> {
-        Self::resolve_entry(db, project, segment.value()?)
-    }
-
     fn resolve_entry(db: &dyn Db, project: Project, entry: &str) -> Option<Self> {
-        if let Some((module, class_name)) = Self::split_app_config_entry(entry) {
-            return Self::resolve_app_config(db, project, entry, module, class_name);
+        if let Some((module, class_name)) =
+            entry.rsplit_once('.').and_then(|(module, class_name)| {
+                class_name
+                    .chars()
+                    .next()
+                    .filter(char::is_ascii_uppercase)
+                    .and_then(|_| PyModuleName::parse(module).ok())
+                    .map(|module| (module, class_name))
+            })
+        {
+            let resolved = match resolve_module(db, project, module.clone()).outcome() {
+                ModuleResolutionOutcome::Resolved(resolved) => resolved,
+                ModuleResolutionOutcome::Unresolved(_) => return None,
+            };
+            let file = resolved.location().file();
+            let model = python_source_model(db, file);
+            let config = AppConfig::from_class_defs(module, model.class_defs(), class_name);
+            let app_module = config
+                .name
+                .as_deref()
+                .and_then(|name| PyModuleName::parse(name).ok())
+                .or_else(|| config.module.parent())?;
+            return Some(Self {
+                entry: entry.to_string(),
+                module: app_module,
+                file,
+                config: Some(config),
+            });
         }
 
         let module = PyModuleName::parse(entry).ok()?;
@@ -118,48 +122,12 @@ impl InstalledApp {
             config: None,
         })
     }
-
-    fn resolve_app_config(
-        db: &dyn Db,
-        project: Project,
-        entry: &str,
-        config_module: PyModuleName,
-        class_name: &str,
-    ) -> Option<Self> {
-        let resolved = match resolve_module(db, project, config_module.clone()).outcome() {
-            ModuleResolutionOutcome::Resolved(resolved) => resolved,
-            ModuleResolutionOutcome::Unresolved(_) => return None,
-        };
-        let file = resolved.location().file();
-        let model = python_source_model(db, file);
-        let config = AppConfig::from_class_defs(config_module, model.class_defs(), class_name);
-        let module = config
-            .name()
-            .and_then(|name| PyModuleName::parse(name).ok())
-            .or_else(|| config.module().parent())?;
-        Some(Self {
-            entry: entry.to_string(),
-            module,
-            file,
-            config: Some(config),
-        })
-    }
-
-    fn split_app_config_entry(entry: &str) -> Option<(PyModuleName, &str)> {
-        let (module, class_name) = entry.rsplit_once('.')?;
-        let last = class_name.chars().next()?;
-        if !last.is_uppercase() {
-            return None;
-        }
-        Some((PyModuleName::parse(module).ok()?, class_name))
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AppConfig {
     module: PyModuleName,
     name: Option<String>,
-    label: Option<String>,
     path: Option<Utf8PathBuf>,
 }
 
@@ -169,26 +137,10 @@ impl AppConfig {
         Self {
             module,
             name: class.and_then(|class| Self::string_assignment(class.assignments(), "name")),
-            label: class.and_then(|class| Self::string_assignment(class.assignments(), "label")),
             path: class
                 .and_then(|class| Self::string_assignment(class.assignments(), "path"))
                 .map(Utf8PathBuf::from),
         }
-    }
-
-    #[must_use]
-    pub(crate) fn module(&self) -> &PyModuleName {
-        &self.module
-    }
-
-    #[must_use]
-    pub(crate) fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-
-    #[must_use]
-    pub(crate) fn path(&self) -> Option<&Utf8Path> {
-        self.path.as_deref()
     }
 
     fn string_assignment(assignments: &[Assignment], name: &str) -> Option<String> {
@@ -218,14 +170,8 @@ pub(crate) fn installed_apps(
         .installed_app_entries()
         .segments()
         .iter()
-        .filter_map(|segment| InstalledApp::from_settings_segment(db, project, segment))
+        .filter_map(|segment| InstalledApp::resolve_entry(db, project, segment.value()?))
         .collect()
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InstalledAppFileRootsOutcome {
-    Ready(InstalledAppFileRoots),
-    Deferred,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -240,18 +186,12 @@ impl InstalledAppFileRoots {
     }
 
     #[must_use]
-    pub fn roots(&self) -> &[Utf8PathBuf] {
-        &self.roots
-    }
-
-    #[must_use]
     pub fn issues(&self) -> &[SourceFilesIssue] {
         &self.issues
     }
 
     pub(crate) fn files_request(&self) -> FilesForRootsRequest {
-        let plan =
-            build_source_roots_with_kind(self.roots.clone(), FileRootKind::LibrarySearchPath);
+        let plan = build_source_roots_plan(self.roots.clone(), FileRootKind::LibrarySearchPath);
         FilesForRootsRequest::new(
             plan.roots().to_vec(),
             Box::new(|path| {
@@ -277,9 +217,11 @@ impl InstalledAppFileRoots {
         current: Option<&ReadySourceFiles>,
         result: FilesForRootsResult,
     ) -> SourceFilesUpdate {
-        merge_partitioned_source_file_patch_set(
+        source_files_update_from_partition_patches(
             current,
-            PartitionedSourceFilePatchSet::installed_apps(result, self.issues.clone()),
+            FileSetPartitionGroup::InstalledApp,
+            SourceFilePartitionPatch::installed_app(result),
+            self.issues.clone(),
         )
     }
 }
@@ -288,12 +230,10 @@ impl InstalledAppFileRoots {
 pub fn installed_app_file_roots_discovery(
     db: &dyn Db,
     project: Project,
-) -> InstalledAppFileRootsOutcome {
+) -> Option<InstalledAppFileRoots> {
     let candidates = match django_environment_candidates(db, project) {
         DjangoEnvironmentCandidatesOutcome::Ready(candidates) => candidates,
-        DjangoEnvironmentCandidatesOutcome::Deferred => {
-            return InstalledAppFileRootsOutcome::Deferred
-        }
+        DjangoEnvironmentCandidatesOutcome::Deferred => return None,
     };
     let mut roots = Vec::new();
     let mut issues = Vec::new();
@@ -303,7 +243,10 @@ pub fn installed_app_file_roots_discovery(
             .installed_app_entries()
             .segments()
         {
-            match InstalledApp::from_settings_segment(db, project, segment) {
+            match segment
+                .value()
+                .and_then(|entry| InstalledApp::resolve_entry(db, project, entry))
+            {
                 Some(app) => {
                     if let Some(root) = app.root(db) {
                         roots.push(root);
@@ -315,7 +258,7 @@ pub fn installed_app_file_roots_discovery(
     }
     roots.sort();
     roots.dedup();
-    InstalledAppFileRootsOutcome::Ready(InstalledAppFileRoots::new(roots, issues))
+    Some(InstalledAppFileRoots::new(roots, issues))
 }
 
 fn app_root_for_file(db: &dyn Db, file: File) -> Option<Utf8PathBuf> {
@@ -512,8 +455,8 @@ mod tests {
 
         assert_eq!(apps[0].entry(), "django.contrib.auth");
         assert_eq!(apps[1].entry(), "blog");
-        assert_eq!(apps[0].module().as_str(), "django.contrib.auth");
-        assert!(apps[0].config().is_none());
+        assert_eq!(apps[0].module.as_str(), "django.contrib.auth");
+        assert!(apps[0].config.is_none());
     }
 
     #[test]
@@ -549,7 +492,7 @@ mod tests {
         );
         db.set_file(
             "/workspace/blog/apps.py",
-            "from django.apps import AppConfig\nclass OtherConfig(AppConfig):\n    name = 'wrong'\n    label = 'wrong'\nclass BlogConfig(AppConfig):\n    name = 'blog'\n    label = 'weblog'\n    path = '/srv/blog'\n",
+            "from django.apps import AppConfig\nclass OtherConfig(AppConfig):\n    name = 'wrong'\nclass BlogConfig(AppConfig):\n    name = 'blog'\n    path = '/srv/blog'\n",
         );
         db.set_source_file_inventory(ready_inventory(
             &db,
@@ -560,12 +503,11 @@ mod tests {
 
         let apps = installed_apps(&db, db.project(), env);
 
-        let config = apps[0].config().expect("app config should resolve");
-        assert_eq!(apps[0].module().as_str(), "blog");
-        assert_eq!(config.name(), Some("blog"));
-        assert_eq!(config.label.as_deref(), Some("weblog"));
+        let config = apps[0].config.as_ref().expect("app config should resolve");
+        assert_eq!(apps[0].module.as_str(), "blog");
+        assert_eq!(config.name.as_deref(), Some("blog"));
         assert_eq!(
-            config.path().map(camino::Utf8Path::as_str),
+            config.path.as_deref().map(camino::Utf8Path::as_str),
             Some("/srv/blog")
         );
     }

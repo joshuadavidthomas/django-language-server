@@ -104,7 +104,7 @@ pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<
     let inventory = djls_project::loadable_template_libraries(db, project, env);
     let mut libraries = db.template_libraries().clone();
 
-    lower_project_template_libraries(&mut libraries, inventory.libraries());
+    lower_project_template_libraries(&mut libraries, inventory);
 
     Some(libraries)
 }

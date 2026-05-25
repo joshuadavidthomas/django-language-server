@@ -791,10 +791,10 @@ kind = "variable"
         #[test]
         fn test_rejects_legacy_tagspecs_v040_array_format() {
             let dir = tempdir().unwrap();
-            let source = Utf8PathBuf::from_path_buf(dir.path().join("djls.toml")).unwrap();
+            let raw_source = dir.path().join("djls.toml");
 
             fs::write(
-                &source,
+                &raw_source,
                 r#"
 [[tagspecs]]
 name = "block"
@@ -803,6 +803,7 @@ end_tag = { name = "endblock", optional = false }
 "#,
             )
             .unwrap();
+            let source = Utf8PathBuf::from_path_buf(fs::canonicalize(raw_source).unwrap()).unwrap();
 
             let result = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None);
 

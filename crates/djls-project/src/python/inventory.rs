@@ -7,7 +7,7 @@ use crate::names::PyModuleName;
 use crate::project::Project;
 use crate::resolver::module_name_for_path;
 use crate::source_files::SourceFileInventory;
-use crate::templates::template_tag_libraries;
+use crate::templates::resolved_template_tag_library_files;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PythonModule {
@@ -70,7 +70,7 @@ pub fn template_tag_modules(db: &dyn Db, project: Project) -> Vec<PythonModule> 
     let mut modules = Vec::new();
 
     for env in crate::environments::known_django_environment_ids(db, project) {
-        let template_tag_files = template_tag_libraries(db, project, env.clone()).resolved_files();
+        let template_tag_files = resolved_template_tag_library_files(db, project, env.clone());
         for entry in data.files() {
             if !template_tag_files.contains(&entry.file()) {
                 continue;

@@ -10,7 +10,6 @@ use djls_source::SourceFileSet;
 use djls_source::SourceRoot;
 use djls_source::SourceRootEntry;
 use djls_source::SourceRootId;
-use djls_workspace::FileLoadPredicate;
 use djls_workspace::FilesForRootsRequest;
 use djls_workspace::FilesForRootsResult;
 use djls_workspace::WalkOptions;
@@ -145,11 +144,11 @@ impl SourceRootsPlan {
 pub(crate) fn build_source_roots(
     raw_roots: impl IntoIterator<Item = Utf8PathBuf>,
 ) -> SourceRootsPlan {
-    build_source_roots_with_kind(raw_roots, FileRootKind::Project)
+    build_source_roots_plan(raw_roots, FileRootKind::Project)
 }
 
 #[must_use]
-pub(crate) fn build_source_roots_with_kind(
+pub(crate) fn build_source_roots_plan(
     raw_roots: impl IntoIterator<Item = Utf8PathBuf>,
     kind: FileRootKind,
 ) -> SourceRootsPlan {
@@ -177,75 +176,33 @@ pub(crate) fn build_source_roots_with_kind(
     SourceRootsPlan { roots, issues }
 }
 
-pub(crate) struct SourceFilesLoadRequest {
-    roots: Vec<SourceRoot>,
-    root_issues: Vec<SourceFilesIssue>,
-    predicate: FileLoadPredicate,
-    options: WalkOptions,
-}
-
-impl SourceFilesLoadRequest {
-    fn new(
-        roots: Vec<SourceRoot>,
-        root_issues: Vec<SourceFilesIssue>,
-        predicate: FileLoadPredicate,
-        options: WalkOptions,
-    ) -> Self {
-        Self {
-            roots,
-            root_issues,
-            predicate,
-            options,
-        }
-    }
-}
-
-#[must_use]
-fn first_party_file_predicate() -> FileLoadPredicate {
-    Box::new(|path| {
-        matches!(
-            path.extension(),
-            Some("html" | "htm" | "txt" | "py" | "json" | "toml" | "yaml" | "yml")
-        )
-    })
-}
-
-#[must_use]
-fn first_party_walk_options() -> WalkOptions {
-    WalkOptions {
-        hidden: false,
-        globs: vec![
-            "!**/.venv/**".to_string(),
-            "!**/venv/**".to_string(),
-            "!**/node_modules/**".to_string(),
-            "!**/__pycache__/**".to_string(),
-            "!**/target/**".to_string(),
-        ],
-        no_ignore: false,
-        follow_links: false,
-        max_depth: None,
-    }
-}
-
-#[must_use]
-pub(crate) fn first_party_source_files_load_request(
-    plan: SourceRootsPlan,
-) -> SourceFilesLoadRequest {
-    SourceFilesLoadRequest::new(
-        plan.roots,
-        plan.issues,
-        first_party_file_predicate(),
-        first_party_walk_options(),
-    )
-}
-
 #[must_use]
 pub(crate) fn first_party_discovery_files_request(
-    request: SourceFilesLoadRequest,
+    plan: SourceRootsPlan,
 ) -> (Vec<SourceFilesIssue>, FilesForRootsRequest) {
-    let files_request =
-        FilesForRootsRequest::new(request.roots, request.predicate, request.options);
-    (request.root_issues, files_request)
+    let files_request = FilesForRootsRequest::new(
+        plan.roots,
+        Box::new(|path| {
+            matches!(
+                path.extension(),
+                Some("html" | "htm" | "txt" | "py" | "json" | "toml" | "yaml" | "yml")
+            )
+        }),
+        WalkOptions {
+            hidden: false,
+            globs: vec![
+                "!**/.venv/**".to_string(),
+                "!**/venv/**".to_string(),
+                "!**/node_modules/**".to_string(),
+                "!**/__pycache__/**".to_string(),
+                "!**/target/**".to_string(),
+            ],
+            no_ignore: false,
+            follow_links: false,
+            max_depth: None,
+        },
+    );
+    (plan.issues, files_request)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -460,7 +417,7 @@ impl SourceFileSetPartitions {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct FirstPartySourceFilePatch {
+pub(crate) struct SourceFilePartitionPatch {
     partition: FileSetPartition,
     roots: Vec<SourceRoot>,
     files: Vec<DiscoveredSourceFile>,
@@ -468,16 +425,7 @@ pub(crate) struct FirstPartySourceFilePatch {
     issues: Vec<SourceFilesIssue>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PartitionedSourceFilePatch {
-    partition: FileSetPartition,
-    roots: Vec<SourceRoot>,
-    files: Vec<DiscoveredSourceFile>,
-    summary: FileSetSummary,
-    issues: Vec<SourceFilesIssue>,
-}
-
-impl PartitionedSourceFilePatch {
+impl SourceFilePartitionPatch {
     #[must_use]
     pub(crate) fn installed_app(result: FilesForRootsResult) -> Vec<Self> {
         partitioned_patches(result, FileSetPartition::installed_app)
@@ -489,41 +437,11 @@ impl PartitionedSourceFilePatch {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PartitionedSourceFilePatchSet {
-    group: FileSetPartitionGroup,
-    patches: Vec<PartitionedSourceFilePatch>,
-    issues: Vec<SourceFilesIssue>,
-}
-
-impl PartitionedSourceFilePatchSet {
-    #[must_use]
-    pub(crate) fn installed_apps(
-        result: FilesForRootsResult,
-        issues: Vec<SourceFilesIssue>,
-    ) -> Self {
-        Self {
-            group: FileSetPartitionGroup::InstalledApp,
-            patches: PartitionedSourceFilePatch::installed_app(result),
-            issues,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn configured_template_directories(result: FilesForRootsResult) -> Self {
-        Self {
-            group: FileSetPartitionGroup::ConfiguredTemplateDirectory,
-            patches: PartitionedSourceFilePatch::configured_template_directory(result),
-            issues: Vec::new(),
-        }
-    }
-}
-
 #[allow(clippy::needless_pass_by_value)]
 fn partitioned_patches(
     result: FilesForRootsResult,
     partition_for_root: impl Fn(SourceRootId) -> FileSetPartition,
-) -> Vec<PartitionedSourceFilePatch> {
+) -> Vec<SourceFilePartitionPatch> {
     result
         .roots()
         .iter()
@@ -540,7 +458,7 @@ fn partitioned_patches(
                 .filter(|issue| workspace_issue_root(issue) == root.id())
                 .map(project_issue_from_workspace_issue)
                 .collect::<Vec<_>>();
-            PartitionedSourceFilePatch {
+            SourceFilePartitionPatch {
                 partition: partition_for_root(root.id().clone()),
                 roots: vec![root.clone()],
                 summary: FileSetSummary::new(files.len()),
@@ -558,7 +476,7 @@ fn workspace_issue_root(issue: &WorkspaceRootIssue) -> &SourceRootId {
     }
 }
 
-impl FirstPartySourceFilePatch {
+impl SourceFilePartitionPatch {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn first_party(
@@ -1041,28 +959,27 @@ fn project_issue_from_materialization_issue(
 
 #[cfg(test)]
 #[must_use]
-fn merge_partitioned_source_file_patch(
+fn source_files_update_from_partition_patch(
     current: Option<&ReadySourceFiles>,
-    patch: PartitionedSourceFilePatch,
+    patch: SourceFilePartitionPatch,
 ) -> SourceFilesUpdate {
-    merge_partitioned_source_file_patch_set(
+    source_files_update_from_partition_patches(
         current,
-        PartitionedSourceFilePatchSet {
-            group: patch.partition.id().group(),
-            patches: vec![patch],
-            issues: Vec::new(),
-        },
+        patch.partition.id().group(),
+        vec![patch],
+        Vec::new(),
     )
 }
 
 #[must_use]
-pub(crate) fn merge_partitioned_source_file_patch_set(
+pub(crate) fn source_files_update_from_partition_patches(
     current: Option<&ReadySourceFiles>,
-    patch_set: PartitionedSourceFilePatchSet,
+    group: FileSetPartitionGroup,
+    patches: Vec<SourceFilePartitionPatch>,
+    mut issues: Vec<SourceFilesIssue>,
 ) -> SourceFilesUpdate {
-    let readiness = partition_set_readiness(current, &patch_set);
-    let snapshots = patch_set
-        .patches
+    let readiness = partition_set_readiness(current, &patches);
+    let snapshots = patches
         .iter()
         .map(|patch| {
             SourceFileSetPartitionSnapshot::new(
@@ -1076,20 +993,18 @@ pub(crate) fn merge_partitioned_source_file_patch_set(
     let current_partitions = current
         .map(|files| files.partitions.clone())
         .unwrap_or_default();
-    let partitions = current_partitions.replace_partition_group(patch_set.group, snapshots);
+    let partitions = current_partitions.replace_partition_group(group, snapshots);
     let merged = partitions.merged_discovered_files();
     let previous = current.map(ReadySourceFiles::discovered_files);
     let materialization = materialization_patch(previous.as_ref(), &merged);
     let applied_transition = SourceFilePartitionTransition {
-        partitions: patch_set
-            .patches
+        partitions: patches
             .iter()
             .map(|patch| patch.partition.clone())
             .collect(),
         readiness,
     };
-    let mut issues = patch_set.issues;
-    issues.extend(patch_set.patches.into_iter().flat_map(|patch| patch.issues));
+    issues.extend(patches.into_iter().flat_map(|patch| patch.issues));
     issues.extend(partition_conflicts(&partitions));
 
     SourceFilesUpdate {
@@ -1103,14 +1018,9 @@ pub(crate) fn merge_partitioned_source_file_patch_set(
 
 fn partition_set_readiness(
     current: Option<&ReadySourceFiles>,
-    patch_set: &PartitionedSourceFilePatchSet,
+    patches: &[SourceFilePartitionPatch],
 ) -> SourceFilePartitionReadiness {
-    if let Some(issue) = patch_set
-        .patches
-        .iter()
-        .flat_map(|patch| patch.issues.iter())
-        .next()
-    {
+    if let Some(issue) = patches.iter().flat_map(|patch| patch.issues.iter()).next() {
         return SourceFilePartitionReadiness::Unavailable {
             issue: issue.clone(),
             previous: current.map(|files| files.discovered_files().summary()),
@@ -1119,8 +1029,7 @@ fn partition_set_readiness(
 
     SourceFilePartitionReadiness::Ready {
         summary: FileSetSummary::new(
-            patch_set
-                .patches
+            patches
                 .iter()
                 .map(|patch| patch.summary.included_files())
                 .sum(),
@@ -1130,7 +1039,7 @@ fn partition_set_readiness(
 
 fn patch_readiness(
     current: Option<&ReadySourceFiles>,
-    patch: &PartitionedSourceFilePatch,
+    patch: &SourceFilePartitionPatch,
 ) -> SourceFilePartitionReadiness {
     if let Some(issue) = patch.issues.first() {
         return SourceFilePartitionReadiness::Unavailable {
@@ -1164,9 +1073,9 @@ fn partition_conflicts(partitions: &SourceFileSetPartitions) -> Vec<SourceFilesI
 }
 
 #[must_use]
-pub(crate) fn merge_first_party_source_file_patch(
+pub(crate) fn source_files_update_from_first_party_patch(
     current: Option<&ReadySourceFiles>,
-    patch: FirstPartySourceFilePatch,
+    patch: SourceFilePartitionPatch,
 ) -> SourceFilesUpdate {
     let readiness = first_party_readiness(current, &patch);
     let snapshot = SourceFileSetPartitionSnapshot::new(
@@ -1198,7 +1107,7 @@ pub(crate) fn merge_first_party_source_file_patch(
 
 fn first_party_readiness(
     current: Option<&ReadySourceFiles>,
-    patch: &FirstPartySourceFilePatch,
+    patch: &SourceFilePartitionPatch,
 ) -> SourceFilePartitionReadiness {
     if let Some(issue) = patch.issues.first() {
         return SourceFilePartitionReadiness::Unavailable {
@@ -1333,6 +1242,14 @@ mod tests {
         Utf8PathBuf::from_path_buf(path.to_path_buf()).unwrap()
     }
 
+    fn canonical_utf8(path: &std::path::Path) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(dunce::canonicalize(path).unwrap()).unwrap()
+    }
+
+    fn tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new().prefix("djls").tempdir().unwrap()
+    }
+
     fn root(path: &str) -> SourceRoot {
         let path = Utf8PathBuf::from(path);
         SourceRoot::new(SourceRootId::new(path.clone()), path, FileRootKind::Project)
@@ -1349,8 +1266,7 @@ mod tests {
     fn load_first_party_files(
         plan: SourceRootsPlan,
     ) -> (Vec<SourceFilesIssue>, FilesForRootsResult) {
-        let (root_issues, request) =
-            first_party_discovery_files_request(first_party_source_files_load_request(plan));
+        let (root_issues, request) = first_party_discovery_files_request(plan);
         (root_issues, load_files_for_roots(request))
     }
 
@@ -1447,14 +1363,14 @@ mod tests {
         let db = TestDb::with_project();
         let update_root = root("/workspace");
         let update_file = discovered("/workspace/models.py", &update_root);
-        let patch = FirstPartySourceFilePatch {
+        let patch = SourceFilePartitionPatch {
             partition: FileSetPartition::first_party(),
             roots: vec![update_root],
             files: vec![update_file],
             summary: FileSetSummary::new(1),
             issues: Vec::new(),
         };
-        let update = merge_first_party_source_file_patch(None, patch);
+        let update = source_files_update_from_first_party_patch(None, patch);
 
         let other_root = root("/other");
         let other_file = discovered("/other/other.py", &other_root);
@@ -1491,14 +1407,14 @@ mod tests {
         let db = TestDb::with_project();
         let update_root = root("/workspace");
         let update_file = discovered("/workspace/models.py", &update_root);
-        let patch = FirstPartySourceFilePatch {
+        let patch = SourceFilePartitionPatch {
             partition: FileSetPartition::first_party(),
             roots: vec![update_root],
             files: vec![update_file],
             summary: FileSetSummary::new(1),
             issues: Vec::new(),
         };
-        let update = merge_first_party_source_file_patch(None, patch);
+        let update = source_files_update_from_first_party_patch(None, patch);
         let materialized = materialized_for_update(&db, &update);
 
         let decision = update.decide_apply(None, materialized);
@@ -1517,9 +1433,9 @@ mod tests {
         let db = TestDb::with_project();
         let previous_root = root("/workspace");
         let previous_file = discovered("/workspace/models.py", &previous_root);
-        let previous_update = merge_first_party_source_file_patch(
+        let previous_update = source_files_update_from_first_party_patch(
             None,
-            FirstPartySourceFilePatch {
+            SourceFilePartitionPatch {
                 partition: FileSetPartition::first_party(),
                 roots: vec![previous_root],
                 files: vec![previous_file],
@@ -1530,9 +1446,9 @@ mod tests {
         let previous = ready_files_for_update(&db, previous_update);
         let update_root = root("/new");
         let update_file = discovered("/new/models.py", &update_root);
-        let update = merge_first_party_source_file_patch(
+        let update = source_files_update_from_first_party_patch(
             Some(&previous),
-            FirstPartySourceFilePatch {
+            SourceFilePartitionPatch {
                 partition: FileSetPartition::first_party(),
                 roots: vec![update_root],
                 files: vec![update_file],
@@ -1562,9 +1478,9 @@ mod tests {
         let db = TestDb::with_project();
         let previous_root = root("/workspace");
         let previous_file = discovered("/workspace/models.py", &previous_root);
-        let previous_update = merge_first_party_source_file_patch(
+        let previous_update = source_files_update_from_first_party_patch(
             None,
-            FirstPartySourceFilePatch {
+            SourceFilePartitionPatch {
                 partition: FileSetPartition::first_party(),
                 roots: vec![previous_root],
                 files: vec![previous_file],
@@ -1578,9 +1494,9 @@ mod tests {
             root: missing_root.id().clone(),
             path: missing_root.path().to_owned(),
         };
-        let update = merge_first_party_source_file_patch(
+        let update = source_files_update_from_first_party_patch(
             Some(&previous),
-            FirstPartySourceFilePatch {
+            SourceFilePartitionPatch {
                 partition: FileSetPartition::first_party(),
                 roots: vec![missing_root],
                 files: Vec::new(),
@@ -1603,9 +1519,9 @@ mod tests {
     fn partition_patch_set_publishes_successful_siblings_with_root_issues() {
         let db = TestDb::with_project();
         let first_party_root = root("/workspace");
-        let previous_update = merge_first_party_source_file_patch(
+        let previous_update = source_files_update_from_first_party_patch(
             None,
-            FirstPartySourceFilePatch {
+            SourceFilePartitionPatch {
                 partition: FileSetPartition::first_party(),
                 roots: vec![first_party_root],
                 files: Vec::new(),
@@ -1624,9 +1540,11 @@ mod tests {
             Box::new(|_| true),
             WalkOptions::default(),
         ));
-        let update = merge_partitioned_source_file_patch_set(
+        let update = source_files_update_from_partition_patches(
             Some(&previous),
-            PartitionedSourceFilePatchSet::configured_template_directories(result),
+            FileSetPartitionGroup::ConfiguredTemplateDirectory,
+            SourceFilePartitionPatch::configured_template_directory(result),
+            Vec::new(),
         );
         let materialized = materialized_for_update(&db, &update);
 
@@ -1664,8 +1582,8 @@ mod tests {
 
     #[test]
     fn roots_builder_deduplicates_canonical_root_aliases() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = utf8(dir.path());
+        let dir = tempdir();
+        let root = canonical_utf8(dir.path());
         let plan = build_source_roots([root.clone(), root.join(".")]);
 
         assert_eq!(plan.roots().len(), 1);
@@ -1692,14 +1610,14 @@ mod tests {
 
     #[test]
     fn duplicate_root_issue_flows_through_first_party_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = utf8(dir.path());
+        let dir = tempdir();
+        let root = canonical_utf8(dir.path());
         let plan = build_source_roots([root.clone(), root.clone()]);
         let (root_issues, result) = load_first_party_files(plan);
 
-        let update = merge_first_party_source_file_patch(
+        let update = source_files_update_from_first_party_patch(
             None,
-            FirstPartySourceFilePatch::first_party(root_issues, result),
+            SourceFilePartitionPatch::first_party(root_issues, result),
         );
 
         assert_eq!(
@@ -1713,11 +1631,10 @@ mod tests {
 
     #[test]
     fn first_party_request_uses_project_file_policy() {
-        let request = first_party_source_files_load_request(SourceRootsPlan {
+        let (_root_issues, files_request) = first_party_discovery_files_request(SourceRootsPlan {
             roots: vec![root("/workspace")],
             issues: Vec::new(),
         });
-        let (_root_issues, files_request) = first_party_discovery_files_request(request);
 
         assert_eq!(files_request.roots().len(), 1);
         assert!((files_request.options().globs)
@@ -1734,7 +1651,7 @@ mod tests {
             issues: Vec::new(),
         });
 
-        let patch = FirstPartySourceFilePatch::first_party(root_issues, result);
+        let patch = SourceFilePartitionPatch::first_party(root_issues, result);
 
         assert_eq!(
             patch.issues(),
@@ -1747,8 +1664,8 @@ mod tests {
 
     #[test]
     fn first_party_merge_uses_longest_prefix_owner_and_deduplicates() {
-        let dir = tempfile::tempdir().unwrap();
-        let parent = root_path(utf8(dir.path()));
+        let dir = tempdir();
+        let parent = root_path(canonical_utf8(dir.path()));
         let child_path = parent.path().join("app");
         std::fs::create_dir_all(child_path.join("templates")).unwrap();
         std::fs::write(child_path.join("templates/index.html"), "").unwrap();
@@ -1758,8 +1675,8 @@ mod tests {
             issues: Vec::new(),
         });
 
-        let patch = FirstPartySourceFilePatch::first_party(root_issues, result);
-        let update = merge_first_party_source_file_patch(None, patch);
+        let patch = SourceFilePartitionPatch::first_party(root_issues, result);
+        let update = source_files_update_from_first_party_patch(None, patch);
 
         assert_eq!(update.materialization().upserted_files().len(), 1);
         assert_eq!(
@@ -1822,9 +1739,9 @@ mod tests {
             roots: vec![kept.clone()],
             issues: Vec::new(),
         });
-        let patch = FirstPartySourceFilePatch::first_party(root_issues, result);
+        let patch = SourceFilePartitionPatch::first_party(root_issues, result);
 
-        let update = merge_first_party_source_file_patch(Some(&previous), patch);
+        let update = source_files_update_from_first_party_patch(Some(&previous), patch);
 
         assert_eq!(
             update.materialization().removed_roots(),
@@ -1892,9 +1809,9 @@ mod tests {
             roots: vec![kept.clone(), added.clone()],
             issues: Vec::new(),
         });
-        let update = merge_first_party_source_file_patch(
+        let update = source_files_update_from_first_party_patch(
             Some(&previous),
-            FirstPartySourceFilePatch::first_party(result.0, result.1),
+            SourceFilePartitionPatch::first_party(result.0, result.1),
         );
 
         assert_eq!(
@@ -1917,9 +1834,9 @@ mod tests {
             issues: Vec::new(),
         });
 
-        let update = merge_first_party_source_file_patch(
+        let update = source_files_update_from_first_party_patch(
             None,
-            FirstPartySourceFilePatch::first_party(root_issues, result),
+            SourceFilePartitionPatch::first_party(root_issues, result),
         );
 
         assert_eq!(
@@ -1946,19 +1863,19 @@ mod tests {
         let first_party_file =
             DiscoveredSourceFile::new(shared_path.clone(), first_party.id().clone());
         let installed_file = DiscoveredSourceFile::new(shared_path.clone(), installed.id().clone());
-        let first_party_patch = FirstPartySourceFilePatch {
+        let first_party_patch = SourceFilePartitionPatch {
             partition: FileSetPartition::first_party(),
             roots: vec![first_party.clone()],
             files: vec![first_party_file],
             summary: FileSetSummary::new(1),
             issues: Vec::new(),
         };
-        let first_update = merge_first_party_source_file_patch(None, first_party_patch);
+        let first_update = source_files_update_from_first_party_patch(None, first_party_patch);
         let previous = ReadySourceFiles::materialized_for_test(
             first_update.partitions().clone(),
             empty_source_file_set(),
         );
-        let installed_patch = PartitionedSourceFilePatch {
+        let installed_patch = SourceFilePartitionPatch {
             partition: FileSetPartition::installed_app(installed.id().clone()),
             roots: vec![installed.clone()],
             files: vec![installed_file],
@@ -1966,7 +1883,7 @@ mod tests {
             issues: Vec::new(),
         };
 
-        let update = merge_partitioned_source_file_patch(Some(&previous), installed_patch);
+        let update = source_files_update_from_partition_patch(Some(&previous), installed_patch);
 
         assert_eq!(update.materialization().summary(), FileSetSummary::new(1));
         assert!(update
@@ -1990,19 +1907,19 @@ mod tests {
         let first_party_file =
             DiscoveredSourceFile::new(shared_path.clone(), first_party.id().clone());
         let installed_file = DiscoveredSourceFile::new(shared_path.clone(), installed.id().clone());
-        let first_party_patch = FirstPartySourceFilePatch {
+        let first_party_patch = SourceFilePartitionPatch {
             partition: FileSetPartition::first_party(),
             roots: vec![first_party.clone()],
             files: vec![first_party_file],
             summary: FileSetSummary::new(1),
             issues: Vec::new(),
         };
-        let first_update = merge_first_party_source_file_patch(None, first_party_patch);
+        let first_update = source_files_update_from_first_party_patch(None, first_party_patch);
         let with_first = ReadySourceFiles::materialized_for_test(
             first_update.partitions().clone(),
             empty_source_file_set(),
         );
-        let installed_patch = PartitionedSourceFilePatch {
+        let installed_patch = SourceFilePartitionPatch {
             partition: FileSetPartition::installed_app(installed.id().clone()),
             roots: vec![installed.clone()],
             files: vec![installed_file],
@@ -2010,12 +1927,12 @@ mod tests {
             issues: Vec::new(),
         };
         let installed_update =
-            merge_partitioned_source_file_patch(Some(&with_first), installed_patch);
+            source_files_update_from_partition_patch(Some(&with_first), installed_patch);
         let with_both = ReadySourceFiles::materialized_for_test(
             installed_update.partitions().clone(),
             empty_source_file_set(),
         );
-        let remove_first_party = FirstPartySourceFilePatch {
+        let remove_first_party = SourceFilePartitionPatch {
             partition: FileSetPartition::first_party(),
             roots: vec![first_party],
             files: Vec::new(),
@@ -2023,7 +1940,8 @@ mod tests {
             issues: Vec::new(),
         };
 
-        let update = merge_first_party_source_file_patch(Some(&with_both), remove_first_party);
+        let update =
+            source_files_update_from_first_party_patch(Some(&with_both), remove_first_party);
 
         assert_eq!(
             update.materialization().upserted_files()[0].root(),
@@ -2047,19 +1965,19 @@ mod tests {
         let configured_file =
             DiscoveredSourceFile::new(shared_path.clone(), configured.id().clone());
         let installed_file = DiscoveredSourceFile::new(shared_path.clone(), installed.id().clone());
-        let configured_patch = PartitionedSourceFilePatch {
+        let configured_patch = SourceFilePartitionPatch {
             partition: FileSetPartition::configured_template_directory(configured.id().clone()),
             roots: vec![configured.clone()],
             files: vec![configured_file],
             summary: FileSetSummary::new(1),
             issues: Vec::new(),
         };
-        let configured_update = merge_partitioned_source_file_patch(None, configured_patch);
+        let configured_update = source_files_update_from_partition_patch(None, configured_patch);
         let with_configured = ReadySourceFiles::materialized_for_test(
             configured_update.partitions().clone(),
             empty_source_file_set(),
         );
-        let installed_patch = PartitionedSourceFilePatch {
+        let installed_patch = SourceFilePartitionPatch {
             partition: FileSetPartition::installed_app(installed.id().clone()),
             roots: vec![installed.clone()],
             files: vec![installed_file],
@@ -2067,12 +1985,12 @@ mod tests {
             issues: Vec::new(),
         };
         let installed_update =
-            merge_partitioned_source_file_patch(Some(&with_configured), installed_patch);
+            source_files_update_from_partition_patch(Some(&with_configured), installed_patch);
         let with_both = ReadySourceFiles::materialized_for_test(
             installed_update.partitions().clone(),
             empty_source_file_set(),
         );
-        let remove_configured = PartitionedSourceFilePatch {
+        let remove_configured = SourceFilePartitionPatch {
             partition: FileSetPartition::configured_template_directory(configured.id().clone()),
             roots: vec![configured],
             files: Vec::new(),
@@ -2080,7 +1998,7 @@ mod tests {
             issues: Vec::new(),
         };
 
-        let update = merge_partitioned_source_file_patch(Some(&with_both), remove_configured);
+        let update = source_files_update_from_partition_patch(Some(&with_both), remove_configured);
 
         assert_eq!(
             update.materialization().upserted_files()[0].root(),
@@ -2120,17 +2038,17 @@ mod tests {
 
     #[test]
     fn transition_preserves_partition_readiness_for_status_projection() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = root_path(utf8(dir.path()));
+        let dir = tempdir();
+        let root = root_path(canonical_utf8(dir.path()));
         std::fs::write(root.path().join("a.html"), "").unwrap();
         let (root_issues, result) = load_first_party_files(SourceRootsPlan {
             roots: vec![root],
             issues: Vec::new(),
         });
 
-        let update = merge_first_party_source_file_patch(
+        let update = source_files_update_from_first_party_patch(
             None,
-            FirstPartySourceFilePatch::first_party(root_issues, result),
+            SourceFilePartitionPatch::first_party(root_issues, result),
         );
 
         assert_eq!(

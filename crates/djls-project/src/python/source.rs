@@ -1171,18 +1171,17 @@ mod tests {
 
         fn observe_installed_app_file_roots(
             &mut self,
-        ) -> DiscoveryObservation<crate::InstalledAppFileRootsOutcome> {
-            Ok(crate::InstalledAppFileRootsOutcome::Ready(
-                crate::InstalledAppFileRoots::new(Vec::new(), Vec::new()),
-            ))
+        ) -> DiscoveryObservation<Option<crate::InstalledAppFileRoots>> {
+            Ok(Some(crate::InstalledAppFileRoots::new(
+                Vec::new(),
+                Vec::new(),
+            )))
         }
 
         fn observe_template_directory_file_roots(
             &mut self,
-        ) -> DiscoveryObservation<crate::TemplateDirectoryFileRootsOutcome> {
-            Ok(crate::TemplateDirectoryFileRootsOutcome::Ready(
-                crate::TemplateDirectoryFileRoots::new(Vec::new()),
-            ))
+        ) -> DiscoveryObservation<Option<Vec<Utf8PathBuf>>> {
+            Ok(Some(Vec::new()))
         }
 
         fn load_project_enrichment(
