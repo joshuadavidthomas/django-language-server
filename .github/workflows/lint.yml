@@ -105,7 +105,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
           toolchain: nightly
           components: rustfmt
@@ -142,7 +142,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
           components: clippy
 
@@ -178,7 +178,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
 
       - name: Run cargo check
         run: cargo check --all-targets --all-features
