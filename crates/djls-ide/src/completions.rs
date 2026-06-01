@@ -499,7 +499,7 @@ fn generate_discovered_tag_name_completions(
 ///
 /// When `available_symbols` is `Some`, only tags that are available at the cursor
 /// position (builtins + tags from loaded libraries) are shown. When `None` (active
-/// project knowledge unavailable), all tags from `template_tags` are shown as a fallback.
+/// Project Facts unavailable), all tags from `template_tags` are shown as a fallback.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn generate_tag_name_completions(
     partial: &str,
@@ -835,8 +835,8 @@ fn generate_library_completions(
             let detail = template_libraries
                 .loadable_library_module(&load_name)
                 .map_or_else(
-                    || "Django template library".to_string(),
-                    |module| format!("Django template library ({})", module.as_str()),
+                    || "Django template tag library".to_string(),
+                    |module| format!("Django template tag library ({})", module.as_str()),
                 );
 
             completions.push(ls_types::CompletionItem {
@@ -856,7 +856,7 @@ fn generate_library_completions(
 
 /// Generate completion items from a collection of template symbols.
 ///
-/// When `available_symbols` is `Some` (active project knowledge is available), only symbols that are
+/// When `available_symbols` is `Some` (active Project Facts are available), only symbols that are
 /// available at the cursor position (builtins + loaded library symbols) are shown.
 fn generate_completions(
     symbols: impl IntoIterator<Item = InstalledSymbolCandidate>,
@@ -912,9 +912,9 @@ fn generate_completions(
 
 /// Generate completions for filter names in `{{ var|filter }}` context.
 ///
-/// When `available_symbols` is `Some` (active project knowledge is available), only shows builtin filters
-/// and filters from loaded libraries at the cursor position. When `None` (active project
-/// knowledge unavailable), shows all known filters as a fallback.
+/// When `available_symbols` is `Some` (active Project Facts are available), only shows builtin filters
+/// and filters from loaded libraries at the cursor position. When `None` (active Project Facts
+/// unavailable), shows all known filters as a fallback.
 fn generate_filter_completions(
     partial: &str,
     template_libraries: Option<&TemplateLibraries>,
@@ -1155,7 +1155,7 @@ mod tests {
         assert_eq!(completions.len(), 1);
         assert_eq!(
             completions[0].detail.as_deref(),
-            Some("Django template library (django.templatetags.static)")
+            Some("Django template tag library (django.templatetags.static)")
         );
     }
 
@@ -1164,7 +1164,7 @@ mod tests {
         let completions = generate_library_completions("", &ClosingBrace::None, None);
         assert!(
             completions.is_empty(),
-            "Library completions should be empty when active project knowledge is unavailable"
+            "Library completions should be empty when active Project Facts are unavailable"
         );
     }
 
@@ -1173,7 +1173,7 @@ mod tests {
         let completions = generate_library_completions("stat", &ClosingBrace::None, None);
         assert!(
             completions.is_empty(),
-            "Library completions should be empty even with partial input when active project knowledge is unavailable"
+            "Library completions should be empty even with partial input when active Project Facts are unavailable"
         );
     }
 
@@ -1643,7 +1643,7 @@ mod tests {
     fn test_tag_completions_without_active_knowledge_shows_all_tags() {
         let template_libraries = build_test_libraries();
 
-        // No available_symbols = active project knowledge unavailable → show all tags
+        // No available_symbols = active Project Facts unavailable → show all tags
         let completions = generate_tag_name_completions(
             "",
             false,
