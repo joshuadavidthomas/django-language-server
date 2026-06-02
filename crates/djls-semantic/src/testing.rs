@@ -5,11 +5,13 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
+use djls_project::Project;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -23,12 +25,9 @@ use djls_workspace::InMemoryFileSystem;
 use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::project::Db as ProjectDb;
 use crate::project::Knowledge;
 use crate::project::LibraryName;
 use crate::project::LibraryOrigin;
-use crate::project::Project;
-use crate::project::ProjectIntrospector;
 use crate::project::PyModuleName;
 use crate::project::SymbolDefinition;
 use crate::project::TemplateLibraries;
@@ -149,19 +148,26 @@ pub(crate) struct TestDatabase {
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
+    project: Arc<OnceLock<Project>>,
 }
 
 impl TestDatabase {
     #[must_use]
     pub(crate) fn new() -> Self {
-        Self {
+        let db = Self {
             storage: salsa::Storage::default(),
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             files: SourceFiles::default(),
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
-        }
+            project: Arc::new(OnceLock::new()),
+        };
+        let project = Project::fixture_unavailable(&db);
+        db.project
+            .set(project)
+            .expect("project should initialize once");
+        db
     }
 
     #[must_use]
@@ -207,6 +213,13 @@ impl TestDatabase {
 impl salsa::Database for TestDatabase {}
 
 #[salsa::db]
+impl djls_project::Db for TestDatabase {
+    fn project(&self) -> Project {
+        *self.project.get().expect("project should be initialized")
+    }
+}
+
+#[salsa::db]
 impl djls_source::Db for TestDatabase {
     fn files(&self) -> &SourceFiles {
         &self.files
@@ -218,24 +231,9 @@ impl djls_source::Db for TestDatabase {
 }
 
 #[salsa::db]
-impl ProjectDb for TestDatabase {
-    fn project(&self) -> Option<Project> {
-        None
-    }
-
-    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-        Arc::new(ProjectIntrospector::new())
-    }
-}
-
-#[salsa::db]
 impl SemanticDb for TestDatabase {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        None
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

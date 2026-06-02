@@ -4,57 +4,28 @@ use djls_source::File;
 use djls_source::Span;
 
 use crate::db::Db as SemanticDb;
+use crate::primitives::InternedTemplateName;
 use crate::primitives::Template;
-use crate::primitives::TemplateName;
-use crate::project::Project;
-
-#[salsa::tracked]
-pub(crate) fn discover_templates(db: &dyn SemanticDb, project: Project) -> Vec<Template<'_>> {
-    let templates: Vec<_> = project
-        .template_files(db)
-        .iter()
-        .map(|template| {
-            Template::new(
-                db,
-                TemplateName::new(db, template.name().to_string()),
-                template.file(),
-            )
-        })
-        .collect();
-
-    tracing::debug!("Discovered {} total templates", templates.len());
-    templates
-}
-
-#[salsa::tracked]
-pub(crate) fn find_template<'db>(
-    db: &'db dyn SemanticDb,
-    project: Project,
-    template_name: TemplateName<'db>,
-) -> Option<Template<'db>> {
-    let templates = discover_templates(db, project);
-
-    templates
-        .iter()
-        .find(|t| t.name(db) == template_name)
-        .copied()
-}
+use crate::project::PyModuleName;
+use crate::project::TemplateLibraries;
+use crate::project::TemplateLibrary;
 
 #[derive(Clone, PartialEq, salsa::Update)]
-pub enum ResolveResult<'db> {
+pub enum TemplateLookupResult<'db> {
     Found(Template<'db>),
     NotFound {
-        name: String,
+        name: djls_project::TemplateName,
         tried: Vec<Utf8PathBuf>,
     },
+    Deferred,
 }
 
-impl<'db> ResolveResult<'db> {
+impl<'db> TemplateLookupResult<'db> {
     #[must_use]
     pub fn ok(self) -> Option<Template<'db>> {
         match self {
             Self::Found(t) => Some(t),
-            Self::NotFound { .. } => None,
+            Self::NotFound { .. } | Self::Deferred => None,
         }
     }
 
@@ -64,39 +35,119 @@ impl<'db> ResolveResult<'db> {
     }
 }
 
-pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResult<'db> {
-    let template_name = TemplateName::new(db, name.to_string());
-    let Some(project) = db.project() else {
-        return ResolveResult::NotFound {
-            name: name.to_string(),
-            tried: Vec::new(),
-        };
-    };
-
-    if let Some(template) = find_template(db, project, template_name) {
-        return ResolveResult::Found(template);
+#[salsa::tracked]
+pub(crate) fn resolve_static_template(
+    db: &dyn SemanticDb,
+    project: djls_project::Project,
+    env: djls_project::DjangoEnvironmentId,
+    name: djls_project::TemplateName,
+) -> TemplateLookupResult<'_> {
+    let inventory = djls_project::template_files(db, project, env);
+    if let Some(template) = inventory
+        .templates()
+        .iter()
+        .find(|template| template.name() == name.as_str())
+    {
+        return TemplateLookupResult::Found(Template::new(
+            db,
+            InternedTemplateName::new(db, template.name().to_string()),
+            template.file(),
+        ));
     }
 
-    let tried = project
-        .template_dirs(db)
-        .as_known()
-        .map(|dirs| {
-            dirs.iter()
-                .filter_map(|dir| safe_join(dir, name).ok())
-                .collect()
+    if inventory_is_unready(inventory.directories()) {
+        return TemplateLookupResult::Deferred;
+    }
+
+    let tried = inventory
+        .directories()
+        .iter()
+        .filter_map(|entry| match entry {
+            djls_project::TemplateDirectoryEntry::Discovered(directory) => {
+                safe_join(directory.path(), name.as_str()).ok()
+            }
+            _ => None,
         })
-        .unwrap_or_default();
+        .collect();
 
-    ResolveResult::NotFound {
-        name: name.to_string(),
-        tried,
+    TemplateLookupResult::NotFound { name, tried }
+}
+
+pub fn resolve_template<'db>(
+    db: &'db dyn SemanticDb,
+    source: File,
+    name: &str,
+) -> TemplateLookupResult<'db> {
+    let Ok(name) = djls_project::TemplateName::parse(name) else {
+        return TemplateLookupResult::Deferred;
+    };
+    let project = djls_project::Db::project(db);
+    match djls_project::environment_for_file(db, project, source) {
+        djls_project::EnvironmentSelection::Selected(env) => {
+            resolve_static_template(db, project, env.clone(), name)
+        }
+        djls_project::EnvironmentSelection::Unknown
+        | djls_project::EnvironmentSelection::Ambiguous(_) => TemplateLookupResult::Deferred,
     }
+}
+
+pub fn template_libraries_for_file(db: &dyn SemanticDb, source: File) -> Option<TemplateLibraries> {
+    let project = djls_project::Db::project(db);
+    let env = match djls_project::environment_for_file(db, project, source) {
+        djls_project::EnvironmentSelection::Selected(env) => env.clone(),
+        djls_project::EnvironmentSelection::Unknown
+        | djls_project::EnvironmentSelection::Ambiguous(_) => return None,
+    };
+    let djls_project::SourceFileInventory::Ready(_) = project.source_inventory(db) else {
+        return None;
+    };
+    let inventory = djls_project::loadable_template_libraries(db, project, env);
+    let mut libraries = db.template_libraries().clone();
+
+    lower_project_template_libraries(&mut libraries, inventory);
+
+    Some(libraries)
+}
+
+fn lower_project_template_libraries(
+    libraries: &mut TemplateLibraries,
+    project_libraries: &[djls_project::LoadableTemplateLibrary],
+) {
+    for library in project_libraries {
+        let module = library
+            .module()
+            .cloned()
+            .unwrap_or_else(static_template_library_module);
+        let name = library.name().clone();
+        libraries
+            .loadable
+            .entry(name.clone())
+            .or_default()
+            .push(TemplateLibrary::new_active(name, module, None));
+    }
+}
+
+fn static_template_library_module() -> PyModuleName {
+    PyModuleName::parse("djls_static_template_library")
+        .expect("static template library module name should be valid")
+}
+
+fn inventory_is_unready(entries: &[djls_project::TemplateDirectoryEntry]) -> bool {
+    entries.iter().any(|entry| {
+        matches!(
+            entry,
+            djls_project::TemplateDirectoryEntry::Deferred { .. }
+                | djls_project::TemplateDirectoryEntry::Unavailable { .. }
+                | djls_project::TemplateDirectoryEntry::Stale { .. }
+                | djls_project::TemplateDirectoryEntry::UnknownSettingsDir
+        )
+    })
 }
 
 #[salsa::tracked]
 pub struct TemplateReference<'db> {
     pub source: Template<'db>,
-    pub target: TemplateName<'db>,
+    pub target: InternedTemplateName<'db>,
     pub span: Span,
 }
 
@@ -107,16 +158,235 @@ impl TemplateReference<'_> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use camino::Utf8PathBuf;
+    use djls_project::manage_py_path;
+    use djls_project::package_init_path;
+    use djls_project::project_roots_for_test;
+    use djls_project::ready_source_inventory_with_roots_for_test;
+    use djls_project::settings_file_path;
+    use djls_project::template_path;
+    use djls_project::Db as ProjectDb;
+    use djls_project::DjangoEnvironmentCandidatesOutcome;
+    use djls_project::LibraryName;
+    use djls_project::ProjectRootDiscovery;
+    use salsa::Setter;
+
+    use super::*;
+    use crate::testing::TestDatabase;
+
+    #[test]
+    fn static_template_resolution_returns_deferred_for_known_unloaded_directory() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "TEMPLATES = [{'DIRS': ['/workspace/templates']}]\n",
+        );
+        let project = djls_project::Db::project(&db);
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone()],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+            ],
+        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_roots_for_test(
+            &db,
+            root.clone(),
+        )));
+
+        let source = db.create_file(&template_path(&root, "base.html"));
+        let result = resolve_template(&db, source, "emails/welcome.html");
+
+        assert!(matches!(result, TemplateLookupResult::Deferred));
+        assert!(matches!(
+            djls_project::django_environment_candidates(&db, project),
+            DjangoEnvironmentCandidatesOutcome::Ready(_)
+        ));
+    }
+
+    #[test]
+    fn static_template_inventory_libraries_for_file_include_static_inventory_libraries() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "TEMPLATES = [{'OPTIONS': {'libraries': {'ui': 'blog.templatetags.ui'}}}]\n",
+        );
+        db.add_file("/workspace/blog/templatetags/ui.py", "");
+        let project = djls_project::Db::project(&db);
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone()],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+                root.join("blog/templatetags/ui.py"),
+            ],
+        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_roots_for_test(
+            &db,
+            root.clone(),
+        )));
+        let source = db.create_file(&template_path(&root, "base.html"));
+
+        let libraries = template_libraries_for_file(&db, source)
+            .expect("selected environment should provide template libraries");
+
+        assert!(libraries
+            .loadable
+            .contains_key(&LibraryName::parse("ui").expect("test library name should be valid")));
+        assert!(matches!(
+            djls_project::django_environment_candidates(&db, project),
+            DjangoEnvironmentCandidatesOutcome::Ready(_)
+        ));
+    }
+
+    #[test]
+    fn template_libraries_for_file_merges_runtime_enrichment_hints() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "TEMPLATES = [{'DIRS': ['/workspace/templates']}]\n",
+        );
+        let project = djls_project::Db::project(&db);
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone()],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+            ],
+        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_roots_for_test(
+            &db,
+            root.clone(),
+        )));
+        project
+            .set_enrichment(&mut db)
+            .to(djls_project::ProjectEnrichment::Fresh(
+                std::collections::BTreeMap::from([(
+                    LibraryName::parse("runtime_ui").unwrap(),
+                    PyModuleName::parse("blog.templatetags.runtime_ui").unwrap(),
+                )]),
+            ));
+        let source = db.create_file(&template_path(&root, "base.html"));
+
+        let libraries = template_libraries_for_file(&db, source)
+            .expect("selected environment should provide template libraries");
+
+        assert!(libraries.loadable.contains_key(
+            &LibraryName::parse("runtime_ui").expect("test library name should be valid")
+        ));
+    }
+
+    #[test]
+    fn static_template_inventory_validation_uses_static_inventory() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "TEMPLATES = [{'OPTIONS': {'libraries': {'ui': 'blog.templatetags.ui'}}}]\n",
+        );
+        db.add_file("/workspace/blog/templatetags/ui.py", "");
+        db.add_file("/workspace/templates/base.html", "{% load ui %}");
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone(), root.join("templates")],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+                root.join("blog/templatetags/ui.py"),
+                template_path(&root, "base.html"),
+            ],
+        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_roots_for_test(
+            &db,
+            root.clone(),
+        )));
+        let file = db.create_file(&template_path(&root, "base.html"));
+
+        crate::validate_template_file(&db, file);
+        let errors = crate::validate_template_file::accumulated::<crate::ValidationErrorAccumulator>(
+            &db, file,
+        );
+
+        assert!(errors.iter().all(|error| !matches!(
+            error.0,
+            crate::ValidationError::UnknownLibrary { .. }
+                | crate::ValidationError::LibraryNotInInstalledApps { .. }
+        )));
+    }
+
+    #[test]
+    fn static_template_resolution_finds_loaded_configured_template() {
+        let mut db = TestDatabase::new();
+        let root = Utf8PathBuf::from("/workspace");
+        db.add_file(
+            "/workspace/config/settings.py",
+            "TEMPLATES = [{'DIRS': ['/workspace/templates']}]\n",
+        );
+        db.add_file("/workspace/templates/emails/welcome.html", "hello");
+        let project = djls_project::Db::project(&db);
+        db.set_source_file_inventory(ready_source_inventory_with_roots_for_test(
+            &db,
+            vec![root.clone(), root.join("templates")],
+            vec![
+                manage_py_path(&root),
+                package_init_path(&root, "config"),
+                settings_file_path(&root, "config"),
+                template_path(&root, "emails/welcome.html"),
+            ],
+        ));
+        db.set_project_root_discovery(ProjectRootDiscovery::Ready(project_roots_for_test(
+            &db,
+            root.clone(),
+        )));
+        let DjangoEnvironmentCandidatesOutcome::Ready(candidates) =
+            djls_project::django_environment_candidates(&db, project)
+        else {
+            panic!("environment candidates should be ready");
+        };
+
+        let source = db.create_file(&template_path(&root, "base.html"));
+        let result = resolve_static_template(
+            &db,
+            project,
+            candidates[0].id().clone(),
+            djls_project::TemplateName::parse("emails/welcome.html").unwrap(),
+        );
+        let public_result = resolve_template(&db, source, "emails/welcome.html");
+
+        assert!(result.is_found());
+        assert!(public_result.is_found());
+    }
+}
+
 pub fn find_references_to_template<'db>(
     db: &'db dyn SemanticDb,
+    source: File,
     name: &str,
 ) -> Vec<TemplateReference<'db>> {
-    let Some(project) = db.project() else {
+    let Ok(name) = djls_project::TemplateName::parse(name) else {
         return Vec::new();
     };
+    let project = djls_project::Db::project(db);
+    let env = match djls_project::environment_for_file(db, project, source) {
+        djls_project::EnvironmentSelection::Selected(env) => env,
+        djls_project::EnvironmentSelection::Unknown
+        | djls_project::EnvironmentSelection::Ambiguous(_) => return Vec::new(),
+    };
 
-    let template_name = TemplateName::new(db, name.to_string());
-    let all_refs = template_reference_index(db, project);
+    let template_name = InternedTemplateName::new(db, name.as_str().to_string());
+    let all_refs = static_template_reference_index(db, project, env.clone());
 
     let matches: Vec<_> = all_refs
         .into_iter()
@@ -132,11 +402,20 @@ pub fn find_references_to_template<'db>(
 }
 
 #[salsa::tracked]
-fn template_reference_index(db: &dyn SemanticDb, project: Project) -> Vec<TemplateReference<'_>> {
+fn static_template_reference_index(
+    db: &dyn SemanticDb,
+    project: djls_project::Project,
+    env: djls_project::DjangoEnvironmentId,
+) -> Vec<TemplateReference<'_>> {
     let mut references = Vec::new();
-    let templates = discover_templates(db, project);
+    let inventory = djls_project::template_files(db, project, env);
 
-    for template in templates {
+    for project_template in inventory.templates() {
+        let template = Template::new(
+            db,
+            InternedTemplateName::new(db, project_template.name().to_string()),
+            project_template.file(),
+        );
         for tag in template.tags(db) {
             let tag_name = tag.name();
             if tag_name == "extends" || tag_name == "include" {
@@ -148,7 +427,7 @@ fn template_reference_index(db: &dyn SemanticDb, project: Project) -> Vec<Templa
                     references.push(TemplateReference::new(
                         db,
                         template,
-                        TemplateName::new(db, template_name.to_string()),
+                        InternedTemplateName::new(db, template_name.to_string()),
                         tag.span(),
                     ));
                 }

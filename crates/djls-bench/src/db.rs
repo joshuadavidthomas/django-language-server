@@ -1,8 +1,10 @@
 use std::io;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -20,20 +22,28 @@ pub struct Db {
     tag_specs: Arc<TagSpecs>,
     template_libraries: Arc<djls_semantic::TemplateLibraries>,
     filter_arity_specs: Arc<FilterAritySpecs>,
+    project: Arc<OnceLock<Project>>,
     storage: salsa::Storage<Self>,
 }
 
 impl Db {
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
-        Self {
+        let db = Self {
             sources: Arc::new(FxDashMap::default()),
             files: SourceFiles::default(),
             tag_specs: Arc::new(TagSpecs::default()),
             template_libraries: Arc::new(djls_semantic::TemplateLibraries::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
+            project: Arc::new(OnceLock::new()),
             storage: salsa::Storage::default(),
-        }
+        };
+        let project = Project::fixture_unavailable(&db);
+        db.project
+            .set(project)
+            .expect("project should initialize once");
+        db
     }
 
     #[must_use]
@@ -77,6 +87,13 @@ impl Default for Db {
 impl salsa::Database for Db {}
 
 #[salsa::db]
+impl djls_project::Db for Db {
+    fn project(&self) -> Project {
+        *self.project.get().expect("project should be initialized")
+    }
+}
+
+#[salsa::db]
 impl SourceDb for Db {
     fn files(&self) -> &SourceFiles {
         &self.files
@@ -92,24 +109,9 @@ impl SourceDb for Db {
 }
 
 #[salsa::db]
-impl djls_semantic::ProjectDb for Db {
-    fn project(&self) -> Option<djls_semantic::Project> {
-        None
-    }
-
-    fn project_introspector(&self) -> Arc<djls_semantic::ProjectIntrospector> {
-        Arc::new(djls_semantic::ProjectIntrospector::new())
-    }
-}
-
-#[salsa::db]
 impl SemanticDb for Db {
     fn tag_specs(&self) -> &TagSpecs {
         &self.tag_specs
-    }
-
-    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        None
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

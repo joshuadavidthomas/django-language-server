@@ -9,6 +9,8 @@ dev = [
   "django-stubs>=5.1.1",
   "maturin>=1.7.8",
   "nox>=2025.5.1",
+  "pytest>=9.0.3",
+  "pytest-lsp>=1.0.0",
   "ruff>=0.8.2",
 ]
 docs = [

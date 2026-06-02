@@ -50,7 +50,7 @@ impl ExtendsPosition {
 pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
-    symbol_index: &'a SymbolIndex,
+    symbol_index: SymbolIndex,
     template_libraries: &'a TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
@@ -64,15 +64,15 @@ pub(crate) struct TemplateValidator<'a> {
 }
 
 impl<'a> TemplateValidator<'a> {
-    #[must_use]
-    pub(crate) fn new(
+    pub(crate) fn new_with_template_libraries(
         db: &'a dyn Db,
         nodelist: djls_templates::NodeList<'_>,
         opaque_regions: &'a OpaqueRegions,
+        template_libraries: &'a TemplateLibraries,
     ) -> Self {
-        let template_libraries = db.template_libraries();
         let tag_specs = db.tag_specs();
-        let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
+        let symbol_index =
+            crate::scoping::compute_symbol_index_with_libraries(db, nodelist, template_libraries);
         let filter_arity_specs = db.filter_arity_specs();
 
         let env_tags =

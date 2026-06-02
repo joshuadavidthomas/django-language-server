@@ -78,6 +78,11 @@ impl ClientInfo {
     pub(crate) fn supports_snippets(&self) -> bool {
         self.capabilities.snippets
     }
+
+    #[must_use]
+    pub(crate) fn supports_work_done_progress(&self) -> bool {
+        self.capabilities.work_done_progress
+    }
 }
 
 /// LSP client identification for client-specific behavioral overrides.
@@ -96,6 +101,7 @@ pub(crate) enum Client {
 pub(crate) struct ClientCapabilities {
     pull_diagnostics: bool,
     snippets: bool,
+    work_done_progress: bool,
 }
 
 impl ClientCapabilities {
@@ -115,9 +121,16 @@ impl ClientCapabilities {
             .and_then(|completion_item| completion_item.snippet_support)
             .unwrap_or(false);
 
+        let work_done_progress = capabilities
+            .window
+            .as_ref()
+            .and_then(|window| window.work_done_progress)
+            .unwrap_or(false);
+
         Self {
             pull_diagnostics,
             snippets,
+            work_done_progress,
         }
     }
 }
@@ -224,6 +237,42 @@ mod tests {
             ClientOptions::default(),
         );
         assert_eq!(client_info.client(), Client::Default);
+    }
+
+    #[test]
+    fn work_done_progress_capability_is_enabled_when_explicitly_true() {
+        let capabilities = ls_types::ClientCapabilities {
+            window: Some(ls_types::WindowClientCapabilities {
+                work_done_progress: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+
+        assert!(client_info.supports_work_done_progress());
+    }
+
+    #[test]
+    fn work_done_progress_capability_is_disabled_when_explicitly_false() {
+        let capabilities = ls_types::ClientCapabilities {
+            window: Some(ls_types::WindowClientCapabilities {
+                work_done_progress: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+
+        assert!(!client_info.supports_work_done_progress());
+    }
+
+    #[test]
+    fn work_done_progress_capability_is_disabled_when_missing() {
+        let capabilities = ls_types::ClientCapabilities::default();
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+
+        assert!(!client_info.supports_work_done_progress());
     }
 
     #[test]

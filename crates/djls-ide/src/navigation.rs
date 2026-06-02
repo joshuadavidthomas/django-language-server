@@ -1,5 +1,5 @@
 use djls_semantic::resolve_template;
-use djls_semantic::ResolveResult;
+use djls_semantic::TemplateLookupResult;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
@@ -20,8 +20,8 @@ pub fn goto_definition(
         } => {
             tracing::debug!("Found template reference: '{}'", template_name);
 
-            match resolve_template(db, &template_name) {
-                ResolveResult::Found(template) => {
+            match resolve_template(db, file, &template_name) {
+                TemplateLookupResult::Found(template) => {
                     let path = template.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
 
@@ -32,7 +32,8 @@ pub fn goto_definition(
                         },
                     ))
                 }
-                ResolveResult::NotFound { tried, .. } => {
+                TemplateLookupResult::Deferred => None,
+                TemplateLookupResult::NotFound { tried, .. } => {
                     tracing::warn!("Template '{}' not found. Tried: {:?}", template_name, tried);
                     None
                 }
@@ -57,7 +58,7 @@ pub fn find_references(
                 template_name
             );
 
-            let references = djls_semantic::find_references_to_template(db, &template_name);
+            let references = djls_semantic::find_references_to_template(db, file, &template_name);
 
             let locations: Vec<ls_types::Location> = references
                 .iter()

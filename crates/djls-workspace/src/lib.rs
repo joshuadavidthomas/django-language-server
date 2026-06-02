@@ -9,12 +9,18 @@
 //! - [`FileSystem`] - Abstraction layer for file operations with overlay support
 
 mod document;
+mod file_loader;
 mod files;
 mod walk;
 mod workspace;
 
 pub use document::DocumentChange;
 pub use document::TextDocument;
+pub use file_loader::load_files_for_roots;
+pub use file_loader::FileLoadPredicate;
+pub use file_loader::FilesForRootsRequest;
+pub use file_loader::FilesForRootsResult;
+pub use file_loader::WorkspaceRootIssue;
 pub use files::FileSystem;
 pub use files::InMemoryFileSystem;
 pub use files::OsFileSystem;

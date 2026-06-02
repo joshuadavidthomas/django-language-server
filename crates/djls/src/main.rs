@@ -2,6 +2,7 @@
 mod args;
 mod cli;
 mod commands;
+mod discovery;
 mod exit;
 
 use anyhow::Result;

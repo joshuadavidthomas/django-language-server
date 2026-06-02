@@ -19,22 +19,14 @@ pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
 pub use project::load_env_file;
-pub use project::load_template_library_cache;
-pub use project::refresh_external_data;
-pub use project::Db as ProjectDb;
 pub use project::InstalledSymbolCandidate;
 pub use project::InstalledSymbolOrigin;
 pub use project::Interpreter;
 pub use project::Knowledge;
 pub use project::LibraryName;
 pub use project::LibraryOrigin;
-pub use project::Project;
-pub use project::ProjectIntrospector;
-pub use project::ProjectPythonIndex;
-pub use project::ProjectTemplateFiles;
 pub use project::PyModuleName;
 pub use project::SymbolDefinition;
-pub use project::TemplateDirs;
 pub use project::TemplateLibraries;
 pub use project::TemplateLibrary;
 pub use project::TemplateLibrarySnapshot;
@@ -61,7 +53,8 @@ pub use queries::compute_model_graph;
 pub use queries::compute_tag_specs;
 pub use resolution::find_references_to_template;
 pub use resolution::resolve_template;
-pub use resolution::ResolveResult;
+pub use resolution::template_libraries_for_file;
+pub use resolution::TemplateLookupResult;
 pub use scoping::available_symbols_at;
 pub use scoping::AvailableSymbols;
 pub use scoping::LoadKind;
@@ -90,8 +83,16 @@ pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
     let Some(nodelist) = djls_templates::parse_template(db, file) else {
         return;
     };
+    let nodes = nodelist.nodelist(db);
+    if nodes.is_empty() {
+        return;
+    }
 
-    validate_nodelist(db, nodelist);
+    let _template_tree = build_template_tree(db, nodelist);
+    let opaque_regions = compute_opaque_regions(db, nodelist);
+    let template_libraries =
+        template_libraries_for_file(db, file).unwrap_or_else(|| db.template_libraries().clone());
+    validate_nodelist_with_template_libraries(db, nodelist, &opaque_regions, &template_libraries);
 }
 
 /// Validate a Django template node list and return validation errors.
@@ -115,7 +116,27 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
     // 2. Perform all other validations in a single walk.
     let opaque_regions = compute_opaque_regions(db, nodelist);
-    let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
+    validate_nodelist_with_template_libraries(
+        db,
+        nodelist,
+        &opaque_regions,
+        db.template_libraries(),
+    );
+}
+
+fn validate_nodelist_with_template_libraries(
+    db: &dyn Db,
+    nodelist: djls_templates::NodeList<'_>,
+    opaque_regions: &structure::OpaqueRegions,
+    template_libraries: &project::TemplateLibraries,
+) {
+    let nodes = nodelist.nodelist(db);
+    let validator = TemplateValidator::new_with_template_libraries(
+        db,
+        nodelist,
+        opaque_regions,
+        template_libraries,
+    );
     validator.validate(nodes);
 }
 
@@ -125,6 +146,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fmt::Write;
 
+    use camino::Utf8Path;
     use camino::Utf8PathBuf;
 
     use crate::specs::filters::FilterAritySpecs;
@@ -226,6 +248,22 @@ mod tests {
     }
 
     // Integration: Mixed diagnostics
+
+    #[test]
+    fn file_validation_falls_back_to_runtime_libraries_without_project_facts() {
+        let db = standard_db();
+        db.add_file("test.html", "{{ value|truncatewords }}\n");
+        let file = db.create_file(Utf8Path::new("test.html"));
+
+        crate::validate_template_file(&db, file);
+        let errors = crate::validate_template_file::accumulated::<crate::ValidationErrorAccumulator>(
+            &db, file,
+        );
+
+        assert!(errors
+            .iter()
+            .any(|error| matches!(error.0, ValidationError::FilterMissingArgument { .. })));
+    }
 
     #[test]
     fn mixed_expression_and_filter_arity_errors() {

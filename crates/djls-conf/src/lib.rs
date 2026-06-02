@@ -4,13 +4,11 @@ mod format;
 mod tagspecs;
 
 use std::fs;
-use std::path::Path;
 
 use anyhow::Context;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use config::Config;
-use config::ConfigError as ExternalConfigError;
 use config::File;
 use config::FileFormat;
 use directories::ProjectDirs;
@@ -56,16 +54,161 @@ pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
     Ok(dir)
 }
 
-#[derive(Error, Debug)]
-pub enum ConfigError {
-    #[error("Configuration build/deserialize error")]
-    Config(#[from] ExternalConfigError),
-    #[error("Failed to read pyproject.toml")]
-    PyprojectIo(#[from] std::io::Error),
-    #[error("Failed to parse pyproject.toml TOML")]
-    PyprojectParse(#[from] toml::de::Error),
-    #[error("Failed to serialize extracted pyproject.toml data")]
-    PyprojectSerialize(#[from] toml::ser::Error),
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum SettingsLoadError {
+    #[error("failed to read DJLS config")]
+    Io(Utf8PathBuf),
+    #[error("failed to parse DJLS config")]
+    Parse(Utf8PathBuf),
+    #[error("DJLS config schema is invalid")]
+    Schema(Option<Utf8PathBuf>),
+    #[error("DJLS config shape is unsupported")]
+    Unsupported(Utf8PathBuf),
+}
+
+impl SettingsLoadError {
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Utf8Path> {
+        match self {
+            Self::Io(source_path) | Self::Parse(source_path) | Self::Unsupported(source_path) => {
+                Some(source_path.as_path())
+            }
+            Self::Schema(source_path) => source_path.as_deref(),
+        }
+    }
+}
+
+trait ConfigErrorExt {
+    fn source_path(&self) -> Option<Utf8PathBuf>;
+    fn to_settings_load_error(&self) -> SettingsLoadError;
+}
+
+impl ConfigErrorExt for config::ConfigError {
+    fn source_path(&self) -> Option<Utf8PathBuf> {
+        match self {
+            Self::FileParse { uri, .. } | Self::Type { origin: uri, .. } => {
+                uri.as_deref().map(config_origin_path)
+            }
+            Self::At { origin, error, .. } => origin
+                .as_deref()
+                .map(config_origin_path)
+                .or_else(|| error.source_path()),
+            _ => None,
+        }
+    }
+
+    fn to_settings_load_error(&self) -> SettingsLoadError {
+        match self {
+            Self::FileParse { uri: Some(uri), .. } => {
+                SettingsLoadError::Parse(config_origin_path(uri))
+            }
+            _ => SettingsLoadError::Schema(self.source_path()),
+        }
+    }
+}
+
+fn config_origin_path(uri: &str) -> Utf8PathBuf {
+    let path = Utf8PathBuf::from(uri);
+    if path.is_absolute() {
+        return path;
+    }
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| Utf8PathBuf::from_path_buf(cwd).ok())
+        .map_or_else(
+            || Utf8PathBuf::from(uri),
+            |cwd| {
+                let path = cwd.join(path);
+                path.canonicalize_utf8().unwrap_or(path)
+            },
+        )
+}
+
+enum ConfigLayer {
+    File(Utf8PathBuf),
+    TomlString(String),
+}
+
+impl ConfigLayer {
+    fn add_to(
+        self,
+        builder: config::ConfigBuilder<config::builder::DefaultState>,
+    ) -> config::ConfigBuilder<config::builder::DefaultState> {
+        match self {
+            Self::File(path) => builder.add_source(
+                File::from(path.as_std_path())
+                    .format(FileFormat::Toml)
+                    .required(true),
+            ),
+            Self::TomlString(content) => {
+                builder.add_source(File::from_str(&content, FileFormat::Toml))
+            }
+        }
+    }
+}
+
+enum ConfigSource {
+    User(Utf8PathBuf),
+    PyprojectToolDjls(Utf8PathBuf),
+    DotDjls(Utf8PathBuf),
+    Djls(Utf8PathBuf),
+}
+
+impl ConfigSource {
+    fn sources(project_root: &Utf8Path) -> impl Iterator<Item = Self> {
+        let user_source = project_dirs()
+            .map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"))
+            .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
+            .map(Self::User);
+        let project_sources = [
+            Self::PyprojectToolDjls(project_root.join("pyproject.toml")),
+            Self::DotDjls(project_root.join(".djls.toml")),
+            Self::Djls(project_root.join("djls.toml")),
+        ];
+
+        user_source.into_iter().chain(project_sources)
+    }
+
+    fn path(&self) -> &Utf8Path {
+        match self {
+            Self::User(path)
+            | Self::PyprojectToolDjls(path)
+            | Self::DotDjls(path)
+            | Self::Djls(path) => path,
+        }
+    }
+
+    fn layer(&self) -> Result<Option<ConfigLayer>, SettingsLoadError> {
+        let path = self.path();
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content =
+            fs::read_to_string(path).map_err(|_error| SettingsLoadError::Io(path.to_owned()))?;
+
+        match self {
+            Self::User(_) | Self::DotDjls(_) | Self::Djls(_) => {
+                toml::from_str::<toml::Value>(&content)
+                    .map_err(|_error| SettingsLoadError::Parse(path.to_owned()))?;
+                Ok(Some(ConfigLayer::File(path.to_owned())))
+            }
+            Self::PyprojectToolDjls(_) => {
+                let toml_str: toml::Value = toml::from_str(&content)
+                    .map_err(|_error| SettingsLoadError::Parse(path.to_owned()))?;
+                let tool_djls_value: Option<&toml::Value> = ["tool", "djls"]
+                    .iter()
+                    .try_fold(&toml_str, |val, &key| val.get(key));
+                let Some(tool_djls_table) = tool_djls_value.and_then(|value| value.as_table())
+                else {
+                    return Ok(None);
+                };
+                let content = toml::to_string(tool_djls_table)
+                    .map_err(|_error| SettingsLoadError::Unsupported(path.to_owned()))?;
+                Ok(Some(ConfigLayer::TomlString(content)))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Clone)]
@@ -88,81 +231,66 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn new(project_root: &Utf8Path, overrides: Option<Settings>) -> Result<Self, ConfigError> {
-        let user_config_file =
-            project_dirs().map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
+    pub fn load(
+        project_root: &Utf8Path,
+        overrides: Option<Settings>,
+    ) -> Result<Self, Vec<SettingsLoadError>> {
+        let (loaded_layers, errors) = ConfigSource::sources(project_root).fold(
+            (Vec::new(), Vec::new()),
+            |(mut loaded_layers, mut errors), source| {
+                match source.layer() {
+                    Ok(Some(layer)) => loaded_layers.push(layer),
+                    Ok(None) => {}
+                    Err(error) => errors.push(error),
+                }
+                (loaded_layers, errors)
+            },
+        );
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+        let builder = loaded_layers
+            .into_iter()
+            .fold(Config::builder(), |builder, layer| layer.add_to(builder));
 
-        let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
+        let config = builder
+            .build()
+            .map_err(|error| vec![error.to_settings_load_error()])?;
+        let mut settings: Self = config
+            .try_deserialize()
+            .map_err(|error| vec![SettingsLoadError::Schema(error.source_path())])?;
 
         if let Some(overrides) = overrides {
-            settings.debug = overrides.debug || settings.debug;
-            settings.venv_path = overrides.venv_path.or(settings.venv_path);
-            settings.django_settings_module = overrides
-                .django_settings_module
-                .or(settings.django_settings_module);
-            if !overrides.django_environments.is_empty() {
-                settings.django_environments = overrides.django_environments;
-            }
-            if !overrides.pythonpath.is_empty() {
-                settings.pythonpath = overrides.pythonpath;
-            }
-            settings.env_file = overrides.env_file.or(settings.env_file);
-            if !overrides.tagspecs.libraries.is_empty() {
-                settings.tagspecs = overrides.tagspecs;
-            }
-            // For diagnostics, override if the config is non-default
-            if overrides.diagnostics != DiagnosticsConfig::default() {
-                settings.diagnostics = overrides.diagnostics;
-            }
-            if overrides.format != FormatConfig::default() {
-                settings.format = overrides.format;
-            }
+            settings = settings.with_overrides(overrides);
         }
 
         Ok(settings)
     }
 
-    fn load_from_paths(
-        project_root: &Utf8Path,
-        user_config_path: Option<&Path>,
-    ) -> Result<Self, ConfigError> {
-        let mut builder = Config::builder();
-
-        if let Some(path) = user_config_path {
-            builder = builder.add_source(File::from(path).format(FileFormat::Toml).required(false));
+    #[must_use]
+    fn with_overrides(mut self, overrides: Settings) -> Self {
+        self.debug = overrides.debug || self.debug;
+        self.venv_path = overrides.venv_path.or(self.venv_path);
+        self.django_settings_module = overrides
+            .django_settings_module
+            .or(self.django_settings_module);
+        if !overrides.django_environments.is_empty() {
+            self.django_environments = overrides.django_environments;
         }
-
-        let pyproject_path = project_root.join("pyproject.toml");
-        if pyproject_path.exists() {
-            let content = fs::read_to_string(&pyproject_path)?;
-            let toml_str: toml::Value = toml::from_str(&content)?;
-            let tool_djls_value: Option<&toml::Value> =
-                ["tool", "djls"].iter().try_fold(&toml_str, |val, &key| {
-                    // Attempt to get the next key. If it exists, return Some(value) to continue.
-                    // If get returns None, try_fold automatically stops and returns None overall.
-                    val.get(key)
-                });
-            if let Some(tool_djls_table) = tool_djls_value.and_then(|v| v.as_table()) {
-                let tool_djls_string = toml::to_string(tool_djls_table)?;
-                builder = builder.add_source(File::from_str(&tool_djls_string, FileFormat::Toml));
-            }
+        if !overrides.pythonpath.is_empty() {
+            self.pythonpath = overrides.pythonpath;
         }
-
-        builder = builder.add_source(
-            File::from(project_root.join(".djls.toml").as_std_path())
-                .format(FileFormat::Toml)
-                .required(false),
-        );
-
-        builder = builder.add_source(
-            File::from(project_root.join("djls.toml").as_std_path())
-                .format(FileFormat::Toml)
-                .required(false),
-        );
-
-        let config = builder.build()?;
-        let settings: Self = config.try_deserialize()?;
-        Ok(settings)
+        self.env_file = overrides.env_file.or(self.env_file);
+        if !overrides.tagspecs.libraries.is_empty() {
+            self.tagspecs = overrides.tagspecs;
+        }
+        if overrides.diagnostics != DiagnosticsConfig::default() {
+            self.diagnostics = overrides.diagnostics;
+        }
+        if overrides.format != FormatConfig::default() {
+            self.format = overrides.format;
+        }
+        self
     }
 
     #[must_use]
@@ -219,13 +347,120 @@ mod tests {
 
     use super::*;
 
+    mod settings_load {
+        use super::*;
+
+        #[test]
+        fn missing_config_uses_overrides_without_error() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let overrides = Settings::default();
+
+            let settings = Settings::load(root, Some(overrides.clone())).unwrap();
+
+            assert_eq!(settings, overrides);
+        }
+
+        #[test]
+        fn loads_project_config_without_error() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(root.join("djls.toml"), "debug = true").unwrap();
+
+            let settings = Settings::load(root, None).unwrap();
+
+            assert!(settings.debug());
+        }
+
+        #[test]
+        fn unrelated_pyproject_does_not_hide_djls_toml_source() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(root.join("pyproject.toml"), "[project]\nname = 'demo'").unwrap();
+            fs::write(root.join("djls.toml"), "debug = true").unwrap();
+
+            let settings = Settings::load(root, None).unwrap();
+
+            assert!(settings.debug());
+        }
+
+        #[test]
+        fn invalid_djls_toml_reports_parse_error_for_that_source() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let source = root.join("djls.toml");
+            fs::write(&source, "debug = [true").unwrap();
+
+            let errors = Settings::load(root, None).unwrap_err();
+
+            assert_eq!(errors.len(), 1);
+            assert!(matches!(
+                &errors[0],
+                SettingsLoadError::Parse(source_path) if source_path == &source
+            ));
+        }
+
+        #[test]
+        fn client_settings_can_override_successful_root_config() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            fs::write(root.join("djls.toml"), "debug = false").unwrap();
+            let client_settings = Settings {
+                debug: true,
+                ..Settings::default()
+            };
+
+            let settings = Settings::load(root, Some(client_settings)).unwrap();
+
+            assert!(settings.debug());
+        }
+
+        #[test]
+        fn parse_failure_preserves_source() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let source = root.join("pyproject.toml");
+            fs::write(&source, "not = [valid").unwrap();
+
+            let errors = Settings::load(root, None).unwrap_err();
+
+            assert_eq!(errors.len(), 1);
+            assert!(matches!(
+                &errors[0],
+                SettingsLoadError::Parse(source_path) if source_path == &source
+            ));
+        }
+
+        #[test]
+        fn reports_parse_errors_for_each_invalid_source() {
+            let dir = tempdir().unwrap();
+            let root = Utf8Path::from_path(dir.path()).unwrap();
+            let pyproject = root.join("pyproject.toml");
+            let djls = root.join("djls.toml");
+            fs::write(&pyproject, "not = [valid").unwrap();
+            fs::write(&djls, "debug = [true").unwrap();
+
+            let errors = Settings::load(root, None).unwrap_err();
+
+            assert_eq!(errors.len(), 2);
+            assert!(matches!(
+                &errors[0],
+                SettingsLoadError::Parse(source_path) if source_path == &pyproject
+            ));
+            assert!(matches!(
+                &errors[1],
+                SettingsLoadError::Parse(source_path) if source_path == &djls
+            ));
+        }
+    }
+
     mod defaults {
         use super::*;
 
         #[test]
         fn test_load_no_files() {
             let dir = tempdir().unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -250,7 +485,7 @@ mod tests {
         fn test_load_djls_toml_only() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -264,7 +499,7 @@ mod tests {
         fn test_load_venv_path_config() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), "venv_path = '/path/to/venv'").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -282,7 +517,7 @@ mod tests {
                 r#"pythonpath = ["/path/to/lib", "/another/path"]"#,
             )
             .unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -296,7 +531,7 @@ mod tests {
         fn test_load_dot_djls_toml_only() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -311,7 +546,7 @@ mod tests {
             let dir = tempdir().unwrap();
             let content = "[tool.djls]\ndebug = true\n";
             fs::write(dir.path().join("pyproject.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -325,7 +560,7 @@ mod tests {
         fn test_load_env_file_config() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), r#"env_file = ".env.local""#).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -352,7 +587,7 @@ django_settings_module = "projects.site2.settings.dev"
             )
             .unwrap();
 
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             let environments = settings.django_environments();
 
             assert_eq!(environments.len(), 2);
@@ -388,7 +623,7 @@ django_settings_module = "project.settings"
                 )],
                 ..Default::default()
             };
-            let settings = Settings::new(
+            let settings = Settings::load(
                 Utf8Path::from_path(dir.path()).unwrap(),
                 Some(override_settings),
             )
@@ -414,7 +649,7 @@ backend = "djangofmt"
 "#,
             )
             .unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             assert!(settings.format().enabled());
             assert_eq!(settings.format().backend(), FormatBackend::Djangofmt);
@@ -434,7 +669,7 @@ T100 = "hint"
 "#,
             )
             .unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings.diagnostics.get_severity("S100"),
                 DiagnosticSeverity::Off
@@ -462,7 +697,7 @@ T100 = "hint"
             let dir = tempdir().unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = false").unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -478,7 +713,7 @@ T100 = "hint"
             let pyproject_content = "[tool.djls]\ndebug = false\n";
             fs::write(dir.path().join("pyproject.toml"), pyproject_content).unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -495,116 +730,7 @@ T100 = "hint"
             fs::write(dir.path().join("pyproject.toml"), pyproject_content).unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = false").unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
-        }
-
-        #[test]
-        fn test_user_priority_project_overrides_user() {
-            let user_dir = tempdir().unwrap();
-            let project_dir = tempdir().unwrap();
-            let user_conf_path = user_dir.path().join("config.toml");
-            fs::write(&user_conf_path, "debug = true").unwrap();
-            let pyproject_content = "[tool.djls]\ndebug = false\n";
-            fs::write(project_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
-
-            let settings = Settings::load_from_paths(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&user_conf_path),
-            )
-            .unwrap();
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: false,
-                    ..Default::default()
-                }
-            );
-        }
-
-        #[test]
-        fn test_user_priority_djls_overrides_user() {
-            let user_dir = tempdir().unwrap();
-            let project_dir = tempdir().unwrap();
-            let user_conf_path = user_dir.path().join("config.toml");
-            fs::write(&user_conf_path, "debug = true").unwrap();
-            fs::write(project_dir.path().join("djls.toml"), "debug = false").unwrap();
-
-            let settings = Settings::load_from_paths(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&user_conf_path),
-            )
-            .unwrap();
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: false,
-                    ..Default::default()
-                }
-            );
-        }
-    }
-
-    mod user_config {
-        use super::*;
-
-        #[test]
-        fn test_load_user_config_only() {
-            let user_dir = tempdir().unwrap();
-            let project_dir = tempdir().unwrap();
-            let user_conf_path = user_dir.path().join("config.toml");
-            fs::write(&user_conf_path, "debug = true").unwrap();
-
-            let settings = Settings::load_from_paths(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&user_conf_path),
-            )
-            .unwrap();
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
-        }
-
-        #[test]
-        fn test_no_user_config_file_present() {
-            let user_dir = tempdir().unwrap();
-            let project_dir = tempdir().unwrap();
-            let user_conf_path = user_dir.path().join("config.toml");
-            let pyproject_content = "[tool.djls]\ndebug = true\n";
-            fs::write(project_dir.path().join("pyproject.toml"), pyproject_content).unwrap();
-
-            let settings = Settings::load_from_paths(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&user_conf_path),
-            )
-            .unwrap();
-            assert_eq!(
-                settings,
-                Settings {
-                    debug: true,
-                    ..Default::default()
-                }
-            );
-        }
-
-        #[test]
-        fn test_user_config_path_not_provided() {
-            let project_dir = tempdir().unwrap();
-            fs::write(project_dir.path().join("djls.toml"), "debug = true").unwrap();
-
-            let settings =
-                Settings::load_from_paths(Utf8Path::from_path(project_dir.path()).unwrap(), None)
-                    .unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -648,7 +774,7 @@ kind = "variable"
             )
             .unwrap();
 
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             let doc = settings.tagspecs();
 
             assert_eq!(doc.version, "0.6.0");
@@ -665,9 +791,10 @@ kind = "variable"
         #[test]
         fn test_rejects_legacy_tagspecs_v040_array_format() {
             let dir = tempdir().unwrap();
+            let raw_source = dir.path().join("djls.toml");
 
             fs::write(
-                dir.path().join("djls.toml"),
+                &raw_source,
                 r#"
 [[tagspecs]]
 name = "block"
@@ -676,20 +803,35 @@ end_tag = { name = "endblock", optional = false }
 "#,
             )
             .unwrap();
+            let source = Utf8PathBuf::from_path_buf(fs::canonicalize(raw_source).unwrap()).unwrap();
 
-            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+            let result = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None);
 
             assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+            let errors = result.unwrap_err();
+            assert_eq!(errors.len(), 1);
+            assert!(
+                matches!(
+                    &errors[0],
+                    SettingsLoadError::Schema(Some(source_path)) if source_path == &source
+                ),
+                "unexpected errors: {errors:?}"
+            );
         }
 
         #[test]
         fn test_invalid_toml_content() {
             let dir = tempdir().unwrap();
-            fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean").unwrap();
-            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
+            let source = Utf8PathBuf::from_path_buf(dir.path().join("djls.toml")).unwrap();
+            fs::write(&source, "debug = not_a_boolean").unwrap();
+            let result = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None);
             assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+            let errors = result.unwrap_err();
+            assert_eq!(errors.len(), 1);
+            assert!(matches!(
+                &errors[0],
+                SettingsLoadError::Parse(source_path) if source_path == &source
+            ));
         }
 
         #[test]
@@ -704,7 +846,7 @@ root = "site"
             )
             .unwrap();
 
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let settings = Settings::load(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             assert_eq!(settings.django_environments().len(), 1);
             assert_eq!(settings.django_environments()[0].root(), "site");

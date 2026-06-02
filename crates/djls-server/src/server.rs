@@ -1,14 +1,9 @@
-use std::future::Future;
 use std::sync::Arc;
 
-use djls_semantic::load_template_library_cache;
-use djls_semantic::refresh_external_data;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::ProjectDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
-use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::ls_types;
@@ -18,13 +13,16 @@ use tower_lsp_server::LanguageServer;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
-use crate::queue::Queue;
 use crate::session::Session;
+use crate::startup::run_startup_source_files;
+use crate::startup::StartupController;
+use crate::startup::StartupProgress;
+use crate::startup::StartupRunInputs;
 
 pub(crate) struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
-    queue: Queue,
+    startup: StartupController,
     logging: LoggingGuard,
 }
 
@@ -34,7 +32,7 @@ impl DjangoLanguageServer {
         Self {
             client,
             session: Arc::new(Mutex::new(Session::default())),
-            queue: Queue::new(),
+            startup: StartupController::new(),
             logging,
         }
     }
@@ -55,32 +53,26 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
-    pub(crate) async fn with_session_mut_task<F, Fut>(
+    async fn start_project_discovery(
         &self,
-        f: F,
-    ) -> oneshot::Receiver<anyhow::Result<()>>
-    where
-        F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
-        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
-    {
+    ) -> tokio::task::JoinHandle<crate::startup::StartupRunOutcome> {
+        let guard = self.startup.start_generation().await;
+        let generation = guard.generation();
+        let inputs = {
+            let session = self.session.lock().await;
+            let progress = StartupProgress::for_client(
+                self.client.clone(),
+                session.client_info().supports_work_done_progress(),
+                generation,
+            );
+            StartupRunInputs::capture_with_progress(&session, guard, progress)
+        };
         let session = Arc::clone(&self.session);
-        let (tx, rx) = oneshot::channel();
-
-        if let Err(e) = self
-            .queue
-            .submit(async move {
-                let res = f(session).await;
-                let _ = tx.send(res);
-                Ok(())
-            })
-            .await
-        {
-            tracing::error!("Failed to submit task: {}", e);
-        } else {
-            tracing::info!("Task submitted successfully");
-        }
-
-        rx
+        tokio::spawn(async move {
+            let outcome = run_startup_source_files(session, inputs).await;
+            tracing::debug!(?outcome, "Django discovery run finished");
+            outcome
+        })
     }
 
     async fn publish_diagnostics(&self, document: &TextDocument) {
@@ -135,6 +127,11 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
+        tracing::debug!(
+            workspace_roots = session.workspace_roots().len(),
+            work_done_progress = session.client_info().supports_work_done_progress(),
+            "Captured workspace roots"
+        );
         let encoding = session.client_info().position_encoding();
 
         {
@@ -198,55 +195,7 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
-
-        // Phase 1: Load the cached template library snapshot for near-instant startup.
-        // This populates template_libraries from disk cache so completions and
-        // diagnostics work immediately while fresh project introspection runs.
-        let cache_loaded = self
-            .with_session_mut(|session| {
-                let t = std::time::Instant::now();
-                let loaded = load_template_library_cache(session.db_mut());
-                if loaded {
-                    tracing::info!(
-                        "Template library snapshot cache loaded in {:?}",
-                        t.elapsed()
-                    );
-                } else {
-                    tracing::info!("No template library snapshot cache available");
-                }
-                loaded
-            })
-            .await;
-
-        // Phase 2: Refresh project data in the background.
-        // This validates/refreshes the cached data, extracts external
-        // rules, and initializes the workspace.
-        let rx = self
-            .with_session_mut_task(|session| async move {
-                let start = std::time::Instant::now();
-
-                let mut session_lock = session.lock().await;
-                let db = session_lock.db_mut();
-
-                let t = std::time::Instant::now();
-                refresh_external_data(db);
-                tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                if db.project().is_none() {
-                    tracing::info!("Task: No project configured, skipping initialization.");
-                }
-
-                tracing::info!("Server initialization completed in {:?}", start.elapsed());
-                Ok(())
-            })
-            .await;
-
-        // If we loaded from cache, the server is already functional — requests
-        // arriving during the background refresh will use cached data. If no
-        // cache was available, we wait for the full initialization like before.
-        if !cache_loaded {
-            let _ = rx.await;
-        }
+        let _discovery = self.start_project_discovery().await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -309,14 +258,14 @@ impl LanguageServer for DjangoLanguageServer {
                 let file_kind = *source.kind();
 
                 tracing::debug!("Completion requested for {} at {:?}", path, position);
-                let template_libraries = db.project().map(|project| project.template_libraries(db));
+                let template_libraries = djls_semantic::template_libraries_for_file(db, file);
 
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
                 // Compute position-aware available symbols for load-scoped completions.
                 let available_symbols = if file_kind == FileKind::Template {
-                    if let Some(template_libraries) = template_libraries {
+                    if let Some(template_libraries) = template_libraries.as_ref() {
                         if template_libraries.active_knowledge == djls_semantic::Knowledge::Known {
                             let nodelist = djls_templates::parse_template(db, file);
 
@@ -345,7 +294,7 @@ impl LanguageServer for DjangoLanguageServer {
                     position,
                     encoding,
                     file_kind,
-                    template_libraries,
+                    template_libraries.as_ref(),
                     Some(tag_specs),
                     available_symbols.as_ref(),
                     supports_snippets,
@@ -559,52 +508,29 @@ impl LanguageServer for DjangoLanguageServer {
 
         let settings_update = self
             .with_session_mut(|session| {
-                if session.project().is_none() {
-                    return djls_db::SettingsUpdate::default();
-                }
+                let project_root = session.configuration_root();
 
-                let project_root = session.db().project_root_or_cwd();
-
-                match djls_conf::Settings::new(
+                match djls_conf::Settings::load(
                     &project_root,
                     Some(session.client_info().config_overrides().clone()),
                 ) {
                     Ok(new_settings) => session.set_settings(new_settings),
-                    Err(e) => {
-                        tracing::error!("Error loading settings: {}", e);
+                    Err(errors) => {
+                        tracing::error!(?errors, "Error loading settings");
                         djls_db::SettingsUpdate::default()
                     }
                 }
             })
             .await;
 
-        if !settings_update.env_changed && !settings_update.diagnostics_changed {
-            return;
-        }
+        let discovery = if settings_update.env_changed {
+            Some(self.start_project_discovery().await)
+        } else {
+            None
+        };
 
-        if settings_update.env_changed {
-            let rx = self
-                .with_session_mut_task(|session| async move {
-                    let start = std::time::Instant::now();
-
-                    let mut session_lock = session.lock().await;
-                    let db = session_lock.db_mut();
-
-                    if db.project().is_none() {
-                        return Ok(());
-                    }
-
-                    let t = std::time::Instant::now();
-                    refresh_external_data(db);
-                    tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                    tracing::info!("Environment refresh completed in {:?}", start.elapsed());
-                    Ok(())
-                })
-                .await;
-
-            // Wait for environment update to complete before republishing diagnostics
-            let _ = rx.await;
+        if let Some(discovery) = discovery {
+            let _outcome = discovery.await;
         }
 
         if settings_update.env_changed || settings_update.diagnostics_changed {

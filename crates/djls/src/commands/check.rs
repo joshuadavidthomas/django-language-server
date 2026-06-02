@@ -28,17 +28,25 @@ use crate::commands::common::discover_files;
 use crate::commands::common::resolve_project_root;
 use crate::commands::common::ColorMode;
 use crate::commands::Command;
+use crate::discovery::CliDiscoveryHost;
 use crate::exit::Exit;
 
 struct CheckResult {
+    project_warnings: Vec<ProjectWarning>,
     template_errors: Vec<TemplateError>,
     validation_errors: Vec<ValidationError>,
 }
 
 impl CheckResult {
     fn has_diagnostics(&self) -> bool {
-        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
+        !self.project_warnings.is_empty()
+            || !self.template_errors.is_empty()
+            || !self.validation_errors.is_empty()
     }
+}
+
+struct ProjectWarning {
+    message: String,
 }
 
 struct FileCheckResult {
@@ -49,11 +57,13 @@ struct FileCheckResult {
 
 impl FileCheckResult {
     fn renderable_diagnostic_count(&self, config: &djls_conf::DiagnosticsConfig) -> usize {
-        self.check
-            .template_errors
-            .iter()
-            .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
-            .count()
+        self.check.project_warnings.len()
+            + self
+                .check
+                .template_errors
+                .iter()
+                .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
+                .count()
             + self
                 .check
                 .validation_errors
@@ -72,6 +82,10 @@ impl FileCheckResult {
         let mut results = Vec::with_capacity(self.renderable_diagnostic_count(config));
         let path = self.path.as_str();
         let source = self.source.as_str();
+
+        for warning in &self.check.project_warnings {
+            results.push(render_project_warning(source, path, warning, fmt));
+        }
 
         for error in &self.check.template_errors {
             if let Some(output) = render_template_error(source, path, error, config, fmt) {
@@ -133,8 +147,8 @@ pub(crate) struct Check {
 impl Command for Check {
     fn execute(&self, args: &Args) -> Result<Exit> {
         let project_root = resolve_project_root()?;
-        let settings =
-            djls_conf::Settings::new(&project_root, None).context("Failed to load settings")?;
+        let settings = djls_conf::Settings::load(&project_root, None)
+            .map_err(|errors| anyhow::anyhow!("Failed to load settings: {errors:?}"))?;
 
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
         let fmt = pick_renderer(self.color);
@@ -152,7 +166,13 @@ impl Command for Check {
         }
 
         let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
-        let db = DjangoDatabase::new(fs, &settings, Some(&project_root));
+        let mut db = DjangoDatabase::new(fs, &settings);
+        let mut discovery = CliDiscoveryHost::new(&mut db);
+        let mut observer = djls_project::NoopDiscoveryObserver;
+        let discovery_request =
+            djls_project::DjangoDiscoveryRequest::new(vec![project_root.clone()], settings.clone());
+        let _ =
+            djls_project::run_django_discovery(&discovery_request, &mut discovery, &mut observer);
 
         let walk_options = WalkOptions {
             hidden: self.hidden,
@@ -235,7 +255,7 @@ impl Command for Check {
 }
 
 fn check_stdin(
-    project_root: &Utf8Path,
+    _project_root: &Utf8Path,
     settings: &djls_conf::Settings,
     config: &djls_conf::DiagnosticsConfig,
     fmt: &DiagnosticRenderer,
@@ -250,7 +270,7 @@ fn check_stdin(
     let stdin_path = Utf8PathBuf::from("<stdin>.html");
     mem_fs.add_file(stdin_path.clone(), source);
     let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(mem_fs);
-    let db = DjangoDatabase::new(fs, settings, Some(project_root));
+    let db = DjangoDatabase::new(fs, settings);
 
     let result = check_file_with_source(&db, &stdin_path);
     if quiet {
@@ -289,6 +309,7 @@ fn check_file_with_source(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResu
 }
 
 fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {
+    let project_warnings = project_warnings_for_file(db, file);
     djls_semantic::validate_template_file(db, file);
 
     let template_errors: Vec<TemplateError> =
@@ -305,8 +326,23 @@ fn check_file(db: &dyn djls_semantic::Db, file: File) -> CheckResult {
     validation_errors.sort_by_cached_key(|e| e.primary_span().map_or(0, Span::start));
 
     CheckResult {
+        project_warnings,
         template_errors,
         validation_errors,
+    }
+}
+
+fn project_warnings_for_file(db: &dyn djls_semantic::Db, file: File) -> Vec<ProjectWarning> {
+    let project = djls_project::Db::project(db);
+    match djls_project::environment_for_file(db, project, file) {
+        djls_project::EnvironmentSelection::Ambiguous(candidates) => vec![ProjectWarning {
+            message: format!(
+                "Multiple Django Environments match this file ({} candidates); semantic validation is degraded until the project configuration selects one environment.",
+                candidates.len()
+            ),
+        }],
+        djls_project::EnvironmentSelection::Selected(_)
+        | djls_project::EnvironmentSelection::Unknown => Vec::new(),
     }
 }
 
@@ -321,6 +357,24 @@ fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
         djls_conf::DiagnosticSeverity::Info => Severity::Info,
         djls_conf::DiagnosticSeverity::Hint | djls_conf::DiagnosticSeverity::Off => Severity::Hint,
     }
+}
+
+fn render_project_warning(
+    source: &str,
+    path: &str,
+    warning: &ProjectWarning,
+    fmt: &DiagnosticRenderer,
+) -> String {
+    let diag = Diagnostic::new(
+        source,
+        path,
+        "DJLS_ENV",
+        &warning.message,
+        Severity::Warning,
+        Span::new(0, 0),
+        "",
+    );
+    fmt.render(&diag)
 }
 
 fn render_template_error(

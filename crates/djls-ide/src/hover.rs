@@ -1,8 +1,8 @@
 use djls_semantic::resolve_template;
 use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
-use djls_semantic::ResolveResult;
 use djls_semantic::TemplateLibraries;
+use djls_semantic::TemplateLookupResult;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
 use djls_source::File;
@@ -13,15 +13,18 @@ use crate::context::OffsetContext;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
+    let template_libraries = djls_semantic::template_libraries_for_file(db, file)
+        .unwrap_or_else(|| db.template_libraries().clone());
     let (markdown, span) = match OffsetContext::from_offset(db, file, offset) {
         OffsetContext::TemplateReference { name, span } => {
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
-            match resolve_template(db, &name) {
-                ResolveResult::Found(template) => {
+            match resolve_template(db, file, &name) {
+                TemplateLookupResult::Found(template) => {
                     let path = template.path_buf(db);
                     sections.push(format!("Resolved to `{path}`"));
                 }
-                ResolveResult::NotFound { tried, .. } => {
+                TemplateLookupResult::Deferred => return None,
+                TemplateLookupResult::NotFound { tried, .. } => {
                     // No tried paths means the project did not provide template loader
                     // locations, so there is nothing useful to show.
                     if tried.is_empty() {
@@ -39,7 +42,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             Some((sections.join("\n---\n"), span))
         }
         OffsetContext::LoadLibrary { name, span } => {
-            let library = db.template_libraries().best_loadable_library_str(&name)?;
+            let library = template_libraries.best_loadable_library_str(&name)?;
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",
@@ -48,24 +51,15 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                 span,
             ))
         }
-        OffsetContext::LoadSymbol { name, span } => Some((
-            render_symbol_hover(db.template_libraries(), &name, None)?,
-            span,
-        )),
+        OffsetContext::LoadSymbol { name, span } => {
+            Some((render_symbol_hover(&template_libraries, &name, None)?, span))
+        }
         OffsetContext::Tag { name, span } => Some((
-            render_symbol_hover(
-                db.template_libraries(),
-                &name,
-                Some(TemplateSymbolKind::Tag),
-            )?,
+            render_symbol_hover(&template_libraries, &name, Some(TemplateSymbolKind::Tag))?,
             span,
         )),
         OffsetContext::Filter { name, span } => Some((
-            render_symbol_hover(
-                db.template_libraries(),
-                &name,
-                Some(TemplateSymbolKind::Filter),
-            )?,
+            render_symbol_hover(&template_libraries, &name, Some(TemplateSymbolKind::Filter))?,
             span,
         )),
         OffsetContext::Variable { .. } | OffsetContext::None => None,

@@ -11,7 +11,6 @@ from typing import Literal
 class Query(str, Enum):
     DJANGO_INIT = "django_init"
     PYTHON_ENV = "python_env"
-    TEMPLATE_DIRS = "template_dirs"
     TEMPLATE_LIBRARIES = "template_libraries"
 
 
@@ -70,36 +69,6 @@ def get_python_environment_info():
             sys.version_info.serial,
         ),
     )
-
-
-@dataclass
-class TemplateDirsQueryData:
-    dirs: list[Path]
-
-
-def get_template_dirs() -> TemplateDirsQueryData:
-    from django.apps import apps
-    from django.conf import settings
-
-    success, error = initialize_django()
-    if not success:
-        raise RuntimeError(error or "Django is not configured")
-
-    dirs = []
-
-    for engine in settings.TEMPLATES:
-        if "django" not in engine["BACKEND"].lower():
-            continue
-
-        dirs.extend(engine.get("DIRS", []))
-
-        if engine.get("APP_DIRS", False):
-            for app_config in apps.get_app_configs():
-                template_dir = Path(app_config.path) / "templates"
-                if template_dir.exists():
-                    dirs.append(template_dir)
-
-    return TemplateDirsQueryData(dirs)
 
 
 @dataclass
@@ -207,4 +176,4 @@ def get_installed_template_libraries() -> TemplateLibrariesQueryData:
     )
 
 
-QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateLibrariesQueryData
+QueryData = PythonEnvironmentQueryData | TemplateLibrariesQueryData
