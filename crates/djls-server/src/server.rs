@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use djls_semantic::load_template_library_cache;
 use djls_semantic::refresh_external_data;
-use djls_semantic::Db as SemanticDb;
 use djls_semantic::ProjectDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
@@ -285,65 +284,24 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
         let response = self
             .with_session(|session| {
-                let position = params.text_document_position.position;
-                let encoding = session.client_info().position_encoding();
-                let file = session.file_for_document_request(
+                let (file, offset) = session.position_for_document_request(
                     &params.text_document_position.text_document,
+                    params.text_document_position.position,
                     "completion",
                 )?;
                 let db = session.db();
-                let path = file.path(db);
-                let source = file.source(db);
-                let file_kind = *source.kind();
 
-                tracing::debug!("Completion requested for {} at {:?}", path, position);
-                let template_libraries = db.project().map(|project| project.template_libraries(db));
-
-                let tag_specs = db.tag_specs();
-                let supports_snippets = session.client_info().supports_snippets();
-
-                // Compute position-aware available symbols for load-scoped completions.
-                let available_symbols = if file_kind == FileKind::Template {
-                    if let Some(template_libraries) = template_libraries {
-                        if template_libraries.active_knowledge == djls_semantic::Knowledge::Known {
-                            let nodelist = djls_templates::parse_template(db, file);
-
-                            nodelist.map(|nl| {
-                                let line_index = file.line_index(db);
-                                let source_text = file.source(db);
-                                let byte_offset = line_index.offset(
-                                    source_text.as_str(),
-                                    djls_source::LineCol::new(position.line, position.character),
-                                    encoding,
-                                );
-                                djls_semantic::available_symbols_at(db, nl, byte_offset.get())
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let completions = djls_ide::handle_completion(
-                    source.as_str(),
-                    position,
-                    encoding,
-                    file_kind,
-                    template_libraries,
-                    Some(tag_specs),
-                    available_symbols.as_ref(),
-                    supports_snippets,
-                );
-
-                if completions.is_empty() {
-                    None
-                } else {
-                    Some(ls_types::CompletionResponse::Array(completions))
+                if *file.source(db).kind() != FileKind::Template {
+                    return None;
                 }
+
+                djls_ide::completion(
+                    db,
+                    file,
+                    offset,
+                    session.client_info().position_encoding(),
+                    session.client_info().supports_snippets(),
+                )
             })
             .await;
 

@@ -4,6 +4,7 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::project::TemplateLibraries;
+use crate::project::TemplateSymbol;
 use crate::project::TemplateSymbolKind;
 use crate::scoping::LoadKind;
 use crate::scoping::LoadState;
@@ -223,6 +224,15 @@ impl AvailableSymbols {
         }
 
         TagAvailability::Unknown
+    }
+
+    /// Check whether a template symbol is available at this position.
+    #[must_use]
+    pub fn contains_symbol(&self, symbol: &TemplateSymbol) -> bool {
+        match symbol.kind {
+            TemplateSymbolKind::Tag => self.available.contains(symbol.name()),
+            TemplateSymbolKind::Filter => self.available_filters.contains(symbol.name()),
+        }
     }
 
     /// Check whether a filter name is available at this position.

@@ -9,7 +9,7 @@ mod navigation;
 mod snippets;
 mod symbols;
 
-pub use completions::handle_completion;
+pub use completions::completion;
 pub use diagnostics::collect_diagnostics;
 pub use folding::collect_folding_ranges;
 pub use formatting::format_document;
