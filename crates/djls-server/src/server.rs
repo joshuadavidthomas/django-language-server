@@ -117,14 +117,6 @@ impl DjangoLanguageServer {
             tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
         }
     }
-
-    async fn republish_open_template_diagnostics(&self) {
-        let documents = self.with_session(Session::open_documents).await;
-
-        for document in documents {
-            self.publish_diagnostics(&document).await;
-        }
-    }
 }
 
 impl LanguageServer for DjangoLanguageServer {
@@ -608,7 +600,11 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         if settings_update.env_changed || settings_update.diagnostics_changed {
-            self.republish_open_template_diagnostics().await;
+            let documents = self.with_session(Session::open_documents).await;
+
+            for document in documents {
+                self.publish_diagnostics(&document).await;
+            }
         }
     }
 }
