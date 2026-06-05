@@ -1,8 +1,11 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
+use djls_semantic::TemplateSymbol;
+use djls_semantic::TemplateSymbolKind;
 use djls_source::LineIndex;
 use djls_source::Offset;
+use djls_source::PositionEncoding;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
@@ -30,14 +33,62 @@ impl OutlineKindExt for djls_semantic::OutlineKind {
     }
 }
 
+pub(crate) trait TemplateSymbolExt {
+    fn to_lsp_completion_kind(&self) -> ls_types::CompletionItemKind;
+}
+
+impl TemplateSymbolExt for TemplateSymbol {
+    fn to_lsp_completion_kind(&self) -> ls_types::CompletionItemKind {
+        match self.kind {
+            TemplateSymbolKind::Tag => ls_types::CompletionItemKind::KEYWORD,
+            TemplateSymbolKind::Filter => ls_types::CompletionItemKind::FUNCTION,
+        }
+    }
+}
+
 pub(crate) trait OffsetExt {
     fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position;
+
+    fn to_lsp_position_with_encoding(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::Position;
 }
 
 impl OffsetExt for Offset {
     fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position {
         let (line, character) = line_index.to_line_col(*self).into();
         ls_types::Position { line, character }
+    }
+
+    fn to_lsp_position_with_encoding(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::Position {
+        let Some(source_line) = line_index.line_at_offset(source, *self) else {
+            return self.to_lsp_position(line_index);
+        };
+        let byte_offset = source_line.byte_offset(*self);
+        let line_prefix = &source_line.text()[..byte_offset];
+        let character = match encoding {
+            PositionEncoding::Utf8 => u32::try_from(line_prefix.len()).unwrap_or(u32::MAX),
+            PositionEncoding::Utf16 => line_prefix
+                .chars()
+                .map(|character| u32::try_from(character.len_utf16()).unwrap_or_default())
+                .sum(),
+            PositionEncoding::Utf32 => {
+                u32::try_from(line_prefix.chars().count()).unwrap_or(u32::MAX)
+            }
+        };
+
+        ls_types::Position {
+            line: source_line.line(),
+            character,
+        }
     }
 }
 
