@@ -74,7 +74,8 @@ impl Workspace {
         kind: FileKind,
     ) -> Option<TextDocument> {
         let file = db.get_or_create_file(path);
-        let document = TextDocument::new(content.to_string(), version, kind, file);
+        let document =
+            TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file);
         db.bump_file_revision(document.file());
         self.buffers.open(path.to_path_buf(), document.clone());
         Some(document)
@@ -103,6 +104,7 @@ impl Workspace {
             if first_change.range().is_none() {
                 let file = db.get_or_create_file(path);
                 let document = TextDocument::new(
+                    path.to_path_buf(),
                     first_change.text().to_string(),
                     version,
                     FileKind::Other,
@@ -179,7 +181,7 @@ mod tests {
             let db = TestDb::default();
             let path = Utf8Path::new("/test.txt");
             let file = db.create_file(path);
-            TextDocument::new(content.to_string(), version, kind, file)
+            TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file)
         }
 
         // Helper to create platform-appropriate test paths

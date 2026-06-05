@@ -5,7 +5,6 @@ use djls_semantic::load_template_library_cache;
 use djls_semantic::refresh_external_data;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ProjectDb;
-use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
 use tokio::sync::oneshot;
@@ -83,39 +82,36 @@ impl DjangoLanguageServer {
         rx
     }
 
-    async fn publish_diagnostics(&self, document: &TextDocument) {
-        let supports_pull = self
-            .with_session(|session| session.client_info().supports_pull_diagnostics())
-            .await;
-
-        if supports_pull {
-            tracing::debug!("Client supports pull diagnostics, skipping push");
-            return;
-        }
-
-        let path = self
-            .with_session(|session| document.path(session.db()).to_owned())
-            .await;
-
-        if FileKind::from(&path) != FileKind::Template {
-            return;
-        }
-
-        let diagnostics: Vec<ls_types::Diagnostic> = self
+    async fn maybe_push_diagnostics(&self, document: &TextDocument) {
+        let Some(diagnostics) = self
             .with_session(|session| {
-                let db = session.db();
-                let file = db.get_or_create_file(&path);
-                djls_ide::collect_diagnostics(db, file)
+                if session.client_info().supports_pull_diagnostics() {
+                    tracing::debug!("Client supports pull diagnostics, skipping push");
+                    return None;
+                }
+
+                djls_ide::collect_diagnostics(session.db(), document.file())
             })
+            .await
+        else {
+            return;
+        };
+
+        let Some(lsp_uri) = ls_types::Uri::from_path(document.path()) else {
+            return;
+        };
+
+        let diagnostic_count = diagnostics.len();
+        let lsp_uri_text = lsp_uri.to_string();
+        self.client
+            .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
             .await;
 
-        if let Some(lsp_uri) = ls_types::Uri::from_path(&path) {
-            self.client
-                .publish_diagnostics(lsp_uri, diagnostics.clone(), Some(document.version()))
-                .await;
-
-            tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
-        }
+        tracing::debug!(
+            "Published {} diagnostics for {}",
+            diagnostic_count,
+            lsp_uri_text
+        );
     }
 }
 
@@ -252,7 +248,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         if let Some(document) = document {
-            self.publish_diagnostics(&document).await;
+            self.maybe_push_diagnostics(&document).await;
         }
     }
 
@@ -262,7 +258,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         if let Some(document) = document {
-            self.publish_diagnostics(&document).await;
+            self.maybe_push_diagnostics(&document).await;
         }
     }
 
@@ -274,7 +270,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         if let Some(document) = document {
-            self.publish_diagnostics(&document).await;
+            self.maybe_push_diagnostics(&document).await;
         }
     }
 
@@ -391,13 +387,8 @@ impl LanguageServer for DjangoLanguageServer {
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
 
-                if *file.source(db).kind() != FileKind::Template {
-                    return Vec::new();
-                }
-
-                djls_ide::collect_diagnostics(db, file)
+                djls_ide::collect_diagnostics(session.db(), file).unwrap_or_default()
             })
             .await;
 
@@ -603,7 +594,7 @@ impl LanguageServer for DjangoLanguageServer {
             let documents = self.with_session(Session::open_documents).await;
 
             for document in documents {
-                self.publish_diagnostics(&document).await;
+                self.maybe_push_diagnostics(&document).await;
             }
         }
     }

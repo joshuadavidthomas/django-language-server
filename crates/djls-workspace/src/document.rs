@@ -6,7 +6,7 @@
 //! and diagnostics.
 
 use camino::Utf8Path;
-use djls_source::Db as SourceDb;
+use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::LineIndex;
@@ -23,6 +23,8 @@ use djls_source::Range;
 /// computation and invalidation tracking.
 #[derive(Clone)]
 pub struct TextDocument {
+    /// The document's path
+    path: Utf8PathBuf,
     /// The document's content
     content: String,
     /// The version number of this document (from LSP)
@@ -37,9 +39,16 @@ pub struct TextDocument {
 
 impl TextDocument {
     #[must_use]
-    pub fn new(content: String, version: i32, kind: FileKind, file: File) -> Self {
+    pub fn new(
+        path: Utf8PathBuf,
+        content: String,
+        version: i32,
+        kind: FileKind,
+        file: File,
+    ) -> Self {
         let line_index = LineIndex::from(content.as_str());
         Self {
+            path,
             content,
             version,
             kind,
@@ -73,8 +82,9 @@ impl TextDocument {
         self.file
     }
 
-    pub fn path<'db>(&self, db: &'db dyn SourceDb) -> &'db Utf8Path {
-        self.file.path(db)
+    #[must_use]
+    pub fn path(&self) -> &Utf8Path {
+        &self.path
     }
 
     pub fn update(
@@ -151,6 +161,7 @@ impl DocumentChange {
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
+    use djls_source::Db as _;
     use djls_source::LineCol;
     use djls_source::Range;
     use djls_source::SourceFiles;
@@ -191,7 +202,7 @@ mod tests {
         let db = TestDb::default();
         let path = Utf8Path::new("/test.txt");
         let file = db.create_file(path);
-        TextDocument::new(content.to_string(), version, kind, file)
+        TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file)
     }
 
     #[test]

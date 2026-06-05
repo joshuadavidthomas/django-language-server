@@ -104,7 +104,9 @@ fn collect_cached(bencher: Bencher) {
         let mut total = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for file in &files {
-                total += djls_ide::collect_diagnostics(&db, *file).len();
+                total += djls_ide::collect_diagnostics(&db, *file)
+                    .expect("template fixture should be eligible for diagnostics")
+                    .len();
             }
         }
         divan::black_box(total);
@@ -163,7 +165,9 @@ fn collect_incremental(bencher: Bencher) {
                 db.set_file_contents(template.file, contents, revision);
                 revision = revision.wrapping_add(1);
 
-                total += djls_ide::collect_diagnostics(&db, template.file).len();
+                total += djls_ide::collect_diagnostics(&db, template.file)
+                    .expect("template fixture should be eligible for diagnostics")
+                    .len();
             }
         }
         divan::black_box(total);

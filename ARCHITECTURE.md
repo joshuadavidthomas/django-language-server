@@ -214,7 +214,7 @@ Template parsing and semantic validation currently use Salsa accumulators to rep
 
 Infrastructure code — the CLI, the inspector subprocess, file I/O, cache operations, configuration loading — uses `anyhow::Result`. These are operations that can genuinely fail (disk full, Python not installed, malformed TOML), and the failure should propagate up to the user.
 
-The boundary between these two worlds is `collect_diagnostics` in `djls-ide`: it reaches into the Salsa accumulators, gathers everything, and produces a flat `Vec<Diagnostic>`. That function itself never fails — if there's nothing to report, it returns an empty vec.
+The boundary between these two worlds is `collect_diagnostics` in `djls-ide`: it rejects files that are not diagnostics targets, reaches into the Salsa accumulators for template files, gathers everything, and produces a flat `Vec<Diagnostic>`. That function itself never fails — if a template has nothing to report, it returns an empty vec.
 
 ### Observability
 
