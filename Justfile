@@ -32,6 +32,9 @@ corpus *ARGS:
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix {{ ARGS }} -- -D warnings
 
+e2e *ARGS:
+    uv run nox -s e2e -- "{{ ARGS }}"
+
 fmt *ARGS:
     cargo +nightly fmt {{ ARGS }}
 

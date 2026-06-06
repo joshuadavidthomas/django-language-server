@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest_asyncio
 import pytest_lsp
 from lsprotocol.types import InitializeParams
+from lsprotocol.types import WorkspaceFolder
 from pytest_lsp import ClientServerConfig
 from pytest_lsp import LanguageClient
 from pytest_lsp import client_capabilities
@@ -18,26 +21,18 @@ SERVER_COMMAND = [
     "--connection-type",
     "stdio",
 ]
-
-# LSP clients supported by pytest-lsp
-CLIENTS = [
-    "emacs_v29.1",
-    "neovim_v0.6.1",
-    "neovim_v0.7.0",
-    "neovim_v0.8.0",
-    "neovim_v0.9.1",
-    "neovim_v0.10.0",
-    "neovim_v0.11.0",
-    "visual_studio_code_v1.65.2",
-]
+TEST_DIR = Path(__file__).parent.parent
+TEST_WORKSPACE = TEST_DIR / "project"
 
 
 @pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
-async def emacs_client(lsp_client: LanguageClient, tmp_path):
+async def emacs_client(lsp_client: LanguageClient):
     await lsp_client.initialize_session(
         InitializeParams(
             capabilities=client_capabilities("emacs"),
-            root_uri=tmp_path.as_uri(),
+            workspace_folders=[
+                WorkspaceFolder(uri=TEST_WORKSPACE.as_uri(), name="test_project")
+            ],
         )
     )
 
@@ -47,11 +42,13 @@ async def emacs_client(lsp_client: LanguageClient, tmp_path):
 
 
 @pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
-async def neovim_client(lsp_client: LanguageClient, tmp_path):
+async def neovim_client(lsp_client: LanguageClient):
     await lsp_client.initialize_session(
         InitializeParams(
             capabilities=client_capabilities("neovim"),
-            root_uri=tmp_path.as_uri(),
+            workspace_folders=[
+                WorkspaceFolder(uri=TEST_WORKSPACE.as_uri(), name="test_project")
+            ],
         )
     )
 
@@ -61,11 +58,13 @@ async def neovim_client(lsp_client: LanguageClient, tmp_path):
 
 
 @pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
-async def vscode_client(lsp_client: LanguageClient, tmp_path):
+async def vscode_client(lsp_client: LanguageClient):
     await lsp_client.initialize_session(
         InitializeParams(
             capabilities=client_capabilities("visual-studio-code"),
-            root_uri=tmp_path.as_uri(),
+            workspace_folders=[
+                WorkspaceFolder(uri=TEST_WORKSPACE.as_uri(), name="test_project")
+            ],
         )
     )
 
