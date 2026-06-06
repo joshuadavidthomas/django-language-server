@@ -9,12 +9,12 @@ use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
-use crate::context::OffsetContext;
+use crate::context::ResolvedOffsetContext;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
-    let (markdown, span) = match OffsetContext::from_offset(db, file, offset) {
-        OffsetContext::TemplateReference { name, span } => {
+    let (markdown, span) = match ResolvedOffsetContext::from_offset(db, file, offset) {
+        ResolvedOffsetContext::TemplateReference { name, span } => {
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
             match resolve_template(db, &name) {
                 ResolveResult::Found(template) => {
@@ -38,7 +38,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             }
             Some((sections.join("\n---\n"), span))
         }
-        OffsetContext::LoadLibrary { name, span } => {
+        ResolvedOffsetContext::LoadLibrary { name, span } => {
             let library = db.template_libraries().best_loadable_library_str(&name)?;
             Some((
                 format!(
@@ -48,11 +48,11 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                 span,
             ))
         }
-        OffsetContext::LoadSymbol { name, span } => Some((
+        ResolvedOffsetContext::LoadSymbol { name, span } => Some((
             render_symbol_hover(db.template_libraries(), &name, None)?,
             span,
         )),
-        OffsetContext::Tag { name, span } => Some((
+        ResolvedOffsetContext::Tag { name, span } => Some((
             render_symbol_hover(
                 db.template_libraries(),
                 &name,
@@ -60,7 +60,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        OffsetContext::Filter { name, span } => Some((
+        ResolvedOffsetContext::Filter { name, span } => Some((
             render_symbol_hover(
                 db.template_libraries(),
                 &name,
@@ -68,7 +68,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        OffsetContext::Variable { .. } | OffsetContext::None => None,
+        ResolvedOffsetContext::Variable { .. } | ResolvedOffsetContext::None => None,
     }?;
 
     Some(ls_types::Hover {

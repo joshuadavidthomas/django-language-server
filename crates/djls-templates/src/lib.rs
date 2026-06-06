@@ -62,8 +62,27 @@ pub use quotes::QuotedTemplateString;
 pub use quotes::TemplateString;
 use salsa::Accumulator;
 pub use tokens::TagDelimiter;
+pub use tokens::Token;
 pub use visitor::walk_nodelist;
 pub use visitor::Visitor;
+
+/// Lex a Django template file.
+#[salsa::tracked(returns(ref))]
+pub fn lex_template(db: &dyn Db, file: File) -> Vec<Token> {
+    let source = file.source(db);
+    if *source.kind() != FileKind::Template {
+        return Vec::new();
+    }
+
+    lex_template_impl(source.as_ref())
+}
+
+/// Lex a template using the pure lexer.
+#[must_use]
+pub fn lex_template_impl(source: &str) -> Vec<Token> {
+    let mut lexer = lexer::Lexer::new(source);
+    lexer.tokenize()
+}
 
 /// Parse a Django template file and accumulate diagnostics.
 ///
@@ -94,8 +113,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
 /// Returns a tuple of (nodes, errors) where nodes include Error nodes for parse errors
 #[must_use]
 pub fn parse_template_impl(source: &str) -> (Vec<Node>, Vec<ParseError>) {
-    let mut lexer = lexer::Lexer::new(source);
-    let tokens = lexer.tokenize();
+    let tokens = lex_template_impl(source);
     let mut parser = parser::Parser::new(tokens);
     parser.parse()
 }

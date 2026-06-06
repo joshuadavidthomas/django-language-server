@@ -4,7 +4,7 @@ use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
-use crate::context::OffsetContext;
+use crate::context::ResolvedOffsetContext;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 
@@ -13,8 +13,8 @@ pub fn goto_definition(
     file: File,
     offset: Offset,
 ) -> Option<ls_types::GotoDefinitionResponse> {
-    match OffsetContext::from_offset(db, file, offset) {
-        OffsetContext::TemplateReference {
+    match ResolvedOffsetContext::from_offset(db, file, offset) {
+        ResolvedOffsetContext::TemplateReference {
             name: template_name,
             ..
         } => {
@@ -47,8 +47,8 @@ pub fn find_references(
     file: File,
     offset: Offset,
 ) -> Option<Vec<ls_types::Location>> {
-    match OffsetContext::from_offset(db, file, offset) {
-        OffsetContext::TemplateReference {
+    match ResolvedOffsetContext::from_offset(db, file, offset) {
+        ResolvedOffsetContext::TemplateReference {
             name: template_name,
             ..
         } => {

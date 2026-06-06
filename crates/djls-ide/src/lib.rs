@@ -17,5 +17,3 @@ pub use hover::hover;
 pub use navigation::find_references;
 pub use navigation::goto_definition;
 pub use symbols::document_symbols;
-
-pub(crate) const SOURCE_NAME: &str = "djls";
