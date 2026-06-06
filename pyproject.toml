@@ -9,6 +9,9 @@ dev = [
   "django-stubs>=5.1.1",
   "maturin>=1.7.8",
   "nox>=2025.5.1",
+  "pytest>=9.0.3",
+  "pytest-asyncio>=1.4.0",
+  "pytest-lsp>=1.0.0",
   "ruff>=0.8.2",
 ]
 docs = [
@@ -124,6 +127,11 @@ include = [
   { path = "LICENSE", format = "sdist" },
   { path = "rust-toolchain.toml", format = ["sdist", "wheel"] },
 ]
+
+[tool.pytest.ini_options]
+norecursedirs = ".* bin build dist *.egg htmlcov logs node_modules static templates venv"
+python_files = "tests.py test_*.py *_tests.py"
+testpaths = ["tests/e2e"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.

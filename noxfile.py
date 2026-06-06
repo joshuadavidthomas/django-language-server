@@ -109,6 +109,22 @@ def tests(session, django):
     session.run(*command, external=True)
 
 
+@nox.session(python=PY_DEFAULT)
+def e2e(session):
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--inexact",
+        "--python",
+        session.python,
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.install(f"django=={DJ_DEFAULT}")
+
+    session.run("pytest", *session.posargs)
+
+
 @nox.session
 def lint(session):
     for python_version in reversed(PY_VERSIONS):
