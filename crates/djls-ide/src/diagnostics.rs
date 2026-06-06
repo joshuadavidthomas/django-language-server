@@ -10,6 +10,8 @@ use tower_lsp_server::ls_types;
 use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
 
+const DIAGNOSTIC_SOURCE: &str = "djls";
+
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
     fn diagnostic_code(&self) -> &'static str;
@@ -31,7 +33,7 @@ trait DiagnosticError: std::fmt::Display {
                 self.diagnostic_code().to_string(),
             )),
             code_description: None,
-            source: Some(crate::SOURCE_NAME.to_string()),
+            source: Some(DIAGNOSTIC_SOURCE.to_string()),
             message: self.message(),
             related_information: None,
             tags: None,

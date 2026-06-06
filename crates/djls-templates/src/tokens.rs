@@ -52,7 +52,7 @@ impl TagDelimiter {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Token {
+pub enum Token {
     Block {
         content: String,
         span: Span,
@@ -137,7 +137,7 @@ impl Token {
     }
 
     #[must_use]
-    pub(crate) fn full_span(&self) -> Option<Span> {
+    pub fn full_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }

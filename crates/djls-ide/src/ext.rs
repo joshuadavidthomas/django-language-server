@@ -1,14 +1,16 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
-use djls_semantic::TemplateSymbol;
-use djls_semantic::TemplateSymbolKind;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
+use crate::completions::CompletionCandidate;
+use crate::completions::CompletionCandidateKind;
+use crate::completions::CompletionEdit;
+use crate::completions::CompletionInsertFormat;
 use crate::folding::FoldKind;
 use crate::folding::FoldSpan;
 
@@ -29,19 +31,6 @@ impl OutlineKindExt for djls_semantic::OutlineKind {
             | djls_semantic::OutlineKind::RouteReference
             | djls_semantic::OutlineKind::Filter => ls_types::SymbolKind::FUNCTION,
             djls_semantic::OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
-        }
-    }
-}
-
-pub(crate) trait TemplateSymbolExt {
-    fn to_lsp_completion_kind(&self) -> ls_types::CompletionItemKind;
-}
-
-impl TemplateSymbolExt for TemplateSymbol {
-    fn to_lsp_completion_kind(&self) -> ls_types::CompletionItemKind {
-        match self.kind {
-            TemplateSymbolKind::Tag => ls_types::CompletionItemKind::KEYWORD,
-            TemplateSymbolKind::Filter => ls_types::CompletionItemKind::FUNCTION,
         }
     }
 }
@@ -94,6 +83,13 @@ impl OffsetExt for Offset {
 
 pub(crate) trait SpanExt {
     fn to_lsp_range(&self, line_index: &LineIndex) -> ls_types::Range;
+
+    fn to_lsp_range_with_encoding(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::Range;
 }
 
 impl SpanExt for Span {
@@ -101,6 +97,125 @@ impl SpanExt for Span {
         let start = self.start_offset().to_lsp_position(line_index);
         let end = self.end_offset().to_lsp_position(line_index);
         ls_types::Range { start, end }
+    }
+
+    fn to_lsp_range_with_encoding(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::Range {
+        let start = self
+            .start_offset()
+            .to_lsp_position_with_encoding(source, line_index, encoding);
+        let end = self
+            .end_offset()
+            .to_lsp_position_with_encoding(source, line_index, encoding);
+        ls_types::Range { start, end }
+    }
+}
+
+pub(crate) trait CompletionCandidateExt {
+    fn to_lsp_completion_item(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::CompletionItem;
+}
+
+impl CompletionCandidateExt for CompletionCandidate {
+    fn to_lsp_completion_item(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::CompletionItem {
+        let kind = if self.edit.insert_format == CompletionInsertFormat::Snippet {
+            ls_types::CompletionItemKind::SNIPPET
+        } else {
+            self.kind.to_lsp_completion_kind()
+        };
+
+        ls_types::CompletionItem {
+            label: self.label.clone(),
+            kind: Some(kind),
+            detail: self.detail.clone(),
+            documentation: self
+                .documentation
+                .as_ref()
+                .map(|documentation| ls_types::Documentation::String(documentation.clone())),
+            text_edit: Some(
+                self.edit
+                    .to_lsp_completion_text_edit(source, line_index, encoding),
+            ),
+            insert_text_format: Some(self.edit.insert_format.to_lsp_insert_text_format()),
+            filter_text: Some(self.label.clone()),
+            sort_text: Some(format!("{:02}_{}", self.kind.rank(), self.label)),
+            ..Default::default()
+        }
+    }
+}
+
+pub(crate) trait CompletionCandidateKindExt {
+    fn to_lsp_completion_kind(self) -> ls_types::CompletionItemKind;
+}
+
+impl CompletionCandidateKindExt for CompletionCandidateKind {
+    fn to_lsp_completion_kind(self) -> ls_types::CompletionItemKind {
+        match self {
+            CompletionCandidateKind::TagName
+            | CompletionCandidateKind::ScannedTagName
+            | CompletionCandidateKind::EndTag
+            | CompletionCandidateKind::TagArgumentLiteral => ls_types::CompletionItemKind::KEYWORD,
+            CompletionCandidateKind::TagArgumentChoice => ls_types::CompletionItemKind::ENUM_MEMBER,
+            CompletionCandidateKind::TagArgumentPlaceholder => {
+                ls_types::CompletionItemKind::VARIABLE
+            }
+            CompletionCandidateKind::TagArgumentSnippet => ls_types::CompletionItemKind::SNIPPET,
+            CompletionCandidateKind::LibraryName => ls_types::CompletionItemKind::MODULE,
+            CompletionCandidateKind::LoadSymbol => ls_types::CompletionItemKind::FUNCTION,
+            CompletionCandidateKind::Filter | CompletionCandidateKind::ScannedFilter => {
+                ls_types::CompletionItemKind::FUNCTION
+            }
+        }
+    }
+}
+
+pub(crate) trait CompletionEditExt {
+    fn to_lsp_completion_text_edit(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::CompletionTextEdit;
+}
+
+impl CompletionEditExt for CompletionEdit {
+    fn to_lsp_completion_text_edit(
+        &self,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> ls_types::CompletionTextEdit {
+        ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            self.replacement_span
+                .to_lsp_range_with_encoding(source, line_index, encoding),
+            self.insert_text.clone(),
+        ))
+    }
+}
+
+pub(crate) trait CompletionInsertFormatExt {
+    fn to_lsp_insert_text_format(self) -> ls_types::InsertTextFormat;
+}
+
+impl CompletionInsertFormatExt for CompletionInsertFormat {
+    fn to_lsp_insert_text_format(self) -> ls_types::InsertTextFormat {
+        match self {
+            CompletionInsertFormat::PlainText => ls_types::InsertTextFormat::PLAIN_TEXT,
+            CompletionInsertFormat::Snippet => ls_types::InsertTextFormat::SNIPPET,
+        }
     }
 }
 
@@ -176,6 +291,45 @@ impl DiagnosticSeverityExt for DiagnosticSeverity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completion_candidate_converts_edit_range_with_position_encoding() {
+        let source = "éstatic";
+        let line_index = LineIndex::from(source);
+        let candidate = CompletionCandidate {
+            label: "static".to_string(),
+            kind: CompletionCandidateKind::LibraryName,
+            edit: CompletionEdit {
+                replacement_span: Span::new(2, 2),
+                insert_text: "static %}".to_string(),
+                insert_format: CompletionInsertFormat::PlainText,
+            },
+            detail: Some("Django template library (django.templatetags.static)".to_string()),
+            documentation: Some("Loads static files.".to_string()),
+        };
+
+        let item = candidate.to_lsp_completion_item(source, &line_index, PositionEncoding::Utf16);
+        let Some(ls_types::CompletionTextEdit::Edit(edit)) = item.text_edit else {
+            panic!("expected edit completion text edit");
+        };
+
+        assert_eq!(item.label, "static");
+        assert_eq!(item.kind, Some(ls_types::CompletionItemKind::MODULE));
+        assert_eq!(item.sort_text.as_deref(), Some("01_static"));
+        assert_eq!(
+            item.detail.as_deref(),
+            Some("Django template library (django.templatetags.static)")
+        );
+        assert_eq!(
+            item.documentation,
+            Some(ls_types::Documentation::String(
+                "Loads static files.".to_string(),
+            ))
+        );
+        assert_eq!(edit.range.start.character, 1);
+        assert_eq!(edit.range.end.character, 3);
+        assert_eq!(edit.new_text, "static %}");
+    }
 
     #[test]
     fn fold_span_converts_to_line_folding_range() {
