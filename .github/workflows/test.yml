@@ -126,9 +126,7 @@ jobs:
           uv run --no-project --with "nox[uv]" nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
 
   e2e:
-    name: End-to-end tests
     runs-on: ubuntu-latest
-    needs: generate-matrix
     permissions:
       contents: read
     steps:
