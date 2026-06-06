@@ -122,7 +122,11 @@ def e2e(session):
     )
     session.install(f"django=={DJ_DEFAULT}")
 
-    session.run("pytest", *session.posargs)
+    args = []
+    for arg in session.posargs:
+        if arg:
+            args.extend(arg.split(" "))
+    session.run("pytest", *args)
 
 
 @nox.session
