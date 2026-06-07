@@ -10,16 +10,8 @@ from pytest_lsp import LanguageClient
 
 from .conftest import TEST_WORKSPACE
 
-BASE_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
-)
-HEADER_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
-)
-
-
-def symbol_summary(symbols):
-    return [(symbol.name, symbol.detail, symbol.kind) for symbol in symbols]
+BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
+HEADER_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
 
 
 @pytest.mark.asyncio
@@ -42,7 +34,7 @@ async def test_document_symbols_include_template_outline(client: LanguageClient)
     )
 
     assert result is not None
-    assert symbol_summary(result) == [
+    assert [(symbol.name, symbol.detail, symbol.kind) for symbol in result] == [
         ("static", "load", SymbolKind.Module),
         ("title", "block", SymbolKind.Namespace),
         ("djls_app/header.html", "include", SymbolKind.File),
@@ -54,14 +46,16 @@ async def test_document_symbols_include_template_outline(client: LanguageClient)
     assert content.range.end.line == 28
     assert content.selection_range.start.line == 16
     assert content.selection_range.start.character == 15
-    assert symbol_summary(content.children) == [
+    assert [
+        (symbol.name, symbol.detail, symbol.kind) for symbol in content.children
+    ] == [
         ("user.username", None, SymbolKind.Variable),
         ("if items", "if", SymbolKind.Operator),
         ("images/logo.png", "static", SymbolKind.File),
     ]
 
     user = content.children[0]
-    assert symbol_summary(user.children) == [
+    assert [(symbol.name, symbol.detail, symbol.kind) for symbol in user.children] == [
         ("lower", None, SymbolKind.Function),
     ]
 
@@ -87,4 +81,5 @@ async def test_document_symbols_are_empty_for_plain_html_template(
         )
     )
 
+    assert result is not None
     assert len(result) == 0

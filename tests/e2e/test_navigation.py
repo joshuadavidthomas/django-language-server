@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from lsprotocol.types import DefinitionParams
 from lsprotocol.types import DidOpenTextDocumentParams
@@ -14,34 +12,18 @@ from lsprotocol.types import TextDocumentItem
 from pytest_lsp import LanguageClient
 
 from .conftest import TEST_WORKSPACE
+from .utils import position_in
 
-BASE_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
-)
-HEADER_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
-)
-HOME_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "home.html"
-)
+BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
+HEADER_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
+HOME_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "home.html"
 EXTENDS_TAG_TEMPLATE = (
     TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "tags" / "extends.html"
 )
 
 
-def position_in(path: Path, needle: str) -> Position:
-    text = path.read_text(encoding="utf-8")
-    offset = text.index(needle)
-    before = text[:offset]
-    line = before.count("\n")
-    line_start = before.rfind("\n") + 1
-    return Position(line=line, character=offset - line_start)
-
-
 @pytest.mark.asyncio
-async def test_goto_definition_for_extends_template_reference(
-    client: LanguageClient,
-):
+async def test_goto_definition_for_extends_template_reference(client: LanguageClient):
     client.text_document_did_open(
         DidOpenTextDocumentParams(
             text_document=TextDocumentItem(
@@ -69,9 +51,7 @@ async def test_goto_definition_for_extends_template_reference(
 
 
 @pytest.mark.asyncio
-async def test_goto_definition_for_include_template_reference(
-    client: LanguageClient,
-):
+async def test_goto_definition_for_include_template_reference(client: LanguageClient):
     client.text_document_did_open(
         DidOpenTextDocumentParams(
             text_document=TextDocumentItem(

@@ -10,15 +10,11 @@ from pytest_lsp import LanguageClient
 
 from .conftest import TEST_WORKSPACE
 
-BASE_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
-)
+BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
 COMMENT_TEMPLATE = (
     TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "tags" / "comment.html"
 )
-HEADER_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
-)
+HEADER_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
 
 
 @pytest.mark.asyncio
@@ -43,9 +39,7 @@ async def test_folding_ranges_include_nested_template_regions(
     )
 
     assert result is not None
-    assert {
-        (range.start_line, range.end_line, range.kind) for range in result
-    } == {
+    assert {(range.start_line, range.end_line, range.kind) for range in result} == {
         (16, 28, FoldingRangeKind.Region),
         (19, 25, FoldingRangeKind.Region),
     }
@@ -71,9 +65,7 @@ async def test_folding_ranges_include_comment_blocks(client: LanguageClient):
     )
 
     assert result is not None
-    assert {
-        (range.start_line, range.end_line, range.kind) for range in result
-    } == {
+    assert {(range.start_line, range.end_line, range.kind) for range in result} == {
         (3, 6, FoldingRangeKind.Comment),
         (9, 11, FoldingRangeKind.Comment),
     }
@@ -100,4 +92,5 @@ async def test_folding_ranges_are_empty_for_plain_html_template(
         )
     )
 
+    assert result is not None
     assert len(result) == 0
