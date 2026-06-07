@@ -1,34 +1,21 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from lsprotocol.types import CompletionItemKind
 from lsprotocol.types import CompletionParams
 from lsprotocol.types import DidOpenTextDocumentParams
 from lsprotocol.types import InsertTextFormat
-from lsprotocol.types import Position
 from lsprotocol.types import TextDocumentIdentifier
 from lsprotocol.types import TextDocumentItem
 from pytest_lsp import LanguageClient
 
 from .conftest import TEST_WORKSPACE
+from .utils import position_after
 
-BASE_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
-)
+BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
 LOAD_TEMPLATE = (
     TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "tags" / "load.html"
 )
-
-
-def position_after(path: Path, needle: str) -> Position:
-    text = path.read_text(encoding="utf-8")
-    offset = text.index(needle) + len(needle)
-    before = text[:offset]
-    line = before.count("\n")
-    line_start = before.rfind("\n") + 1
-    return Position(line=line, character=offset - line_start)
 
 
 @pytest.mark.asyncio
@@ -153,7 +140,7 @@ async def test_completes_structural_end_tags(client: LanguageClient):
     result = await client.text_document_completion_async(
         CompletionParams(
             text_document=TextDocumentIdentifier(uri=BASE_TEMPLATE.as_uri()),
-            position=position_after(BASE_TEMPLATE, "{% end"),
+            position=position_after(BASE_TEMPLATE, "Django Test App{% end"),
         )
     )
 

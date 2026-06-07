@@ -1,36 +1,21 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from lsprotocol.types import DidOpenTextDocumentParams
 from lsprotocol.types import HoverParams
 from lsprotocol.types import MarkupKind
-from lsprotocol.types import Position
 from lsprotocol.types import TextDocumentIdentifier
 from lsprotocol.types import TextDocumentItem
 from pytest_lsp import LanguageClient
 
 from .conftest import TEST_WORKSPACE
+from .utils import position_in
 
-BASE_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
-)
-HEADER_TEMPLATE = (
-    TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
-)
+BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
+HEADER_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "header.html"
 LOAD_TEMPLATE = (
     TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "tags" / "load.html"
 )
-
-
-def position_in(path: Path, needle: str) -> Position:
-    text = path.read_text(encoding="utf-8")
-    offset = text.index(needle)
-    before = text[:offset]
-    line = before.count("\n")
-    line_start = before.rfind("\n") + 1
-    return Position(line=line, character=offset - line_start)
 
 
 @pytest.mark.asyncio
@@ -75,7 +60,7 @@ async def test_hover_describes_load_libraries(client: LanguageClient):
     result = await client.text_document_hover_async(
         HoverParams(
             text_document=TextDocumentIdentifier(uri=BASE_TEMPLATE.as_uri()),
-            position=position_in(BASE_TEMPLATE, "static"),
+            position=position_in(BASE_TEMPLATE, "static %}"),
         )
     )
 
