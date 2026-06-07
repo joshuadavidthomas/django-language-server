@@ -6,14 +6,14 @@ from lsprotocol.types import Position
 
 
 def position_in(path: Path, needle: str) -> Position:
-    return _position_at(path, needle, 0)
+    return position_at(path, needle, 0)
 
 
 def position_after(path: Path, needle: str) -> Position:
-    return _position_at(path, needle, len(needle))
+    return position_at(path, needle, len(needle))
 
 
-def _position_at(path: Path, needle: str, needle_offset: int) -> Position:
+def position_at(path: Path, needle: str, needle_offset: int) -> Position:
     if not needle:
         raise AssertionError("position needle must not be empty")
 
