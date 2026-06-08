@@ -2,8 +2,8 @@ mod clean;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use clean::clean_utf8_path;
 pub use clean::Utf8PathClean;
+use clean::clean_utf8_path;
 
 /// Django's `safe_join` equivalent - join paths and ensure result is within base
 pub fn safe_join(base: &Utf8Path, name: &str) -> Result<Utf8PathBuf, SafeJoinError> {

@@ -209,15 +209,17 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("link entry"));
         // Symlink should not exist
-        assert!(!out
-            .join("django/templatetags/evil.py")
-            .as_std_path()
-            .exists());
+        assert!(
+            !out.join("django/templatetags/evil.py")
+                .as_std_path()
+                .exists()
+        );
         // Real file should be extracted
-        assert!(out
-            .join("django/templatetags/i18n.py")
-            .as_std_path()
-            .exists());
+        assert!(
+            out.join("django/templatetags/i18n.py")
+                .as_std_path()
+                .exists()
+        );
     }
 
     #[test]
@@ -259,15 +261,17 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("link entry"));
         // Hard link should not exist
-        assert!(!out
-            .join("django/templatetags/evil.py")
-            .as_std_path()
-            .exists());
+        assert!(
+            !out.join("django/templatetags/evil.py")
+                .as_std_path()
+                .exists()
+        );
         // Real file should be extracted
-        assert!(out
-            .join("django/templatetags/i18n.py")
-            .as_std_path()
-            .exists());
+        assert!(
+            out.join("django/templatetags/i18n.py")
+                .as_std_path()
+                .exists()
+        );
     }
 
     #[test]

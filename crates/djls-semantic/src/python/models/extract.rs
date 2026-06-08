@@ -1,7 +1,7 @@
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use rustc_hash::FxHashSet;
 
 use crate::python::models::graph::FieldName;
@@ -95,10 +95,10 @@ impl<'a> StatementVisitor<'a> for ModelCollector<'a> {
             }
             Stmt::Import(import) => {
                 for name in &import.names {
-                    if is_django_models_module(name.name.as_str()) {
-                        if let Some(alias) = &name.asname {
-                            self.aliases.module_aliases.insert(alias.to_string());
-                        }
+                    if is_django_models_module(name.name.as_str())
+                        && let Some(alias) = &name.asname
+                    {
+                        self.aliases.module_aliases.insert(alias.to_string());
                     }
                 }
             }
@@ -260,10 +260,10 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAl
         match base {
             // models.Model / m.Model (where m aliases django.db.models)
             Expr::Attribute(attr) if attr.attr.as_str() == "Model" => {
-                if let Expr::Name(name) = attr.value.as_ref() {
-                    if aliases.module_aliases.contains(name.id.as_str()) {
-                        return true;
-                    }
+                if let Expr::Name(name) = attr.value.as_ref()
+                    && aliases.module_aliases.contains(name.id.as_str())
+                {
+                    return true;
                 }
             }
             // Model / M (where M aliases django.db.models.Model)
@@ -278,13 +278,13 @@ fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAl
 
 fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
     // Check for Meta.abstract
-    if let Stmt::ClassDef(meta) = stmt {
-        if meta.name.as_str() == "Meta" {
-            for meta_stmt in &meta.body {
-                if is_abstract_assignment(meta_stmt) {
-                    model.kind = ModelKind::Abstract;
-                    return;
-                }
+    if let Stmt::ClassDef(meta) = stmt
+        && meta.name.as_str() == "Meta"
+    {
+        for meta_stmt in &meta.body {
+            if is_abstract_assignment(meta_stmt) {
+                model.kind = ModelKind::Abstract;
+                return;
             }
         }
     }

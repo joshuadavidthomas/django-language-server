@@ -1,21 +1,21 @@
 use djls_source::File;
 
 use crate::db::Db;
+use crate::project::Project;
 use crate::project::project_model_modules;
 use crate::project::project_templatetag_modules;
-use crate::project::Project;
-use crate::python::extract_block_specs;
-use crate::python::extract_filter_arities;
-use crate::python::extract_model_graph;
-use crate::python::extract_tag_rules;
 use crate::python::BlockSpecs;
 use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
+use crate::python::extract_block_specs;
+use crate::python::extract_filter_arities;
+use crate::python::extract_model_graph;
+use crate::python::extract_tag_rules;
 use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::builtin_tag_specs;
 use crate::specs::tags::TagSpecs;
+use crate::specs::tags::builtin_tag_specs;
 
 /// Compute `TagSpecs` from tag-rule and block-spec extraction results.
 ///

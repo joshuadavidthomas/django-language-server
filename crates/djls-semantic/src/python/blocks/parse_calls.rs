@@ -1,12 +1,12 @@
-use ruff_python_ast::statement_visitor::walk_body;
-use ruff_python_ast::statement_visitor::walk_stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtIf;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_body;
+use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::python::blocks::extract_string_sequence;
 use crate::python::blocks::is_parser_receiver;
@@ -334,12 +334,12 @@ fn classify_in_body(
             }
             _ => false,
         };
-        if has_parse_call {
-            if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
-                result.merge(classify_from_if_chain(
-                    if_stmt, parser_var, token_var, all_tokens,
-                ));
-            }
+        if has_parse_call
+            && let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2))
+        {
+            result.merge(classify_from_if_chain(
+                if_stmt, parser_var, token_var, all_tokens,
+            ));
         }
     }
 
@@ -364,13 +364,13 @@ fn classify_from_if_chain(
     }
 
     for clause in &if_stmt.elif_else_clauses {
-        if let Some(test) = &clause.test {
-            if let Some(token) = extract_token_check(test, token_var, all_tokens) {
-                if body_has_parse_call(&clause.body, parser_var) {
-                    result.add_intermediate(token);
-                } else {
-                    result.add_end_tag(token);
-                }
+        if let Some(test) = &clause.test
+            && let Some(token) = extract_token_check(test, token_var, all_tokens)
+        {
+            if body_has_parse_call(&clause.body, parser_var) {
+                result.add_intermediate(token);
+            } else {
+                result.add_end_tag(token);
             }
         }
     }
@@ -395,26 +395,27 @@ fn classify_from_if_chain(
 
 /// Check if a condition expression checks a token string against known stop-tokens.
 fn extract_token_check(expr: &Expr, token_var: &str, known_tokens: &[String]) -> Option<String> {
-    if let Expr::Compare(compare) = expr {
-        if compare.ops.len() == 1 && compare.comparators.len() == 1 {
-            let left = &compare.left;
-            let right = &compare.comparators[0];
+    if let Expr::Compare(compare) = expr
+        && compare.ops.len() == 1
+        && compare.comparators.len() == 1
+    {
+        let left = &compare.left;
+        let right = &compare.comparators[0];
 
-            if is_token_contents_expr(left, Some(token_var)) {
-                if let Some(s) = right.string_literal() {
-                    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
-                    if known_tokens.contains(&cmd) {
-                        return Some(cmd);
-                    }
-                }
+        if is_token_contents_expr(left, Some(token_var))
+            && let Some(s) = right.string_literal()
+        {
+            let cmd = s.split_whitespace().next().unwrap_or("").to_string();
+            if known_tokens.contains(&cmd) {
+                return Some(cmd);
             }
-            if is_token_contents_expr(right, Some(token_var)) {
-                if let Some(s) = left.string_literal() {
-                    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
-                    if known_tokens.contains(&cmd) {
-                        return Some(cmd);
-                    }
-                }
+        }
+        if is_token_contents_expr(right, Some(token_var))
+            && let Some(s) = left.string_literal()
+        {
+            let cmd = s.split_whitespace().next().unwrap_or("").to_string();
+            if known_tokens.contains(&cmd) {
+                return Some(cmd);
             }
         }
     }

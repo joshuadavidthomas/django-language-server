@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
-use serde::ser::SerializeMap;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::Serializer;
+use serde::ser::SerializeMap;
 
 /// Identifies a specific tag or filter registration within a module.
 ///
@@ -272,11 +272,7 @@ impl SplitPosition {
             Self::Forward(0) => None,
             Self::Forward(n) => {
                 let idx = n - 1;
-                if idx < bits_len {
-                    Some(idx)
-                } else {
-                    None
-                }
+                if idx < bits_len { Some(idx) } else { None }
             }
             Self::Backward(n) => {
                 if n == 0 || n > bits_len {

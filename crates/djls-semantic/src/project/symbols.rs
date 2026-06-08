@@ -513,10 +513,10 @@ impl TemplateLibraries {
                     continue;
                 };
 
-                if &current_module != active_module {
-                    if let Some(origin) = library.origin().cloned() {
-                        library.status = LibraryStatus::Discovered(origin);
-                    }
+                if &current_module != active_module
+                    && let Some(origin) = library.origin().cloned()
+                {
+                    library.status = LibraryStatus::Discovered(origin);
                 }
             }
 
@@ -598,10 +598,10 @@ impl TemplateLibraries {
                     return;
                 };
 
-                if let Some(libraries) = self.loadable.get_mut(&library_name) {
-                    if let Some(library) = libraries.iter_mut().find(|l| l.module() == &module) {
-                        library.merge_symbol(symbol);
-                    }
+                if let Some(libraries) = self.loadable.get_mut(&library_name)
+                    && let Some(library) = libraries.iter_mut().find(|l| l.module() == &module)
+                {
+                    library.merge_symbol(symbol);
                 }
             }
         }

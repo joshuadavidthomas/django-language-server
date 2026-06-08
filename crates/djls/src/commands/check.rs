@@ -2,9 +2,9 @@ use std::io::Read as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
@@ -26,10 +26,10 @@ use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 
 use crate::args::Args;
+use crate::commands::Command;
+use crate::commands::common::ColorMode;
 use crate::commands::common::discover_files;
 use crate::commands::common::resolve_project_root;
-use crate::commands::common::ColorMode;
-use crate::commands::Command;
 use crate::exit::Exit;
 
 struct CheckResult {

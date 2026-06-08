@@ -13,20 +13,20 @@
 //! The `LspLayer` automatically handles forwarding appropriate log levels
 //! to the LSP client while preserving structured logging data for file output.
 
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use tower_lsp_server::ls_types;
-use tracing::field::Visit;
 use tracing::Level;
+use tracing::field::Visit;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::fmt;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
+use tracing_subscriber::fmt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// A tracing Layer that forwards events to the LSP client.
 ///

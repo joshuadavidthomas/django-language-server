@@ -63,15 +63,14 @@ impl<'db> TagIndex<'db> {
 
         // If the closer supplies a name argument, it must match the opener's.
         // e.g. `{% endblock content %}` must match `{% block content %}`
-        if let Some(closer_arg) = closer_bits.first() {
-            if let Some(opener_arg) = opener_bits.first() {
-                if closer_arg.as_str() != opener_arg.as_str() {
-                    return CloseValidation::ArgumentMismatch {
-                        expected: opener_arg.as_str().to_string(),
-                        got: closer_arg.as_str().to_string(),
-                    };
-                }
-            }
+        if let Some(closer_arg) = closer_bits.first()
+            && let Some(opener_arg) = opener_bits.first()
+            && closer_arg.as_str() != opener_arg.as_str()
+        {
+            return CloseValidation::ArgumentMismatch {
+                expected: opener_arg.as_str().to_string(),
+                got: closer_arg.as_str().to_string(),
+            };
         }
 
         CloseValidation::Valid

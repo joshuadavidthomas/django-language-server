@@ -1,7 +1,7 @@
 [package]
 name = "djls-corpus"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 description = "Corpus management for Django template extraction testing"
 
 [[bin]]

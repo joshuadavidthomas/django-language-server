@@ -30,10 +30,10 @@ impl TagSpecs {
     #[must_use]
     pub fn find_opener_for_closer(&self, closer: &str) -> Option<String> {
         for (tag_name, spec) in &self.0 {
-            if let Some(end_spec) = &spec.end_tag {
-                if end_spec.name.as_ref() == closer {
-                    return Some(tag_name.clone());
-                }
+            if let Some(end_spec) = &spec.end_tag
+                && end_spec.name.as_ref() == closer
+            {
+                return Some(tag_name.clone());
             }
         }
         None
@@ -43,10 +43,10 @@ impl TagSpecs {
     #[must_use]
     pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {
         for spec in self.0.values() {
-            if let Some(end_spec) = &spec.end_tag {
-                if end_spec.name.as_ref() == closer {
-                    return Some(end_spec);
-                }
+            if let Some(end_spec) = &spec.end_tag
+                && end_spec.name.as_ref() == closer
+            {
+                return Some(end_spec);
             }
         }
         None
@@ -1072,10 +1072,12 @@ mod tests {
         let if_spec = specs.get("if").unwrap();
         assert_eq!(if_spec.end_tag.as_ref().unwrap().name.as_ref(), "endif");
         assert_eq!(if_spec.intermediate_tags.len(), 3);
-        assert!(if_spec
-            .intermediate_tags
-            .iter()
-            .any(|t| t.name.as_ref() == "elseif"));
+        assert!(
+            if_spec
+                .intermediate_tags
+                .iter()
+                .any(|t| t.name.as_ref() == "elseif")
+        );
     }
 
     #[test]

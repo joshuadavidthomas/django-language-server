@@ -350,10 +350,10 @@ fn walk_entries_for_buffer(
         {
             continue;
         }
-        if let Some(max_depth) = options.max_depth {
-            if entry_relative.components().count() > max_depth {
-                continue;
-            }
+        if let Some(max_depth) = options.max_depth
+            && entry_relative.components().count() > max_depth
+        {
+            continue;
         }
 
         entries.push(WalkEntry {

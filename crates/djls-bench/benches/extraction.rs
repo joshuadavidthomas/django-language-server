@@ -1,6 +1,6 @@
 use divan::Bencher;
-use djls_bench::python_fixtures;
 use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::python_fixtures;
 
 fn main() {
     divan::main();

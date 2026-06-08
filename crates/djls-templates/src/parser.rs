@@ -3,9 +3,9 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::bits::TagBit;
+use crate::filters::Filter;
 use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
-use crate::filters::Filter;
 use crate::nodelist::Node;
 use crate::quotes::split_on_whitespace_with_offsets;
 use crate::tokens::Token;

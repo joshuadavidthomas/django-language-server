@@ -1,7 +1,7 @@
 use camino::Utf8PathBuf;
-use djls_source::safe_join;
 use djls_source::File;
 use djls_source::Span;
+use djls_source::safe_join;
 
 use crate::db::Db as SemanticDb;
 use crate::primitives::Template;
@@ -139,19 +139,18 @@ fn template_reference_index(db: &dyn SemanticDb, project: Project) -> Vec<Templa
     for template in templates {
         for tag in template.tags(db) {
             let tag_name = tag.name();
-            if tag_name == "extends" || tag_name == "include" {
-                if let Some(template_name) = tag
+            if (tag_name == "extends" || tag_name == "include")
+                && let Some(template_name) = tag
                     .bits()
                     .first()
                     .and_then(|argument| argument.template_string().quoted_value())
-                {
-                    references.push(TemplateReference::new(
-                        db,
-                        template,
-                        TemplateName::new(db, template_name.to_string()),
-                        tag.span(),
-                    ));
-                }
+            {
+                references.push(TemplateReference::new(
+                    db,
+                    template,
+                    TemplateName::new(db, template_name.to_string()),
+                    tag.span(),
+                ));
             }
         }
     }

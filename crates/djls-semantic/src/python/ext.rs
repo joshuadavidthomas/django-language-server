@@ -52,12 +52,10 @@ impl ExprExt for Expr {
             value: Number::Int(int_val),
             ..
         }) = self
+            && let Some(n) = int_val.as_i64()
+            && n >= 0
         {
-            if let Some(n) = int_val.as_i64() {
-                if n >= 0 {
-                    return usize::try_from(n).ok();
-                }
-            }
+            return usize::try_from(n).ok();
         }
         None
     }

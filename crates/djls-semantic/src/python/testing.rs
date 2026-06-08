@@ -25,10 +25,10 @@ pub(crate) fn find_function_in_source(source: &str, func_name: &str) -> Option<S
     let parsed = parse_module(source).ok()?;
     let module = parsed.into_syntax();
     for stmt in module.body {
-        if let Stmt::FunctionDef(func_def) = stmt {
-            if func_def.name.as_str() == func_name {
-                return Some(func_def);
-            }
+        if let Stmt::FunctionDef(func_def) = stmt
+            && func_def.name.as_str() == func_name
+        {
+            return Some(func_def);
         }
     }
     None

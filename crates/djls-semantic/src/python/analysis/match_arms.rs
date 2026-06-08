@@ -1,5 +1,3 @@
-use ruff_python_ast::statement_visitor::walk_stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::MatchCase;
@@ -9,6 +7,8 @@ use ruff_python_ast::PatternMatchSequence;
 use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::python::analysis::constraints::ExtractedTagConstraints;
 use crate::python::analysis::expressions::eval_expr;
@@ -184,20 +184,19 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
         for pos in 0..num_positions {
             // Check if ALL cases agree on the same literal at this position
             let first_literal = &cases_at_len[0][pos];
-            if let Some(lit) = first_literal {
-                if cases_at_len
+            if let Some(lit) = first_literal
+                && cases_at_len
                     .iter()
                     .all(|c| c.get(pos).and_then(|v| v.as_ref()) == Some(lit))
-                {
-                    // Skip position 0 — that's the tag name, not a user argument
-                    if pos > 0 {
-                        let kw = RequiredKeyword {
-                            position: SplitPosition::Forward(pos),
-                            value: lit.clone(),
-                        };
-                        if !keywords.contains(&kw) {
-                            keywords.push(kw);
-                        }
+            {
+                // Skip position 0 — that's the tag name, not a user argument
+                if pos > 0 {
+                    let kw = RequiredKeyword {
+                        position: SplitPosition::Forward(pos),
+                        value: lit.clone(),
+                    };
+                    if !keywords.contains(&kw) {
+                        keywords.push(kw);
                     }
                 }
             }

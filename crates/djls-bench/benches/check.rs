@@ -14,10 +14,10 @@ use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use divan::Bencher;
-use djls_bench::realistic_db;
-use djls_bench::template_fixtures;
 use djls_bench::Db;
 use djls_bench::FileCheckResult;
+use djls_bench::realistic_db;
+use djls_bench::template_fixtures;
 use djls_source::DiagnosticRenderer;
 
 fn main() {

@@ -70,12 +70,12 @@ pub(crate) fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) 
     let mut snippet = generate_snippet_for_tag(tag_name, spec);
 
     // If this tag has a required end tag, include it in the snippet
-    if let Some(end_tag) = &spec.end_tag {
-        if end_tag.required {
-            snippet.push_str(" %}\n$0\n{% ");
-            snippet.push_str(&end_tag.name);
-            snippet.push_str(" %}");
-        }
+    if let Some(end_tag) = &spec.end_tag
+        && end_tag.required
+    {
+        snippet.push_str(" %}\n$0\n{% ");
+        snippet.push_str(&end_tag.name);
+        snippet.push_str(" %}");
     }
 
     snippet

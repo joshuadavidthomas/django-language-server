@@ -272,12 +272,12 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::build_template_tree;
-    use crate::builtin_tag_specs;
-    use crate::testing::TestDatabase;
     use crate::EndTag;
     use crate::TagSpec;
     use crate::TagSpecs;
+    use crate::build_template_tree;
+    use crate::builtin_tag_specs;
+    use crate::testing::TestDatabase;
 
     fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<OutlineItem> {
         db.add_file("test.html", source);

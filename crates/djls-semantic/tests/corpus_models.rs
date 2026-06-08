@@ -18,8 +18,8 @@
 //! INSTA_UPDATE=1 cargo test -p djls-semantic --test corpus_models
 //! ```
 
-use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
+use djls_corpus::module_path_from_file;
 use djls_semantic::extract_model_graph;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {

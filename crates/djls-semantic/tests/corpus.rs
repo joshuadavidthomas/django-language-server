@@ -21,13 +21,13 @@
 
 use std::collections::BTreeMap;
 
-use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_semantic::extract_rules;
+use djls_corpus::module_path_from_file;
 use djls_semantic::ExtractionResult;
 use djls_semantic::FilterArity;
 use djls_semantic::SymbolKey;
 use djls_semantic::TagRule;
+use djls_semantic::extract_rules;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]

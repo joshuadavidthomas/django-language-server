@@ -13,9 +13,9 @@ use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tempfile::NamedTempFile;
 
 use crate::project::db::Db as ProjectDb;
@@ -132,11 +132,13 @@ impl Inspector {
 
         // Auto-start cleanup task using a clone
         let cleanup_inspector = inspector.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(30));
-            let inner = &mut cleanup_inspector.inner();
-            if let Some(process) = &inner.process {
-                if process.is_idle(inner.idle_timeout) {
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(30));
+                let inner = &mut cleanup_inspector.inner();
+                if let Some(process) = &inner.process
+                    && process.is_idle(inner.idle_timeout)
+                {
                     inner.shutdown_process();
                 }
             }
@@ -271,7 +273,12 @@ impl InspectorInner {
                 {
                     tracing::debug!(
                         "Inspector process needs restart: not_running={}, interpreter_changed={}, path_changed={}, settings_changed={}, pythonpath_changed={}, env_vars_changed={}",
-                        not_running, interpreter_changed, path_changed, settings_changed, pythonpath_changed, env_vars_changed
+                        not_running,
+                        interpreter_changed,
+                        path_changed,
+                        settings_changed,
+                        pythonpath_changed,
+                        env_vars_changed
                     );
                     true
                 } else {

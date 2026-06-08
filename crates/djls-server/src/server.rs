@@ -1,16 +1,16 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use djls_semantic::ProjectDb;
 use djls_semantic::load_template_library_cache;
 use djls_semantic::refresh_external_data;
-use djls_semantic::ProjectDb;
 use djls_source::FileKind;
-use tokio::sync::oneshot;
 use tokio::sync::Mutex;
-use tower_lsp_server::jsonrpc::Result as LspResult;
-use tower_lsp_server::ls_types;
+use tokio::sync::oneshot;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
+use tower_lsp_server::jsonrpc::Result as LspResult;
+use tower_lsp_server::ls_types;
 
 use crate::document::TextDocument;
 use crate::ext::PositionEncodingExt;
@@ -64,18 +64,22 @@ impl DjangoLanguageServer {
         let session = Arc::clone(&self.session);
         let (tx, rx) = oneshot::channel();
 
-        if let Err(e) = self
+        let submit_result = self
             .queue
             .submit(async move {
                 let res = f(session).await;
                 let _ = tx.send(res);
                 Ok(())
             })
-            .await
-        {
-            tracing::error!("Failed to submit task: {}", e);
-        } else {
-            tracing::info!("Task submitted successfully");
+            .await;
+
+        match submit_result {
+            Ok(()) => {
+                tracing::info!("Task submitted successfully");
+            }
+            Err(e) => {
+                tracing::error!("Failed to submit task: {}", e);
+            }
         }
 
         rx

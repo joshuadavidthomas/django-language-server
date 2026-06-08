@@ -12,17 +12,17 @@ mod testing;
 
 use djls_source::File;
 use djls_source::FileKind;
-use ruff_python_ast::statement_visitor::walk_stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::python::analysis::calls::extract_return_value;
+use crate::python::analysis::CallContext;
 use crate::python::analysis::calls::AbstractValueKey;
+use crate::python::analysis::calls::extract_return_value;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::statements::process_statements;
-use crate::python::analysis::CallContext;
 pub use crate::python::models::extract::extract_model_graph;
 pub use crate::python::models::graph::ModelDef;
 pub use crate::python::models::graph::ModelGraph;

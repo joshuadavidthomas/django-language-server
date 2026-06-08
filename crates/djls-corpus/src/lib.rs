@@ -37,9 +37,9 @@ mod lock;
 mod manifest;
 mod sync;
 
-pub use lock::lock_corpus;
 pub use lock::LockFilter;
 pub use lock::Lockfile;
+pub use lock::lock_corpus;
 pub use manifest::Fixture;
 pub use manifest::Manifest;
 pub use manifest::Repo;

@@ -1,15 +1,15 @@
 //! Intra-module function call resolution via Salsa tracked functions.
 
-use ruff_python_ast::statement_visitor::walk_stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_stmt;
 
+use crate::python::HelperCall;
+use crate::python::analysis::CallContext;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::state::TokenSplit;
-use crate::python::analysis::CallContext;
 use crate::python::analyze_helper;
-use crate::python::HelperCall;
 
 /// A hashable representation of `AbstractValue` for Salsa interned keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -166,8 +166,8 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::python::analysis::statements::process_statements;
     use crate::python::analysis::CallContext;
+    use crate::python::analysis::statements::process_statements;
     use crate::python::testing::package_source;
     use crate::python::types::SplitPosition;
 

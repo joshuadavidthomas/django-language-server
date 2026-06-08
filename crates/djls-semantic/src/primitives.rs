@@ -1,9 +1,9 @@
 use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::Span;
-use djls_templates::parse_template;
 use djls_templates::Node;
 use djls_templates::TagBit;
+use djls_templates::parse_template;
 
 use crate::db::Db as SemanticDb;
 

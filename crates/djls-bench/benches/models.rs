@@ -2,8 +2,8 @@ use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use divan::Bencher;
-use djls_bench::model_fixtures;
 use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::model_fixtures;
 use djls_semantic::ModelGraph;
 
 fn main() {

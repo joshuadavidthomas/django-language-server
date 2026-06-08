@@ -178,10 +178,12 @@ fn resolve_repo(
 }
 
 fn write_license_file(path: &Utf8Path, text: Option<&str>) {
-    if let Some(text) = text {
-        if let Err(e) = std::fs::write(path.as_std_path(), text) {
-            tracing::warn!(path = %path, error = %e, "failed to write license file");
-        }
+    let Some(text) = text else {
+        return;
+    };
+
+    if let Err(e) = std::fs::write(path.as_std_path(), text) {
+        tracing::warn!(path = %path, error = %e, "failed to write license file");
     }
 }
 
@@ -344,14 +346,17 @@ fn fetch_license_text(
             }
         };
 
-        if let Ok(resp) = client.get(&raw_url).send() {
-            if resp.status().is_success() {
-                if let Ok(text) = resp.text() {
-                    if !text.is_empty() {
-                        return Some(text);
-                    }
-                }
-            }
+        let Ok(resp) = client.get(&raw_url).send() else {
+            continue;
+        };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let Ok(text) = resp.text() else {
+            continue;
+        };
+        if !text.is_empty() {
+            return Some(text);
         }
     }
 

@@ -1,4 +1,3 @@
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -8,6 +7,7 @@ use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtWhile;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 
 use crate::python::analysis::exceptions::direct_raise_exception;
 use crate::python::analysis::state::AbstractValue;
@@ -147,15 +147,14 @@ impl StatementVisitor<'_> for OptionPopFinder<'_> {
             return;
         }
 
-        if let Stmt::Assign(assign) = stmt {
-            if assign.targets.len() == 1 {
-                if let Expr::Name(ExprName { id, .. }) = &assign.targets[0] {
-                    let is_pop_zero = try_extract_pop_call(&assign.value)
-                        .is_some_and(|info| info.var_name == self.loop_var && info.from_front);
-                    if is_pop_zero {
-                        self.option_var = Some(id.to_string());
-                    }
-                }
+        if let Stmt::Assign(assign) = stmt
+            && assign.targets.len() == 1
+            && let Expr::Name(ExprName { id, .. }) = &assign.targets[0]
+        {
+            let is_pop_zero = try_extract_pop_call(&assign.value)
+                .is_some_and(|info| info.var_name == self.loop_var && info.from_front);
+            if is_pop_zero {
+                self.option_var = Some(id.to_string());
             }
         }
         // Do not recurse into nested statements.
@@ -203,20 +202,20 @@ impl StatementVisitor<'_> for OptionCheckVisitor<'_> {
         if let Stmt::If(if_stmt) = stmt {
             if is_duplicate_check(&if_stmt.test, self.option_var) {
                 *self.allow_duplicates = false;
-            } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, self.option_var) {
-                if !self.values.contains(&opt_name) {
-                    self.values.push(opt_name);
-                }
+            } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, self.option_var)
+                && !self.values.contains(&opt_name)
+            {
+                self.values.push(opt_name);
             }
 
             for clause in &if_stmt.elif_else_clauses {
                 if let Some(test) = &clause.test {
                     if is_duplicate_check(test, self.option_var) {
                         *self.allow_duplicates = false;
-                    } else if let Some(opt_name) = extract_option_equality(test, self.option_var) {
-                        if !self.values.contains(&opt_name) {
-                            self.values.push(opt_name);
-                        }
+                    } else if let Some(opt_name) = extract_option_equality(test, self.option_var)
+                        && !self.values.contains(&opt_name)
+                    {
+                        self.values.push(opt_name);
                     }
                 } else {
                     // else branch — if it raises, unknown options are rejected

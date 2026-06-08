@@ -14,8 +14,8 @@ use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
+use ignore::overrides::OverrideBuilder;
 use rustc_hash::FxHashMap;
 
 /// Options controlling filesystem traversal.
@@ -257,10 +257,11 @@ impl FileSystem for InMemoryFileSystem {
                 {
                     continue;
                 }
-                if let Some(max_depth) = options.max_depth {
-                    if entry_relative.components().count() > max_depth {
-                        continue;
-                    }
+                if options
+                    .max_depth
+                    .is_some_and(|max_depth| entry_relative.components().count() > max_depth)
+                {
+                    continue;
                 }
                 if entries
                     .iter()

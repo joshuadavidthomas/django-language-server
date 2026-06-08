@@ -18,9 +18,6 @@ mod testing;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-pub use project::load_env_file;
-pub use project::load_template_library_cache;
-pub use project::refresh_external_data;
 pub use project::Db as ProjectDb;
 pub use project::InstalledSymbolCandidate;
 pub use project::InstalledSymbolOrigin;
@@ -42,9 +39,9 @@ pub use project::TemplateSymbol;
 pub use project::TemplateSymbolKind;
 pub use project::TemplateSymbolName;
 pub use project::TemplateSymbolSnapshot;
-pub use python::extract_filter_arities;
-pub use python::extract_model_graph;
-pub use python::extract_rules;
+pub use project::load_env_file;
+pub use project::load_template_library_cache;
+pub use project::refresh_external_data;
 pub use python::BlockSpecs;
 pub use python::ExtractionResult;
 pub use python::FilterArity;
@@ -56,27 +53,30 @@ pub use python::SymbolKey;
 pub use python::SymbolKind;
 pub use python::TagRule;
 pub use python::TagRuleMap;
+pub use python::extract_filter_arities;
+pub use python::extract_model_graph;
+pub use python::extract_rules;
 pub use queries::compute_filter_arity_specs;
 pub use queries::compute_model_graph;
 pub use queries::compute_tag_specs;
+pub use resolution::ResolveResult;
 pub use resolution::find_references_to_template;
 pub use resolution::resolve_template;
-pub use resolution::ResolveResult;
-pub use scoping::available_symbols_at;
 pub use scoping::AvailableSymbols;
 pub use scoping::LoadKind;
+pub use scoping::available_symbols_at;
 pub use specs::filters::FilterAritySpecs;
-pub use specs::tags::builtin_tag_specs;
 pub use specs::tags::EndTag;
 pub use specs::tags::TagArgument;
 pub use specs::tags::TagArgumentKind;
 pub use specs::tags::TagSpec;
 pub use specs::tags::TagSpecs;
+pub use specs::tags::builtin_tag_specs;
+pub use structure::OutlineItem;
+pub use structure::OutlineKind;
 pub use structure::build_template_outline;
 pub use structure::build_template_tree;
 pub use structure::compute_opaque_regions;
-pub use structure::OutlineItem;
-pub use structure::OutlineKind;
 
 use crate::validation::TemplateValidator;
 
@@ -127,17 +127,17 @@ mod tests {
 
     use camino::Utf8PathBuf;
 
+    use crate::FilterArity;
+    use crate::SymbolKey;
+    use crate::TemplateLibraries;
+    use crate::ValidationError;
     use crate::specs::filters::FilterAritySpecs;
+    use crate::testing::TestDatabase;
     use crate::testing::builtin_filter_json;
     use crate::testing::builtin_tag_json;
     use crate::testing::collect_errors;
     use crate::testing::library_tag_json;
     use crate::testing::make_template_libraries;
-    use crate::testing::TestDatabase;
-    use crate::FilterArity;
-    use crate::SymbolKey;
-    use crate::TemplateLibraries;
-    use crate::ValidationError;
 
     fn default_builtins_module() -> &'static str {
         "django.template.defaulttags"

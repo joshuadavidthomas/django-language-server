@@ -600,15 +600,21 @@ mod tests {
                 reasons,
             } => {
                 assert_eq!(candidates.len(), 2);
-                assert!(candidates
-                    .iter()
-                    .any(|candidate| candidate.file == project_root.join("shop/apps.py")));
-                assert!(candidates
-                    .iter()
-                    .any(|candidate| candidate.file == project_root.join("src/shop/apps.py")));
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.field == Field::ResolverModule));
+                assert!(
+                    candidates
+                        .iter()
+                        .any(|candidate| candidate.file == project_root.join("shop/apps.py"))
+                );
+                assert!(
+                    candidates
+                        .iter()
+                        .any(|candidate| candidate.file == project_root.join("src/shop/apps.py"))
+                );
+                assert!(
+                    reasons
+                        .iter()
+                        .any(|reason| reason.field == Field::ResolverModule)
+                );
             }
             other => panic!("expected ambiguous duplicate module, got {other:?}"),
         }
@@ -634,9 +640,11 @@ mod tests {
                     value.file,
                     project_root.join("src/acme/plugins/blog/apps.py")
                 );
-                assert!(reasons
-                    .iter()
-                    .any(|reason| reason.field == Field::ResolverModule));
+                assert!(
+                    reasons
+                        .iter()
+                        .any(|reason| reason.field == Field::ResolverModule)
+                );
             }
             other => panic!("expected partial namespace package module, got {other:?}"),
         }

@@ -1,11 +1,11 @@
-use ruff_python_ast::statement_visitor::walk_stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprName;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::python::blocks::dynamic_end;
 use crate::python::blocks::is_token_contents_expr;
@@ -112,12 +112,11 @@ impl StatementVisitor<'_> for NextTokenLoopFinder<'_> {
 
 /// Check if an expression is `parser.tokens` (the token list attribute).
 fn is_parser_tokens_check(expr: &Expr, parser_var: &str) -> bool {
-    if let Expr::Attribute(ExprAttribute { attr, value, .. }) = expr {
-        if attr.as_str() == "tokens" {
-            if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
-                return id.as_str() == parser_var;
-            }
-        }
+    if let Expr::Attribute(ExprAttribute { attr, value, .. }) = expr
+        && attr.as_str() == "tokens"
+        && let Expr::Name(ExprName { id, .. }) = value.as_ref()
+    {
+        return id.as_str() == parser_var;
     }
     false
 }
@@ -259,15 +258,15 @@ fn extract_comparisons_from_expr(expr: &Expr, token_var: &str) -> Vec<String> {
             if is_token_contents_expr(left, Some(token_var))
                 || is_token_contents_expr(right, Some(token_var))
             {
-                if let Some(s) = left.string_literal() {
-                    if !comparisons.contains(&s) {
-                        comparisons.push(s);
-                    }
+                if let Some(s) = left.string_literal()
+                    && !comparisons.contains(&s)
+                {
+                    comparisons.push(s);
                 }
-                if let Some(s) = right.string_literal() {
-                    if !comparisons.contains(&s) {
-                        comparisons.push(s);
-                    }
+                if let Some(s) = right.string_literal()
+                    && !comparisons.contains(&s)
+                {
+                    comparisons.push(s);
                 }
             }
         }

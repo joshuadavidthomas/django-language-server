@@ -1,12 +1,12 @@
 use divan::Bencher;
+use djls_bench::DIAGNOSTICS_INNER_ITERS;
+use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
+use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::ValidationErrorFixture;
 use djls_bench::prime;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
-use djls_bench::ValidationErrorFixture;
-use djls_bench::DIAGNOSTICS_INNER_ITERS;
-use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
-use djls_bench::REPEATED_INNER_ITERS;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::Severity;
