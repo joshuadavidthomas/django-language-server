@@ -341,7 +341,7 @@ mod tests {
 "#;
 
         db.add_file("test.html", source);
-        let file = db.create_file(Utf8Path::new("test.html"));
+        let file = db.get_or_create_file(Utf8Path::new("test.html"));
         let nodelist = parse_template(&db, file).expect("should parse");
 
         insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
@@ -354,7 +354,7 @@ mod tests {
 
     fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db> {
         db.add_file("test.html", source);
-        let file = db.create_file(Utf8Path::new("test.html"));
+        let file = db.get_or_create_file(Utf8Path::new("test.html"));
         let nodelist = parse_template(db, file).expect("should parse");
         build_template_tree(db, nodelist)
     }
@@ -516,7 +516,7 @@ mod tests {
 {% endblock %}";
 
         db.add_file("test.html", source);
-        let file = db.create_file(Utf8Path::new("test.html"));
+        let file = db.get_or_create_file(Utf8Path::new("test.html"));
         let nodelist = parse_template(&db, file).expect("should parse");
         let tree = build_template_tree(&db, nodelist);
         let errors =
@@ -570,7 +570,7 @@ mod tests {
 ";
 
         db.add_file("test.html", source);
-        let file = db.create_file(Utf8Path::new("test.html"));
+        let file = db.get_or_create_file(Utf8Path::new("test.html"));
         let nodelist = parse_template(&db, file).expect("should parse");
         let errors =
             build_template_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);

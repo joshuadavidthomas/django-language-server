@@ -57,7 +57,7 @@ impl Db {
     pub fn file_with_contents(&mut self, path: impl Into<Utf8PathBuf>, contents: &str) -> File {
         let path = path.into();
         self.sources.insert(path.clone(), contents.to_string());
-        self.files.get_or_create(self, &path)
+        self.get_or_create_file(&path)
     }
 
     pub fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {

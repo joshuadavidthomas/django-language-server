@@ -201,7 +201,7 @@ mod tests {
     fn text_document(content: &str, version: i32, kind: FileKind) -> TextDocument {
         let db = TestDb::default();
         let path = Utf8Path::new("/test.txt");
-        let file = db.create_file(path);
+        let file = db.get_or_create_file(path);
         TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file)
     }
 
