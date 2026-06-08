@@ -192,7 +192,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert(path.to_string(), source.to_string());
-            self.source_files.get_or_create(self, Utf8Path::new(path))
+            <Self as djls_source::Db>::get_or_create_file(self, Utf8Path::new(path))
         }
     }
 

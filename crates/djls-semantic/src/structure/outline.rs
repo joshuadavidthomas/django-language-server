@@ -281,7 +281,7 @@ mod tests {
 
     fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<OutlineItem> {
         db.add_file("test.html", source);
-        let file = db.create_file(Utf8Path::new("test.html"));
+        let file = db.get_or_create_file(Utf8Path::new("test.html"));
         let nodelist = parse_template(db, file).expect("should parse");
         let tree = build_template_tree(db, nodelist);
         build_template_outline(db, tree)

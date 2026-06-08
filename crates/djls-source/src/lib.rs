@@ -1,6 +1,5 @@
 mod collections;
 mod db;
-mod file;
 mod files;
 mod line;
 mod path;
@@ -10,11 +9,11 @@ mod render;
 
 pub use collections::FxDashMap;
 pub use db::Db;
-pub use file::File;
-pub use file::FileKind;
-pub use file::SourceText;
+pub use files::File;
+pub use files::FileKind;
 pub use files::FileRootKind;
 pub use files::SourceFiles;
+pub use files::SourceText;
 pub use line::LineEnding;
 pub use line::LineIndex;
 pub use line::SourceLine;

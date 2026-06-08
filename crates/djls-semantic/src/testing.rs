@@ -190,8 +190,8 @@ impl TestDatabase {
     }
 
     #[must_use]
-    pub(crate) fn create_file(&self, path: &Utf8Path) -> File {
-        <Self as djls_source::Db>::create_file(self, path)
+    pub(crate) fn get_or_create_file(&self, path: &Utf8Path) -> File {
+        <Self as djls_source::Db>::get_or_create_file(self, path)
     }
 
     #[must_use]
