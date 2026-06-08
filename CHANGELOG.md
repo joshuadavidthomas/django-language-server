@@ -22,6 +22,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
 
+### Changed
+
+- Bumped Rust toolchain from 1.95 to 1.96.
+
 ## [6.0.3]
 
 ### Added
