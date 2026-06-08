@@ -57,22 +57,19 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
 
 /// Check if an expression is the parser variable (or `self.parser`).
 pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
-    if let Expr::Name(ExprName { id, .. }) = expr {
-        if id.as_str() == parser_var {
-            return true;
-        }
+    if let Expr::Name(ExprName { id, .. }) = expr
+        && id.as_str() == parser_var
+    {
+        return true;
     }
     if let Expr::Attribute(ExprAttribute {
         attr, value: obj, ..
     }) = expr
+        && attr.as_str() == "parser"
+        && let Expr::Name(ExprName { id, .. }) = obj.as_ref()
+        && (id.as_str() == parser_var || id.as_str() == "self")
     {
-        if attr.as_str() == "parser" {
-            if let Expr::Name(ExprName { id, .. }) = obj.as_ref() {
-                if id.as_str() == parser_var || id.as_str() == "self" {
-                    return true;
-                }
-            }
-        }
+        return true;
     }
     false
 }
@@ -111,13 +108,13 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
 pub(super) fn is_token_contents_expr(expr: &Expr, token_var: Option<&str>) -> bool {
     match expr {
         Expr::Attribute(ExprAttribute { attr, value, .. }) => {
-            if attr.as_str() == "contents" {
-                if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
-                    if let Some(tv) = token_var {
-                        return id.as_str() == tv;
-                    }
-                    return true;
+            if attr.as_str() == "contents"
+                && let Expr::Name(ExprName { id, .. }) = value.as_ref()
+            {
+                if let Some(tv) = token_var {
+                    return id.as_str() == tv;
                 }
+                return true;
             }
             false
         }

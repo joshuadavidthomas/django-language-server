@@ -66,15 +66,13 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
         });
     }
 
-    if has_varargs {
-        if let Some(vararg) = &params.vararg {
-            extracted_args.push(ExtractedArg {
-                name: vararg.name.to_string(),
-                required: false,
-                kind: ExtractedArgKind::VarArgs,
-                position: effective_params.len(),
-            });
-        }
+    if has_varargs && let Some(vararg) = &params.vararg {
+        extracted_args.push(ExtractedArg {
+            name: vararg.name.to_string(),
+            required: false,
+            kind: ExtractedArgKind::VarArgs,
+            position: effective_params.len(),
+        });
     }
 
     for (i, kwonly) in params.kwonlyargs.iter().enumerate() {
@@ -104,10 +102,11 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
     for decorator in &func.decorator_list {
         if let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression {
             for kw in &arguments.keywords {
-                if let Some(arg) = &kw.arg {
-                    if arg.as_str() == "takes_context" && kw.value.is_true_literal() {
-                        return true;
-                    }
+                if let Some(arg) = &kw.arg
+                    && arg.as_str() == "takes_context"
+                    && kw.value.is_true_literal()
+                {
+                    return true;
                 }
             }
         }
@@ -128,10 +127,11 @@ mod tests {
         let func =
             django_function("tests/template_tests/templatetags/custom.py", "no_params").unwrap();
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
-        assert!(rule
-            .arg_constraints
-            .iter()
-            .all(|c| matches!(c, ArgumentCountConstraint::Max(_))));
+        assert!(
+            rule.arg_constraints
+                .iter()
+                .all(|c| matches!(c, ArgumentCountConstraint::Max(_)))
+        );
     }
 
     // Corpus: `simple_two_params` in custom.py — `def simple_two_params(one, two):`
@@ -144,9 +144,10 @@ mod tests {
         )
         .unwrap();
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
-        assert!(rule
-            .arg_constraints
-            .contains(&ArgumentCountConstraint::Min(3)));
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Min(3))
+        );
     }
 
     // Corpus: `simple_one_default` in custom.py — `def simple_one_default(one, two="hi"):`
@@ -159,9 +160,10 @@ mod tests {
         )
         .unwrap();
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
-        assert!(rule
-            .arg_constraints
-            .contains(&ArgumentCountConstraint::Min(2)));
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Min(2))
+        );
     }
 
     // Fabricated: `*args` on simple_tag is uncommon in real Django code.
@@ -175,10 +177,12 @@ def concat(*args):
 ";
         let func = find_function_in_source(source, "concat").unwrap();
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
-        assert!(!rule
-            .arg_constraints
-            .iter()
-            .any(|c| matches!(c, ArgumentCountConstraint::Max(_))));
+        assert!(
+            !rule
+                .arg_constraints
+                .iter()
+                .any(|c| matches!(c, ArgumentCountConstraint::Max(_)))
+        );
     }
 
     // Corpus: `add_preserved_filters` in admin_urls.py —
@@ -192,8 +196,9 @@ def concat(*args):
         )
         .unwrap();
         let rule = extract_parse_bits_rule(&func, AsVar::Strip);
-        assert!(rule
-            .arg_constraints
-            .contains(&ArgumentCountConstraint::Min(2)));
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Min(2))
+        );
     }
 }

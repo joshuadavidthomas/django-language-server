@@ -10,11 +10,11 @@ use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Number;
 
+use crate::python::analysis::CallContext;
 use crate::python::analysis::calls::resolve_call;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::state::TokenSplit;
-use crate::python::analysis::CallContext;
 use crate::python::ext::ExprExt;
 use crate::python::types::SplitPosition;
 
@@ -82,17 +82,16 @@ fn eval_call_with_ctx(
         }
 
         // parser.token.split_contents()
-        if method == "split_contents" {
-            if let Expr::Attribute(ExprAttribute {
+        if method == "split_contents"
+            && let Expr::Attribute(ExprAttribute {
                 value: inner_value,
                 attr: inner_attr,
                 ..
             }) = value.as_ref()
-            {
-                let inner_obj = eval_expr_with_ctx(inner_value, env, ctx.as_deref_mut());
-                if matches!(inner_obj, AbstractValue::Parser) && inner_attr.as_str() == "token" {
-                    return AbstractValue::SplitResult(TokenSplit::fresh());
-                }
+        {
+            let inner_obj = eval_expr_with_ctx(inner_value, env, ctx.as_deref_mut());
+            if matches!(inner_obj, AbstractValue::Parser) && inner_attr.as_str() == "token" {
+                return AbstractValue::SplitResult(TokenSplit::fresh());
             }
         }
 
@@ -102,17 +101,16 @@ fn eval_call_with_ctx(
         }
 
         // token.contents.split(...)
-        if method == "split" {
-            if let Expr::Attribute(ExprAttribute {
+        if method == "split"
+            && let Expr::Attribute(ExprAttribute {
                 value: inner_value,
                 attr: inner_attr,
                 ..
             }) = value.as_ref()
-            {
-                let inner_obj = eval_expr_with_ctx(inner_value, env, ctx.as_deref_mut());
-                if matches!(inner_obj, AbstractValue::Token) && inner_attr.as_str() == "contents" {
-                    return eval_contents_split(&call.arguments);
-                }
+        {
+            let inner_obj = eval_expr_with_ctx(inner_value, env, ctx.as_deref_mut());
+            if matches!(inner_obj, AbstractValue::Token) && inner_attr.as_str() == "contents" {
+                return eval_contents_split(&call.arguments);
             }
         }
 
@@ -182,23 +180,20 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
     }
 
     // token.contents.split(None, 1) → Tuple of [SplitElement(Forward(0)), Unknown]
-    if args.args.len() == 2 {
-        if let Expr::NoneLiteral(_) = &args.args[0] {
-            if let Expr::NumberLiteral(ExprNumberLiteral {
-                value: Number::Int(int_val),
-                ..
-            }) = &args.args[1]
-            {
-                if int_val.as_i64() == Some(1) {
-                    return AbstractValue::Tuple(vec![
-                        AbstractValue::SplitElement {
-                            index: SplitPosition::Forward(0),
-                        },
-                        AbstractValue::Unknown,
-                    ]);
-                }
-            }
-        }
+    if args.args.len() == 2
+        && let Expr::NoneLiteral(_) = &args.args[0]
+        && let Expr::NumberLiteral(ExprNumberLiteral {
+            value: Number::Int(int_val),
+            ..
+        }) = &args.args[1]
+        && int_val.as_i64() == Some(1)
+    {
+        return AbstractValue::Tuple(vec![
+            AbstractValue::SplitElement {
+                index: SplitPosition::Forward(0),
+            },
+            AbstractValue::Unknown,
+        ]);
     }
 
     AbstractValue::SplitResult(TokenSplit::fresh())
@@ -268,13 +263,12 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> Abstract
                 value: Number::Int(int_val),
                 ..
             }) = unary.operand.as_ref()
+                && let Some(n) = int_val.as_i64()
             {
-                if let Some(n) = int_val.as_i64() {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    return AbstractValue::SplitElement {
-                        index: SplitPosition::Backward(n.unsigned_abs() as usize),
-                    };
-                }
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                return AbstractValue::SplitElement {
+                    index: SplitPosition::Backward(n.unsigned_abs() as usize),
+                };
             }
             AbstractValue::Unknown
         }

@@ -37,21 +37,19 @@ pub(crate) fn check_tag_scoping_rule(
     match symbols.check(name) {
         TagAvailability::Available => {}
         TagAvailability::Unknown => {
-            if let Some(env_tags) = env_tags {
-                if let Ok(key) = TemplateSymbolName::parse(name) {
-                    if let Some(env_symbols) = env_tags.get(&key) {
-                        if let Some(sym) = env_symbols.first() {
-                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                                tag: name.to_string(),
-                                app: sym.app_module.as_str().to_string(),
-                                load_name: sym.library_name.as_str().to_string(),
-                                span: full_span,
-                            })
-                            .accumulate(db);
-                            return;
-                        }
-                    }
-                }
+            if let Some(env_tags) = env_tags
+                && let Ok(key) = TemplateSymbolName::parse(name)
+                && let Some(env_symbols) = env_tags.get(&key)
+                && let Some(sym) = env_symbols.first()
+            {
+                ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                    tag: name.to_string(),
+                    app: sym.app_module.as_str().to_string(),
+                    load_name: sym.library_name.as_str().to_string(),
+                    span: full_span,
+                })
+                .accumulate(db);
+                return;
             }
             ValidationErrorAccumulator(ValidationError::UnknownTag {
                 tag: name.to_string(),
@@ -93,21 +91,19 @@ pub(crate) fn check_filter_scoping_rule(
     match symbols.check_filter(&filter.name) {
         FilterAvailability::Available => {}
         FilterAvailability::Unknown => {
-            if let Some(env_filters) = env_filters {
-                if let Ok(key) = TemplateSymbolName::parse(filter.name.as_str()) {
-                    if let Some(env_symbols) = env_filters.get(&key) {
-                        if let Some(sym) = env_symbols.first() {
-                            ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
-                                filter: filter.name.clone(),
-                                app: sym.app_module.as_str().to_string(),
-                                load_name: sym.library_name.as_str().to_string(),
-                                span: filter.span,
-                            })
-                            .accumulate(db);
-                            return;
-                        }
-                    }
-                }
+            if let Some(env_filters) = env_filters
+                && let Ok(key) = TemplateSymbolName::parse(filter.name.as_str())
+                && let Some(env_symbols) = env_filters.get(&key)
+                && let Some(sym) = env_symbols.first()
+            {
+                ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
+                    filter: filter.name.clone(),
+                    app: sym.app_module.as_str().to_string(),
+                    load_name: sym.library_name.as_str().to_string(),
+                    span: filter.span,
+                })
+                .accumulate(db);
+                return;
             }
             ValidationErrorAccumulator(ValidationError::UnknownFilter {
                 filter: filter.name.clone(),

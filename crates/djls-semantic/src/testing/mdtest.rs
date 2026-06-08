@@ -336,10 +336,9 @@ impl<'a> ScenarioCollector<'a> {
                         if let Some(label) = trimmed
                             .strip_prefix('`')
                             .and_then(|value| value.strip_suffix("`:"))
+                            && !label.is_empty()
                         {
-                            if !label.is_empty() {
-                                self.pending_file_path = Some(label.to_string());
-                            }
+                            self.pending_file_path = Some(label.to_string());
                         }
                     }
                 }
@@ -394,13 +393,14 @@ impl<'a> ScenarioCollector<'a> {
             return Ok(());
         }
 
-        if let Some(current) = &self.current {
-            if current.source.is_some() && heading.level > current.level {
-                return Err(format!(
-                    "scenario '{}' has child heading '{}' after its Django code block",
-                    current.name, name
-                ));
-            }
+        if let Some(current) = &self.current
+            && current.source.is_some()
+            && heading.level > current.level
+        {
+            return Err(format!(
+                "scenario '{}' has child heading '{}' after its Django code block",
+                current.name, name
+            ));
         }
 
         self.finish_current()?;

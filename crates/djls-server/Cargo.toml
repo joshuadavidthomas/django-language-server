@@ -1,7 +1,7 @@
 [package]
 name = "djls-server"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 djls-conf = { workspace = true }

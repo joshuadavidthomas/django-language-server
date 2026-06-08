@@ -1,8 +1,8 @@
 use divan::Bencher;
+use djls_bench::BATCH_INNER_ITERS;
+use djls_bench::Db;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
-use djls_bench::Db;
-use djls_bench::BATCH_INNER_ITERS;
 
 fn main() {
     divan::main();

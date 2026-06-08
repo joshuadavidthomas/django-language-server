@@ -217,15 +217,15 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
         }
 
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
-        if matches!(op, CmpOp::NotIn) {
-            if let Some(values) = comparator.collection_map(ExprExt::non_negative_integer) {
-                return ExtractedTagConstraints::single_length(ArgumentCountConstraint::OneOf(
-                    values
-                        .into_iter()
-                        .map(|v| split.resolve_length(v))
-                        .collect(),
-                ));
-            }
+        if matches!(op, CmpOp::NotIn)
+            && let Some(values) = comparator.collection_map(ExprExt::non_negative_integer)
+        {
+            return ExtractedTagConstraints::single_length(ArgumentCountConstraint::OneOf(
+                values
+                    .into_iter()
+                    .map(|v| split.resolve_length(v))
+                    .collect(),
+            ));
         }
         return ExtractedTagConstraints::default();
     }
@@ -264,29 +264,28 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
         }
 
         // SplitElement not in ("a", "b") → ChoiceAt constraint
-        if matches!(op, CmpOp::NotIn) {
-            if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
-                if !values.is_empty() {
-                    let position = index;
-                    return ExtractedTagConstraints::single_choice(ChoiceAt { position, values });
-                }
-            }
+        if matches!(op, CmpOp::NotIn)
+            && let Some(values) = comparator.collection_map(ExprExt::string_literal)
+            && !values.is_empty()
+        {
+            let position = index;
+            return ExtractedTagConstraints::single_choice(ChoiceAt { position, values });
         }
         return ExtractedTagConstraints::default();
     }
 
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
-    if let AbstractValue::SplitElement { index } = right_val {
-        if let Some(keyword) = left.string_literal() {
-            if matches!(op, CmpOp::NotEq) {
-                let position = index;
-                return ExtractedTagConstraints::single_keyword(RequiredKeyword {
-                    position,
-                    value: keyword,
-                });
-            }
-            return ExtractedTagConstraints::default();
+    if let AbstractValue::SplitElement { index } = right_val
+        && let Some(keyword) = left.string_literal()
+    {
+        if matches!(op, CmpOp::NotEq) {
+            let position = index;
+            return ExtractedTagConstraints::single_keyword(RequiredKeyword {
+                position,
+                value: keyword,
+            });
         }
+        return ExtractedTagConstraints::default();
     }
 
     ExtractedTagConstraints::default()
@@ -294,31 +293,32 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
 
 fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
-    if compare.ops.len() == 2 && compare.comparators.len() == 2 {
-        if let Some(range_constraints) = eval_range_constraint(compare, env) {
-            return ExtractedTagConstraints {
-                arg_constraints: range_constraints,
-                ..Default::default()
-            };
-        }
+    if compare.ops.len() == 2
+        && compare.comparators.len() == 2
+        && let Some(range_constraints) = eval_range_constraint(compare, env)
+    {
+        return ExtractedTagConstraints {
+            arg_constraints: range_constraints,
+            ..Default::default()
+        };
     }
 
     // Simple negation: `not len(bits) == 3` → Exact(3)
     if compare.ops.len() == 1 && compare.comparators.len() == 1 {
         let left_val = eval_expr(&compare.left, env);
-        if let AbstractValue::SplitLength(split) = left_val {
-            if let Some(n) = compare.comparators[0].non_negative_integer() {
-                let constraint = match &compare.ops[0] {
-                    CmpOp::Eq => Some(ArgumentCountConstraint::Exact(split.resolve_length(n))),
-                    CmpOp::Lt if n > 0 => {
-                        Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
-                    }
-                    CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
-                    _ => None,
-                };
-                if let Some(c) = constraint {
-                    return ExtractedTagConstraints::single_length(c);
+        if let AbstractValue::SplitLength(split) = left_val
+            && let Some(n) = compare.comparators[0].non_negative_integer()
+        {
+            let constraint = match &compare.ops[0] {
+                CmpOp::Eq => Some(ArgumentCountConstraint::Exact(split.resolve_length(n))),
+                CmpOp::Lt if n > 0 => {
+                    Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
                 }
+                CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
+                _ => None,
+            };
+            if let Some(c) = constraint {
+                return ExtractedTagConstraints::single_length(c);
             }
         }
     }
@@ -380,10 +380,10 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::python::analysis::state::Env;
-    use crate::python::analysis::statements::process_statements;
     use crate::python::analysis::AnalysisResult;
     use crate::python::analysis::CallContext;
+    use crate::python::analysis::state::Env;
+    use crate::python::analysis::statements::process_statements;
     use crate::python::testing::django_function;
     use crate::python::types::ExtractedMessageArg;
     use crate::python::types::ExtractedMessageTemplate;

@@ -12,13 +12,13 @@ mod sync;
 mod system;
 
 pub use crate::project::db::Db;
-pub use crate::project::input::load_env_file;
-pub(crate) use crate::project::input::project_model_modules;
-pub(crate) use crate::project::input::project_templatetag_modules;
 pub use crate::project::input::Project;
 pub use crate::project::input::ProjectPythonIndex;
 pub use crate::project::input::ProjectTemplateFiles;
 pub use crate::project::input::TemplateDirs;
+pub use crate::project::input::load_env_file;
+pub(crate) use crate::project::input::project_model_modules;
+pub(crate) use crate::project::input::project_templatetag_modules;
 pub use crate::project::introspector::ProjectIntrospector;
 pub use crate::project::names::LibraryName;
 pub use crate::project::names::PyModuleName;

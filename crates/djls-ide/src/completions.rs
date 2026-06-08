@@ -1007,9 +1007,11 @@ mod tests {
         let candidates =
             generate_load_symbol_candidates(&prefix(""), &suffix, Some("i18n"), true, &libraries);
 
-        assert!(candidates
-            .iter()
-            .any(|candidate| candidate.edit.insert_text == "trans "));
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.edit.insert_text == "trans ")
+        );
     }
 
     #[test]
@@ -1024,9 +1026,11 @@ mod tests {
         );
 
         assert_eq!(labels(&candidates), vec!["sidebar", "site_header"]);
-        assert!(candidates
-            .iter()
-            .all(|candidate| candidate.kind == CompletionCandidateKind::TagArgumentChoice));
+        assert!(
+            candidates
+                .iter()
+                .all(|candidate| candidate.kind == CompletionCandidateKind::TagArgumentChoice)
+        );
         assert_eq!(candidates[0].edit.replacement_span, Span::new(0, 2));
         assert_eq!(candidates[0].edit.insert_text, "sidebar");
         assert_eq!(

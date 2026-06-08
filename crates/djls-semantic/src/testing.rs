@@ -8,8 +8,8 @@ use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
+use djls_corpus::module_path_from_file;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -50,9 +50,9 @@ use crate::python::SplitPosition;
 use crate::python::SymbolKey;
 use crate::python::TagRule;
 use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::builtin_tag_specs;
 use crate::specs::tags::TagSpec;
 use crate::specs::tags::TagSpecs;
+use crate::specs::tags::builtin_tag_specs;
 
 pub(crate) fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
@@ -347,10 +347,10 @@ pub(crate) fn build_entry_specs(
     let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
 
-    if !corpus.is_django_entry(entry_dir) {
-        if let Some(django_dir) = corpus.latest_package("django") {
-            extract_and_merge(corpus, &django_dir, &mut specs, &mut arities);
-        }
+    if !corpus.is_django_entry(entry_dir)
+        && let Some(django_dir) = corpus.latest_package("django")
+    {
+        extract_and_merge(corpus, &django_dir, &mut specs, &mut arities);
     }
 
     extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);

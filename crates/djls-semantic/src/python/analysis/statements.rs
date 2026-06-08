@@ -5,6 +5,8 @@ use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
+use crate::python::analysis::AnalysisResult;
+use crate::python::analysis::CallContext;
 use crate::python::analysis::expressions::eval_expr;
 use crate::python::analysis::expressions::eval_expr_with_ctx;
 use crate::python::analysis::match_arms::extract_match_constraints;
@@ -13,8 +15,6 @@ use crate::python::analysis::mutations::try_extract_option_loop;
 use crate::python::analysis::mutations::try_extract_pop_call;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
-use crate::python::analysis::AnalysisResult;
-use crate::python::analysis::CallContext;
 use crate::python::types::SplitPosition;
 
 /// Process a list of statements, updating the environment and returning
@@ -242,17 +242,17 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
 
                 // The star target captures everything between pre-star and post-star elements.
                 // Its back_offset must include the trailing targets it doesn't contain.
-                if let Expr::Starred(starred) = &targets[si] {
-                    if let Expr::Name(ExprName { id, .. }) = starred.value.as_ref() {
-                        // Start from the current split sliced past the pre-star targets,
-                        // which preserves the original back_offset.
-                        let mut star_split = split.after_slice_from(si);
-                        // Add trailing targets as additional back pops
-                        for _ in 0..after_star {
-                            star_split = star_split.after_pop_back();
-                        }
-                        env.set(id.to_string(), AbstractValue::SplitResult(star_split));
+                if let Expr::Starred(starred) = &targets[si]
+                    && let Expr::Name(ExprName { id, .. }) = starred.value.as_ref()
+                {
+                    // Start from the current split sliced past the pre-star targets,
+                    // which preserves the original back_offset.
+                    let mut star_split = split.after_slice_from(si);
+                    // Add trailing targets as additional back pops
+                    for _ in 0..after_star {
+                        star_split = star_split.after_pop_back();
                     }
+                    env.set(id.to_string(), AbstractValue::SplitResult(star_split));
                 }
                 for (j, target) in targets[si + 1..].iter().enumerate() {
                     if let Expr::Name(ExprName { id, .. }) = target {

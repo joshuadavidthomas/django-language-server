@@ -72,10 +72,10 @@ impl FileSystem for SourceMapFileSystem {
                 {
                     continue;
                 }
-                if let Some(max_depth) = options.max_depth {
-                    if entry_relative.components().count() > max_depth {
-                        continue;
-                    }
+                if let Some(max_depth) = options.max_depth
+                    && entry_relative.components().count() > max_depth
+                {
+                    continue;
                 }
                 if entries
                     .iter()

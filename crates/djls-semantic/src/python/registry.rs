@@ -1,5 +1,3 @@
-use ruff_python_ast::statement_visitor::walk_stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -8,7 +6,10 @@ use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_stmt;
 
+use crate::python::SymbolKind;
 use crate::python::analysis;
 use crate::python::blocks;
 use crate::python::ext::ExprExt;
@@ -18,7 +19,6 @@ use crate::python::types::AsVar;
 use crate::python::types::BlockSpec;
 use crate::python::types::FilterArity;
 use crate::python::types::TagRule;
-use crate::python::SymbolKind;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -198,35 +198,33 @@ fn collect_from_decorated_function(
 /// Returns `Some((name, kind))` if the decorator is a tag registration.
 fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, RegistrationKind)> {
     // Bare decorator: `@register.tag`
-    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr {
-        if let Some(kind) = tag_decorator_kind(attr.as_str()) {
-            return Some((func_name.to_string(), kind));
-        }
+    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr
+        && let Some(kind) = tag_decorator_kind(attr.as_str())
+    {
+        return Some((func_name.to_string(), kind));
     }
 
     // Call decorator: `@register.tag(...)` or `@register.simple_tag(name="alias")`
     if let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
+        && let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref()
+        && let Some(kind) = tag_decorator_kind(attr.as_str())
     {
-        if let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref() {
-            if let Some(kind) = tag_decorator_kind(attr.as_str()) {
-                // Priority: name= kwarg > first positional string (for @register.tag only) > func_name
-                let name_override = kw_name_from(&arguments.keywords);
+        // Priority: name= kwarg > first positional string (for @register.tag only) > func_name
+        let name_override = kw_name_from(&arguments.keywords);
 
-                let positional_name = if attr.as_str() == "tag" {
-                    first_string_arg(&arguments.args)
-                } else {
-                    None
-                };
+        let positional_name = if attr.as_str() == "tag" {
+            first_string_arg(&arguments.args)
+        } else {
+            None
+        };
 
-                let name = name_override
-                    .or(positional_name)
-                    .unwrap_or_else(|| func_name.to_string());
+        let name = name_override
+            .or(positional_name)
+            .unwrap_or_else(|| func_name.to_string());
 
-                return Some((name, kind));
-            }
-        }
+        return Some((name, kind));
     }
 
     None
@@ -237,27 +235,25 @@ fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, Regi
 /// Returns `Some(name)` if the decorator is a filter registration.
 fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
     // Bare decorator: `@register.filter`
-    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr {
-        if FILTER_DECORATORS.contains(&attr.as_str()) {
-            return Some(func_name.to_string());
-        }
+    if let Expr::Attribute(ExprAttribute { attr, .. }) = expr
+        && FILTER_DECORATORS.contains(&attr.as_str())
+    {
+        return Some(func_name.to_string());
     }
 
     // Call decorator: `@register.filter(name="alias")` or `@register.filter("alias")`
     if let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
+        && let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref()
+        && FILTER_DECORATORS.contains(&attr.as_str())
     {
-        if let Expr::Attribute(ExprAttribute { attr, .. }) = func.as_ref() {
-            if FILTER_DECORATORS.contains(&attr.as_str()) {
-                let name_override = kw_name_from(&arguments.keywords);
-                let positional_name = first_string_arg(&arguments.args);
-                let name = name_override
-                    .or(positional_name)
-                    .unwrap_or_else(|| func_name.to_string());
-                return Some(name);
-            }
-        }
+        let name_override = kw_name_from(&arguments.keywords);
+        let positional_name = first_string_arg(&arguments.args);
+        let name = name_override
+            .or(positional_name)
+            .unwrap_or_else(|| func_name.to_string());
+        return Some(name);
     }
 
     None
@@ -417,10 +413,10 @@ fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
 fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String> {
     for kw in keywords {
         let Some(arg) = &kw.arg else { continue };
-        if kwarg_names.contains(&arg.as_str()) {
-            if let Expr::Name(ExprName { id, .. }) = &kw.value {
-                return Some(id.to_string());
-            }
+        if kwarg_names.contains(&arg.as_str())
+            && let Expr::Name(ExprName { id, .. }) = &kw.value
+        {
+            return Some(id.to_string());
         }
     }
     None

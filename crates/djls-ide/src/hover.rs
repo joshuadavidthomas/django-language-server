@@ -1,10 +1,10 @@
-use djls_semantic::resolve_template;
 use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::ResolveResult;
 use djls_semantic::TemplateLibraries;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
+use djls_semantic::resolve_template;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
@@ -388,8 +388,10 @@ mod tests {
 
         assert!(formatted.contains("{{ var }}\n```"));
         assert!(formatted.contains("Contextual translations are also supported:"));
-        assert!(formatted
-            .contains("```htmldjango\n{% translate \"this is a test\" context \"greeting\" %}"));
+        assert!(
+            formatted
+                .contains("```htmldjango\n{% translate \"this is a test\" context \"greeting\" %}")
+        );
     }
 
     #[test]

@@ -31,20 +31,20 @@ use crate::project::input::ProjectTemplateFiles;
 use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::python::Interpreter;
+use crate::project::resolve::ResolvedModule;
 use crate::project::resolve::build_search_paths;
 use crate::project::resolve::discover_model_files;
 use crate::project::resolve::find_site_packages;
 use crate::project::resolve::resolve_modules;
-use crate::project::resolve::ResolvedModule;
 use crate::project::symbols::TemplateLibrarySnapshot;
-use crate::python::extract_model_graph;
-use crate::python::extract_rules;
 use crate::python::BlockSpecs;
 use crate::python::ExtractionResult;
 use crate::python::FilterArityMap;
 use crate::python::ModelGraph;
 use crate::python::ModulePath;
 use crate::python::TagRuleMap;
+use crate::python::extract_model_graph;
+use crate::python::extract_rules;
 
 /// Refresh all external project data.
 ///
@@ -817,8 +817,10 @@ class Article(models.Model):
             "should extract from nested model files: got {:?}",
             results.keys().collect::<Vec<_>>()
         );
-        assert!(results["myapp.models.base.abstract"]
-            .get("BaseModel")
-            .is_some());
+        assert!(
+            results["myapp.models.base.abstract"]
+                .get("BaseModel")
+                .is_some()
+        );
     }
 }

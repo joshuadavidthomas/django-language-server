@@ -1,5 +1,5 @@
-use djls_semantic::resolve_template;
 use djls_semantic::ResolveResult;
+use djls_semantic::resolve_template;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;

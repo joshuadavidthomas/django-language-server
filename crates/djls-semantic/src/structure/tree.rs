@@ -209,9 +209,9 @@ mod tests {
 
     use camino::Utf8Path;
     use djls_source::Span;
-    use djls_templates::parse_template;
     use djls_templates::Node;
     use djls_templates::TagBit;
+    use djls_templates::parse_template;
     use rustc_hash::FxHashMap;
 
     use super::BlockRole;
@@ -219,14 +219,14 @@ mod tests {
     use super::TemplateNode;
     use super::TemplateRegion;
     use super::TemplateTree;
-    use crate::build_template_tree;
-    use crate::builtin_tag_specs;
-    use crate::structure::snapshot::TemplateTreeSnapshot;
-    use crate::testing::TestDatabase;
     use crate::EndTag;
     use crate::TagSpec;
     use crate::TagSpecs;
     use crate::ValidationError;
+    use crate::build_template_tree;
+    use crate::builtin_tag_specs;
+    use crate::structure::snapshot::TemplateTreeSnapshot;
+    use crate::testing::TestDatabase;
 
     #[derive(serde::Serialize)]
     struct NodeListView {
@@ -435,12 +435,13 @@ mod tests {
         let title_container = first_block_body(tree.regions(&db).get(content_body), "block");
         let title_body = segment_body(tree.regions(&db).get(title_container), "block");
 
-        assert!(tree
-            .regions(&db)
-            .get(title_body)
-            .nodes()
-            .iter()
-            .any(|node| matches!(node, TemplateNode::Text { .. })));
+        assert!(
+            tree.regions(&db)
+                .get(title_body)
+                .nodes()
+                .iter()
+                .any(|node| matches!(node, TemplateNode::Text { .. }))
+        );
     }
 
     #[test]
@@ -495,17 +496,18 @@ mod tests {
 
         let content_container = first_block_body(root_region(tree, &db), "block");
         let content_body = segment_body(tree.regions(&db).get(content_container), "block");
-        assert!(tree
-            .regions(&db)
-            .get(content_body)
-            .nodes()
-            .iter()
-            .any(|node| matches!(
-                node,
-                TemplateNode::StandaloneTag { tag, bits, .. }
-                    if tag == "include"
-                        && bits.first().is_some_and(|arg| arg.as_str() == "\"card.html\"")
-            )));
+        assert!(
+            tree.regions(&db)
+                .get(content_body)
+                .nodes()
+                .iter()
+                .any(|node| matches!(
+                    node,
+                    TemplateNode::StandaloneTag { tag, bits, .. }
+                        if tag == "include"
+                            && bits.first().is_some_and(|arg| arg.as_str() == "\"card.html\"")
+                ))
+        );
     }
 
     #[test]
@@ -522,10 +524,12 @@ mod tests {
         let errors =
             build_template_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);
 
-        assert!(root_region(tree, &db)
-            .nodes()
-            .iter()
-            .any(|node| matches!(node, TemplateNode::Block { tag, .. } if tag == "block")));
+        assert!(
+            root_region(tree, &db)
+                .nodes()
+                .iter()
+                .any(|node| matches!(node, TemplateNode::Block { tag, .. } if tag == "block"))
+        );
         assert!(errors.iter().any(
             |error| matches!(error.0, ValidationError::UnclosedTag { ref tag, .. } if tag == "if")
         ));

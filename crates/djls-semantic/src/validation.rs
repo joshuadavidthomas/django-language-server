@@ -6,10 +6,10 @@ pub(crate) mod scoping;
 use std::collections::HashMap;
 
 use djls_source::Span;
-use djls_templates::walk_nodelist;
 use djls_templates::Filter;
 use djls_templates::Node;
 use djls_templates::Visitor;
+use djls_templates::walk_nodelist;
 
 use crate::db::Db;
 use crate::project::DiscoveredSymbolCandidate;
@@ -152,10 +152,10 @@ impl Visitor for TemplateValidator<'_> {
             }
 
             // 3. Argument validation
-            if let Some(spec) = self.tag_specs.get(name) {
-                if let Some(rules) = &spec.extracted_rules {
-                    arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
-                }
+            if let Some(spec) = self.tag_specs.get(name)
+                && let Some(rules) = &spec.extracted_rules
+            {
+                arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
             }
 
             // 4. Load library validation

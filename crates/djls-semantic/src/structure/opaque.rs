@@ -80,16 +80,16 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
                 continue;
             };
             push_opaque_segment(&frame, *span, &mut spans);
-        } else if tag_specs.is_intermediate(name) {
-            if let Some(frame) = stack.last_mut() {
-                let possible_openers = tag_specs.get_parent_tags_for_intermediate(name);
-                if possible_openers
-                    .iter()
-                    .any(|opener| opener == frame.opener_name)
-                {
-                    push_opaque_segment(frame, *span, &mut spans);
-                    frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                }
+        } else if tag_specs.is_intermediate(name)
+            && let Some(frame) = stack.last_mut()
+        {
+            let possible_openers = tag_specs.get_parent_tags_for_intermediate(name);
+            if possible_openers
+                .iter()
+                .any(|opener| opener == frame.opener_name)
+            {
+                push_opaque_segment(frame, *span, &mut spans);
+                frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
             }
         }
     }
@@ -121,12 +121,12 @@ mod tests {
     use djls_source::Span;
     use djls_templates::parse_template;
 
-    use super::compute_opaque_regions;
     use super::OpaqueRegions;
-    use crate::specs::tags::IntermediateTag;
-    use crate::testing::TestDatabase;
+    use super::compute_opaque_regions;
     use crate::EndTag;
     use crate::TagSpec;
+    use crate::specs::tags::IntermediateTag;
+    use crate::testing::TestDatabase;
 
     fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
         let path = "test.html";

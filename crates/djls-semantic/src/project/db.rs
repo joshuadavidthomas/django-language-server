@@ -10,8 +10,8 @@ use std::sync::Arc;
 use camino::Utf8PathBuf;
 use djls_source::Db as SourceDb;
 
-use crate::project::introspector::ProjectIntrospector;
 use crate::project::Project;
+use crate::project::introspector::ProjectIntrospector;
 
 /// Project-specific database capabilities.
 #[salsa::db]

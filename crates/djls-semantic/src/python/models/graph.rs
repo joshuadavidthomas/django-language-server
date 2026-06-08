@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 macro_rules! string_newtype {
-    ($(#[doc = $doc:expr])* $vis:vis struct $Name:ident) => {
+    ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
         $(#[doc = $doc])*
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         #[serde(transparent)]

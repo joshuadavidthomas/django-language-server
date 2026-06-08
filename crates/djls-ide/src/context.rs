@@ -3,11 +3,11 @@ use djls_source::File;
 use djls_source::FileKind;
 use djls_source::Offset;
 use djls_source::Span;
-use djls_templates::parse_template;
 use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
 use djls_templates::Token;
+use djls_templates::parse_template;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ResolvedOffsetContext {
