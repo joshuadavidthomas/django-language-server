@@ -12,6 +12,7 @@ on:
       - Cargo.toml
       - pyproject.toml
       - noxfile.py
+      - rust-toolchain.toml
       - uv.lock
   push:
     branches:
@@ -24,6 +25,7 @@ on:
       - Cargo.toml
       - pyproject.toml
       - noxfile.py
+      - rust-toolchain.toml
       - uv.lock
   workflow_call:
     inputs:
