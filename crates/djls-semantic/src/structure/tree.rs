@@ -540,17 +540,15 @@ mod tests {
         let mut specs = builtin_tag_specs();
         specs.merge(TagSpecs::new(FxHashMap::from_iter([(
             "partialdef".to_string(),
-            TagSpec {
-                module: Cow::Borrowed("django_template_partials.templatetags.partials"),
-                end_tag: Some(EndTag {
+            TagSpec::new(
+                Cow::Borrowed("django_template_partials.templatetags.partials"),
+                Some(EndTag {
                     name: Cow::Borrowed("endpartialdef"),
                     required: true,
                 }),
-                intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
-                semantic_role: None,
-                extracted_rules: None,
-            },
+                Cow::Borrowed(&[]),
+                false,
+            ),
         )])));
         let db = TestDatabase::new().with_specs(specs);
         let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");

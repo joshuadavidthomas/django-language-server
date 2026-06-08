@@ -62,6 +62,10 @@ _Avoid_: template folder, template library, static directory
 The path-like name Django uses to resolve a **Template** within template directories.
 _Avoid_: file path, template path, filename
 
+**Template Origin**:
+A concrete **Template** matched for a **Template Name** during **Template Resolution**.
+_Avoid_: resolved template, file path, template object
+
 **Template Reference**:
 A **Template Name** used in a **Template** to refer to another **Template**.
 _Avoid_: file reference, import, include
@@ -340,7 +344,6 @@ _Avoid_: Template Tree, document symbol, syntax tree
 ## Known terminology drift
 
 - Some code and docs use "block tag" for any paired tag with contents; this glossary uses **Block Tag** for the structural category and **Block Template Tag** for the specific `{% block %}` tag.
-- Current code stores `semantic_role` on `TagSpec`; this glossary treats **Tag Spec** and **Tag Role** as separate facets of a **Tag Definition**.
 - Current code uses symbol language for tag/filter inventory; this glossary calls those known library and builtin facts **Tag Definitions** and **Filter Definitions**.
 - Current code and docs may describe intermediate and closing tags as tag names in a **Tag Spec**; this glossary treats them as contextual **Template Tags** rather than independent **Tag Definitions**.
 - Current code and outline snapshots may use `ControlTag`; this glossary does not make **Control Tag** canonical yet.

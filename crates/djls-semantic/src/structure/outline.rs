@@ -3,13 +3,14 @@ use djls_templates::TagBit;
 
 use crate::db::Db;
 use crate::scoping::LoadKind;
-use crate::specs::tags::TagSemanticRole;
-use crate::specs::tags::TagSpecs;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
+use crate::tags::TagRole;
+use crate::tags::TagSpec;
+use crate::tags::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
@@ -39,16 +40,16 @@ pub enum OutlineKind {
     Filter,
 }
 
-impl From<TagSemanticRole> for OutlineKind {
-    fn from(role: TagSemanticRole) -> Self {
+impl From<TagRole> for OutlineKind {
+    fn from(role: TagRole) -> Self {
         match role {
-            TagSemanticRole::TemplateReference(_) => Self::TemplateReference,
-            TagSemanticRole::TemplateLibraryLoader => Self::TemplateLibrary,
-            TagSemanticRole::TemplateBlock => Self::TemplateBlock,
-            TagSemanticRole::ControlTag => Self::ControlTag,
-            TagSemanticRole::TemplateTag => Self::TemplateTag,
-            TagSemanticRole::StaticAssetReference => Self::StaticAssetReference,
-            TagSemanticRole::RouteReference => Self::RouteReference,
+            TagRole::TemplateReference(_) => Self::TemplateReference,
+            TagRole::TemplateLibraryLoader => Self::TemplateLibrary,
+            TagRole::TemplateBlock => Self::TemplateBlock,
+            TagRole::ControlTag => Self::ControlTag,
+            TagRole::TemplateTag => Self::TemplateTag,
+            TagRole::StaticAssetReference => Self::StaticAssetReference,
+            TagRole::RouteReference => Self::RouteReference,
         }
     }
 }
@@ -62,7 +63,7 @@ pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<Outlin
 }
 
 fn outline_items_for_tag(
-    role: TagSemanticRole,
+    role: TagRole,
     tag: &str,
     name_span: Span,
     bits: &[TagBit],
@@ -70,10 +71,10 @@ fn outline_items_for_tag(
     children: Vec<OutlineItem>,
 ) -> Vec<OutlineItem> {
     match role {
-        TagSemanticRole::TemplateReference(_)
-        | TagSemanticRole::TemplateBlock
-        | TagSemanticRole::StaticAssetReference
-        | TagSemanticRole::RouteReference => {
+        TagRole::TemplateReference(_)
+        | TagRole::TemplateBlock
+        | TagRole::StaticAssetReference
+        | TagRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
                 OutlineItem {
                     label: bit.template_string().value().to_string(),
@@ -95,7 +96,7 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagSemanticRole::TemplateLibraryLoader => match LoadKind::from_tag(tag, bits) {
+        TagRole::TemplateLibraryLoader => match LoadKind::from_tag(tag, bits) {
             Some(LoadKind::FullLoad { libraries }) => libraries
                 .into_iter()
                 .map(|library| OutlineItem {
@@ -127,7 +128,7 @@ fn outline_items_for_tag(
             }],
             None => Vec::new(),
         },
-        TagSemanticRole::ControlTag | TagSemanticRole::TemplateTag => {
+        TagRole::ControlTag | TagRole::TemplateTag => {
             let mut label = tag.to_string();
             for bit in bits {
                 label.push(' ');
@@ -175,8 +176,8 @@ fn outline_items_for_node(
         } => {
             let role = tag_specs
                 .get(tag)
-                .and_then(|spec| spec.semantic_role)
-                .unwrap_or(TagSemanticRole::ControlTag);
+                .and_then(TagSpec::role)
+                .unwrap_or(TagRole::ControlTag);
             let children = regions
                 .get(*body)
                 .nodes()
@@ -214,7 +215,7 @@ fn outline_items_for_node(
         } => {
             let children = outline_items_for_region(regions, tag_specs, *body);
             outline_items_for_tag(
-                TagSemanticRole::ControlTag,
+                TagRole::ControlTag,
                 tag,
                 *name_span,
                 bits,
@@ -230,7 +231,7 @@ fn outline_items_for_node(
             ..
         } => tag_specs
             .get(tag)
-            .and_then(|spec| spec.semantic_role)
+            .and_then(TagSpec::role)
             .map_or_else(Vec::new, |role| {
                 outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
             }),
@@ -380,17 +381,16 @@ mod tests {
         let mut specs = builtin_tag_specs();
         specs.merge(TagSpecs::new(FxHashMap::from_iter([(
             "partialdef".to_string(),
-            TagSpec {
-                module: Cow::Borrowed("django_template_partials.templatetags.partials"),
-                end_tag: Some(EndTag {
+            TagSpec::new(
+                Cow::Borrowed("django_template_partials.templatetags.partials"),
+                Some(EndTag {
                     name: Cow::Borrowed("endpartialdef"),
                     required: true,
                 }),
-                intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
-                semantic_role: Some(TagSemanticRole::TemplateTag),
-                extracted_rules: None,
-            },
+                Cow::Borrowed(&[]),
+                false,
+            )
+            .with_role(TagRole::TemplateTag),
         )])));
         let db = TestDatabase::new().with_specs(specs);
         let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
@@ -400,33 +400,29 @@ mod tests {
     }
 
     #[test]
-    fn tags_without_semantic_role_hide_standalone_tags_but_keep_blocks() {
+    fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
         let mut specs = builtin_tag_specs();
         specs.merge(TagSpecs::new(FxHashMap::from_iter([
             (
                 "myblock".to_string(),
-                TagSpec {
-                    module: Cow::Borrowed("myapp.templatetags.custom"),
-                    end_tag: Some(EndTag {
+                TagSpec::new(
+                    Cow::Borrowed("myapp.templatetags.custom"),
+                    Some(EndTag {
                         name: Cow::Borrowed("endmyblock"),
                         required: true,
                     }),
-                    intermediate_tags: Cow::Borrowed(&[]),
-                    opaque: false,
-                    semantic_role: None,
-                    extracted_rules: None,
-                },
+                    Cow::Borrowed(&[]),
+                    false,
+                ),
             ),
             (
                 "mytag".to_string(),
-                TagSpec {
-                    module: Cow::Borrowed("myapp.templatetags.custom"),
-                    end_tag: None,
-                    intermediate_tags: Cow::Borrowed(&[]),
-                    opaque: false,
-                    semantic_role: None,
-                    extracted_rules: None,
-                },
+                TagSpec::new(
+                    Cow::Borrowed("myapp.templatetags.custom"),
+                    None,
+                    Cow::Borrowed(&[]),
+                    false,
+                ),
             ),
         ])));
         let db = TestDatabase::new().with_specs(specs);

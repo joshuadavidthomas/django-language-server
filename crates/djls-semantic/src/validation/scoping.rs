@@ -17,7 +17,7 @@ use crate::project::TemplateSymbolName;
 use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;
-use crate::specs::tags::TagSpecs;
+use crate::tags::TagSpecs;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_tag_scoping_rule(

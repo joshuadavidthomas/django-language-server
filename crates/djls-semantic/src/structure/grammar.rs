@@ -2,11 +2,11 @@ use djls_templates::TagBit;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
-use crate::specs::tags::TagSpecs;
+use crate::tags::TagSpecs;
 
 /// Role a tag plays in Django's block structure.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TagRole {
+pub(crate) enum TagGrammarRole {
     Opener(EndMeta),
     Closer { opener: String },
     Intermediate { possible_openers: Vec<String> },
@@ -14,14 +14,14 @@ pub(crate) enum TagRole {
 
 /// Index for tag grammar lookups.
 ///
-/// Uses a single unified map from tag name to [`TagRole`], so every
+/// Uses a single unified map from tag name to [`TagGrammarRole`], so every
 /// lookup (`classify`, `validate_close`, `is_end_required`) is a single
 /// hash probe instead of checking up to three separate maps.
 #[salsa::tracked(debug)]
 pub(crate) struct TagIndex<'db> {
     #[tracked]
     #[returns(ref)]
-    roles: FxHashMap<String, TagRole>,
+    roles: FxHashMap<String, TagGrammarRole>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,11 +32,11 @@ pub(crate) struct EndMeta {
 impl<'db> TagIndex<'db> {
     pub(crate) fn classify(self, db: &'db dyn Db, tag_name: &str) -> TagClass<'db> {
         match self.roles(db).get(tag_name) {
-            Some(TagRole::Opener(_)) => TagClass::Opener,
-            Some(TagRole::Closer { opener }) => TagClass::Closer {
+            Some(TagGrammarRole::Opener(_)) => TagClass::Opener,
+            Some(TagGrammarRole::Closer { opener }) => TagClass::Closer {
                 opener_name: opener,
             },
-            Some(TagRole::Intermediate { possible_openers }) => {
+            Some(TagGrammarRole::Intermediate { possible_openers }) => {
                 TagClass::Intermediate { possible_openers }
             }
             None => TagClass::Unknown,
@@ -46,7 +46,7 @@ impl<'db> TagIndex<'db> {
     pub(crate) fn is_end_required(self, db: &'db dyn Db, opener_name: &str) -> bool {
         matches!(
             self.roles(db).get(opener_name),
-            Some(TagRole::Opener(EndMeta { required: true }))
+            Some(TagGrammarRole::Opener(EndMeta { required: true }))
         )
     }
 
@@ -57,7 +57,10 @@ impl<'db> TagIndex<'db> {
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
-        if !matches!(self.roles(db).get(opener_name), Some(TagRole::Opener(_))) {
+        if !matches!(
+            self.roles(db).get(opener_name),
+            Some(TagGrammarRole::Opener(_))
+        ) {
             return CloseValidation::NotABlock;
         }
 
@@ -87,7 +90,7 @@ impl<'db> TagIndex<'db> {
     /// need to build the index without going through `db.tag_specs()`.
     #[must_use]
     fn from_tag_specs(db: &'db dyn Db, specs: &TagSpecs) -> Self {
-        let mut roles: FxHashMap<String, TagRole> = FxHashMap::default();
+        let mut roles: FxHashMap<String, TagGrammarRole> = FxHashMap::default();
 
         for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
@@ -95,10 +98,10 @@ impl<'db> TagIndex<'db> {
                     required: end_tag.required,
                 };
 
-                roles.insert(name.clone(), TagRole::Opener(meta));
+                roles.insert(name.clone(), TagGrammarRole::Opener(meta));
                 roles.insert(
                     end_tag.name.as_ref().to_owned(),
-                    TagRole::Closer {
+                    TagGrammarRole::Closer {
                         opener: name.clone(),
                     },
                 );
@@ -107,11 +110,11 @@ impl<'db> TagIndex<'db> {
                     roles
                         .entry(inter.name.as_ref().to_owned())
                         .and_modify(|role| {
-                            if let TagRole::Intermediate { possible_openers } = role {
+                            if let TagGrammarRole::Intermediate { possible_openers } = role {
                                 possible_openers.push(name.clone());
                             }
                         })
-                        .or_insert_with(|| TagRole::Intermediate {
+                        .or_insert_with(|| TagGrammarRole::Intermediate {
                             possible_openers: vec![name.clone()],
                         });
                 }

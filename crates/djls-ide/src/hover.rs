@@ -1,8 +1,8 @@
 use djls_semantic::FindTemplateResult;
 use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
+use djls_semantic::SemanticOffsetContext;
 use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateName;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
 use djls_semantic::find_template;
@@ -10,16 +10,18 @@ use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
-use crate::context::ResolvedOffsetContext;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
-    let (markdown, span) = match ResolvedOffsetContext::from_offset(db, file, offset) {
-        ResolvedOffsetContext::TemplateReference { name, span } => {
+    let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
+        SemanticOffsetContext::TemplateReference {
+            name: template_name,
+            span,
+        } => {
             let project = db.project()?;
+            let name = template_name.name(db);
 
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
-            let template_name = TemplateName::new(db, name);
 
             match find_template(db, project, template_name) {
                 FindTemplateResult::Found(origin) => {
@@ -44,7 +46,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             }
             Some((sections.join("\n---\n"), span))
         }
-        ResolvedOffsetContext::LoadLibrary { name, span } => {
+        SemanticOffsetContext::LoadLibrary { name, span } => {
             let library = db.template_libraries().best_loadable_library_str(&name)?;
             Some((
                 format!(
@@ -54,11 +56,11 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
                 span,
             ))
         }
-        ResolvedOffsetContext::LoadSymbol { name, span } => Some((
+        SemanticOffsetContext::LoadSymbol { name, span } => Some((
             render_symbol_hover(db.template_libraries(), &name, None)?,
             span,
         )),
-        ResolvedOffsetContext::Tag { name, span } => Some((
+        SemanticOffsetContext::Tag { name, span } => Some((
             render_symbol_hover(
                 db.template_libraries(),
                 &name,
@@ -66,7 +68,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        ResolvedOffsetContext::Filter { name, span } => Some((
+        SemanticOffsetContext::Filter { name, span } => Some((
             render_symbol_hover(
                 db.template_libraries(),
                 &name,
@@ -74,7 +76,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        ResolvedOffsetContext::Variable { .. } | ResolvedOffsetContext::None => None,
+        SemanticOffsetContext::Variable { .. } | SemanticOffsetContext::None => None,
     }?;
 
     Some(ls_types::Hover {

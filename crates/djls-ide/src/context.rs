@@ -1,150 +1,16 @@
-use djls_semantic::LiteralTemplateReference;
-use djls_semantic::LoadKind;
-use djls_semantic::TagSpecs;
-use djls_source::File;
 use djls_source::FileKind;
 use djls_source::Offset;
 use djls_source::Span;
-use djls_templates::Node;
-use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
 use djls_templates::Token;
-use djls_templates::parse_template;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ResolvedOffsetContext {
-    TemplateReference { name: String, span: Span },
-    LoadLibrary { name: String, span: Span },
-    LoadSymbol { name: String, span: Span },
-    Tag { name: String, span: Span },
-    Filter { name: String, span: Span },
-    Variable { name: String, span: Span },
-    None,
-}
-
-impl ResolvedOffsetContext {
-    pub(crate) fn from_offset(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Self {
-        let Some(nodelist) = parse_template(db, file) else {
-            return Self::None;
-        };
-
-        let Some(node) = nodelist.node_at(db, offset) else {
-            return Self::None;
-        };
-
-        Self::from_node_with_tag_specs(db.tag_specs(), node, offset)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn from_node(node: &Node, offset: Offset) -> Self {
-        let tag_specs = djls_semantic::builtin_tag_specs();
-        Self::from_node_with_tag_specs(&tag_specs, node, offset)
-    }
-
-    fn from_node_with_tag_specs(tag_specs: &TagSpecs, node: &Node, offset: Offset) -> Self {
-        match node {
-            Node::Tag {
-                name,
-                name_span,
-                bits,
-                ..
-            } => Self::from_tag(tag_specs, name, *name_span, bits, offset),
-            Node::Variable {
-                var,
-                var_span,
-                filters,
-                ..
-            } => {
-                if let Some(filter) = filters.iter().find(|filter| {
-                    filter
-                        .span
-                        .with_length_usize_saturating(filter.name.len())
-                        .contains(offset)
-                }) {
-                    let span = filter.span.with_length_usize_saturating(filter.name.len());
-                    return Self::Filter {
-                        name: filter.name.clone(),
-                        span,
-                    };
-                }
-
-                if var_span.contains(offset) {
-                    return Self::Variable {
-                        name: var.clone(),
-                        span: *var_span,
-                    };
-                }
-
-                Self::None
-            }
-            Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => Self::None,
-        }
-    }
-
-    fn from_tag(
-        tag_specs: &TagSpecs,
-        name: &str,
-        name_span: Span,
-        bits: &[TagBit],
-        offset: Offset,
-    ) -> Self {
-        if name_span.contains(offset) {
-            return Self::Tag {
-                name: name.to_string(),
-                span: name_span,
-            };
-        }
-
-        match name {
-            "load" => {
-                let Some(load_kind) = LoadKind::from_tag(name, bits) else {
-                    return Self::None;
-                };
-
-                match load_kind {
-                    LoadKind::FullLoad { libraries } => libraries
-                        .into_iter()
-                        .find(|library| library.span().contains(offset))
-                        .map_or(Self::None, |library| Self::LoadLibrary {
-                            name: library.as_str().to_string(),
-                            span: library.span(),
-                        }),
-                    LoadKind::SelectiveImport { symbols, library } => {
-                        if library.span().contains(offset) {
-                            return Self::LoadLibrary {
-                                name: library.as_str().to_string(),
-                                span: library.span(),
-                            };
-                        }
-
-                        symbols
-                            .into_iter()
-                            .find(|symbol| symbol.span().contains(offset))
-                            .map_or(Self::None, |symbol| Self::LoadSymbol {
-                                name: symbol.as_str().to_string(),
-                                span: symbol.span(),
-                            })
-                    }
-                }
-            }
-
-            _ => LiteralTemplateReference::from_tag(tag_specs, name, bits)
-                .filter(|reference| reference.span.contains(offset))
-                .map_or(Self::None, |reference| Self::TemplateReference {
-                    name: reference.template_name.to_string(),
-                    span: reference.span,
-                }),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum OffsetSyntaxContext<'source> {
-    Template(TemplateOffsetSyntaxContext<'source>),
+pub(crate) enum CompletionOffsetContext<'source> {
+    Template(TemplateCompletionContext<'source>),
     None,
 }
 
-impl<'source> OffsetSyntaxContext<'source> {
+impl<'source> CompletionOffsetContext<'source> {
     pub(crate) fn new(
         kind: FileKind,
         source: &'source str,
@@ -152,7 +18,7 @@ impl<'source> OffsetSyntaxContext<'source> {
         offset: Offset,
     ) -> Self {
         match kind {
-            FileKind::Template => Self::Template(TemplateOffsetSyntaxContext::from_tokens(
+            FileKind::Template => Self::Template(TemplateCompletionContext::from_tokens(
                 source, tokens, offset,
             )),
             FileKind::Python | FileKind::Other => Self::None,
@@ -161,7 +27,7 @@ impl<'source> OffsetSyntaxContext<'source> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TemplateOffsetSyntaxContext<'source> {
+pub(crate) enum TemplateCompletionContext<'source> {
     Text,
     TagName {
         prefix: OffsetPrefix<'source>,
@@ -190,7 +56,7 @@ pub(crate) enum TemplateOffsetSyntaxContext<'source> {
     },
 }
 
-impl<'source> TemplateOffsetSyntaxContext<'source> {
+impl<'source> TemplateCompletionContext<'source> {
     fn from_tokens(source: &'source str, tokens: &[Token], offset: Offset) -> Self {
         let Some(token) = token_at_offset(tokens, offset) else {
             return Self::Text;
@@ -587,25 +453,9 @@ fn find_last_unquoted_pipe(text: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use djls_templates::Filter;
-
     use super::*;
 
     const CURSOR: &str = "▮";
-
-    fn content_span(source: &str) -> Span {
-        Span::saturating_from_parts_usize(3, source.len() - 6)
-    }
-
-    fn offset_of(source: &str, needle: &str) -> Offset {
-        Offset::new(u32::try_from(source.find(needle).unwrap()).unwrap())
-    }
-
-    fn parsed_tag(source: &str) -> Node {
-        let (nodes, errors) = djls_templates::parse_template_impl(source);
-        assert!(errors.is_empty(), "unexpected parse errors: {errors:?}");
-        nodes.into_iter().next().expect("expected one node")
-    }
 
     fn source_with_offset_marker(input: &str) -> (String, Offset) {
         let offset = input.find(CURSOR).unwrap();
@@ -616,12 +466,12 @@ mod tests {
 
     fn with_syntax_context<R>(
         input: &str,
-        assert: impl for<'source> FnOnce(&'source str, OffsetSyntaxContext<'source>) -> R,
+        assert: impl for<'source> FnOnce(&'source str, CompletionOffsetContext<'source>) -> R,
     ) -> R {
         let (source, offset) = source_with_offset_marker(input);
         let tokens = djls_templates::lex_template_impl(source.as_str());
         let context =
-            OffsetSyntaxContext::new(FileKind::Template, source.as_str(), &tokens, offset);
+            CompletionOffsetContext::new(FileKind::Template, source.as_str(), &tokens, offset);
         assert(source.as_str(), context)
     }
 
@@ -630,148 +480,8 @@ mod tests {
         let source = "print('hello')";
 
         assert_eq!(
-            OffsetSyntaxContext::new(FileKind::Python, source, &[], Offset::new(0),),
-            OffsetSyntaxContext::None,
-        );
-    }
-
-    #[test]
-    fn identifies_template_reference_context() {
-        let source = r#"{% extends "base.html" %}"#;
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "base"));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::TemplateReference {
-                name: "base.html".to_string(),
-                span: Span::saturating_from_parts_usize(11, 11),
-            }
-        );
-    }
-
-    #[test]
-    fn ignores_dynamic_template_reference_context() {
-        let source = "{% include partial_name %}";
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "partial"));
-
-        assert_eq!(context, ResolvedOffsetContext::None);
-    }
-
-    #[test]
-    fn identifies_load_library_context() {
-        let source = "{% load static i18n %}";
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "static"));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::LoadLibrary {
-                name: "static".to_string(),
-                span: Span::saturating_from_parts_usize(8, 6),
-            }
-        );
-    }
-
-    #[test]
-    fn identifies_selective_load_symbol_context() {
-        let source = "{% load trans blocktrans from i18n %}";
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "blocktrans"));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::LoadSymbol {
-                name: "blocktrans".to_string(),
-                span: Span::saturating_from_parts_usize(14, 10),
-            }
-        );
-    }
-
-    #[test]
-    fn identifies_selective_load_library_context() {
-        let source = "{% load trans from i18n %}";
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "i18n"));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::LoadLibrary {
-                name: "i18n".to_string(),
-                span: Span::saturating_from_parts_usize(19, 4),
-            }
-        );
-    }
-
-    #[test]
-    fn identifies_tag_name_context() {
-        let source = "{% if user %}";
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "if"));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::Tag {
-                name: "if".to_string(),
-                span: Span::saturating_from_parts_usize(3, 2),
-            }
-        );
-    }
-
-    #[test]
-    fn ignores_unrecognized_tag_arguments() {
-        let source = "{% if user %}";
-        let node = parsed_tag(source);
-
-        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "user"));
-
-        assert_eq!(context, ResolvedOffsetContext::None);
-    }
-
-    #[test]
-    fn identifies_filter_context() {
-        let node = Node::Variable {
-            var: "user.name".to_string(),
-            var_span: Span::new(3, 9),
-            filters: vec![Filter::new("title".to_string(), None, Span::new(13, 5))],
-            span: content_span("{{ user.name|title }}"),
-        };
-
-        let context = ResolvedOffsetContext::from_node(&node, Offset::new(14));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::Filter {
-                name: "title".to_string(),
-                span: Span::new(13, 5),
-            }
-        );
-    }
-
-    #[test]
-    fn identifies_variable_context() {
-        let node = Node::Variable {
-            var: "user.name".to_string(),
-            var_span: Span::new(3, 9),
-            filters: vec![Filter::new("title".to_string(), None, Span::new(13, 5))],
-            span: content_span("{{ user.name|title }}"),
-        };
-
-        let context = ResolvedOffsetContext::from_node(&node, Offset::new(5));
-
-        assert_eq!(
-            context,
-            ResolvedOffsetContext::Variable {
-                name: "user.name".to_string(),
-                span: Span::new(3, 9),
-            }
+            CompletionOffsetContext::new(FileKind::Python, source, &[], Offset::new(0),),
+            CompletionOffsetContext::None,
         );
     }
 
@@ -780,7 +490,7 @@ mod tests {
         with_syntax_context("{%▮", |_, context| {
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
                     prefix: OffsetPrefix {
                         text: "",
                         span: Span::new(2, 0),
@@ -797,7 +507,7 @@ mod tests {
         with_syntax_context("{% sta▮", |_, context| {
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
                     prefix: OffsetPrefix {
                         text: "sta",
                         span: Span::new(3, 3),
@@ -816,7 +526,7 @@ mod tests {
 
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagArgument {
+                CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                     tag: "include",
                     position: 1,
                     prefix: OffsetPrefix {
@@ -838,7 +548,7 @@ mod tests {
 
                 assert_eq!(
                     context,
-                    OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagArgument {
+                    CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                         tag: "include",
                         position: 1,
                         prefix: OffsetPrefix {
@@ -860,7 +570,7 @@ mod tests {
 
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagArgument {
+                CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
                     tag: "include",
                     position: 0,
                     prefix: OffsetPrefix {
@@ -883,7 +593,7 @@ mod tests {
 
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     prefix: OffsetPrefix {
                         text: "stat",
                         span: Span::new(u32::try_from(prefix_start).unwrap(), 4),
@@ -905,7 +615,7 @@ mod tests {
 
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LoadSymbol {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
                     prefix: OffsetPrefix {
                         text: "trans",
                         span: Span::new(u32::try_from(prefix_start).unwrap(), 5),
@@ -926,7 +636,7 @@ mod tests {
         with_syntax_context("{% load trans f▮rom i18n %}", |_, context| {
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::Text)
+                CompletionOffsetContext::Template(TemplateCompletionContext::Text)
             );
         });
     }
@@ -938,7 +648,7 @@ mod tests {
 
             assert!(matches!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     prefix: OffsetPrefix {
                         text: "i",
                         span,
@@ -957,7 +667,7 @@ mod tests {
 
             assert!(matches!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     prefix: OffsetPrefix { text: "", .. },
                     suffix: OffsetSuffix {
                         text: "i18n",
@@ -974,7 +684,7 @@ mod tests {
         with_syntax_context("{% load stat▮}", |_, context| {
             assert!(matches!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     close: TagClose::Partial { .. },
                     ..
                 })
@@ -983,7 +693,7 @@ mod tests {
         with_syntax_context("{% load stat▮ %}", |_, context| {
             assert!(matches!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     close: TagClose::Full { .. },
                     ..
                 })
@@ -992,7 +702,7 @@ mod tests {
         with_syntax_context("{% load stat▮ }", |_, context| {
             assert!(matches!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     close: TagClose::Partial {
                         replacement_suffix_len: 2,
                     },
@@ -1007,7 +717,7 @@ mod tests {
         with_syntax_context("{% load stat▮\n} plain", |_, context| {
             assert!(matches!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+                CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
                     close: TagClose::None,
                     ..
                 })
@@ -1022,7 +732,7 @@ mod tests {
 
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::Filter {
+                CompletionOffsetContext::Template(TemplateCompletionContext::Filter {
                     prefix: OffsetPrefix {
                         text: "def",
                         span: Span::new(u32::try_from(prefix_start).unwrap(), 3),
@@ -1037,7 +747,7 @@ mod tests {
         with_syntax_context("{{ value:'a|b'▮", |_, context| {
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::Text),
+                CompletionOffsetContext::Template(TemplateCompletionContext::Text),
             );
         });
     }
@@ -1047,7 +757,7 @@ mod tests {
         with_syntax_context("{% load static %}▮", |_, context| {
             assert_eq!(
                 context,
-                OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::Text),
+                CompletionOffsetContext::Template(TemplateCompletionContext::Text),
             );
         });
     }

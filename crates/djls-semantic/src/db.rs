@@ -2,11 +2,11 @@ use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 
 use crate::errors::ValidationError;
+use crate::filters::FilterAritySpecs;
 use crate::project::Db as ProjectDb;
 use crate::project::TemplateLibraries;
 use crate::python::ModelGraph;
-use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::TagSpecs;
+use crate::tags::TagSpecs;
 
 #[salsa::db]
 pub trait Db: ProjectDb {

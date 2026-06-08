@@ -1,12 +1,11 @@
 use djls_semantic::FindTemplateResult;
-use djls_semantic::TemplateName;
+use djls_semantic::SemanticOffsetContext;
 use djls_semantic::find_template;
 use djls_semantic::references_to_template_name;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
-use crate::context::ResolvedOffsetContext;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 
@@ -15,15 +14,14 @@ pub fn goto_definition(
     file: File,
     offset: Offset,
 ) -> Option<ls_types::GotoDefinitionResponse> {
-    match ResolvedOffsetContext::from_offset(db, file, offset) {
-        ResolvedOffsetContext::TemplateReference {
+    match SemanticOffsetContext::from_offset(db, file, offset) {
+        SemanticOffsetContext::TemplateReference {
             name: template_name,
             ..
         } => {
-            tracing::debug!("Found template reference: '{}'", template_name);
+            tracing::debug!("Found template reference: '{}'", template_name.name(db));
 
             let project = db.project()?;
-            let template_name = TemplateName::new(db, template_name);
 
             match find_template(db, project, template_name) {
                 FindTemplateResult::Found(origin) => {
@@ -56,18 +54,17 @@ pub fn find_references(
     file: File,
     offset: Offset,
 ) -> Option<Vec<ls_types::Location>> {
-    match ResolvedOffsetContext::from_offset(db, file, offset) {
-        ResolvedOffsetContext::TemplateReference {
+    match SemanticOffsetContext::from_offset(db, file, offset) {
+        SemanticOffsetContext::TemplateReference {
             name: template_name,
             ..
         } => {
             tracing::debug!(
                 "Cursor is inside template-reference tag referencing: '{}'",
-                template_name
+                template_name.name(db)
             );
 
             let project = db.project()?;
-            let template_name = TemplateName::new(db, template_name);
             let references = references_to_template_name(db, project, template_name);
 
             let locations: Vec<ls_types::Location> = references
