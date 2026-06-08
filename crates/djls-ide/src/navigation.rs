@@ -1,5 +1,7 @@
-use djls_semantic::ResolveResult;
-use djls_semantic::resolve_template;
+use djls_semantic::FindTemplateResult;
+use djls_semantic::TemplateName;
+use djls_semantic::find_template;
+use djls_semantic::references_to_template_name;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
@@ -20,9 +22,12 @@ pub fn goto_definition(
         } => {
             tracing::debug!("Found template reference: '{}'", template_name);
 
-            match resolve_template(db, &template_name) {
-                ResolveResult::Found(template) => {
-                    let path = template.path_buf(db);
+            let project = db.project()?;
+            let template_name = TemplateName::new(db, template_name);
+
+            match find_template(db, project, template_name) {
+                FindTemplateResult::Found(origin) => {
+                    let path = origin.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
 
                     Some(ls_types::GotoDefinitionResponse::Scalar(
@@ -32,8 +37,12 @@ pub fn goto_definition(
                         },
                     ))
                 }
-                ResolveResult::NotFound { tried, .. } => {
-                    tracing::warn!("Template '{}' not found. Tried: {:?}", template_name, tried);
+                FindTemplateResult::DoesNotExist(error) => {
+                    tracing::warn!(
+                        "Template '{}' not found. Tried: {:?}",
+                        error.template_name.name(db),
+                        error.tried
+                    );
                     None
                 }
             }
@@ -53,11 +62,13 @@ pub fn find_references(
             ..
         } => {
             tracing::debug!(
-                "Cursor is inside extends/include tag referencing: '{}'",
+                "Cursor is inside template-reference tag referencing: '{}'",
                 template_name
             );
 
-            let references = djls_semantic::find_references_to_template(db, &template_name);
+            let project = db.project()?;
+            let template_name = TemplateName::new(db, template_name);
+            let references = references_to_template_name(db, project, template_name);
 
             let locations: Vec<ls_types::Location> = references
                 .iter()

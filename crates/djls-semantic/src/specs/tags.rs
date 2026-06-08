@@ -438,9 +438,15 @@ pub struct TagSpec {
 ///
 /// This describes what the tag does in the template domain. Feature-specific
 /// projections, such as document symbols, map these roles into their own shapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::Update)]
+pub enum TemplateReferenceKind {
+    Extends,
+    Include,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TagSemanticRole {
-    TemplateReference,
+    TemplateReference(TemplateReferenceKind),
     TemplateLibraryLoader,
     TemplateBlock,
     ControlTag,
@@ -693,11 +699,17 @@ pub fn builtin_tag_specs() -> TagSpecs {
     );
     specs.insert(
         "extends".into(),
-        simple_role(lt, TagSemanticRole::TemplateReference),
+        simple_role(
+            lt,
+            TagSemanticRole::TemplateReference(TemplateReferenceKind::Extends),
+        ),
     );
     specs.insert(
         "include".into(),
-        simple_role(lt, TagSemanticRole::TemplateReference),
+        simple_role(
+            lt,
+            TagSemanticRole::TemplateReference(TemplateReferenceKind::Include),
+        ),
     );
 
     // i18n

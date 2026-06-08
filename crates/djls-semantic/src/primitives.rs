@@ -8,27 +8,27 @@ use djls_templates::parse_template;
 use crate::db::Db as SemanticDb;
 
 #[salsa::tracked]
-pub struct Template<'db> {
-    pub name: TemplateName<'db>,
+pub struct TemplateOrigin<'db> {
+    pub template_name: TemplateName<'db>,
     pub file: File,
 }
 
-impl<'db> Template<'db> {
+impl<'db> TemplateOrigin<'db> {
     pub fn path_buf(&'db self, db: &'db dyn SemanticDb) -> &'db Utf8PathBuf {
         self.file(db).path(db)
     }
 
     pub(crate) fn tags(self, db: &'db dyn SemanticDb) -> &'db [Tag] {
-        template_tags(db, self)
+        template_origin_tags(db, self)
     }
 }
 
-// Tags are a cached projection of a template's parsed nodes, not independent
-// Salsa identities. Keep the query boundary here and expose it through
-// `Template::tags` so callers can still ask a template for its tags.
+// Tags are a cached projection of a template origin's parsed nodes, not
+// independent Salsa identities. Keep the query boundary here and expose it
+// through `TemplateOrigin::tags` so callers can still ask an origin for its tags.
 #[salsa::tracked(returns(ref))]
-fn template_tags(db: &dyn SemanticDb, template: Template<'_>) -> Vec<Tag> {
-    let file = template.file(db);
+fn template_origin_tags(db: &dyn SemanticDb, origin: TemplateOrigin<'_>) -> Vec<Tag> {
+    let file = origin.file(db);
     let Some(nodelist) = parse_template(db, file) else {
         return Vec::new();
     };

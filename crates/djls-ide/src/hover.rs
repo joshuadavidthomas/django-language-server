@@ -1,10 +1,11 @@
+use djls_semantic::FindTemplateResult;
 use djls_semantic::InstalledSymbolCandidate;
 use djls_semantic::InstalledSymbolOrigin;
-use djls_semantic::ResolveResult;
 use djls_semantic::TemplateLibraries;
+use djls_semantic::TemplateName;
 use djls_semantic::TemplateSymbolKind;
 use djls_semantic::TemplateSymbolName;
-use djls_semantic::resolve_template;
+use djls_semantic::find_template;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
@@ -15,22 +16,27 @@ use crate::ext::SpanExt;
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
     let (markdown, span) = match ResolvedOffsetContext::from_offset(db, file, offset) {
         ResolvedOffsetContext::TemplateReference { name, span } => {
+            let project = db.project()?;
+
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
-            match resolve_template(db, &name) {
-                ResolveResult::Found(template) => {
-                    let path = template.path_buf(db);
+            let template_name = TemplateName::new(db, name);
+
+            match find_template(db, project, template_name) {
+                FindTemplateResult::Found(origin) => {
+                    let path = origin.path_buf(db);
                     sections.push(format!("Resolved to `{path}`"));
                 }
-                ResolveResult::NotFound { tried, .. } => {
+                FindTemplateResult::DoesNotExist(error) => {
                     // No tried paths means the project did not provide template loader
                     // locations, so there is nothing useful to show.
-                    if tried.is_empty() {
+                    if error.tried.is_empty() {
                         return None;
                     }
 
-                    let tried = tried
+                    let tried = error
+                        .tried
                         .iter()
-                        .map(|path| format!("- `{path}`"))
+                        .map(|source| format!("- `{}`", source.path))
                         .collect::<Vec<_>>()
                         .join("\n");
                     sections.push(format!("Template not found.\n\nTried:\n\n{tried}"));

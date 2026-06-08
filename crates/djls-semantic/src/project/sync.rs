@@ -26,7 +26,6 @@ use crate::project::db::Db as ProjectDb;
 use crate::project::input::Project;
 use crate::project::input::ProjectPythonIndex;
 use crate::project::input::ProjectPythonModule;
-use crate::project::input::ProjectTemplateFile;
 use crate::project::input::ProjectTemplateFiles;
 use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
@@ -380,12 +379,10 @@ fn discover_project_template_files(
         dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
             a_name.cmp(b_name).then_with(|| a_path.cmp(b_path))
         });
-        templates.extend(dir_templates.into_iter().map(|(name, path)| {
-            ProjectTemplateFile::new(name, path.clone(), db.get_or_create_file(&path))
-        }));
+        templates.extend(dir_templates);
     }
 
-    ProjectTemplateFiles::from_ordered(templates)
+    ProjectTemplateFiles::from_ordered_paths(db, templates)
 }
 
 fn refresh_python_index(db: &mut dyn ProjectDb, project: Project) {
