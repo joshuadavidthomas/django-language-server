@@ -12,6 +12,7 @@ pub use collections::FxDashMap;
 pub use db::Db;
 pub use files::File;
 pub use files::FileKind;
+pub use files::FileRoot;
 pub use files::FileRootKind;
 pub use files::SourceFiles;
 pub use files::SourceText;

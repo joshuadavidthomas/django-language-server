@@ -84,7 +84,7 @@ It takes the flat node list from `djls-templates` and does two things:
 All errors go through a `ValidationErrorAccumulator` — the validator never returns errors directly. Callers retrieve them with `validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)`.
 
 This crate also owns:
-- **Project context** — `Project`, interpreter discovery, Django settings, template libraries, module resolution, inspector cache data, and external extraction results
+- **Project context** — `Project`, interpreter discovery, Django settings, template libraries, module resolution, inspector cache data, and first-party project indexes
 - **Python static extraction** — Ruff-based analysis of templatetag and model Python source
 - **Load scoping** — tracking which tags and filters are available at each position based on preceding `{% load %}` tags
 - **Template name resolution** — resolving template names to files on disk
@@ -96,7 +96,7 @@ This crate also owns:
 
 **Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
 
-`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, template directories, template libraries, separate first-party template and Python indexes, and extraction results. This module also owns project introspection, module resolution, and the `TemplateLibraries` type that holds the combined knowledge from introspection results and environment scanning. Imperative refresh functions in this module synchronize external project state into Salsa inputs; tracked semantic queries then derive validation data from those inputs.
+`crates/djls-semantic/src/project/` owns project configuration and Python environment discovery. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, resolver-owned `SearchPaths`, template directories, template libraries, and first-party template files. This module also owns project introspection, module resolution, and the `TemplateLibraries` type that holds the combined knowledge from introspection results and environment scanning. Imperative refresh functions in this module synchronize external project state into Salsa inputs; tracked semantic queries then derive Python module discovery, validation data, and other semantic facts from those inputs and from tracked source files.
 
 ### `crates/djls-ide`
 
@@ -106,7 +106,7 @@ IDE features: completions, diagnostics, folding ranges, snippets, goto definitio
 
 ### `crates/djls-source`
 
-Foundation crate — file representation, source-file registry, filesystem access, file discovery, text positions, spans, line indexing, diagnostic rendering. `SourceFiles` owns the path-to-`File` side table and assigns Salsa durability from file roots: first-party project roots are low durability, library roots are high durability, and file paths are stable identity. The `FileSystem` interface is the shared seam for reading files, checking path kind, and walking source roots; production uses `OsFileSystem`, tests can use `InMemoryFileSystem`, and the LSP server provides an overlay adapter for open buffers. Nearly every other crate depends on this one.
+Foundation crate — file representation, source-file registry, filesystem access, file discovery, text positions, spans, line indexing, diagnostic rendering. `SourceFiles` owns the path-to-`File` side table and assigns Salsa durability from file roots: first-party project roots are low durability, module/search-path roots are high durability, and file paths are stable identity. The `FileSystem` interface is the shared seam for reading files, checking path kind, and walking source roots; production uses `OsFileSystem`, tests can use `InMemoryFileSystem`, and the LSP server provides an overlay adapter for open buffers. Nearly every other crate depends on this one.
 
 ### `crates/djls-conf`
 
@@ -141,7 +141,7 @@ Template parsing does not need its own database trait. `parse_template` depends 
 - Database traits describe capabilities: file access, current project access, introspector access, or semantic fixture access.
 - Tracked queries compute values from Salsa inputs and tracked files. They should not query subprocesses, write caches, or mutate inputs.
 - Free functions perform imperative synchronization from the outside world into Salsa inputs: loading the introspection cache, refreshing template directories and libraries, indexing first-party project files, scanning installed packages, and updating `Project` fields with setters.
-- Durability follows the same split: first-party file revisions and the project file set are low durability; project configuration and introspection results are medium durability; installed-package extraction results and stable file identity are high durability.
+- Durability follows the same split: first-party file revisions and the project file set are low durability; project configuration and introspection results are medium durability; search-path roots and stable file identity are high durability.
 
 ## How Knowledge Gets In
 
@@ -157,7 +157,7 @@ A small Python program from `crates/djls-semantic/inspector/` ships embedded in 
 Startup uses two phases to avoid blocking the editor:
 
 1. A cache check during `initialized`. The server loads a cached inspector response from `~/.cache/djls/inspector/`. The cache key is a SHA-256 hash of the project root, interpreter path, settings module, and PYTHONPATH. If the cache exists (and its `djls_version` matches), the server becomes functional immediately with the cached data.
-2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, template libraries, the first-party project file set, extracted validation rules from installed packages, and external model graphs. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
+2. A background task refreshes project data, updates Salsa inputs, and writes a fresh cache. This includes template directories, template libraries, first-party template/Python file indexes, and source roots for installed packages. External validation rules and model graphs are then derived through Salsa queries over high-durability search-path files. When a cache was loaded in phase 1, this runs concurrently with normal operation. If no cache existed, the server waits for this to complete before advertising full capabilities.
 
 This means that in the common case (you've opened this project before and the environment hasn't changed), startup is nearly instant — the server just reads a JSON file from disk.
 
@@ -172,10 +172,10 @@ Instead, `djls-semantic` parses templatetag Python source files with the Ruff pa
 
 This works well for `simple_tag` and `inclusion_tag` registrations where the function signature maps directly to template arguments. Hand-written compilation functions (like Django's built-in `do_if` or `do_for`) are harder — those have custom argument parsing that doesn't follow a signature — but extraction still tries, using abstract interpretation to track variables like `bits = token.split_contents()` through the function body and infer constraints from the raise guards. Hardcoded specs provide baseline structure (end tags, intermediates) for builtins, and extraction results merge on top to add argument validation. When extraction can't figure something out, it falls back gracefully.
 
-Two paths exist for extraction:
+Both workspace and search-path extraction now flow through Salsa:
 
-- **External modules** (site-packages) — extracted once during startup, stored in `Project.extracted_external_rules`. These don't change during a session.
-- **Workspace modules** (project code) — indexed into the project file set during project refresh, then extracted through Salsa tracked queries over tracked files. Edits to known files recompute automatically; new files enter the graph on the next project refresh.
+- **Search-path modules** (site-packages/extra Python paths) — resolved through typed `SearchPath`s, represented as high-durability tracked files, and extracted through the same Salsa tracked queries as workspace files. External-data refreshes bump search-path root revisions for discovery and bump currently discovered search-path file revisions so stale installed-package content is reread.
+- **Workspace modules** (project code) — indexed into the project file set during project refresh, represented as low-durability tracked files, and extracted through the same Salsa tracked queries. Edits to known files recompute automatically; new files enter the graph on the next project refresh.
 
 ## The Template Pipeline
 

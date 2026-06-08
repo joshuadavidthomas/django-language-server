@@ -24,6 +24,15 @@ pub struct File {
     pub revision: u64,
 }
 
+#[salsa::input]
+#[derive(Debug)]
+pub struct FileRoot {
+    #[returns(ref)]
+    pub path: Utf8PathBuf,
+    pub kind: FileRootKind,
+    pub revision: u64,
+}
+
 #[salsa::tracked]
 impl File {
     #[salsa::tracked]
@@ -176,27 +185,20 @@ struct SourceFilesInner {
     roots: RwLock<Vec<FileRoot>>,
 }
 
-/// A source root as known when files are created.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FileRoot {
-    path: Utf8PathBuf,
-    kind: FileRootKind,
-}
-
 /// Classification used to assign durability to files under a root.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FileRootKind {
     /// First-party files edited by the user.
     Project,
-    /// Dependency files from import/search paths.
-    LibrarySearchPath,
+    /// Files discovered through module/search paths.
+    SearchPath,
 }
 
 impl FileRootKind {
     const fn durability(self) -> Durability {
         match self {
             Self::Project => Durability::LOW,
-            Self::LibrarySearchPath => Durability::HIGH,
+            Self::SearchPath => Durability::HIGH,
         }
     }
 }
@@ -210,7 +212,7 @@ impl SourceFiles {
         let path = path.to_owned();
         *self.0.by_path.entry(path.clone()).or_insert_with(|| {
             File::builder(path.clone(), 0)
-                .durability(self.durability_for(&path))
+                .durability(self.durability_for(db, &path))
                 .path_durability(Durability::HIGH)
                 .new(db)
         })
@@ -230,24 +232,93 @@ impl SourceFiles {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    #[must_use]
+    pub fn root<SalsaDb>(&self, db: &SalsaDb, path: &Utf8Path) -> Option<FileRoot>
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
+        self.roots()
+            .iter()
+            .filter(|root| path.starts_with(root.path(db).as_path()))
+            .max_by_key(|root| root.path(db).as_str().len())
+            .copied()
+    }
+
+    /// Return the registered source root that contains `path`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when no registered source root contains `path`.
+    #[must_use]
+    pub fn expect_root<SalsaDb>(&self, db: &SalsaDb, path: &Utf8Path) -> FileRoot
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
+        self.root(db, path)
+            .unwrap_or_else(|| panic!("expected registered source root for {path}"))
+    }
+
     /// Register a root for future file creation.
     ///
     /// If the same root already exists, its original kind is preserved.
     /// Existing files keep the durability assigned when they were created.
-    pub fn try_add_root(&self, path: Utf8PathBuf, kind: FileRootKind) {
+    pub fn try_add_root<SalsaDb>(
+        &self,
+        db: &SalsaDb,
+        path: Utf8PathBuf,
+        kind: FileRootKind,
+    ) -> FileRoot
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
         let mut roots = self.roots_mut();
-        if roots.iter().any(|root| root.path == path) {
-            return;
+        if let Some(root) = roots.iter().find(|root| root.path(db) == &path) {
+            return *root;
         }
 
-        roots.push(FileRoot { path, kind });
+        let root = Self::new_root(db, path, kind);
+        roots.push(root);
+        root
     }
 
-    fn durability_for(&self, path: &Utf8Path) -> Durability {
-        self.roots()
-            .iter()
-            .filter(|root| path.starts_with(root.path.as_path()))
-            .max_by_key(|root| root.path.as_str().len())
-            .map_or(Durability::LOW, |root| root.kind.durability())
+    /// Replace the active source roots with the supplied root set.
+    ///
+    /// Existing exact roots with the same kind are retained; obsolete roots stop
+    /// participating in root lookup.
+    pub fn replace_roots<SalsaDb>(&self, db: &SalsaDb, root_specs: Vec<(Utf8PathBuf, FileRootKind)>)
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
+        let mut roots = self.roots_mut();
+        let existing = roots.clone();
+        let next_roots = root_specs
+            .into_iter()
+            .map(|(path, kind)| {
+                existing
+                    .iter()
+                    .find(|root| root.path(db) == &path && root.kind(db) == kind)
+                    .copied()
+                    .unwrap_or_else(|| Self::new_root(db, path, kind))
+            })
+            .collect();
+        *roots = next_roots;
+    }
+
+    fn new_root<SalsaDb>(db: &SalsaDb, path: Utf8PathBuf, kind: FileRootKind) -> FileRoot
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
+        FileRoot::builder(path, kind, 0)
+            .durability(Durability::HIGH)
+            .revision_durability(kind.durability())
+            .new(db)
+    }
+
+    fn durability_for<SalsaDb>(&self, db: &SalsaDb, path: &Utf8Path) -> Durability
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
+        self.root(db, path)
+            .map_or(Durability::LOW, |root| root.kind(db).durability())
     }
 }

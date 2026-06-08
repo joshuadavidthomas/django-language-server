@@ -209,12 +209,8 @@ mod invalidation_tests {
 
     use djls_conf::Settings;
     use djls_semantic::Db as SemanticDb;
-    use djls_semantic::Interpreter;
     use djls_semantic::Knowledge;
     use djls_semantic::Project;
-    use djls_semantic::ProjectPythonIndex;
-    use djls_semantic::ProjectTemplateFiles;
-    use djls_semantic::TemplateDirs;
     use djls_semantic::TemplateLibraries;
     use djls_source::InMemoryFileSystem;
     use djls_source::SourceFiles;
@@ -270,33 +266,7 @@ mod invalidation_tests {
             logs: Arc::new(Mutex::new(None)),
         };
 
-        let interpreter = Interpreter::discover(settings.venv_path());
-        let dsm = settings
-            .django_settings_module()
-            .map(String::from)
-            .or_else(|| {
-                std::env::var("DJANGO_SETTINGS_MODULE")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            });
-
-        let project = Project::new(
-            &db,
-            "/test/project".into(),
-            interpreter,
-            dsm,
-            settings.pythonpath().to_vec(),
-            Vec::new(),
-            TemplateDirs::Unknown,
-            settings.tagspecs().clone(),
-            TemplateLibraries::default(),
-            ProjectTemplateFiles::default(),
-            ProjectPythonIndex::default(),
-            rustc_hash::FxHashMap::default(),
-            rustc_hash::FxHashMap::default(),
-            rustc_hash::FxHashMap::default(),
-            rustc_hash::FxHashMap::default(),
-        );
+        let project = Project::bootstrap(&db, "/test/project".into(), &settings);
         *db.project.lock().unwrap() = Some(project);
 
         (db, event_log)
@@ -324,7 +294,7 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn template_libraries_change_invalidates_compute_tag_specs() {
+    fn template_libraries_change_validates_templatetag_module_projection() {
         let (mut db, event_log) = test_db_with_project();
 
         // Prime the cache
@@ -344,12 +314,18 @@ mod invalidation_tests {
 
         project.set_template_libraries(&mut db).to(new_libraries);
 
-        // Access again — should re-execute
+        // Access again. The templatetag module projection depends on template
+        // libraries, but `compute_tag_specs` can stay green when the projected
+        // module list backdates to the same value.
         let _specs = db.tag_specs();
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after template_libraries change"
+            was_executed(&db, &events, "templatetag_modules"),
+            "templatetag_modules should re-execute after template_libraries change"
+        );
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should stay cached when search-path module projection is unchanged"
         );
     }
 

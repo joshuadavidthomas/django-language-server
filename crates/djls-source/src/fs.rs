@@ -193,6 +193,10 @@ impl InMemoryFileSystem {
     pub fn add_file(&mut self, path: Utf8PathBuf, content: String) {
         self.files.insert(path, content);
     }
+
+    pub fn remove_file(&mut self, path: &Utf8Path) {
+        self.files.remove(path);
+    }
 }
 
 impl Default for InMemoryFileSystem {

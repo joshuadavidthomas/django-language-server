@@ -1,4 +1,6 @@
-//! Module path → file path resolution using `sys_path`.
+//! Module path → file path resolution using Python search paths.
+
+use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -8,259 +10,232 @@ use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
 use crate::project::Interpreter;
+use crate::project::db::Db as ProjectDb;
+use crate::project::input::Project;
+use crate::project::input::PythonModule;
 use crate::python::ModulePath;
 
-/// Derive a dotted module path from a relative filesystem path.
-///
-/// Strips the file extension and joins path components with dots.
-/// For `__init__.py`, drops the `__init__` component to yield the
-/// package path. For example:
-/// - `myapp/models.py` → `myapp.models`
-/// - `myapp/models/__init__.py` → `myapp.models`
-/// - `myapp/models/user.py` → `myapp.models.user`
-fn module_path_from_relative(rel: &Utf8Path) -> ModulePath {
-    let without_ext = rel.with_extension("");
-    let parts: Vec<&str> = without_ext.components().map(|c| c.as_str()).collect();
-    let dotted = if parts.last() == Some(&"__init__") {
-        parts[..parts.len() - 1].join(".")
-    } else {
-        parts.join(".")
-    };
-    ModulePath::new(dotted)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchPath(Arc<SearchPathInner>);
+
+#[derive(Debug, PartialEq, Eq)]
+enum SearchPathInner {
+    FirstParty(Utf8PathBuf),
+    Extra(Utf8PathBuf),
+    SitePackages(Utf8PathBuf),
 }
 
-/// Classification of where a module lives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ModuleLocation {
-    /// Module is in the project workspace (tracked as File)
-    Workspace,
-    /// Module is external (site-packages, stdlib, etc.)
-    External,
-}
+impl SearchPath {
+    fn first_party(path: Utf8PathBuf) -> Self {
+        Self(Arc::new(SearchPathInner::FirstParty(path)))
+    }
 
-impl ModuleLocation {
-    fn classify(path: &Utf8Path, project_root: &Utf8Path) -> Self {
-        if path.starts_with(project_root) {
-            Self::Workspace
+    fn extra(path: Utf8PathBuf) -> Self {
+        Self(Arc::new(SearchPathInner::Extra(path)))
+    }
+
+    fn site_packages(path: Utf8PathBuf) -> Self {
+        Self(Arc::new(SearchPathInner::SitePackages(path)))
+    }
+
+    fn from_pythonpath(
+        root: &Utf8Path,
+        discovered_site_packages: Option<&Utf8Path>,
+        path: Utf8PathBuf,
+    ) -> Self {
+        if discovered_site_packages.is_some_and(|site_packages| site_packages == path) {
+            Self::site_packages(path)
+        } else if path.starts_with(root) {
+            Self::first_party(path)
         } else {
-            Self::External
+            Self::extra(path)
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn path(&self) -> &Utf8Path {
+        match self.0.as_ref() {
+            SearchPathInner::FirstParty(path)
+            | SearchPathInner::Extra(path)
+            | SearchPathInner::SitePackages(path) => path,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_first_party(&self) -> bool {
+        matches!(self.0.as_ref(), SearchPathInner::FirstParty(_))
+    }
+
+    fn root_kind(&self) -> FileRootKind {
+        if self.is_first_party() {
+            FileRootKind::Project
+        } else {
+            FileRootKind::SearchPath
         }
     }
 }
 
-/// Resolved module information.
-#[derive(Debug, Clone)]
-pub(crate) struct ResolvedModule {
-    pub(crate) module_path: String,
-    pub(crate) file_path: Utf8PathBuf,
-    pub(crate) location: ModuleLocation,
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SearchPaths {
+    paths: Vec<SearchPath>,
 }
 
-/// Resolve a Python module path to a file path.
-///
-/// Searches `sys_path` entries in order (first match wins, matching Python's
-/// import semantics). Classifies the resolved path as Workspace or External
-/// based on whether it falls under `project_root`.
-///
-/// Returns `Some(ResolvedModule)` if found, `None` otherwise.
-#[must_use]
-pub(crate) fn resolve_module(
+impl SearchPaths {
+    #[must_use]
+    pub(crate) fn from_project_settings(
+        fs: &dyn FileSystem,
+        root: &Utf8Path,
+        interpreter: &Interpreter,
+        pythonpath: &[String],
+    ) -> Self {
+        let mut search_paths = Self::default();
+        search_paths.push(SearchPath::first_party(root.to_path_buf()));
+        let discovered_site_packages = interpreter.site_packages_path(fs, root);
+
+        for path in pythonpath {
+            let path = Utf8PathBuf::from(path);
+            if !fs.is_dir(&path) || search_paths.contains_path(&path) {
+                continue;
+            }
+
+            search_paths.push(SearchPath::from_pythonpath(
+                root,
+                discovered_site_packages.as_deref(),
+                path,
+            ));
+        }
+
+        if let Some(site_packages) = discovered_site_packages
+            && !search_paths.contains_path(&site_packages)
+        {
+            search_paths.push(SearchPath::site_packages(site_packages));
+        }
+
+        search_paths
+    }
+
+    pub(crate) fn register_roots(&self, db: &dyn ProjectDb) {
+        let mut roots = Vec::new();
+        for search_path in self.iter() {
+            if search_path.is_first_party()
+                && roots.iter().any(|(path, kind)| {
+                    *kind == FileRootKind::Project && search_path.path().starts_with(path)
+                })
+            {
+                continue;
+            }
+
+            roots.push((search_path.path().to_path_buf(), search_path.root_kind()));
+        }
+
+        db.files().replace_roots(db, roots);
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &SearchPath> {
+        self.paths.iter()
+    }
+
+    fn push(&mut self, search_path: SearchPath) {
+        self.paths.push(search_path);
+    }
+
+    fn contains_path(&self, path: &Utf8Path) -> bool {
+        self.iter().any(|search_path| search_path.path() == path)
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub(crate) fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
+    let mut modules_by_path: Vec<(usize, PythonModule)> = Vec::new();
+
+    for search_path in project.search_paths(db).iter() {
+        let root = db.files().expect_root(db, search_path.path());
+        let _ = root.revision(db);
+        let search_path_len = search_path.path().as_str().len();
+        for (module_path, file_path) in discover_model_files(
+            db.file_system(),
+            search_path.path(),
+            search_path.root_kind(),
+        ) {
+            let module = PythonModule::new(
+                module_path,
+                file_path.clone(),
+                db.get_or_create_file(&file_path),
+            );
+            match modules_by_path
+                .iter_mut()
+                .find(|(_search_path_len, existing)| existing.path() == file_path)
+            {
+                Some((existing_search_path_len, existing))
+                    if search_path_len > *existing_search_path_len =>
+                {
+                    *existing_search_path_len = search_path_len;
+                    *existing = module;
+                }
+                Some(_) => {}
+                None => modules_by_path.push((search_path_len, module)),
+            }
+        }
+    }
+
+    modules_by_path
+        .into_iter()
+        .map(|(_search_path_len, module)| module)
+        .collect()
+}
+
+pub(crate) fn templatetag_module_file(
     fs: &dyn FileSystem,
     module_path: &str,
-    sys_path: &[Utf8PathBuf],
-    project_root: &Utf8Path,
-) -> Option<ResolvedModule> {
-    let parts: Vec<&str> = module_path.split('.').collect();
-
-    for sys_entry in sys_path {
-        let mut candidate = sys_entry.clone();
-        for part in &parts {
-            candidate.push(part);
-        }
-
-        // Try as .py file
-        let py_file = candidate.with_extension("py");
-        if fs.is_file(&py_file) {
-            let location = ModuleLocation::classify(&py_file, project_root);
-            return Some(ResolvedModule {
-                module_path: module_path.to_string(),
-                file_path: py_file,
-                location,
-            });
-        }
-
-        // Try as package/__init__.py
-        let init_file = candidate.join("__init__.py");
-        if fs.is_file(&init_file) {
-            let location = ModuleLocation::classify(&init_file, project_root);
-            return Some(ResolvedModule {
-                module_path: module_path.to_string(),
-                file_path: init_file,
-                location,
-            });
-        }
+    search_path: &Utf8Path,
+) -> Option<Utf8PathBuf> {
+    let mut candidate = search_path.to_path_buf();
+    for part in module_path.split('.') {
+        candidate.push(part);
     }
 
-    None
+    let py_file = candidate.with_extension("py");
+    if fs.is_file(&py_file) {
+        return Some(py_file);
+    }
+
+    let init_file = candidate.join("__init__.py");
+    fs.is_file(&init_file).then_some(init_file)
 }
 
-/// Resolve multiple module paths, partitioned by location.
-///
-/// Returns `(workspace_modules, external_modules)`.
-pub(crate) fn resolve_modules<'a>(
-    fs: &dyn FileSystem,
-    module_paths: impl IntoIterator<Item = &'a str>,
-    sys_path: &[Utf8PathBuf],
-    project_root: &Utf8Path,
-) -> (Vec<ResolvedModule>, Vec<ResolvedModule>) {
-    let mut workspace = Vec::new();
-    let mut external = Vec::new();
+#[salsa::tracked(returns(ref))]
+pub(crate) fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
+    let module_paths: Vec<String> = project
+        .template_libraries(db)
+        .registration_modules()
+        .into_iter()
+        .map(|module| module.as_str().to_string())
+        .collect();
+
+    let search_paths = project.search_paths(db);
+    let mut modules = Vec::new();
 
     for module_path in module_paths {
-        if let Some(resolved) = resolve_module(fs, module_path, sys_path, project_root) {
-            match resolved.location {
-                ModuleLocation::Workspace => workspace.push(resolved),
-                ModuleLocation::External => external.push(resolved),
-            }
-        }
-    }
+        for search_path in search_paths.iter() {
+            let root = db.files().expect_root(db, search_path.path());
+            let _ = root.revision(db);
 
-    (workspace, external)
-}
-
-/// Build a list of directories to search when resolving Python module paths.
-///
-/// Includes:
-/// - The project root (for workspace modules)
-/// - Explicit PYTHONPATH entries
-/// - Site-packages from the virtual environment (if available)
-#[must_use]
-pub(crate) fn build_search_paths(
-    fs: &dyn FileSystem,
-    interpreter: &Interpreter,
-    root: &Utf8Path,
-    pythonpath: &[String],
-) -> Vec<Utf8PathBuf> {
-    let mut paths = Vec::new();
-
-    // Project root
-    paths.push(root.to_path_buf());
-
-    // Explicit PYTHONPATH entries
-    for p in pythonpath {
-        let path = Utf8PathBuf::from(p);
-        if fs.is_dir(&path) {
-            paths.push(path);
-        }
-    }
-
-    // Site-packages from venv
-    if let Some(site_packages) = find_site_packages(fs, interpreter, root) {
-        paths.push(site_packages);
-    }
-
-    paths
-}
-
-/// Find the site-packages directory for the given interpreter.
-#[must_use]
-pub(crate) fn find_site_packages(
-    fs: &dyn FileSystem,
-    interpreter: &Interpreter,
-    root: &Utf8Path,
-) -> Option<Utf8PathBuf> {
-    match interpreter {
-        Interpreter::VenvPath(path) => find_site_packages_in_venv(fs, Utf8Path::new(path)),
-        Interpreter::Auto => {
-            for dir in &[".venv", "venv", "env", ".env"] {
-                let candidate = root.join(dir);
-                if fs.is_dir(&candidate) {
-                    return find_site_packages_in_venv(fs, &candidate);
-                }
-            }
-            None
-        }
-        Interpreter::InterpreterPath(_) => None,
-    }
-}
-
-/// Find site-packages within a specific venv directory.
-fn find_site_packages_in_venv(fs: &dyn FileSystem, venv: &Utf8Path) -> Option<Utf8PathBuf> {
-    let lib_dir = venv.join("lib");
-    if !fs.is_dir(&lib_dir) {
-        return None;
-    }
-
-    // On Linux/macOS: lib/pythonX.Y/site-packages
-    if let Ok(entries) = fs.walk_entries(&lib_dir, &WalkOptions::shallow()) {
-        fn parse_python_dir_version(name: &str) -> Option<(u32, u32)> {
-            let suffix = name.strip_prefix("python")?;
-            let mut parts = suffix.splitn(2, '.');
-            let major = parts.next()?.parse::<u32>().ok()?;
-            let minor_part = parts.next()?;
-
-            let minor_digits: String = minor_part
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect();
-            if minor_digits.is_empty() {
-                return None;
-            }
-            let minor = minor_digits.parse::<u32>().ok()?;
-
-            Some((major, minor))
-        }
-
-        struct PythonLibCandidate {
-            version: Option<(u32, u32)>,
-            name: String,
-            path: Utf8PathBuf,
-        }
-
-        let mut candidates: Vec<PythonLibCandidate> = Vec::new();
-
-        for entry in entries {
-            if entry.kind != WalkEntryKind::Directory {
-                continue;
-            }
-
-            let Some(name) = entry.path.file_name() else {
+            let Some(file_path) =
+                templatetag_module_file(db.file_system(), module_path.as_str(), search_path.path())
+            else {
                 continue;
             };
-            if !name.starts_with("python") {
-                continue;
-            }
 
-            let version = parse_python_dir_version(name);
-            candidates.push(PythonLibCandidate {
-                version,
-                name: name.to_string(),
-                path: entry.path,
-            });
-        }
-
-        candidates.sort_by(|a, b| match (&a.version, &b.version) {
-            (Some(a_v), Some(b_v)) => a_v.cmp(b_v).then_with(|| a.name.cmp(&b.name)),
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (None, None) => a.name.cmp(&b.name),
-        });
-
-        for candidate in candidates.into_iter().rev() {
-            let site_packages = candidate.path.join("site-packages");
-            if fs.is_dir(&site_packages) {
-                return Some(site_packages);
-            }
+            modules.push(PythonModule::new(
+                ModulePath::new(module_path.clone()),
+                file_path.clone(),
+                db.get_or_create_file(&file_path),
+            ));
+            break;
         }
     }
 
-    // On Windows: Lib/site-packages (capitalized)
-    let lib_site = venv.join("Lib").join("site-packages");
-    if fs.is_dir(&lib_site) {
-        return Some(lib_site);
-    }
-
-    None
+    modules
 }
 
 /// Discover Django model source files and return their resolved module paths.
@@ -275,7 +250,7 @@ pub(crate) fn discover_model_files(
 ) -> Vec<(ModulePath, Utf8PathBuf)> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
-        FileRootKind::LibrarySearchPath => WalkOptions::library_search_path(),
+        FileRootKind::SearchPath => WalkOptions::library_search_path(),
     };
 
     let mut results = Vec::new();
@@ -316,7 +291,9 @@ pub(crate) fn discover_model_files(
         }
 
         if root_kind == FileRootKind::Project
-            && path.components().any(|c| c.as_str() == "site-packages")
+            && path
+                .components()
+                .any(|component| component.as_str() == "site-packages")
         {
             continue;
         }
@@ -325,7 +302,7 @@ pub(crate) fn discover_model_files(
             continue;
         };
 
-        results.push((module_path_from_relative(rel), path));
+        results.push((ModulePath::from_relative_path(rel), path));
     }
 
     results.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -334,170 +311,440 @@ pub(crate) fn discover_model_files(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use djls_conf::Settings;
+    use djls_source::Db as _;
+    use djls_source::InMemoryFileSystem;
+
     use super::*;
+    use crate::project::ProjectTemplateFiles;
+    use crate::project::TemplateDirs;
+    use crate::project::TemplateLibraries;
+    use crate::project::TemplateLibrarySnapshot;
+    use crate::project::refresh_external_data;
+    use crate::python::compute_model_graph;
+    use crate::testing::TestDatabase;
 
-    struct TestLayout {
-        _project_tmp: tempfile::TempDir,
-        _external_tmp: tempfile::TempDir,
-        project_root: Utf8PathBuf,
-        external_root: Utf8PathBuf,
+    fn template_libraries_for_module(module: &str) -> TemplateLibraries {
+        TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
+            symbols: Vec::new(),
+            libraries: BTreeMap::new(),
+            builtins: vec![module.to_string()],
+        }))
     }
 
-    fn setup_test_layout() -> TestLayout {
-        let project_tmp = tempfile::TempDir::new().unwrap();
-        let project_root = Utf8PathBuf::try_from(project_tmp.path().to_path_buf()).unwrap();
-
-        // Create workspace module under project root
-        let workspace_tags = project_root.join("myproject/templatetags");
-        std::fs::create_dir_all(&workspace_tags).unwrap();
-        std::fs::write(workspace_tags.join("custom.py"), "# workspace").unwrap();
-
-        // Create external module in a SEPARATE temp dir (outside project root)
-        let external_tmp = tempfile::TempDir::new().unwrap();
-        let external_root = Utf8PathBuf::try_from(external_tmp.path().to_path_buf()).unwrap();
-        let django_tags = external_root.join("django/templatetags");
-        std::fs::create_dir_all(&django_tags).unwrap();
-        std::fs::write(django_tags.join("i18n.py"), "# django").unwrap();
-
-        TestLayout {
-            _project_tmp: project_tmp,
-            _external_tmp: external_tmp,
-            project_root,
-            external_root,
-        }
-    }
-
-    #[test]
-    fn resolve_workspace_module() {
-        let layout = setup_test_layout();
-        let sys_path = vec![layout.project_root.clone()];
-
-        let result = resolve_module(
-            &djls_source::OsFileSystem,
-            "myproject.templatetags.custom",
-            &sys_path,
-            &layout.project_root,
-        );
-
-        assert!(result.is_some());
-        let resolved = result.unwrap();
-        assert_eq!(resolved.location, ModuleLocation::Workspace);
-        assert!(resolved.file_path.ends_with("custom.py"));
-    }
-
-    #[test]
-    fn resolve_external_module() {
-        let layout = setup_test_layout();
-        let sys_path = vec![layout.external_root.clone()];
-
-        let result = resolve_module(
-            &djls_source::OsFileSystem,
-            "django.templatetags.i18n",
-            &sys_path,
-            &layout.project_root,
-        );
-
-        assert!(result.is_some());
-        let resolved = result.unwrap();
-        assert_eq!(resolved.location, ModuleLocation::External);
-        assert!(resolved.file_path.ends_with("i18n.py"));
-    }
-
-    #[test]
-    fn resolve_not_found() {
-        let layout = setup_test_layout();
-        let sys_path = vec![layout.project_root.clone()];
-
-        let result = resolve_module(
-            &djls_source::OsFileSystem,
-            "nonexistent.module",
-            &sys_path,
-            &layout.project_root,
-        );
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn sys_path_order_matters() {
-        let layout = setup_test_layout();
-
-        // Create same module in two places under project root
-        let dir1 = layout.project_root.join("first");
-        let dir2 = layout.project_root.join("second");
-        std::fs::create_dir_all(dir1.join("pkg")).unwrap();
-        std::fs::create_dir_all(dir2.join("pkg")).unwrap();
-        std::fs::write(dir1.join("pkg/mod.py"), "# first").unwrap();
-        std::fs::write(dir2.join("pkg/mod.py"), "# second").unwrap();
-
-        // First in sys_path wins
-        let sys_path = vec![dir1.clone(), dir2.clone()];
-        let result = resolve_module(
-            &djls_source::OsFileSystem,
-            "pkg.mod",
-            &sys_path,
-            &layout.project_root,
+    fn project_for_search_paths(
+        db: &TestDatabase,
+        root: &str,
+        search_paths: SearchPaths,
+        template_libraries: TemplateLibraries,
+    ) -> Project {
+        let settings = Settings::default();
+        Project::new(
+            db,
+            root.into(),
+            search_paths,
+            Interpreter::discover(settings.venv_path()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            TemplateDirs::Unknown,
+            settings.tagspecs().clone(),
+            template_libraries,
+            ProjectTemplateFiles::default(),
         )
-        .unwrap();
-        assert!(result.file_path.starts_with(&dir1));
-
-        // Reverse order → different result
-        let sys_path = vec![dir2.clone(), dir1.clone()];
-        let result = resolve_module(
-            &djls_source::OsFileSystem,
-            "pkg.mod",
-            &sys_path,
-            &layout.project_root,
-        )
-        .unwrap();
-        assert!(result.file_path.starts_with(&dir2));
     }
 
     #[test]
-    fn resolve_package_init() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-        // Create package with __init__.py
-        let pkg_dir = root.join("myapp/templatetags/extras");
-        std::fs::create_dir_all(&pkg_dir).unwrap();
-        std::fs::write(pkg_dir.join("__init__.py"), "# package").unwrap();
-
-        let sys_path = vec![root.clone()];
-        let result = resolve_module(
-            &djls_source::OsFileSystem,
-            "myapp.templatetags.extras",
-            &sys_path,
-            &root,
+    fn search_paths_keep_site_packages_external_inside_project_root() {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file("/project/src/app/__init__.py".into(), String::new());
+        fs.add_file("/outside/pkg/__init__.py".into(), String::new());
+        fs.add_file(
+            "/project/.venv/lib/python3.12/site-packages/django/__init__.py".into(),
+            String::new(),
         );
 
-        assert!(result.is_some());
-        let resolved = result.unwrap();
-        assert!(resolved.file_path.ends_with("__init__.py"));
-        assert_eq!(resolved.location, ModuleLocation::Workspace);
-    }
-
-    #[test]
-    fn resolve_modules_partitions() {
-        let layout = setup_test_layout();
-        let sys_path = vec![layout.project_root.clone(), layout.external_root.clone()];
-
-        let paths = [
-            "myproject.templatetags.custom",
-            "django.templatetags.i18n",
-            "nonexistent.module",
+        let pythonpath = vec![
+            "/project/src".to_string(),
+            "/outside".to_string(),
+            "/project/.venv/lib/python3.12/site-packages".to_string(),
         ];
-
-        let (workspace, external) = resolve_modules(
-            &djls_source::OsFileSystem,
-            paths.iter().copied(),
-            &sys_path,
-            &layout.project_root,
+        let search_paths = SearchPaths::from_project_settings(
+            &fs,
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
         );
 
-        assert_eq!(workspace.len(), 1);
-        assert_eq!(external.len(), 1);
-        assert_eq!(workspace[0].module_path, "myproject.templatetags.custom");
-        assert_eq!(external[0].module_path, "django.templatetags.i18n");
+        let paths: Vec<_> = search_paths.iter().map(SearchPath::path).collect();
+        assert_eq!(
+            paths,
+            vec![
+                Utf8Path::new("/project"),
+                Utf8Path::new("/project/src"),
+                Utf8Path::new("/outside"),
+                Utf8Path::new("/project/.venv/lib/python3.12/site-packages"),
+            ]
+        );
+
+        let external_paths: Vec<_> = search_paths
+            .iter()
+            .filter(|search_path| !search_path.is_first_party())
+            .map(SearchPath::path)
+            .collect();
+        assert_eq!(
+            external_paths,
+            vec![
+                Utf8Path::new("/outside"),
+                Utf8Path::new("/project/.venv/lib/python3.12/site-packages"),
+            ]
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn search_paths_find_windows_style_venv_site_packages() {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(
+            "/project/.venv/Lib/site-packages/django/__init__.py".into(),
+            String::new(),
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            &fs,
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+
+        let paths: Vec<_> = search_paths.iter().map(SearchPath::path).collect();
+        assert_eq!(
+            paths,
+            vec![
+                Utf8Path::new("/project"),
+                Utf8Path::new("/project/.venv/Lib/site-packages"),
+            ]
+        );
+    }
+
+    #[test]
+    fn model_modules_use_first_party_search_path_relative_names() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/src/blog/models.py",
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        );
+
+        let pythonpath = vec!["/project/src".to_string()];
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+
+        let modules = model_modules(&db, project);
+        assert!(
+            modules
+                .iter()
+                .any(|module| module.module_path().as_str() == "blog.models")
+        );
+        assert!(
+            !modules
+                .iter()
+                .any(|module| module.module_path().as_str() == "src.blog.models")
+        );
+    }
+
+    #[test]
+    fn registering_search_paths_removes_obsolete_external_roots() {
+        let db = TestDatabase::new();
+        db.add_file("/external/pkg/models.py", "");
+
+        let pythonpath = vec!["/external".to_string()];
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
+        );
+        search_paths.register_roots(&db);
+        let external_root = db
+            .files()
+            .expect_root(&db, Utf8Path::new("/external/pkg/models.py"));
+        assert_eq!(external_root.kind(&db), FileRootKind::SearchPath);
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        assert!(
+            db.files()
+                .root(&db, Utf8Path::new("/external/pkg/models.py"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn templatetag_resolution_uses_project_venv_site_packages_root() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
+            "from django import template\nregister = template.Library()\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = project_for_search_paths(
+            &db,
+            "/project",
+            search_paths,
+            template_libraries_for_module("django.templatetags.i18n"),
+        );
+
+        let modules = templatetag_modules(&db, project);
+        assert_eq!(modules.len(), 1);
+        assert_eq!(
+            modules[0].module_path().as_str(),
+            "django.templatetags.i18n"
+        );
+        let root = db.files().expect_root(&db, modules[0].path());
+        assert_eq!(root.kind(&db), FileRootKind::SearchPath);
+    }
+
+    #[test]
+    fn project_model_graph_refresh_reads_changed_project_file() {
+        let mut db = TestDatabase::new();
+        db.add_file(
+            "/project/blog/models.py",
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        db.set_project(project);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_none());
+
+        db.add_file(
+            "/project/blog/models.py",
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        );
+        refresh_external_data(&mut db);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_none());
+        assert!(graph.get("Comment").is_some());
+    }
+
+    #[test]
+    fn project_model_discovery_refreshes_through_project_refresh() {
+        let mut db = TestDatabase::new();
+        db.add_file(
+            "/project/blog/models.py",
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        db.set_project(project);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_none());
+
+        db.add_file(
+            "/project/comments/models.py",
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        );
+        refresh_external_data(&mut db);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_some());
+    }
+
+    #[test]
+    fn external_model_graph_refresh_reads_changed_site_packages_file() {
+        let mut db = TestDatabase::new();
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/blog/models.py",
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        db.set_project(project);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_none());
+
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/blog/models.py",
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        );
+        refresh_external_data(&mut db);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_none());
+        assert!(graph.get("Comment").is_some());
+    }
+
+    #[test]
+    fn external_model_graph_preserves_pythonpath_precedence() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/zfirst/zapp/models.py",
+            "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
+        );
+        db.add_file(
+            "/afallback/aapp/models.py",
+            "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
+        );
+
+        let pythonpath = vec!["/zfirst".to_string(), "/afallback".to_string()];
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+
+        let graph = compute_model_graph(&db, project);
+        let model = graph.get("Duplicate").expect("model should be discovered");
+        assert_eq!(model.module_path.as_str(), "zapp.models");
+    }
+
+    #[test]
+    fn external_model_discovery_refreshes_through_project_refresh() {
+        let mut db = TestDatabase::new();
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/blog/models.py",
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        db.set_project(project);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_none());
+
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/comments/models.py",
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        );
+        refresh_external_data(&mut db);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_some());
+    }
+
+    #[test]
+    fn external_model_discovery_removes_deleted_models_through_project_refresh() {
+        let mut db = TestDatabase::new();
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/blog/models.py",
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        );
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/comments/models.py",
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        db.set_project(project);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_some());
+
+        db.remove_file("/project/.venv/lib/python3.12/site-packages/comments/models.py");
+        refresh_external_data(&mut db);
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some());
+        assert!(graph.get("Comment").is_none());
+    }
+
+    #[test]
+    fn external_model_graph_reads_extra_pythonpath_models() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/shared/blog/models.py",
+            "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
+        );
+
+        let pythonpath = vec!["/shared".to_string()];
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("SharedArticle").is_some());
     }
 
     #[test]
@@ -519,11 +766,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(
-            &djls_source::OsFileSystem,
-            &root,
-            FileRootKind::LibrarySearchPath,
-        );
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
@@ -539,11 +783,8 @@ class Article(models.Model):
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
         // Discovery finds the file (it doesn't inspect contents)
-        let results = discover_model_files(
-            &djls_source::OsFileSystem,
-            &root,
-            FileRootKind::LibrarySearchPath,
-        );
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "emptyapp.models");
     }
@@ -566,11 +807,8 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let results = discover_model_files(
-            &djls_source::OsFileSystem,
-            &root,
-            FileRootKind::LibrarySearchPath,
-        );
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
         assert_eq!(results.len(), 2);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(module_paths.contains(&"blog.models"));
@@ -620,11 +858,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(
-            &djls_source::OsFileSystem,
-            &root,
-            FileRootKind::LibrarySearchPath,
-        );
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
         // Discovers all three files (including __init__.py)
         assert_eq!(results.len(), 3);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
@@ -663,14 +898,17 @@ class Article(models.Model):
     #[test]
     fn module_path_from_init_file() {
         let path = Utf8Path::new("myapp/models/__init__.py");
-        assert_eq!(module_path_from_relative(path).as_str(), "myapp.models");
+        assert_eq!(
+            ModulePath::from_relative_path(path).as_str(),
+            "myapp.models"
+        );
     }
 
     #[test]
     fn module_path_from_submodule() {
         let path = Utf8Path::new("myapp/models/user.py");
         assert_eq!(
-            module_path_from_relative(path).as_str(),
+            ModulePath::from_relative_path(path).as_str(),
             "myapp.models.user"
         );
     }
@@ -714,11 +952,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(
-            &djls_source::OsFileSystem,
-            &root,
-            FileRootKind::LibrarySearchPath,
-        );
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),

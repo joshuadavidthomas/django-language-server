@@ -113,6 +113,9 @@ impl Workspace {
             TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file);
         debug_assert_eq!(document.kind(), kind);
         db.bump_file_revision(document.file());
+        if let Some(root) = db.files().root(db, path) {
+            db.bump_file_root_revision(root);
+        }
         self.buffers.open(path.to_path_buf(), document.clone());
         document
     }
@@ -152,6 +155,10 @@ impl Workspace {
                     FileKind::Other,
                     file,
                 );
+                db.bump_file_revision(file);
+                if let Some(root) = db.files().root(db, path) {
+                    db.bump_file_root_revision(root);
+                }
                 self.buffers.open(path.to_path_buf(), document.clone());
                 Some(document)
             } else {
@@ -170,6 +177,9 @@ impl Workspace {
     ) -> Option<TextDocument> {
         let document = self.buffers.close(path)?;
         db.bump_file_revision(document.file());
+        if let Some(root) = db.files().root(db, path) {
+            db.bump_file_root_revision(root);
+        }
         Some(document)
     }
 }
