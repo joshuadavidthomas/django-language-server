@@ -58,8 +58,19 @@ impl ProjectTemplateFiles {
         self.0.is_empty()
     }
 
-    pub(crate) fn from_ordered(templates: Vec<ProjectTemplateFile>) -> Self {
-        Self(templates)
+    pub(crate) fn from_ordered_paths(
+        db: &dyn ProjectDb,
+        templates: Vec<(String, Utf8PathBuf)>,
+    ) -> Self {
+        Self(
+            templates
+                .into_iter()
+                .map(|(name, path)| {
+                    let file = db.get_or_create_file(&path);
+                    ProjectTemplateFile::new(name, path, file)
+                })
+                .collect(),
+        )
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {

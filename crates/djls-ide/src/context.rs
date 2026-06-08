@@ -1,4 +1,6 @@
+use djls_semantic::LiteralTemplateReference;
 use djls_semantic::LoadKind;
+use djls_semantic::TagSpecs;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::Offset;
@@ -30,17 +32,23 @@ impl ResolvedOffsetContext {
             return Self::None;
         };
 
-        Self::from_node(node, offset)
+        Self::from_node_with_tag_specs(db.tag_specs(), node, offset)
     }
 
+    #[cfg(test)]
     pub(crate) fn from_node(node: &Node, offset: Offset) -> Self {
+        let tag_specs = djls_semantic::builtin_tag_specs();
+        Self::from_node_with_tag_specs(&tag_specs, node, offset)
+    }
+
+    fn from_node_with_tag_specs(tag_specs: &TagSpecs, node: &Node, offset: Offset) -> Self {
         match node {
             Node::Tag {
                 name,
                 name_span,
                 bits,
                 ..
-            } => Self::from_tag(name, *name_span, bits, offset),
+            } => Self::from_tag(tag_specs, name, *name_span, bits, offset),
             Node::Variable {
                 var,
                 var_span,
@@ -73,7 +81,13 @@ impl ResolvedOffsetContext {
         }
     }
 
-    fn from_tag(name: &str, name_span: Span, bits: &[TagBit], offset: Offset) -> Self {
+    fn from_tag(
+        tag_specs: &TagSpecs,
+        name: &str,
+        name_span: Span,
+        bits: &[TagBit],
+        offset: Offset,
+    ) -> Self {
         if name_span.contains(offset) {
             return Self::Tag {
                 name: name.to_string(),
@@ -82,15 +96,6 @@ impl ResolvedOffsetContext {
         }
 
         match name {
-            "extends" | "include" => {
-                bits.first()
-                    .filter(|bit| bit.span.contains(offset))
-                    .map_or(Self::None, |bit| Self::TemplateReference {
-                        name: bit.template_string().value().to_string(),
-                        span: bit.span,
-                    })
-            }
-
             "load" => {
                 let Some(load_kind) = LoadKind::from_tag(name, bits) else {
                     return Self::None;
@@ -123,7 +128,12 @@ impl ResolvedOffsetContext {
                 }
             }
 
-            _ => Self::None,
+            _ => LiteralTemplateReference::from_tag(tag_specs, name, bits)
+                .filter(|reference| reference.span.contains(offset))
+                .map_or(Self::None, |reference| Self::TemplateReference {
+                    name: reference.template_name.to_string(),
+                    span: reference.span,
+                }),
         }
     }
 }
@@ -639,6 +649,16 @@ mod tests {
                 span: Span::saturating_from_parts_usize(11, 11),
             }
         );
+    }
+
+    #[test]
+    fn ignores_dynamic_template_reference_context() {
+        let source = "{% include partial_name %}";
+        let node = parsed_tag(source);
+
+        let context = ResolvedOffsetContext::from_node(&node, offset_of(source, "partial"));
+
+        assert_eq!(context, ResolvedOffsetContext::None);
     }
 
     #[test]

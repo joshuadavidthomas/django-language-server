@@ -42,7 +42,7 @@ pub enum OutlineKind {
 impl From<TagSemanticRole> for OutlineKind {
     fn from(role: TagSemanticRole) -> Self {
         match role {
-            TagSemanticRole::TemplateReference => Self::TemplateReference,
+            TagSemanticRole::TemplateReference(_) => Self::TemplateReference,
             TagSemanticRole::TemplateLibraryLoader => Self::TemplateLibrary,
             TagSemanticRole::TemplateBlock => Self::TemplateBlock,
             TagSemanticRole::ControlTag => Self::ControlTag,
@@ -70,7 +70,7 @@ fn outline_items_for_tag(
     children: Vec<OutlineItem>,
 ) -> Vec<OutlineItem> {
     match role {
-        TagSemanticRole::TemplateReference
+        TagSemanticRole::TemplateReference(_)
         | TagSemanticRole::TemplateBlock
         | TagSemanticRole::StaticAssetReference
         | TagSemanticRole::RouteReference => {
