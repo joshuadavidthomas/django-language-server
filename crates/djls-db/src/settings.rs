@@ -2,6 +2,7 @@ use djls_conf::Settings;
 use djls_semantic::load_env_file;
 use djls_semantic::Interpreter;
 use djls_semantic::ProjectDb;
+use djls_source::Db as _;
 use salsa::Setter;
 
 use crate::db::DjangoDatabase;
@@ -94,7 +95,7 @@ impl DjangoDatabase {
         // Re-parse the env file when settings change. The env_file path may
         // have changed, or the file contents may differ after a reload.
         let root = project.root(self).clone();
-        let new_env_vars = load_env_file(&root, settings);
+        let new_env_vars = load_env_file(self.file_system(), &root, settings);
         if project.env_vars(self) != &new_env_vars {
             project.set_env_vars(self).to(new_env_vars);
             env_changed = true;

@@ -20,8 +20,8 @@ use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_source::Db as SourceDb;
+use djls_source::FileSystem;
 use djls_source::SourceFiles;
-use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -58,7 +58,7 @@ pub struct DjangoDatabase {
 #[cfg(test)]
 impl Default for DjangoDatabase {
     fn default() -> Self {
-        use djls_workspace::InMemoryFileSystem;
+        use djls_source::InMemoryFileSystem;
 
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
 
@@ -126,8 +126,8 @@ impl SourceDb for DjangoDatabase {
         &self.files
     }
 
-    fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-        self.fs.read_to_string(path)
+    fn file_system(&self) -> &dyn FileSystem {
+        self.fs.as_ref()
     }
 }
 
@@ -216,8 +216,8 @@ mod invalidation_tests {
     use djls_semantic::ProjectTemplateFiles;
     use djls_semantic::TemplateDirs;
     use djls_semantic::TemplateLibraries;
+    use djls_source::InMemoryFileSystem;
     use djls_source::SourceFiles;
-    use djls_workspace::InMemoryFileSystem;
     use salsa::Database;
     use salsa::Setter;
 
@@ -514,7 +514,7 @@ mod invalidation_tests {
 
     #[test]
     fn file_with_different_content_produces_different_extraction() {
-        use djls_workspace::InMemoryFileSystem;
+        use djls_source::InMemoryFileSystem;
 
         // Create FS with a Python file
         let mut fs = InMemoryFileSystem::new();

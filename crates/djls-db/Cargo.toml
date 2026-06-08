@@ -8,7 +8,6 @@ djls-conf = { workspace = true }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
-djls-workspace = { workspace = true }
 
 camino = { workspace = true }
 rustc-hash = { workspace = true }

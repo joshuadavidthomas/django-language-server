@@ -14,6 +14,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DjangoEnvironmentConfig;
 use djls_conf::Settings;
+use djls_source::FileSystem;
 
 use crate::project::input::resolve_django_settings;
 use crate::project::names::PyModuleName;
@@ -33,6 +34,7 @@ pub(crate) struct ResolvedDjangoEnvironment {
 
 #[must_use]
 pub(crate) fn discover_django_environments(
+    fs: &dyn FileSystem,
     workspace_root: &Utf8Path,
     settings: &Settings,
     module_search_paths: &[ImportRoot],
@@ -43,6 +45,7 @@ pub(crate) fn discover_django_environments(
             .iter()
             .map(|environment| {
                 ResolvedDjangoEnvironment::from_config(
+                    fs,
                     environment,
                     workspace_root,
                     module_search_paths,
@@ -51,9 +54,10 @@ pub(crate) fn discover_django_environments(
             .collect();
     }
 
-    resolve_django_settings(workspace_root, settings)
+    resolve_django_settings(fs, workspace_root, settings)
         .map(|module| {
             ResolvedDjangoEnvironment::from_module(
+                fs,
                 workspace_root.to_path_buf(),
                 &module,
                 workspace_root,
@@ -66,6 +70,7 @@ pub(crate) fn discover_django_environments(
 
 impl ResolvedDjangoEnvironment {
     fn from_config(
+        fs: &dyn FileSystem,
         config: &DjangoEnvironmentConfig,
         workspace_root: &Utf8Path,
         module_search_paths: &[ImportRoot],
@@ -82,10 +87,11 @@ impl ResolvedDjangoEnvironment {
             return Self::unknown(root, "Django environment must set django_settings_module");
         };
 
-        Self::from_module(root, module, workspace_root, module_search_paths)
+        Self::from_module(fs, root, module, workspace_root, module_search_paths)
     }
 
     fn from_module(
+        fs: &dyn FileSystem,
         root: Utf8PathBuf,
         module: &str,
         workspace_root: &Utf8Path,
@@ -98,7 +104,7 @@ impl ResolvedDjangoEnvironment {
             );
         };
 
-        let resolution = resolve_module(module, module_search_paths, workspace_root);
+        let resolution = resolve_module(fs, module, module_search_paths, workspace_root);
         Self {
             root,
             django_settings: resolution.resolved,
@@ -133,7 +139,7 @@ mod tests {
     }
 
     fn import_roots(root: &Utf8Path) -> Vec<ImportRoot> {
-        discover_import_roots(root, &[], &[])
+        discover_import_roots(&djls_source::OsFileSystem, root, &[], &[])
             .value()
             .cloned()
             .unwrap()
@@ -168,8 +174,12 @@ mod tests {
             r#"django_settings_module = "project.settings""#,
         );
 
-        let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
+        let environments = discover_django_environments(
+            &djls_source::OsFileSystem,
+            &root,
+            &settings(&root),
+            &import_roots(&root),
+        );
 
         assert_eq!(environments.len(), 1);
         assert_eq!(environments[0].root, root);
@@ -200,8 +210,12 @@ django_settings_module = "projects.site2.settings"
 "#,
         );
 
-        let environments =
-            discover_django_environments(&root, &settings(&root), &import_roots(&root));
+        let environments = discover_django_environments(
+            &djls_source::OsFileSystem,
+            &root,
+            &settings(&root),
+            &import_roots(&root),
+        );
 
         assert_eq!(environments.len(), 2);
         assert_eq!(environments[0].root, root.join("projects/site1"));

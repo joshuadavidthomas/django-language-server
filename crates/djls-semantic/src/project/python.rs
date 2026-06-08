@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::FileSystem;
 
 use crate::project::system;
 
@@ -38,11 +39,11 @@ impl Interpreter {
 
     /// Resolve to the actual Python executable path
     #[must_use]
-    pub fn python_path(&self, project_root: &Utf8Path) -> Option<Utf8PathBuf> {
+    pub fn python_path(&self, fs: &dyn FileSystem, project_root: &Utf8Path) -> Option<Utf8PathBuf> {
         match self {
             Self::InterpreterPath(path) => {
                 let path_buf = Utf8PathBuf::from(path);
-                if path_buf.exists() {
+                if fs.exists(&path_buf) {
                     Some(path_buf)
                 } else {
                     None
@@ -55,7 +56,7 @@ impl Interpreter {
                 #[cfg(windows)]
                 let python = venv.join("Scripts").join("python.exe");
 
-                if python.exists() {
+                if fs.exists(&python) {
                     Some(python)
                 } else {
                     None
@@ -65,13 +66,13 @@ impl Interpreter {
                 // Try common venv directories in project
                 for venv_dir in &[".venv", "venv", "env", ".env"] {
                     let potential_venv = project_root.join(venv_dir);
-                    if potential_venv.is_dir() {
+                    if fs.is_dir(&potential_venv) {
                         #[cfg(unix)]
                         let python = potential_venv.join("bin").join("python");
                         #[cfg(windows)]
                         let python = potential_venv.join("Scripts").join("python.exe");
 
-                        if python.exists() {
+                        if fs.exists(&python) {
                             return Some(python);
                         }
                     }
@@ -188,14 +189,15 @@ mod tests {
             }
 
             let interpreter = Interpreter::InterpreterPath(python_path.to_string());
-            let resolved = interpreter.python_path(temp_path);
+            let resolved = interpreter.python_path(&djls_source::OsFileSystem, temp_path);
             assert_eq!(resolved, Some(python_path));
         }
 
         #[test]
         fn test_interpreter_path_not_found() {
             let interpreter = Interpreter::InterpreterPath("/non/existent/python".to_string());
-            let resolved = interpreter.python_path(Utf8Path::new("/project"));
+            let resolved =
+                interpreter.python_path(&djls_source::OsFileSystem, Utf8Path::new("/project"));
             assert_eq!(resolved, None);
         }
 
@@ -205,7 +207,8 @@ mod tests {
             let venv_path = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap());
 
             let interpreter = Interpreter::VenvPath(venv_path.to_string());
-            let resolved = interpreter.python_path(Utf8Path::new("/project"));
+            let resolved =
+                interpreter.python_path(&djls_source::OsFileSystem, Utf8Path::new("/project"));
 
             assert!(resolved.is_some());
             #[cfg(unix)]
@@ -217,7 +220,8 @@ mod tests {
         #[test]
         fn test_venv_path_not_found() {
             let interpreter = Interpreter::VenvPath("/non/existent/venv".to_string());
-            let resolved = interpreter.python_path(Utf8Path::new("/project"));
+            let resolved =
+                interpreter.python_path(&djls_source::OsFileSystem, Utf8Path::new("/project"));
             assert_eq!(resolved, None);
         }
 
@@ -232,7 +236,7 @@ mod tests {
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
             let interpreter = Interpreter::Auto;
-            let resolved = interpreter.python_path(project_path);
+            let resolved = interpreter.python_path(&djls_source::OsFileSystem, project_path);
 
             assert!(resolved.is_some());
             #[cfg(unix)]
@@ -254,7 +258,7 @@ mod tests {
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
             let interpreter = Interpreter::Auto;
-            let resolved = interpreter.python_path(project_path);
+            let resolved = interpreter.python_path(&djls_source::OsFileSystem, project_path);
 
             // Should find .venv first due to order
             assert!(resolved.is_some());
@@ -285,7 +289,7 @@ mod tests {
             sys_mock::set_exec_path("python", mock_python_path.clone());
 
             let interpreter = Interpreter::Auto;
-            let resolved = interpreter.python_path(project_path);
+            let resolved = interpreter.python_path(&djls_source::OsFileSystem, project_path);
 
             assert_eq!(resolved, Some(mock_python_path));
         }
@@ -300,7 +304,7 @@ mod tests {
             sys_mock::set_exec_error("python", WhichError::CannotFindBinaryPath);
 
             let interpreter = Interpreter::Auto;
-            let resolved = interpreter.python_path(project_path);
+            let resolved = interpreter.python_path(&djls_source::OsFileSystem, project_path);
 
             assert_eq!(resolved, None);
         }

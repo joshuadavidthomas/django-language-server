@@ -45,7 +45,7 @@ The CLI binary. It parses command-line arguments, starts the LSP server for `djl
 
 The LSP server. This is the crate that wires everything together at runtime.
 
-`Session` owns the `DjangoDatabase` and all document state. It's behind a `tokio::Mutex`, and request handlers access it through helper methods:
+`Session` owns the `DjangoDatabase` and all document state. Open documents live in server-local buffers, and an overlay filesystem exposes those buffers through the `djls-source` filesystem seam before falling back to disk. The session is behind a `tokio::Mutex`, and request handlers access it through helper methods:
 
 - `with_session` / `with_session_mut` — lock the session and run a synchronous closure. All current LSP request handlers (completions, folding ranges, goto definition, references, diagnostics) use this path.
 - `with_session_mut_task` — submit an async task to a `Queue` backed by an mpsc channel. Used for expensive background work like project introspection refresh, so it doesn't block the request path.
@@ -106,11 +106,7 @@ IDE features: completions, diagnostics, folding ranges, snippets, goto definitio
 
 ### `crates/djls-source`
 
-Foundation crate — file representation, source-file registry, text positions, spans, line indexing, diagnostic rendering. `SourceFiles` owns the path-to-`File` side table and assigns Salsa durability from file roots: first-party project roots are low durability, library roots are high durability, and file paths are stable identity. Nearly every other crate depends on this one.
-
-### `crates/djls-workspace`
-
-Virtual file system layer, document buffers, and file discovery. `OverlayFileSystem` is the VFS — it checks editor buffers first, then falls back to disk, so unsaved changes are visible to Salsa queries without touching the real filesystem. Also owns `TextDocument` (open document representation with version tracking) and `walk_files` for `djls check` file discovery.
+Foundation crate — file representation, source-file registry, filesystem access, file discovery, text positions, spans, line indexing, diagnostic rendering. `SourceFiles` owns the path-to-`File` side table and assigns Salsa durability from file roots: first-party project roots are low durability, library roots are high durability, and file paths are stable identity. The `FileSystem` interface is the shared seam for reading files, checking path kind, and walking source roots; production uses `OsFileSystem`, tests can use `InMemoryFileSystem`, and the LSP server provides an overlay adapter for open buffers. Nearly every other crate depends on this one.
 
 ### `crates/djls-conf`
 
@@ -130,12 +126,12 @@ Salsa requires a single concrete database type, but each crate should see only t
 
 ```
 salsa::Database
-└── SourceDb   (djls-source)   — source-file registry, tracked files, read_file
+└── SourceDb   (djls-source)   — source-file registry, tracked files, filesystem reads/walks
      └── ProjectDb  (djls-semantic) — current Project input, project file set, project introspector
           └── SemanticDb (djls-semantic) — semantic accessors used by validation and IDE features
 ```
 
-Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. `djls-workspace` also has no database trait; it owns document buffers, the overlay filesystem, and file discovery helpers, while `DjangoDatabase` observes that state through `SourceDb::read_file`.
+Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. Filesystem access also enters through `SourceDb`: semantic project refresh walks source roots through the database filesystem, and `DjangoDatabase` observes LSP buffer state through the server's overlay filesystem adapter.
 
 `DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` can still implement the same traits with fixture-backed semantic data, but the trait hierarchy now makes project context and source-file access explicit semantic dependencies.
 

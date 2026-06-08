@@ -6,11 +6,11 @@ use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Range;
-use djls_workspace::DocumentChange;
 use tower_lsp_server::ls_types;
 
 use crate::client::Client;
 use crate::client::ClientOptions;
+use crate::document::DocumentChange;
 
 pub(crate) trait PositionExt {
     fn to_line_col(&self) -> LineCol;

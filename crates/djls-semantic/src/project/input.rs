@@ -6,6 +6,7 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::File;
 use djls_source::FileRootKind;
+use djls_source::FileSystem;
 use rustc_hash::FxHashMap;
 use salsa::Durability;
 
@@ -292,8 +293,9 @@ impl Project {
 
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let interpreter = Interpreter::discover(settings.venv_path());
-        let resolved_django_settings_module = resolve_django_settings(root, settings);
-        let env_vars = load_env_file(root, settings);
+        let resolved_django_settings_module =
+            resolve_django_settings(db.file_system(), root, settings);
+        let env_vars = load_env_file(db.file_system(), root, settings);
 
         register_source_roots(db, root, &interpreter);
 
@@ -328,18 +330,22 @@ impl Project {
 fn register_source_roots(db: &dyn ProjectDb, root: &Utf8Path, interpreter: &Interpreter) {
     let source_files = db.files();
     source_files.try_add_root(root.to_path_buf(), FileRootKind::Project);
-    if let Some(site_packages) = find_site_packages(interpreter, root) {
+    if let Some(site_packages) = find_site_packages(db.file_system(), interpreter, root) {
         source_files.try_add_root(site_packages, FileRootKind::LibrarySearchPath);
     }
 }
 
-pub fn load_env_file(root: &Utf8Path, settings: &Settings) -> Vec<(String, String)> {
+pub fn load_env_file(
+    fs: &dyn FileSystem,
+    root: &Utf8Path,
+    settings: &Settings,
+) -> Vec<(String, String)> {
     let env_path = match settings.env_file() {
         Some(path) => root.join(path),
         None => root.join(".env"),
     };
 
-    if !env_path.exists() {
+    if !fs.exists(&env_path) {
         if settings.env_file().is_some() {
             tracing::warn!("Configured env_file not found: {}", env_path);
         } else {
@@ -348,36 +354,40 @@ pub fn load_env_file(root: &Utf8Path, settings: &Settings) -> Vec<(String, Strin
         return Vec::new();
     }
 
-    match dotenvy::from_path_iter(env_path.as_std_path()) {
-        Ok(iter) => {
-            let mut vars = Vec::new();
-            for item in iter {
-                match item {
-                    Ok((key, value)) => {
-                        tracing::debug!("Loaded env var from file: {}", key);
-                        vars.push((key, value));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse env file entry: {}", e);
-                    }
-                }
-            }
-            if !vars.is_empty() {
-                tracing::info!(
-                    "Loaded {} environment variable(s) from env file",
-                    vars.len()
-                );
-            }
-            vars
+    let content = match fs.read_to_string(&env_path) {
+        Ok(content) => content,
+        Err(err) => {
+            tracing::warn!("Failed to read env file {}: {}", env_path, err);
+            return Vec::new();
         }
-        Err(e) => {
-            tracing::warn!("Failed to read env file {}: {}", env_path, e);
-            Vec::new()
+    };
+
+    let mut vars = Vec::new();
+    for item in dotenvy::from_read_iter(content.as_bytes()) {
+        match item {
+            Ok((key, value)) => {
+                tracing::debug!("Loaded env var from file: {}", key);
+                vars.push((key, value));
+            }
+            Err(err) => {
+                tracing::warn!("Failed to parse env file entry: {}", err);
+            }
         }
     }
+    if !vars.is_empty() {
+        tracing::info!(
+            "Loaded {} environment variable(s) from env file",
+            vars.len()
+        );
+    }
+    vars
 }
 
-pub(crate) fn resolve_django_settings(root: &Utf8Path, settings: &Settings) -> Option<String> {
+pub(crate) fn resolve_django_settings(
+    fs: &dyn FileSystem,
+    root: &Utf8Path,
+    settings: &Settings,
+) -> Option<String> {
     settings
         .django_settings_module()
         .map(String::from)
@@ -386,11 +396,11 @@ pub(crate) fn resolve_django_settings(root: &Utf8Path, settings: &Settings) -> O
                 .ok()
                 .filter(|s| !s.is_empty())
         })
-        .or_else(|| auto_detect_settings_module(root))
+        .or_else(|| auto_detect_settings_module(fs, root))
 }
 
-fn auto_detect_settings_module(root: &Utf8Path) -> Option<String> {
-    if !root.join("manage.py").exists() {
+fn auto_detect_settings_module(fs: &dyn FileSystem, root: &Utf8Path) -> Option<String> {
+    if !fs.exists(&root.join("manage.py")) {
         tracing::debug!("No manage.py found, skipping Django settings auto-detection");
         return None;
     }
@@ -405,7 +415,7 @@ fn auto_detect_settings_module(root: &Utf8Path) -> Option<String> {
             path = path.join(format!("{last}.py"));
         }
 
-        if path.exists() {
+        if fs.exists(&path) {
             tracing::info!("Auto-detected Django settings module: {}", candidate);
             return Some((*candidate).to_string());
         }
@@ -439,7 +449,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
 
             assert_eq!(vars.len(), 2);
             assert_eq!(
@@ -463,7 +473,7 @@ mod tests {
             fs::write(dir.path().join("djls.toml"), r#"env_file = ".env.local""#).unwrap();
 
             let settings = Settings::new(root, None).unwrap();
-            let vars = load_env_file(root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
 
             assert_eq!(vars.len(), 1);
             assert_eq!(vars[0], ("MY_VAR".to_string(), "hello".to_string()));
@@ -475,7 +485,7 @@ mod tests {
             let root = Utf8Path::from_path(dir.path()).unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
 
             assert!(vars.is_empty());
         }
@@ -491,7 +501,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::new(root, None).unwrap();
-            let vars = load_env_file(root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
 
             assert!(vars.is_empty());
         }
@@ -507,7 +517,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
 
             assert_eq!(vars.len(), 2);
             assert_eq!(vars[0].0, "DJANGO_SECRET_KEY");
@@ -525,7 +535,7 @@ mod tests {
             .unwrap();
 
             let settings = Settings::default();
-            let vars = load_env_file(root, &settings);
+            let vars = load_env_file(&djls_source::OsFileSystem, root, &settings);
 
             assert_eq!(vars.len(), 2);
             assert_eq!(

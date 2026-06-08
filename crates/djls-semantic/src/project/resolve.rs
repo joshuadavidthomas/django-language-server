@@ -3,6 +3,9 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
+use djls_source::FileSystem;
+use djls_source::WalkEntryKind;
+use djls_source::WalkOptions;
 
 use crate::project::Interpreter;
 use crate::python::ModulePath;
@@ -62,6 +65,7 @@ pub(crate) struct ResolvedModule {
 /// Returns `Some(ResolvedModule)` if found, `None` otherwise.
 #[must_use]
 pub(crate) fn resolve_module(
+    fs: &dyn FileSystem,
     module_path: &str,
     sys_path: &[Utf8PathBuf],
     project_root: &Utf8Path,
@@ -76,7 +80,7 @@ pub(crate) fn resolve_module(
 
         // Try as .py file
         let py_file = candidate.with_extension("py");
-        if py_file.exists() {
+        if fs.is_file(&py_file) {
             let location = ModuleLocation::classify(&py_file, project_root);
             return Some(ResolvedModule {
                 module_path: module_path.to_string(),
@@ -87,7 +91,7 @@ pub(crate) fn resolve_module(
 
         // Try as package/__init__.py
         let init_file = candidate.join("__init__.py");
-        if init_file.exists() {
+        if fs.is_file(&init_file) {
             let location = ModuleLocation::classify(&init_file, project_root);
             return Some(ResolvedModule {
                 module_path: module_path.to_string(),
@@ -104,6 +108,7 @@ pub(crate) fn resolve_module(
 ///
 /// Returns `(workspace_modules, external_modules)`.
 pub(crate) fn resolve_modules<'a>(
+    fs: &dyn FileSystem,
     module_paths: impl IntoIterator<Item = &'a str>,
     sys_path: &[Utf8PathBuf],
     project_root: &Utf8Path,
@@ -112,7 +117,7 @@ pub(crate) fn resolve_modules<'a>(
     let mut external = Vec::new();
 
     for module_path in module_paths {
-        if let Some(resolved) = resolve_module(module_path, sys_path, project_root) {
+        if let Some(resolved) = resolve_module(fs, module_path, sys_path, project_root) {
             match resolved.location {
                 ModuleLocation::Workspace => workspace.push(resolved),
                 ModuleLocation::External => external.push(resolved),
@@ -131,6 +136,7 @@ pub(crate) fn resolve_modules<'a>(
 /// - Site-packages from the virtual environment (if available)
 #[must_use]
 pub(crate) fn build_search_paths(
+    fs: &dyn FileSystem,
     interpreter: &Interpreter,
     root: &Utf8Path,
     pythonpath: &[String],
@@ -143,13 +149,13 @@ pub(crate) fn build_search_paths(
     // Explicit PYTHONPATH entries
     for p in pythonpath {
         let path = Utf8PathBuf::from(p);
-        if path.is_dir() {
+        if fs.is_dir(&path) {
             paths.push(path);
         }
     }
 
     // Site-packages from venv
-    if let Some(site_packages) = find_site_packages(interpreter, root) {
+    if let Some(site_packages) = find_site_packages(fs, interpreter, root) {
         paths.push(site_packages);
     }
 
@@ -159,16 +165,17 @@ pub(crate) fn build_search_paths(
 /// Find the site-packages directory for the given interpreter.
 #[must_use]
 pub(crate) fn find_site_packages(
+    fs: &dyn FileSystem,
     interpreter: &Interpreter,
     root: &Utf8Path,
 ) -> Option<Utf8PathBuf> {
     match interpreter {
-        Interpreter::VenvPath(path) => find_site_packages_in_venv(Utf8Path::new(path)),
+        Interpreter::VenvPath(path) => find_site_packages_in_venv(fs, Utf8Path::new(path)),
         Interpreter::Auto => {
             for dir in &[".venv", "venv", "env", ".env"] {
                 let candidate = root.join(dir);
-                if candidate.is_dir() {
-                    return find_site_packages_in_venv(&candidate);
+                if fs.is_dir(&candidate) {
+                    return find_site_packages_in_venv(fs, &candidate);
                 }
             }
             None
@@ -178,14 +185,14 @@ pub(crate) fn find_site_packages(
 }
 
 /// Find site-packages within a specific venv directory.
-fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
+fn find_site_packages_in_venv(fs: &dyn FileSystem, venv: &Utf8Path) -> Option<Utf8PathBuf> {
     let lib_dir = venv.join("lib");
-    if !lib_dir.is_dir() {
+    if !fs.is_dir(&lib_dir) {
         return None;
     }
 
     // On Linux/macOS: lib/pythonX.Y/site-packages
-    if let Ok(entries) = std::fs::read_dir(lib_dir.as_std_path()) {
+    if let Ok(entries) = fs.walk_entries(&lib_dir, &WalkOptions::shallow()) {
         fn parse_python_dir_version(name: &str) -> Option<(u32, u32)> {
             let suffix = name.strip_prefix("python")?;
             let mut parts = suffix.splitn(2, '.');
@@ -207,29 +214,28 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
         struct PythonLibCandidate {
             version: Option<(u32, u32)>,
             name: String,
-            path: std::path::PathBuf,
+            path: Utf8PathBuf,
         }
 
         let mut candidates: Vec<PythonLibCandidate> = Vec::new();
 
-        for entry in entries.flatten() {
-            if let Ok(file_type) = entry.file_type() {
-                if !file_type.is_dir() {
-                    continue;
-                }
-            }
-
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if !name_str.starts_with("python") {
+        for entry in entries {
+            if entry.kind != WalkEntryKind::Directory {
                 continue;
             }
 
-            let version = parse_python_dir_version(&name_str);
+            let Some(name) = entry.path.file_name() else {
+                continue;
+            };
+            if !name.starts_with("python") {
+                continue;
+            }
+
+            let version = parse_python_dir_version(name);
             candidates.push(PythonLibCandidate {
                 version,
-                name: name_str.to_string(),
-                path: entry.path(),
+                name: name.to_string(),
+                path: entry.path,
             });
         }
 
@@ -241,19 +247,16 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
         });
 
         for candidate in candidates.into_iter().rev() {
-            if let Ok(site_packages) =
-                Utf8PathBuf::from_path_buf(candidate.path.join("site-packages"))
-            {
-                if site_packages.is_dir() {
-                    return Some(site_packages);
-                }
+            let site_packages = candidate.path.join("site-packages");
+            if fs.is_dir(&site_packages) {
+                return Some(site_packages);
             }
         }
     }
 
     // On Windows: Lib/site-packages (capitalized)
     let lib_site = venv.join("Lib").join("site-packages");
-    if lib_site.is_dir() {
+    if fs.is_dir(&lib_site) {
         return Some(lib_site);
     }
 
@@ -266,33 +269,30 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
 /// (directories with `__init__.py`) without reading file contents.
 #[must_use]
 pub(crate) fn discover_model_files(
+    fs: &dyn FileSystem,
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
 ) -> Vec<(ModulePath, Utf8PathBuf)> {
-    let mut builder = ignore::WalkBuilder::new(base_dir.as_std_path());
-    match root_kind {
-        FileRootKind::Project => {
-            builder.hidden(true).git_ignore(true);
-        }
-        FileRootKind::LibrarySearchPath => {
-            builder
-                .hidden(false)
-                .git_ignore(false)
-                .git_global(false)
-                .git_exclude(false);
-        }
-    }
+    let options = match root_kind {
+        FileRootKind::Project => WalkOptions::project(),
+        FileRootKind::LibrarySearchPath => WalkOptions::library_search_path(),
+    };
 
     let mut results = Vec::new();
 
-    for entry in builder
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-    {
-        let Ok(path) = Utf8PathBuf::try_from(entry.into_path()) else {
+    let entries = match fs.walk_entries(base_dir, &options) {
+        Ok(entries) => entries,
+        Err(err) => {
+            tracing::warn!("Failed to walk Python source root {}: {}", base_dir, err);
+            return results;
+        }
+    };
+
+    for entry in entries {
+        if entry.kind != WalkEntryKind::File {
             continue;
-        };
+        }
+        let path = entry.path;
 
         let is_django_model_source = if path.file_name() == Some("models.py") {
             true
@@ -301,7 +301,7 @@ pub(crate) fn discover_model_files(
             let mut in_models_package = false;
             while let Some(parent) = dir {
                 if parent.file_name() == Some("models") {
-                    in_models_package = parent.join("__init__.py").exists();
+                    in_models_package = fs.exists(&parent.join("__init__.py"));
                     break;
                 }
                 dir = parent.parent();
@@ -373,6 +373,7 @@ mod tests {
         let sys_path = vec![layout.project_root.clone()];
 
         let result = resolve_module(
+            &djls_source::OsFileSystem,
             "myproject.templatetags.custom",
             &sys_path,
             &layout.project_root,
@@ -389,7 +390,12 @@ mod tests {
         let layout = setup_test_layout();
         let sys_path = vec![layout.external_root.clone()];
 
-        let result = resolve_module("django.templatetags.i18n", &sys_path, &layout.project_root);
+        let result = resolve_module(
+            &djls_source::OsFileSystem,
+            "django.templatetags.i18n",
+            &sys_path,
+            &layout.project_root,
+        );
 
         assert!(result.is_some());
         let resolved = result.unwrap();
@@ -402,7 +408,12 @@ mod tests {
         let layout = setup_test_layout();
         let sys_path = vec![layout.project_root.clone()];
 
-        let result = resolve_module("nonexistent.module", &sys_path, &layout.project_root);
+        let result = resolve_module(
+            &djls_source::OsFileSystem,
+            "nonexistent.module",
+            &sys_path,
+            &layout.project_root,
+        );
         assert!(result.is_none());
     }
 
@@ -420,12 +431,24 @@ mod tests {
 
         // First in sys_path wins
         let sys_path = vec![dir1.clone(), dir2.clone()];
-        let result = resolve_module("pkg.mod", &sys_path, &layout.project_root).unwrap();
+        let result = resolve_module(
+            &djls_source::OsFileSystem,
+            "pkg.mod",
+            &sys_path,
+            &layout.project_root,
+        )
+        .unwrap();
         assert!(result.file_path.starts_with(&dir1));
 
         // Reverse order → different result
         let sys_path = vec![dir2.clone(), dir1.clone()];
-        let result = resolve_module("pkg.mod", &sys_path, &layout.project_root).unwrap();
+        let result = resolve_module(
+            &djls_source::OsFileSystem,
+            "pkg.mod",
+            &sys_path,
+            &layout.project_root,
+        )
+        .unwrap();
         assert!(result.file_path.starts_with(&dir2));
     }
 
@@ -440,7 +463,12 @@ mod tests {
         std::fs::write(pkg_dir.join("__init__.py"), "# package").unwrap();
 
         let sys_path = vec![root.clone()];
-        let result = resolve_module("myapp.templatetags.extras", &sys_path, &root);
+        let result = resolve_module(
+            &djls_source::OsFileSystem,
+            "myapp.templatetags.extras",
+            &sys_path,
+            &root,
+        );
 
         assert!(result.is_some());
         let resolved = result.unwrap();
@@ -459,8 +487,12 @@ mod tests {
             "nonexistent.module",
         ];
 
-        let (workspace, external) =
-            resolve_modules(paths.iter().copied(), &sys_path, &layout.project_root);
+        let (workspace, external) = resolve_modules(
+            &djls_source::OsFileSystem,
+            paths.iter().copied(),
+            &sys_path,
+            &layout.project_root,
+        );
 
         assert_eq!(workspace.len(), 1);
         assert_eq!(external.len(), 1);
@@ -487,7 +519,11 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
+        let results = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
@@ -503,7 +539,11 @@ class Article(models.Model):
         std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
         // Discovery finds the file (it doesn't inspect contents)
-        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
+        let results = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "emptyapp.models");
     }
@@ -526,7 +566,11 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
+        let results = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
         assert_eq!(results.len(), 2);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(module_paths.contains(&"blog.models"));
@@ -546,7 +590,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::Project);
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.as_str(), "myapp.models");
         assert!(results[0].1.ends_with("models.py"));
@@ -575,7 +620,11 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
+        let results = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
         // Discovers all three files (including __init__.py)
         assert_eq!(results.len(), 3);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
@@ -598,7 +647,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::Project);
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models"),
@@ -640,7 +690,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::Project);
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
@@ -663,7 +714,11 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::LibrarySearchPath);
+        let results = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
         let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
         assert!(
             module_paths.contains(&"myapp.models.base.abstract"),
@@ -686,7 +741,8 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let results = discover_model_files(&root, FileRootKind::Project);
+        let results =
+            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
         assert!(
             results.is_empty(),
             "should not discover models in site-packages"

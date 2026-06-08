@@ -10,11 +10,11 @@ djls-semantic = { workspace = true }
 djls-server = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
-djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true }
+dunce = { workspace = true }
 rayon = { workspace = true }
 
 [dev-dependencies]

@@ -13,12 +13,12 @@ use djls_corpus::Corpus;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
+use djls_source::FileSystem;
+use djls_source::InMemoryFileSystem;
 use djls_source::Severity;
 use djls_source::SourceFiles;
 use djls_source::Span;
 use djls_templates::parse_template;
-use djls_workspace::FileSystem;
-use djls_workspace::InMemoryFileSystem;
 
 use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
@@ -212,8 +212,8 @@ impl djls_source::Db for TestDatabase {
         &self.files
     }
 
-    fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-        self.fs.lock().unwrap().read_to_string(path)
+    fn file_system(&self) -> &dyn FileSystem {
+        self.fs.as_ref()
     }
 }
 

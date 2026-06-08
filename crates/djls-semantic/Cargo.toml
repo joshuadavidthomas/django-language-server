@@ -7,12 +7,10 @@ edition = "2021"
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
-djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }
 dotenvy = { workspace = true }
-ignore = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_python_parser = { workspace = true }
 rustc-hash = { workspace = true }

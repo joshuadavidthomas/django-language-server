@@ -12,16 +12,16 @@ use djls_semantic::ProjectDb;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Offset;
-use djls_workspace::TextDocument;
-use djls_workspace::Workspace;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
+use crate::document::TextDocument;
 use crate::ext::InitializeParamsExt;
 use crate::ext::PositionExt;
 use crate::ext::TextDocumentContentChangeEventExt;
 use crate::ext::TextDocumentItemExt;
 use crate::ext::UriExt;
+use crate::workspace::Workspace;
 
 /// LSP Session managing project-specific state and database operations.
 ///
@@ -127,13 +127,13 @@ impl Session {
 
         let kind = text_document.language_id_to_file_kind(self.client_info.client());
 
-        self.workspace.open_document(
+        Some(self.workspace.open_document(
             &mut self.db,
             &path,
             &text_document.text,
             text_document.version,
             kind,
-        )
+        ))
     }
 
     pub(crate) fn save_document(
