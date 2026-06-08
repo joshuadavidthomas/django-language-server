@@ -21,6 +21,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
+- Added `django_discovery` configuration for choosing source-based or runtime discovery of template directories, template tag libraries, and symbols.
+
+### Changed
+
+- Changed default Django discovery to source-based discovery. Use `django_discovery = "runtime"` to opt into the legacy Python inspector path.
 
 ## [6.0.3]
 

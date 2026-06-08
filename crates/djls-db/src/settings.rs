@@ -72,6 +72,12 @@ impl DjangoDatabase {
             env_changed = true;
         }
 
+        let new_django_discovery = settings.django_discovery();
+        if project.django_discovery(self) != new_django_discovery {
+            project.set_django_discovery(self).to(new_django_discovery);
+            env_changed = true;
+        }
+
         let new_dsm = settings
             .django_settings_module()
             .map(String::from)

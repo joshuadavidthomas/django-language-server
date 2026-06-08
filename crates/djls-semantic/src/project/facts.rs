@@ -1,13 +1,9 @@
-//! Static Django project model facts.
+//! Django project facts.
 //!
-//! These types are the confidence-aware boundary for the static model work. They
+//! These types are the confidence-aware boundary for project facts assembly. They
 //! intentionally do not feed validators yet; later milestones will populate them
-//! from the resolver, settings extractor, app registry, and template assembly.
-
-#![allow(
-    dead_code,
-    reason = "Milestone A1 defines fact types before later milestones populate them."
-)]
+//! from module resolution, settings extraction, app registry discovery, and
+//! template assembly.
 
 use camino::Utf8PathBuf;
 use serde::Deserialize;
@@ -89,14 +85,6 @@ impl<T> Fact<T> {
     }
 
     #[must_use]
-    pub(crate) fn candidates(&self) -> &[T] {
-        match self {
-            Self::Ambiguous { candidates, .. } => candidates,
-            Self::Known { .. } | Self::Partial { .. } | Self::Unknown { .. } => &[],
-        }
-    }
-
-    #[must_use]
     pub(crate) fn reasons(&self) -> &[Reason] {
         match self {
             Self::Known { .. } => &[],
@@ -158,77 +146,33 @@ impl<T> Fact<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Reason {
-    pub(crate) field: Field,
     pub(crate) source: ReasonSource,
     pub(crate) message: String,
 }
 
 impl Reason {
     #[must_use]
-    pub(crate) fn new(field: Field, source: ReasonSource, message: impl Into<String>) -> Self {
+    pub(crate) fn new(source: ReasonSource, message: impl Into<String>) -> Self {
         Self {
-            field,
             source,
             message: message.into(),
         }
     }
 
     #[must_use]
-    pub(crate) fn file(
-        field: Field,
-        file: impl Into<Utf8PathBuf>,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(field, ReasonSource::File(file.into()), message)
+    pub(crate) fn file(file: impl Into<Utf8PathBuf>, message: impl Into<String>) -> Self {
+        Self::new(ReasonSource::File(file.into()), message)
     }
 
     #[must_use]
-    pub(crate) fn path(
-        field: Field,
-        path: impl Into<Utf8PathBuf>,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(field, ReasonSource::Path(path.into()), message)
+    pub(crate) fn path(path: impl Into<Utf8PathBuf>, message: impl Into<String>) -> Self {
+        Self::new(ReasonSource::Path(path.into()), message)
     }
 
     #[must_use]
-    pub(crate) fn module(field: Field, module: PyModuleName, message: impl Into<String>) -> Self {
-        Self::new(field, ReasonSource::Module(module), message)
+    pub(crate) fn module(module: PyModuleName, message: impl Into<String>) -> Self {
+        Self::new(ReasonSource::Module(module), message)
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) enum Field {
-    #[serde(rename = "resolver.import_roots")]
-    ResolverImportRoots,
-    #[serde(rename = "resolver.module")]
-    ResolverModule,
-    #[serde(rename = "resolver.relative_import")]
-    ResolverRelativeImport,
-    #[serde(rename = "django.environment")]
-    DjangoEnvironment,
-    #[serde(rename = "settings.installed_apps")]
-    SettingsInstalledApps,
-    #[serde(rename = "settings.templates")]
-    SettingsTemplates,
-    #[serde(rename = "settings.template_dirs")]
-    SettingsTemplateDirs,
-    #[serde(rename = "settings.template_options")]
-    SettingsTemplateOptions,
-    #[serde(rename = "apps.installed")]
-    AppsInstalled,
-    #[serde(rename = "apps.config")]
-    AppsConfig,
-    #[serde(rename = "apps.path")]
-    AppsPath,
-    #[serde(rename = "templates.dirs")]
-    TemplateDirs,
-    #[serde(rename = "templates.libraries")]
-    TemplateLibraries,
-    #[serde(rename = "templates.builtins")]
-    TemplateBuiltins,
-    #[serde(rename = "templates.symbols")]
-    TemplateSymbols,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -237,20 +181,19 @@ pub(crate) enum ReasonSource {
     File(Utf8PathBuf),
     Path(Utf8PathBuf),
     Module(PyModuleName),
-    DjangoEnvironment(Utf8PathBuf),
     Workspace(Utf8PathBuf),
     Unknown,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ImportRoot {
-    pub(crate) kind: ImportRootKind,
+pub(crate) struct ModuleSearchPathEntry {
+    pub(crate) kind: ModuleSearchPathKind,
     pub(crate) path: Utf8PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ImportRootKind {
+pub(crate) enum ModuleSearchPathKind {
     Workspace,
     AutoSrc,
     ExplicitPythonPath,
@@ -268,7 +211,7 @@ pub(crate) struct ModuleResolution {
 pub(crate) struct ResolvedModule {
     pub(crate) module: PyModuleName,
     pub(crate) file: Utf8PathBuf,
-    pub(crate) import_root: Utf8PathBuf,
+    pub(crate) search_path: Utf8PathBuf,
     pub(crate) location: ModuleLocation,
 }
 
@@ -277,6 +220,14 @@ pub(crate) struct ResolvedModule {
 pub(crate) enum ModuleLocation {
     Workspace,
     External,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SettingsFacts {
+    pub(crate) file: Utf8PathBuf,
+    pub(crate) files_read: Vec<Utf8PathBuf>,
+    pub(crate) installed_apps: Fact<Vec<String>>,
+    pub(crate) template_backends: Fact<Vec<TemplateBackendFact>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -290,6 +241,7 @@ pub(crate) struct InstalledAppFact {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct AppConfigFact {
     pub(crate) module: PyModuleName,
+    pub(crate) file: Utf8PathBuf,
     pub(crate) class_name: String,
     pub(crate) name: Fact<PyModuleName>,
     pub(crate) label: Fact<String>,
@@ -340,6 +292,7 @@ pub(crate) enum TemplateLibrarySource {
     AppTemplateTags { app: PyModuleName },
     SettingsLibraries,
     SettingsBuiltins,
+    DjangoDefaultLibrary,
     DjangoDefaultBuiltin,
     Discovered,
     UserOverride,
@@ -371,7 +324,6 @@ mod tests {
 
     fn unsupported_settings_reason() -> Reason {
         Reason::file(
-            Field::SettingsInstalledApps,
             "project/settings.py",
             "unsupported list comprehension in INSTALLED_APPS",
         )
@@ -403,14 +355,20 @@ mod tests {
             vec![reason.clone()],
         );
         assert_eq!(ambiguous.confidence(), Confidence::Ambiguous);
-        assert_eq!(ambiguous.candidates().len(), 2);
-        assert_eq!(ambiguous.reasons(), &[reason]);
+        let Fact::Ambiguous {
+            candidates,
+            reasons,
+        } = ambiguous
+        else {
+            panic!("expected ambiguous fact");
+        };
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(reasons, &[reason]);
     }
 
     #[test]
     fn with_reason_preserves_value_while_downgrading_known_to_partial() {
         let reason = Reason::path(
-            Field::TemplateDirs,
             "templates",
             "template directory expression depends on runtime state",
         );
@@ -424,9 +382,8 @@ mod tests {
     #[test]
     fn map_preserves_confidence_and_reasons() {
         let reason = Reason::module(
-            Field::ResolverModule,
             module("clientname.app2"),
-            "module exists in more than one import root",
+            "module exists in more than one module search path",
         );
         let fact = Fact::ambiguous(
             vec![module("clientname.app2"), module("shared.clientname.app2")],
@@ -435,20 +392,26 @@ mod tests {
         let mapped = fact.map(|candidate| candidate.as_str().to_string());
 
         assert_eq!(mapped.confidence(), Confidence::Ambiguous);
+        let Fact::Ambiguous {
+            candidates,
+            reasons,
+        } = mapped
+        else {
+            panic!("expected ambiguous fact");
+        };
         assert_eq!(
-            mapped.candidates(),
-            &[
+            candidates,
+            [
                 "clientname.app2".to_string(),
                 "shared.clientname.app2".to_string()
             ]
         );
-        assert_eq!(mapped.reasons(), &[reason]);
+        assert_eq!(reasons, &[reason]);
     }
 
     #[test]
     fn facts_are_cache_serializable() {
         let reason = Reason::file(
-            Field::SettingsTemplates,
             "project/settings.py",
             "TEMPLATES includes an unsupported call expression",
         );

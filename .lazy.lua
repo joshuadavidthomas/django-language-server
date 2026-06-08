@@ -60,14 +60,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 
 local devtools = {
   width = nil,
-  record_job = nil,
-  record_stdout = {},
-  record_stderr = {},
 }
-
-function devtools.db_path()
-  return vim.fn.getcwd() .. "/djls.db"
-end
 
 function devtools.force_terminal_mode()
   local buf = vim.api.nvim_get_current_buf()
@@ -117,7 +110,7 @@ function devtools.terminal_opts()
 end
 
 function devtools.get_terminal(create)
-  local cmd = { "uvx", "lsp-devtools", "inspect", devtools.db_path() }
+  local cmd = { "uvx", "lsp-devtools", "inspect" }
   return Snacks.terminal.get(cmd, vim.tbl_extend("force", devtools.terminal_opts(), { create = create }))
 end
 
@@ -154,58 +147,6 @@ function devtools.toggle()
   terminal:focus()
 end
 
-function devtools.ensure_recording()
-  if devtools.record_job then
-    return
-  end
-
-  local db_path = devtools.db_path()
-  local record_cmd = { "uvx", "lsp-devtools", "record", "--to-sqlite", db_path }
-
-  vim.fn.delete(db_path)
-  devtools.record_stdout = {}
-  devtools.record_stderr = {}
-
-  devtools.record_job = vim.fn.jobstart(record_cmd, {
-    cwd = vim.fn.getcwd(),
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
-      if data and #data > 0 then
-        devtools.record_stdout = data
-      end
-    end,
-    on_stderr = function(_, data)
-      if data and #data > 0 then
-        devtools.record_stderr = data
-      end
-    end,
-    on_exit = function(_, code)
-      devtools.record_job = nil
-      if code ~= 0 then
-        local output = vim.tbl_filter(function(line)
-          return line ~= ""
-        end, vim.list_extend(vim.deepcopy(devtools.record_stderr), devtools.record_stdout))
-        vim.notify(
-          "lsp-devtools record exited with code " .. code .. "\n" .. table.concat(output, "\n"),
-          vim.log.levels.ERROR
-        )
-      end
-    end,
-  })
-
-  if devtools.record_job <= 0 then
-    vim.notify("Failed to start lsp-devtools record", vim.log.levels.ERROR)
-    devtools.record_job = nil
-  end
-end
-
-function devtools.stop_recording()
-  if devtools.record_job then
-    vim.fn.jobstop(devtools.record_job)
-  end
-end
-
 vim.api.nvim_create_autocmd("WinResized", {
   group = dev_group,
   callback = function()
@@ -226,14 +167,8 @@ vim.api.nvim_create_autocmd("WinClosed", {
   end,
 })
 
-vim.api.nvim_create_autocmd("VimLeavePre", {
-  group = dev_group,
-  callback = devtools.stop_recording,
-})
-
 vim.api.nvim_create_user_command("DjlsDebugToggle", devtools.toggle, {})
 vim.keymap.set({ "n", "t" }, "<leader>dd", devtools.toggle, { desc = "Toggle DJLS devtools inspector" })
-vim.schedule(devtools.ensure_recording)
 
 return {
   {
