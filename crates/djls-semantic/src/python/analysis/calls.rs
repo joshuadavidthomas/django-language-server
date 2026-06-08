@@ -159,6 +159,8 @@ mod tests {
     use std::sync::Mutex;
 
     use camino::Utf8Path;
+    use djls_source::FileSystem;
+    use djls_source::InMemoryFileSystem;
     use ruff_python_ast::Stmt;
     use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
@@ -173,7 +175,7 @@ mod tests {
     #[derive(Clone)]
     struct TestDatabase {
         storage: salsa::Storage<Self>,
-        files: Arc<Mutex<std::collections::HashMap<String, String>>>,
+        fs: Arc<Mutex<InMemoryFileSystem>>,
         source_files: djls_source::SourceFiles,
     }
 
@@ -181,17 +183,17 @@ mod tests {
         fn new() -> Self {
             Self {
                 storage: salsa::Storage::default(),
-                files: Arc::new(Mutex::new(std::collections::HashMap::new())),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
                 source_files: djls_source::SourceFiles::default(),
             }
         }
 
         fn create_python_file(&self, source: &str) -> djls_source::File {
             let path = "test_module.py";
-            self.files
+            self.fs
                 .lock()
                 .unwrap()
-                .insert(path.to_string(), source.to_string());
+                .add_file(path.into(), source.to_string());
             <Self as djls_source::Db>::get_or_create_file(self, Utf8Path::new(path))
         }
     }
@@ -205,13 +207,8 @@ mod tests {
             &self.source_files
         }
 
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.files
-                .lock()
-                .unwrap()
-                .get(path.as_str())
-                .cloned()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "not found"))
+        fn file_system(&self) -> &dyn FileSystem {
+            self.fs.as_ref()
         }
     }
 

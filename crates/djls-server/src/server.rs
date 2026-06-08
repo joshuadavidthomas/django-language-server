@@ -5,7 +5,6 @@ use djls_semantic::load_template_library_cache;
 use djls_semantic::refresh_external_data;
 use djls_semantic::ProjectDb;
 use djls_source::FileKind;
-use djls_workspace::TextDocument;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
@@ -13,6 +12,7 @@ use tower_lsp_server::ls_types;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 
+use crate::document::TextDocument;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;

@@ -30,10 +30,9 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 - `djls-format`: formatter backend adapter boundary.
 - `djls-ide`: IDE feature behavior and LSP-shaped outputs.
 - `djls-semantic`: Django/project/template meaning.
-- `djls-server`: LSP/session glue. Resolve documents, check file kind, call `djls-ide`.
-- `djls-source`: files, spans, line indexes, diagnostics primitives.
+- `djls-server`: LSP/session glue, open document buffers, overlay filesystem adapter. Resolve documents, check file kind, call `djls-ide`.
+- `djls-source`: files, filesystem access/discovery, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
-- `djls-workspace`: VFS, open buffers, file discovery.
 
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.

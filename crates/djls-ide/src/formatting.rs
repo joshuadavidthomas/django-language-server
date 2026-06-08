@@ -57,6 +57,8 @@ mod tests {
     use camino::Utf8Path;
     use djls_conf::FormatBackend;
     use djls_source::Db as _;
+    use djls_source::FileSystem;
+    use djls_source::InMemoryFileSystem;
     use djls_source::PositionEncoding;
     use djls_source::SourceFiles;
     use tower_lsp_server::ls_types;
@@ -68,15 +70,17 @@ mod tests {
     struct TestDb {
         storage: salsa::Storage<Self>,
         files: SourceFiles,
-        source: String,
+        fs: InMemoryFileSystem,
     }
 
     impl TestDb {
         fn new(source: impl Into<String>) -> Self {
+            let mut fs = InMemoryFileSystem::new();
+            fs.add_file("template.html".into(), source.into());
             Self {
                 storage: salsa::Storage::new(None),
                 files: SourceFiles::default(),
-                source: source.into(),
+                fs,
             }
         }
     }
@@ -90,8 +94,8 @@ mod tests {
             &self.files
         }
 
-        fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
-            Ok(self.source.clone())
+        fn file_system(&self) -> &dyn FileSystem {
+            &self.fs
         }
     }
 

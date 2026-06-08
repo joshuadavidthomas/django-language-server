@@ -10,8 +10,10 @@ use std::fs;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
+use djls_source::FileSystem;
 use djls_source::Utf8PathClean;
-use ignore::WalkBuilder;
+use djls_source::WalkEntryKind;
+use djls_source::WalkOptions;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use salsa::Setter;
@@ -118,7 +120,11 @@ fn fetch_template_dirs(db: &dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
         tracing::debug!("  Template dir [{}]: {}", i, dir);
     }
 
-    let missing_dirs: Vec<_> = response.dirs.iter().filter(|dir| !dir.exists()).collect();
+    let missing_dirs: Vec<_> = response
+        .dirs
+        .iter()
+        .filter(|dir| !db.path_exists(dir))
+        .collect();
 
     if !missing_dirs.is_empty() {
         tracing::warn!(
@@ -347,33 +353,28 @@ fn discover_project_template_files(
 ) -> ProjectTemplateFiles {
     let mut templates = Vec::new();
 
+    let walk_options = WalkOptions::unrestricted();
+
     for dir in search_dirs {
-        if !dir.exists() {
+        if !db.path_is_dir(dir) {
             tracing::warn!("Template directory does not exist: {}", dir);
             continue;
         }
 
         let mut dir_templates = Vec::new();
-        for entry in WalkBuilder::new(dir.as_std_path())
-            .standard_filters(false)
-            .build()
-            .filter_map(std::result::Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_type()
-                    .is_some_and(|file_type| file_type.is_file())
-            })
-        {
-            let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
+        let entries = match db.walk_entries(dir, &walk_options) {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::warn!("Failed to walk template directory {}: {}", dir, err);
                 continue;
-            };
-
-            let name = match path.strip_prefix(dir) {
-                Ok(rel) => rel.clean().to_string(),
-                Err(_) => continue,
-            };
-
-            dir_templates.push((name, path));
+            }
+        };
+        for entry in entries {
+            if entry.kind != WalkEntryKind::File {
+                continue;
+            }
+            let name = entry.relative.clean().to_string();
+            dir_templates.push((name, entry.path));
         }
 
         dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
@@ -389,7 +390,7 @@ fn discover_project_template_files(
 
 fn refresh_python_index(db: &mut dyn ProjectDb, project: Project) {
     let root = project.root(db).clone();
-    let modules = discover_model_files(&root, FileRootKind::Project)
+    let modules = discover_model_files(db.file_system(), &root, FileRootKind::Project)
         .into_iter()
         .map(|(module_path, file_path)| {
             ProjectPythonModule::model(
@@ -436,8 +437,9 @@ fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<ProjectPytho
 
     let interpreter = project.interpreter(db).clone();
     let pythonpath = project.pythonpath(db).clone();
-    let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
+    let search_paths = build_search_paths(db.file_system(), &interpreter, &root, &pythonpath);
     let (workspace_modules, _external) = resolve_modules(
+        db.file_system(),
         module_paths.iter().map(String::as_str),
         &search_paths,
         &root,
@@ -464,10 +466,14 @@ fn scan_external_models(db: &mut dyn ProjectDb, project: Project) {
     let interpreter = project.interpreter(db).clone();
     let root = project.root(db).clone();
 
-    let new_models = match find_site_packages(&interpreter, &root) {
+    let new_models = match find_site_packages(db.file_system(), &interpreter, &root) {
         Some(site_packages) => {
-            let files = discover_model_files(&site_packages, FileRootKind::LibrarySearchPath);
-            extract_models_from_files(&files)
+            let files = discover_model_files(
+                db.file_system(),
+                &site_packages,
+                FileRootKind::LibrarySearchPath,
+            );
+            extract_models_from_files(db.file_system(), &files)
         }
         None => FxHashMap::default(),
     };
@@ -492,10 +498,17 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
     let new_extraction = if modules.is_empty() {
         SplitExtractionResults::empty()
     } else {
-        let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
-        let (_workspace, external_modules) =
-            resolve_modules(modules.iter().map(String::as_str), &search_paths, &root);
-        split_extraction_results(extract_rules_from_modules(external_modules))
+        let search_paths = build_search_paths(db.file_system(), &interpreter, &root, &pythonpath);
+        let (_workspace, external_modules) = resolve_modules(
+            db.file_system(),
+            modules.iter().map(String::as_str),
+            &search_paths,
+            &root,
+        );
+        split_extraction_results(extract_rules_from_modules(
+            db.file_system(),
+            external_modules,
+        ))
     };
 
     if project.extracted_external_tag_rules(db) != &new_extraction.tag_rules {
@@ -516,12 +529,13 @@ fn scan_external_rules(db: &mut dyn ProjectDb, project: Project) {
 }
 
 fn extract_models_from_files(
+    fs: &dyn FileSystem,
     files: &[(ModulePath, Utf8PathBuf)],
 ) -> FxHashMap<ModulePath, ModelGraph> {
     let mut results = FxHashMap::default();
 
     for (module_path, file_path) in files {
-        let source = match fs::read_to_string(file_path.as_std_path()) {
+        let source = match fs.read_to_string(file_path) {
             Ok(s) => s,
             Err(e) => {
                 tracing::debug!("Failed to read model file {}: {}", file_path, e);
@@ -538,11 +552,14 @@ fn extract_models_from_files(
     results
 }
 
-fn extract_rules_from_modules(modules: Vec<ResolvedModule>) -> FxHashMap<String, ExtractionResult> {
+fn extract_rules_from_modules(
+    fs: &dyn FileSystem,
+    modules: Vec<ResolvedModule>,
+) -> FxHashMap<String, ExtractionResult> {
     let mut results = FxHashMap::default();
 
     for resolved in modules {
-        match fs::read_to_string(resolved.file_path.as_std_path()) {
+        match fs.read_to_string(&resolved.file_path) {
             Ok(source) => {
                 let module_result = extract_rules(&source, &resolved.module_path);
                 if !module_result.is_empty() {
@@ -679,8 +696,12 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let files = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
+        let results = extract_models_from_files(&djls_source::OsFileSystem, &files);
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("myapp.models"));
         assert!(results["myapp.models"].get("Article").is_some());
@@ -695,8 +716,12 @@ class Article(models.Model):
         fs::create_dir_all(&app_dir).unwrap();
         fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let files = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
+        let results = extract_models_from_files(&djls_source::OsFileSystem, &files);
         assert!(results.is_empty());
     }
 
@@ -718,8 +743,12 @@ class Article(models.Model):
             .unwrap();
         }
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let files = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
+        let results = extract_models_from_files(&djls_source::OsFileSystem, &files);
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("blog.models"));
         assert!(results.contains_key("accounts.models"));
@@ -748,8 +777,12 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let files = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
+        let results = extract_models_from_files(&djls_source::OsFileSystem, &files);
         // __init__.py has no model defs, so only the two submodules
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("myapp.models.user"));
@@ -773,8 +806,12 @@ class Article(models.Model):
         )
         .unwrap();
 
-        let files = discover_model_files(&root, FileRootKind::LibrarySearchPath);
-        let results = extract_models_from_files(&files);
+        let files = discover_model_files(
+            &djls_source::OsFileSystem,
+            &root,
+            FileRootKind::LibrarySearchPath,
+        );
+        let results = extract_models_from_files(&djls_source::OsFileSystem, &files);
         assert!(
             results.contains_key("myapp.models.base.abstract"),
             "should extract from nested model files: got {:?}",

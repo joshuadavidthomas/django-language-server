@@ -15,13 +15,15 @@ use djls_source::Db as _;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
+use djls_source::FileSystem;
+use djls_source::InMemoryFileSystem;
+use djls_source::OsFileSystem;
 use djls_source::Severity;
 use djls_source::SourceText;
 use djls_source::Span;
+use djls_source::WalkOptions;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
-use djls_workspace::OsFileSystem;
-use djls_workspace::WalkOptions;
 
 use crate::args::Args;
 use crate::commands::common::discover_files;
@@ -151,7 +153,7 @@ impl Command for Check {
             return check_stdin(&project_root, &settings, &config, &fmt, quiet);
         }
 
-        let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
+        let fs: Arc<dyn FileSystem> = Arc::new(OsFileSystem);
         let db = DjangoDatabase::new(fs, &settings, Some(&project_root));
 
         let walk_options = WalkOptions {
@@ -246,10 +248,10 @@ fn check_stdin(
         .read_to_string(&mut source)
         .context("Failed to read stdin")?;
 
-    let mut mem_fs = djls_workspace::InMemoryFileSystem::new();
+    let mut mem_fs = InMemoryFileSystem::new();
     let stdin_path = Utf8PathBuf::from("<stdin>.html");
     mem_fs.add_file(stdin_path.clone(), source);
-    let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(mem_fs);
+    let fs: Arc<dyn FileSystem> = Arc::new(mem_fs);
     let db = DjangoDatabase::new(fs, settings, Some(project_root));
 
     let result = check_file_with_source(&db, &stdin_path);

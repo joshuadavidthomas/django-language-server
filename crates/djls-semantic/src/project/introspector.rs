@@ -366,7 +366,7 @@ impl InspectorProcess {
         let zipapp_file = InspectorFile::create()?;
 
         let python_path = interpreter
-            .python_path(project_path)
+            .python_path(&djls_source::OsFileSystem, project_path)
             .context("Failed to resolve Python interpreter")?;
 
         let mut cmd = Command::new(&python_path);
