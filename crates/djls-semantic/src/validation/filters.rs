@@ -4,8 +4,8 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
+use crate::filters::FilterAritySpecs;
 use crate::project::Knowledge;
-use crate::specs::filters::FilterAritySpecs;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_filter_arity_rule(

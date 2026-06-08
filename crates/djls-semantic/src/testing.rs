@@ -23,6 +23,7 @@ use djls_templates::parse_template;
 use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
+use crate::filters::FilterAritySpecs;
 use crate::project::Db as ProjectDb;
 use crate::project::Knowledge;
 use crate::project::LibraryName;
@@ -49,10 +50,9 @@ use crate::python::RequiredKeyword;
 use crate::python::SplitPosition;
 use crate::python::SymbolKey;
 use crate::python::TagRule;
-use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::TagSpec;
-use crate::specs::tags::TagSpecs;
-use crate::specs::tags::builtin_tag_specs;
+use crate::tags::TagSpec;
+use crate::tags::TagSpecs;
+use crate::tags::builtin_tag_specs;
 
 pub(crate) fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
@@ -461,20 +461,19 @@ fn standard_tag_specs() -> TagSpecs {
 
     specs.insert(
         "one_arg_tag".to_string(),
-        TagSpec {
-            module: "example.templatetags.custom".into(),
-            end_tag: None,
-            intermediate_tags: Cow::Borrowed(&[]),
-            opaque: false,
-            semantic_role: None,
-            extracted_rules: Some(
-                TagRule {
-                    arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
-                    ..TagRule::default()
-                }
-                .into(),
-            ),
-        },
+        TagSpec::new(
+            "example.templatetags.custom".into(),
+            None,
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_extracted_rules(
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                ..TagRule::default()
+            }
+            .into(),
+        ),
     );
     specs
 }
@@ -602,7 +601,7 @@ fn widthratio_rule() -> TagRule {
 
 fn set_tag_rule(specs: &mut TagSpecs, name: &str, rule: TagRule) {
     if let Some(spec) = specs.get_mut(name) {
-        spec.extracted_rules = Some(rule.into());
+        spec.set_extracted_rules(rule.into());
     }
 }
 

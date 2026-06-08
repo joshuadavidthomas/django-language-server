@@ -2,18 +2,102 @@ use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::Span;
 use djls_source::safe_join;
+use djls_templates::Node;
 use djls_templates::TagBit;
+use djls_templates::parse_template;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as SemanticDb;
-use crate::primitives::TemplateName;
-use crate::primitives::TemplateOrigin;
 use crate::project::Project;
 use crate::project::TemplateDirs;
 use crate::queries::compute_tag_specs;
-use crate::specs::tags::TagSemanticRole;
-use crate::specs::tags::TagSpecs;
-use crate::specs::tags::TemplateReferenceKind;
+use crate::tags::TagRole;
+use crate::tags::TagSpecs;
+
+#[salsa::interned]
+#[derive(Debug)]
+pub struct TemplateName {
+    #[returns(ref)]
+    pub name: String,
+}
+
+#[salsa::tracked]
+pub struct TemplateOrigin<'db> {
+    resolved_template_name: TemplateName<'db>,
+    template_file: File,
+}
+
+impl<'db> TemplateOrigin<'db> {
+    pub fn template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
+        self.resolved_template_name(db)
+    }
+
+    pub fn file(self, db: &'db dyn SemanticDb) -> File {
+        self.template_file(db)
+    }
+
+    pub fn path_buf(self, db: &'db dyn SemanticDb) -> &'db Utf8PathBuf {
+        self.file(db).path(db)
+    }
+
+    pub(crate) fn tags(self, db: &'db dyn SemanticDb) -> &'db [Tag] {
+        template_origin_tags(db, self)
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+fn template_origin_tags(db: &dyn SemanticDb, origin: TemplateOrigin<'_>) -> Vec<Tag> {
+    let file = origin.file(db);
+    let Some(nodelist) = parse_template(db, file) else {
+        return Vec::new();
+    };
+
+    nodelist
+        .nodelist(db)
+        .iter()
+        .filter_map(|node| match node {
+            Node::Tag {
+                name, bits, span, ..
+            } => Some(Tag::new(name.clone(), bits.clone(), *span)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub enum TemplateReferenceKind {
+    Extends,
+    Include,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Tag {
+    name: String,
+    bits: Vec<TagBit>,
+    span: Span,
+}
+
+impl Tag {
+    #[must_use]
+    pub(crate) fn new(name: String, bits: Vec<TagBit>, span: Span) -> Self {
+        Self { name, bits, span }
+    }
+
+    #[must_use]
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub(crate) fn bits(&self) -> &[TagBit] {
+        &self.bits
+    }
+
+    #[must_use]
+    pub(crate) fn span(&self) -> Span {
+        self.span
+    }
+}
 
 #[salsa::tracked]
 pub(crate) struct TemplateOrigins<'db> {
@@ -189,31 +273,50 @@ pub fn references_to_template_name<'db>(
 
 #[salsa::tracked]
 pub struct TemplateReference<'db> {
-    pub source: TemplateOrigin<'db>,
-    pub target_template_name: TemplateName<'db>,
-    pub kind: TemplateReferenceKind,
-    pub span: Span,
+    source_origin: TemplateOrigin<'db>,
+    target_name: TemplateName<'db>,
+    reference_kind: TemplateReferenceKind,
+    reference_span: Span,
 }
 
-impl TemplateReference<'_> {
-    pub fn source_file(self, db: &dyn SemanticDb) -> File {
-        let origin = self.source(db);
-        origin.file(db)
+impl<'db> TemplateReference<'db> {
+    pub fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
+        self.source_origin(db)
+    }
+
+    pub fn source_file(self, db: &'db dyn SemanticDb) -> File {
+        self.source(db).file(db)
+    }
+
+    pub fn target_template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
+        self.target_name(db)
+    }
+
+    pub fn kind(self, db: &dyn SemanticDb) -> TemplateReferenceKind {
+        self.reference_kind(db)
+    }
+
+    pub fn span(self, db: &dyn SemanticDb) -> Span {
+        self.reference_span(db)
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LiteralTemplateReference<'bits> {
-    pub kind: TemplateReferenceKind,
-    pub template_name: &'bits str,
-    pub span: Span,
+pub(crate) struct LiteralTemplateReference<'bits> {
+    pub(crate) kind: TemplateReferenceKind,
+    pub(crate) template_name: &'bits str,
+    pub(crate) span: Span,
 }
 
 impl<'bits> LiteralTemplateReference<'bits> {
     #[must_use]
-    pub fn from_tag(tag_specs: &TagSpecs, tag_name: &str, bits: &'bits [TagBit]) -> Option<Self> {
+    pub(crate) fn from_tag(
+        tag_specs: &TagSpecs,
+        tag_name: &str,
+        bits: &'bits [TagBit],
+    ) -> Option<Self> {
         let spec = tag_specs.get(tag_name)?;
-        let Some(TagSemanticRole::TemplateReference(kind)) = spec.semantic_role else {
+        let Some(TagRole::TemplateReference(kind)) = spec.role() else {
             return None;
         };
         let bit = bits.first()?;

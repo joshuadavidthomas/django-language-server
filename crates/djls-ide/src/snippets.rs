@@ -179,17 +179,15 @@ mod tests {
     fn test_snippet_for_block_tag() {
         use std::borrow::Cow;
 
-        let spec = TagSpec {
-            module: "django.template.loader_tags".into(),
-            end_tag: Some(EndTag {
+        let spec = TagSpec::new(
+            "django.template.loader_tags".into(),
+            Some(EndTag {
                 name: "endblock".into(),
                 required: true,
             }),
-            intermediate_tags: Cow::Borrowed(&[]),
-            opaque: false,
-            semantic_role: None,
-            extracted_rules: None,
-        }
+            Cow::Borrowed(&[]),
+            false,
+        )
         .with_arguments(vec![make_var("name", true, 0)]);
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -200,17 +198,15 @@ mod tests {
     fn test_snippet_with_end_tag() {
         use std::borrow::Cow;
 
-        let spec = TagSpec {
-            module: "django.template.defaulttags".into(),
-            end_tag: Some(EndTag {
+        let spec = TagSpec::new(
+            "django.template.defaulttags".into(),
+            Some(EndTag {
                 name: "endautoescape".into(),
                 required: true,
             }),
-            intermediate_tags: Cow::Borrowed(&[]),
-            opaque: false,
-            semantic_role: None,
-            extracted_rules: None,
-        }
+            Cow::Borrowed(&[]),
+            false,
+        )
         .with_arguments(vec![make_choice("mode", true, vec!["on", "off"], 0)]);
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);

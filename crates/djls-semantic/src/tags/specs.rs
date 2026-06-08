@@ -3,9 +3,11 @@ use std::collections::hash_map::IntoIter;
 use std::collections::hash_map::Iter;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
+use super::TagRole;
 use crate::python::BlockSpecs;
 use crate::python::ExtractedArg;
 use crate::python::ExtractedArgKind;
@@ -13,6 +15,7 @@ use crate::python::ExtractionResult;
 use crate::python::SymbolKind;
 use crate::python::TagRule;
 use crate::python::TagRuleMap;
+use crate::resolution::TemplateReferenceKind;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
 pub(crate) type L<T> = Cow<'static, [T]>;
@@ -164,7 +167,7 @@ impl TagSpecs {
                         end_tag,
                         intermediate_tags: std::borrow::Cow::Owned(intermediate_tags),
                         opaque: block_spec.opaque,
-                        semantic_role: None,
+                        role: None,
                         extracted_rules: None,
                     },
                 );
@@ -181,19 +184,18 @@ impl TagSpecs {
             }
 
             if let Some(spec) = self.0.get_mut(&key.name) {
-                spec.extracted_rules = Some(tag_rule.clone());
+                spec.set_extracted_rules(tag_rule.clone());
             } else {
                 // Tag not yet in specs — create a minimal entry with extracted rules
                 self.0.insert(
                     key.name.clone(),
-                    TagSpec {
-                        module: key.registration_module.clone().into(),
-                        end_tag: None,
-                        intermediate_tags: std::borrow::Cow::Borrowed(&[]),
-                        opaque: false,
-                        semantic_role: None,
-                        extracted_rules: Some(tag_rule.clone()),
-                    },
+                    TagSpec::new(
+                        key.registration_module.clone().into(),
+                        None,
+                        std::borrow::Cow::Borrowed(&[]),
+                        false,
+                    )
+                    .with_extracted_rules(tag_rule.clone()),
                 );
             }
         }
@@ -371,7 +373,7 @@ impl TagSpecs {
                         end_tag,
                         intermediate_tags: Cow::Owned(intermediate_tags),
                         opaque: false,
-                        semantic_role: None,
+                        role: None,
                         extracted_rules,
                     },
                 );
@@ -414,11 +416,11 @@ impl IntoIterator for TagSpecs {
     }
 }
 
-/// Specification for a Django template tag's structure, validation rules, and semantic role.
+/// Specification for a Django template tag's structure, validation rules, and role.
 ///
 /// Argument validation is handled by `extracted_rules` (derived from Python AST
 /// extraction). Argument structure for completions/snippets is accessed via
-/// `extracted_rules.extracted_args`. `semantic_role` records durable tag meaning
+/// `extracted_rules.extracted_args`. `role` records durable tag meaning
 /// that downstream features can use without matching on tag names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
@@ -426,33 +428,12 @@ pub struct TagSpec {
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
     pub opaque: bool,
-    pub semantic_role: Option<TagSemanticRole>,
+    role: Option<TagRole>,
     /// Extraction-derived validation rules from Python AST analysis.
     ///
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `extracted_args`.
-    pub extracted_rules: Option<std::sync::Arc<TagRule>>,
-}
-
-/// Durable Django template meaning for a tag.
-///
-/// This describes what the tag does in the template domain. Feature-specific
-/// projections, such as document symbols, map these roles into their own shapes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::Update)]
-pub enum TemplateReferenceKind {
-    Extends,
-    Include,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TagSemanticRole {
-    TemplateReference(TemplateReferenceKind),
-    TemplateLibraryLoader,
-    TemplateBlock,
-    ControlTag,
-    TemplateTag,
-    StaticAssetReference,
-    RouteReference,
+    extracted_rules: Option<Arc<TagRule>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,6 +491,50 @@ impl TagArgument {
 
 impl TagSpec {
     #[must_use]
+    pub fn new(
+        module: Cow<'static, str>,
+        end_tag: Option<EndTag>,
+        intermediate_tags: Cow<'static, [IntermediateTag]>,
+        opaque: bool,
+    ) -> Self {
+        Self {
+            module,
+            end_tag,
+            intermediate_tags,
+            opaque,
+            role: None,
+            extracted_rules: None,
+        }
+    }
+
+    #[must_use]
+    pub fn role(&self) -> Option<TagRole> {
+        self.role
+    }
+
+    #[must_use]
+    pub(crate) fn extracted_rules(&self) -> Option<&TagRule> {
+        self.extracted_rules.as_deref()
+    }
+
+    pub(crate) fn set_extracted_rules(&mut self, rules: Arc<TagRule>) {
+        self.extracted_rules = Some(rules);
+    }
+
+    #[must_use]
+    pub(crate) fn with_extracted_rules(mut self, rules: Arc<TagRule>) -> Self {
+        self.set_extracted_rules(rules);
+        self
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_role(mut self, role: TagRole) -> Self {
+        self.role = Some(role);
+        self
+    }
+
+    #[must_use]
     pub fn arguments(&self) -> Vec<TagArgument> {
         self.extracted_rules
             .as_ref()
@@ -548,8 +573,8 @@ pub struct IntermediateTag {
 ///
 /// Provides block structure (end tags, intermediates, opaque flags) for
 /// standard Django tags. Does NOT include extracted rules — tests that
-/// need argument validation should construct specs with `extracted_rules`
-/// explicitly or use extraction on Python source.
+/// need argument metadata can use [`TagSpec::with_arguments`], while tests
+/// that need full validation rules should use extraction on Python source.
 #[must_use]
 #[allow(clippy::similar_names, clippy::too_many_lines)]
 pub fn builtin_tag_specs() -> TagSpecs {
@@ -570,16 +595,16 @@ pub fn builtin_tag_specs() -> TagSpecs {
         end_tag: None,
         intermediate_tags: B(&[]),
         opaque: false,
-        semantic_role: None,
+        role: None,
         extracted_rules: None,
     };
 
-    let simple_role = |module: &'static str, semantic_role: TagSemanticRole| TagSpec {
+    let simple_role = |module: &'static str, role: TagRole| TagSpec {
         module: B(module),
         end_tag: None,
         intermediate_tags: B(&[]),
         opaque: false,
-        semantic_role: Some(semantic_role),
+        role: Some(role),
         extracted_rules: None,
     };
 
@@ -587,7 +612,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
                  end: &'static str,
                  intermediates: Vec<IntermediateTag>,
                  opaque: bool,
-                 semantic_role: TagSemanticRole| TagSpec {
+                 role: TagRole| TagSpec {
         module: B(module),
         end_tag: Some(EndTag {
             name: B(end),
@@ -595,7 +620,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         }),
         intermediate_tags: Cow::Owned(intermediates),
         opaque,
-        semantic_role: Some(semantic_role),
+        role: Some(role),
         extracted_rules: None,
     };
 
@@ -604,35 +629,23 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // defaulttags
     specs.insert(
         "autoescape".into(),
-        block(
-            dt,
-            "endautoescape",
-            vec![],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(dt, "endautoescape", vec![], false, TagRole::ControlTag),
     );
     specs.insert(
         "comment".into(),
-        block(dt, "endcomment", vec![], true, TagSemanticRole::ControlTag),
+        block(dt, "endcomment", vec![], true, TagRole::ControlTag),
     );
     specs.insert("csrf_token".into(), simple(dt));
     specs.insert("cycle".into(), simple(dt));
     specs.insert("debug".into(), simple(dt));
     specs.insert(
         "filter".into(),
-        block(dt, "endfilter", vec![], false, TagSemanticRole::ControlTag),
+        block(dt, "endfilter", vec![], false, TagRole::ControlTag),
     );
     specs.insert("firstof".into(), simple(dt));
     specs.insert(
         "for".into(),
-        block(
-            dt,
-            "endfor",
-            vec![im("empty")],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(dt, "endfor", vec![im("empty")], false, TagRole::ControlTag),
     );
     specs.insert(
         "if".into(),
@@ -641,7 +654,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endif",
             vec![im("elif"), im("else")],
             false,
-            TagSemanticRole::ControlTag,
+            TagRole::ControlTag,
         ),
     );
     specs.insert(
@@ -651,64 +664,49 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endifchanged",
             vec![im("else")],
             false,
-            TagSemanticRole::ControlTag,
+            TagRole::ControlTag,
         ),
     );
     specs.insert(
         "load".into(),
-        simple_role(dt, TagSemanticRole::TemplateLibraryLoader),
+        simple_role(dt, TagRole::TemplateLibraryLoader),
     );
     specs.insert("lorem".into(), simple(dt));
     specs.insert("now".into(), simple(dt));
     specs.insert("regroup".into(), simple(dt));
     specs.insert(
         "spaceless".into(),
-        block(
-            dt,
-            "endspaceless",
-            vec![],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(dt, "endspaceless", vec![], false, TagRole::ControlTag),
     );
     specs.insert("templatetag".into(), simple(dt));
-    specs.insert(
-        "url".into(),
-        simple_role(dt, TagSemanticRole::RouteReference),
-    );
+    specs.insert("url".into(), simple_role(dt, TagRole::RouteReference));
     specs.insert(
         "verbatim".into(),
-        block(dt, "endverbatim", vec![], true, TagSemanticRole::ControlTag),
+        block(dt, "endverbatim", vec![], true, TagRole::ControlTag),
     );
     specs.insert("widthratio".into(), simple(dt));
     specs.insert(
         "with".into(),
-        block(dt, "endwith", vec![], false, TagSemanticRole::ControlTag),
+        block(dt, "endwith", vec![], false, TagRole::ControlTag),
     );
 
     // loader_tags
     specs.insert(
         "block".into(),
-        block(
-            lt,
-            "endblock",
-            vec![],
-            false,
-            TagSemanticRole::TemplateBlock,
-        ),
+        block(lt, "endblock", vec![], false, TagRole::TemplateBlock),
     );
     specs.insert(
         "extends".into(),
         simple_role(
             lt,
-            TagSemanticRole::TemplateReference(TemplateReferenceKind::Extends),
+            TagRole::TemplateReference(TemplateReferenceKind::Extends),
         ),
     );
     specs.insert(
         "include".into(),
         simple_role(
             lt,
-            TagSemanticRole::TemplateReference(TemplateReferenceKind::Include),
+            TagRole::TemplateReference(TemplateReferenceKind::Include),
         ),
     );
 
@@ -720,7 +718,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endblocktrans",
             vec![im("plural")],
             false,
-            TagSemanticRole::ControlTag,
+            TagRole::ControlTag,
         ),
     );
     specs.insert(
@@ -730,7 +728,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
             "endblocktranslate",
             vec![im("plural")],
             false,
-            TagSemanticRole::ControlTag,
+            TagRole::ControlTag,
         ),
     );
     specs.insert("trans".into(), simple(i18n));
@@ -739,53 +737,29 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // cache
     specs.insert(
         "cache".into(),
-        block(
-            cache,
-            "endcache",
-            vec![],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(cache, "endcache", vec![], false, TagRole::ControlTag),
     );
 
     // l10n
     specs.insert(
         "localize".into(),
-        block(
-            l10n,
-            "endlocalize",
-            vec![],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(l10n, "endlocalize", vec![], false, TagRole::ControlTag),
     );
 
     // static
     specs.insert(
         "static".into(),
-        simple_role(st, TagSemanticRole::StaticAssetReference),
+        simple_role(st, TagRole::StaticAssetReference),
     );
 
     // tz
     specs.insert(
         "localtime".into(),
-        block(
-            tz,
-            "endlocaltime",
-            vec![],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(tz, "endlocaltime", vec![], false, TagRole::ControlTag),
     );
     specs.insert(
         "timezone".into(),
-        block(
-            tz,
-            "endtimezone",
-            vec![],
-            false,
-            TagSemanticRole::ControlTag,
-        ),
+        block(tz, "endtimezone", vec![], false, TagRole::ControlTag),
     );
 
     TagSpecs::new(specs)
@@ -809,7 +783,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                semantic_role: None,
+                role: None,
                 extracted_rules: None,
             },
         );
@@ -832,7 +806,7 @@ mod tests {
                     },
                 ]),
                 opaque: false,
-                semantic_role: None,
+                role: None,
                 extracted_rules: None,
             },
         );
@@ -855,7 +829,7 @@ mod tests {
                     }, // Note: else is shared
                 ]),
                 opaque: false,
-                semantic_role: None,
+                role: None,
                 extracted_rules: None,
             },
         );
@@ -871,7 +845,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                semantic_role: None,
+                role: None,
                 extracted_rules: None,
             },
         );
@@ -1021,7 +995,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                semantic_role: None,
+                role: None,
                 extracted_rules: None,
             },
         );
@@ -1035,7 +1009,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                semantic_role: None,
+                role: None,
                 extracted_rules: None,
             },
         );
@@ -1118,7 +1092,7 @@ mod tests {
         assert_eq!(myblock.intermediate_tags.len(), 1);
         assert_eq!(myblock.intermediate_tags[0].name.as_ref(), "mymiddle");
         assert_eq!(myblock.module.as_ref(), "myapp.templatetags.custom");
-        assert_eq!(myblock.semantic_role, None);
+        assert_eq!(myblock.role, None);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Completion flow:
 //! 1. Locate source text from `File` and decide whether this file supports completions.
-//! 2. Read the `OffsetSyntaxContext` for the offset.
+//! 2. Read the `CompletionOffsetContext` for the offset.
 //! 3. Generate candidates relevant to that context.
 //! 4. Decide edit semantics for each candidate: replacement range, insert text, and snippets.
 //! 5. Rank candidates by relevance.
@@ -20,11 +20,11 @@ use djls_source::PositionEncoding;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
+use crate::context::CompletionOffsetContext;
 use crate::context::OffsetPrefix;
 use crate::context::OffsetSuffix;
-use crate::context::OffsetSyntaxContext;
 use crate::context::TagClose;
-use crate::context::TemplateOffsetSyntaxContext;
+use crate::context::TemplateCompletionContext;
 use crate::ext::CompletionCandidateExt;
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
@@ -433,30 +433,30 @@ pub fn completion(
     }
 
     let tokens = djls_templates::lex_template(db, file);
-    let context = OffsetSyntaxContext::new(*source.kind(), source.as_str(), tokens, offset);
+    let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
 
     let available_symbols = if template_libraries.active_knowledge == Knowledge::Known {
         match &context {
-            OffsetSyntaxContext::Template(
-                TemplateOffsetSyntaxContext::TagName { .. }
-                | TemplateOffsetSyntaxContext::Filter { .. },
+            CompletionOffsetContext::Template(
+                TemplateCompletionContext::TagName { .. }
+                | TemplateCompletionContext::Filter { .. },
             ) => djls_templates::parse_template(db, file)
                 .map(|nodelist| djls_semantic::available_symbols_at(db, nodelist, offset.get())),
-            OffsetSyntaxContext::Template(
-                TemplateOffsetSyntaxContext::Text
-                | TemplateOffsetSyntaxContext::TagArgument { .. }
-                | TemplateOffsetSyntaxContext::LibraryName { .. }
-                | TemplateOffsetSyntaxContext::LoadSymbol { .. },
+            CompletionOffsetContext::Template(
+                TemplateCompletionContext::Text
+                | TemplateCompletionContext::TagArgument { .. }
+                | TemplateCompletionContext::LibraryName { .. }
+                | TemplateCompletionContext::LoadSymbol { .. },
             )
-            | OffsetSyntaxContext::None => None,
+            | CompletionOffsetContext::None => None,
         }
     } else {
         None
     };
 
     let mut candidates = match &context {
-        OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagName {
+        CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
             prefix,
             needs_leading_space,
             close,
@@ -469,7 +469,7 @@ pub fn completion(
             available_symbols.as_ref(),
             supports_snippets,
         ),
-        OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::TagArgument {
+        CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
             tag,
             position,
             prefix,
@@ -483,12 +483,12 @@ pub fn completion(
             db.tag_specs(),
             supports_snippets,
         ),
-        OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LibraryName {
+        CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
             prefix,
             suffix,
             close,
         }) => generate_library_name_candidates(prefix, suffix, *close, template_libraries),
-        OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::LoadSymbol {
+        CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
             prefix,
             suffix,
             library,
@@ -500,11 +500,11 @@ pub fn completion(
             *needs_trailing_space,
             template_libraries,
         ),
-        OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::Filter { prefix }) => {
+        CompletionOffsetContext::Template(TemplateCompletionContext::Filter { prefix }) => {
             generate_filter_candidates(prefix, template_libraries, available_symbols.as_ref())
         }
-        OffsetSyntaxContext::Template(TemplateOffsetSyntaxContext::Text)
-        | OffsetSyntaxContext::None => Vec::new(),
+        CompletionOffsetContext::Template(TemplateCompletionContext::Text)
+        | CompletionOffsetContext::None => Vec::new(),
     };
     if candidates.is_empty() {
         return None;
@@ -899,39 +899,30 @@ mod tests {
         let mut specs = TagSpecs::default();
         specs.insert(
             "cache".to_string(),
-            TagSpec {
-                module: Cow::Borrowed("test.tags"),
-                end_tag: None,
-                intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
-                semantic_role: None,
-                extracted_rules: None,
-            }
-            .with_arguments(vec![TagArgument {
-                name: "fragment_name".to_string(),
-                required: true,
-                kind: TagArgumentKind::Choice(vec![
-                    "sidebar".to_string(),
-                    "site_header".to_string(),
-                ]),
-                position: 0,
-            }]),
+            TagSpec::new(Cow::Borrowed("test.tags"), None, Cow::Borrowed(&[]), false)
+                .with_arguments(vec![TagArgument {
+                    name: "fragment_name".to_string(),
+                    required: true,
+                    kind: TagArgumentKind::Choice(vec![
+                        "sidebar".to_string(),
+                        "site_header".to_string(),
+                    ]),
+                    position: 0,
+                }]),
         );
         specs
     }
 
     fn block_tag_spec() -> TagSpec {
-        TagSpec {
-            module: Cow::Borrowed("test.tags"),
-            end_tag: Some(EndTag {
+        TagSpec::new(
+            Cow::Borrowed("test.tags"),
+            Some(EndTag {
                 name: Cow::Borrowed("endblock"),
                 required: true,
             }),
-            intermediate_tags: Cow::Borrowed(&[]),
-            opaque: false,
-            semantic_role: None,
-            extracted_rules: None,
-        }
+            Cow::Borrowed(&[]),
+            false,
+        )
         .with_arguments(vec![TagArgument {
             name: "name".to_string(),
             required: true,

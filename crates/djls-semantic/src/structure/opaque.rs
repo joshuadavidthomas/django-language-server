@@ -125,7 +125,7 @@ mod tests {
     use super::compute_opaque_regions;
     use crate::EndTag;
     use crate::TagSpec;
-    use crate::specs::tags::IntermediateTag;
+    use crate::tags::IntermediateTag;
     use crate::testing::TestDatabase;
 
     fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
@@ -141,20 +141,18 @@ mod tests {
         let mut specs = crate::builtin_tag_specs();
         specs.insert(
             "opaque_if".to_string(),
-            TagSpec {
-                module: "test".into(),
-                end_tag: Some(EndTag {
+            TagSpec::new(
+                "test".into(),
+                Some(EndTag {
                     name: "endopaque_if".into(),
                     required: true,
                 }),
-                intermediate_tags: vec![IntermediateTag {
+                vec![IntermediateTag {
                     name: "opaque_else".into(),
                 }]
                 .into(),
-                opaque: true,
-                semantic_role: None,
-                extracted_rules: None,
-            },
+                true,
+            ),
         );
         let db = TestDatabase::new().with_specs(specs);
         let path = "test.html";

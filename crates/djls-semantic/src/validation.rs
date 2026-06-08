@@ -12,14 +12,14 @@ use djls_templates::Visitor;
 use djls_templates::walk_nodelist;
 
 use crate::db::Db;
+use crate::filters::FilterAritySpecs;
 use crate::project::DiscoveredSymbolCandidate;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateSymbolKind;
 use crate::project::TemplateSymbolName;
 use crate::scoping::SymbolIndex;
-use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::TagSpecs;
 use crate::structure::OpaqueRegions;
+use crate::tags::TagSpecs;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
 ///
@@ -153,7 +153,7 @@ impl Visitor for TemplateValidator<'_> {
 
             // 3. Argument validation
             if let Some(spec) = self.tag_specs.get(name)
-                && let Some(rules) = &spec.extracted_rules
+                && let Some(rules) = spec.extracted_rules()
             {
                 arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
             }
