@@ -20,6 +20,9 @@
 - **Depends on**: none (run before 006/007/008)
 - **Category**: tech-debt (Tidy First pass for the extraction plans)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: commit `0b06bd31`, 2026-06-10
+- **Bookmark**: `plan-013-tidy-extraction-seams`
 
 ## Why this matters
 
