@@ -1,8 +1,12 @@
 use rustc_hash::FxHashMap;
 
+use crate::db::Db;
+use crate::project::Project;
+use crate::project::templatetag_modules;
 use crate::python::FilterArity;
 use crate::python::FilterArityMap;
 use crate::python::SymbolKey;
+use crate::python::extract_filter_arities;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
 ///
@@ -68,4 +72,23 @@ impl FilterAritySpecs {
     pub fn merge_extraction_result(&mut self, result: &crate::python::ExtractionResult) {
         self.merge_filter_arities(&result.filter_arities);
     }
+}
+
+/// Compute `FilterAritySpecs` from a project's extraction results.
+///
+/// Merges filter arity data from discovered template tag modules, with
+/// last-wins semantics for name collisions.
+#[salsa::tracked(returns(ref))]
+pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterAritySpecs {
+    let mut specs = FilterAritySpecs::new();
+
+    for module in templatetag_modules(db, project) {
+        let filter_arities =
+            extract_filter_arities(db, module.file(), module.module_path().clone());
+        if !filter_arities.is_empty() {
+            specs.merge_filter_arities(filter_arities);
+        }
+    }
+
+    specs
 }

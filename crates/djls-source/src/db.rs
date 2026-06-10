@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use salsa::Setter;
 
 use crate::File;
+use crate::FileRoot;
 use crate::FileSystem;
 use crate::SourceFiles;
 use crate::WalkEntry;
@@ -47,5 +48,12 @@ pub trait Db: salsa::Database {
         let current_rev = file.revision(self);
         let new_rev = current_rev + 1;
         file.set_revision(self).to(new_rev);
+    }
+
+    /// Bump the revision for a tracked source root to invalidate dependent queries.
+    fn bump_file_root_revision(&mut self, root: FileRoot) {
+        let current_rev = root.revision(self);
+        let new_rev = current_rev + 1;
+        root.set_revision(self).to(new_rev);
     }
 }

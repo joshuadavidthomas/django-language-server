@@ -27,9 +27,17 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
         return ModelGraph::default();
     };
     let module = parsed.into_syntax();
+    extract_model_graph_from_body(&module.body, source, module_path)
+}
 
+/// Extract a model graph from an already-parsed Python module body.
+pub(crate) fn extract_model_graph_from_body(
+    body: &[Stmt],
+    source: &str,
+    module_path: &str,
+) -> ModelGraph {
     let mut collector = ModelCollector::new(module_path, source);
-    collector.visit_body(&module.body);
+    collector.visit_body(body);
     collector.finish()
 }
 

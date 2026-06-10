@@ -1,6 +1,10 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileSystem;
+#[cfg(not(windows))]
+use djls_source::WalkEntryKind;
+#[cfg(not(windows))]
+use djls_source::WalkOptions;
 
 use crate::project::system;
 
@@ -37,6 +41,106 @@ impl Interpreter {
             .unwrap_or(Self::Auto)
     }
 
+    pub(crate) fn site_packages_path(
+        &self,
+        fs: &dyn FileSystem,
+        project_root: &Utf8Path,
+    ) -> Option<Utf8PathBuf> {
+        match self {
+            Self::VenvPath(path) => Self::site_packages_path_in_venv(fs, Utf8Path::new(path)),
+            Self::Auto => Self::auto_venv_paths(project_root).find_map(|venv| {
+                fs.is_dir(&venv)
+                    .then(|| Self::site_packages_path_in_venv(fs, &venv))
+                    .flatten()
+            }),
+            Self::InterpreterPath(_) => None,
+        }
+    }
+
+    fn site_packages_path_in_venv(fs: &dyn FileSystem, venv: &Utf8Path) -> Option<Utf8PathBuf> {
+        #[cfg(windows)]
+        {
+            let site_packages = venv.join("Lib").join("site-packages");
+            fs.is_dir(&site_packages).then_some(site_packages)
+        }
+
+        #[cfg(not(windows))]
+        {
+            let lib_dir = venv.join("lib");
+            let mut site_packages_directories = Vec::new();
+            if fs.is_dir(&lib_dir)
+                && let Ok(entries) = fs.walk_entries(&lib_dir, &WalkOptions::shallow())
+            {
+                for entry in entries {
+                    if entry.kind != WalkEntryKind::Directory {
+                        continue;
+                    }
+
+                    let Some(name) = entry.path.file_name() else {
+                        continue;
+                    };
+                    let Some(version_suffix) = name.strip_prefix("python") else {
+                        continue;
+                    };
+
+                    let site_packages = entry.path.join("site-packages");
+                    if !fs.is_dir(&site_packages) {
+                        continue;
+                    }
+
+                    let python_version =
+                        if let Some((major, minor_part)) = version_suffix.split_once('.') {
+                            let minor_digits: String = minor_part
+                                .chars()
+                                .take_while(char::is_ascii_digit)
+                                .collect();
+                            match (major.parse::<u32>(), minor_digits.parse::<u32>()) {
+                                (Ok(major), Ok(minor)) if !minor_digits.is_empty() => {
+                                    Some((major, minor))
+                                }
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+                    site_packages_directories.push((
+                        python_version,
+                        name.to_string(),
+                        site_packages,
+                    ));
+                }
+            }
+
+            site_packages_directories.sort_by(
+                |(left_version, left_name, _), (right_version, right_name, _)| {
+                    left_version
+                        .cmp(right_version)
+                        .then_with(|| left_name.cmp(right_name))
+                },
+            );
+            site_packages_directories
+                .pop()
+                .map(|(_version, _name, site_packages)| site_packages)
+        }
+    }
+
+    fn auto_venv_paths(project_root: &Utf8Path) -> impl Iterator<Item = Utf8PathBuf> + '_ {
+        [".venv", "venv", "env", ".env"]
+            .into_iter()
+            .map(|dir| project_root.join(dir))
+    }
+
+    fn python_executable_in_venv(venv: &Utf8Path) -> Utf8PathBuf {
+        #[cfg(unix)]
+        {
+            venv.join("bin").join("python")
+        }
+        #[cfg(windows)]
+        {
+            venv.join("Scripts").join("python.exe")
+        }
+    }
+
     /// Resolve to the actual Python executable path
     #[must_use]
     pub fn python_path(&self, fs: &dyn FileSystem, project_root: &Utf8Path) -> Option<Utf8PathBuf> {
@@ -50,37 +154,16 @@ impl Interpreter {
                 }
             }
             Self::VenvPath(venv_path) => {
-                let venv = Utf8PathBuf::from(venv_path);
-                #[cfg(unix)]
-                let python = venv.join("bin").join("python");
-                #[cfg(windows)]
-                let python = venv.join("Scripts").join("python.exe");
-
-                if fs.exists(&python) {
-                    Some(python)
-                } else {
-                    None
-                }
+                let python = Self::python_executable_in_venv(Utf8Path::new(venv_path));
+                fs.exists(&python).then_some(python)
             }
-            Self::Auto => {
-                // Try common venv directories in project
-                for venv_dir in &[".venv", "venv", "env", ".env"] {
-                    let potential_venv = project_root.join(venv_dir);
-                    if fs.is_dir(&potential_venv) {
-                        #[cfg(unix)]
-                        let python = potential_venv.join("bin").join("python");
-                        #[cfg(windows)]
-                        let python = potential_venv.join("Scripts").join("python.exe");
-
-                        if fs.exists(&python) {
-                            return Some(python);
-                        }
-                    }
-                }
-
-                // Fall back to system python
-                system::find_executable("python").ok()
-            }
+            Self::Auto => Self::auto_venv_paths(project_root)
+                .find_map(|venv| {
+                    fs.is_dir(&venv)
+                        .then(|| Self::python_executable_in_venv(&venv))
+                        .filter(|python| fs.exists(python))
+                })
+                .or_else(|| system::find_executable("python").ok()),
         }
     }
 }

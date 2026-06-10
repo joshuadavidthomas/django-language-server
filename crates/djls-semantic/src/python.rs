@@ -23,6 +23,7 @@ use crate::python::analysis::calls::extract_return_value;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::statements::process_statements;
+pub use crate::python::models::compute_model_graph;
 pub use crate::python::models::extract::extract_model_graph;
 pub use crate::python::models::graph::ModelDef;
 pub use crate::python::models::graph::ModelGraph;
@@ -88,6 +89,13 @@ pub(crate) fn parse_python_module(
     file: File,
 ) -> Option<ParsedPythonModule<'_>> {
     let source = file.source(db);
+    parse_python_source(db, &source)
+}
+
+fn parse_python_source<'db>(
+    db: &'db dyn djls_source::Db,
+    source: &djls_source::SourceText,
+) -> Option<ParsedPythonModule<'db>> {
     if *source.kind() != FileKind::Python {
         return None;
     }
@@ -193,8 +201,11 @@ pub fn extract_tag_rules(
         return TagRuleMap::default();
     };
 
+    extract_tag_rules_from_body(parsed.body(db), registration_module)
+}
+
+fn extract_tag_rules_from_body(body: &[Stmt], registration_module: ModulePath) -> TagRuleMap {
     let registration_module = registration_module.into_string();
-    let body = parsed.body(db);
     let registrations = registry::collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
     let mut tag_rules = TagRuleMap::default();
@@ -222,8 +233,14 @@ pub fn extract_filter_arities(
         return FilterArityMap::default();
     };
 
+    extract_filter_arities_from_body(parsed.body(db), registration_module)
+}
+
+fn extract_filter_arities_from_body(
+    body: &[Stmt],
+    registration_module: ModulePath,
+) -> FilterArityMap {
     let registration_module = registration_module.into_string();
-    let body = parsed.body(db);
     let registrations = registry::collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
     let mut filter_arities = FilterArityMap::default();
@@ -251,8 +268,11 @@ pub fn extract_block_specs(
         return BlockSpecs::default();
     };
 
+    extract_block_specs_from_body(parsed.body(db), registration_module)
+}
+
+fn extract_block_specs_from_body(body: &[Stmt], registration_module: ModulePath) -> BlockSpecs {
     let registration_module = registration_module.into_string();
-    let body = parsed.body(db);
     let registrations = registry::collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
     let mut block_specs = BlockSpecs::default();

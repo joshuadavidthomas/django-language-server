@@ -2,6 +2,7 @@ use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fmt;
 
+use camino::Utf8Path;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -63,6 +64,21 @@ string_newtype! {
 }
 
 impl ModulePath {
+    #[must_use]
+    pub(crate) fn from_relative_path(path: &Utf8Path) -> Self {
+        let without_ext = path.with_extension("");
+        let parts: Vec<&str> = without_ext
+            .components()
+            .map(|component| component.as_str())
+            .collect();
+        let dotted = if parts.last() == Some(&"__init__") {
+            parts[..parts.len() - 1].join(".")
+        } else {
+            parts.join(".")
+        };
+        Self::new(dotted)
+    }
+
     #[must_use]
     pub fn into_string(self) -> String {
         self.0

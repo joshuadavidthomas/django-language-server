@@ -107,7 +107,7 @@ impl DjangoDatabase {
         }
 
         if env_changed {
-            project.register_source_roots(self);
+            project.refresh_source_roots(self);
         }
 
         env_changed

@@ -10,9 +10,9 @@ use rustc_hash::FxHashMap;
 use crate::db::Db as SemanticDb;
 use crate::project::Project;
 use crate::project::TemplateDirs;
-use crate::queries::compute_tag_specs;
 use crate::tags::TagRole;
 use crate::tags::TagSpecs;
+use crate::tags::compute_tag_specs;
 
 #[salsa::interned]
 #[derive(Debug)]
@@ -333,13 +333,14 @@ impl<'bits> LiteralTemplateReference<'bits> {
 #[cfg(test)]
 mod tests {
     use djls_conf::Settings;
-    use rustc_hash::FxHashMap;
+    use djls_source::Db as _;
+    use djls_source::FileRootKind;
 
     use super::*;
     use crate::project::Interpreter;
-    use crate::project::ProjectPythonIndex;
     use crate::project::ProjectTemplateFiles;
     use crate::project::TemplateLibraries;
+    use crate::project::resolve::SearchPaths;
     use crate::testing::TestDatabase;
 
     fn project_with_templates(
@@ -362,9 +363,13 @@ mod tests {
             TemplateDirs::Known(template_dirs.into_iter().map(Into::into).collect());
         let settings = Settings::default();
 
+        db.files()
+            .try_add_root(db, "/test/project".into(), FileRootKind::Project);
+
         Project::new(
             db,
             "/test/project".into(),
+            SearchPaths::default(),
             Interpreter::discover(settings.venv_path()),
             None,
             Vec::new(),
@@ -373,11 +378,6 @@ mod tests {
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             template_files,
-            ProjectPythonIndex::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
         )
     }
 

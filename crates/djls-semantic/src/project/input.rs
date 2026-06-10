@@ -5,20 +5,15 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::File;
-use djls_source::FileRootKind;
 use djls_source::FileSystem;
-use rustc_hash::FxHashMap;
 use salsa::Durability;
+use salsa::Setter;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
-use crate::project::resolve::find_site_packages;
+use crate::project::resolve::SearchPaths;
 use crate::project::symbols::TemplateLibraries;
-use crate::python::BlockSpecs;
-use crate::python::FilterArityMap;
-use crate::python::ModelGraph;
 use crate::python::ModulePath;
-use crate::python::TagRuleMap;
 
 /// Template-directory introspection state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -86,56 +81,6 @@ impl fmt::Debug for ProjectTemplateFiles {
     }
 }
 
-/// First-party Python modules sorted by module path, path, and kind.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct ProjectPythonIndex(Vec<ProjectPythonModule>);
-
-impl ProjectPythonIndex {
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn new(mut modules: Vec<ProjectPythonModule>) -> Self {
-        modules.sort_by(|a, b| {
-            a.module_path
-                .cmp(&b.module_path)
-                .then_with(|| a.path.cmp(&b.path))
-                .then_with(|| a.kind.cmp(&b.kind))
-        });
-        Self(modules)
-    }
-
-    pub(crate) fn models(&self) -> impl Iterator<Item = &ProjectPythonModule> {
-        self.0
-            .iter()
-            .filter(|module| module.kind == ProjectPythonModuleKind::Model)
-    }
-
-    pub(crate) fn templatetags(&self) -> impl Iterator<Item = &ProjectPythonModule> {
-        self.0
-            .iter()
-            .filter(|module| module.kind == ProjectPythonModuleKind::TemplateTag)
-    }
-}
-
-impl fmt::Debug for ProjectPythonIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ProjectPythonIndex").field(&self.0).finish()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ProjectPythonModuleKind {
-    Model,
-    TemplateTag,
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ProjectTemplateFile {
     name: String,
@@ -167,28 +112,17 @@ impl fmt::Debug for ProjectTemplateFile {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ProjectPythonModule {
+pub(crate) struct PythonModule {
     module_path: ModulePath,
     path: Utf8PathBuf,
-    kind: ProjectPythonModuleKind,
     file: File,
 }
 
-impl ProjectPythonModule {
-    pub(crate) fn model(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
+impl PythonModule {
+    pub(crate) fn new(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
         Self {
             module_path,
             path,
-            kind: ProjectPythonModuleKind::Model,
-            file,
-        }
-    }
-
-    pub(crate) fn templatetag(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
-        Self {
-            module_path,
-            path,
-            kind: ProjectPythonModuleKind::TemplateTag,
             file,
         }
     }
@@ -197,35 +131,22 @@ impl ProjectPythonModule {
         &self.module_path
     }
 
+    pub(crate) fn path(&self) -> &Utf8Path {
+        &self.path
+    }
+
     pub(crate) fn file(&self) -> File {
         self.file
     }
 }
 
-impl fmt::Debug for ProjectPythonModule {
+impl fmt::Debug for PythonModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProjectPythonModule")
+        f.debug_struct("PythonModule")
             .field("module_path", &self.module_path)
             .field("path", &self.path)
-            .field("kind", &self.kind)
             .finish_non_exhaustive()
     }
-}
-
-#[salsa::tracked(returns(ref))]
-pub(crate) fn project_model_modules(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<ProjectPythonModule> {
-    project.python_index(db).models().cloned().collect()
-}
-
-#[salsa::tracked(returns(ref))]
-pub(crate) fn project_templatetag_modules(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<ProjectPythonModule> {
-    project.python_index(db).templatetags().cloned().collect()
 }
 
 /// Complete project configuration as a Salsa input.
@@ -242,6 +163,9 @@ pub struct Project {
     /// The project root path
     #[returns(ref)]
     pub root: Utf8PathBuf,
+    /// Python module-resolution paths for this project.
+    #[returns(ref)]
+    pub(crate) search_paths: SearchPaths,
     /// Interpreter specification for Python environment discovery
     #[returns(ref)]
     pub interpreter: Interpreter,
@@ -273,33 +197,20 @@ pub struct Project {
     /// First-party template files discovered for this project.
     #[returns(ref)]
     pub(crate) template_files: ProjectTemplateFiles,
-    /// First-party Python modules discovered for this project.
-    #[returns(ref)]
-    pub(crate) python_index: ProjectPythonIndex,
-    /// Extracted tag rules from external modules (site-packages), keyed by
-    /// registration module path (e.g., `"django.templatetags.i18n"`).
-    /// Populated by `refresh_external_data`. Workspace files use tracked queries.
-    #[returns(ref)]
-    pub(crate) extracted_external_tag_rules: FxHashMap<String, TagRuleMap>,
-    /// Extracted filter arities from external modules (site-packages), keyed by
-    /// registration module path. Populated by `refresh_external_data`.
-    #[returns(ref)]
-    pub(crate) extracted_external_filter_arities: FxHashMap<String, FilterArityMap>,
-    /// Extracted block specs from external modules (site-packages), keyed by
-    /// registration module path. Populated by `refresh_external_data`.
-    #[returns(ref)]
-    pub(crate) extracted_external_block_specs: FxHashMap<String, BlockSpecs>,
-    /// Model graphs from external packages (site-packages), keyed by module
-    /// path (e.g., `"django.contrib.auth.models"`). Populated by scanning
-    /// the venv's site-packages directory. Workspace `models.py` files use
-    /// tracked queries via `collect_workspace_models` instead.
-    #[returns(ref)]
-    pub(crate) extracted_external_models: FxHashMap<ModulePath, ModelGraph>,
 }
 
 impl Project {
-    pub fn register_source_roots(self, db: &dyn ProjectDb) {
-        register_source_roots(db, self.root(db), self.interpreter(db));
+    pub fn refresh_source_roots(self, db: &mut dyn ProjectDb) {
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            self.root(db),
+            self.interpreter(db),
+            self.pythonpath(db),
+        );
+        search_paths.register_roots(db);
+        if self.search_paths(db) != &search_paths {
+            self.set_search_paths(db).to(search_paths);
+        }
     }
 
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
@@ -308,10 +219,17 @@ impl Project {
             resolve_django_settings(db.file_system(), root, settings);
         let env_vars = load_env_file(db.file_system(), root, settings);
 
-        register_source_roots(db, root, &interpreter);
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            root,
+            &interpreter,
+            settings.pythonpath(),
+        );
+        search_paths.register_roots(db);
 
         Project::builder(
             root.to_path_buf(),
+            search_paths,
             interpreter,
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
@@ -320,29 +238,11 @@ impl Project {
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             ProjectTemplateFiles::default(),
-            ProjectPythonIndex::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
         .template_files_durability(Durability::LOW)
-        .python_index_durability(Durability::LOW)
-        .extracted_external_tag_rules_durability(Durability::HIGH)
-        .extracted_external_filter_arities_durability(Durability::HIGH)
-        .extracted_external_block_specs_durability(Durability::HIGH)
-        .extracted_external_models_durability(Durability::HIGH)
         .new(db)
-    }
-}
-
-fn register_source_roots(db: &dyn ProjectDb, root: &Utf8Path, interpreter: &Interpreter) {
-    let source_files = db.files();
-    source_files.try_add_root(root.to_path_buf(), FileRootKind::Project);
-    if let Some(site_packages) = find_site_packages(db.file_system(), interpreter, root) {
-        source_files.try_add_root(site_packages, FileRootKind::LibrarySearchPath);
     }
 }
 
