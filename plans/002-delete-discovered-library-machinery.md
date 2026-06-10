@@ -19,6 +19,9 @@
 - **Depends on**: none (001 recommended first)
 - **Category**: tech-debt
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: commit `3913dce8`, 2026-06-10
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/654
 
 ## Why this matters
 
