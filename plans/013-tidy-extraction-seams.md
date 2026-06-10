@@ -23,6 +23,7 @@
 - **Status**: DONE
 - **Implemented at**: commit `0b06bd31`, 2026-06-10
 - **Bookmark**: `plan-013-tidy-extraction-seams`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/656
 
 ## Why this matters
 
