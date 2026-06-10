@@ -19,6 +19,9 @@
 - **Depends on**: none
 - **Category**: tech-debt
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: commit `f49ad9d4`, 2026-06-10
+- **Bookmark**: `plan-003-stabilize-project-handle`
 
 ## Why this matters
 

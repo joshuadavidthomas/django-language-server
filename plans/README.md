@@ -38,7 +38,7 @@ reconciliation and run early).
 |------|-------|----------|--------|------------|--------|
 | [001](001-delete-static-scaffolding.md) | Delete dead static-model milestone scaffolding | P1 | S | — | DONE |
 | [002](002-delete-discovered-library-machinery.md) | Delete never-populated Discovered-library machinery | P1 | M | — | DONE |
-| [003](003-stabilize-project-handle.md) | Stabilize the Project handle on the databases | P1 | S | — | TODO |
+| [003](003-stabilize-project-handle.md) | Stabilize the Project handle on the databases | P1 | S | — | DONE |
 | [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | TODO |
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | TODO |
 | [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | TODO |
@@ -130,6 +130,14 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-10 (Plan 003 executed)**: bookmark
+  `plan-003-stabilize-project-handle` / commit `f49ad9d4` stores the
+  project handle as a plain `Option<Project>` on `DjangoDatabase` and
+  `TestDatabase`, documents the set-once Salsa invariant, and reuses one
+  `ProjectIntrospector` in semantic tests. Validation passed:
+  `cargo test -q -p djls-db`, `cargo test -q -p djls-semantic`,
+  `cargo test -q`, `just fmt`, `just clippy`, `cargo build -q`, and
+  `just lint`. Advisor review found no invariant issues.
 - **2026-06-10 (Plan 002 executed)**: PR #654 / commit `3913dce8`
   deletes the Discovered-library machinery plus the dependent S118/S119/S121
   diagnostics; plan 002 is DONE. Final spot checks in the main repo passed
