@@ -130,8 +130,8 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-10 (Plan 013 executed)**: PR #656 / bookmark
-  `plan-013-tidy-extraction-seams` / commit `0b06bd31` removes the six
+- **2026-06-10 (Plan 013 closed)**: PR #656 merged into `main` as
+  `737f9091` (source commit `0b06bd31`); it removes the six
   dead root exports, exposes the registry collection seam through
   `crate::python`, renames `templatetag_module_file` to
   `module_file_in_search_path`, and removes the empty `project/python/`

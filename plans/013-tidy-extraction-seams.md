@@ -21,8 +21,8 @@
 - **Category**: tech-debt (Tidy First pass for the extraction plans)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 - **Status**: DONE
-- **Implemented at**: commit `0b06bd31`, 2026-06-10
-- **Bookmark**: `plan-013-tidy-extraction-seams`
+- **Implemented at**: source commit `0b06bd31`, 2026-06-10
+- **Merged at**: commit `737f9091`, 2026-06-10
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/656
 
 ## Why this matters
