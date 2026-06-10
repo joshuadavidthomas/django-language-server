@@ -20,8 +20,8 @@
 - **Category**: tech-debt
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 - **Status**: DONE
-- **Implemented at**: commit `f49ad9d4`, 2026-06-10
-- **Bookmark**: `plan-003-stabilize-project-handle`
+- **Implemented at**: source commit `f49ad9d4`, 2026-06-10
+- **Merged at**: commit `9ab8bb81`, 2026-06-10
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/655
 
 ## Why this matters
