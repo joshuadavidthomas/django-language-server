@@ -130,7 +130,7 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-10 (Plan 013 executed)**: bookmark
+- **2026-06-10 (Plan 013 executed)**: PR #656 / bookmark
   `plan-013-tidy-extraction-seams` / commit `0b06bd31` removes the six
   dead root exports, exposes the registry collection seam through
   `crate::python`, renames `templatetag_module_file` to
