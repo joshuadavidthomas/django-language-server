@@ -130,7 +130,7 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-10 (Plan 003 executed)**: bookmark
+- **2026-06-10 (Plan 003 executed)**: PR #655 / bookmark
   `plan-003-stabilize-project-handle` / commit `f49ad9d4` stores the
   project handle as a plain `Option<Project>` on `DjangoDatabase` and
   `TestDatabase`, documents the set-once Salsa invariant, and reuses one
