@@ -22,6 +22,7 @@
 - **Status**: DONE
 - **Implemented at**: commit `f49ad9d4`, 2026-06-10
 - **Bookmark**: `plan-003-stabilize-project-handle`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/655
 
 ## Why this matters
 
