@@ -35,6 +35,9 @@ clippy *ARGS:
 e2e *ARGS:
     uv run nox -s e2e -- "{{ ARGS }}"
 
+fixtures *ARGS:
+    uv run nox -s fixtures -- "{{ ARGS }}"
+
 fmt *ARGS:
     cargo +nightly fmt {{ ARGS }}
 
