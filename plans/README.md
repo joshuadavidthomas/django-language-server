@@ -39,7 +39,7 @@ reconciliation and run early).
 | [001](001-delete-static-scaffolding.md) | Delete dead static-model milestone scaffolding | P1 | S | — | DONE |
 | [002](002-delete-discovered-library-machinery.md) | Delete never-populated Discovered-library machinery | P1 | M | — | DONE |
 | [003](003-stabilize-project-handle.md) | Stabilize the Project handle on the databases | P1 | S | — | DONE |
-| [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | TODO |
+| [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | DONE |
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | TODO |
 | [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | TODO |
 | [005](005-python-env-discovery-crate.md) | Extract db-free env discovery into `djls-python` | P2 | M | — | TODO |
@@ -130,6 +130,16 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-10 (Plan 013 executed)**: bookmark
+  `plan-013-tidy-extraction-seams` / commit `0b06bd31` removes the six
+  dead root exports, exposes the registry collection seam through
+  `crate::python`, renames `templatetag_module_file` to
+  `module_file_in_search_path`, and removes the empty `project/python/`
+  directory. It also gates the test-only `ProjectTemplateFiles` project
+  façade export behind `cfg(test)` because removing the root export exposed
+  it as unused in non-test builds. Validation passed: `cargo build -q`,
+  `cargo test -q -p djls-semantic`, `cargo test -q`, `just fmt`,
+  `just clippy`, and `just lint`. Advisor review found no must-fix issues.
 - **2026-06-10 (Plan 003 closed)**: PR #655 merged into `main` as
   `9ab8bb81` (source commit `f49ad9d4`); it stores the
   project handle as a plain `Option<Project>` on `DjangoDatabase` and
