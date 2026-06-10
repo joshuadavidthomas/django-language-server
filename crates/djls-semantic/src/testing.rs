@@ -140,7 +140,8 @@ pub(crate) struct TestDatabase {
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
-    project: Arc<Mutex<Option<Project>>>,
+    project: Option<Project>,
+    project_introspector: Arc<ProjectIntrospector>,
 }
 
 impl TestDatabase {
@@ -153,7 +154,8 @@ impl TestDatabase {
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
-            project: Arc::new(Mutex::new(None)),
+            project: None,
+            project_introspector: Arc::new(ProjectIntrospector::new()),
         }
     }
 
@@ -186,8 +188,8 @@ impl TestDatabase {
         self.fs.lock().unwrap().remove_file(Utf8Path::new(path));
     }
 
-    pub(crate) fn set_project(&self, project: Project) {
-        *self.project.lock().unwrap() = Some(project);
+    pub(crate) fn set_project(&mut self, project: Project) {
+        self.project = Some(project);
     }
 
     #[must_use]
@@ -221,11 +223,11 @@ impl djls_source::Db for TestDatabase {
 #[salsa::db]
 impl ProjectDb for TestDatabase {
     fn project(&self) -> Option<Project> {
-        *self.project.lock().unwrap()
+        self.project
     }
 
     fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-        Arc::new(ProjectIntrospector::new())
+        self.project_introspector.clone()
     }
 }
 

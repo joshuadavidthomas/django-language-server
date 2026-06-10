@@ -38,8 +38,16 @@ pub struct DjangoDatabase {
     /// Registry of tracked files used by the workspace layer.
     pub(crate) files: SourceFiles,
 
-    /// The single project for this database instance
-    pub(crate) project: Arc<Mutex<Option<Project>>>,
+    /// The single project for this database instance.
+    ///
+    /// This handle must remain stable for the lifetime of the database:
+    /// tracked queries branch on the untracked `db.project()` read, so
+    /// replacing the handle (or flipping None→Some after queries have run)
+    /// changes results outside Salsa's dependency graph. Set once during
+    /// construction; reloads mutate fields via Salsa setters
+    /// (see `update_project_from_settings`). Same invariant as ty's
+    /// `ProjectDatabase` (`ty_project/src/db.rs`).
+    pub(crate) project: Option<Project>,
 
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
@@ -65,7 +73,7 @@ impl Default for DjangoDatabase {
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
+            project: None,
             settings: Arc::new(Mutex::new(Settings::default())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
@@ -96,7 +104,7 @@ impl DjangoDatabase {
         let mut db = Self {
             fs: file_system,
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
+            project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(ProjectIntrospector::new()),
             storage: salsa::Storage::new(None),
@@ -113,7 +121,7 @@ impl DjangoDatabase {
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
         let project = Project::bootstrap(self, root, settings);
-        *self.project.lock().unwrap() = Some(project);
+        self.project = Some(project);
     }
 }
 
@@ -181,7 +189,7 @@ impl SemanticDb for DjangoDatabase {
 #[salsa::db]
 impl ProjectDb for DjangoDatabase {
     fn project(&self) -> Option<Project> {
-        *self.project.lock().unwrap()
+        self.project
     }
 
     fn project_introspector(&self) -> Arc<ProjectIntrospector> {
@@ -250,10 +258,10 @@ mod invalidation_tests {
         let event_log = EventLog::default();
         let settings = Settings::default();
 
-        let db = DjangoDatabase {
+        let mut db = DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
+            project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
@@ -266,7 +274,7 @@ mod invalidation_tests {
         };
 
         let project = Project::bootstrap(&db, "/test/project".into(), &settings);
-        *db.project.lock().unwrap() = Some(project);
+        db.project = Some(project);
 
         (db, event_log)
     }
@@ -301,7 +309,7 @@ mod invalidation_tests {
         event_log.take();
 
         // Update template_libraries on the project
-        let project = db.project.lock().unwrap().unwrap();
+        let project = db.project.unwrap();
 
         let response = djls_semantic::TemplateLibrarySnapshot {
             symbols: Vec::new(),
@@ -336,7 +344,7 @@ mod invalidation_tests {
         let _specs = db.tag_specs();
         event_log.take();
 
-        let project = db.project.lock().unwrap().unwrap();
+        let project = db.project.unwrap();
 
         let new_tagspecs = djls_conf::TagSpecDef {
             version: "0.6.0".to_string(),
@@ -380,7 +388,7 @@ mod invalidation_tests {
 
         // Simulate a no-op update path: compare against an identical value and
         // intentionally skip any setter call.
-        let project = db.project.lock().unwrap().unwrap();
+        let project = db.project.unwrap();
         let current = project.tagspecs(&db).clone();
 
         assert_eq!(project.tagspecs(&db), &current);
@@ -512,7 +520,7 @@ def my_filter(value, arg):
         let db = DjangoDatabase {
             fs: Arc::new(fs),
             files: SourceFiles::default(),
-            project: Arc::new(Mutex::new(None)),
+            project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
             project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
@@ -556,7 +564,7 @@ def my_filter(value, arg):
     fn discovered_template_libraries_stored_on_project() {
         let (db, _event_log) = test_db_with_project();
 
-        let project = db.project.lock().unwrap().unwrap();
+        let project = db.project.unwrap();
         assert!(
             project.template_libraries(&db).loadable.is_empty(),
             "template libraries should initially be empty"
@@ -571,7 +579,7 @@ def my_filter(value, arg):
         let _specs = db.tag_specs();
         event_log.take();
 
-        let project = db.project.lock().unwrap().unwrap();
+        let project = db.project.unwrap();
 
         // Setting the same value should not trigger invalidation.
         // (manual comparison prevents setter call)
