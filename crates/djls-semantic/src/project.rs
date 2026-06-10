@@ -10,6 +10,7 @@ mod system;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::Project;
+#[cfg(test)]
 pub use crate::project::input::ProjectTemplateFiles;
 pub use crate::project::input::TemplateDirs;
 pub use crate::project::input::load_env_file;

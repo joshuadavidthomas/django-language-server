@@ -25,11 +25,12 @@ use crate::python::analysis::state::Env;
 use crate::python::analysis::statements::process_statements;
 pub use crate::python::models::compute_model_graph;
 pub use crate::python::models::extract::extract_model_graph;
-pub use crate::python::models::graph::ModelDef;
 pub use crate::python::models::graph::ModelGraph;
 pub use crate::python::models::graph::ModulePath;
 use crate::python::registry::ExtractionOutput;
-use crate::python::registry::RegistrationInfo;
+pub(crate) use crate::python::registry::RegistrationInfo;
+pub(crate) use crate::python::registry::RegistrationKind;
+pub(crate) use crate::python::registry::collect_registrations_from_body;
 pub(crate) use crate::python::types::ArgumentCountConstraint;
 #[cfg(test)]
 pub(crate) use crate::python::types::AsVar;
@@ -199,7 +200,7 @@ pub fn extract_tag_rules(
 
 fn extract_tag_rules_from_body(body: &[Stmt], registration_module: ModulePath) -> TagRuleMap {
     let registration_module = registration_module.into_string();
-    let registrations = registry::collect_registrations_from_body(body);
+    let registrations = collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
     let mut tag_rules = TagRuleMap::default();
 
@@ -234,7 +235,7 @@ fn extract_filter_arities_from_body(
     registration_module: ModulePath,
 ) -> FilterArityMap {
     let registration_module = registration_module.into_string();
-    let registrations = registry::collect_registrations_from_body(body);
+    let registrations = collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
     let mut filter_arities = FilterArityMap::default();
 
@@ -266,7 +267,7 @@ pub fn extract_block_specs(
 
 fn extract_block_specs_from_body(body: &[Stmt], registration_module: ModulePath) -> BlockSpecs {
     let registration_module = registration_module.into_string();
-    let registrations = registry::collect_registrations_from_body(body);
+    let registrations = collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
     let mut block_specs = BlockSpecs::default();
 
@@ -299,7 +300,7 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
         return ExtractionResult::default();
     };
     let module = parsed.into_syntax();
-    let registrations = registry::collect_registrations_from_body(&module.body);
+    let registrations = collect_registrations_from_body(&module.body);
     let func_defs = collect_func_defs(&module.body);
 
     let mut result = ExtractionResult::default();
@@ -339,10 +340,11 @@ fn registered_functions<'a>(
             .func_name
             .as_deref()
             .and_then(|name| func_defs.iter().find(|f| f.name.as_str() == name).copied())?;
+        let kind: RegistrationKind = reg.kind;
         let key = SymbolKey {
             registration_module: module_path.to_string(),
             name: reg.name.clone(),
-            kind: reg.kind.symbol_kind(),
+            kind: kind.symbol_kind(),
         };
         Some((reg, func, key))
     })
@@ -436,6 +438,13 @@ mod tests {
 
     fn snapshot(result: ExtractionResult) -> SortedExtractionResult {
         result.into()
+    }
+
+    #[test]
+    fn registry_collection_is_reachable_from_python_module() {
+        let registrations: Vec<RegistrationInfo> = collect_registrations_from_body(&[]);
+        assert!(registrations.is_empty());
+        let _ = RegistrationKind::Tag;
     }
 
     // (d) Pure Rust — tests parser infrastructure works
