@@ -18,7 +18,11 @@ plan 009 makes startup radically simpler first. Plans 015–017 are the
 **structural track**: the djls-project crate split, the djls-testing
 consolidation (corpus + shared Salsa test database), and the final
 djls-semantic tidy — sequenced last because they move/reshape code the
-earlier plans delete or rewrite.
+earlier plans delete or rewrite. Plan 018 is the **UX follow-up** to the
+static track: once library knowledge is derived from source, an
+environment scan distinguishes "unknown" from "installed but not in
+INSTALLED_APPS", restoring the diagnostics plan 002 deleted — this time
+fed by real facts.
 
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
@@ -33,7 +37,7 @@ reconciliation and run early).
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [001](001-delete-static-scaffolding.md) | Delete dead static-model milestone scaffolding | P1 | S | — | DONE |
-| [002](002-delete-discovered-library-machinery.md) | Delete never-populated Discovered-library machinery | P1 | M | — | TODO |
+| [002](002-delete-discovered-library-machinery.md) | Delete never-populated Discovered-library machinery | P1 | M | — | DONE |
 | [003](003-stabilize-project-handle.md) | Stabilize the Project handle on the databases | P1 | S | — | TODO |
 | [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | TODO |
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | TODO |
@@ -46,6 +50,7 @@ reconciliation and run early).
 | [015](015-create-djls-project-crate.md) | Create `djls-project`: move the project model out of djls-semantic | P2 | M/L | 007, 008, 009 | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, façade split, export audit | P2 | M | 013, 015, 016 | TODO |
+| [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | TODO |
 | [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | TODO |
 | [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | TODO |
@@ -106,6 +111,15 @@ REJECTED (with one-line rationale).
   djls-semantic — only meaningful after 013 (dead exports), 015 (project
   model gone), and 016 (test infra gone). Structure-only, behavior frozen
   by test counts + snapshot byte-identity.
+- **018 after 008 (and recommended after 009/015)**: it consumes plan 007's
+  settings facts and plan 008's derived active `TemplateLibraries` — the
+  subtraction `scan − active modules` is only sound once 008's "any
+  resolution failure demotes to Partial" guarantee exists. It restores the
+  S118/S119/S121 diagnostics plan 002 deleted, with the same codes and
+  messages, now fed by a real search-path scan (plan 002's maintenance note
+  sanctioned exactly this). Running it after 009 avoids churn overlap and
+  after 015 lets the scan query land in djls-project directly; both are
+  soft — the plan's drift check handles either layout.
 - **010** only needs 003 and can run in parallel with the static track
   (it touches `djls-server` handlers, which 006–009 barely touch). **011**
   needs both 009 (refresh is cheap bookkeeping by then) and 010 (snapshots
@@ -116,6 +130,13 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-10 (Plan 002 executed)**: PR #654 / commit `3913dce8`
+  deletes the Discovered-library machinery plus the dependent S118/S119/S121
+  diagnostics; plan 002 is DONE. Final spot checks in the main repo passed
+  `cargo build -q` and
+  `cargo test -q -p djls-semantic active_snapshot_replaces_loadable_symbols`;
+  an earlier execution pass also ran `cargo test -q`, `just clippy`,
+  `just fmt`, and `just lint` before the final targeted review fix.
 - **2026-06-10 (Plan 001 closed)**: PR #653 merged into `main` as
   `6bc3b07d`; plan 001 is DONE and local planning docs were rebased onto the
   updated `main`.
@@ -159,6 +180,25 @@ REJECTED (with one-line rationale).
   `CARGO_MANIFEST_DIR` (`djls-corpus/src/lib.rs:49-50`), so the crate move
   includes a data-dir migration step. ty's `ty_test` verified as the
   reference shape for djls-testing.
+
+- **2026-06-10 (UX follow-up)**: added plan 018 — distinguish "unknown"
+  from "installed but not in INSTALLED_APPS" with evidence. Verified while
+  planning: S118/S119/S121 remain unclaimed since plan 002 (old variant
+  shapes/messages recovered from `6bc3b07d` for verbatim reintroduction);
+  severity is config-driven with prefix matching
+  (`djls-conf/src/diagnostics.rs:52`), so no severity plumbing is needed;
+  `model_modules` (`resolve.rs:149-206`) already walks every search path
+  in production, so the new scan adds no new performance class;
+  `tests/project` lacks `django.contrib.flatpages` in `INSTALLED_APPS`
+  while every Django install ships its `templatetags/flatpages.py` — a
+  zero-setup e2e case. Design choices recorded in the plan: positive
+  evidence only (no `Knowledge` field on the inactive set), emission only
+  under `Known`, soundness by module subtraction rather than app-name
+  matching, and a separate fact type instead of re-merging into
+  `TemplateLibraries` (the plan-002 anti-pattern). A demand-driven
+  per-name probe was considered and rejected inside the plan: the
+  symbol-level diagnostics (S118/S119) need the full index anyway, and
+  the full scan is the same walk class Salsa already caches.
 
 ## Findings considered and rejected
 
