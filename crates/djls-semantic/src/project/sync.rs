@@ -25,7 +25,7 @@ use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::python::Interpreter;
 use crate::project::resolve::model_modules;
-use crate::project::resolve::templatetag_module_file;
+use crate::project::resolve::templatetag_modules;
 use crate::project::symbols::TemplateLibrarySnapshot;
 
 /// Refresh all external project data.
@@ -39,6 +39,7 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
         return;
     };
 
+    project.refresh_source_roots(db);
     refresh_template_dirs(db, project);
     refresh_template_libraries(db, project);
     refresh_template_files(db, project);
@@ -167,15 +168,10 @@ fn refresh_template_libraries(db: &mut dyn ProjectDb, project: Project) {
         django_settings_module.as_deref(),
         &pythonpath,
     ) {
-        let Ok(response_value) = serde_json::to_value(&snapshot) else {
-            tracing::warn!("Failed to serialize template library snapshot for cache");
-            apply_template_library_snapshot(db, project, snapshot);
-            return;
+        let envelope = CacheEnvelope {
+            djls_version: env!("CARGO_PKG_VERSION").to_string(),
+            response: snapshot.clone(),
         };
-        let envelope = serde_json::json!({
-            "djls_version": env!("CARGO_PKG_VERSION"),
-            "response": response_value,
-        });
 
         if let Err(e) = fs::create_dir_all(dir.as_std_path()) {
             tracing::warn!("Failed to create template library snapshot cache directory: {e}");
@@ -214,7 +210,7 @@ fn apply_template_library_snapshot(
     true
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct CacheEnvelope {
     djls_version: String,
     response: TemplateLibrarySnapshot,
@@ -309,7 +305,7 @@ fn refresh_python_modules(db: &mut dyn ProjectDb, project: Project) {
     let roots: Vec<_> = project
         .search_paths(db)
         .iter()
-        .map(|search_path| db.files().expect_root(db, search_path.path()))
+        .filter_map(|search_path| db.files().root(db, search_path.path()))
         .collect();
 
     for root in roots {
@@ -323,21 +319,11 @@ fn refresh_python_modules(db: &mut dyn ProjectDb, project: Project) {
             .map(|module| module.path().to_path_buf()),
     );
 
-    let module_paths: Vec<String> = project
-        .template_libraries(db)
-        .registration_modules()
-        .into_iter()
-        .map(|module| module.as_str().to_string())
-        .collect();
-    for module_path in module_paths {
-        for search_path in project.search_paths(db).iter() {
-            if let Some(file_path) =
-                templatetag_module_file(db.file_system(), module_path.as_str(), search_path.path())
-            {
-                file_paths.push(file_path);
-            }
-        }
-    }
+    file_paths.extend(
+        templatetag_modules(db, project)
+            .iter()
+            .map(|module| module.path().to_path_buf()),
+    );
 
     file_paths.sort();
     file_paths.dedup();
@@ -372,5 +358,24 @@ mod tests {
         let key1 = cache_key(Utf8Path::new("/project-a"), &interpreter, None, &pythonpath);
         let key2 = cache_key(Utf8Path::new("/project-b"), &interpreter, None, &pythonpath);
         assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn cache_envelope_round_trips() {
+        let snapshot = TemplateLibrarySnapshot {
+            symbols: Vec::new(),
+            libraries: [("i18n".to_string(), "django.templatetags.i18n".to_string())].into(),
+            builtins: vec!["django.template.defaulttags".to_string()],
+        };
+        let envelope = CacheEnvelope {
+            djls_version: "test-version".to_string(),
+            response: snapshot.clone(),
+        };
+
+        let json = serde_json::to_string(&envelope).unwrap();
+        let decoded: CacheEnvelope = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.djls_version, "test-version");
+        assert_eq!(decoded.response, snapshot);
     }
 }

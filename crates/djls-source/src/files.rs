@@ -188,9 +188,10 @@ struct SourceFilesInner {
 /// Classification used to assign durability to files under a root.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FileRootKind {
-    /// First-party files edited by the user.
+    /// User-edited files: project code and extra Python paths.
     Project,
-    /// Files discovered through module/search paths.
+    /// Installed packages discovered through library search paths; these
+    /// rarely change during a session.
     SearchPath,
 }
 
@@ -216,6 +217,11 @@ impl SourceFiles {
                 .path_durability(Durability::HIGH)
                 .new(db)
         })
+    }
+
+    #[must_use]
+    pub fn contains_file(&self, path: &Utf8Path) -> bool {
+        self.0.by_path.contains_key(path)
     }
 
     fn roots(&self) -> RwLockReadGuard<'_, Vec<FileRoot>> {

@@ -805,6 +805,7 @@ mod tests {
             discovery_knowledge: Knowledge::Known,
             loadable,
             builtins: BTreeMap::new(),
+            builtin_order: Vec::new(),
         }
     }
 
@@ -838,6 +839,7 @@ mod tests {
             discovery_knowledge: Knowledge::Known,
             loadable: BTreeMap::from([(library_name, vec![library])]),
             builtins: BTreeMap::new(),
+            builtin_order: Vec::new(),
         }
     }
 
@@ -874,7 +876,8 @@ mod tests {
             active_knowledge: Knowledge::Known,
             discovery_knowledge: Knowledge::Known,
             loadable: BTreeMap::from([(i18n_name, vec![i18n])]),
-            builtins: BTreeMap::from([(builtin_module, builtin)]),
+            builtins: BTreeMap::from([(builtin_module.clone(), builtin)]),
+            builtin_order: vec![builtin_module],
         }
     }
 

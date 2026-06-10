@@ -174,8 +174,8 @@ This works well for `simple_tag` and `inclusion_tag` registrations where the fun
 
 Both workspace and search-path extraction now flow through Salsa:
 
-- **Search-path modules** (site-packages/extra Python paths) — resolved through typed `SearchPath`s, represented as high-durability tracked files, and extracted through the same Salsa tracked queries as workspace files. External-data refreshes bump search-path root revisions for discovery and bump currently discovered search-path file revisions so stale installed-package content is reread.
-- **Workspace modules** (project code) — indexed into the project file set during project refresh, represented as low-durability tracked files, and extracted through the same Salsa tracked queries. Edits to known files recompute automatically; new files enter the graph on the next project refresh.
+- **Installed package modules** (site-packages/dist-packages) — resolved through typed `SearchPath`s, represented as high-durability tracked files under `SearchPath` roots, and extracted through the same Salsa tracked queries as workspace files. External-data refreshes bump search-path root revisions for discovery and bump currently discovered dependency file revisions so stale installed-package content is reread.
+- **Workspace modules** (project code and extra pythonpath entries) — represented as low-durability tracked files under `Project` roots and extracted through the same Salsa tracked queries. Edits to known files recompute automatically; new files enter the graph on the next project refresh.
 
 ## The Template Pipeline
 

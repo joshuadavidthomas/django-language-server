@@ -89,13 +89,6 @@ pub(crate) fn parse_python_module(
     file: File,
 ) -> Option<ParsedPythonModule<'_>> {
     let source = file.source(db);
-    parse_python_source(db, &source)
-}
-
-fn parse_python_source<'db>(
-    db: &'db dyn djls_source::Db,
-    source: &djls_source::SourceText,
-) -> Option<ParsedPythonModule<'db>> {
     if *source.kind() != FileKind::Python {
         return None;
     }

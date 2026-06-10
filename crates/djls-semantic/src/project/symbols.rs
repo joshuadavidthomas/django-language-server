@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
-use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -172,7 +171,7 @@ pub enum Knowledge {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateLibrarySnapshot {
     pub symbols: Vec<TemplateSymbolSnapshot>,
     pub libraries: BTreeMap<String, String>,
@@ -203,6 +202,7 @@ pub struct TemplateLibraries {
     pub discovery_knowledge: Knowledge,
     pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
     pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
+    pub builtin_order: Vec<PyModuleName>,
 }
 
 impl Default for TemplateLibraries {
@@ -212,6 +212,7 @@ impl Default for TemplateLibraries {
             discovery_knowledge: Knowledge::Unknown,
             loadable: BTreeMap::new(),
             builtins: BTreeMap::new(),
+            builtin_order: Vec::new(),
         }
     }
 }
@@ -225,36 +226,40 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn registration_modules(&self) -> FxHashSet<PyModuleName> {
+    pub fn registration_modules(&self) -> Vec<PyModuleName> {
         if self.active_knowledge != Knowledge::Known {
-            return FxHashSet::default();
+            return Vec::new();
         }
 
-        let mut modules = FxHashSet::default();
+        let mut modules = Vec::new();
 
         for (_name, library) in self.enabled_loadable_libraries() {
-            modules.insert(library.module().clone());
+            push_unique_module(&mut modules, library.module().clone());
         }
 
         for module in self.builtin_modules() {
-            modules.insert(module.clone());
+            push_unique_module(&mut modules, module.clone());
         }
 
         modules
     }
 
     pub fn builtin_modules(&self) -> impl Iterator<Item = &PyModuleName> + '_ {
-        self.builtins.keys()
+        self.builtin_order
+            .iter()
+            .filter(|module| self.builtins.contains_key(*module))
     }
 
     pub fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        self.builtins.values()
+        self.builtin_modules()
+            .filter_map(|module| self.builtins.get(module))
     }
 
     pub fn builtin_libraries_by_module(
         &self,
     ) -> impl Iterator<Item = (&PyModuleName, &TemplateLibrary)> + '_ {
-        self.builtins.iter()
+        self.builtin_modules()
+            .filter_map(|module| self.builtins.get(module).map(|library| (module, library)))
     }
 
     pub fn loadable_library_names(&self) -> impl Iterator<Item = &LibraryName> + '_ {
@@ -302,6 +307,7 @@ impl TemplateLibraries {
         kind: TemplateSymbolKind,
     ) -> Vec<InstalledSymbolCandidate> {
         let mut candidates = Vec::new();
+        let mut builtin_candidates = BTreeMap::new();
 
         for (module, library) in self.builtin_libraries_by_module() {
             for symbol in &library.symbols {
@@ -309,14 +315,18 @@ impl TemplateLibraries {
                     continue;
                 }
 
-                candidates.push(InstalledSymbolCandidate {
-                    symbol: symbol.clone(),
-                    origin: InstalledSymbolOrigin::Builtin {
-                        module: module.clone(),
+                builtin_candidates.insert(
+                    symbol.name.clone(),
+                    InstalledSymbolCandidate {
+                        symbol: symbol.clone(),
+                        origin: InstalledSymbolOrigin::Builtin {
+                            module: module.clone(),
+                        },
                     },
-                });
+                );
             }
         }
+        candidates.extend(builtin_candidates.into_values());
 
         for (name, library) in self.enabled_loadable_libraries() {
             for symbol in &library.symbols {
@@ -464,6 +474,7 @@ impl TemplateLibraries {
         let Some(response) = response else {
             self.active_knowledge = Knowledge::Unknown;
             self.builtins.clear();
+            self.builtin_order.clear();
             return self;
         };
 
@@ -529,6 +540,7 @@ impl TemplateLibraries {
         }
 
         self.builtins.clear();
+        self.builtin_order.clear();
         for builtin_module in response.builtins {
             let Ok(module) = PyModuleName::parse(&builtin_module) else {
                 continue;
@@ -539,6 +551,7 @@ impl TemplateLibraries {
                 continue;
             };
 
+            push_unique_module(&mut self.builtin_order, module.clone());
             self.builtins
                 .entry(module.clone())
                 .or_insert_with(|| TemplateLibrary::new_builtin(name, module));
@@ -608,7 +621,13 @@ impl TemplateLibraries {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
+    if !modules.contains(&module) {
+        modules.push(module);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateSymbolSnapshot {
     #[serde(default)]
     pub kind: Option<TemplateSymbolKind>,
@@ -619,4 +638,76 @@ pub struct TemplateSymbolSnapshot {
     pub module: String,
     #[serde(default)]
     pub doc: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_candidates_keep_last_builtin_symbol() {
+        let libraries =
+            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
+                symbols: vec![
+                    TemplateSymbolSnapshot {
+                        kind: Some(TemplateSymbolKind::Filter),
+                        name: "duplicate".to_string(),
+                        load_name: None,
+                        library_module: "z_first".to_string(),
+                        module: "z_first".to_string(),
+                        doc: Some("first".to_string()),
+                    },
+                    TemplateSymbolSnapshot {
+                        kind: Some(TemplateSymbolKind::Filter),
+                        name: "duplicate".to_string(),
+                        load_name: None,
+                        library_module: "a_second".to_string(),
+                        module: "a_second".to_string(),
+                        doc: Some("second".to_string()),
+                    },
+                ],
+                libraries: BTreeMap::new(),
+                builtins: vec!["z_first".to_string(), "a_second".to_string()],
+            }));
+
+        let candidates = libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].symbol.doc.as_deref(), Some("second"));
+        assert_eq!(
+            candidates[0].origin,
+            InstalledSymbolOrigin::Builtin {
+                module: PyModuleName::parse("a_second").unwrap()
+            }
+        );
+    }
+
+    #[test]
+    fn registration_modules_keep_deterministic_precedence_order() {
+        let libraries =
+            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
+                symbols: Vec::new(),
+                libraries: [("project_tags".to_string(), "project.tags".to_string())].into(),
+                builtins: vec![
+                    "z.templatetags.tags".to_string(),
+                    "django.template.defaulttags".to_string(),
+                    "z.templatetags.tags".to_string(),
+                ],
+            }));
+
+        let modules: Vec<_> = libraries
+            .registration_modules()
+            .into_iter()
+            .map(|module| module.as_str().to_string())
+            .collect();
+
+        assert_eq!(
+            modules,
+            vec![
+                "project.tags",
+                "z.templatetags.tags",
+                "django.template.defaulttags",
+            ]
+        );
+    }
 }

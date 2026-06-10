@@ -93,6 +93,14 @@ impl Workspace {
         &self.buffers
     }
 
+    fn open_changes_file_set(&self, db: &dyn Db, path: &Utf8Path) -> bool {
+        !self.overlay.disk.is_file(path) || !db.files().contains_file(path)
+    }
+
+    fn close_changes_file_set(&self, path: &Utf8Path) -> bool {
+        !self.overlay.disk.is_file(path)
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(crate) fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
@@ -108,14 +116,12 @@ impl Workspace {
         version: i32,
         kind: FileKind,
     ) -> TextDocument {
+        let file_set_changes = self.open_changes_file_set(db, path);
         let file = db.get_or_create_file(path);
         let document =
             TextDocument::new(path.to_path_buf(), content.to_string(), version, kind, file);
         debug_assert_eq!(document.kind(), kind);
-        db.bump_file_revision(document.file());
-        if let Some(root) = db.files().root(db, path) {
-            db.bump_file_root_revision(root);
-        }
+        db.bump_file_and_maybe_root_revision(document.file(), path, file_set_changes);
         self.buffers.open(path.to_path_buf(), document.clone());
         document
     }
@@ -147,6 +153,7 @@ impl Workspace {
             Some(document)
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range().is_none() {
+                let file_set_changes = self.open_changes_file_set(db, path);
                 let file = db.get_or_create_file(path);
                 let document = TextDocument::new(
                     path.to_path_buf(),
@@ -155,10 +162,7 @@ impl Workspace {
                     FileKind::Other,
                     file,
                 );
-                db.bump_file_revision(file);
-                if let Some(root) = db.files().root(db, path) {
-                    db.bump_file_root_revision(root);
-                }
+                db.bump_file_and_maybe_root_revision(file, path, file_set_changes);
                 self.buffers.open(path.to_path_buf(), document.clone());
                 Some(document)
             } else {
@@ -175,11 +179,9 @@ impl Workspace {
         db: &mut dyn Db,
         path: &Utf8Path,
     ) -> Option<TextDocument> {
+        let file_set_changes = self.close_changes_file_set(path);
         let document = self.buffers.close(path)?;
-        db.bump_file_revision(document.file());
-        if let Some(root) = db.files().root(db, path) {
-            db.bump_file_root_revision(root);
-        }
+        db.bump_file_and_maybe_root_revision(document.file(), path, file_set_changes);
         Some(document)
     }
 }
@@ -392,6 +394,7 @@ fn buffer_relative_path(root: &Utf8Path, path: &Utf8Path) -> Option<Utf8PathBuf>
 #[cfg(test)]
 mod tests {
     use djls_source::Db as _;
+    use djls_source::FileRootKind;
     use djls_source::InMemoryFileSystem;
     use djls_source::SourceFiles;
     use tempfile::tempdir;
@@ -497,6 +500,84 @@ mod tests {
             .collect();
 
         assert_eq!(relatives, vec!["visible.html"]);
+    }
+
+    #[test]
+    fn disk_backed_open_and_close_do_not_bump_root_revision() {
+        let temp_dir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let file_path = root.join("template.html");
+        std::fs::write(file_path.as_std_path(), "disk template").unwrap();
+
+        let mut workspace = Workspace::new();
+        let mut db = TestDb::new(workspace.overlay());
+        let root = db
+            .files()
+            .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
+        db.get_or_create_file(&file_path);
+
+        workspace.open_document(
+            &mut db,
+            &file_path,
+            "buffer template",
+            1,
+            FileKind::Template,
+        );
+        assert_eq!(root.revision(&db), 0);
+
+        workspace.close_document(&mut db, &file_path).unwrap();
+        assert_eq!(root.revision(&db), 0);
+    }
+
+    #[test]
+    fn untracked_disk_backed_open_bumps_root_revision() {
+        let temp_dir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let file_path = root.join("template.html");
+        std::fs::write(file_path.as_std_path(), "disk template").unwrap();
+
+        let mut workspace = Workspace::new();
+        let mut db = TestDb::new(workspace.overlay());
+        let root = db
+            .files()
+            .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
+
+        workspace.open_document(
+            &mut db,
+            &file_path,
+            "buffer template",
+            1,
+            FileKind::Template,
+        );
+        assert_eq!(root.revision(&db), 1);
+
+        workspace.close_document(&mut db, &file_path).unwrap();
+        assert_eq!(root.revision(&db), 1);
+    }
+
+    #[test]
+    fn buffer_only_open_and_close_bump_root_revision() {
+        let temp_dir = tempdir().unwrap();
+        let root_path = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let file_path = root_path.join("template.html");
+
+        let mut workspace = Workspace::new();
+        let mut db = TestDb::new(workspace.overlay());
+        let root = db
+            .files()
+            .try_add_root(&db, root_path.to_path_buf(), FileRootKind::Project);
+
+        workspace.open_document(
+            &mut db,
+            &file_path,
+            "buffer template",
+            1,
+            FileKind::Template,
+        );
+        assert_eq!(root.revision(&db), 1);
+
+        workspace.close_document(&mut db, &file_path).unwrap();
+        assert_eq!(root.revision(&db), 2);
     }
 
     #[test]
