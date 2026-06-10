@@ -320,6 +320,7 @@ mod tests {
             discovery_knowledge: Knowledge::Known,
             loadable: BTreeMap::from([(LibraryName::parse("humanize").unwrap(), vec![library])]),
             builtins: BTreeMap::new(),
+            builtin_order: Vec::new(),
         };
 
         let markdown =

@@ -1,13 +1,12 @@
 //! Module path → file path resolution using Python search paths.
 
-use std::sync::Arc;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
+use rustc_hash::FxHashMap;
 
 use crate::project::Interpreter;
 use crate::project::db::Db as ProjectDb;
@@ -16,10 +15,7 @@ use crate::project::input::PythonModule;
 use crate::python::ModulePath;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SearchPath(Arc<SearchPathInner>);
-
-#[derive(Debug, PartialEq, Eq)]
-enum SearchPathInner {
+pub enum SearchPath {
     FirstParty(Utf8PathBuf),
     Extra(Utf8PathBuf),
     SitePackages(Utf8PathBuf),
@@ -27,15 +23,15 @@ enum SearchPathInner {
 
 impl SearchPath {
     fn first_party(path: Utf8PathBuf) -> Self {
-        Self(Arc::new(SearchPathInner::FirstParty(path)))
+        Self::FirstParty(path)
     }
 
     fn extra(path: Utf8PathBuf) -> Self {
-        Self(Arc::new(SearchPathInner::Extra(path)))
+        Self::Extra(path)
     }
 
     fn site_packages(path: Utf8PathBuf) -> Self {
-        Self(Arc::new(SearchPathInner::SitePackages(path)))
+        Self::SitePackages(path)
     }
 
     fn from_pythonpath(
@@ -43,7 +39,9 @@ impl SearchPath {
         discovered_site_packages: Option<&Utf8Path>,
         path: Utf8PathBuf,
     ) -> Self {
-        if discovered_site_packages.is_some_and(|site_packages| site_packages == path) {
+        if discovered_site_packages.is_some_and(|site_packages| site_packages == path)
+            || has_installed_package_component(&path)
+        {
             Self::site_packages(path)
         } else if path.starts_with(root) {
             Self::first_party(path)
@@ -54,25 +52,29 @@ impl SearchPath {
 
     #[must_use]
     pub(crate) fn path(&self) -> &Utf8Path {
-        match self.0.as_ref() {
-            SearchPathInner::FirstParty(path)
-            | SearchPathInner::Extra(path)
-            | SearchPathInner::SitePackages(path) => path,
+        match self {
+            Self::FirstParty(path) | Self::Extra(path) | Self::SitePackages(path) => path,
         }
     }
 
     #[must_use]
     pub(crate) fn is_first_party(&self) -> bool {
-        matches!(self.0.as_ref(), SearchPathInner::FirstParty(_))
+        matches!(self, Self::FirstParty(_))
     }
 
     fn root_kind(&self) -> FileRootKind {
-        if self.is_first_party() {
-            FileRootKind::Project
-        } else {
-            FileRootKind::SearchPath
+        match self {
+            // Extra pythonpath entries are user-edited code, so they get the
+            // same low-durability treatment as project files.
+            Self::FirstParty(_) | Self::Extra(_) => FileRootKind::Project,
+            Self::SitePackages(_) => FileRootKind::SearchPath,
         }
     }
+}
+
+fn has_installed_package_component(path: &Utf8Path) -> bool {
+    path.components()
+        .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -146,34 +148,53 @@ impl SearchPaths {
 
 #[salsa::tracked(returns(ref))]
 pub(crate) fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
+    let search_paths = project.search_paths(db);
     let mut modules_by_path: Vec<(usize, PythonModule)> = Vec::new();
+    let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
 
-    for search_path in project.search_paths(db).iter() {
-        let root = db.files().expect_root(db, search_path.path());
-        let _ = root.revision(db);
+    for search_path in search_paths.iter() {
+        if let Some(root) = db.files().root(db, search_path.path()) {
+            let _ = root.revision(db);
+        } else {
+            tracing::warn!(
+                "Search path has no registered source root: {}",
+                search_path.path()
+            );
+        }
+
+        let excluded_paths: Vec<_> = if search_path.is_first_party() {
+            search_paths
+                .iter()
+                .filter(|other| {
+                    !other.is_first_party() && other.path().starts_with(search_path.path())
+                })
+                .map(|other| other.path().to_path_buf())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let search_path_len = search_path.path().as_str().len();
-        for (module_path, file_path) in discover_model_files(
+        for (module_path, file_path) in discover_model_files_excluding(
             db.file_system(),
             search_path.path(),
             search_path.root_kind(),
+            &excluded_paths,
         ) {
             let module = PythonModule::new(
                 module_path,
                 file_path.clone(),
                 db.get_or_create_file(&file_path),
             );
-            match modules_by_path
-                .iter_mut()
-                .find(|(_search_path_len, existing)| existing.path() == file_path)
-            {
-                Some((existing_search_path_len, existing))
-                    if search_path_len > *existing_search_path_len =>
-                {
+            if let Some(index) = path_indexes.get(&file_path).copied() {
+                let (existing_search_path_len, existing) = &mut modules_by_path[index];
+                if search_path_len > *existing_search_path_len {
                     *existing_search_path_len = search_path_len;
                     *existing = module;
                 }
-                Some(_) => {}
-                None => modules_by_path.push((search_path_len, module)),
+            } else {
+                path_indexes.insert(file_path, modules_by_path.len());
+                modules_by_path.push((search_path_len, module));
             }
         }
     }
@@ -205,48 +226,74 @@ pub(crate) fn templatetag_module_file(
 
 #[salsa::tracked(returns(ref))]
 pub(crate) fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
-    let module_paths: Vec<String> = project
+    let search_paths: Vec<_> = project.search_paths(db).iter().collect();
+    for search_path in &search_paths {
+        if let Some(root) = db.files().root(db, search_path.path()) {
+            let _ = root.revision(db);
+        } else {
+            tracing::warn!(
+                "Search path has no registered source root: {}",
+                search_path.path()
+            );
+        }
+    }
+
+    let mut modules = Vec::new();
+
+    for (module_index, module_path) in project
         .template_libraries(db)
         .registration_modules()
         .into_iter()
-        .map(|module| module.as_str().to_string())
-        .collect();
-
-    let search_paths = project.search_paths(db);
-    let mut modules = Vec::new();
-
-    for module_path in module_paths {
-        for search_path in search_paths.iter() {
-            let root = db.files().expect_root(db, search_path.path());
-            let _ = root.revision(db);
-
+        .enumerate()
+    {
+        for search_path in &search_paths {
             let Some(file_path) =
                 templatetag_module_file(db.file_system(), module_path.as_str(), search_path.path())
             else {
                 continue;
             };
 
-            modules.push(PythonModule::new(
-                ModulePath::new(module_path.clone()),
-                file_path.clone(),
-                db.get_or_create_file(&file_path),
+            modules.push((
+                module_index,
+                PythonModule::new(
+                    ModulePath::new(module_path.as_str().to_string()),
+                    file_path.clone(),
+                    db.get_or_create_file(&file_path),
+                ),
             ));
             break;
         }
     }
 
-    modules
+    modules.sort_by(|(left_index, left), (right_index, right)| {
+        left_index
+            .cmp(right_index)
+            .then_with(|| left.module_path().cmp(right.module_path()))
+            .then_with(|| left.path().cmp(right.path()))
+    });
+
+    modules.into_iter().map(|(_index, module)| module).collect()
 }
 
 /// Discover Django model source files and return their resolved module paths.
 ///
 /// Finds `models.py` files and `.py` files inside `models/` packages
 /// (directories with `__init__.py`) without reading file contents.
+#[cfg(test)]
 #[must_use]
 pub(crate) fn discover_model_files(
     fs: &dyn FileSystem,
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
+) -> Vec<(ModulePath, Utf8PathBuf)> {
+    discover_model_files_excluding(fs, base_dir, root_kind, &[])
+}
+
+fn discover_model_files_excluding(
+    fs: &dyn FileSystem,
+    base_dir: &Utf8Path,
+    root_kind: FileRootKind,
+    excluded_roots: &[Utf8PathBuf],
 ) -> Vec<(ModulePath, Utf8PathBuf)> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
@@ -290,10 +337,9 @@ pub(crate) fn discover_model_files(
             continue;
         }
 
-        if root_kind == FileRootKind::Project
-            && path
-                .components()
-                .any(|component| component.as_str() == "site-packages")
+        if excluded_roots
+            .iter()
+            .any(|excluded| path.starts_with(excluded))
         {
             continue;
         }
@@ -318,6 +364,7 @@ mod tests {
     use djls_source::InMemoryFileSystem;
 
     use super::*;
+    use crate::compute_filter_arity_specs;
     use crate::project::ProjectTemplateFiles;
     use crate::project::TemplateDirs;
     use crate::project::TemplateLibraries;
@@ -477,7 +524,7 @@ mod tests {
         let external_root = db
             .files()
             .expect_root(&db, Utf8Path::new("/external/pkg/models.py"));
-        assert_eq!(external_root.kind(&db), FileRootKind::SearchPath);
+        assert_eq!(external_root.kind(&db), FileRootKind::Project);
 
         let search_paths = SearchPaths::from_project_settings(
             db.file_system(),
@@ -490,6 +537,61 @@ mod tests {
             db.files()
                 .root(&db, Utf8Path::new("/external/pkg/models.py"))
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn model_modules_tolerate_unregistered_search_paths() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/shared/blog/models.py",
+            "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
+        );
+
+        let pythonpath = vec!["/shared".to_string()];
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
+        );
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+
+        let modules = model_modules(&db, project);
+        assert!(
+            modules
+                .iter()
+                .any(|module| module.module_path().as_str() == "blog.models")
+        );
+    }
+
+    #[test]
+    fn templatetag_modules_tolerate_unregistered_search_paths() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/django/templatetags/i18n.py",
+            "from django import template\nregister = template.Library()\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        let project = project_for_search_paths(
+            &db,
+            "/project",
+            search_paths,
+            template_libraries_for_module("django.templatetags.i18n"),
+        );
+
+        let modules = templatetag_modules(&db, project);
+        assert_eq!(modules.len(), 1);
+        assert_eq!(
+            modules[0].module_path().as_str(),
+            "django.templatetags.i18n"
         );
     }
 
@@ -523,6 +625,135 @@ mod tests {
         );
         let root = db.files().expect_root(&db, modules[0].path());
         assert_eq!(root.kind(&db), FileRootKind::SearchPath);
+    }
+
+    #[test]
+    fn templatetag_resolution_prefers_first_party_module_shadowing_dependency() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/django/templatetags/i18n.py",
+            "from django import template\nregister = template.Library()\n",
+        );
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
+            "from django import template\nregister = template.Library()\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = project_for_search_paths(
+            &db,
+            "/project",
+            search_paths,
+            template_libraries_for_module("django.templatetags.i18n"),
+        );
+
+        let modules = templatetag_modules(&db, project);
+        assert_eq!(modules.len(), 1);
+        assert_eq!(
+            modules[0].path(),
+            Utf8Path::new("/project/django/templatetags/i18n.py")
+        );
+    }
+
+    #[test]
+    fn templatetag_modules_preserve_registration_order_across_roots() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/a/templatetags/tags.py",
+            "from django import template\nregister = template.Library()\n",
+        );
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/z/templatetags/tags.py",
+            "from django import template\nregister = template.Library()\n",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = project_for_search_paths(
+            &db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
+                symbols: Vec::new(),
+                libraries: BTreeMap::new(),
+                builtins: vec![
+                    "a.templatetags.tags".to_string(),
+                    "z.templatetags.tags".to_string(),
+                ],
+            })),
+        );
+
+        let modules = templatetag_modules(&db, project);
+        let module_paths: Vec<_> = modules
+            .iter()
+            .map(|module| module.module_path().as_str())
+            .collect();
+
+        assert_eq!(
+            module_paths,
+            vec!["a.templatetags.tags", "z.templatetags.tags"]
+        );
+    }
+
+    #[test]
+    fn filter_arity_specs_preserve_builtin_registration_order_across_roots() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/z_first.py",
+            r"
+from django import template
+register = template.Library()
+
+@register.filter
+def duplicate(value):
+    return value
+",
+        );
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/a_second.py",
+            r"
+from django import template
+register = template.Library()
+
+@register.filter
+def duplicate(value, arg):
+    return value
+",
+        );
+
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = project_for_search_paths(
+            &db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
+                symbols: Vec::new(),
+                libraries: BTreeMap::new(),
+                builtins: vec!["z_first".to_string(), "a_second".to_string()],
+            })),
+        );
+
+        let specs = compute_filter_arity_specs(&db, project);
+        let arity = specs.get("duplicate").expect("filter should be extracted");
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
     }
 
     #[test]
@@ -748,6 +979,54 @@ mod tests {
     }
 
     #[test]
+    fn refresh_external_data_discovers_site_packages_created_after_bootstrap() {
+        let mut db = TestDatabase::new();
+        let settings = Settings::default();
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = Project::new(
+            &db,
+            "/project".into(),
+            search_paths,
+            Interpreter::Auto,
+            None,
+            Vec::new(),
+            Vec::new(),
+            TemplateDirs::Unknown,
+            settings.tagspecs().clone(),
+            TemplateLibraries::default(),
+            ProjectTemplateFiles::default(),
+        );
+        db.set_project(project);
+
+        assert!(
+            project
+                .search_paths(&db)
+                .iter()
+                .all(|search_path| search_path.path()
+                    != Utf8Path::new("/project/.venv/lib/python3.12/site-packages"))
+        );
+
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/blog/models.py",
+            "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
+        );
+
+        refresh_external_data(&mut db);
+
+        assert!(project.search_paths(&db).iter().any(|search_path| {
+            search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
+        }));
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("VenvArticle").is_some());
+    }
+
+    #[test]
     fn discover_external_model_files_finds_models() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
@@ -962,25 +1241,36 @@ class Article(models.Model):
     }
 
     #[test]
-    fn discover_model_files_workspace_skips_site_packages() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-        // Use a non-hidden venv path so the hidden filter doesn't mask
-        // the site-packages component check we're actually testing.
-        let sp = root.join("venv/lib/python3.12/site-packages/somelib");
-        std::fs::create_dir_all(&sp).unwrap();
-        std::fs::write(
-            sp.join("models.py"),
-            "from django.db import models\nclass Lib(models.Model): pass\n",
-        )
-        .unwrap();
-
-        let results =
-            discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
-        assert!(
-            results.is_empty(),
-            "should not discover models in site-packages"
+    fn project_model_discovery_skips_registered_non_first_party_paths() {
+        let db = TestDatabase::new();
+        db.add_file(
+            "/project/app/models.py",
+            "from django.db import models\nclass App(models.Model): pass\n",
         );
+        db.add_file(
+            "/project/venv/lib/python3.12/site-packages/somelib/models.py",
+            "from django.db import models\nclass Lib(models.Model): pass\n",
+        );
+
+        let pythonpath = vec!["/project/venv/lib/python3.12/site-packages".to_string()];
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &Interpreter::InterpreterPath("/usr/bin/python".to_string()),
+            &pythonpath,
+        );
+        search_paths.register_roots(&db);
+        let project =
+            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+
+        let modules = model_modules(&db, project);
+        let module_paths: Vec<_> = modules
+            .iter()
+            .map(|module| module.module_path().as_str())
+            .collect();
+
+        assert!(module_paths.contains(&"app.models"));
+        assert!(module_paths.contains(&"somelib.models"));
+        assert!(!module_paths.contains(&"venv.lib.python3.12.site-packages.somelib.models"));
     }
 }
