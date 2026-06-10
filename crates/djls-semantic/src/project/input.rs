@@ -188,7 +188,6 @@ pub struct Project {
     /// Template libraries and symbols for this project.
     ///
     /// This value always exists to support progressive enhancement:
-    /// - Discovered libraries are populated by scanning `sys.path`.
     /// - Installed libraries/symbols are populated by project introspection.
     ///
     /// The semantic layer combines this with `{% load %}` scope computed from templates.

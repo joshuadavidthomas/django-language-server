@@ -209,7 +209,6 @@ mod invalidation_tests {
 
     use djls_conf::Settings;
     use djls_semantic::Db as SemanticDb;
-    use djls_semantic::Knowledge;
     use djls_semantic::Project;
     use djls_semantic::TemplateLibraries;
     use djls_source::InMemoryFileSystem;
@@ -558,10 +557,6 @@ def my_filter(value, arg):
         let (db, _event_log) = test_db_with_project();
 
         let project = db.project.lock().unwrap().unwrap();
-        assert_eq!(
-            project.template_libraries(&db).discovery_knowledge,
-            Knowledge::Unknown
-        );
         assert!(
             project.template_libraries(&db).loadable.is_empty(),
             "template libraries should initially be empty"

@@ -32,7 +32,6 @@ use crate::snippets::generate_snippet_for_tag_with_end;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionCandidateKind {
     TagName,
-    ScannedTagName,
     EndTag,
     TagArgumentLiteral,
     TagArgumentChoice,
@@ -41,7 +40,6 @@ pub(crate) enum CompletionCandidateKind {
     LibraryName,
     LoadSymbol,
     Filter,
-    ScannedFilter,
 }
 
 impl CompletionCandidateKind {
@@ -54,7 +52,6 @@ impl CompletionCandidateKind {
             | Self::LibraryName
             | Self::LoadSymbol
             | Self::Filter => 1,
-            Self::ScannedTagName | Self::ScannedFilter => 2,
             Self::TagArgumentPlaceholder => 3,
             Self::TagArgumentSnippet => 4,
         }
@@ -256,21 +253,6 @@ impl CompletionCandidate {
         }
     }
 
-    fn scanned_tag_name(
-        name: &str,
-        prefix: &OffsetPrefix<'_>,
-        needs_leading_space: bool,
-        close: TagClose,
-    ) -> Self {
-        Self {
-            label: name.to_string(),
-            kind: CompletionCandidateKind::ScannedTagName,
-            edit: CompletionEdit::tag_plain(name, prefix, needs_leading_space, close),
-            detail: Some("scanned tag".to_string()),
-            documentation: None,
-        }
-    }
-
     fn end_tag(
         opener_name: &str,
         name: &str,
@@ -387,16 +369,6 @@ impl CompletionCandidate {
             edit: CompletionEdit::plain(prefix.span, name),
             detail: Some(filter_completion_detail(origin)),
             documentation: documentation.map(str::to_string),
-        }
-    }
-
-    fn scanned_filter(name: &str, prefix: &OffsetPrefix<'_>) -> Self {
-        Self {
-            label: name.to_string(),
-            kind: CompletionCandidateKind::ScannedFilter,
-            edit: CompletionEdit::plain(prefix.span, name),
-            detail: Some("scanned filter".to_string()),
-            documentation: None,
         }
     }
 }
@@ -532,17 +504,6 @@ fn generate_tag_name_candidates(
     let mut candidates = Vec::new();
 
     if template_libraries.active_knowledge != Knowledge::Known {
-        for name in template_libraries.discovered_symbol_names(TemplateSymbolKind::Tag) {
-            let name = name.as_str();
-            if name.starts_with(prefix.text) {
-                candidates.push(CompletionCandidate::scanned_tag_name(
-                    name,
-                    prefix,
-                    needs_leading_space,
-                    close,
-                ));
-            }
-        }
         return candidates;
     }
 
@@ -742,12 +703,7 @@ fn generate_filter_candidates(
         return candidates;
     }
 
-    template_libraries
-        .discovered_symbol_names(TemplateSymbolKind::Filter)
-        .into_iter()
-        .filter(|name| name.as_str().starts_with(prefix.text))
-        .map(|name| CompletionCandidate::scanned_filter(name.as_str(), prefix))
-        .collect()
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -802,7 +758,6 @@ mod tests {
 
         TemplateLibraries {
             active_knowledge: Knowledge::Known,
-            discovery_knowledge: Knowledge::Known,
             loadable,
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -836,7 +791,6 @@ mod tests {
 
         TemplateLibraries {
             active_knowledge: Knowledge::Known,
-            discovery_knowledge: Knowledge::Known,
             loadable: BTreeMap::from([(library_name, vec![library])]),
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -874,7 +828,6 @@ mod tests {
 
         TemplateLibraries {
             active_knowledge: Knowledge::Known,
-            discovery_knowledge: Knowledge::Known,
             loadable: BTreeMap::from([(i18n_name, vec![i18n])]),
             builtins: BTreeMap::from([(builtin_module.clone(), builtin)]),
             builtin_order: vec![builtin_module],
@@ -1162,13 +1115,17 @@ mod tests {
 
     #[test]
     fn partial_tag_close_extends_replacement_span() {
-        let candidate = CompletionCandidate::scanned_tag_name(
-            "load",
+        let origin = builtin_origin();
+        let candidate = CompletionCandidate::tag_name(
+            &test_tag_symbol("load"),
             &prefix("lo"),
             false,
             TagClose::Partial {
                 replacement_suffix_len: 1,
             },
+            None,
+            &origin,
+            false,
         );
 
         assert_eq!(candidate.edit.replacement_span, Span::new(0, 3));
@@ -1177,13 +1134,17 @@ mod tests {
 
     #[test]
     fn partial_tag_close_after_whitespace_extends_replacement_span_to_close() {
-        let candidate = CompletionCandidate::scanned_tag_name(
-            "load",
+        let origin = builtin_origin();
+        let candidate = CompletionCandidate::tag_name(
+            &test_tag_symbol("load"),
             &prefix("lo"),
             false,
             TagClose::Partial {
                 replacement_suffix_len: 2,
             },
+            None,
+            &origin,
+            false,
         );
 
         assert_eq!(candidate.edit.replacement_span, Span::new(0, 4));
@@ -1196,7 +1157,6 @@ mod tests {
         let origin = builtin_origin();
         let mut candidates = vec![
             CompletionCandidate::tag_argument_placeholder("<arg>".to_string(), &empty),
-            CompletionCandidate::scanned_tag_name("custom", &empty, false, full_close()),
             CompletionCandidate::tag_name(
                 &test_tag_symbol("url"),
                 &empty,
@@ -1220,9 +1180,6 @@ mod tests {
 
         candidates.sort_by(CompletionCandidate::cmp_rank);
 
-        assert_eq!(
-            labels(&candidates),
-            vec!["endif", "block", "url", "custom", "<arg>"]
-        );
+        assert_eq!(labels(&candidates), vec!["endif", "block", "url", "<arg>"]);
     }
 }

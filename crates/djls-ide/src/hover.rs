@@ -4,7 +4,6 @@ use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::TemplateLibraries;
 use djls_semantic::TemplateSymbolKind;
-use djls_semantic::TemplateSymbolName;
 use djls_semantic::find_template;
 use djls_source::File;
 use djls_source::Offset;
@@ -109,36 +108,7 @@ fn render_symbol_hover(
         return render_installed_symbol_hover(&candidates);
     }
 
-    let symbol_name = TemplateSymbolName::parse(name).ok()?;
-    let discovered = kinds
-        .iter()
-        .filter_map(|kind| {
-            libraries
-                .discovered_symbol_candidates_by_name(*kind)
-                .and_then(|mut candidates| candidates.remove(&symbol_name))
-        })
-        .flatten()
-        .map(|candidate| {
-            format!(
-                "Requires `{{% load {} %}}`.",
-                candidate.library_name.as_str()
-            )
-        })
-        .collect::<Vec<_>>();
-
-    if discovered.is_empty() {
-        None
-    } else {
-        let kind = match kind {
-            Some(TemplateSymbolKind::Tag) => "tag",
-            Some(TemplateSymbolKind::Filter) => "filter",
-            None => "symbol",
-        };
-        Some(format!(
-            "```text\n({kind}) {name}\n```\n---\n{}",
-            discovered.join("\n")
-        ))
-    }
+    None
 }
 
 fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
@@ -257,14 +227,7 @@ fn format_docstring(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use djls_semantic::Knowledge;
-    use djls_semantic::LibraryName;
-    use djls_semantic::LibraryOrigin;
-    use djls_semantic::PyModuleName;
-    use djls_semantic::TemplateLibraries;
-    use djls_semantic::TemplateLibrary;
+    use djls_semantic::TemplateSymbolName;
 
     use super::*;
 
@@ -296,40 +259,6 @@ mod tests {
             },
             origin,
         }
-    }
-
-    #[test]
-    fn discovered_symbol_hover_shows_load_hint() {
-        let mut library = TemplateLibrary::new_discovered(
-            LibraryName::parse("humanize").unwrap(),
-            LibraryOrigin {
-                app: PyModuleName::parse("django.contrib.humanize").unwrap(),
-                module: PyModuleName::parse("django.contrib.humanize.templatetags.humanize")
-                    .unwrap(),
-                path: "django/contrib/humanize/templatetags/humanize.py".into(),
-            },
-        );
-        library.symbols.push(djls_semantic::TemplateSymbol {
-            kind: TemplateSymbolKind::Filter,
-            name: TemplateSymbolName::parse("intcomma").unwrap(),
-            definition: djls_semantic::SymbolDefinition::Unknown,
-            doc: None,
-        });
-        let libraries = TemplateLibraries {
-            active_knowledge: Knowledge::Unknown,
-            discovery_knowledge: Knowledge::Known,
-            loadable: BTreeMap::from([(LibraryName::parse("humanize").unwrap(), vec![library])]),
-            builtins: BTreeMap::new(),
-            builtin_order: Vec::new(),
-        };
-
-        let markdown =
-            render_symbol_hover(&libraries, "intcomma", Some(TemplateSymbolKind::Filter));
-
-        assert_eq!(
-            markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.")
-        );
     }
 
     #[test]
