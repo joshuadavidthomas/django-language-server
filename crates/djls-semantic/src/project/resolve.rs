@@ -361,18 +361,16 @@ fn discover_model_files_excluding(
 mod tests {
     use std::collections::BTreeMap;
 
-    use djls_conf::Settings;
     use djls_source::Db as _;
     use djls_source::InMemoryFileSystem;
 
     use super::*;
     use crate::compute_filter_arity_specs;
-    use crate::project::ProjectTemplateFiles;
-    use crate::project::TemplateDirs;
     use crate::project::TemplateLibraries;
     use crate::project::TemplateLibrarySnapshot;
     use crate::project::refresh_external_data;
     use crate::python::compute_model_graph;
+    use crate::testing::ProjectFixture;
     use crate::testing::TestDatabase;
 
     fn template_libraries_for_module(module: &str) -> TemplateLibraries {
@@ -384,25 +382,16 @@ mod tests {
     }
 
     fn project_for_search_paths(
-        db: &TestDatabase,
+        db: &mut TestDatabase,
         root: &str,
         search_paths: SearchPaths,
         template_libraries: TemplateLibraries,
     ) -> Project {
-        let settings = Settings::default();
-        Project::new(
-            db,
-            root.into(),
-            search_paths,
-            Interpreter::discover(settings.venv_path()),
-            None,
-            Vec::new(),
-            Vec::new(),
-            TemplateDirs::Unknown,
-            settings.tagspecs().clone(),
-            template_libraries,
-            ProjectTemplateFiles::default(),
-        )
+        ProjectFixture::new(root)
+            .search_paths(search_paths)
+            .register_roots(false)
+            .template_libraries(template_libraries)
+            .build(db)
     }
 
     #[test]
@@ -480,7 +469,7 @@ mod tests {
 
     #[test]
     fn model_modules_use_first_party_search_path_relative_names() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/src/blog/models.py",
             "from django.db import models\nclass Article(models.Model):\n    pass\n",
@@ -494,8 +483,12 @@ mod tests {
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
 
         let modules = model_modules(&db, project);
         assert!(
@@ -544,7 +537,7 @@ mod tests {
 
     #[test]
     fn model_modules_tolerate_unregistered_search_paths() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/shared/blog/models.py",
             "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
@@ -557,8 +550,12 @@ mod tests {
             &Interpreter::Auto,
             &pythonpath,
         );
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
 
         let modules = model_modules(&db, project);
         assert!(
@@ -570,7 +567,7 @@ mod tests {
 
     #[test]
     fn templatetag_modules_tolerate_unregistered_search_paths() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/django/templatetags/i18n.py",
             "from django import template\nregister = template.Library()\n",
@@ -583,7 +580,7 @@ mod tests {
             &[],
         );
         let project = project_for_search_paths(
-            &db,
+            &mut db,
             "/project",
             search_paths,
             template_libraries_for_module("django.templatetags.i18n"),
@@ -599,7 +596,7 @@ mod tests {
 
     #[test]
     fn templatetag_resolution_uses_project_venv_site_packages_root() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
             "from django import template\nregister = template.Library()\n",
@@ -613,7 +610,7 @@ mod tests {
         );
         search_paths.register_roots(&db);
         let project = project_for_search_paths(
-            &db,
+            &mut db,
             "/project",
             search_paths,
             template_libraries_for_module("django.templatetags.i18n"),
@@ -631,7 +628,7 @@ mod tests {
 
     #[test]
     fn templatetag_resolution_prefers_first_party_module_shadowing_dependency() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/django/templatetags/i18n.py",
             "from django import template\nregister = template.Library()\n",
@@ -649,7 +646,7 @@ mod tests {
         );
         search_paths.register_roots(&db);
         let project = project_for_search_paths(
-            &db,
+            &mut db,
             "/project",
             search_paths,
             template_libraries_for_module("django.templatetags.i18n"),
@@ -665,7 +662,7 @@ mod tests {
 
     #[test]
     fn templatetag_modules_preserve_registration_order_across_roots() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/a/templatetags/tags.py",
             "from django import template\nregister = template.Library()\n",
@@ -683,7 +680,7 @@ mod tests {
         );
         search_paths.register_roots(&db);
         let project = project_for_search_paths(
-            &db,
+            &mut db,
             "/project",
             search_paths,
             TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
@@ -710,7 +707,7 @@ mod tests {
 
     #[test]
     fn filter_arity_specs_preserve_builtin_registration_order_across_roots() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/z_first.py",
             r"
@@ -742,7 +739,7 @@ def duplicate(value, arg):
         );
         search_paths.register_roots(&db);
         let project = project_for_search_paths(
-            &db,
+            &mut db,
             "/project",
             search_paths,
             TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
@@ -773,8 +770,12 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -807,8 +808,12 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -841,8 +846,12 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -862,7 +871,7 @@ def duplicate(value, arg):
 
     #[test]
     fn external_model_graph_preserves_pythonpath_precedence() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/zfirst/zapp/models.py",
             "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
@@ -880,8 +889,12 @@ def duplicate(value, arg):
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
 
         let graph = compute_model_graph(&db, project);
         let model = graph.get("Duplicate").expect("model should be discovered");
@@ -903,8 +916,12 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -941,8 +958,12 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -959,7 +980,7 @@ def duplicate(value, arg):
 
     #[test]
     fn external_model_graph_reads_extra_pythonpath_models() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/shared/blog/models.py",
             "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
@@ -973,8 +994,12 @@ def duplicate(value, arg):
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
 
         let graph = compute_model_graph(&db, project);
         assert!(graph.get("SharedArticle").is_some());
@@ -983,7 +1008,6 @@ def duplicate(value, arg):
     #[test]
     fn refresh_external_data_discovers_site_packages_created_after_bootstrap() {
         let mut db = TestDatabase::new();
-        let settings = Settings::default();
         let search_paths = SearchPaths::from_project_settings(
             db.file_system(),
             Utf8Path::new("/project"),
@@ -991,20 +1015,11 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = Project::new(
-            &db,
-            "/project".into(),
-            search_paths,
-            Interpreter::Auto,
-            None,
-            Vec::new(),
-            Vec::new(),
-            TemplateDirs::Unknown,
-            settings.tagspecs().clone(),
-            TemplateLibraries::default(),
-            ProjectTemplateFiles::default(),
-        );
-        db.set_project(project);
+        let project = ProjectFixture::new("/project")
+            .search_paths(search_paths)
+            .interpreter(Interpreter::Auto)
+            .register_roots(false)
+            .install(&mut db);
 
         assert!(
             project
@@ -1244,7 +1259,7 @@ class Article(models.Model):
 
     #[test]
     fn project_model_discovery_skips_registered_non_first_party_paths() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         db.add_file(
             "/project/app/models.py",
             "from django.db import models\nclass App(models.Model): pass\n",
@@ -1262,8 +1277,12 @@ class Article(models.Model):
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project =
-            project_for_search_paths(&db, "/project", search_paths, TemplateLibraries::default());
+        let project = project_for_search_paths(
+            &mut db,
+            "/project",
+            search_paths,
+            TemplateLibraries::default(),
+        );
 
         let modules = model_modules(&db, project);
         let module_paths: Vec<_> = modules
