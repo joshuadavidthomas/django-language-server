@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagBit;
@@ -9,11 +7,9 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::project::DiscoveredSymbolCandidate;
 use crate::project::Knowledge;
 use crate::project::LibraryName;
 use crate::project::TemplateLibraries;
-use crate::project::TemplateSymbolName;
 use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;
@@ -25,7 +21,6 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    env_tags: Option<&HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
     if active_knowledge != Knowledge::Known {
@@ -37,20 +32,6 @@ pub(crate) fn check_tag_scoping_rule(
     match symbols.check(name) {
         TagAvailability::Available => {}
         TagAvailability::Unknown => {
-            if let Some(env_tags) = env_tags
-                && let Ok(key) = TemplateSymbolName::parse(name)
-                && let Some(env_symbols) = env_tags.get(&key)
-                && let Some(sym) = env_symbols.first()
-            {
-                ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                    tag: name.to_string(),
-                    app: sym.app_module.as_str().to_string(),
-                    load_name: sym.library_name.as_str().to_string(),
-                    span: full_span,
-                })
-                .accumulate(db);
-                return;
-            }
             ValidationErrorAccumulator(ValidationError::UnknownTag {
                 tag: name.to_string(),
                 span: full_span,
@@ -81,7 +62,6 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    env_filters: Option<&HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
     active_knowledge: Knowledge,
 ) {
     if active_knowledge != Knowledge::Known {
@@ -91,20 +71,6 @@ pub(crate) fn check_filter_scoping_rule(
     match symbols.check_filter(&filter.name) {
         FilterAvailability::Available => {}
         FilterAvailability::Unknown => {
-            if let Some(env_filters) = env_filters
-                && let Ok(key) = TemplateSymbolName::parse(filter.name.as_str())
-                && let Some(env_symbols) = env_filters.get(&key)
-                && let Some(sym) = env_symbols.first()
-            {
-                ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
-                    filter: filter.name.clone(),
-                    app: sym.app_module.as_str().to_string(),
-                    load_name: sym.library_name.as_str().to_string(),
-                    span: filter.span,
-                })
-                .accumulate(db);
-                return;
-            }
             ValidationErrorAccumulator(ValidationError::UnknownFilter {
                 filter: filter.name.clone(),
                 span: filter.span,
@@ -160,22 +126,11 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         }
 
-        let candidates = template_libraries.discovered_app_modules_for_library_str(lib.as_str());
-        if candidates.is_empty() {
-            ValidationErrorAccumulator(ValidationError::UnknownLibrary {
-                name: lib.as_str().to_string(),
-                span: lib.span(),
-            })
-            .accumulate(db);
-        } else {
-            ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
-                name: lib.as_str().to_string(),
-                app: candidates[0].clone(),
-                candidates,
-                span: lib.span(),
-            })
-            .accumulate(db);
-        }
+        ValidationErrorAccumulator(ValidationError::UnknownLibrary {
+            name: lib.as_str().to_string(),
+            span: lib.span(),
+        })
+        .accumulate(db);
     }
 }
 

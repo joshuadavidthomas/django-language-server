@@ -25,19 +25,10 @@ use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
 use crate::project::Db as ProjectDb;
-use crate::project::Knowledge;
-use crate::project::LibraryName;
-use crate::project::LibraryOrigin;
 use crate::project::Project;
 use crate::project::ProjectIntrospector;
-use crate::project::PyModuleName;
-use crate::project::SymbolDefinition;
 use crate::project::TemplateLibraries;
-use crate::project::TemplateLibrary;
 use crate::project::TemplateLibrarySnapshot;
-use crate::project::TemplateSymbol;
-use crate::project::TemplateSymbolKind;
-use crate::project::TemplateSymbolName;
 use crate::project::TemplateSymbolSnapshot;
 use crate::python::ArgumentCountConstraint;
 use crate::python::ChoiceAt;
@@ -383,41 +374,6 @@ pub(crate) fn render_diagnostic_snapshot(
         let message = err.to_string();
         let code = err.code();
 
-        // Build notes for variants that carry extra context beyond the
-        // primary message. When adding new ValidationError variants, consider
-        // whether they have fields that would be useful as notes here.
-        let mut notes: Vec<String> = Vec::new();
-        match err {
-            ValidationError::TagNotInInstalledApps { load_name, .. }
-            | ValidationError::FilterNotInInstalledApps { load_name, .. } => {
-                notes.push(format!("load_name: {load_name}"));
-            }
-            ValidationError::LibraryNotInInstalledApps { candidates, .. }
-                if !candidates.is_empty() =>
-            {
-                notes.push(format!("candidates: {candidates:?}"));
-            }
-            ValidationError::UnclosedTag { .. }
-            | ValidationError::OrphanedTag { .. }
-            | ValidationError::OrphanedClosingTag { .. }
-            | ValidationError::UnbalancedStructure { .. }
-            | ValidationError::UnmatchedBlockName { .. }
-            | ValidationError::UnknownTag { .. }
-            | ValidationError::UnloadedTag { .. }
-            | ValidationError::AmbiguousUnloadedTag { .. }
-            | ValidationError::UnknownFilter { .. }
-            | ValidationError::UnloadedFilter { .. }
-            | ValidationError::AmbiguousUnloadedFilter { .. }
-            | ValidationError::ExpressionSyntaxError { .. }
-            | ValidationError::FilterMissingArgument { .. }
-            | ValidationError::FilterUnexpectedArgument { .. }
-            | ValidationError::ExtractedRuleViolation { .. }
-            | ValidationError::UnknownLibrary { .. }
-            | ValidationError::LibraryNotInInstalledApps { .. }
-            | ValidationError::ExtendsMustBeFirst { .. }
-            | ValidationError::MultipleExtends { .. } => {}
-        }
-
         let mut diag = Diagnostic::new(source, path, code, &message, Severity::Error, span, "");
 
         if let ValidationError::UnbalancedStructure {
@@ -426,10 +382,6 @@ pub(crate) fn render_diagnostic_snapshot(
         } = err
         {
             diag = diag.annotation(*cs, "", false);
-        }
-
-        for note in &notes {
-            diag = diag.note(note);
         }
 
         parts.push(renderer.render(&diag));
@@ -736,47 +688,7 @@ fn standard_template_libraries() -> TemplateLibraries {
         "example.templatetags.custom".to_string(),
     ];
 
-    let mut template_libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
-    add_discovered_widgets_library(&mut template_libraries);
-    template_libraries
-}
-
-fn add_discovered_widgets_library(template_libraries: &mut TemplateLibraries) {
-    template_libraries.discovery_knowledge = Knowledge::Known;
-
-    let name = LibraryName::parse("widgets").unwrap();
-    let app = PyModuleName::parse("example.widgets").unwrap();
-    let module = PyModuleName::parse("example.widgets.templatetags.widgets").unwrap();
-    let origin = LibraryOrigin {
-        app,
-        module: module.clone(),
-        path: Utf8PathBuf::from("/example/widgets/templatetags/widgets.py"),
-    };
-    let mut library = TemplateLibrary::new_discovered(name.clone(), origin);
-    library.merge_symbol(template_symbol(
-        TemplateSymbolKind::Tag,
-        "widget_tag",
-        "example.widgets.templatetags.widgets",
-    ));
-    library.merge_symbol(template_symbol(
-        TemplateSymbolKind::Filter,
-        "widget_filter",
-        "example.widgets.templatetags.widgets",
-    ));
-    template_libraries
-        .loadable
-        .entry(name)
-        .or_default()
-        .push(library);
-}
-
-fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> TemplateSymbol {
-    TemplateSymbol {
-        kind,
-        name: TemplateSymbolName::parse(name).unwrap(),
-        definition: SymbolDefinition::Module(PyModuleName::parse(module).unwrap()),
-        doc: None,
-    }
+    make_template_libraries(&tags, &filters, &libraries, &builtins)
 }
 
 fn standard_filter_arities() -> FilterAritySpecs {

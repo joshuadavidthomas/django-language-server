@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
 use serde::Deserialize;
@@ -65,7 +64,6 @@ pub struct LibraryOrigin {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LibraryStatus {
-    Discovered(LibraryOrigin),
     Active {
         module: PyModuleName,
         origin: Option<LibraryOrigin>,
@@ -84,15 +82,6 @@ pub struct TemplateLibrary {
 }
 
 impl TemplateLibrary {
-    #[must_use]
-    pub fn new_discovered(name: LibraryName, origin: LibraryOrigin) -> Self {
-        Self {
-            name,
-            status: LibraryStatus::Discovered(origin),
-            symbols: Vec::new(),
-        }
-    }
-
     #[must_use]
     pub fn new_active(
         name: LibraryName,
@@ -118,7 +107,6 @@ impl TemplateLibrary {
     #[must_use]
     pub fn module(&self) -> &PyModuleName {
         match &self.status {
-            LibraryStatus::Discovered(origin) => &origin.module,
             LibraryStatus::Active { module, .. } | LibraryStatus::Builtin { module } => module,
         }
     }
@@ -126,7 +114,6 @@ impl TemplateLibrary {
     #[must_use]
     pub fn origin(&self) -> Option<&LibraryOrigin> {
         match &self.status {
-            LibraryStatus::Discovered(origin) => Some(origin),
             LibraryStatus::Active { origin, .. } => origin.as_ref(),
             LibraryStatus::Builtin { .. } => None,
         }
@@ -190,16 +177,9 @@ pub struct InstalledSymbolCandidate {
     pub origin: InstalledSymbolOrigin,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DiscoveredSymbolCandidate {
-    pub app_module: PyModuleName,
-    pub library_name: LibraryName,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateLibraries {
     pub active_knowledge: Knowledge,
-    pub discovery_knowledge: Knowledge,
     pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
     pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
     pub builtin_order: Vec<PyModuleName>,
@@ -209,7 +189,6 @@ impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
             active_knowledge: Knowledge::Unknown,
-            discovery_knowledge: Knowledge::Unknown,
             loadable: BTreeMap::new(),
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -270,7 +249,7 @@ impl TemplateLibraries {
     pub fn completion_library_names(&self) -> Vec<LibraryName> {
         let mut names: Vec<LibraryName> = self
             .loadable_library_names()
-            .filter(|name| self.is_enabled_library(name) || self.has_discovered_library(name))
+            .filter(|name| self.is_enabled_library(name))
             .cloned()
             .collect();
 
@@ -292,13 +271,6 @@ impl TemplateLibraries {
     ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.loadable_libraries()
             .filter(|(_name, library)| library.is_active())
-    }
-
-    pub fn discovered_loadable_libraries(
-        &self,
-    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
-        self.loadable_libraries()
-            .filter(|(_name, library)| library.origin().is_some())
     }
 
     #[must_use]
@@ -388,88 +360,6 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn has_discovered_library(&self, name: &LibraryName) -> bool {
-        if self.discovery_knowledge != Knowledge::Known {
-            return false;
-        }
-
-        self.loadable
-            .get(name)
-            .is_some_and(|libraries| libraries.iter().any(|lib| lib.origin().is_some()))
-    }
-
-    #[must_use]
-    pub fn discovered_app_modules_for_library(&self, name: &LibraryName) -> Vec<PyModuleName> {
-        if self.discovery_knowledge != Knowledge::Known {
-            return Vec::new();
-        }
-
-        self.loadable
-            .get(name)
-            .into_iter()
-            .flatten()
-            .filter_map(|library| library.origin().map(|origin| origin.app.clone()))
-            .collect()
-    }
-
-    #[must_use]
-    pub fn discovered_app_modules_for_library_str(&self, name: &str) -> Vec<String> {
-        let Ok(name) = LibraryName::parse(name) else {
-            return Vec::new();
-        };
-
-        self.discovered_app_modules_for_library(&name)
-            .into_iter()
-            .map(|m| m.as_str().to_string())
-            .collect()
-    }
-
-    #[must_use]
-    pub fn discovered_symbol_candidates_by_name(
-        &self,
-        kind: TemplateSymbolKind,
-    ) -> Option<HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>> {
-        if self.discovery_knowledge != Knowledge::Known {
-            return None;
-        }
-
-        let mut map: HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>> = HashMap::new();
-
-        for (library_name, library) in self.discovered_loadable_libraries() {
-            let Some(origin) = library.origin() else {
-                continue;
-            };
-
-            for symbol in &library.symbols {
-                if symbol.kind != kind {
-                    continue;
-                }
-
-                map.entry(symbol.name.clone())
-                    .or_default()
-                    .push(DiscoveredSymbolCandidate {
-                        app_module: origin.app.clone(),
-                        library_name: library_name.clone(),
-                    });
-            }
-        }
-
-        Some(map)
-    }
-
-    #[must_use]
-    pub fn discovered_symbol_names(&self, kind: TemplateSymbolKind) -> Vec<TemplateSymbolName> {
-        let Some(map) = self.discovered_symbol_candidates_by_name(kind) else {
-            return Vec::new();
-        };
-
-        let mut names: Vec<TemplateSymbolName> = map.keys().cloned().collect();
-        names.sort();
-        names.dedup();
-        names
-    }
-
-    #[must_use]
     pub fn apply_active_snapshot(mut self, response: Option<TemplateLibrarySnapshot>) -> Self {
         let Some(response) = response else {
             self.active_knowledge = Knowledge::Unknown;
@@ -515,28 +405,14 @@ impl TemplateLibraries {
         for (name, libraries) in &mut self.loadable {
             let enabled_module = enabled.get(name);
 
-            for library in libraries.iter_mut() {
-                let current_module = library.module().clone();
-                let Some(active_module) = enabled_module else {
-                    if let Some(origin) = library.origin().cloned() {
-                        library.status = LibraryStatus::Discovered(origin);
-                    }
-                    continue;
-                };
-
-                if &current_module != active_module
-                    && let Some(origin) = library.origin().cloned()
-                {
-                    library.status = LibraryStatus::Discovered(origin);
-                }
-            }
-
             libraries.retain(|library| match &library.status {
-                LibraryStatus::Active { module, origin } => {
-                    enabled_module == Some(module) || origin.is_some()
-                }
-                _ => true,
+                LibraryStatus::Active { module, .. } => enabled_module == Some(module),
+                LibraryStatus::Builtin { .. } => true,
             });
+
+            for library in libraries.iter_mut().filter(|library| library.is_active()) {
+                library.symbols.clear();
+            }
         }
 
         self.builtins.clear();
@@ -680,6 +556,54 @@ mod tests {
                 module: PyModuleName::parse("a_second").unwrap()
             }
         );
+    }
+
+    #[test]
+    fn active_snapshot_replaces_loadable_symbols() {
+        let first = TemplateLibrarySnapshot {
+            symbols: vec![TemplateSymbolSnapshot {
+                kind: Some(TemplateSymbolKind::Tag),
+                name: "old_tag".to_string(),
+                load_name: Some("project_tags".to_string()),
+                library_module: "project.templatetags.project_tags".to_string(),
+                module: "project.templatetags.project_tags".to_string(),
+                doc: None,
+            }],
+            libraries: [(
+                "project_tags".to_string(),
+                "project.templatetags.project_tags".to_string(),
+            )]
+            .into(),
+            builtins: Vec::new(),
+        };
+        let second = TemplateLibrarySnapshot {
+            symbols: vec![TemplateSymbolSnapshot {
+                kind: Some(TemplateSymbolKind::Tag),
+                name: "new_tag".to_string(),
+                load_name: Some("project_tags".to_string()),
+                library_module: "project.templatetags.project_tags".to_string(),
+                module: "project.templatetags.project_tags".to_string(),
+                doc: None,
+            }],
+            libraries: [(
+                "project_tags".to_string(),
+                "project.templatetags.project_tags".to_string(),
+            )]
+            .into(),
+            builtins: Vec::new(),
+        };
+
+        let libraries = TemplateLibraries::default()
+            .apply_active_snapshot(Some(first))
+            .apply_active_snapshot(Some(second));
+
+        let names: Vec<_> = libraries
+            .installed_symbol_candidates(TemplateSymbolKind::Tag)
+            .into_iter()
+            .map(|candidate| candidate.symbol.name().to_string())
+            .collect();
+
+        assert_eq!(names, vec!["new_tag"]);
     }
 
     #[test]

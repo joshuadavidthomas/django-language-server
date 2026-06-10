@@ -20,7 +20,6 @@ pub use crate::project::names::TemplateSymbolName;
 pub use crate::project::python::Interpreter;
 pub(crate) use crate::project::resolve::model_modules;
 pub(crate) use crate::project::resolve::templatetag_modules;
-pub(crate) use crate::project::symbols::DiscoveredSymbolCandidate;
 pub use crate::project::symbols::InstalledSymbolCandidate;
 pub use crate::project::symbols::InstalledSymbolOrigin;
 pub use crate::project::symbols::Knowledge;

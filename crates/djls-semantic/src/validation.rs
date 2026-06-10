@@ -3,8 +3,6 @@ pub(crate) mod filters;
 pub(crate) mod if_expressions;
 pub(crate) mod scoping;
 
-use std::collections::HashMap;
-
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::Node;
@@ -13,10 +11,7 @@ use djls_templates::walk_nodelist;
 
 use crate::db::Db;
 use crate::filters::FilterAritySpecs;
-use crate::project::DiscoveredSymbolCandidate;
 use crate::project::TemplateLibraries;
-use crate::project::TemplateSymbolKind;
-use crate::project::TemplateSymbolName;
 use crate::scoping::SymbolIndex;
 use crate::structure::OpaqueRegions;
 use crate::tags::TagSpecs;
@@ -55,10 +50,6 @@ pub(crate) struct TemplateValidator<'a> {
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
 
-    // Environment symbol caches
-    env_tags: Option<HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
-    env_filters: Option<HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
-
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
 }
@@ -75,11 +66,6 @@ impl<'a> TemplateValidator<'a> {
         let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
         let filter_arity_specs = db.filter_arity_specs();
 
-        let env_tags =
-            template_libraries.discovered_symbol_candidates_by_name(TemplateSymbolKind::Tag);
-        let env_filters =
-            template_libraries.discovered_symbol_candidates_by_name(TemplateSymbolKind::Filter);
-
         Self {
             db,
             tag_specs,
@@ -87,8 +73,6 @@ impl<'a> TemplateValidator<'a> {
             template_libraries,
             opaque_regions,
             filter_arity_specs,
-            env_tags,
-            env_filters,
             extends_position: ExtendsPosition::default(),
         }
     }
@@ -146,7 +130,6 @@ impl Visitor for TemplateValidator<'_> {
                     name,
                     span,
                     symbols,
-                    self.env_tags.as_ref(),
                     self.template_libraries.active_knowledge,
                 );
             }
@@ -180,7 +163,6 @@ impl Visitor for TemplateValidator<'_> {
                     self.db,
                     filter,
                     symbols,
-                    self.env_filters.as_ref(),
                     self.template_libraries.active_knowledge,
                 );
 

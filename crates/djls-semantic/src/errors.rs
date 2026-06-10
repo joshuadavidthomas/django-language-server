@@ -96,32 +96,8 @@ pub enum ValidationError {
         span: Span,
     },
 
-    #[error("Add '{app}' to INSTALLED_APPS to use tag '{tag}'")]
-    TagNotInInstalledApps {
-        tag: String,
-        app: String,
-        load_name: String,
-        span: Span,
-    },
-
-    #[error("Add '{app}' to INSTALLED_APPS to use filter '{filter}'")]
-    FilterNotInInstalledApps {
-        filter: String,
-        app: String,
-        load_name: String,
-        span: Span,
-    },
-
     #[error("Unknown template tag library '{name}'")]
     UnknownLibrary { name: String, span: Span },
-
-    #[error("Add '{app}' to INSTALLED_APPS to use template tag library '{name}'")]
-    LibraryNotInInstalledApps {
-        name: String,
-        app: String,
-        candidates: Vec<String>,
-        span: Span,
-    },
 
     #[error("The 'extends' tag must be the first tag in the template")]
     ExtendsMustBeFirst { span: Span },
@@ -156,10 +132,7 @@ impl ValidationError {
             Self::FilterMissingArgument { .. } => "S115",
             Self::FilterUnexpectedArgument { .. } => "S116",
             Self::ExtractedRuleViolation { .. } => "S117",
-            Self::TagNotInInstalledApps { .. } => "S118",
-            Self::FilterNotInInstalledApps { .. } => "S119",
             Self::UnknownLibrary { .. } => "S120",
-            Self::LibraryNotInInstalledApps { .. } => "S121",
             Self::ExtendsMustBeFirst { .. } => "S122",
             Self::MultipleExtends { .. } => "S123",
         }
@@ -183,10 +156,7 @@ impl ValidationError {
             | Self::FilterMissingArgument { span, .. }
             | Self::FilterUnexpectedArgument { span, .. }
             | Self::ExtractedRuleViolation { span, .. }
-            | Self::TagNotInInstalledApps { span, .. }
-            | Self::FilterNotInInstalledApps { span, .. }
             | Self::UnknownLibrary { span, .. }
-            | Self::LibraryNotInInstalledApps { span, .. }
             | Self::ExtendsMustBeFirst { span, .. }
             | Self::MultipleExtends { span, .. } => Some(*span),
         }

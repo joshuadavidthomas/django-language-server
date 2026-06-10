@@ -165,7 +165,6 @@ impl CompletionCandidateKindExt for CompletionCandidateKind {
     fn to_lsp_completion_kind(self) -> ls_types::CompletionItemKind {
         match self {
             CompletionCandidateKind::TagName
-            | CompletionCandidateKind::ScannedTagName
             | CompletionCandidateKind::EndTag
             | CompletionCandidateKind::TagArgumentLiteral => ls_types::CompletionItemKind::KEYWORD,
             CompletionCandidateKind::TagArgumentChoice => ls_types::CompletionItemKind::ENUM_MEMBER,
@@ -174,8 +173,7 @@ impl CompletionCandidateKindExt for CompletionCandidateKind {
             }
             CompletionCandidateKind::TagArgumentSnippet => ls_types::CompletionItemKind::SNIPPET,
             CompletionCandidateKind::LibraryName => ls_types::CompletionItemKind::MODULE,
-            CompletionCandidateKind::LoadSymbol => ls_types::CompletionItemKind::FUNCTION,
-            CompletionCandidateKind::Filter | CompletionCandidateKind::ScannedFilter => {
+            CompletionCandidateKind::LoadSymbol | CompletionCandidateKind::Filter => {
                 ls_types::CompletionItemKind::FUNCTION
             }
         }
