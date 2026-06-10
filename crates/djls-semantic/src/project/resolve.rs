@@ -205,7 +205,7 @@ pub(crate) fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonM
         .collect()
 }
 
-pub(crate) fn templatetag_module_file(
+pub(crate) fn module_file_in_search_path(
     fs: &dyn FileSystem,
     module_path: &str,
     search_path: &Utf8Path,
@@ -247,9 +247,11 @@ pub(crate) fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<P
         .enumerate()
     {
         for search_path in &search_paths {
-            let Some(file_path) =
-                templatetag_module_file(db.file_system(), module_path.as_str(), search_path.path())
-            else {
+            let Some(file_path) = module_file_in_search_path(
+                db.file_system(),
+                module_path.as_str(),
+                search_path.path(),
+            ) else {
                 continue;
             };
 
