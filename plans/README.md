@@ -51,7 +51,7 @@ reconciliation and run early).
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | DONE |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | DONE |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
-| [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | TODO |
+| [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | TODO |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
@@ -152,6 +152,10 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 020 closed)**: PR #665 merged into `main` as
+  `ce875f09 Fix settings refresh invalidation for nested star imports (#665)`
+  (source head `04e1fa9d`). Next executable design-review follow-up is
+  plan 019.
 - **2026-06-11 (Plan 008 closed)**: PR #664 merged into `main` as
   `94eb3f68 Derive template libraries from source (#664)` (source head
   `4257c739`). Next executable plan is 020, then 019 before 015.

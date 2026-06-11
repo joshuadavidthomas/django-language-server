@@ -31,6 +31,11 @@
   same file; if both run, sequence them rather than parallel).
 - **Category**: bug + tech-debt
 - **Planned at**: jj commit `710f4107`, 2026-06-11
+- **Status**: DONE
+- **Implemented at**: source commit `04e1fa9d`, 2026-06-11
+- **Merged at**: `ce875f09 Fix settings refresh invalidation for nested star imports (#665)`, 2026-06-11
+- **Bookmark**: `plan-020-unify-settings-source-walker`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/665
 - **Design rationale**: `plans/memo-settings-source-graph.md` — read it
   first; this plan implements its option C ("one walker, two drivers").
 
