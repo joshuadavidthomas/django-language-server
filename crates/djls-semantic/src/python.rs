@@ -10,9 +10,9 @@ mod types;
 mod testing;
 
 use djls_project::ModulePath;
-use djls_project::extraction::RegistrationInfo;
-use djls_project::extraction::RegistrationKind;
-use djls_project::extraction::collect_registrations_from_body;
+use djls_project::RegistrationInfo;
+use djls_project::RegistrationKind;
+use djls_project::collect_registrations_from_body;
 use djls_project::parse_python_module;
 use djls_source::File;
 use ruff_python_ast::Stmt;

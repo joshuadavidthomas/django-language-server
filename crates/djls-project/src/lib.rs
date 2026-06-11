@@ -1,11 +1,10 @@
-pub mod extraction;
-
 mod db;
+mod extraction;
 mod names;
 mod parse;
 mod project;
 mod python;
-pub(crate) mod resolve;
+mod resolve;
 mod settings;
 mod symbols;
 mod sync;
@@ -17,7 +16,10 @@ mod testing;
 
 pub use db::Db;
 pub use extraction::DjangoSettings;
+pub use extraction::ExprExt;
 pub use extraction::InstalledAppsSetting;
+pub use extraction::RegistrationInfo;
+pub use extraction::RegistrationKind;
 pub use extraction::SettingsSource;
 pub use extraction::SettingsSourceResolver;
 pub use extraction::SettingsStarImport;
@@ -25,6 +27,7 @@ pub use extraction::StaticKnowledge;
 pub use extraction::TemplateBackend;
 pub use extraction::TemplateDirPath;
 pub use extraction::TemplateSettings;
+pub use extraction::collect_registrations_from_body;
 pub use extraction::extract_settings;
 pub use names::LibraryName;
 pub use names::ModulePath;

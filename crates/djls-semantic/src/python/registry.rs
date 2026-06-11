@@ -1,4 +1,4 @@
-use djls_project::extraction::RegistrationKind;
+use djls_project::RegistrationKind;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::python::SymbolKind;

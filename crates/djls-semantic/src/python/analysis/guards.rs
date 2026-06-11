@@ -6,7 +6,7 @@
 //! Any uncaught raise in an if-body is treated as a validation constraint,
 //! regardless of exception type (e.g., `TemplateSyntaxError`, `ValueError`).
 
-use djls_project::extraction::ExprExt;
+use djls_project::ExprExt;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;

@@ -1,4 +1,4 @@
-use djls_project::extraction::ExprExt;
+use djls_project::ExprExt;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;

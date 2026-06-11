@@ -8,7 +8,7 @@ pub(crate) mod mutations;
 pub(crate) mod state;
 pub(crate) mod statements;
 
-use djls_project::extraction::ExprExt;
+use djls_project::ExprExt;
 use djls_source::File;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;

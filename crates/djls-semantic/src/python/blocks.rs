@@ -3,7 +3,7 @@ mod next_token;
 mod opaque;
 mod parse_calls;
 
-use djls_project::extraction::ExprExt;
+use djls_project::ExprExt;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
