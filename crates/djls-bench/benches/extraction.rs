@@ -11,10 +11,7 @@ fn tags(bencher: Bencher) {
     let fixtures = python_fixtures();
     bencher.bench_local(move || {
         for fixture in fixtures {
-            divan::black_box(djls_semantic::extract_rules(
-                &fixture.source,
-                "bench.module",
-            ));
+            divan::black_box(djls_project::extract_rules(&fixture.source, "bench.module"));
         }
     });
 }
@@ -24,7 +21,7 @@ fn merge_tags(bencher: Bencher) {
     let fixtures = python_fixtures();
     let results: Vec<_> = fixtures
         .iter()
-        .map(|fixture| djls_semantic::extract_rules(&fixture.source, "bench.module"))
+        .map(|fixture| djls_project::extract_rules(&fixture.source, "bench.module"))
         .collect();
 
     bencher.bench_local(move || {

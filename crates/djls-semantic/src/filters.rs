@@ -1,12 +1,12 @@
+use djls_project::FilterArity;
+use djls_project::FilterArityMap;
 use djls_project::Project;
+use djls_project::SymbolKey;
+use djls_project::extract_filter_arities;
 use djls_project::templatetag_modules;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
-use crate::python::FilterArity;
-use crate::python::FilterArityMap;
-use crate::python::SymbolKey;
-use crate::python::extract_filter_arities;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
 ///
@@ -69,7 +69,7 @@ impl FilterAritySpecs {
     ///
     /// Prefer [`Self::merge_filter_arities`] in Salsa query code so callers
     /// depend only on the extraction domain they read.
-    pub fn merge_extraction_result(&mut self, result: &crate::python::ExtractionResult) {
+    pub fn merge_extraction_result(&mut self, result: &djls_project::ExtractionResult) {
         self.merge_filter_arities(&result.filter_arities);
     }
 }

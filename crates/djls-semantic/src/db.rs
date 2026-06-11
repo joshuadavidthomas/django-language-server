@@ -1,11 +1,11 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_project::Db as ProjectDb;
+use djls_project::ModelGraph;
 use djls_project::TemplateLibraries;
 
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
-use crate::python::ModelGraph;
 use crate::tags::TagSpecs;
 
 #[salsa::db]

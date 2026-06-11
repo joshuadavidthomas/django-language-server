@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 
+use djls_project::ArgumentCountConstraint;
+use djls_project::ChoiceAt;
+use djls_project::ExtractedDiagnosticConstraint;
+use djls_project::ExtractedDiagnosticMessage;
+use djls_project::ExtractedMessageArg;
+use djls_project::ExtractedMessageTemplate;
+use djls_project::KnownOptions;
+use djls_project::RequiredKeyword;
+use djls_project::SplitPosition;
+use djls_project::TagRule;
 use djls_source::Span;
 
 use crate::errors::ValidationError;
-use crate::python::ArgumentCountConstraint;
-use crate::python::ChoiceAt;
-use crate::python::ExtractedDiagnosticConstraint;
-use crate::python::ExtractedDiagnosticMessage;
-use crate::python::ExtractedMessageArg;
-use crate::python::ExtractedMessageTemplate;
-use crate::python::KnownOptions;
-use crate::python::RequiredKeyword;
-use crate::python::SplitPosition;
-use crate::python::TagRule;
 
 trait Constraint {
     fn validate(
@@ -439,9 +439,10 @@ fn evaluate_known_options(
 
 #[cfg(test)]
 mod tests {
+    use djls_project::AsVar;
+    use djls_project::SplitPosition;
+
     use super::*;
-    use crate::python::AsVar;
-    use crate::python::SplitPosition;
 
     fn make_span() -> Span {
         Span::new(0, 10)

@@ -1,10 +1,10 @@
+use djls_project::FindTemplateResult;
 use djls_project::InstalledSymbolCandidate;
 use djls_project::InstalledSymbolOrigin;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
-use djls_semantic::FindTemplateResult;
+use djls_project::find_template;
 use djls_semantic::SemanticOffsetContext;
-use djls_semantic::find_template;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;

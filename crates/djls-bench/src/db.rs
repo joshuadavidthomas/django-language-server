@@ -214,7 +214,7 @@ impl SemanticDb for Db {
         &self.filter_arity_specs
     }
 
-    fn model_graph(&self) -> &djls_semantic::ModelGraph {
-        djls_semantic::ModelGraph::empty_ref()
+    fn model_graph(&self) -> &djls_project::ModelGraph {
+        djls_project::ModelGraph::empty_ref()
     }
 }

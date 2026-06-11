@@ -13,15 +13,26 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_corpus::Corpus;
 use djls_corpus::module_path_from_file;
+use djls_project::ArgumentCountConstraint;
+use djls_project::ChoiceAt;
 use djls_project::Db as ProjectDb;
+use djls_project::ExtractedDiagnosticConstraint;
+use djls_project::ExtractedDiagnosticMessage;
+use djls_project::ExtractedMessageTemplate;
+use djls_project::FilterArity;
 #[cfg(test)]
 use djls_project::Interpreter;
 use djls_project::LibraryName;
+use djls_project::ModelGraph;
 use djls_project::Project;
 use djls_project::PyModuleName;
+use djls_project::RequiredKeyword;
 #[cfg(test)]
 use djls_project::SearchPaths;
+use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
+use djls_project::SymbolKey;
+use djls_project::TagRule;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbol;
@@ -43,17 +54,6 @@ use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
-use crate::python::ArgumentCountConstraint;
-use crate::python::ChoiceAt;
-use crate::python::ExtractedDiagnosticConstraint;
-use crate::python::ExtractedDiagnosticMessage;
-use crate::python::ExtractedMessageTemplate;
-use crate::python::FilterArity;
-use crate::python::ModelGraph;
-use crate::python::RequiredKeyword;
-use crate::python::SplitPosition;
-use crate::python::SymbolKey;
-use crate::python::TagRule;
 use crate::tags::TagSpec;
 use crate::tags::TagSpecs;
 use crate::tags::builtin_tag_specs;
@@ -494,7 +494,7 @@ pub(crate) fn extract_and_merge(
         };
 
         let module_path = module_path_from_file(file_path);
-        let result = crate::extract_rules(&source, &module_path);
+        let result = djls_project::extract_rules(&source, &module_path);
         arities.merge_extraction_result(&result);
         specs.merge_extraction_results(&result);
     }
