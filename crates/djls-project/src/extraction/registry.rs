@@ -349,8 +349,9 @@ fn callable_name(expr: &Expr) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use djls_corpus::Corpus;
+
+    use super::*;
 
     fn corpus_source(relative_path: &str) -> Option<String> {
         let corpus = Corpus::require();
@@ -452,11 +453,8 @@ mod tests {
     // `register.filter("intcomma", intcomma)` — call-style filter registration
     #[test]
     fn call_style_filter_registration() {
-        let source = package_source(
-            "wagtail",
-            "wagtail/admin/templatetags/wagtailadmin_tags.py",
-        )
-        .unwrap();
+        let source =
+            package_source("wagtail", "wagtail/admin/templatetags/wagtailadmin_tags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "intcomma");
         assert_eq!(reg.kind, RegistrationKind::Filter);
@@ -500,11 +498,8 @@ mod tests {
     // `register.tag("dialog", DialogNode.handle)` — call-style with method callable
     #[test]
     fn call_style_tag_with_method_callable() {
-        let source = package_source(
-            "wagtail",
-            "wagtail/admin/templatetags/wagtailadmin_tags.py",
-        )
-        .unwrap();
+        let source =
+            package_source("wagtail", "wagtail/admin/templatetags/wagtailadmin_tags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "dialog");
         assert_eq!(reg.kind, RegistrationKind::Tag);

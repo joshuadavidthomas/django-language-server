@@ -1,15 +1,15 @@
 pub mod extract;
 pub mod graph;
 
+use djls_project::ModulePath;
+use djls_project::Project;
+use djls_project::model_modules;
+use djls_project::parse_python_module;
 use djls_source::File;
 
 use crate::db::Db;
-use crate::project::Project;
-use crate::project::model_modules;
 use crate::python::models::extract::extract_model_graph_from_body;
 use crate::python::models::graph::ModelGraph;
-use crate::python::models::graph::ModulePath;
-use crate::python::parse_python_module;
 
 /// Compute a merged `ModelGraph` from discovered model sources.
 #[salsa::tracked(returns(ref))]

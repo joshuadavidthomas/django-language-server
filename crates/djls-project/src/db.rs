@@ -7,7 +7,7 @@
 use camino::Utf8PathBuf;
 use djls_source::Db as SourceDb;
 
-use crate::project::Project;
+use crate::Project;
 
 /// Project-specific database capabilities.
 #[salsa::db]

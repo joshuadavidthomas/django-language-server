@@ -1,9 +1,9 @@
+use djls_project::InstalledSymbolCandidate;
+use djls_project::InstalledSymbolOrigin;
+use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbolKind;
 use djls_semantic::FindTemplateResult;
-use djls_semantic::InstalledSymbolCandidate;
-use djls_semantic::InstalledSymbolOrigin;
 use djls_semantic::SemanticOffsetContext;
-use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateSymbolKind;
 use djls_semantic::find_template;
 use djls_source::File;
 use djls_source::Offset;
@@ -227,7 +227,7 @@ fn format_docstring(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use djls_semantic::TemplateSymbolName;
+    use djls_project::TemplateSymbolName;
 
     use super::*;
 
@@ -238,10 +238,10 @@ mod tests {
         origin: InstalledSymbolOrigin,
     ) -> InstalledSymbolCandidate {
         let definition = match &origin {
-            InstalledSymbolOrigin::Builtin { .. } => djls_semantic::SymbolDefinition::Unknown,
+            InstalledSymbolOrigin::Builtin { .. } => djls_project::SymbolDefinition::Unknown,
             InstalledSymbolOrigin::Loadable { load_name } => {
-                djls_semantic::SymbolDefinition::Module(
-                    djls_semantic::PyModuleName::parse(&format!(
+                djls_project::SymbolDefinition::Module(
+                    djls_project::PyModuleName::parse(&format!(
                         "django.contrib.{0}.templatetags.{0}",
                         load_name.as_str()
                     ))
@@ -251,7 +251,7 @@ mod tests {
         };
 
         InstalledSymbolCandidate {
-            symbol: djls_semantic::TemplateSymbol {
+            symbol: djls_project::TemplateSymbol {
                 kind,
                 name: TemplateSymbolName::parse(name).unwrap(),
                 definition,
@@ -268,7 +268,7 @@ mod tests {
             "if",
             Some("Evaluate a condition."),
             InstalledSymbolOrigin::Builtin {
-                module: djls_semantic::PyModuleName::parse("django.template.defaulttags").unwrap(),
+                module: djls_project::PyModuleName::parse("django.template.defaulttags").unwrap(),
             },
         )];
 
@@ -287,7 +287,7 @@ mod tests {
             "intcomma",
             None,
             InstalledSymbolOrigin::Loadable {
-                load_name: djls_semantic::LibraryName::parse("humanize").unwrap(),
+                load_name: djls_project::LibraryName::parse("humanize").unwrap(),
             },
         )];
 

@@ -9,11 +9,12 @@ mod types;
 #[cfg(test)]
 mod testing;
 
+use djls_project::ModulePath;
 use djls_project::extraction::RegistrationInfo;
 use djls_project::extraction::RegistrationKind;
 use djls_project::extraction::collect_registrations_from_body;
+use djls_project::parse_python_module;
 use djls_source::File;
-use djls_source::FileKind;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::statement_visitor::StatementVisitor;
@@ -28,7 +29,6 @@ use crate::python::analysis::statements::process_statements;
 pub use crate::python::models::compute_model_graph;
 pub use crate::python::models::extract::extract_model_graph;
 pub use crate::python::models::graph::ModelGraph;
-pub use crate::python::models::graph::ModulePath;
 use crate::python::registry::ExtractionOutput;
 use crate::python::registry::RegistrationKindExt;
 pub(crate) use crate::python::types::ArgumentCountConstraint;
@@ -54,17 +54,6 @@ pub use crate::python::types::SymbolKind;
 pub use crate::python::types::TagRule;
 pub use crate::python::types::TagRuleMap;
 
-/// Parsed Python module AST, cached by Salsa.
-///
-/// Wraps Ruff's statement list in a tracked struct. The parsed AST is
-/// invalidated when the source file changes.
-#[salsa::tracked]
-pub(crate) struct ParsedPythonModule<'db> {
-    #[tracked]
-    #[returns(ref)]
-    pub body: Vec<Stmt>,
-}
-
 /// Interned key for a helper function call.
 ///
 /// Salsa uses interning to deduplicate identical helper calls: same file,
@@ -77,30 +66,6 @@ pub(crate) struct HelperCall<'db> {
     pub callee_name: String,
     #[returns(ref)]
     pub args: Vec<AbstractValueKey>,
-}
-
-/// Parse a Python source file into a cached AST.
-///
-/// Returns `None` for non-Python files or files that fail to parse.
-/// The parsed AST is cached by Salsa and invalidated when
-/// `file.source(db)` changes.
-#[salsa::tracked]
-pub(crate) fn parse_python_module(
-    db: &dyn djls_source::Db,
-    file: File,
-) -> Option<ParsedPythonModule<'_>> {
-    let source = file.source(db);
-    if *source.kind() != FileKind::Python {
-        return None;
-    }
-
-    let parsed = ruff_python_parser::parse_module(source.as_ref());
-    let module = match parsed {
-        Ok(parsed) => parsed.into_syntax(),
-        Err(_) => return None,
-    };
-
-    Some(ParsedPythonModule::new(db, module.body))
 }
 
 /// Analyze a helper function call and return its abstract return value.

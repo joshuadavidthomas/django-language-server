@@ -1,6 +1,8 @@
 mod rules;
 mod specs;
 
+use djls_project::Project;
+use djls_project::templatetag_modules;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
 #[cfg(test)]
@@ -12,8 +14,6 @@ pub use specs::TagSpecs;
 pub use specs::builtin_tag_specs;
 
 use crate::db::Db;
-use crate::project::Project;
-use crate::project::templatetag_modules;
 use crate::python::extract_block_specs;
 use crate::python::extract_tag_rules;
 use crate::resolution::TemplateReferenceKind;

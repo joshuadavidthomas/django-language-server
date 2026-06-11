@@ -2,15 +2,6 @@ use std::collections::BTreeSet;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::DjangoSettings;
-use djls_project::SettingsSource;
-use djls_project::SettingsSourceResolver;
-use djls_project::SettingsStarImport;
-use djls_project::StaticKnowledge;
-use djls_project::TemplateDirPath;
-use djls_project::extract_settings;
-use djls_project::extraction::RegistrationKind;
-use djls_project::extraction::collect_registrations_from_body;
 use djls_source::File;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
@@ -21,18 +12,27 @@ use ruff_python_ast::ExprName;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
-use crate::project::db::Db as ProjectDb;
-use crate::project::input::Project;
-use crate::project::names::LibraryName;
-use crate::project::names::PyModuleName;
-use crate::project::names::TemplateSymbolName;
-use crate::project::resolve::module_file_in_search_path;
-use crate::project::symbols::SymbolDefinition;
-use crate::project::symbols::TemplateLibraries;
-use crate::project::symbols::TemplateLibrary;
-use crate::project::symbols::TemplateSymbol;
-use crate::project::symbols::TemplateSymbolKind;
-use crate::python::parse_python_module;
+use crate::db::Db as ProjectDb;
+use crate::extraction::DjangoSettings;
+use crate::extraction::RegistrationKind;
+use crate::extraction::SettingsSource;
+use crate::extraction::SettingsSourceResolver;
+use crate::extraction::SettingsStarImport;
+use crate::extraction::StaticKnowledge;
+use crate::extraction::TemplateDirPath;
+use crate::extraction::collect_registrations_from_body;
+use crate::extraction::extract_settings;
+use crate::names::LibraryName;
+use crate::names::PyModuleName;
+use crate::names::TemplateSymbolName;
+use crate::parse::parse_python_module;
+use crate::project::Project;
+use crate::resolve::module_file_in_search_path;
+use crate::symbols::SymbolDefinition;
+use crate::symbols::TemplateLibraries;
+use crate::symbols::TemplateLibrary;
+use crate::symbols::TemplateSymbol;
+use crate::symbols::TemplateSymbolKind;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -547,9 +547,9 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
-    use crate::project::Interpreter;
-    use crate::project::resolve::SearchPaths;
-    use crate::project::system::mock as sys_mock;
+    use crate::Interpreter;
+    use crate::resolve::SearchPaths;
+    use crate::system::mock as sys_mock;
     use crate::testing::ProjectFixture;
     use crate::testing::TestDatabase;
 

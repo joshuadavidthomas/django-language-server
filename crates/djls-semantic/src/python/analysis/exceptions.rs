@@ -1,3 +1,4 @@
+use djls_project::extraction::ExprExt;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBinOp;
 use ruff_python_ast::ExprCall;
@@ -8,7 +9,6 @@ use ruff_python_ast::StmtRaise;
 use crate::python::analysis::expressions::eval_expr;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
-use djls_project::extraction::ExprExt;
 use crate::python::types::ExtractedMessageArg;
 use crate::python::types::ExtractedMessageTemplate;
 

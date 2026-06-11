@@ -8,6 +8,7 @@ pub(crate) mod mutations;
 pub(crate) mod state;
 pub(crate) mod statements;
 
+use djls_project::extraction::ExprExt;
 use djls_source::File;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
@@ -25,7 +26,6 @@ use ruff_python_ast::UnaryOp;
 
 use crate::python::analysis::constraints::ExtractedTagConstraints;
 use crate::python::analysis::guards::ExtractedRuleFragment;
-use djls_project::extraction::ExprExt;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::AsVar;
 use crate::python::types::ExtractedArg;

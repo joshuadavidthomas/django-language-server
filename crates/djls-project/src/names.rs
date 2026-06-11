@@ -1,3 +1,6 @@
+use std::borrow::Borrow;
+use std::fmt;
+
 use camino::Utf8Path;
 use serde::Deserialize;
 use serde::Serialize;
@@ -30,6 +33,51 @@ fn validate_non_empty_no_whitespace(value: &str) -> Result<&str, InvalidName> {
         return Err(InvalidName::ContainsWhitespace);
     }
     Ok(trimmed)
+}
+
+macro_rules! string_newtype {
+    ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
+        $(#[doc = $doc])*
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[serde(transparent)]
+        $vis struct $Name(String);
+
+        impl $Name {
+            #[must_use]
+            $vis fn new(value: impl Into<String>) -> Self {
+                Self(value.into())
+            }
+
+            #[must_use]
+            $vis fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl Borrow<str> for $Name {
+            fn borrow(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl From<&str> for $Name {
+            fn from(s: &str) -> Self {
+                Self(s.to_owned())
+            }
+        }
+
+        impl From<String> for $Name {
+            fn from(s: String) -> Self {
+                Self(s)
+            }
+        }
+
+        impl fmt::Display for $Name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+    };
 }
 
 fn validate_python_module_path(path: &str) -> Result<(), InvalidName> {
@@ -105,6 +153,34 @@ impl TryFrom<String> for TemplateSymbolName {
 impl From<TemplateSymbolName> for String {
     fn from(value: TemplateSymbolName) -> Self {
         value.0
+    }
+}
+
+string_newtype! {
+    /// A dotted Python module path (e.g., `"myapp.models"`,
+    /// `"django.contrib.auth.models"`).
+    pub struct ModulePath
+}
+
+impl ModulePath {
+    #[must_use]
+    pub(crate) fn from_relative_path(path: &Utf8Path) -> Self {
+        let without_ext = path.with_extension("");
+        let parts: Vec<&str> = without_ext
+            .components()
+            .map(|component| component.as_str())
+            .collect();
+        let dotted = if parts.last() == Some(&"__init__") {
+            parts[..parts.len() - 1].join(".")
+        } else {
+            parts.join(".")
+        };
+        Self::new(dotted)
+    }
+
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
     }
 }
 

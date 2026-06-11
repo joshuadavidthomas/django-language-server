@@ -1,5 +1,21 @@
 pub mod extraction;
 
+mod db;
+mod names;
+mod parse;
+mod project;
+mod python;
+pub(crate) mod resolve;
+mod settings;
+mod symbols;
+mod sync;
+mod system;
+mod templates;
+
+#[cfg(test)]
+mod testing;
+
+pub use db::Db;
 pub use extraction::DjangoSettings;
 pub use extraction::InstalledAppsSetting;
 pub use extraction::SettingsSource;
@@ -10,3 +26,29 @@ pub use extraction::TemplateBackend;
 pub use extraction::TemplateDirPath;
 pub use extraction::TemplateSettings;
 pub use extraction::extract_settings;
+pub use names::LibraryName;
+pub use names::ModulePath;
+pub use names::PyModuleName;
+pub use names::TemplateSymbolName;
+pub use parse::ParsedPythonModule;
+pub use parse::parse_python_module;
+pub use project::Project;
+pub use project::load_env_file;
+pub use python::Interpreter;
+pub use resolve::SearchPath;
+pub use resolve::SearchPaths;
+pub use resolve::model_modules;
+pub use resolve::templatetag_modules;
+pub use settings::template_dirs;
+pub use settings::template_libraries;
+pub use symbols::InstalledSymbolCandidate;
+pub use symbols::InstalledSymbolOrigin;
+pub use symbols::SymbolDefinition;
+pub use symbols::TemplateLibraries;
+pub use symbols::TemplateLibrary;
+pub use symbols::TemplateSymbol;
+pub use symbols::TemplateSymbolKind;
+pub use sync::refresh_external_data;
+pub use templates::ProjectTemplateFile;
+pub use templates::ProjectTemplateFiles;
+pub use templates::project_template_files;

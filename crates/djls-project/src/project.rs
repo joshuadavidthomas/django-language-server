@@ -9,13 +9,13 @@ use djls_source::FileSystem;
 use salsa::Durability;
 use salsa::Setter;
 
-use crate::project::db::Db as ProjectDb;
-use crate::project::python::Interpreter;
-use crate::project::resolve::SearchPaths;
-use crate::python::ModulePath;
+use crate::db::Db as ProjectDb;
+use crate::names::ModulePath;
+use crate::python::Interpreter;
+use crate::resolve::SearchPaths;
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct PythonModule {
+pub struct PythonModule {
     module_path: ModulePath,
     path: Utf8PathBuf,
     file: File,
@@ -30,15 +30,15 @@ impl PythonModule {
         }
     }
 
-    pub(crate) fn module_path(&self) -> &ModulePath {
+    pub fn module_path(&self) -> &ModulePath {
         &self.module_path
     }
 
-    pub(crate) fn path(&self) -> &Utf8Path {
+    pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
-    pub(crate) fn file(&self) -> File {
+    pub fn file(&self) -> File {
         self.file
     }
 }
@@ -68,7 +68,7 @@ pub struct Project {
     pub root: Utf8PathBuf,
     /// Python module-resolution paths for this project.
     #[returns(ref)]
-    pub(crate) search_paths: SearchPaths,
+    pub search_paths: SearchPaths,
     /// Interpreter specification for Python environment discovery
     #[returns(ref)]
     pub interpreter: Interpreter,

@@ -1,4 +1,5 @@
 use camino::Utf8PathBuf;
+use djls_project::Project;
 use djls_source::File;
 use djls_source::Span;
 use djls_source::safe_join;
@@ -8,7 +9,6 @@ use djls_templates::parse_template;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as SemanticDb;
-use crate::project::Project;
 use crate::tags::TagRole;
 use crate::tags::TagSpecs;
 use crate::tags::compute_tag_specs;
@@ -146,7 +146,7 @@ pub(crate) fn template_origins(db: &dyn SemanticDb, project: Project) -> Templat
     let mut ordered = Vec::new();
     let mut first_by_template_name = FxHashMap::default();
 
-    for template in crate::project::project_template_files(db, project).iter() {
+    for template in djls_project::project_template_files(db, project).iter() {
         let template_name = TemplateName::new(db, template.name().to_string());
         let origin = TemplateOrigin::new(db, template_name, template.file());
 
@@ -162,7 +162,7 @@ pub(crate) fn template_origins(db: &dyn SemanticDb, project: Project) -> Templat
         db,
         ordered,
         first_by_template_name,
-        crate::project::template_dirs(db, project).0.clone(),
+        djls_project::template_dirs(db, project).0.clone(),
     )
 }
 
