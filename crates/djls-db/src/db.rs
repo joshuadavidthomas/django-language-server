@@ -807,8 +807,29 @@ def my_filter(value, arg):
         assert!(!other_module_result.contains_key(&key));
     }
 
-    #[test]
-    fn refresh_external_data_reads_changed_star_imported_settings_source_for_template_libraries() {
+    fn settings_with_custom_library(module_path: &str) -> String {
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': '__MODULE__'}}}]\n"
+            .replace("__MODULE__", module_path)
+    }
+
+    fn template_tag_library_source(tag_name: &str) -> String {
+        format!(
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef {tag_name}():\n    pass\n"
+        )
+    }
+
+    fn assert_custom_library_module(db: &DjangoDatabase, module_path: &str) {
+        assert_eq!(
+            db.template_libraries()
+                .best_loadable_library_str("custom")
+                .unwrap()
+                .module()
+                .as_str(),
+            module_path
+        );
+    }
+
+    fn assert_refresh_updates_star_imported_settings_source(settings_source: &str) {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -824,18 +845,18 @@ def my_filter(value, arg):
         {
             let mut fs = fs.lock().unwrap();
             fs.add_file(root.join("manage.py"), String::new());
-            fs.add_file(settings_path, "from .base import *\n".to_string());
+            fs.add_file(settings_path, settings_source.to_string());
             fs.add_file(
                 base_settings_path.clone(),
-                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'old_tags'}}}]\n".to_string(),
+                settings_with_custom_library("old_tags"),
             );
             fs.add_file(
                 root.join("old_tags.py"),
-                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef old_tag():\n    pass\n".to_string(),
+                template_tag_library_source("old_tag"),
             );
             fs.add_file(
                 root.join("new_tags.py"),
-                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n".to_string(),
+                template_tag_library_source("new_tag"),
             );
         }
 
@@ -851,29 +872,98 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        assert_eq!(
-            db.template_libraries()
-                .best_loadable_library_str("custom")
-                .unwrap()
-                .module()
-                .as_str(),
-            "old_tags"
-        );
+        assert_custom_library_module(&db, "old_tags");
 
-        fs.lock().unwrap().add_file(
-            base_settings_path,
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'new_tags'}}}]\n".to_string(),
-        );
+        fs.lock()
+            .unwrap()
+            .add_file(base_settings_path, settings_with_custom_library("new_tags"));
         djls_semantic::refresh_external_data(&mut db);
 
-        assert_eq!(
+        assert_custom_library_module(&db, "new_tags");
+    }
+
+    #[test]
+    fn refresh_external_data_reads_changed_star_imported_settings_source_for_template_libraries() {
+        assert_refresh_updates_star_imported_settings_source("from .base import *\n");
+    }
+
+    #[test]
+    fn refresh_external_data_reads_changed_try_star_imported_settings_source() {
+        assert_refresh_updates_star_imported_settings_source(
+            "try:\n    from .base import *\nexcept ImportError:\n    pass\n",
+        );
+    }
+
+    #[test]
+    fn refresh_external_data_reads_changed_conditionally_star_imported_settings_source() {
+        assert_refresh_updates_star_imported_settings_source(
+            "import os\nif os.environ.get(\"EXTRA\"):\n    from .base import *\nelse:\n    from .base import *\n",
+        );
+    }
+
+    #[test]
+    fn refresh_external_data_discovers_newly_star_imported_known_file() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings_path = root.join("settings.py");
+        let extra_settings_path = root.join("extra.py");
+
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(settings_path.clone(), "INSTALLED_APPS = []\n".to_string());
+            fs.add_file(
+                extra_settings_path.clone(),
+                settings_with_custom_library("old_tags"),
+            );
+            fs.add_file(
+                root.join("old_tags.py"),
+                template_tag_library_source("old_tag"),
+            );
+            fs.add_file(
+                root.join("new_tags.py"),
+                template_tag_library_source("new_tag"),
+            );
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        assert!(
             db.template_libraries()
                 .best_loadable_library_str("custom")
-                .unwrap()
-                .module()
-                .as_str(),
-            "new_tags"
+                .is_none()
         );
+        let extra_file = djls_source::Db::get_or_create_file(&db, &extra_settings_path);
+        assert!(extra_file.source(&db).as_str().contains("old_tags"));
+
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(settings_path, "from .extra import *\n".to_string());
+            fs.add_file(
+                extra_settings_path,
+                settings_with_custom_library("new_tags"),
+            );
+        }
+        djls_semantic::refresh_external_data(&mut db);
+
+        assert_custom_library_module(&db, "new_tags");
     }
 
     #[test]

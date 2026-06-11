@@ -31,6 +31,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Removed the template library snapshot disk cache and startup cache-loading phase.
 
+### Fixed
+
+- Fixed settings refreshes for star imports inside `try` and `if` blocks.
+
 ## [6.0.3]
 
 ### Added
