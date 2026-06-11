@@ -43,7 +43,7 @@ reconciliation and run early).
 | [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | DONE |
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | DONE |
 | [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | DONE |
-| [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | TODO |
+| [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | DONE |
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | TODO |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | TODO |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
@@ -135,6 +135,21 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-10 (Plan 006 executed)**: PR #659 / bookmark
+  `plan-006-djls-project-settings-recognizer` / source commit `731d353b`
+  creates the pure `djls-project` crate and implements bounded static
+  settings extraction for `INSTALLED_APPS`, `TEMPLATES`, star imports,
+  simple branch truthiness, and supported path expressions. It adds 26
+  tests, including reviewer-found edge cases for star-import presence,
+  ambiguous branch joins, and template dict unpacking. Validation passed:
+  `cargo build -q -p djls-project`, `cargo test -q -p djls-project`,
+  `cargo test -q -j 2 -- --test-threads=2`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `just fmt`, `just clippy`, `just lint`, and the purity/scope guard rgs.
+  Deviations: the pinned Ruff parser exposes no recovered AST on syntax
+  errors, so syntax-error sources return Partial facts without walking a
+  recovered tree; `Cargo.lock` is included because adding a workspace crate
+  requires the lockfile package entry.
 - **2026-06-10 (Plan 004 closed)**: PR #658 merged into `main` as
   `d7624a91` (source commit `18cf545e`); it moves first-party template
   discovery from the `Project` input into the tracked
