@@ -152,7 +152,7 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-11 (Plan 015 implemented locally)**: source stack ending at
+- **2026-06-11 (Plan 015 PR opened)**: PR #668 / source stack ending at
   `99c3e582` / bookmark `plan-015-move-project-model` moves the registration
   scanner, `Project` input, Python environment discovery, search paths, module
   resolution, derived Django project facts, and project refresh from
@@ -168,7 +168,8 @@ REJECTED (with one-line rationale).
   project-local test database and project-level assertions to preserve the
   one-way `djls-project` → no `djls-semantic` boundary; current `main` had
   already removed blank lines from the e2e base template, so the source stack
-  includes a test-only expectation update. It is not pushed or PR'd yet.
+  includes a test-only expectation update. Plan 016/017/018 remain TODO until
+  Plan 015 is merged and recorded closed.
 - **2026-06-11 (Plan 009 closed)**: PR #667 merged into `main` as
   `ed643c9c Delete runtime Python inspector (#667)` (source head
   `437117c5`). The source change deletes the runtime inspector subprocess,
