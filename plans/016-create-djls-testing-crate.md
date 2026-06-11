@@ -17,14 +17,23 @@
 > identical. If plan 014 has not landed, `ProjectFixture` won't exist in
 > `testing.rs` — move what is there. If plan 009 has landed (expected),
 > the `project_introspector` method and its `ProjectIntrospector` import
-> are already gone from `testing.rs` — do not resurrect them.
+> are already gone from `testing.rs` — do not resurrect them. If plan 021
+> has landed (expected — it is sequenced before this plan), the spec
+> extraction subtree lives in djls-project: the corpus-grounded Python
+> helpers are at `crates/djls-project/src/specs/testing.rs`, the corpus
+> extraction tests at `crates/djls-project/tests/corpus*.rs`, and the
+> duplicate inline TestDatabase at
+> `crates/djls-project/src/specs/analysis/calls.rs` — djls-project then
+> also gains a `djls-testing` dev-dependency in Step 4, and the
+> djls-semantic re-export inventory in Step 2 is ~10 items shorter.
 
 ## Status
 
 - **Priority**: P2
 - **Effort**: M
 - **Risk**: LOW (test-only surface; no production code changes)
-- **Depends on**: plans/014, plans/015 (soft — see drift check)
+- **Depends on**: plans/014, plans/015, plans/021 (015/021 soft — see
+  drift check)
 - **Category**: tech-debt / DX
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 
@@ -83,10 +92,12 @@ there is no build cycle.
 
 - Corpus consumers: `djls-semantic` `[dev-dependencies]`
   (Cargo.toml:30), `djls-bench` `[dependencies]` (Cargo.toml:8). Import
-  sites: `djls-semantic/src/testing.rs`, `src/python/testing.rs`,
-  `tests/corpus.rs`, `tests/corpus_models.rs`;
-  `djls-bench/benches/models.rs`, `benches/check.rs` (inventory again with
-  `rg -l "djls_corpus" crates/`).
+  sites at planned-at: `djls-semantic/src/testing.rs`,
+  `src/python/testing.rs`, `tests/corpus.rs`, `tests/corpus_models.rs`;
+  `djls-bench/benches/models.rs`, `benches/check.rs`. Post-021 the
+  `python/testing.rs` and `tests/corpus*.rs` sites live in djls-project
+  (which also dev-depends on the corpus). Inventory again with
+  `rg -l "djls_corpus" crates/` — the sweep is authoritative.
 
 - Tooling entry points: `Justfile:29-30`
   (`corpus *ARGS:` → `cargo run -q -p djls-corpus -- {{ ARGS }}`) and
@@ -260,8 +271,11 @@ role (folder.rs convention):
 - `src/fixtures.rs` — the JSON builders, `make_template_libraries`,
   `collect_errors`/`collect_errors_with_revision`,
   `snapshot_validate`/`snapshot_validate_file`, `ProjectFixture` (plan
-  014), and the contents of `src/python/testing.rs` (corpus-grounded
-  Python-source helpers).
+  014), and the corpus-grounded Python-source helpers (post-021 these
+  live at `crates/djls-project/src/specs/testing.rs`; consolidate them
+  here only if djls-project's tests are better served by the shared
+  crate — otherwise leave them as djls-project-local test helpers and
+  record the call in your report).
 
 **Before moving, inventory the boundary**: `rg -n "use crate::" crates/djls-semantic/src/testing.rs crates/djls-semantic/src/python/testing.rs`
 — every item must be importable through djls-semantic's (or
@@ -319,9 +333,11 @@ runner still reads the real suites rather than vacuously passing.)
 
 One at a time, each followed by that crate's tests:
 
-1. `djls-semantic/src/python/analysis/calls.rs` — delete the inline
+1. `djls-semantic/src/python/analysis/calls.rs` — post-021 this file is
+   `crates/djls-project/src/specs/analysis/calls.rs`. Delete the inline
    `TestDatabase` (`:176-204+` at planned-at); use
-   `djls_testing::TestDatabase`. If the inline one carries state the
+   `djls_testing::TestDatabase` (add `djls-testing` to djls-project's
+   `[dev-dependencies]`). If the inline one carries state the
    shared one lacks, extend the shared one's `with_*` builders rather
    than keeping the copy.
 2. `djls-ide/src/formatting.rs` — delete the inline `TestDb`

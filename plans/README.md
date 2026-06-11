@@ -27,7 +27,14 @@ fed by real facts. Plans 019–020 are **design-review follow-ups** to plan
 008 (2026-06-11 review, two memos): a refresh-invalidation bugfix for
 nested settings star imports (020) and the template-library domain-model
 correction (019) — both sequenced before 015 so the move relocates the
-clean shape.
+clean shape. Plan 021 is the **boundary follow-up** to plan 015
+(2026-06-11 review,
+[memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)):
+spec extraction — djls-semantic's `python/` subtree — moves into
+djls-project, making djls-semantic the **project-meaning** layer
+(maintainer framing: "project meaning", not "template meaning");
+sequenced after 015 merges and before 016/017 so the test-infra and tidy
+plans wire against final crate homes.
 
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
@@ -54,8 +61,9 @@ reconciliation and run early).
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | IN PROGRESS |
-| [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
-| [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, façade split, export audit | P2 | M | 013, 015, 016 | TODO |
+| [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | TODO |
+| [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015, 021 (015/021 soft) | TODO |
+| [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, export audit | P2 | M | 013, 015, 016, 021 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | TODO |
 | [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | TODO |
@@ -118,10 +126,23 @@ REJECTED (with one-line rationale).
   (djls-semantic dev-depends on djls-testing, which depends on
   djls-semantic) is Cargo-sanctioned and is exactly ty's `ty_test` shape
   (verified: `ty_python_semantic/Cargo.toml:54` ↔ `ty_test/Cargo.toml:24`).
+- **021 after 015, before 016/017**: the 2026-06-11 boundary memo
+  ([memo-project-semantic-boundary.md](memo-project-semantic-boundary.md))
+  re-derives the crate seam by *activity* (observed source facts →
+  djls-project; project meaning → djls-semantic) instead of output
+  vocabulary, superseding the 2026-06-10 crate-count review's "spec
+  extraction stays in djls-semantic permanently" note. 021 runs after 015
+  merges (don't widen PR #668 — it is a validated structure-only move
+  with its own gates) and before 016/017 so djls-testing wires against
+  final homes and 017's audit sees the post-move export list (017's
+  original Step 3 was removed; 016's drift check re-anchors the moved
+  testing paths). After 021, only djls-project depends on ruff — a
+  manifest-checkable boundary.
 - **017 last in the structural sequence**: it tidies what *remains* in
   djls-semantic — only meaningful after 013 (dead exports), 015 (project
-  model gone), and 016 (test infra gone). Structure-only, behavior frozen
-  by test counts + snapshot byte-identity.
+  model gone), 021 (spec extraction gone), and 016 (test infra gone).
+  Structure-only, behavior frozen by test counts + snapshot
+  byte-identity.
 - **018 after 008 (and recommended after 009/015)**: it consumes plan 007's
   settings facts and plan 008's derived active `TemplateLibraries` — the
   subtraction `scan − active modules` is only sound once 008's "any
@@ -152,6 +173,38 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (post-015 boundary review — project/semantic seam)**:
+  design memo
+  [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
+  (written against PR #668 head `735cea66`) → plan
+  [021](021-move-spec-extraction-into-djls-project.md). Verdict: the
+  "produces semantic vocabulary → stays in semantic" rule from the
+  2026-06-10 crate-count review classified by output naming; the right
+  classifier is *activity* — djls-semantic is the **project-meaning**
+  layer (maintainer framing: "project meaning", not "template meaning"),
+  and everything under `djls-semantic/src/python/` is mechanical source
+  observation. Evidence: the subtree already sits below the semantic
+  trait (`analyze_helper` takes `&dyn djls_source::Db`; the one
+  semantic-`Db` import uses only project-level queries); the only
+  template↔Python crossings are the two fusion queries
+  (`compute_tag_specs`, `compute_filter_arity_specs`); all ruff usage in
+  djls-semantic is confined to `src/python/`; the settings extractor in
+  djls-project already does same-caliber analysis (branch truthiness,
+  path micro-evaluation) as `guards.rs`; `RegistrationKind` is cut in
+  half by the seam (definition project-side, behavior in a semantic-side
+  orphan-rule extension trait that the move dissolves); `ModelGraph` —
+  deliberate groundwork for future Python-file features (models.py,
+  settings.py), per maintainer — has zero feature consumers and belongs
+  below every surface that will consume it. Rejected alternatives
+  recorded in the memo: status quo + docs (boundary stays unstatable
+  without narrating plan 008's dependency needs), models/-only partial
+  move (perpetuates the inconsistency), walkers-down/vocabulary-up
+  (dependency cycle — impossible). Consequences applied: plan 021 added
+  (after 015 merges, before 016/017); plan 017 revised (Step 3 removed,
+  audit candidates re-scoped, "stays permanently" maintenance note
+  replaced); plan 016 drift check extended for the moved testing paths;
+  the crate-count entry's final "stays permanently" sentence below is
+  superseded by this entry.
 - **2026-06-11 (Plan 015 PR opened)**: PR #668 / source stack ending at
   `735cea66` / bookmark `plan-015-move-project-model` moves the registration
   scanner, `Project` input, Python environment discovery, search paths, module
@@ -665,11 +718,12 @@ REJECTED (with one-line rationale).
   semantic context that djls-templates must not depend on. Plan 017's
   trait removal slightly eases a future attempt; revisit after the
   structural track lands.
-- **Restructuring `python/analysis/`** (`statements.rs` 1,249 lines,
-  `guards.rs` 1,238): a redesign of the extraction walker, not a tidy;
-  deferred. The 2026-06-10 crate-count review settled that the
-  spec-extraction stack stays in djls-semantic permanently, so any future
-  restructuring is local to that crate.
+- **Restructuring the extraction walker** (`statements.rs` 1,249 lines,
+  `guards.rs` 1,238): a redesign, not a tidy; deferred. Plan 021 moves
+  the spec-extraction stack into djls-project as `specs/` (superseding
+  the 2026-06-10 "stays in djls-semantic permanently" note — see
+  [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)),
+  so any future restructuring is local to djls-project.
 - **djlint formatter backend** for djls-format (maintainer, low priority).
 - **Retiring user-facing TagSpecs config in djls-conf** once static
   extraction matures (maintainer, "low low priority").
