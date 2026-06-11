@@ -215,11 +215,15 @@ mod invalidation_tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
+    use camino::Utf8Path;
     use djls_conf::Settings;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::Project;
+    use djls_semantic::SemanticOffsetContext;
     use djls_semantic::TemplateLibraries;
+    use djls_source::Db as SourceDb;
     use djls_source::InMemoryFileSystem;
+    use djls_source::Offset;
     use djls_source::SourceFiles;
     use salsa::Database;
     use salsa::Setter;
@@ -333,6 +337,69 @@ mod invalidation_tests {
         assert!(
             !was_executed(&db, &events, "compute_tag_specs"),
             "compute_tag_specs should stay cached when search-path module projection is unchanged"
+        );
+    }
+
+    #[test]
+    fn root_revision_change_invalidates_project_template_files() {
+        let source = "{% extends \"base.html\" %}";
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(
+            "/test/project/templates/child.html".into(),
+            source.to_string(),
+        );
+        fs.add_file(
+            "/test/project/templates/base.html".into(),
+            "base".to_string(),
+        );
+
+        let event_log = EventLog::default();
+        let settings = Settings::default();
+        let mut db = DjangoDatabase {
+            fs: Arc::new(fs),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, "/test/project".into(), &settings);
+        db.project = Some(project);
+
+        let project = db.project.unwrap();
+
+        let child_path = Utf8Path::new("/test/project/templates/child.html");
+        let child = db.get_or_create_file(child_path);
+        let offset = Offset::try_from(source.find("base.html").unwrap()).unwrap();
+        {
+            let SemanticOffsetContext::TemplateReference { name, .. } =
+                SemanticOffsetContext::from_offset(&db, child, offset)
+            else {
+                panic!("expected extends argument to be a template reference");
+            };
+            let _result = djls_semantic::find_template(&db, project, name);
+        }
+        event_log.take();
+
+        let root = db.files().expect_root(&db, child_path);
+        db.bump_file_root_revision(root);
+
+        let SemanticOffsetContext::TemplateReference { name, .. } =
+            SemanticOffsetContext::from_offset(&db, child, offset)
+        else {
+            panic!("expected extends argument to be a template reference");
+        };
+        let _result = djls_semantic::find_template(&db, project, name);
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "project_template_files"),
+            "project_template_files should re-execute after the search root revision changes"
         );
     }
 

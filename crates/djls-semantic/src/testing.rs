@@ -36,8 +36,6 @@ use crate::project::Interpreter;
 use crate::project::Project;
 use crate::project::ProjectIntrospector;
 #[cfg(test)]
-use crate::project::ProjectTemplateFiles;
-#[cfg(test)]
 use crate::project::TemplateDirs;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateLibrarySnapshot;
@@ -233,7 +231,6 @@ pub(crate) struct ProjectFixture {
     template_dirs: TemplateDirs,
     tag_specs: TagSpecDef,
     template_libraries: TemplateLibraries,
-    template_files: Vec<(String, Utf8PathBuf)>,
 }
 
 #[cfg(test)]
@@ -253,7 +250,6 @@ impl ProjectFixture {
             template_dirs: TemplateDirs::Unknown,
             tag_specs: settings.tagspecs().clone(),
             template_libraries: TemplateLibraries::default(),
-            template_files: Vec::new(),
         }
     }
 
@@ -307,15 +303,12 @@ impl ProjectFixture {
 
     #[must_use]
     pub(crate) fn template_file(
-        mut self,
-        name: impl Into<String>,
+        self,
+        _name: impl Into<String>,
         path: impl Into<Utf8PathBuf>,
         source: impl Into<String>,
     ) -> Self {
-        let path = path.into();
-        self.files.push((path.clone(), source.into()));
-        self.template_files.push((name.into(), path));
-        self
+        self.file(path, source)
     }
 
     pub(crate) fn build(self, db: &TestDatabase) -> Project {
@@ -323,7 +316,6 @@ impl ProjectFixture {
             db.add_file(path.as_str(), &source);
         }
 
-        let template_files = ProjectTemplateFiles::from_ordered_paths(db, self.template_files);
         let search_paths = self.search_paths.unwrap_or_else(|| {
             SearchPaths::from_project_settings(
                 db.file_system(),
@@ -347,7 +339,6 @@ impl ProjectFixture {
             self.template_dirs,
             self.tag_specs,
             self.template_libraries,
-            template_files,
         )
     }
 
