@@ -104,8 +104,8 @@ shifted.)
   plan 014) — the dev-only descendant of the inspector. It is a standalone
   script with no dependence on the embedded zipapp or the wire protocol;
   it survives this deletion as the golden-fixture regenerator.
-- `djls-python`'s interpreter discovery — still used (search paths need
-  site-packages).
+- The interpreter discovery in `project/python.rs` — still used (search
+  paths need site-packages); plan 015 later moves it into djls-project.
 - The `Interpreter` field on the `Project` input — site-packages discovery
   still consumes it. (Whether it can slim down later is a separate
   decision.)

@@ -175,7 +175,8 @@ Stop and report back (do not improvise) if:
   `crates/djls-conf/src/django_environments.rs`) is now parsed-but-unused.
   When multi-environment support is designed (see CONTEXT.md "Django
   Environment"), it plugs back in there.
-- Plans 006–008 introduce a new `djls-extraction` crate with its own
+- Plans 006–008 introduce the `djls-project` crate (initially just its
+  bounded settings-recognizer `extraction` module) with its own
   `Knowledge` type; reviewers should confirm no resurrection of the deleted
   4-variant `Fact<T>` shape (Josh's rule: no enum variants whose match arms
   are identical everywhere).

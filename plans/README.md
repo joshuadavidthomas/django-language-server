@@ -9,13 +9,14 @@ Source material: the two research documents in
 
 **Goal**: statically analyze Django projects — `INSTALLED_APPS`, template
 directories, template tag libraries, symbols — without a Python runtime,
-then delete the runtime inspector. Plans 001–005 are house-cleaning ("make
-the change easy"); plans 006–009 are the feature ("make the easy change");
-plans 010–012 are the **startup track** (salvaged from PR #626's good half:
-snapshot reads, non-blocking refresh, progress reporting, startup contract
-tests) — useful independently, sequenced after the static track because
-plan 009 makes startup radically simpler first. Plans 015–017 are the
-**structural track**: the djls-project crate split, the djls-testing
+then delete the runtime inspector. Plans 001–004 are house-cleaning ("make
+the change easy"); plans 006–009 are the feature ("make the easy change" —
+006 also creates the `djls-project` crate, walker-first); plans 010–012 are
+the **startup track** (salvaged from PR #626's good half: snapshot reads,
+non-blocking refresh, progress reporting, startup contract tests) — useful
+independently, sequenced after the static track because plan 009 makes
+startup radically simpler first. Plans 015–017 are the **structural
+track**: the project-model move into djls-project, the djls-testing
 consolidation (corpus + shared Salsa test database), and the final
 djls-semantic tidy — sequenced last because they move/reshape code the
 earlier plans delete or rewrite. Plan 018 is the **UX follow-up** to the
@@ -42,12 +43,11 @@ reconciliation and run early).
 | [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | DONE |
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | DONE |
 | [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | TODO |
-| [005](005-python-env-discovery-crate.md) | Extract db-free env discovery into `djls-python` | P2 | M | — | TODO |
-| [006](006-settings-extraction-crate.md) | Build `djls-extraction` (bounded settings.py recognizer) | P1 | L | 001 | TODO |
+| [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | TODO |
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | TODO |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | TODO |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
-| [015](015-create-djls-project-crate.md) | Create `djls-project`: move the project model out of djls-semantic | P2 | M/L | 007, 008, 009 | TODO |
+| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009 | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, façade split, export audit | P2 | M | 013, 015, 016 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
@@ -69,12 +69,11 @@ REJECTED (with one-line rationale).
   the derived dirs query.
 - **006 → 007 → 008**: pure walker → Salsa wiring + dirs → libraries. Each
   lands green on its own; the inspector keeps running (ignored more and more)
-  until 009.
+  until 009. 006 creates the `djls-project` crate walker-first (no salsa in
+  its manifest until 015); 007 adds the `djls-semantic → djls-project`
+  dependency edge — already the end-state direction.
 - **002 → 008**: 008 rebuilds `TemplateLibraries` production; the dead
   Discovered half must be gone first so it isn't threaded through.
-- **005** is independent (any time after 001); do it before 007 if convenient
-  so settings-module resolution reads from a clean import graph, but nothing
-  breaks either way.
 - 007 and 008 both end with an e2e parity gate against `tests/project` —
   static results must match what the runtime inspector reported. Those gates
   are the project's fidelity contract; their STOP conditions are not
@@ -89,15 +88,21 @@ REJECTED (with one-line rationale).
   does NOT execute `tests/e2e`; the pytest-lsp parity suite is `just e2e`
   (nox session `e2e`, `noxfile.py:112-129`). Plans were corrected on
   2026-06-10; executors must run BOTH where a plan's gate says so.
-- **015 after 009, deliberately not before 006**: moving `project/` out of
-  djls-semantic before the static track would relocate thousands of lines
-  that plans 007–009 rewrite or delete (inspector, cache, push pipeline)
-  and invalidate those plans' file references. Post-009 the module is slim
-  and the move is mostly rename-detected file moves. 015 also moves
-  `registry.rs` into djls-extraction (pure, db-free — verified) to keep the
-  dependency direction acyclic. 015 and the startup track are
-  order-independent except both touch `sync.rs`; whichever runs second
-  re-anchors (noted in both plans).
+- **015 after 009 (the crate itself arrives with 006)**: moving `project/`
+  out of djls-semantic before the static track would relocate thousands of
+  lines that plans 007–009 rewrite or delete (inspector, cache, push
+  pipeline) and invalidate those plans' file references. Post-009 the
+  module is slim and the move is mostly rename-detected file moves. 015
+  also moves the registration-scanner half of `python/registry.rs` (plus
+  `ExprExt`) into djls-project's extraction module to keep the dependency
+  direction acyclic; the spec-extraction bridge (`ExtractionOutput` + the
+  `RegistrationKind` methods) stays in djls-semantic — `registry.rs:12-21`
+  imports seven sibling modules, so the original "single file move" claim
+  was wrong (corrected 2026-06-10). 015 additionally absorbs the deleted
+  plan 005: env discovery (`project/python.rs`, `system.rs`) moves as two
+  rows of its move table. 015 and the startup track are order-independent
+  except both touch `sync.rs`; whichever runs second re-anchors (noted in
+  both plans).
 - **016 after 015**: the shared `TestDatabase` implements the database
   trait stack; landing 016 after 015 means it imports `ProjectDb` from its
   final home once instead of being rewired by 015. Also after 014 (which
@@ -233,6 +238,37 @@ REJECTED (with one-line rationale).
   symbol-level diagnostics (S118/S119) need the full index anyway, and
   the full scan is the same walk class Salsa already caches.
 
+- **2026-06-10 (crate-count review)**: the maintainer challenged the
+  four-new-crate plan set (djls-python, djls-extraction, djls-project,
+  djls-testing); decision: **fold djls-python and djls-extraction into
+  djls-project** — net new crates are djls-project and djls-testing only
+  (and djls-corpus dissolves into djls-testing, so the workspace goes
+  11 → 12). Changes: plan 005 deleted (env discovery becomes two rows in
+  plan 015's move table); plan 006 retargeted and renamed
+  (`006-create-djls-project-settings-recognizer.md` — same walker, same
+  bounds, now created as djls-project's `extraction` module; the crate has
+  no salsa until 015, so the crate-level purity grep holds through the
+  whole static track, then converts to a module-scoped grep); plan 015
+  renamed (`015-move-project-model-into-djls-project.md`) and corrected;
+  plans 001/007/008/009/017/018 re-pointed. Verified evidence: env
+  discovery is 444 + 205 lines with one post-015 structural consumer,
+  while ty's `ty_site_packages` is 3,646 lines with three consumer
+  crates — the precedent argues *fold now, extract at that scale*; ty
+  colocates its bounded walkers with their consumer
+  (`dunder_all.rs` lives inside `ty_python_semantic`, not a walker
+  crate), so extraction-in-project is the ty-consistent shape for our
+  layering; and `registry.rs:12-21` imports seven sibling modules
+  (`SymbolKind`, `analysis`, `blocks`, `ext`, `filters`, `signature`,
+  `types`), refuting the earlier "registry.rs depends only on ruff AST"
+  single-file-move claim in plan 015 (this supersedes the registry note
+  in the "2026-06-10 (later)" entry above) — corrected to a scanner/
+  bridge split: `collect_registrations_from_body` + helpers + `ExprExt`
+  move down; `ExtractionOutput` and the `RegistrationKind` spec methods
+  stay in djls-semantic as an extension trait (orphan rule). Also
+  settled: the spec-extraction analyses (`python/analysis/`, `blocks/`,
+  `models/`) stay in djls-semantic permanently — they produce semantic
+  vocabulary (`TagRule`/`BlockSpec`/`FilterArity`).
+
 ## Findings considered and rejected
 
 (So nobody re-audits these.)
@@ -265,9 +301,10 @@ REJECTED (with one-line rationale).
   module, pythonpath, env vars, tagspecs). Revisit only if it's still
   awkward afterwards. NOTE: this rejected the *input* split only — the
   *crate* split (PR #626's `djls-project` idea, the mechanical project
-  model separated from semantic meaning) is planned as
-  [015](015-create-djls-project-crate.md), sequenced post-009 when the
-  module is slim and pull-shaped.
+  model separated from semantic meaning) is planned as plan 006 (crate
+  creation, walker-first) plus
+  [015](015-move-project-model-into-djls-project.md) (the model move),
+  sequenced post-009 when the module is slim and pull-shaped.
 - **Deleting `djls-conf`'s `[[django_environments]]` schema** after plan 001
   orphans it: kept — multi-environment support is a documented future
   direction (CONTEXT.md "Django Environment") and the schema is harmless.
@@ -301,6 +338,22 @@ REJECTED (with one-line rationale).
   convenience type; the better future consolidation is bench adopting the
   post-009 slimmed `DjangoDatabase` (noted in plan 016's maintenance
   notes).
+- **A separate `djls-extraction` crate** (original plan 006, 2026-06-10
+  crate-count review): no ty-crate precedent — ty's bounded walkers live
+  inside their consumer crate (`dunder_all.rs` in `ty_python_semantic`);
+  the code *forced* below djls-project is only the settings walker + the
+  registration scanner (~2.5k lines steady-state) since the spec stack
+  stays in djls-semantic; and the purity firewall survives as
+  `extract_settings(&str, …, &mut dyn StarImportResolver)`'s signature
+  plus a module-scoped grep. Folded into djls-project as the `extraction`
+  module.
+- **A separate `djls-python` env-discovery crate** (deleted plan 005,
+  2026-06-10 crate-count review): 444 + 205 lines, pure move, no planned
+  growth in this track, exactly one structural consumer post-015. ty's
+  `ty_site_packages` earned its crate at 3,646 lines with three consumer
+  crates — extract at that scale, not before (threshold recorded in plan
+  015's maintenance notes). Folded into plan 015's move table as
+  `djls-project/src/python.rs` + `system.rs`.
 
 ## Deferred (real, but not planned)
 
@@ -328,8 +381,9 @@ REJECTED (with one-line rationale).
   structural track lands.
 - **Restructuring `python/analysis/`** (`statements.rs` 1,249 lines,
   `guards.rs` 1,238): a redesign of the extraction walker, not a tidy;
-  deferred until spec extraction's possible move toward djls-extraction
-  (plan 015's deferral note) forces the question.
+  deferred. The 2026-06-10 crate-count review settled that the
+  spec-extraction stack stays in djls-semantic permanently, so any future
+  restructuring is local to that crate.
 - **djlint formatter backend** for djls-format (maintainer, low priority).
 - **Retiring user-facing TagSpecs config in djls-conf** once static
   extraction matures (maintainer, "low low priority").

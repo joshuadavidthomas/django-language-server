@@ -66,9 +66,10 @@ only deletes, inlines, and relocates.
   logic (`HelperCall` interned struct, `analyze_helper`,
   `extract_tag_rules`, `extract_filter_arities`, `extract_block_specs`,
   `extract_rules`, private helpers). Post-015 it is smaller
-  (`ParsedPythonModule`/`parse_python_module`/`ModulePath` moved down,
-  `registry.rs` moved to djls-extraction) but still a façade file holding
-  query logic.
+  (`ParsedPythonModule`/`parse_python_module`/`ModulePath` moved down, the
+  registration scanner + `ExprExt` moved into djls-project — semantic's
+  `python/registry.rs` retains only the spec-extraction bridge) but still
+  a façade file holding query logic.
 - Public-API surplus: the externally-unconsumed re-exports found at
   planned-at were `ProjectTemplateFiles`, `TemplateDirs`, `BlockSpecs`,
   `FilterArityMap`, `ModelDef`, `TagRuleMap` (deleted by plan 013) and,
@@ -267,8 +268,9 @@ Stop and report back (do not improvise) if:
   queries. Reviewers should treat new `pub use` lines without an external
   consumer as regressions.
 - The deferred big item remains `python/analysis/` (the extraction
-  walker): if/when spec extraction moves toward djls-extraction (see plan
-  015's deferral), that move subsumes any file-splitting urge here.
+  walker): it stays in djls-semantic permanently — it produces semantic
+  vocabulary (see plan 015's maintenance notes, 2026-06-10 crate-count
+  review) — so any future file-splitting decision is local to this crate.
 - The maintainer's wish to move template-tree building into
   djls-templates is recorded as deferred in plans/README.md — Step 1's
   trait removal slightly eases it (one less crate-local abstraction tying
