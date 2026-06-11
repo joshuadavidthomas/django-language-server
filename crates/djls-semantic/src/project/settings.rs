@@ -138,15 +138,18 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         libraries.knowledge = libraries.knowledge.demoted_to_partial();
     }
 
-    scan_templatetags_package(&resolver, "django", &mut libraries);
+    let derived = templatetag_package_libraries(&resolver, "django");
+    libraries.knowledge = libraries.knowledge.weakened_by(derived.knowledge);
+    libraries.extend_loadable(derived.libraries);
 
     if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
         for installed_app in &settings.installed_apps.values {
-            scan_templatetags_package(
+            let derived = templatetag_package_libraries(
                 &resolver,
                 installed_app_package_module(installed_app),
-                &mut libraries,
             );
+            libraries.knowledge = libraries.knowledge.weakened_by(derived.knowledge);
+            libraries.extend_loadable(derived.libraries);
         }
     }
 
@@ -160,38 +163,92 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         libraries.knowledge = libraries.knowledge.weakened_by(backend.knowledge);
 
         for (load_name, module_path) in &backend.libraries {
-            add_configured_library(&resolver, &mut libraries, load_name, module_path);
+            let derived = configured_library(&resolver, load_name, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(derived.knowledge);
+            if let Some(library) = derived.library {
+                libraries.set_loadable(library);
+            }
         }
 
         for module_path in DEFAULT_TEMPLATE_BUILTINS {
-            add_builtin_library(&resolver, &mut libraries, module_path);
+            let derived = builtin_library(&resolver, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(derived.knowledge);
+            if let Some(library) = derived.library {
+                libraries.push_builtin(library);
+            }
         }
         for module_path in &backend.builtins {
-            add_builtin_library(&resolver, &mut libraries, module_path);
+            let derived = builtin_library(&resolver, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(derived.knowledge);
+            if let Some(library) = derived.library {
+                libraries.push_builtin(library);
+            }
         }
     }
 
     libraries
 }
 
-fn scan_templatetags_package(
+struct DerivedTemplateLibraries {
+    knowledge: StaticKnowledge,
+    libraries: Vec<TemplateLibrary>,
+}
+
+impl Default for DerivedTemplateLibraries {
+    fn default() -> Self {
+        Self {
+            knowledge: StaticKnowledge::Known,
+            libraries: Vec::new(),
+        }
+    }
+}
+
+impl DerivedTemplateLibraries {
+    fn demote_to_partial(&mut self) {
+        self.knowledge = self.knowledge.demoted_to_partial();
+    }
+}
+
+struct DerivedTemplateLibrary {
+    knowledge: StaticKnowledge,
+    library: Option<TemplateLibrary>,
+}
+
+impl DerivedTemplateLibrary {
+    fn known(library: TemplateLibrary) -> Self {
+        Self {
+            knowledge: StaticKnowledge::Known,
+            library: Some(library),
+        }
+    }
+
+    fn partial(library: Option<TemplateLibrary>) -> Self {
+        Self {
+            knowledge: StaticKnowledge::Partial,
+            library,
+        }
+    }
+}
+
+fn templatetag_package_libraries(
     resolver: &SalsaSettingsResolver<'_>,
     package_module: &str,
-    libraries: &mut TemplateLibraries,
-) {
+) -> DerivedTemplateLibraries {
+    let mut derived = DerivedTemplateLibraries::default();
+
     if package_module.is_empty() {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        derived.demote_to_partial();
+        return derived;
     }
 
     let Ok(app_module) = PyModuleName::parse(package_module) else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        derived.demote_to_partial();
+        return derived;
     };
 
     let Some(package_dir) = resolver.package_dir(package_module) else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        derived.demote_to_partial();
+        return derived;
     };
 
     let templatetags_dir = package_dir.join("templatetags");
@@ -199,7 +256,7 @@ fn scan_templatetags_package(
         .db
         .path_is_file(&templatetags_dir.join("__init__.py"))
     {
-        return;
+        return derived;
     }
 
     let entries = match resolver
@@ -209,8 +266,8 @@ fn scan_templatetags_package(
         Ok(entries) => entries,
         Err(err) => {
             tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            libraries.knowledge = libraries.knowledge.demoted_to_partial();
-            return;
+            derived.demote_to_partial();
+            return derived;
         }
     };
 
@@ -227,12 +284,12 @@ fn scan_templatetags_package(
         }
 
         let Ok(load_name) = LibraryName::parse(stem) else {
-            libraries.knowledge = libraries.knowledge.demoted_to_partial();
+            derived.demote_to_partial();
             continue;
         };
         let module_path = format!("{package_module}.templatetags.{stem}");
         let Ok(module) = PyModuleName::parse(&module_path) else {
-            libraries.knowledge = libraries.knowledge.demoted_to_partial();
+            derived.demote_to_partial();
             continue;
         };
 
@@ -249,69 +306,55 @@ fn scan_templatetags_package(
         };
         let mut library = TemplateLibrary::new_active(load_name, module, Some(origin));
         library.merge_symbols(analysis.symbols);
-        libraries
-            .loadable
-            .insert(library.name.clone(), vec![library]);
+        derived.libraries.push(library);
     }
+
+    derived
 }
 
-fn add_configured_library(
+fn configured_library(
     resolver: &SalsaSettingsResolver<'_>,
-    libraries: &mut TemplateLibraries,
     load_name: &str,
     module_path: &str,
-) {
+) -> DerivedTemplateLibrary {
     let Ok(load_name) = LibraryName::parse(load_name) else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        return DerivedTemplateLibrary::partial(None);
     };
     let Ok(module) = PyModuleName::parse(module_path) else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        return DerivedTemplateLibrary::partial(None);
     };
 
-    let mut library = TemplateLibrary::new_active(load_name, module.clone(), None);
-    if let Some(file) = resolver.module_file(module.as_str()) {
-        library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
-    } else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-    }
-    libraries
-        .loadable
-        .insert(library.name.clone(), vec![library]);
+    library_with_symbols(
+        resolver,
+        TemplateLibrary::new_active(load_name, module, None),
+    )
 }
 
-fn add_builtin_library(
+fn builtin_library(
     resolver: &SalsaSettingsResolver<'_>,
-    libraries: &mut TemplateLibraries,
     module_path: &str,
-) {
+) -> DerivedTemplateLibrary {
     let Ok(module) = PyModuleName::parse(module_path) else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        return DerivedTemplateLibrary::partial(None);
     };
     let Ok(name) = LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("builtin"))
     else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-        return;
+        return DerivedTemplateLibrary::partial(None);
     };
 
-    if libraries
-        .builtins
-        .iter()
-        .any(|library| library.module() == &module)
-    {
-        return;
-    }
+    library_with_symbols(resolver, TemplateLibrary::new_builtin(name, module))
+}
 
-    let mut library = TemplateLibrary::new_builtin(name, module.clone());
-    if let Some(file) = resolver.module_file(module.as_str()) {
+fn library_with_symbols(
+    resolver: &SalsaSettingsResolver<'_>,
+    mut library: TemplateLibrary,
+) -> DerivedTemplateLibrary {
+    if let Some(file) = resolver.module_file(library.module().as_str()) {
         library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
+        DerivedTemplateLibrary::known(library)
     } else {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
+        DerivedTemplateLibrary::partial(Some(library))
     }
-
-    libraries.builtins.push(library);
 }
 
 struct TemplateLibraryAnalysis {

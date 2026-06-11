@@ -256,6 +256,26 @@ impl TemplateLibraries {
             .flat_map(|(name, libraries)| libraries.iter().map(move |library| (name, library)))
     }
 
+    pub(crate) fn set_loadable(&mut self, library: TemplateLibrary) {
+        self.loadable.insert(library.name.clone(), vec![library]);
+    }
+
+    pub(crate) fn extend_loadable(&mut self, libraries: impl IntoIterator<Item = TemplateLibrary>) {
+        for library in libraries {
+            self.set_loadable(library);
+        }
+    }
+
+    pub(crate) fn push_builtin(&mut self, library: TemplateLibrary) {
+        if !self
+            .builtins
+            .iter()
+            .any(|existing| existing.module() == library.module())
+        {
+            self.builtins.push(library);
+        }
+    }
+
     pub fn enabled_loadable_libraries(
         &self,
     ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
