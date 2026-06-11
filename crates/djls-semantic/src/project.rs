@@ -7,11 +7,10 @@ pub(crate) mod resolve;
 mod symbols;
 mod sync;
 mod system;
+mod templates;
 
 pub use crate::project::db::Db;
 pub use crate::project::input::Project;
-#[cfg(test)]
-pub use crate::project::input::ProjectTemplateFiles;
 pub use crate::project::input::TemplateDirs;
 pub use crate::project::input::load_env_file;
 pub use crate::project::introspector::ProjectIntrospector;
@@ -34,3 +33,4 @@ pub use crate::project::symbols::TemplateSymbolKind;
 pub use crate::project::symbols::TemplateSymbolSnapshot;
 pub use crate::project::sync::load_template_library_cache;
 pub use crate::project::sync::refresh_external_data;
+pub(crate) use crate::project::templates::project_template_files;

@@ -9,9 +9,6 @@ use std::fs;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::Utf8PathClean;
-use djls_source::WalkEntryKind;
-use djls_source::WalkOptions;
 use salsa::Setter;
 use serde::Deserialize;
 use serde::Serialize;
@@ -20,7 +17,6 @@ use sha2::Sha256;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::input::Project;
-use crate::project::input::ProjectTemplateFiles;
 use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::python::Interpreter;
@@ -42,7 +38,6 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
     project.refresh_source_roots(db);
     refresh_template_dirs(db, project);
     refresh_template_libraries(db, project);
-    refresh_template_files(db, project);
     refresh_python_modules(db, project);
 }
 
@@ -252,50 +247,6 @@ fn cache_dir(
     let key = cache_key(root, interpreter, django_settings_module, pythonpath);
     // Keep the legacy `inspector` directory for on-disk cache compatibility.
     Some(base.join("inspector").join(&key[..16]))
-}
-
-fn refresh_template_files(db: &mut dyn ProjectDb, project: Project) {
-    let next = match project.template_dirs(db).as_known() {
-        Some(search_dirs) => {
-            let mut templates = Vec::new();
-            let walk_options = WalkOptions::unrestricted();
-
-            for dir in search_dirs {
-                if !db.path_is_dir(dir) {
-                    tracing::warn!("Template directory does not exist: {}", dir);
-                    continue;
-                }
-
-                let mut dir_templates = Vec::new();
-                let entries = match db.walk_entries(dir, &walk_options) {
-                    Ok(entries) => entries,
-                    Err(err) => {
-                        tracing::warn!("Failed to walk template directory {}: {}", dir, err);
-                        continue;
-                    }
-                };
-                for entry in entries {
-                    if entry.kind != WalkEntryKind::File {
-                        continue;
-                    }
-                    let name = entry.relative.clean().to_string();
-                    dir_templates.push((name, entry.path));
-                }
-
-                dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
-                    a_name.cmp(b_name).then_with(|| a_path.cmp(b_path))
-                });
-                templates.extend(dir_templates);
-            }
-
-            ProjectTemplateFiles::from_ordered_paths(db, templates)
-        }
-        None => ProjectTemplateFiles::default(),
-    };
-
-    if project.template_files(db) != &next {
-        project.set_template_files(db).to(next);
-    }
 }
 
 fn refresh_python_modules(db: &mut dyn ProjectDb, project: Project) {

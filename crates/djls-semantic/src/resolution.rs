@@ -151,7 +151,7 @@ pub(crate) fn template_origins(db: &dyn SemanticDb, project: Project) -> Templat
     let mut ordered = Vec::new();
     let mut first_by_template_name = FxHashMap::default();
 
-    for template in project.template_files(db).iter() {
+    for template in crate::project::project_template_files(db, project).iter() {
         let template_name = TemplateName::new(db, template.name().to_string());
         let origin = TemplateOrigin::new(db, template_name, template.file());
 
@@ -383,7 +383,41 @@ mod tests {
             .map(|origin| origin.template_name(&db).name(&db).clone())
             .collect();
 
-        assert_eq!(names, ["base.html", "base.html", "account/detail.html"]);
+        assert_eq!(names, ["base.html", "account/detail.html", "base.html"]);
+    }
+
+    #[test]
+    fn derived_template_origins_keep_shadowed_names_in_template_dir_order() {
+        let mut db = TestDatabase::new();
+        let project = project_with_templates(
+            &mut db,
+            vec!["/test/project/templates", "/test/project/app/templates"],
+            vec![
+                (
+                    "shared.html",
+                    "/test/project/app/templates/shared.html",
+                    "app shared",
+                ),
+                (
+                    "shared.html",
+                    "/test/project/templates/shared.html",
+                    "project shared",
+                ),
+            ],
+        );
+
+        let paths: Vec<_> = template_origins(&db, project)
+            .iter(&db)
+            .map(|origin| origin.file(&db).path(&db).as_str())
+            .collect();
+
+        assert_eq!(
+            paths,
+            [
+                "/test/project/templates/shared.html",
+                "/test/project/app/templates/shared.html",
+            ]
+        );
     }
 
     #[test]

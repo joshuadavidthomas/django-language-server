@@ -35,82 +35,6 @@ impl TemplateDirs {
     }
 }
 
-/// First-party template files in Django loader precedence order.
-///
-/// Duplicate template names are kept because shadowed templates can still be
-/// opened, inspected, and used as reference sources.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
-
-impl ProjectTemplateFiles {
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn from_ordered_paths(
-        db: &dyn ProjectDb,
-        templates: Vec<(String, Utf8PathBuf)>,
-    ) -> Self {
-        Self(
-            templates
-                .into_iter()
-                .map(|(name, path)| {
-                    let file = db.get_or_create_file(&path);
-                    ProjectTemplateFile::new(name, path, file)
-                })
-                .collect(),
-        )
-    }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
-        self.0.iter()
-    }
-}
-
-impl fmt::Debug for ProjectTemplateFiles {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ProjectTemplateFiles")
-            .field(&self.0)
-            .finish()
-    }
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ProjectTemplateFile {
-    name: String,
-    path: Utf8PathBuf,
-    file: File,
-}
-
-impl ProjectTemplateFile {
-    pub(crate) fn new(name: String, path: Utf8PathBuf, file: File) -> Self {
-        Self { name, path, file }
-    }
-
-    pub(crate) fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(crate) fn file(&self) -> File {
-        self.file
-    }
-}
-
-impl fmt::Debug for ProjectTemplateFile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProjectTemplateFile")
-            .field("name", &self.name)
-            .field("path", &self.path)
-            .finish_non_exhaustive()
-    }
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct PythonModule {
     module_path: ModulePath,
@@ -193,9 +117,6 @@ pub struct Project {
     /// The semantic layer combines this with `{% load %}` scope computed from templates.
     #[returns(ref)]
     pub template_libraries: TemplateLibraries,
-    /// First-party template files discovered for this project.
-    #[returns(ref)]
-    pub(crate) template_files: ProjectTemplateFiles,
 }
 
 impl Project {
@@ -236,11 +157,9 @@ impl Project {
             TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
-            ProjectTemplateFiles::default(),
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
-        .template_files_durability(Durability::LOW)
         .new(db)
     }
 }
