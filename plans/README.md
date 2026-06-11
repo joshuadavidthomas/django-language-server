@@ -61,7 +61,7 @@ reconciliation and run early).
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | DONE |
-| [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | TODO |
+| [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | IN PROGRESS |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015, 021 (015/021 soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, export audit | P2 | M | 013, 015, 016, 021 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
@@ -187,6 +187,23 @@ REJECTED (with one-line rationale).
   import guard, semantic re-export shim guard, dependency-direction guard,
   extraction purity guard, and semantic project directory guard. Plan 021 is
   now unblocked and is the next structural-track plan.
+- **2026-06-11 (Plan 021 implemented locally)**: source commit `637b0761`
+  (`refactor: move spec extraction into djls-project`) / bookmark
+  `plan-021-move-spec-extraction` moves `djls-semantic/src/python.rs`, the
+  full `src/python/` subtree, corpus extraction tests, and their snapshots
+  into `djls-project/src/specs.rs`, `src/specs/`, and `djls-project/tests/`.
+  `djls-project` now exposes the spec extraction façade consumed by
+  `djls-semantic`, `djls-db`, `djls-bench`, and `djls-ide`; `djls-semantic`
+  no longer depends on Ruff and retains the project-meaning layer: tag/filter
+  fusion, availability, validity, template resolution, structure, scoping, and
+  diagnostics. Validation passed: `cargo build -q -p djls-project`, `cargo
+  build -q`, `cargo test -q`, `cargo test -q -p djls-project`, `cargo test -q
+  -p djls-semantic`, `just test`, `just e2e`, clean-tree `just clippy`, `just
+  fmt`, `just fmt --check`, `just lint`, and the six boundary guards. Test
+  counts reconcile exactly: project 128→395 unit/doc target tests and 0→2
+  integration tests; semantic 435→168 unit/doc target tests and 2→0
+  integration tests. The PR has not been opened yet, so Plan 021 remains IN
+  PROGRESS until review/merge close-out.
 - **2026-06-11 (post-015 boundary review — project/semantic seam)**:
   design memo
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
