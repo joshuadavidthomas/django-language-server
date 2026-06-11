@@ -137,9 +137,9 @@ REJECTED (with one-line rationale).
 
 - **2026-06-11 (Plan 008 executed)**: PR #664 / bookmark
   `plan-008-derive-template-libraries-from-source` / source commits
-  `097bbb0e`, `ba7b106a`, `f6ae8767`, `672211ee`, and `7f3e6e91` derive
-  template tag libraries from source and `DjangoSettings`. It removes the `template_libraries`
-  project input,
+  `097bbb0e`, `ba7b106a`, `f6ae8767`, `672211ee`, `7f3e6e91`, and
+  `e09c2312` derive template tag libraries from source and `DjangoSettings`.
+  It removes the `template_libraries` project input,
   runtime inspector library
   refresh, snapshot cache, startup cache load, snapshot DTOs, and `sha2`.
   `TemplateLibraries` now comes from Salsa queries over settings, Django/app
@@ -184,6 +184,14 @@ REJECTED (with one-line rationale).
   Follow-up cleanup `7f3e6e91` renamed `TemplateLibraries::active_knowledge`
   to `TemplateLibraries::knowledge`. Validation passed: `just fmt`,
   `cargo build -q`, `cargo test -q -p djls-semantic project::settings`,
+  `cargo test -q -p djls-ide completions`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
+  Follow-up cleanup `e09c2312` replaced the parallel builtin map/order fields
+  with ordered `TemplateLibraries::builtins: Vec<TemplateLibrary>`, preserving
+  builtin precedence with one source of truth. Validation passed: `just fmt`,
+  `cargo build -q`, `cargo test -q -p djls-semantic project::settings`,
+  `cargo test -q -p djls-semantic project::symbols`,
   `cargo test -q -p djls-ide completions`,
   `cargo clippy --all-targets --all-features --benches -- -D warnings`,
   `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
