@@ -154,6 +154,9 @@ REJECTED (with one-line rationale).
   reason strings; ty's analogs are `Option`-bail + named domain tri-states
   (`Truthiness`, `TypeshedVersionsQueryResult`), ruff's is data +
   `DunderAllFlags`.
+- **2026-06-11 (Plan 006 closed)**: PR #659 merged into `main` as
+  `cf89c96f add djls-project settings extractor (#659)` (source commit
+  `c6bd8ac2`). Next executable static-track plan is 007.
 - **2026-06-10 (Plan 006 executed)**: PR #659 / bookmark
   `plan-006-djls-project-settings-recognizer` / source commit `c6bd8ac2`
   creates the pure `djls-project` crate and implements bounded static
