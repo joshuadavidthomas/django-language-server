@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/src/specs.rs
+assertion_line: 631
+expression: "snapshot(extract_rules(&source, \"tests.template_tests.templatetags.testtags\"))"
+---
+tag_rules: {}
+filter_arities:
+  "tests.template_tests.templatetags.testtags::filter::upper":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

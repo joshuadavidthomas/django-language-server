@@ -2,7 +2,6 @@ mod db;
 mod errors;
 mod filters;
 mod offset;
-mod python;
 mod resolution;
 mod scoping;
 mod structure;
@@ -19,16 +18,6 @@ pub use errors::ValidationError;
 pub use filters::FilterAritySpecs;
 pub use filters::compute_filter_arity_specs;
 pub use offset::SemanticOffsetContext;
-pub use python::ExtractionResult;
-pub use python::FilterArity;
-pub use python::ModelGraph;
-pub use python::SymbolKey;
-pub use python::SymbolKind;
-pub use python::TagRule;
-pub use python::compute_model_graph;
-pub use python::extract_filter_arities;
-pub use python::extract_model_graph;
-pub use python::extract_rules;
 pub use resolution::FindTemplateResult;
 pub use resolution::find_template;
 pub use resolution::references_to_template_name;
@@ -96,11 +85,11 @@ mod tests {
     use std::fmt::Write;
 
     use camino::Utf8PathBuf;
+    use djls_project::FilterArity;
     use djls_project::StaticKnowledge;
+    use djls_project::SymbolKey;
     use djls_project::TemplateLibraries;
 
-    use crate::FilterArity;
-    use crate::SymbolKey;
     use crate::ValidationError;
     use crate::filters::FilterAritySpecs;
     use crate::testing::TestDatabase;

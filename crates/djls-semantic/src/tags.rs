@@ -2,6 +2,8 @@ mod rules;
 mod specs;
 
 use djls_project::Project;
+use djls_project::extract_block_specs;
+use djls_project::extract_tag_rules;
 use djls_project::templatetag_modules;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
@@ -14,8 +16,6 @@ pub use specs::TagSpecs;
 pub use specs::builtin_tag_specs;
 
 use crate::db::Db;
-use crate::python::extract_block_specs;
-use crate::python::extract_tag_rules;
 use crate::resolution::TemplateReferenceKind;
 
 /// Durable Django template meaning for a tag.

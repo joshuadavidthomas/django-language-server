@@ -27,7 +27,7 @@ If you're already familiar with LSP, `crates/djls-server/src/server.rs` is a goo
 
 If you want to understand how templates get parsed, start in `crates/djls-templates/src/` — the lexer and a hand-written recursive descent parser live there.
 
-If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-semantic/src/python/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact because I've never come across one (and who says I'll make it out with mine?). It's early and rough, but it's one of the more interesting parts of the project.
+If you're curious about how the server validates tags without a Django runtime, look at `crates/djls-project/src/specs/analysis/` — it extracts validation rules from Python templatetag source purely through static analysis. If anyone's tried this before, they and their project didn't make it out with their sanity intact because I've never come across one (and who says I'll make it out with mine?). It's early and rough, but it's one of the more interesting parts of the project.
 
 If you're interested in how parsing, extraction, and project knowledge come together to give templates *meaning*, start with `crates/djls-semantic/src/lib.rs` — that's where "is this tag valid here?" actually gets answered.
 
@@ -62,9 +62,9 @@ This crate should stay boring. It wires traits to concrete state and handles loc
 
 ### `crates/djls-project`
 
-The project model. This crate owns mechanical facts about a Django project: the `Project` Salsa input, Python interpreter and search-path discovery, module resolution, Django settings extraction, template directories, template libraries, discovered template files, and project refresh. It also owns the pure static source recognizers in `extraction/` that identify Django settings values and template tag registrations from Ruff ASTs.
+The project model. This crate owns mechanical facts about a Django project: the `Project` Salsa input, Python interpreter and search-path discovery, module resolution, Django settings extraction, template directories, template libraries, discovered template files, Python spec extraction, model graph extraction, and project refresh. It owns two tiers of source recognizers: pure recognizers in `extraction/` for Django settings values and template tag registrations, and Salsa-assisted recognizers in `specs/` for tag rules, block specs, filter arities, and Django model graphs.
 
-`djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way boundary lets semantic analysis consume project facts without project discovery needing to know about template validation rules.
+`djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way boundary lets semantic analysis consume observed source facts without project discovery needing to know about template validation, scoping, or diagnostics.
 
 ### `crates/djls-templates`
 
@@ -78,7 +78,7 @@ It lexes and parses template source into a flat `NodeList` — the same represen
 
 ### `crates/djls-semantic`
 
-Semantic analysis. This is where Django knowledge meets the parsed template, and where most of the interesting analysis happens.
+Project meaning. This is where observed Django project facts meet the parsed template, and where most of the interesting template analysis happens.
 
 It takes the flat node list from `djls-templates` and does two things:
 
@@ -90,18 +90,17 @@ It takes the flat node list from `djls-templates` and does two things:
 All errors go through a `ValidationErrorAccumulator` — the validator never returns errors directly. Callers retrieve them with `validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)`.
 
 This crate also owns:
-- **Python spec extraction** — Ruff-based analysis of templatetag and model Python source after `djls-project` has resolved which modules matter
 - **Load scoping** — tracking which tags and filters are available at each position based on preceding `{% load %}` tags
 - **Template name resolution** — resolving template names to files on disk using project template files and directories
 - **Tag specifications** — the merged view of validation rules (extracted from Python source and combined with manual specs) that the validator checks against
 
-`crates/djls-semantic/src/python/` consumes Ruff ASTs and registration facts from `djls-project::extraction`, then extracts validation rules from the registered functions — argument count constraints, required keywords, `as var` support, block specs, filter arity — by analyzing function signatures, decorators, and `if condition: raise ...` guard patterns.
+**Architecture Invariant:** `djls-project` observes source; `djls-semantic` decides project meaning. Ruff-backed Python parsing and extraction stay in `djls-project`; semantic fusion, availability, validity, and diagnostics stay in `djls-semantic`.
 
 **Architecture Invariant:** static extraction never imports Django or runs Python. It parses Python source as text with the same Ruff parser that powers the Ruff linter. If a templatetag file is syntactically valid Python, we can analyze it. We don't need a working Django installation, a virtual environment, or even a Python interpreter.
 
 **Architecture Invariant:** extraction currently only captures constraints on *static template syntax* — argument counts and literal keyword positions knowable at parse time. Many templatetag functions also validate *runtime values* (type checks, truthiness checks on resolved variables), but those guards depend on what template variables resolve to during rendering, which the server cannot currently determine. If type inference is added in the future ([#424](https://github.com/joshuadavidthomas/django-language-server/issues/424)), some of these runtime guards may become statically evaluable — possibly as a separate analysis layer, or as an extension of the extraction pipeline itself.
 
-Project configuration and Python environment discovery live in `crates/djls-project/`. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, resolver-owned `SearchPaths`, and manual tag-spec configuration. `djls-project` also owns module resolution and the `TemplateLibraries` type that holds derived template tag library knowledge from Django settings, source files, and installed packages. Imperative refresh functions there synchronize external project state into Salsa inputs; tracked semantic queries then derive validation data and other semantic facts from those inputs and from tracked source files.
+Project configuration, Python environment discovery, module resolution, and Python spec extraction live in `crates/djls-project/`. `Project` is a Salsa input holding the project root, interpreter path, Django settings module, resolver-owned `SearchPaths`, and manual tag-spec configuration. `djls-project` also owns the `TemplateLibraries` type that holds derived template tag library knowledge from Django settings, source files, and installed packages. Imperative refresh functions there synchronize external project state into Salsa inputs; tracked semantic queries then fuse those observed facts into validation data and other semantic facts.
 
 ### `crates/djls-ide`
 
@@ -159,7 +158,7 @@ Project refresh starts from the configured Django settings module. `djls-project
 1. The `Project` input stores the project root, interpreter path, Django settings module, search paths, and manual tag-spec configuration.
 2. Template directories come from the static settings projection and are exposed as tracked project queries.
 3. Template libraries come from three source-derived places: configured `OPTIONS["libraries"]`, configured/default `OPTIONS["builtins"]`, and `templatetags` packages under installed apps.
-4. Symbols for those libraries are collected from Python source with the registration scanner in `djls-project::extraction`; `djls-semantic` reuses the same registration facts to extract validation rules and model graphs.
+4. Symbols for those libraries are collected from Python source with the registration scanner in `djls-project::extraction`; `djls-project::specs` reuses the same registration facts to extract validation rules and model graphs.
 5. Search-path roots for installed packages remain high-durability source roots, so package files are reread when refresh detects that external data changed.
 
 Startup is now configuration read plus project refresh. There is no embedded inspector zipapp, no `django.setup()`, and no template-library disk cache in the server path.
@@ -168,7 +167,7 @@ Startup is now configuration read plus project refresh. There is no embedded ins
 
 Static discovery reports *what* tags and filters exist. But to actually validate usage — "does this tag accept these arguments?" — the server needs to know *how* each tag and filter works. Django's template engine answers this question at runtime, by calling the tag's compilation function and seeing what happens. We don't have a runtime.
 
-Instead, `djls-semantic` parses templatetag Python source files with the Ruff parser and extracts validation rules directly from the AST. It walks each module looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators, then analyzes the decorated function's signature, decorators, and `if condition: raise ...` guard patterns to infer:
+Instead, `djls-project` parses templatetag Python source files with the Ruff parser and extracts validation rules directly from the AST. It walks each module looking for `@register.tag`, `@register.simple_tag`, `@register.filter`, and similar decorators, then analyzes the decorated function's signature, decorators, and `if condition: raise ...` guard patterns to infer:
 
 - **Tag rules** — argument count constraints (min/max positional args), required keywords, choice-constrained positions, `as var` support, block specs (which intermediate and end tags a block tag expects)
 - **Filter arity** — whether a filter requires an argument, accepts one optionally, or takes none

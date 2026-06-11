@@ -14,12 +14,12 @@ use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
+use djls_project::compute_model_graph;
 use djls_project::template_dirs;
 use djls_project::template_libraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_semantic::compute_filter_arity_specs;
-use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
@@ -173,9 +173,9 @@ impl SemanticDb for DjangoDatabase {
             })
     }
 
-    fn model_graph(&self) -> &djls_semantic::ModelGraph {
+    fn model_graph(&self) -> &djls_project::ModelGraph {
         self.project()
-            .map_or(djls_semantic::ModelGraph::empty_ref(), |project| {
+            .map_or(djls_project::ModelGraph::empty_ref(), |project| {
                 compute_model_graph(self, project)
             })
     }
@@ -672,7 +672,7 @@ mod invalidation_tests {
         );
 
         // First extraction
-        let _result1 = djls_semantic::extract_filter_arities(
+        let _result1 = djls_project::extract_filter_arities(
             &db,
             file,
             djls_project::ModulePath::new("test.project.tags"),
@@ -684,7 +684,7 @@ mod invalidation_tests {
         );
 
         // Second call — cached
-        let _result2 = djls_semantic::extract_filter_arities(
+        let _result2 = djls_project::extract_filter_arities(
             &db,
             file,
             djls_project::ModulePath::new("test.project.tags"),
@@ -705,7 +705,7 @@ mod invalidation_tests {
             &db,
             camino::Utf8Path::new("/test/project/tags.py"),
         );
-        let _result = djls_semantic::extract_filter_arities(
+        let _result = djls_project::extract_filter_arities(
             &db,
             file,
             djls_project::ModulePath::new("test.project.tags"),
@@ -717,7 +717,7 @@ mod invalidation_tests {
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
         // so extract_filter_arities does NOT re-execute (correct behavior)
-        let _result = djls_semantic::extract_filter_arities(
+        let _result = djls_project::extract_filter_arities(
             &db,
             file,
             djls_project::ModulePath::new("test.project.tags"),
@@ -769,26 +769,26 @@ def my_filter(value, arg):
             &db,
             camino::Utf8Path::new("/test/project/tags.py"),
         );
-        let result = djls_semantic::extract_filter_arities(
+        let result = djls_project::extract_filter_arities(
             &db,
             file,
             djls_project::ModulePath::new("test.project.tags"),
         );
 
         // Should extract the filter
-        let key = djls_semantic::SymbolKey::filter("test.project.tags", "my_filter");
+        let key = djls_project::SymbolKey::filter("test.project.tags", "my_filter");
         assert!(
             result.contains_key(&key),
             "should extract filter from file content"
         );
         assert!(result[&key].expects_arg);
 
-        let other_module_result = djls_semantic::extract_filter_arities(
+        let other_module_result = djls_project::extract_filter_arities(
             &db,
             file,
             djls_project::ModulePath::new("other.project.tags"),
         );
-        let other_key = djls_semantic::SymbolKey::filter("other.project.tags", "my_filter");
+        let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
         assert!(other_module_result.contains_key(&other_key));
         assert!(!other_module_result.contains_key(&key));
     }

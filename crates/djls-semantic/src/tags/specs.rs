@@ -5,16 +5,16 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+use djls_project::BlockSpecs;
+use djls_project::ExtractedArg;
+use djls_project::ExtractedArgKind;
+use djls_project::ExtractionResult;
+use djls_project::SymbolKind;
+use djls_project::TagRule;
+use djls_project::TagRuleMap;
 use rustc_hash::FxHashMap;
 
 use super::TagRole;
-use crate::python::BlockSpecs;
-use crate::python::ExtractedArg;
-use crate::python::ExtractedArgKind;
-use crate::python::ExtractionResult;
-use crate::python::SymbolKind;
-use crate::python::TagRule;
-use crate::python::TagRuleMap;
 use crate::resolution::TemplateReferenceKind;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
@@ -286,10 +286,10 @@ impl TagSpecs {
                 let extracted_rules = if tag_def.args.is_empty() {
                     None
                 } else {
-                    use crate::python::ArgumentCountConstraint;
-                    use crate::python::ChoiceAt;
-                    use crate::python::RequiredKeyword;
-                    use crate::python::SplitPosition;
+                    use djls_project::ArgumentCountConstraint;
+                    use djls_project::ChoiceAt;
+                    use djls_project::RequiredKeyword;
+                    use djls_project::SplitPosition;
 
                     let mut rule = TagRule::default();
 
@@ -767,9 +767,10 @@ pub fn builtin_tag_specs() -> TagSpecs {
 
 #[cfg(test)]
 mod tests {
+    use djls_project::ArgumentCountConstraint;
+    use djls_project::BlockSpec;
+
     use super::*;
-    use crate::python::ArgumentCountConstraint;
-    use crate::python::BlockSpec;
 
     // Helper function to create a small test TagSpecs
     fn create_test_specs() -> TagSpecs {
@@ -1043,9 +1044,9 @@ mod tests {
         assert!(specs.get("if").unwrap().end_tag.is_some());
         assert_eq!(specs.get("if").unwrap().intermediate_tags.len(), 2);
 
-        let mut extraction = crate::ExtractionResult::default();
+        let mut extraction = djls_project::ExtractionResult::default();
         extraction.block_specs.insert(
-            crate::SymbolKey::tag("django.template.defaulttags", "if"),
+            djls_project::SymbolKey::tag("django.template.defaulttags", "if"),
             BlockSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
@@ -1071,9 +1072,9 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = crate::ExtractionResult::default();
+        let mut extraction = djls_project::ExtractionResult::default();
         extraction.block_specs.insert(
-            crate::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
+            djls_project::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
             BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
@@ -1100,9 +1101,9 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = crate::ExtractionResult::default();
+        let mut extraction = djls_project::ExtractionResult::default();
         extraction.block_specs.insert(
-            crate::SymbolKey::filter("module", "lower"),
+            djls_project::SymbolKey::filter("module", "lower"),
             BlockSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
@@ -1120,7 +1121,7 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let extraction = crate::ExtractionResult::default();
+        let extraction = djls_project::ExtractionResult::default();
         specs.merge_extraction_results(&extraction);
         assert_eq!(specs.len(), original_count);
     }
@@ -1129,10 +1130,10 @@ mod tests {
     fn test_merge_extraction_results_stores_rules() {
         let mut specs = create_test_specs();
 
-        let mut extraction = crate::ExtractionResult::default();
+        let mut extraction = djls_project::ExtractionResult::default();
         extraction.tag_rules.insert(
-            crate::SymbolKey::tag("django.template.defaulttags", "for"),
-            crate::TagRule {
+            djls_project::SymbolKey::tag("django.template.defaulttags", "for"),
+            djls_project::TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
                     ExtractedArg {
