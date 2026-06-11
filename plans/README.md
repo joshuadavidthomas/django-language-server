@@ -135,6 +135,24 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-10 (PR #659 vocabulary review)**: design memo
+  [memo-pr659-extraction-vocabulary.md](memo-pr659-extraction-vocabulary.md)
+  reconciles the extraction API's "facts" vocabulary against ruff/ty.
+  Verdict: structure is a faithful port; the type names are static_model.rs
+  residue. Agreed direction (revised in review discussion): amend the PR
+  before merge — `SettingsFacts` → `DjangoSettings` (bare `Settings`
+  collides with `djls_conf::Settings`, already imported in the djls-db files
+  plan 007 touches), `TemplateBackendFact` → `TemplateBackend`,
+  `StringListFact` → `StringListSetting`, keep `Knowledge` (the single
+  shared tri-state research.md prescribed), and convert `Reason` from
+  scattered message strings to a closed ~10-variant enum (centralizes the
+  failure-mode catalog; ruff's rule-local `Reason` enums are the precedent).
+  Plans 007/008/018 then re-point `SettingsFacts` and the
+  `settings_facts_for_file`/`django_settings_facts` query names. No ruff/ty
+  code uses Fact-suffixed types, generic confidence wrappers, or per-datum
+  reason strings; ty's analogs are `Option`-bail + named domain tri-states
+  (`Truthiness`, `TypeshedVersionsQueryResult`), ruff's is data +
+  `DunderAllFlags`.
 - **2026-06-10 (Plan 006 executed)**: PR #659 / bookmark
   `plan-006-djls-project-settings-recognizer` / source commit `731d353b`
   creates the pure `djls-project` crate and implements bounded static
