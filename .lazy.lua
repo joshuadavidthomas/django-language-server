@@ -1,5 +1,28 @@
+local function find_free_localhost_port()
+  local tcp = assert(vim.uv.new_tcp(), "failed to create TCP handle")
+  assert(tcp:bind("127.0.0.1", 0), "failed to bind an ephemeral localhost port")
+  local addr = assert(tcp:getsockname(), "failed to read bound port")
+  tcp:close()
+  return addr.port
+end
+
+local devtools_port = tonumber(vim.env.DJLS_DEVTOOLS_PORT) or find_free_localhost_port()
+
 vim.lsp.config["djls"] = {
-  cmd = { "uvx", "lsp-devtools", "agent", "--", "cargo", "run", "-p", "djls", "--", "serve" },
+  cmd = {
+    "uvx",
+    "lsp-devtools",
+    "agent",
+    "--port",
+    tostring(devtools_port),
+    "--",
+    "cargo",
+    "run",
+    "-p",
+    "djls",
+    "--",
+    "serve",
+  },
   cmd_env = {
     RUST_LOG = "djls_server=debug,djls_ide=debug",
   },
@@ -60,6 +83,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 
 local devtools = {
   width = nil,
+  port = devtools_port,
   record_job = nil,
   record_stdout = {},
   record_stderr = {},
@@ -160,7 +184,15 @@ function devtools.ensure_recording()
   end
 
   local db_path = devtools.db_path()
-  local record_cmd = { "uvx", "lsp-devtools", "record", "--to-sqlite", db_path }
+  local record_cmd = {
+    "uvx",
+    "lsp-devtools",
+    "record",
+    "--port",
+    tostring(devtools.port),
+    "--to-sqlite",
+    db_path,
+  }
 
   vim.fn.delete(db_path)
   devtools.record_stdout = {}
