@@ -42,7 +42,7 @@ reconciliation and run early).
 | [003](003-stabilize-project-handle.md) | Stabilize the Project handle on the databases | P1 | S | — | DONE |
 | [013](013-tidy-extraction-seams.md) | Tidy extraction seams (dead exports, registry seam, probe rename) | P1 | S | — | DONE |
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | DONE |
-| [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | TODO |
+| [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | DONE |
 | [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | TODO |
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | TODO |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | TODO |
@@ -135,6 +135,20 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-10 (Plan 004 executed)**: PR #658 / bookmark
+  `plan-004-derive-template-files` / source commit `18cf545e` moves
+  first-party template discovery from the `Project` input into the tracked
+  `project_template_files` query, deletes the imperative
+  `refresh_template_files` path, and adds coverage for root-revision
+  invalidation plus shadowed-template precedence. Validation passed:
+  `cargo build -q`, `cargo test -q -p djls-semantic`,
+  `cargo test -q -p djls-db root_revision_change_invalidates_project_template_files`,
+  full `cargo test -q` before the final test-fixture cleanup,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `just fmt`, `just clippy`, and `just lint`. Later full-suite reruns were
+  intentionally stopped because they saturated the local machine; the final
+  cleanup only simplified test setup around `InMemoryFileSystem` and was
+  checked with the targeted djls-db regression test plus clippy.
 - **2026-06-10 (Plan 014 closed)**: PR #657 merged into `main` as
   `9941550a` (source commits `4e065e8f`, `b49cec5d`, and `1e6c5368`);
   it adds a test-only `ProjectFixture`, enriches

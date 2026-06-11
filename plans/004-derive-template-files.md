@@ -19,6 +19,10 @@
 - **Depends on**: 003 (stable project handle); 014 recommended first (collapses test constructor churn)
 - **Category**: tech-debt
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: source commit `18cf545e`, 2026-06-10
+- **Bookmark**: `plan-004-derive-template-files`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/658
 
 ## Why this matters
 
