@@ -29,7 +29,8 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 - `djls-conf`: config schema/loading.
 - `djls-format`: formatter backend adapter boundary.
 - `djls-ide`: IDE feature behavior and LSP-shaped outputs.
-- `djls-semantic`: Django/project/template meaning.
+- `djls-project`: project model, Python environment discovery, module resolution, derived Django facts, and static source recognizers.
+- `djls-semantic`: Django template meaning: validation, scoping, structure, tag specs, template resolution, and Python spec extraction.
 - `djls-server`: LSP/session glue, open document buffers, overlay filesystem adapter. Resolve documents, check file kind, call `djls-ide`.
 - `djls-source`: files, filesystem access/discovery, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
