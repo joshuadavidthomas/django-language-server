@@ -187,21 +187,26 @@ REJECTED (with one-line rationale).
   import guard, semantic re-export shim guard, dependency-direction guard,
   extraction purity guard, and semantic project directory guard. Plan 021 is
   now unblocked and is the next structural-track plan.
-- **2026-06-11 (Plan 021 PR opened)**: PR #669 / source commit `637b0761`
-  (`refactor: move spec extraction into djls-project`) / bookmark
-  `plan-021-move-spec-extraction` moves `djls-semantic/src/python.rs`, the
-  full `src/python/` subtree, corpus extraction tests, and their snapshots
-  into `djls-project/src/specs.rs`, `src/specs/`, and `djls-project/tests/`.
-  `djls-project` now exposes the spec extraction façade consumed by
-  `djls-semantic`, `djls-db`, `djls-bench`, and `djls-ide`; `djls-semantic`
-  no longer depends on Ruff and retains the project-meaning layer: tag/filter
-  fusion, availability, validity, template resolution, structure, scoping, and
-  diagnostics. Validation passed: `cargo build -q -p djls-project`, `cargo
-  build -q`, `cargo test -q`, `cargo test -q -p djls-project`, `cargo test -q
-  -p djls-semantic`, `just test`, `just e2e`, clean-tree `just clippy`, `just
-  fmt`, `just fmt --check`, `just lint`, and the six boundary guards. Test
-  counts reconcile exactly: project 128→395 unit/doc target tests and 0→2
-  integration tests; semantic 435→168 unit/doc target tests and 2→0
+- **2026-06-11 (Plan 021 PR opened; boundary tightened)**: PR #669 / source
+  stack ending at `db822024` / bookmark `plan-021-move-spec-extraction` moves
+  `djls-semantic/src/python.rs`, the full `src/python/` subtree, corpus
+  extraction tests, and their snapshots into `djls-project/src/specs.rs`,
+  `src/specs/`, and `djls-project/tests/`; follow-up commit `db822024` also
+  moves template-origin lookup/resolution out of `djls-semantic/resolution.rs`
+  into `djls-project`, leaving semantic with `references.rs` for
+  template-reference meaning only. `djls-project` now exposes the spec
+  extraction and template lookup façades consumed by `djls-semantic`,
+  `djls-db`, `djls-bench`, and `djls-ide`; `djls-semantic` no longer depends
+  on Ruff and retains the project-meaning layer: tag/filter fusion,
+  availability, validity, template-reference relationships, structure,
+  scoping, and diagnostics. Validation passed: `cargo build -q -p
+  djls-project`, `cargo build -q`, `cargo test -q`, `cargo test -q -p
+  djls-project`, `cargo test -q -p djls-semantic`, `cargo test -q -p
+  djls-project templates`, `cargo test -q -p djls-semantic references`, `just
+  test`, `just e2e`, clean-tree `just clippy`, `just fmt`, `just fmt --check`,
+  `just lint`, the six boundary guards, and the no-`resolution.rs` guard. Test
+  counts reconcile exactly: project 128→399 unit/doc target tests and 0→2
+  integration tests; semantic 435→164 unit/doc target tests and 2→0
   integration tests. PR #669 is open at
   https://github.com/joshuadavidthomas/django-language-server/pull/669 and
   Plan 021 remains IN PROGRESS until review/merge close-out.
