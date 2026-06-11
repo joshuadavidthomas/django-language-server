@@ -46,7 +46,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             Some((sections.join("\n---\n"), span))
         }
         SemanticOffsetContext::LoadLibrary { name, span } => {
-            let library = db.template_libraries().best_loadable_library_str(&name)?;
+            let library = db.template_libraries().loadable_library_str(&name)?;
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",

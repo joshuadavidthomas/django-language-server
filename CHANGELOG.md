@@ -26,6 +26,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Changed template tag library discovery to derive libraries from project source and Django settings instead of the runtime inspector.
 - Bumped Rust toolchain from 1.95 to 1.96.
+- **Internal**: Reshaped template tag library storage around loadable and builtin mounts.
 
 ### Removed
 

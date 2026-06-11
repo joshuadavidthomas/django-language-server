@@ -16,7 +16,7 @@ pub enum TemplateSymbolKind {
     Filter,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolDefinition {
     Exact { file: Utf8PathBuf },
     Module(PyModuleName),
@@ -35,12 +35,11 @@ impl SymbolDefinition {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateSymbol {
     pub kind: TemplateSymbolKind,
     pub name: TemplateSymbolName,
     pub definition: SymbolDefinition,
-    #[serde(default)]
     pub doc: Option<String>,
 }
 
@@ -56,76 +55,24 @@ impl TemplateSymbol {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LibraryOrigin {
-    pub app: PyModuleName,
-    pub module: PyModuleName,
-    pub path: Utf8PathBuf,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LibraryStatus {
-    Active {
-        module: PyModuleName,
-        origin: Option<LibraryOrigin>,
-    },
-    Builtin {
-        module: PyModuleName,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
-    pub name: LibraryName,
-    pub status: LibraryStatus,
-    #[serde(default)]
+    pub module: PyModuleName,
     pub symbols: Vec<TemplateSymbol>,
 }
 
 impl TemplateLibrary {
     #[must_use]
-    pub fn new_active(
-        name: LibraryName,
-        module: PyModuleName,
-        origin: Option<LibraryOrigin>,
-    ) -> Self {
+    pub fn new(module: PyModuleName) -> Self {
         Self {
-            name,
-            status: LibraryStatus::Active { module, origin },
-            symbols: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn new_builtin(name: LibraryName, module: PyModuleName) -> Self {
-        Self {
-            name,
-            status: LibraryStatus::Builtin { module },
+            module,
             symbols: Vec::new(),
         }
     }
 
     #[must_use]
     pub fn module(&self) -> &PyModuleName {
-        match &self.status {
-            LibraryStatus::Active { module, .. } | LibraryStatus::Builtin { module } => module,
-        }
-    }
-
-    #[must_use]
-    pub fn origin(&self) -> Option<&LibraryOrigin> {
-        match &self.status {
-            LibraryStatus::Active { origin, .. } => origin.as_ref(),
-            LibraryStatus::Builtin { .. } => None,
-        }
-    }
-
-    #[must_use]
-    pub fn is_active(&self) -> bool {
-        matches!(
-            self.status,
-            LibraryStatus::Active { .. } | LibraryStatus::Builtin { .. }
-        )
+        &self.module
     }
 
     pub fn merge_symbol(&mut self, new_symbol: TemplateSymbol) {
@@ -171,10 +118,10 @@ pub struct InstalledSymbolCandidate {
     pub origin: InstalledSymbolOrigin,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibraries {
     pub knowledge: StaticKnowledge,
-    pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
+    pub loadable: BTreeMap<LibraryName, TemplateLibrary>,
     pub builtins: Vec<TemplateLibrary>,
 }
 
@@ -204,7 +151,7 @@ impl TemplateLibraries {
 
         let mut modules = Vec::new();
 
-        for (_name, library) in self.enabled_loadable_libraries() {
+        for (_name, library) in self.loadable_libraries() {
             push_unique_module(&mut modules, library.module().clone());
         }
 
@@ -237,11 +184,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn completion_library_names(&self) -> Vec<LibraryName> {
-        let mut names: Vec<LibraryName> = self
-            .loadable_library_names()
-            .filter(|name| self.is_enabled_library(name))
-            .cloned()
-            .collect();
+        let mut names: Vec<LibraryName> = self.loadable_library_names().cloned().collect();
 
         names.sort();
         names.dedup();
@@ -251,13 +194,11 @@ impl TemplateLibraries {
     pub fn loadable_libraries(
         &self,
     ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
-        self.loadable
-            .iter()
-            .flat_map(|(name, libraries)| libraries.iter().map(move |library| (name, library)))
+        self.loadable.iter()
     }
 
-    pub(crate) fn set_loadable(&mut self, library: TemplateLibrary) {
-        self.loadable.insert(library.name.clone(), vec![library]);
+    pub(crate) fn insert_loadable(&mut self, name: LibraryName, library: TemplateLibrary) {
+        self.loadable.insert(name, library);
     }
 
     pub(crate) fn push_builtin(&mut self, library: TemplateLibrary) {
@@ -268,13 +209,6 @@ impl TemplateLibraries {
         {
             self.builtins.push(library);
         }
-    }
-
-    pub fn enabled_loadable_libraries(
-        &self,
-    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
-        self.loadable_libraries()
-            .filter(|(_name, library)| library.is_active())
     }
 
     #[must_use]
@@ -304,7 +238,7 @@ impl TemplateLibraries {
         }
         candidates.extend(builtin_candidates.into_values());
 
-        for (name, library) in self.enabled_loadable_libraries() {
+        for (name, library) in self.loadable_libraries() {
             for symbol in &library.symbols {
                 if symbol.kind != kind {
                     continue;
@@ -323,26 +257,19 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn best_loadable_library(&self, name: &LibraryName) -> Option<&TemplateLibrary> {
-        let libraries = self.loadable.get(name)?;
-
-        libraries
-            .iter()
-            .find(|library| library.is_active())
-            .or_else(|| libraries.iter().find(|library| library.origin().is_some()))
-            .or_else(|| libraries.first())
+    pub fn loadable_library(&self, name: &LibraryName) -> Option<&TemplateLibrary> {
+        self.loadable.get(name)
     }
 
     #[must_use]
-    pub fn best_loadable_library_str(&self, name: &str) -> Option<&TemplateLibrary> {
+    pub fn loadable_library_str(&self, name: &str) -> Option<&TemplateLibrary> {
         let name = LibraryName::parse(name).ok()?;
-        self.best_loadable_library(&name)
+        self.loadable_library(&name)
     }
 
     #[must_use]
     pub fn loadable_library_module(&self, name: &LibraryName) -> Option<&PyModuleName> {
-        self.best_loadable_library(name)
-            .map(TemplateLibrary::module)
+        self.loadable_library(name).map(TemplateLibrary::module)
     }
 
     #[must_use]
@@ -352,15 +279,13 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn is_enabled_library(&self, name: &LibraryName) -> bool {
-        self.loadable
-            .get(name)
-            .is_some_and(|libraries| libraries.iter().any(TemplateLibrary::is_active))
+    pub fn is_loadable(&self, name: &LibraryName) -> bool {
+        self.loadable.contains_key(name)
     }
 
     #[must_use]
-    pub fn is_enabled_library_str(&self, name: &str) -> bool {
-        LibraryName::parse(name).is_ok_and(|name| self.is_enabled_library(&name))
+    pub fn is_loadable_str(&self, name: &str) -> bool {
+        LibraryName::parse(name).is_ok_and(|name| self.is_loadable(&name))
     }
 }
 
@@ -391,20 +316,16 @@ mod tests {
         }
     }
 
-    fn builtin_library(
-        name: &str,
-        module_name: &str,
-        symbols: Vec<TemplateSymbol>,
-    ) -> TemplateLibrary {
-        let mut library = TemplateLibrary::new_builtin(library_name(name), module(module_name));
+    fn builtin_library(module_name: &str, symbols: Vec<TemplateSymbol>) -> TemplateLibrary {
+        let mut library = TemplateLibrary::new(module(module_name));
         for symbol in symbols {
             library.merge_symbol(symbol);
         }
         library
     }
 
-    fn active_library(name: &str, module_name: &str) -> TemplateLibrary {
-        TemplateLibrary::new_active(library_name(name), module(module_name), None)
+    fn loadable_library(module_name: &str) -> TemplateLibrary {
+        TemplateLibrary::new(module(module_name))
     }
 
     #[test]
@@ -416,7 +337,6 @@ mod tests {
         let a_second = module("a_second");
         libraries.builtins.push(builtin_library(
             "z_first",
-            "z_first",
             vec![symbol(
                 TemplateSymbolKind::Filter,
                 "duplicate",
@@ -424,7 +344,6 @@ mod tests {
             )],
         ));
         libraries.builtins.push(builtin_library(
-            "a_second",
             a_second.as_str(),
             vec![symbol(
                 TemplateSymbolKind::Filter,
@@ -449,11 +368,10 @@ mod tests {
             knowledge: StaticKnowledge::Known,
             ..TemplateLibraries::default()
         };
-        libraries
-            .loadable
-            .entry(library_name("project_tags"))
-            .or_default()
-            .push(active_library("project_tags", "project.tags"));
+        libraries.loadable.insert(
+            library_name("project_tags"),
+            loadable_library("project.tags"),
+        );
         for module_name in [
             "z.templatetags.tags",
             "django.template.defaulttags",
@@ -465,11 +383,9 @@ mod tests {
                 .iter()
                 .any(|library| library.module() == &module)
             {
-                libraries.builtins.push(builtin_library(
-                    "defaulttags",
-                    module.as_str(),
-                    Vec::new(),
-                ));
+                libraries
+                    .builtins
+                    .push(builtin_library(module.as_str(), Vec::new()));
             }
         }
 
@@ -495,11 +411,10 @@ mod tests {
             knowledge: StaticKnowledge::Partial,
             ..TemplateLibraries::default()
         };
-        libraries
-            .loadable
-            .entry(library_name("project_tags"))
-            .or_default()
-            .push(active_library("project_tags", "project.tags"));
+        libraries.loadable.insert(
+            library_name("project_tags"),
+            loadable_library("project.tags"),
+        );
 
         let modules: Vec<_> = libraries
             .registration_modules()

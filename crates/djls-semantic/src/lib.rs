@@ -25,7 +25,6 @@ pub use project::InstalledSymbolCandidate;
 pub use project::InstalledSymbolOrigin;
 pub use project::Interpreter;
 pub use project::LibraryName;
-pub use project::LibraryOrigin;
 pub use project::Project;
 pub use project::ProjectIntrospector;
 pub use project::PyModuleName;
@@ -126,10 +125,10 @@ mod tests {
     use crate::ValidationError;
     use crate::filters::FilterAritySpecs;
     use crate::testing::TestDatabase;
-    use crate::testing::builtin_filter_json;
-    use crate::testing::builtin_tag_json;
+    use crate::testing::builtin_filter;
+    use crate::testing::builtin_tag;
     use crate::testing::collect_errors;
-    use crate::testing::library_tag_json;
+    use crate::testing::library_tag;
     use crate::testing::make_template_libraries;
 
     fn default_builtins_module() -> &'static str {
@@ -142,22 +141,22 @@ mod tests {
 
     fn standard_inventory() -> TemplateLibraries {
         let tags = vec![
-            builtin_tag_json("if", default_builtins_module()),
-            builtin_tag_json("for", default_builtins_module()),
-            builtin_tag_json("block", default_builtins_module()),
-            builtin_tag_json("verbatim", default_builtins_module()),
-            builtin_tag_json("comment", default_builtins_module()),
-            builtin_tag_json("load", default_builtins_module()),
-            builtin_tag_json("csrf_token", default_builtins_module()),
-            builtin_tag_json("with", default_builtins_module()),
-            library_tag_json("trans", "i18n", "django.templatetags.i18n"),
+            builtin_tag("if", default_builtins_module()),
+            builtin_tag("for", default_builtins_module()),
+            builtin_tag("block", default_builtins_module()),
+            builtin_tag("verbatim", default_builtins_module()),
+            builtin_tag("comment", default_builtins_module()),
+            builtin_tag("load", default_builtins_module()),
+            builtin_tag("csrf_token", default_builtins_module()),
+            builtin_tag("with", default_builtins_module()),
+            library_tag("trans", "i18n", "django.templatetags.i18n"),
         ];
         let filters = vec![
-            builtin_filter_json("title", default_filters_module()),
-            builtin_filter_json("lower", default_filters_module()),
-            builtin_filter_json("default", default_filters_module()),
-            builtin_filter_json("truncatewords", default_filters_module()),
-            builtin_filter_json("date", default_filters_module()),
+            builtin_filter("title", default_filters_module()),
+            builtin_filter("lower", default_filters_module()),
+            builtin_filter("default", default_filters_module()),
+            builtin_filter("truncatewords", default_filters_module()),
+            builtin_filter("date", default_filters_module()),
         ];
         let mut libraries = HashMap::new();
         libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
@@ -224,9 +223,9 @@ mod tests {
 
     fn partial_ambiguous_db() -> TestDatabase {
         let tags = vec![
-            builtin_tag_json("load", default_builtins_module()),
-            library_tag_json("shared", "alpha", "project.alpha_tags"),
-            library_tag_json("shared", "beta", "project.beta_tags"),
+            builtin_tag("load", default_builtins_module()),
+            library_tag("shared", "alpha", "project.alpha_tags"),
+            library_tag("shared", "beta", "project.beta_tags"),
         ];
         let filters = Vec::new();
         let libraries = HashMap::from([

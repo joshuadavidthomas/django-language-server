@@ -651,7 +651,7 @@ fn generate_load_symbol_candidates(
         return Vec::new();
     }
 
-    let Some(library) = library.and_then(|name| template_libraries.best_loadable_library_str(name))
+    let Some(library) = library.and_then(|name| template_libraries.loadable_library_str(name))
     else {
         return Vec::new();
     };
@@ -750,10 +750,7 @@ mod tests {
         for (name, module) in libraries {
             let name = LibraryName::parse(name).unwrap();
             let module = PyModuleName::parse(module).unwrap();
-            loadable.insert(
-                name.clone(),
-                vec![TemplateLibrary::new_active(name, module, None)],
-            );
+            loadable.insert(name, TemplateLibrary::new(module));
         }
 
         TemplateLibraries {
@@ -780,7 +777,7 @@ mod tests {
     fn filter_libraries() -> TemplateLibraries {
         let library_name = LibraryName::parse("i18n").unwrap();
         let module = PyModuleName::parse("django.templatetags.i18n").unwrap();
-        let mut library = TemplateLibrary::new_active(library_name.clone(), module.clone(), None);
+        let mut library = TemplateLibrary::new(module.clone());
         library.symbols.push(template_symbol(
             TemplateSymbolKind::Filter,
             "trans",
@@ -790,17 +787,14 @@ mod tests {
 
         TemplateLibraries {
             knowledge: StaticKnowledge::Known,
-            loadable: BTreeMap::from([(library_name, vec![library])]),
+            loadable: BTreeMap::from([(library_name, library)]),
             builtins: Vec::new(),
         }
     }
 
     fn tag_libraries() -> TemplateLibraries {
         let builtin_module = PyModuleName::parse("django.template.defaulttags").unwrap();
-        let mut builtin = TemplateLibrary::new_builtin(
-            LibraryName::parse("defaulttags").unwrap(),
-            builtin_module.clone(),
-        );
+        let mut builtin = TemplateLibrary::new(builtin_module.clone());
         builtin.symbols.push(template_symbol(
             TemplateSymbolKind::Tag,
             "if",
@@ -810,7 +804,7 @@ mod tests {
 
         let i18n_name = LibraryName::parse("i18n").unwrap();
         let i18n_module = PyModuleName::parse("django.templatetags.i18n").unwrap();
-        let mut i18n = TemplateLibrary::new_active(i18n_name.clone(), i18n_module.clone(), None);
+        let mut i18n = TemplateLibrary::new(i18n_module.clone());
         i18n.symbols.push(template_symbol(
             TemplateSymbolKind::Tag,
             "trans",
@@ -826,7 +820,7 @@ mod tests {
 
         TemplateLibraries {
             knowledge: StaticKnowledge::Known,
-            loadable: BTreeMap::from([(i18n_name, vec![i18n])]),
+            loadable: BTreeMap::from([(i18n_name, i18n)]),
             builtins: vec![builtin],
         }
     }

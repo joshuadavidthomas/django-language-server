@@ -27,7 +27,6 @@ pub use crate::project::settings::template_dirs;
 pub use crate::project::settings::template_libraries;
 pub use crate::project::symbols::InstalledSymbolCandidate;
 pub use crate::project::symbols::InstalledSymbolOrigin;
-pub use crate::project::symbols::LibraryOrigin;
 pub use crate::project::symbols::SymbolDefinition;
 pub use crate::project::symbols::TemplateLibraries;
 pub use crate::project::symbols::TemplateLibrary;

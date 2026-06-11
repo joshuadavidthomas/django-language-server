@@ -217,9 +217,9 @@ impl LoadedLibraries {
             match &stmt.kind {
                 LoadKind::FullLoad { libraries } => libraries
                     .iter()
-                    .any(|library| !template_libraries.is_enabled_library_str(library.as_str())),
+                    .any(|library| !template_libraries.is_loadable_str(library.as_str())),
                 LoadKind::SelectiveImport { symbols, library } => {
-                    !template_libraries.is_enabled_library_str(library.as_str())
+                    !template_libraries.is_loadable_str(library.as_str())
                         && symbols.iter().any(|loaded| loaded.as_str() == symbol)
                 }
             }

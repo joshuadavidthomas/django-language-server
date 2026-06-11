@@ -161,10 +161,7 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
 
     for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
         let module = PyModuleName::parse(module_name).unwrap();
-        let name = LibraryName::parse(module.as_str().split('.').next_back().unwrap()).unwrap();
-        libraries
-            .builtins
-            .push(TemplateLibrary::new_builtin(name, module));
+        libraries.builtins.push(TemplateLibrary::new(module));
     }
 
     for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
@@ -172,9 +169,7 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
         let module = PyModuleName::parse(module_name).unwrap();
         libraries
             .loadable
-            .entry(load_name.clone())
-            .or_default()
-            .push(TemplateLibrary::new_active(load_name, module, None));
+            .insert(load_name, TemplateLibrary::new(module));
     }
 
     for bench_symbol in symbols {
@@ -192,10 +187,8 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
             Some(load_name) => {
                 let load_name = LibraryName::parse(load_name).unwrap();
                 let module = PyModuleName::parse(bench_symbol.module).unwrap();
-                if let Some(libraries) = libraries.loadable.get_mut(&load_name)
-                    && let Some(library) = libraries
-                        .iter_mut()
-                        .find(|library| library.module() == &module)
+                if let Some(library) = libraries.loadable.get_mut(&load_name)
+                    && library.module() == &module
                 {
                     library.merge_symbol(bench_symbol.symbol);
                 }
