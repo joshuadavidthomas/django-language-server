@@ -130,7 +130,7 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-10 (Plan 014 executed)**: bookmark
+- **2026-06-10 (Plan 014 executed)**: PR #657 / bookmark
   `plan-014-test-fixture-groundwork` / source commits `4e065e8f`,
   `b49cec5d`, and `1e6c5368` add a test-only `ProjectFixture`, enrich
   `tests/project` with first-party templatetags and non-empty template
