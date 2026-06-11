@@ -22,6 +22,10 @@
 - **Depends on**: plans/003, plans/004, plans/006, plans/013 (renamed probe), plans/014 (fixtures + goldens) (001 transitively)
 - **Category**: direction (static Django discovery)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: source commit `68602120`, 2026-06-11
+- **Bookmark**: `plan-007-derive-template-dirs-from-settings`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/660
 
 ## Why this matters
 
@@ -81,10 +85,10 @@ have shifted — match on content.)
   - `project_template_files` (created by plan 004) reads it to walk
   - `rg -n "template_dirs" crates/ --no-heading` for the full live list
 
-- Semantic's `Knowledge` (`project/symbols.rs:169-172`) is
-  `{ Known, Unknown }`; plan 006 defines `djls_project::Knowledge` internally
-  but intentionally does not export it until this plan adds the first
-  external consumer. That `Knowledge` adds `Partial`.
+- Semantic's pre-plan `Knowledge` (`project/symbols.rs:169-172`) is
+  `{ Known, Unknown }`; plan 006 defines `djls_project::StaticKnowledge`
+  internally but intentionally does not export it until this plan adds the
+  first external consumer. `StaticKnowledge` adds `Partial`.
 
 - Cycle recovery: **already proven in this repo on the exact pinned salsa
   (0.26.2)** — `crates/djls-semantic/src/python.rs:115-118` uses
@@ -150,7 +154,7 @@ Do NOT push.
 
 ## Steps
 
-### Step 1: Export the minimal extractor API and unify `Knowledge`
+### Step 1: Export the minimal extractor API and unify `StaticKnowledge`
 
 Plan 006 deliberately kept `djls-project`'s public surface empty because no
 external code consumed it yet. Add only the exports this plan needs. In
@@ -161,26 +165,28 @@ re-export items by name from it; do **not** switch to `pub mod extraction`:
 mod extraction;
 
 pub use extraction::DjangoSettings;
-pub use extraction::Knowledge;
-pub use extraction::PathValue;
-pub use extraction::Reason;
-pub use extraction::SettingsEnv;
-pub use extraction::StarImport;
-pub use extraction::StarImportResolver;
+pub use extraction::InstalledAppsSetting;
+pub use extraction::SettingsSource;
+pub use extraction::SettingsSourceResolver;
+pub use extraction::SettingsStarImport;
+pub use extraction::StaticKnowledge;
+pub use extraction::TemplateBackend;
+pub use extraction::TemplateDirPath;
+pub use extraction::TemplateSettings;
 pub use extraction::extract_settings;
 ```
 
 Adjust `crates/djls-project/src/extraction.rs` visibility only as needed to
-support those crate-root re-exports. Keep `StringListSetting` and
-`TemplateBackend` private unless this plan's code actually needs to name
-them directly.
+support those crate-root re-exports. Do not export extractor working state,
+partial-reason internals, or an environment-preserving extraction function.
 
-Then delete the `Knowledge` enum from `project/symbols.rs:169-172` and
-replace every use with `djls_project::Knowledge` (re-export it from
-`crate::project` at the same path consumers already import). Existing
-`!= Knowledge::Known` gating sites (`validation/scoping.rs:31,87,140`)
-compile unchanged and treat `Partial` as not-Known — behavior-preserving for
-now (plan 008 gives `Partial` its real semantics).
+Then delete the old semantic-local `Knowledge` enum from
+`project/symbols.rs:169-172` and replace every use with
+`djls_project::StaticKnowledge` (re-export it from `crate::project` at the same
+path consumers already import). Existing `!= StaticKnowledge::Known` gating
+sites (`validation/scoping.rs:31,87,140`) compile unchanged and treat `Partial`
+as not-Known — behavior-preserving for now (plan 008 gives `Partial` its real
+semantics).
 
 **Verify**: `cargo test -q` → all pass.
 
@@ -214,21 +220,19 @@ pub(crate) fn django_settings_for_file(db: &dyn ProjectDb, file: File, project: 
 {
     let source = file.source(db);            // tracked read
     let path = file.path(db);
-    let mut resolver = SalsaStarImports { db, project, base: path };
+    let mut resolver = SalsaSettingsSources { db, project };
     djls_project::extract_settings(source.as_str(), path, &mut resolver)
 }
 ```
 
-`SalsaStarImports::resolve`: turn the `StarImport` (level + module) into an
-absolute module path (relative levels resolve against the current file's
-module location — pop one path segment per dot, mirroring how
-`ModuleName::from_import_statement` behaves in ty), resolve to a `File` via
-the same search-path probing as Step 2, and recurse through
-`django_settings_for_file` — returning that result's environment/settings. Cycle
-recovery: `cycle_initial=` alone, seeding empty/Unknown `DjangoSettings` —
-copy the in-repo helper-fn shape from `python.rs:149-165` (see Current
-state for the exact salsa-0.26 callback contract; no `cycle_fn` needed
-since we don't iterate).
+`SalsaSettingsSources::resolve_star_import`: turn the `SettingsStarImport`
+(level + module) into an absolute module path (relative levels resolve against
+the current file's module location — pop one path segment per dot, mirroring
+how `ModuleName::from_import_statement` behaves in ty), resolve to a `File` via
+the same search-path probing as Step 2, and return `SettingsSource` containing
+that file's tracked source text and path. `djls-project` owns the recursive
+settings-source extraction and cycle recovery, keeping extractor working
+bindings out of the Salsa/public API seam.
 
 Then the project-level entry point:
 
@@ -252,7 +256,7 @@ In `settings.rs`:
 ```rust
 #[salsa::tracked(returns(ref))]
 pub(crate) fn template_dirs(db: &dyn ProjectDb, project: Project)
-    -> (Vec<Utf8PathBuf>, Knowledge)
+    -> (Vec<Utf8PathBuf>, StaticKnowledge)
 ```
 
 Composition (Django semantics — keep this order):
@@ -266,9 +270,9 @@ Composition (Django semantics — keep this order):
    parent module; unresolvable entries add a `Reason` and demote to
    `Partial`), and include `<app_dir>/templates` when it exists, after all
    `DIRS` (Django checks DIRS before app dirs).
-3. Resulting `Knowledge` = the weakest of the contributing settings
+3. Resulting `StaticKnowledge` = the weakest of the contributing settings
    (`installed_apps.knowledge` only matters when `app_dirs` is true).
-4. `PathValue::Unknown` entries: skip + demote to `Partial`.
+4. `TemplateDirPath::Unknown` entries: skip + demote to `Partial`.
 
 **Verify**: unit tests — DIRS-only project; APP_DIRS with two apps (one
 first-party package dir, one site-packages package dir under an
@@ -281,7 +285,7 @@ InMemoryFileSystem); AppConfig-string entry; unresolvable app → Partial.
   consumers actually need. Survey first (`rg -n "template_dirs" crates/`):
   if all consumers want the dirs list, return
   `Option<Vec<Utf8PathBuf>>` built from the query (None when no project);
-  keep the trait shape minimal rather than leaking `Knowledge` where nothing
+  keep the trait shape minimal rather than leaking `StaticKnowledge` where nothing
   branches on it.
 - `resolution.rs`: `TemplateOrigins.template_dirs: TemplateDirs` field →
   `Vec<Utf8PathBuf>` (the "tried paths" listing at `:130-140` just needs the
@@ -317,6 +321,25 @@ lists the expected dirs with `${PROJECT}`/`${SITE_PACKAGES}` placeholders —
 add a comparison test against its `template_dirs` entry (same venv-gated
 mechanism plan 008 Step 5 describes). If they differ, see STOP conditions.
 
+## Implementation notes
+
+- API review tightened the `djls-project` public surface after the PR opened.
+  The crate now exports only `extract_settings`, result types, and
+  source-based star-import resolution (`SettingsSourceResolver`,
+  `SettingsStarImport`, `SettingsSource`). Extractor
+  working bindings, partial reasons, and recursion state stay internal.
+- `SemanticDb::template_dirs()` returns `None` unless the derived
+  `StaticKnowledge` is `Known`. A review pass found that `djls check` file
+  discovery treats `None` as "fall back to the project root"; returning
+  `Some([])` for `Unknown` or `Some(subset)` for `Partial` would silently
+  narrow discovery and create false negatives.
+- `noxfile.py` now runs the ignored golden comparison inside `just e2e`.
+  The original file scope did not list `noxfile.py`, but the plan required
+  `just e2e` to include the golden template-dir comparison.
+- Uncapped `just test` hit the 15-minute harness timeout during nox's raw
+  `cargo test`; `just test "-q -j 2 -- --test-threads=2"` passed and matches
+  the capped local full-workspace test policy for this repo.
+
 ## Test plan
 
 - New unit tests listed in Steps 2–4 (settings resolution, star-import
@@ -331,13 +354,13 @@ mechanism plan 008 Step 5 describes). If they differ, see STOP conditions.
 
 Machine-checkable. ALL must hold:
 
-- [ ] `rg "TemplateDirs|refresh_template_dirs|template_dirs\(db\)" crates/djls-semantic/src/project/input.rs crates/djls-semantic/src/project/sync.rs` returns no matches
-- [ ] `rg "enum Knowledge" crates/djls-semantic/` returns no matches (single definition in djls-project's extraction module)
-- [ ] `cargo test -q` exits 0 and `just test` exits 0
-- [ ] `just e2e` exits 0 — the parity gate (or documented as environment-unavailable with everything else green)
-- [ ] `just clippy` exits 0
-- [ ] Only in-scope files modified (`jj diff --stat`)
-- [ ] `plans/README.md` status row updated
+- [x] `rg "TemplateDirs|refresh_template_dirs|template_dirs\(db\)" crates/djls-semantic/src/project/input.rs crates/djls-semantic/src/project/sync.rs` returns no matches — verified 2026-06-11
+- [x] `rg "enum StaticKnowledge" crates/djls-semantic/` returns no matches (single definition in djls-project's extraction module) — verified 2026-06-11
+- [x] Full workspace cargo tests and nox cargo matrix pass with the repo's local cap — `cargo test -q -j 2 -- --test-threads=2` and `just test "-q -j 2 -- --test-threads=2"` passed 2026-06-11; uncapped `just test` timed out under the harness
+- [x] `just e2e` exits 0 — passed 2026-06-11, including `template_dirs_match_django_facts_golden`
+- [x] `just clippy` exits 0 — passed 2026-06-11
+- [x] Only in-scope files modified (`jj diff --stat`) — source PR also touches `noxfile.py` to wire the required e2e golden comparison; recorded above
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
