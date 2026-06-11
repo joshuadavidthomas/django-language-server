@@ -1,26 +1,19 @@
 //! Project-specific database capabilities.
 //!
 //! The trait exposes the runtime state that project-aware semantic code needs:
-//! the current `Project` input and the project introspector. Imperative
-//! synchronization lives outside the trait so it stays a capability boundary
-//! rather than a service object.
-
-use std::sync::Arc;
+//! the current `Project` input. Imperative synchronization lives outside the
+//! trait so it stays a capability boundary rather than a service object.
 
 use camino::Utf8PathBuf;
 use djls_source::Db as SourceDb;
 
 use crate::project::Project;
-use crate::project::introspector::ProjectIntrospector;
 
 /// Project-specific database capabilities.
 #[salsa::db]
 pub trait Db: SourceDb {
     /// Get the current project (if set)
     fn project(&self) -> Option<Project>;
-
-    /// Get the shared project introspector.
-    fn project_introspector(&self) -> Arc<ProjectIntrospector>;
 
     /// Return the current project root or fall back to the current working directory.
     fn project_root_or_cwd(&self) -> Utf8PathBuf {

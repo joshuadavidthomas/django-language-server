@@ -23,9 +23,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 which = { workspace = true }
 
-[build-dependencies]
-which = { workspace = true }
-
 [dev-dependencies]
 djls-corpus = { workspace = true }
 insta = { workspace = true }

@@ -30,6 +30,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Removed
 
+- Removed the runtime inspector subprocess, embedded Python zipapp, and `~/.cache/djls/inspector/` disk cache. The server no longer needs a working Django setup to derive project facts.
 - Removed the template library snapshot disk cache and startup cache-loading phase.
 
 ### Fixed

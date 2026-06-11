@@ -26,7 +26,6 @@ pub use project::InstalledSymbolOrigin;
 pub use project::Interpreter;
 pub use project::LibraryName;
 pub use project::Project;
-pub use project::ProjectIntrospector;
 pub use project::PyModuleName;
 pub use project::StaticKnowledge;
 pub use project::SymbolDefinition;

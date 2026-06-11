@@ -35,7 +35,7 @@ Source-based **Django Discovery** that derives **Project Facts** from source fil
 _Avoid_: introspection, runtime analysis, import-time analysis
 
 **Project Introspection**:
-Runtime-backed **Django Discovery** that asks Django or Python about the configured **Project** and is expected to shrink as **Static Extraction** matures.
+Historical runtime-backed **Django Discovery** that asked Django or Python about the configured **Project**. Runtime-backed discovery has been removed from the server; keep this term for older issues, PRs, and release notes.
 _Avoid_: Static Extraction, runtime validation, rendering
 
 **Django Model**:
@@ -268,7 +268,7 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - A **Django Environment** is rooted at a directory and configured by a **Django Settings Module**.
 - **Django Discovery** builds **Project Facts**.
 - **Static Extraction** contributes source-derived **Project Facts** without executing project code.
-- **Project Introspection** contributes runtime-derived **Project Facts** by asking Django or Python about the configured **Project**.
+- **Project Introspection** is historical terminology for the removed runtime-backed discovery path.
 - A **Model Graph** describes relationships between **Django Models**.
 - A **Template Directory** may contain **Templates** directly or under nested directories.
 - **Template Resolution** maps a **Template Name** to at most one **Template** within the active template search order.

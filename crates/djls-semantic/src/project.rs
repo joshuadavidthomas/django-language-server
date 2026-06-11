@@ -1,7 +1,5 @@
 mod db;
 mod input;
-#[allow(dead_code)]
-mod introspector;
 mod names;
 mod python;
 pub(crate) mod resolve;
@@ -16,7 +14,6 @@ pub use djls_project::StaticKnowledge;
 pub use crate::project::db::Db;
 pub use crate::project::input::Project;
 pub use crate::project::input::load_env_file;
-pub use crate::project::introspector::ProjectIntrospector;
 pub use crate::project::names::LibraryName;
 pub use crate::project::names::PyModuleName;
 pub use crate::project::names::TemplateSymbolName;
