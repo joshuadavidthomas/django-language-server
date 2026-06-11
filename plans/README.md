@@ -52,7 +52,7 @@ reconciliation and run early).
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | DONE |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
-| [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | TODO |
+| [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | IN PROGRESS |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, façade split, export audit | P2 | M | 013, 015, 016 | TODO |
@@ -152,6 +152,17 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 019 PR opened)**: PR #666 / bookmark
+  `plan-019-reshape-template-library-model` / source commit `11b44dec`
+  reshapes template tag library storage around positional loadable/builtin
+  mounts. It deletes `LibraryStatus`, `LibraryOrigin`, fabricated builtin
+  names, one-element loadable vectors, and constant-true active/enabled
+  helpers while keeping diagnostics/completion/hover behavior unchanged.
+  Validation passed: `cargo build -q`, `cargo test -q`,
+  `cargo insta test --check`, `cargo test -q -j 2 -- --test-threads=2`,
+  `just e2e`, `just clippy --allow-dirty`, `just fmt --check`, `just lint`,
+  stale API guards, and no `.snap.new` files. Do not start plan 015 until
+  this PR is merged and recorded closed.
 - **2026-06-11 (Plan 020 closed)**: PR #665 merged into `main` as
   `ce875f09 Fix settings refresh invalidation for nested star imports (#665)`
   (source head `04e1fa9d`). Next executable design-review follow-up is
