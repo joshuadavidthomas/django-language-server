@@ -53,7 +53,7 @@ reconciliation and run early).
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | DONE |
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
-| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | TODO |
+| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | IN PROGRESS |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, façade split, export audit | P2 | M | 013, 015, 016 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
@@ -152,6 +152,23 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 015 implemented locally)**: source stack ending at
+  `99c3e582` / bookmark `plan-015-move-project-model` moves the registration
+  scanner, `Project` input, Python environment discovery, search paths, module
+  resolution, derived Django project facts, and project refresh from
+  `djls-semantic` into `djls-project`; updates downstream crates to import
+  moved project types directly from `djls_project`; updates architecture docs
+  and changelog. Validation passed: `cargo build -q -p djls-project`,
+  `cargo build -q`, `cargo test -q`, `just test`, `just e2e`, clean-tree
+  `just clippy`, `just fmt`, `just fmt --check`, `just lint`, moved-type
+  import guard, semantic re-export shim guard, dependency-direction guard,
+  extraction purity guard, and semantic project directory guard. Drift notes:
+  `system.rs` moved with the project model because the remaining settings-test
+  mock consumer was project-owned; moved `resolve.rs` tests were adapted to a
+  project-local test database and project-level assertions to preserve the
+  one-way `djls-project` → no `djls-semantic` boundary; current `main` had
+  already removed blank lines from the e2e base template, so the source stack
+  includes a test-only expectation update. It is not pushed or PR'd yet.
 - **2026-06-11 (Plan 009 closed)**: PR #667 merged into `main` as
   `ed643c9c Delete runtime Python inspector (#667)` (source head
   `437117c5`). The source change deletes the runtime inspector subprocess,
