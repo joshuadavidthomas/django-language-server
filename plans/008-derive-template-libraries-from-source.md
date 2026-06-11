@@ -11,7 +11,7 @@
 > and `template_dirs` queries exist in
 > `crates/djls-semantic/src/project/settings.rs` (plan 007);
 > `discovery_knowledge` no longer exists anywhere (plan 002);
-> `djls_extraction::Knowledge` has a `Partial` variant (plan 006). If any
+> `djls_project::extraction::Knowledge` has a `Partial` variant (plan 006). If any
 > check fails, STOP.
 
 ## Status
@@ -338,7 +338,8 @@ Stop and report back (do not improvise) if:
 - Builtins are a stable constant here; if a future Django version changes
   default builtins, the fix is version detection (read
   `django/__init__.py` `VERSION` from site-packages — a 20-line recognizer
-  in djls-extraction) feeding a version-keyed table. Deliberately deferred.
+  in djls-project's extraction module) feeding a version-keyed table.
+  Deliberately deferred.
 - PR #606's `python/registry.rs` diff contains an `is_register_object`
   precision fix worth comparing while touching this area:
   `jj file show -r static-project-model-consolidated-settings-facts crates/djls-semantic/src/python/registry.rs`.

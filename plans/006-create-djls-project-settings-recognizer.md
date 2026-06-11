@@ -1,4 +1,4 @@
-# Plan 006: Build `djls-extraction` — a bounded, pure settings.py recognizer
+# Plan 006: Create `djls-project` with the bounded settings recognizer
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -6,7 +6,7 @@
 > report — do not improvise. When done, update the status row for this plan
 > in `plans/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 922cc4d7..HEAD -- Cargo.toml crates/djls-semantic/src/project.rs`
+> **Drift check (run first)**: `git diff --stat 95e30371..HEAD -- Cargo.toml crates/djls-semantic/src/project.rs`
 > (This plan mostly creates a new crate; drift only matters for the workspace
 > manifest and for plan 001 having landed — `crates/djls-semantic/src/project/static_model.rs`
 > must NOT exist. If it still exists, STOP: plan 001 is a prerequisite.)
@@ -18,7 +18,9 @@
 - **Risk**: LOW (new crate, nothing wired in yet)
 - **Depends on**: plans/001-delete-static-scaffolding.md
 - **Category**: direction (static Django discovery)
-- **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Planned at**: commit `922cc4d7`, 2026-06-10; retargeted from a separate
+  `djls-extraction` crate to `djls-project` at `95e30371`, 2026-06-10
+  (crate-count review — see `plans/README.md` reconciliation log)
 
 ## Why this matters
 
@@ -35,13 +37,24 @@ branches) — in one 444-line bounded walker
 (`reference/ruff/crates/ty_module_resolver/src/resolve.rs:1515-1521`):
 "This is all syntax-only analysis so it *could* be fooled but it's really
 unlikely… this is better than nothing!" This plan builds that walker for
-Django settings as a **pure crate** — AST in, facts out, no Salsa, no I/O —
-so plan 007 can wire it into tracked queries.
+Django settings — AST in, facts out, no Salsa, no I/O — so plan 007 can wire
+it into tracked queries.
+
+**Where it lives**: this plan creates the `djls-project` crate and the
+walker becomes its `extraction` module. `djls-project` is the future home
+of the whole mechanical project model (plan 015 moves it in post-009); the
+walker is that model's input adapter, so it lives with its consumer — the
+same colocation ty uses (`dunder_all.rs` sits inside `ty_python_semantic`,
+its consumer, not in a walker crate). Until plan 015 lands, the crate
+contains *only* the extraction module, so its manifest has no `salsa` and
+no `djls-source` — the purity contract below is crate-level-checkable for
+the entire static track. Plan 015 brings the project model (and salsa) into
+the crate and converts the purity check to a module-scoped one.
 
 ## Current state
 
 - The workspace already pins the parser the walker needs
-  (root `Cargo.toml:60-61`):
+  (root `Cargo.toml:60-61`, re-verified at `95e30371`):
 
   ```toml
   ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0" }  # 0.15.0
@@ -57,7 +70,7 @@ so plan 007 can wire it into tracked queries.
   `{ Known, Unknown }` — no `Partial`. This crate introduces the canonical
   three-state version; plan 007 migrates semantic onto it.
 
-- No `crates/djls-extraction` exists. Plan 001 has deleted the conflicting
+- No `crates/djls-project` exists. Plan 001 has deleted the conflicting
   `Fact<T>`/`ImportRoot`/`ResolvedModule` vocabulary (verify in the drift
   check).
 
@@ -77,26 +90,35 @@ All under `reference/ruff/` in this repo:
 
 ## Commands you will need
 
-| Purpose      | Command                            | Expected on success |
-|--------------|------------------------------------|---------------------|
-| Build        | `cargo build -q -p djls-extraction`| exit 0              |
-| Test (crate) | `cargo test -q -p djls-extraction` | exit 0, all pass    |
-| Test (all)   | `cargo test -q`                    | exit 0, all pass    |
-| Lint         | `just clippy`                      | exit 0, no warnings |
-| Format       | `just fmt`                         | exit 0              |
-| Hooks        | `just lint`                        | exit 0              |
+| Purpose      | Command                          | Expected on success |
+|--------------|----------------------------------|---------------------|
+| Build        | `cargo build -q -p djls-project` | exit 0              |
+| Test (crate) | `cargo test -q -p djls-project`  | exit 0, all pass    |
+| Test (all)   | `cargo test -q`                  | exit 0, all pass    |
+| Lint         | `just clippy`                    | exit 0, no warnings |
+| Format       | `just fmt`                       | exit 0              |
+| Hooks        | `just lint`                      | exit 0              |
+
+## Suggested executor toolkit
+
+- The `djls-workspace-conventions` skill (if available): crate manifest
+  layout, workspace dependency grouping, new-crate setup.
+- The `djls-ruff-ast` skill (if available): pinned-rev AST shape gotchas.
 
 ## Scope
 
 **In scope** (the only files you should modify/create):
-- `crates/djls-extraction/` (create everything)
+- `crates/djls-project/` (create everything)
 - Root `Cargo.toml` (workspace member)
 
 **Out of scope** (do NOT touch, even though they look related):
 - `crates/djls-semantic/` — wiring happens in plan 007. This plan must land
   with zero behavior change to the language server.
-- File reading, module resolution against search paths, Salsa — the crate is
-  pure by design; the caller supplies source text and answers star-import
+- The project model itself (inputs, search paths, module resolution) — it
+  stays in `djls-semantic/src/project/` until plan 015 moves it here. This
+  plan creates the crate with the extraction module only.
+- File reading, module resolution against search paths, Salsa — the walker
+  is pure by design; the caller supplies source text and answers star-import
   questions through a callback.
 - A general Python evaluator. Explicitly rejected: list `.sort()`/
   `.reverse()` emulation, importing path-returning *functions* from sibling
@@ -107,22 +129,35 @@ All under `reference/ruff/` in this repo:
 ## Git workflow
 
 jj repo — no mutating `git`. Commit per step or logical unit, message style
-matching `git log` (e.g. `"add settings extraction walker"`,
+matching the repo log (e.g. `"add djls-project settings extraction walker"`,
 `"test: cover star-import layering"`). Do NOT push.
 
 ## Steps
 
 ### Step 1: Scaffold
 
-`crates/djls-extraction/Cargo.toml` modeled on `crates/djls-conf/Cargo.toml`
+`crates/djls-project/Cargo.toml` modeled on `crates/djls-conf/Cargo.toml`
 (version `0.0.0`, workspace lints/edition). Dependencies (all
 `workspace = true`): `camino`, `ruff_python_ast`, `ruff_python_parser`,
 `rustc-hash`, `serde` only if an existing sibling justifies it (default: no).
-**No** `salsa`, **no** `djls-source`, **no** `djls-semantic`.
+**No** `salsa`, **no** `djls-source`, **no** `djls-semantic` — those arrive
+with the project model in plan 015, not before.
 
-**Verify**: `cargo build -q -p djls-extraction` → exit 0.
+`src/lib.rs` declares one public module:
 
-### Step 2: Define the boundary types (`src/lib.rs` + `src/facts.rs`)
+```rust
+pub mod extraction;
+```
+
+`src/extraction.rs` is the module façade (repo rule: `folder.rs`, not
+`folder/mod.rs`); it declares the submodules from Steps 2–3 and re-exports
+the boundary API (`Knowledge`, `SettingsFacts`, `extract_settings`,
+`StarImportResolver`, …). External consumers (plan 007) import
+`djls_project::extraction::…`.
+
+**Verify**: `cargo build -q -p djls-project` → exit 0.
+
+### Step 2: Define the boundary types (`src/extraction/facts.rs`)
 
 ```rust
 /// How much to trust an extracted fact. The ONLY confidence vocabulary in
@@ -176,11 +211,11 @@ pub trait StarImportResolver {
 constants like `BASE_DIR`); keep it `pub` with a `into_facts()` finisher.
 Internal representation is yours, but the public API above is fixed.
 
-**Verify**: `cargo build -q -p djls-extraction` → exit 0.
+**Verify**: `cargo build -q -p djls-project` → exit 0.
 
-### Step 3: The walker (`src/walker.rs`)
+### Step 3: The walker (`src/extraction/walker.rs`)
 
-Public entry:
+Public entry (re-exported through `src/extraction.rs`):
 
 ```rust
 pub fn extract_settings(
@@ -245,8 +280,8 @@ Star imports: on `from X import *` at module level, call
 names (later statements in this module then override/mutate — ordered-walk
 shadowing). On `None`, demote all watched names to Partial with a reason.
 
-Path micro-evaluator (`src/paths.rs`) — closed grammar, evaluated relative to
-`module_path`; everything else `PathValue::Unknown`:
+Path micro-evaluator (`src/extraction/paths.rs`) — closed grammar, evaluated
+relative to `module_path`; everything else `PathValue::Unknown`:
 - `Path(__file__).resolve().parent` chains (each `.parent` pops one segment)
 - aux-name references (`BASE_DIR`) whose value was set by a recognized path
   expression earlier in the walk
@@ -256,9 +291,9 @@ Path micro-evaluator (`src/paths.rs`) — closed grammar, evaluated relative to
 Note: ty does *no* path-value evaluation at all (`Path.__truediv__` is just a
 type to ty) — this evaluator is deliberately ours and deliberately this small.
 
-**Verify**: `cargo test -q -p djls-extraction` → unit tests from Step 4 pass.
+**Verify**: `cargo test -q -p djls-project` → unit tests from Step 4 pass.
 
-### Step 4: Tests (`src/walker.rs` `#[cfg(test)]` + `tests/` fixtures)
+### Step 4: Tests (`src/extraction/walker.rs` `#[cfg(test)]` + `tests/` fixtures)
 
 Plain `&str` sources, a `HashMap<String, SettingsEnv>`-backed fake
 `StarImportResolver`. Minimum cases (name each test after the idiom):
@@ -280,7 +315,7 @@ Plain `&str` sources, a `HashMap<String, SettingsEnv>`-backed fake
   `os.path.join(BASE_DIR, "templates")`; unknown call → `PathValue::Unknown`
 - syntax-error source still yields Partial facts, no panic
 
-**Verify**: `cargo test -q -p djls-extraction` → all pass;
+**Verify**: `cargo test -q -p djls-project` → all pass;
 `cargo test -q` → workspace unaffected.
 
 ### Step 5: Full validation
@@ -298,9 +333,9 @@ v1; plain asserts on the fact structs are clearer here.
 
 Machine-checkable. ALL must hold:
 
-- [ ] `cargo test -q -p djls-extraction` exits 0 with ≥ 18 tests
-- [ ] `rg "salsa|djls_source|djls_semantic" crates/djls-extraction/Cargo.toml` returns no matches (purity)
-- [ ] `rg "sort\(|reverse\(" crates/djls-extraction/src/` returns no list-method-emulation matches (scope guard)
+- [ ] `cargo test -q -p djls-project` exits 0 with ≥ 18 tests
+- [ ] `rg "salsa|djls_source|djls_semantic" crates/djls-project/Cargo.toml` returns no matches (crate-level purity — holds until plan 015 brings the project model in; 015's done criteria carry the module-scoped successor check)
+- [ ] `rg "sort\(|reverse\(" crates/djls-project/src/extraction/` returns no list-method-emulation matches (scope guard)
 - [ ] `cargo test -q` exits 0 (rest of workspace untouched)
 - [ ] `just clippy` exits 0
 - [ ] Only in-scope files modified (`jj diff --stat`)
@@ -318,16 +353,30 @@ Stop and report back (do not improvise) if:
 - You find yourself adding a fourth `Knowledge` variant, evaluating a
   function body, or tracking aliases (`apps = INSTALLED_APPS`) — that is the
   PR-#606 slope; the answer is a `Reason` + demotion, not more machinery.
+- You find yourself adding `salsa`, `djls-source`, or any file I/O to this
+  crate "temporarily" — that is plan 015's job, and only for the project
+  model, never for the extraction module.
 
 ## Maintenance notes
 
-- The walker's supported-shapes list is the crate's contract — keep it in the
-  module doc, and extend it only with evidence (a real-world settings file
-  the corpus can't handle). The corpus infrastructure
-  (`crates/djls-corpus`) is the right place to later add
-  extraction-over-real-settings snapshot coverage.
+- **The extraction module's purity is the firewall** against the PR-#606
+  failure mode (unbounded evaluation): `extract_settings` takes a `&str`
+  and a callback, never a database or filesystem. Until plan 015, the
+  crate manifest enforces this; after 015 (salsa enters the crate with the
+  project model), the enforcement is the module-scoped grep
+  `rg "salsa|djls_source" crates/djls-project/src/extraction/` → no
+  matches, which plan 015 adds to its done criteria. Reviewers of any
+  later change to `src/extraction/` should re-run it.
+- The walker's supported-shapes list is the module's contract — keep it in
+  the module doc, and extend it only with evidence (a real-world settings
+  file the corpus can't handle). The corpus infrastructure
+  (`crates/djls-corpus`, moving into `djls-testing` in plan 016) is the
+  right place to later add extraction-over-real-settings snapshot coverage.
 - `MIDDLEWARE`, `STATICFILES_DIRS`, etc. are future watched names — the
   table-driven design makes each a one-entry addition.
-- Plan 007 consumes this crate; its `StarImportResolver` impl is a Salsa
+- Plan 007 consumes this module; its `StarImportResolver` impl is a Salsa
   query with a cycle-safe seed (the `dunder_all_names`
   `cycle_initial=None` pattern, `dunder_all.rs:15`).
+- Plan 015 later moves the project model into this crate and the
+  registration-scanner half of `djls-semantic`'s `python/registry.rs` into
+  this module (it becomes `src/extraction/registry.rs`).

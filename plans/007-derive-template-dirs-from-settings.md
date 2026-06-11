@@ -9,7 +9,8 @@
 > **Drift check (run first)**: `git diff --stat 922cc4d7..HEAD -- crates/djls-semantic/src/project crates/djls-semantic/src/resolution.rs crates/djls-db/src`
 > Plans 001–006 are prerequisites and HAVE changed these files since the
 > planned-at SHA — that is expected. What must be true before starting:
-> `crates/djls-extraction` exists with passing tests; `Project` has no
+> `crates/djls-project` exists with its `extraction` module and passing
+> tests (plan 006); `Project` has no
 > `template_files` field (plan 004); the project handle is a plain field
 > (plan 003). Verify each; if any prerequisite is missing, STOP.
 
@@ -26,7 +27,7 @@
 
 This is the step where the language server learns template directories from
 `settings.py` **source** instead of asking a Python subprocess. The chain
-becomes: settings module file → tracked parse → `djls-extraction` walker →
+becomes: settings module file → tracked parse → `djls_project::extraction` walker →
 `SettingsFacts` → derived `template_dirs` query — every link a Salsa query
 over `File` inputs, so editing `settings.py` invalidates exactly the right
 things. The runtime inspector's `template_dirs` query and the
@@ -81,7 +82,8 @@ have shifted — match on content.)
   - `rg -n "template_dirs" crates/ --no-heading` for the full live list
 
 - Semantic's `Knowledge` (`project/symbols.rs:169-172`) is
-  `{ Known, Unknown }`; `djls-extraction::Knowledge` adds `Partial`.
+  `{ Known, Unknown }`; `djls_project::extraction::Knowledge` (plan 006)
+  adds `Partial`.
 
 - Cycle recovery: **already proven in this repo on the exact pinned salsa
   (0.26.2)** — `crates/djls-semantic/src/python.rs:115-118` uses
@@ -119,7 +121,9 @@ have shifted — match on content.)
 - `crates/djls-semantic/src/project/{input,sync,resolve,symbols,templates}.rs`
 - `crates/djls-semantic/src/project.rs`, `src/lib.rs` (exports),
   `src/db.rs` (trait signature), `src/resolution.rs`
-- `crates/djls-semantic/Cargo.toml` (add djls-extraction)
+- `crates/djls-semantic/Cargo.toml` (add djls-project — this establishes
+  the end-state `djls-semantic → djls-project` dependency edge; plan 015
+  later moves the project model down into that crate)
 - `crates/djls-db/src/db.rs` (SemanticDb impl)
 - `crates/djls-semantic/src/testing.rs` and affected tests across
   djls-semantic / djls-db / djls-ide
@@ -146,7 +150,7 @@ Do NOT push.
 ### Step 1: Unify `Knowledge`
 
 Delete the `Knowledge` enum from `project/symbols.rs:169-172` and replace
-every use with `djls_extraction::Knowledge` (re-export it from
+every use with `djls_project::extraction::Knowledge` (re-export it from
 `crate::project` at the same path consumers already import). Existing
 `!= Knowledge::Known` gating sites (`validation/scoping.rs:31,87,140`)
 compile unchanged and treat `Partial` as not-Known — behavior-preserving for
@@ -180,12 +184,12 @@ In `settings.rs`:
 ```rust
 #[salsa::tracked(returns(ref), cycle_initial = ..., cycle_fn = ...)]
 pub(crate) fn settings_facts_for_file(db: &dyn ProjectDb, file: File, project: Project)
-    -> djls_extraction::SettingsFacts
+    -> djls_project::extraction::SettingsFacts
 {
     let source = file.source(db);            // tracked read
     let path = file.path(db);
     let mut resolver = SalsaStarImports { db, project, base: path };
-    djls_extraction::extract_settings(source.as_str(), path, &mut resolver)
+    djls_project::extraction::extract_settings(source.as_str(), path, &mut resolver)
 }
 ```
 
@@ -205,7 +209,7 @@ Then the project-level entry point:
 ```rust
 #[salsa::tracked(returns(ref))]
 pub(crate) fn django_settings_facts(db: &dyn ProjectDb, project: Project)
-    -> djls_extraction::SettingsFacts
+    -> djls_project::extraction::SettingsFacts
 { /* settings_module_file → settings_facts_for_file; None → all-Unknown facts */ }
 ```
 
@@ -302,7 +306,7 @@ mechanism plan 008 Step 5 describes). If they differ, see STOP conditions.
 Machine-checkable. ALL must hold:
 
 - [ ] `rg "TemplateDirs|refresh_template_dirs|template_dirs\(db\)" crates/djls-semantic/src/project/input.rs crates/djls-semantic/src/project/sync.rs` returns no matches
-- [ ] `rg "enum Knowledge" crates/djls-semantic/` returns no matches (single definition in djls-extraction)
+- [ ] `rg "enum Knowledge" crates/djls-semantic/` returns no matches (single definition in djls-project's extraction module)
 - [ ] `cargo test -q` exits 0 and `just test` exits 0
 - [ ] `just e2e` exits 0 — the parity gate (or documented as environment-unavailable with everything else green)
 - [ ] `just clippy` exits 0

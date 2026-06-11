@@ -13,8 +13,8 @@
 >    `<libraries module>` throughout.
 > 2. `rg -n "fn django_settings_facts" crates/` finds the settings-facts
 >    query (plan 007 landed).
-> 3. `rg -n "enum Knowledge" crates/djls-extraction/` finds the unified
->    3-state enum with a `Partial` variant (plan 007 Step 1).
+> 3. `rg -n "enum Knowledge" crates/djls-project/` finds the unified
+>    3-state enum with a `Partial` variant (plans 006/007).
 > 4. `rg -n "S118|S119|S121|NotInInstalledApps" crates/` returns **no
 >    matches** (plan 002's deletion still holds; nothing has squatted on the
 >    retired codes).
@@ -546,8 +546,8 @@ Stop and report back (do not improvise) if:
   `Unknown` that didn't before is a bug.
 - If plan 015 lands after this one, the scan module moves with the rest of
   the project model into `djls-project` — it has no semantic-crate
-  dependencies beyond the registry seam (which 015 moves to
-  djls-extraction), so the move stays mechanical.
+  dependencies beyond the registry seam (whose scanner half 015 moves into
+  djls-project's extraction module), so the move stays mechanical.
 - Watcher integration (deferred "File watching" item in
   `plans/README.md`): the query already depends on root revisions, so
   installing a new package into the venv will be picked up as soon as
