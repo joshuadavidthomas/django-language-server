@@ -27,8 +27,8 @@
 
 This is the step where the language server learns template directories from
 `settings.py` **source** instead of asking a Python subprocess. The chain
-becomes: settings module file → tracked parse → `djls_project::extraction` walker →
-`SettingsFacts` → derived `template_dirs` query — every link a Salsa query
+becomes: settings module file → tracked parse → `djls_project` extractor →
+`DjangoSettings` → derived `template_dirs` query — every link a Salsa query
 over `File` inputs, so editing `settings.py` invalidates exactly the right
 things. The runtime inspector's `template_dirs` query and the
 `TemplateDirs::Unknown/Known` input plumbing are deleted (clean break; no
@@ -82,8 +82,9 @@ have shifted — match on content.)
   - `rg -n "template_dirs" crates/ --no-heading` for the full live list
 
 - Semantic's `Knowledge` (`project/symbols.rs:169-172`) is
-  `{ Known, Unknown }`; `djls_project::extraction::Knowledge` (plan 006)
-  adds `Partial`.
+  `{ Known, Unknown }`; plan 006 defines `djls_project::Knowledge` internally
+  but intentionally does not export it until this plan adds the first
+  external consumer. That `Knowledge` adds `Partial`.
 
 - Cycle recovery: **already proven in this repo on the exact pinned salsa
   (0.26.2)** — `crates/djls-semantic/src/python.rs:115-118` uses
@@ -91,9 +92,9 @@ have shifted — match on content.)
   with helper fns at `python.rs:149-165`. Copy THAT shape, not ty's.
   Salsa 0.26 specifics (verified in the macro source): `cycle_initial=`
   **alone** is valid and gives fixpoint semantics — since this plan's
-  policy is "cycle → empty/Unknown facts" (no iteration), omit `cycle_fn`
+  policy is "cycle → empty/Unknown settings" (no iteration), omit `cycle_fn`
   entirely. Callback contract: `cycle_initial(db, salsa::Id, ...one param
-  per query input) -> Output` — `settings_facts_for_file(db, file, project)`
+  per query input) -> Output` — `django_settings_for_file(db, file, project)`
   has TWO inputs, so a closure form needs four parameters
   (`|_, _, _, _| ...`). Constraint: `no_eq` cannot combine with `cycle_fn`.
   ty's analogous query for reference: `dunder_all_names`
@@ -117,6 +118,8 @@ have shifted — match on content.)
 ## Scope
 
 **In scope** (the only files you should modify):
+- `crates/djls-project/src/lib.rs` and `crates/djls-project/src/extraction.rs`
+  (add the first explicit public exports; do **not** use `pub mod`)
 - `crates/djls-semantic/src/project/settings.rs` (create — the queries)
 - `crates/djls-semantic/src/project/{input,sync,resolve,symbols,templates}.rs`
 - `crates/djls-semantic/src/project.rs`, `src/lib.rs` (exports),
@@ -142,15 +145,38 @@ have shifted — match on content.)
 ## Git workflow
 
 jj repo — no mutating `git`. Commit per step group, e.g.
-`"add settings facts queries"`, `"refactor: derive template dirs from settings facts"`.
+`"add django settings queries"`, `"refactor: derive template dirs from django settings"`.
 Do NOT push.
 
 ## Steps
 
-### Step 1: Unify `Knowledge`
+### Step 1: Export the minimal extractor API and unify `Knowledge`
 
-Delete the `Knowledge` enum from `project/symbols.rs:169-172` and replace
-every use with `djls_project::extraction::Knowledge` (re-export it from
+Plan 006 deliberately kept `djls-project`'s public surface empty because no
+external code consumed it yet. Add only the exports this plan needs. In
+`crates/djls-project/src/lib.rs`, keep the module private and explicitly
+re-export items by name from it; do **not** switch to `pub mod extraction`:
+
+```rust
+mod extraction;
+
+pub use extraction::DjangoSettings;
+pub use extraction::Knowledge;
+pub use extraction::PathValue;
+pub use extraction::Reason;
+pub use extraction::SettingsEnv;
+pub use extraction::StarImport;
+pub use extraction::StarImportResolver;
+pub use extraction::extract_settings;
+```
+
+Adjust `crates/djls-project/src/extraction.rs` visibility only as needed to
+support those crate-root re-exports. Keep `StringListSetting` and
+`TemplateBackend` private unless this plan's code actually needs to name
+them directly.
+
+Then delete the `Knowledge` enum from `project/symbols.rs:169-172` and
+replace every use with `djls_project::Knowledge` (re-export it from
 `crate::project` at the same path consumers already import). Existing
 `!= Knowledge::Known` gating sites (`validation/scoping.rs:31,87,140`)
 compile unchanged and treat `Partial` as not-Known — behavior-preserving for
@@ -183,13 +209,13 @@ In `settings.rs`:
 
 ```rust
 #[salsa::tracked(returns(ref), cycle_initial = ..., cycle_fn = ...)]
-pub(crate) fn settings_facts_for_file(db: &dyn ProjectDb, file: File, project: Project)
-    -> djls_project::extraction::SettingsFacts
+pub(crate) fn django_settings_for_file(db: &dyn ProjectDb, file: File, project: Project)
+    -> djls_project::DjangoSettings
 {
     let source = file.source(db);            // tracked read
     let path = file.path(db);
     let mut resolver = SalsaStarImports { db, project, base: path };
-    djls_project::extraction::extract_settings(source.as_str(), path, &mut resolver)
+    djls_project::extract_settings(source.as_str(), path, &mut resolver)
 }
 ```
 
@@ -198,8 +224,8 @@ absolute module path (relative levels resolve against the current file's
 module location — pop one path segment per dot, mirroring how
 `ModuleName::from_import_statement` behaves in ty), resolve to a `File` via
 the same search-path probing as Step 2, and recurse through
-`settings_facts_for_file` — returning that result's env/facts. Cycle
-recovery: `cycle_initial=` alone, seeding empty/Unknown `SettingsFacts` —
+`django_settings_for_file` — returning that result's environment/settings. Cycle
+recovery: `cycle_initial=` alone, seeding empty/Unknown `DjangoSettings` —
 copy the in-repo helper-fn shape from `python.rs:149-165` (see Current
 state for the exact salsa-0.26 callback contract; no `cycle_fn` needed
 since we don't iterate).
@@ -208,14 +234,14 @@ Then the project-level entry point:
 
 ```rust
 #[salsa::tracked(returns(ref))]
-pub(crate) fn django_settings_facts(db: &dyn ProjectDb, project: Project)
-    -> djls_project::extraction::SettingsFacts
-{ /* settings_module_file → settings_facts_for_file; None → all-Unknown facts */ }
+pub(crate) fn django_settings(db: &dyn ProjectDb, project: Project)
+    -> djls_project::DjangoSettings
+{ /* settings_module_file → django_settings_for_file; None → all-Unknown settings */ }
 ```
 
 **Verify**: `TestDatabase` tests: base/prod split settings
 (`from .base import *` + `INSTALLED_APPS += [...]`) produce merged Known
-facts; a self-importing cycle does not hang or panic; editing the base file's
+settings; a self-importing cycle does not hang or panic; editing the base file's
 content (bump revision with new source) re-runs extraction (event-log test
 pattern from `crates/djls-db/src/db.rs:458-489`).
 
@@ -240,7 +266,7 @@ Composition (Django semantics — keep this order):
    parent module; unresolvable entries add a `Reason` and demote to
    `Partial`), and include `<app_dir>/templates` when it exists, after all
    `DIRS` (Django checks DIRS before app dirs).
-3. Resulting `Knowledge` = the weakest of the contributing facts
+3. Resulting `Knowledge` = the weakest of the contributing settings
    (`installed_apps.knowledge` only matters when `app_dirs` is true).
 4. `PathValue::Unknown` entries: skip + demote to `Partial`.
 

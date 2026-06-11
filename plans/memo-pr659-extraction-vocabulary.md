@@ -8,6 +8,12 @@
   `TemplateBackendFact`, `Knowledge`, `Reason`) faithful to the ruff/ty
   inspiration, or a regression toward the old PR-#606/#626 shape?
 - **Date**: 2026-06-10
+- **Amendment applied**: PR #659 was amended at source commit `c6bd8ac2` to
+  apply this memo's recommendation: `DjangoSettings`, `StringListSetting`,
+  `TemplateBackend`, closed `Reason`, `extractor`/`SettingsExtractor`, and
+  no public crate exports until plan 007 has a real external consumer.
+  The analysis below preserves citations to the original `731d353b` shape
+  that prompted the review.
 - **Verdict in one line**: the *structure* is a faithful ruff/ty port with one
   documented, justified deviation; the *naming* is partly inherited from the
   deleted old-PR shape — drop the "facts" vocabulary from the type layer

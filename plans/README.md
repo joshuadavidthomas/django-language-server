@@ -11,7 +11,7 @@ Source material: the two research documents in
 directories, template tag libraries, symbols — without a Python runtime,
 then delete the runtime inspector. Plans 001–004 are house-cleaning ("make
 the change easy"); plans 006–009 are the feature ("make the easy change" —
-006 also creates the `djls-project` crate, walker-first); plans 010–012 are
+006 also creates the `djls-project` crate, extractor-first); plans 010–012 are
 the **startup track** (salvaged from PR #626's good half: snapshot reads,
 non-blocking refresh, progress reporting, startup contract tests) — useful
 independently, sequenced after the static track because plan 009 makes
@@ -67,9 +67,9 @@ REJECTED (with one-line rationale).
 - **004 → 007**: 004 establishes the push→pull conversion pattern on the
   cheapest fact and creates `project_template_files`, which 007 re-points at
   the derived dirs query.
-- **006 → 007 → 008**: pure walker → Salsa wiring + dirs → libraries. Each
+- **006 → 007 → 008**: pure extractor → Salsa wiring + dirs → libraries. Each
   lands green on its own; the inspector keeps running (ignored more and more)
-  until 009. 006 creates the `djls-project` crate walker-first (no salsa in
+  until 009. 006 creates the `djls-project` crate extractor-first (no salsa in
   its manifest until 015); 007 adds the `djls-semantic → djls-project`
   dependency edge — already the end-state direction.
 - **002 → 008**: 008 rebuilds `TemplateLibraries` production; the dead
@@ -139,22 +139,23 @@ REJECTED (with one-line rationale).
   [memo-pr659-extraction-vocabulary.md](memo-pr659-extraction-vocabulary.md)
   reconciles the extraction API's "facts" vocabulary against ruff/ty.
   Verdict: structure is a faithful port; the type names are static_model.rs
-  residue. Agreed direction (revised in review discussion): amend the PR
-  before merge — `SettingsFacts` → `DjangoSettings` (bare `Settings`
-  collides with `djls_conf::Settings`, already imported in the djls-db files
-  plan 007 touches), `TemplateBackendFact` → `TemplateBackend`,
-  `StringListFact` → `StringListSetting`, keep `Knowledge` (the single
-  shared tri-state research.md prescribed), and convert `Reason` from
-  scattered message strings to a closed ~10-variant enum (centralizes the
-  failure-mode catalog; ruff's rule-local `Reason` enums are the precedent).
-  Plans 007/008/018 then re-point `SettingsFacts` and the
-  `settings_facts_for_file`/`django_settings_facts` query names. No ruff/ty
+  residue. PR #659 was amended before merge: `SettingsFacts` →
+  `DjangoSettings` (bare `Settings` collides with `djls_conf::Settings`,
+  already imported in the djls-db files plan 007 touches),
+  `TemplateBackendFact` → `TemplateBackend`, `StringListFact` →
+  `StringListSetting`, `Reason` became a closed enum, and the implementation
+  module/type became `extractor`/`SettingsExtractor`; the crate public
+  surface stays empty until plan 007 adds the first explicit `pub use` items.
+  `Knowledge` stays as the single shared tri-state research.md prescribed. Plans 007/008/018 were
+  re-pointed from `SettingsFacts` and the
+  `settings_facts_for_file`/`django_settings_facts` query names to
+  `DjangoSettings` and `django_settings_for_file`/`django_settings`. No ruff/ty
   code uses Fact-suffixed types, generic confidence wrappers, or per-datum
   reason strings; ty's analogs are `Option`-bail + named domain tri-states
   (`Truthiness`, `TypeshedVersionsQueryResult`), ruff's is data +
   `DunderAllFlags`.
 - **2026-06-10 (Plan 006 executed)**: PR #659 / bookmark
-  `plan-006-djls-project-settings-recognizer` / source commit `731d353b`
+  `plan-006-djls-project-settings-recognizer` / source commit `c6bd8ac2`
   creates the pure `djls-project` crate and implements bounded static
   settings extraction for `INSTALLED_APPS`, `TEMPLATES`, star imports,
   simple branch truthiness, and supported path expressions. It adds 26
@@ -163,9 +164,13 @@ REJECTED (with one-line rationale).
   `cargo build -q -p djls-project`, `cargo test -q -p djls-project`,
   `cargo test -q -j 2 -- --test-threads=2`,
   `cargo clippy --all-targets --all-features --benches -- -D warnings`,
-  `just fmt`, `just clippy`, `just lint`, and the purity/scope guard rgs.
-  Deviations: the pinned Ruff parser exposes no recovered AST on syntax
-  errors, so syntax-error sources return Partial facts without walking a
+  `just fmt`, `just fmt --check`, `just clippy`, `just lint`, and the
+  purity/scope/vocabulary/no-export guard rgs. The extractor is intentionally
+  private until plan 007 wires it into `djls-semantic`; a scoped `dead_code`
+  allow in `djls-project/src/lib.rs` prevents fake exports from hiding that gap.
+  Deviations: the pinned Ruff parser
+  exposes no recovered AST on syntax errors, so syntax-error sources return
+  Partial settings without walking a
   recovered tree; `Cargo.lock` is included because adding a workspace crate
   requires the lockfile package entry.
 - **2026-06-10 (Plan 004 closed)**: PR #658 merged into `main` as
@@ -292,7 +297,7 @@ REJECTED (with one-line rationale).
   (and djls-corpus dissolves into djls-testing, so the workspace goes
   11 → 12). Changes: plan 005 deleted (env discovery becomes two rows in
   plan 015's move table); plan 006 retargeted and renamed
-  (`006-create-djls-project-settings-recognizer.md` — same walker, same
+  (`006-create-djls-project-settings-recognizer.md` — same extractor, same
   bounds, now created as djls-project's `extraction` module; the crate has
   no salsa until 015, so the crate-level purity grep holds through the
   whole static track, then converts to a module-scoped grep); plan 015
@@ -349,7 +354,7 @@ REJECTED (with one-line rationale).
   awkward afterwards. NOTE: this rejected the *input* split only — the
   *crate* split (PR #626's `djls-project` idea, the mechanical project
   model separated from semantic meaning) is planned as plan 006 (crate
-  creation, walker-first) plus
+  creation, extractor-first) plus
   [015](015-move-project-model-into-djls-project.md) (the model move),
   sequenced post-009 when the module is slim and pull-shaped.
 - **Deleting `djls-conf`'s `[[django_environments]]` schema** after plan 001
@@ -388,7 +393,7 @@ REJECTED (with one-line rationale).
 - **A separate `djls-extraction` crate** (original plan 006, 2026-06-10
   crate-count review): no ty-crate precedent — ty's bounded walkers live
   inside their consumer crate (`dunder_all.rs` in `ty_python_semantic`);
-  the code *forced* below djls-project is only the settings walker + the
+  the code *forced* below djls-project is only the settings extractor + the
   registration scanner (~2.5k lines steady-state) since the spec stack
   stays in djls-semantic; and the purity firewall survives as
   `extract_settings(&str, …, &mut dyn StarImportResolver)`'s signature

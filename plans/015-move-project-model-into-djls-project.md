@@ -176,7 +176,7 @@ post-009 tree.)
   registration scanner + `ext.rs` (forced by the cycle).
 - `resolution.rs` (template-name resolution) — it consumes project queries
   but is template meaning; it STAYS in djls-semantic.
-- The `extraction` module's walker/facts/paths code — already in place
+- The `extraction` module's extractor/settings/paths code — already in place
   from plan 006; this plan adds `registry.rs`/`ext.rs` beside it and
   changes nothing else there.
 - Any signature, behavior, or query-shape change. This plan is moves and

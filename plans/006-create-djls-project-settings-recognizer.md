@@ -22,7 +22,8 @@
   `djls-extraction` crate to `djls-project` at `95e30371`, 2026-06-10
   (crate-count review — see `plans/README.md` reconciliation log)
 - **Status**: DONE
-- **Implemented at**: source commit `731d353b`, 2026-06-10
+- **Implemented at**: source commit `c6bd8ac2`, 2026-06-10
+- **Amended at**: source commit `c6bd8ac2`, 2026-06-10 — renamed extraction outputs per `plans/memo-pr659-extraction-vocabulary.md` (`DjangoSettings`, `StringListSetting`, `TemplateBackend`), converted `Reason` to a closed enum, renamed the implementation module/type to `extractor`/`SettingsExtractor`, and kept the crate public surface empty until plan 007 introduces the first external consumer.
 - **Bookmark**: `plan-006-djls-project-settings-recognizer`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/659
 
@@ -35,21 +36,21 @@ from Python source without running Python. Two prior attempts (PRs #606,
 projects show the right size: ty extracts `__all__` — the same problem shape
 as `INSTALLED_APPS` (a module-level list of strings built by assignment,
 `+=`, `.append()`/`.extend()`, cross-module composition, and conditional
-branches) — in one 444-line bounded walker
+branches) — in one 444-line bounded collector
 (`reference/ruff/crates/ty_python_semantic/src/dunder_all.rs`) with an
 `invalid` latch instead of guessing. ty's own philosophy comment
 (`reference/ruff/crates/ty_module_resolver/src/resolve.rs:1515-1521`):
 "This is all syntax-only analysis so it *could* be fooled but it's really
-unlikely… this is better than nothing!" This plan builds that walker for
-Django settings — AST in, facts out, no Salsa, no I/O — so plan 007 can wire
-it into tracked queries.
+unlikely… this is better than nothing!" This plan builds that extractor for
+Django settings — AST in, settings out, no Salsa, no I/O — so plan 007 can
+wire it into tracked queries.
 
 **Where it lives**: this plan creates the `djls-project` crate and the
-walker becomes its `extraction` module. `djls-project` is the future home
+extractor becomes its `extraction` module. `djls-project` is the future home
 of the whole mechanical project model (plan 015 moves it in post-009); the
-walker is that model's input adapter, so it lives with its consumer — the
+extractor is that model's input adapter, so it lives with its consumer — the
 same colocation ty uses (`dunder_all.rs` sits inside `ty_python_semantic`,
-its consumer, not in a walker crate). Until plan 015 lands, the crate
+its consumer, not in a separate extraction crate). Until plan 015 lands, the crate
 contains *only* the extraction module, so its manifest has no `salsa` and
 no `djls-source` — the purity contract below is crate-level-checkable for
 the entire static track. Plan 015 brings the project model (and salsa) into
@@ -57,7 +58,7 @@ the crate and converts the purity check to a module-scoped one.
 
 ## Current state
 
-- The workspace already pins the parser the walker needs
+- The workspace already pins the parser the extractor needs
   (root `Cargo.toml:60-61`, re-verified at `95e30371`):
 
   ```toml
@@ -84,7 +85,7 @@ All under `reference/ruff/` in this repo:
 
 | Technique | Where | What to copy |
 |---|---|---|
-| Invalid-latch walker | `crates/ty_python_semantic/src/dunder_all.rs:26-66, 199-209` | per-name latch: unrecognized idiom → that fact is Unknown with a reason, never a guess |
+| Invalid-latch extractor | `crates/ty_python_semantic/src/dunder_all.rs:26-66, 199-209` | per-name latch: unrecognized idiom → that setting is Unknown with a closed `Reason`, never a guess |
 | `.append`/`.extend`/`.remove` handling | `dunder_all.rs:106-148` | single-positional-arg call idioms on the watched name |
 | Re-assignment clears prior state | `dunder_all.rs:57-66` (`update_origin`) | `INSTALLED_APPS = [...]` after a previous assignment replaces, not extends |
 | Statically evaluated `if`/`elif`/`else` | `dunder_all.rs:364-390` | walk only the live arm when truthiness is decidable |
@@ -121,7 +122,7 @@ All under `reference/ruff/` in this repo:
 - The project model itself (inputs, search paths, module resolution) — it
   stays in `djls-semantic/src/project/` until plan 015 moves it here. This
   plan creates the crate with the extraction module only.
-- File reading, module resolution against search paths, Salsa — the walker
+- File reading, module resolution against search paths, Salsa — the extractor
   is pure by design; the caller supplies source text and answers star-import
   questions through a callback.
 - A general Python evaluator. Explicitly rejected: list `.sort()`/
@@ -133,7 +134,7 @@ All under `reference/ruff/` in this repo:
 ## Git workflow
 
 jj repo — no mutating `git`. Commit per step or logical unit, message style
-matching the repo log (e.g. `"add djls-project settings extraction walker"`,
+matching the repo log (e.g. `"add djls-project settings extractor"`,
 `"test: cover star-import layering"`). Do NOT push.
 
 ## Steps
@@ -147,39 +148,56 @@ matching the repo log (e.g. `"add djls-project settings extraction walker"`,
 **No** `salsa`, **no** `djls-source`, **no** `djls-semantic` — those arrive
 with the project model in plan 015, not before.
 
-`src/lib.rs` declares one public module:
+`src/lib.rs` keeps the extraction module private until plan 007 introduces
+the first external consumer:
 
 ```rust
-pub mod extraction;
+// Plan 006 lands the extractor before Plan 007 wires it into djls-semantic.
+#[allow(dead_code)]
+mod extraction;
 ```
 
-`src/extraction.rs` is the module façade (repo rule: `folder.rs`, not
-`folder/mod.rs`); it declares the submodules from Steps 2–3 and re-exports
-the boundary API (`Knowledge`, `SettingsFacts`, `extract_settings`,
-`StarImportResolver`, …). External consumers (plan 007) import
-`djls_project::extraction::…`.
+Do not use `pub mod` here and do not add optimistic facade exports. The
+extractor is tested in-crate only in this plan. Plan 007 adds explicit
+`pub use` items in `lib.rs` for the symbols it actually consumes.
+
+`src/extraction.rs` is the private module façade (repo rule: `folder.rs`, not
+`folder/mod.rs`); it declares the submodules from Steps 2–3 and does not
+re-export the boundary API yet.
 
 **Verify**: `cargo build -q -p djls-project` → exit 0.
 
-### Step 2: Define the boundary types (`src/extraction/facts.rs`)
+### Step 2: Define the boundary types (`src/extraction/settings.rs`)
 
 ```rust
-/// How much to trust an extracted fact. The ONLY confidence vocabulary in
+/// How much to trust an extracted value. The ONLY confidence vocabulary in
 /// this codebase (plan 007 migrates djls-semantic onto it).
 pub enum Knowledge { Known, Partial, Unknown }
 
-/// Why a fact is Partial/Unknown. Human-readable, shown in logs/diagnostics.
-pub struct Reason { pub message: String }   // + span/source fields as needed
+/// Why an extracted value is Partial/Unknown. Keep this closed; render
+/// messages through `Display` instead of storing stringly reasons.
+pub enum Reason {
+    SyntaxErrors,
+    UnresolvedStarImport,
+    UnsupportedAssignment,
+    UnsupportedMutation,
+    NonLiteralElement,
+    NonLiteralKey,
+    UnsupportedValue,
+    DictUnpack,
+    AmbiguousCondition,
+    UnsupportedPathExpression,
+}
 
-/// A best-effort string list (INSTALLED_APPS shape).
-pub struct StringListFact {
+/// A best-effort string list setting (INSTALLED_APPS shape).
+pub struct StringListSetting {
     pub values: Vec<String>,
     pub knowledge: Knowledge,
     pub reasons: Vec<Reason>,
 }
 
 /// One entry of TEMPLATES.
-pub struct TemplateBackendFact {
+pub struct TemplateBackend {
     pub backend: Option<String>,            // BACKEND string literal
     pub dirs: Vec<PathValue>,               // DIRS entries
     pub app_dirs: Option<bool>,             // APP_DIRS literal bool
@@ -189,10 +207,10 @@ pub struct TemplateBackendFact {
     pub reasons: Vec<Reason>,
 }
 
-/// Everything extracted from one settings module (after layering).
-pub struct SettingsFacts {
-    pub installed_apps: StringListFact,
-    pub template_backends: Vec<TemplateBackendFact>,
+/// The statically extracted subset of a Django settings module.
+pub struct DjangoSettings {
+    pub installed_apps: StringListSetting,
+    pub template_backends: Vec<TemplateBackend>,
     pub templates_knowledge: Knowledge,
 }
 
@@ -211,33 +229,34 @@ pub trait StarImportResolver {
 }
 ```
 
-`SettingsEnv` is the walker's working state (watched-name bindings + aux
-constants like `BASE_DIR`); keep it `pub` with a `into_facts()` finisher.
-Internal representation is yours, but the public API above is fixed.
+`SettingsEnv` is the extractor's working state (watched-name bindings + aux
+constants like `BASE_DIR`); keep it available inside the crate with an
+`into_settings()` finisher. Internal representation is yours, but the
+Plan 007-facing API shape above is fixed.
 
 **Verify**: `cargo build -q -p djls-project` → exit 0.
 
-### Step 3: The walker (`src/extraction/walker.rs`)
+### Step 3: The extractor (`src/extraction/extractor.rs`)
 
-Public entry (re-exported through `src/extraction.rs`):
+Extractor entry point (kept private to the crate until Plan 007 exports it):
 
 ```rust
 pub fn extract_settings(
     source: &str,
     module_path: &camino::Utf8Path,     // for resolving Path(__file__) and relative dirs
     resolver: &mut dyn StarImportResolver,
-) -> SettingsFacts
+) -> DjangoSettings
 ```
 
-Parse with `ruff_python_parser::parse_module`; on syntax errors, still walk
-the recovered AST (the parser always produces one) but mark all facts
-`Partial` with a "syntax errors present" reason.
+Parse with `ruff_python_parser::parse_module`; at the pinned Ruff revision,
+`parse_module` exposes no recovered AST on error. On syntax errors, return
+Partial settings without panicking.
 
 Walk **module-level statements only** — never descend into function or class
 bodies (dunder_all does the same). DO walk into `if`/`for`/`while`/`with`/
 `try` bodies (`dunder_all.rs:392-398` walks these).
 
-Supported shapes per watched list name (`INSTALLED_APPS`; design the walker
+Supported shapes per watched list name (`INSTALLED_APPS`; design the extractor
 table-driven so adding `MIDDLEWARE` later is one entry):
 
 1. `NAME = [...]` / `NAME = (...)` / annotated — replaces prior state
@@ -253,7 +272,7 @@ table-driven so adding `MIDDLEWARE` later is one entry):
    Partial** — per-element skip like ruff's `DunderAllFlags`, NOT ty's
    whole-query bail. Justification: settings lists with one env-driven entry
    are common; a Partial list is far more useful than no list. Document this
-   deviation in the walker's module doc.
+   deviation in the extractor module doc.
 5. Any other statement that *writes* a watched name (subscript store, star
    target, `for NAME in ...`, etc.) → that name is `Unknown` + reason
    (per-name latch, not per-module).
@@ -297,7 +316,7 @@ type to ty) — this evaluator is deliberately ours and deliberately this small.
 
 **Verify**: `cargo test -q -p djls-project` → unit tests from Step 4 pass.
 
-### Step 4: Tests (`src/extraction/walker.rs` `#[cfg(test)]` + `tests/` fixtures)
+### Step 4: Tests (`src/extraction/extractor.rs` `#[cfg(test)]` + `tests/` fixtures)
 
 Plain `&str` sources, a `HashMap<String, SettingsEnv>`-backed fake
 `StarImportResolver`. Minimum cases (name each test after the idiom):
@@ -317,7 +336,7 @@ Plain `&str` sources, a `HashMap<String, SettingsEnv>`-backed fake
 - paths: `BASE_DIR = Path(__file__).resolve().parent.parent` then
   `BASE_DIR / "templates"` → Resolved with correct absolute path;
   `os.path.join(BASE_DIR, "templates")`; unknown call → `PathValue::Unknown`
-- syntax-error source still yields Partial facts, no panic
+- syntax-error source still yields Partial settings, no panic
 
 **Verify**: `cargo test -q -p djls-project` → all pass;
 `cargo test -q` → workspace unaffected.
@@ -328,10 +347,10 @@ Plain `&str` sources, a `HashMap<String, SettingsEnv>`-backed fake
 
 ## Test plan
 
-Covered in Step 4 (this plan IS mostly tests — the walker is small). Pattern
+Covered in Step 4 (this plan IS mostly tests — the extractor is small). Pattern
 to model: table-style fixture tests as in
 `crates/djls-semantic/src/python/` test modules. No snapshot tests needed in
-v1; plain asserts on the fact structs are clearer here.
+v1; plain asserts on the setting structs are clearer here.
 
 ## Done criteria
 
@@ -340,6 +359,8 @@ Machine-checkable. ALL must hold:
 - [ ] `cargo test -q -p djls-project` exits 0 with ≥ 18 tests
 - [ ] `rg "salsa|djls_source|djls_semantic" crates/djls-project/Cargo.toml` returns no matches (crate-level purity — holds until plan 015 brings the project model in; 015's done criteria carry the module-scoped successor check)
 - [ ] `rg "sort\(|reverse\(" crates/djls-project/src/extraction/` returns no list-method-emulation matches (scope guard)
+- [ ] `rg -n "Fact|Reason::new|SettingsFacts|StringListFact|TemplateBackendFact|into_facts|facts::|walker|Walker|SettingsWalker" crates/djls-project/src/` returns no matches (API vocabulary guard)
+- [ ] `rg -n "^pub mod|^pub use" crates/djls-project/src/lib.rs crates/djls-project/src/extraction.rs` returns no matches (no optimistic public surface before plan 007)
 - [ ] `cargo test -q` exits 0 (rest of workspace untouched)
 - [ ] `just clippy` exits 0
 - [ ] Only in-scope files modified (`jj diff --stat`)
@@ -371,7 +392,7 @@ Stop and report back (do not improvise) if:
   `rg "salsa|djls_source" crates/djls-project/src/extraction/` → no
   matches, which plan 015 adds to its done criteria. Reviewers of any
   later change to `src/extraction/` should re-run it.
-- The walker's supported-shapes list is the module's contract — keep it in
+- The extractor's supported-shapes list is the module's contract — keep it in
   the module doc, and extend it only with evidence (a real-world settings
   file the corpus can't handle). The corpus infrastructure
   (`crates/djls-corpus`, moving into `djls-testing` in plan 016) is the
