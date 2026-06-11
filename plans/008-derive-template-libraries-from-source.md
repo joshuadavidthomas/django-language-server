@@ -22,6 +22,10 @@
 - **Depends on**: plans/002, plans/006, plans/007, plans/013 (registry seam), plans/014 (fixtures + goldens)
 - **Category**: direction (static Django discovery)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: source commit `097bbb0e`, 2026-06-11
+- **Bookmark**: `plan-008-derive-template-libraries-from-source`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/664
 
 ## Why this matters
 
