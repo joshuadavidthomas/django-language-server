@@ -74,7 +74,7 @@ pub(super) fn settings_source_files(db: &dyn ProjectDb, project: Project) -> Vec
 #[salsa::tracked(returns(ref))]
 pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>, StaticKnowledge) {
     let resolver = SalsaSettingsResolver { db, project };
-    resolver.touch_search_path_roots();
+    project.touch_search_path_roots(db);
 
     let settings = django_settings(db, project);
     let mut dirs = Vec::new();
@@ -118,7 +118,7 @@ pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>,
 #[salsa::tracked(returns(ref))]
 pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibraries {
     let resolver = SalsaSettingsResolver { db, project };
-    resolver.touch_search_path_roots();
+    project.touch_search_path_roots(db);
 
     if settings_module_file(db, project).is_none() {
         return TemplateLibraries::default();
@@ -420,7 +420,7 @@ impl SalsaSettingsResolver<'_> {
     }
 
     fn module_file(&self, module_path: &str) -> Option<File> {
-        self.touch_search_path_roots();
+        self.project.touch_search_path_roots(self.db);
 
         for search_path in self.project.search_paths(self.db).iter() {
             let Some(path) =
@@ -448,19 +448,6 @@ impl SalsaSettingsResolver<'_> {
         }
 
         None
-    }
-
-    fn touch_search_path_roots(&self) {
-        for search_path in self.project.search_paths(self.db).iter() {
-            if let Some(root) = self.db.files().root(self.db, search_path.path()) {
-                let _ = root.revision(self.db);
-            } else {
-                tracing::warn!(
-                    "Search path has no registered source root: {}",
-                    search_path.path()
-                );
-            }
-        }
     }
 
     fn resolve_star_import_module(

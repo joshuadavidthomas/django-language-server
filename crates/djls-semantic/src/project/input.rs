@@ -101,6 +101,19 @@ impl Project {
         }
     }
 
+    pub(crate) fn touch_search_path_roots(self, db: &dyn ProjectDb) {
+        for search_path in self.search_paths(db).iter() {
+            if let Some(root) = db.files().root(db, search_path.path()) {
+                let _ = root.revision(db);
+            } else {
+                tracing::warn!(
+                    "Search path has no registered source root: {}",
+                    search_path.path()
+                );
+            }
+        }
+    }
+
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let interpreter = Interpreter::discover(settings.venv_path());
         let resolved_django_settings_module =
