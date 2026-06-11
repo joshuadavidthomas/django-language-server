@@ -151,6 +151,12 @@ impl TemplateLibrary {
         self.symbols
             .dedup_by(|a, b| a.kind == b.kind && a.name == b.name);
     }
+
+    pub(crate) fn merge_symbols(&mut self, symbols: impl IntoIterator<Item = TemplateSymbol>) {
+        for symbol in symbols {
+            self.merge_symbol(symbol);
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -4,12 +4,31 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
 
+const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
+
 /// How much to trust an extracted value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub enum StaticKnowledge {
     Known,
     Partial,
     Unknown,
+}
+
+impl StaticKnowledge {
+    #[must_use]
+    pub fn weakened_by(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
+            (Self::Known, Self::Known) => Self::Known,
+        }
+    }
+
+    pub fn demote_to_partial(&mut self) {
+        if *self == Self::Known {
+            *self = Self::Partial;
+        }
+    }
 }
 
 /// Why an extracted value is [`StaticKnowledge::Partial`] or [`StaticKnowledge::Unknown`].
@@ -156,6 +175,15 @@ impl Default for TemplateBackend {
 }
 
 impl TemplateBackend {
+    #[must_use]
+    pub fn is_django_templates_backend(&self, backend_count: usize) -> bool {
+        match self.backend.as_deref() {
+            Some(DJANGO_TEMPLATES_BACKEND) => true,
+            None if backend_count == 1 => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn make_partial(&mut self, reason: Reason) {
         if self.knowledge != StaticKnowledge::Unknown || self.reasons.is_empty() {
             self.knowledge = StaticKnowledge::Partial;
