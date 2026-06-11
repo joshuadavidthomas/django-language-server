@@ -8,7 +8,7 @@ use crate::project::db::Db as ProjectDb;
 use crate::project::input::Project;
 use crate::project::resolve::model_modules;
 use crate::project::resolve::templatetag_modules;
-use crate::project::settings::settings_dependency_files;
+use crate::project::settings::settings_source_files;
 
 /// Refresh all external project data.
 ///
@@ -39,7 +39,7 @@ fn refresh_python_modules(db: &mut dyn ProjectDb, project: Project) {
         db.bump_file_root_revision(root);
     }
 
-    for file in settings_dependency_files(db, project) {
+    for file in settings_source_files(db, project) {
         db.bump_file_revision(file);
     }
 

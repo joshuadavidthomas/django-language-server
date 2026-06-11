@@ -49,36 +49,29 @@ pub(crate) fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Opti
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn django_settings_for_file(
-    db: &dyn ProjectDb,
-    file: File,
-    project: Project,
-) -> DjangoSettings {
+pub(crate) fn django_settings(db: &dyn ProjectDb, project: Project) -> DjangoSettings {
+    let Some(file) = settings_module_file(db, project) else {
+        return DjangoSettings::default();
+    };
+
     let source = file.source(db);
     let path = file.path(db);
     let mut resolver = SalsaSettingsSources { db, project };
     extract_settings(source.as_str(), path, &mut resolver)
 }
 
-#[salsa::tracked(returns(ref))]
-pub(crate) fn django_settings(db: &dyn ProjectDb, project: Project) -> DjangoSettings {
-    settings_module_file(db, project).map_or_else(DjangoSettings::default, |file| {
-        django_settings_for_file(db, file, project).clone()
-    })
-}
-
-pub(crate) fn settings_dependency_files(db: &dyn ProjectDb, project: Project) -> Vec<File> {
+pub(super) fn settings_source_files(db: &dyn ProjectDb, project: Project) -> Vec<File> {
     let Some(file) = settings_module_file(db, project) else {
         return Vec::new();
     };
 
     let mut seen = BTreeSet::new();
     let mut files = Vec::new();
-    collect_settings_dependency_files(db, project, file.path(db), &mut seen, &mut files);
+    collect_settings_source_files(db, project, file.path(db), &mut seen, &mut files);
     files
 }
 
-fn collect_settings_dependency_files(
+fn collect_settings_source_files(
     db: &dyn ProjectDb,
     project: Project,
     path: &Utf8Path,
@@ -116,7 +109,7 @@ fn collect_settings_dependency_files(
         let Some(file) = module_file_for_project(db, project, &module_path) else {
             continue;
         };
-        collect_settings_dependency_files(db, project, file.path(db), seen, files);
+        collect_settings_source_files(db, project, file.path(db), seen, files);
     }
 }
 
@@ -146,7 +139,9 @@ pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>,
         if backend.app_dirs == Some(true) {
             knowledge = weakest(knowledge, settings.installed_apps.knowledge);
             for app in &settings.installed_apps.values {
-                let Some(app_dir) = resolve_installed_app_dir(db, project, app) else {
+                let Some(app_dir) =
+                    resolve_package_dir(db, project, installed_app_package_module(app))
+                else {
                     demote_to_partial(&mut knowledge);
                     continue;
                 };
@@ -184,11 +179,16 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         demote_to_partial(&mut libraries.active_knowledge);
     }
 
-    scan_package_template_libraries(db, project, "django", &mut libraries);
+    scan_templatetags_package(db, project, "django", &mut libraries);
 
     if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
         for installed_app in &settings.installed_apps.values {
-            scan_installed_app_template_libraries(db, project, installed_app, &mut libraries);
+            scan_templatetags_package(
+                db,
+                project,
+                installed_app_package_module(installed_app),
+                &mut libraries,
+            );
         }
     }
 
@@ -215,17 +215,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     libraries
 }
 
-fn scan_installed_app_template_libraries(
-    db: &dyn ProjectDb,
-    project: Project,
-    installed_app: &str,
-    libraries: &mut TemplateLibraries,
-) {
-    let module_path = installed_app_package_module(installed_app);
-    scan_package_template_libraries(db, project, module_path, libraries);
-}
-
-fn scan_package_template_libraries(
+fn scan_templatetags_package(
     db: &dyn ProjectDb,
     project: Project,
     package_module: &str,
@@ -241,7 +231,7 @@ fn scan_package_template_libraries(
         return;
     };
 
-    let Some(package_dir) = resolve_installed_app_dir(db, project, package_module) else {
+    let Some(package_dir) = resolve_package_dir(db, project, package_module) else {
         demote_to_partial(&mut libraries.active_knowledge);
         return;
     };
@@ -295,7 +285,9 @@ fn scan_package_template_libraries(
         };
         let mut library = TemplateLibrary::new_active(load_name, module, Some(origin));
         merge_symbols(&mut library, analysis.symbols);
-        set_loadable_library(libraries, library);
+        libraries
+            .loadable
+            .insert(library.name.clone(), vec![library]);
     }
 }
 
@@ -321,7 +313,9 @@ fn add_configured_library(
     } else {
         demote_to_partial(&mut libraries.active_knowledge);
     }
-    set_loadable_library(libraries, library);
+    libraries
+        .loadable
+        .insert(library.name.clone(), vec![library]);
 }
 
 fn add_builtin_library(
@@ -340,7 +334,9 @@ fn add_builtin_library(
         return;
     };
 
-    push_unique_module(&mut libraries.builtin_order, module.clone());
+    if !libraries.builtin_order.contains(&module) {
+        libraries.builtin_order.push(module.clone());
+    }
     let mut library = TemplateLibrary::new_builtin(name, module.clone());
     if let Some(file) = module_file_for_project(db, project, module.as_str()) {
         merge_symbols(
@@ -412,19 +408,15 @@ fn stmt_defines_template_library(stmt: &Stmt) -> bool {
     let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
         return false;
     };
+    if !targets.iter().any(
+        |target| matches!(target, Expr::Name(ExprName { id, .. }) if id.as_str() == "register"),
+    ) {
+        return false;
+    }
 
-    targets.iter().any(is_register_name) && is_template_library_call(value)
-}
-
-fn is_register_name(expr: &Expr) -> bool {
-    matches!(expr, Expr::Name(ExprName { id, .. }) if id.as_str() == "register")
-}
-
-fn is_template_library_call(expr: &Expr) -> bool {
-    let Expr::Call(ExprCall { func, .. }) = expr else {
+    let Expr::Call(ExprCall { func, .. }) = value.as_ref() else {
         return false;
     };
-
     match func.as_ref() {
         Expr::Attribute(ExprAttribute { value, attr, .. }) => {
             attr.as_str() == "Library"
@@ -438,18 +430,6 @@ fn is_template_library_call(expr: &Expr) -> bool {
 fn merge_symbols(library: &mut TemplateLibrary, symbols: Vec<TemplateSymbol>) {
     for symbol in symbols {
         library.merge_symbol(symbol);
-    }
-}
-
-fn set_loadable_library(libraries: &mut TemplateLibraries, library: TemplateLibrary) {
-    libraries
-        .loadable
-        .insert(library.name.clone(), vec![library]);
-}
-
-fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
-    if !modules.contains(&module) {
-        modules.push(module);
     }
 }
 
@@ -587,17 +567,16 @@ fn is_django_templates_backend(backend: Option<&str>, backend_count: usize) -> b
     }
 }
 
-fn resolve_installed_app_dir(
+fn resolve_package_dir(
     db: &dyn ProjectDb,
     project: Project,
-    installed_app: &str,
+    package_module: &str,
 ) -> Option<Utf8PathBuf> {
-    let module = installed_app_package_module(installed_app);
-    if module.is_empty() {
+    if package_module.is_empty() {
         return None;
     }
 
-    let relative = module.replace('.', "/");
+    let relative = package_module.replace('.', "/");
     for search_path in project.search_paths(db).iter() {
         let candidate = search_path.path().join(&relative);
         if db.path_is_dir(&candidate) {
