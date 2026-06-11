@@ -7,11 +7,11 @@
 > in `plans/README.md`.
 >
 > **Drift check (run first)**: Plans 002, 006, and 007 are prerequisites and
-> have reshaped these files. Before starting verify: `django_settings_facts`
+> have reshaped these files. Before starting verify: `django_settings`
 > and `template_dirs` queries exist in
 > `crates/djls-semantic/src/project/settings.rs` (plan 007);
 > `discovery_knowledge` no longer exists anywhere (plan 002);
-> `djls_project::extraction::Knowledge` has a `Partial` variant (plan 006). If any
+> `djls_project::Knowledge` has a `Partial` variant (exported by plan 007). If any
 > check fails, STOP.
 
 ## Status
@@ -28,7 +28,7 @@
 Template tag library knowledge — which `{% load %}` names exist, which
 modules they map to, which builtins are active, what symbols they export —
 is the last fact still produced by the runtime inspector. This plan derives
-it statically: `INSTALLED_APPS` (from plan 007's settings facts) → app
+it statically: `INSTALLED_APPS` (from plan 007's Django settings) → app
 modules → `templatetags/` packages → per-module symbol extraction (the
 Ruff-AST registry analysis djls-semantic already has). With it lands the one
 genuinely behavior-bearing piece of "confidence": when extraction is

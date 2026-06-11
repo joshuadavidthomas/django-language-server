@@ -11,8 +11,8 @@
 > 1. `rg -n "fn template_libraries" crates/` finds a `#[salsa::tracked]`
 >    derived query (plan 008 landed) — note its file; this plan calls it
 >    `<libraries module>` throughout.
-> 2. `rg -n "fn django_settings_facts" crates/` finds the settings-facts
->    query (plan 007 landed).
+> 2. `rg -n "fn django_settings" crates/` finds the Django settings query
+>    (plan 007 landed).
 > 3. `rg -n "enum Knowledge" crates/djls-project/` finds the unified
 >    3-state enum with a `Partial` variant (plans 006/007).
 > 4. `rg -n "S118|S119|S121|NotInInstalledApps" crates/` returns **no
