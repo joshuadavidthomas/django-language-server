@@ -1,3 +1,6 @@
+use djls_project::LibraryName;
+use djls_project::StaticKnowledge;
+use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagBit;
@@ -7,9 +10,6 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::project::LibraryName;
-use crate::project::StaticKnowledge;
-use crate::project::TemplateLibraries;
 use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;

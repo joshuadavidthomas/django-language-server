@@ -1,7 +1,7 @@
 use djls_conf::Settings;
-use djls_semantic::Interpreter;
-use djls_semantic::ProjectDb;
-use djls_semantic::load_env_file;
+use djls_project::Db as ProjectDb;
+use djls_project::Interpreter;
+use djls_project::load_env_file;
 use djls_source::Db as _;
 use salsa::Setter;
 

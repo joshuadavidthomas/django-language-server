@@ -1,11 +1,11 @@
+use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbolKind;
 use djls_source::Span;
 use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::project::TemplateLibraries;
-use crate::project::TemplateSymbol;
-use crate::project::TemplateSymbolKind;
 use crate::scoping::LoadKind;
 use crate::scoping::LoadState;
 use crate::scoping::LoadStatement;

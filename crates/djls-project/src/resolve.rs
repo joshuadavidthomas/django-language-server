@@ -8,11 +8,11 @@ use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use rustc_hash::FxHashMap;
 
-use crate::project::Interpreter;
-use crate::project::db::Db as ProjectDb;
-use crate::project::input::Project;
-use crate::project::input::PythonModule;
-use crate::python::ModulePath;
+use crate::db::Db as ProjectDb;
+use crate::names::ModulePath;
+use crate::project::Project;
+use crate::project::PythonModule;
+use crate::python::Interpreter;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchPath {
@@ -51,7 +51,7 @@ impl SearchPath {
     }
 
     #[must_use]
-    pub(crate) fn path(&self) -> &Utf8Path {
+    pub fn path(&self) -> &Utf8Path {
         match self {
             Self::FirstParty(path) | Self::Extra(path) | Self::SitePackages(path) => path,
         }
@@ -84,7 +84,7 @@ pub struct SearchPaths {
 
 impl SearchPaths {
     #[must_use]
-    pub(crate) fn from_project_settings(
+    pub fn from_project_settings(
         fs: &dyn FileSystem,
         root: &Utf8Path,
         interpreter: &Interpreter,
@@ -116,7 +116,7 @@ impl SearchPaths {
         search_paths
     }
 
-    pub(crate) fn register_roots(&self, db: &dyn ProjectDb) {
+    pub fn register_roots(&self, db: &dyn ProjectDb) {
         let mut roots = Vec::new();
         for search_path in self.iter() {
             if search_path.is_first_party()
@@ -133,7 +133,7 @@ impl SearchPaths {
         db.files().replace_roots(db, roots);
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &SearchPath> {
+    pub fn iter(&self) -> impl Iterator<Item = &SearchPath> {
         self.paths.iter()
     }
 
@@ -147,7 +147,7 @@ impl SearchPaths {
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
+pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
     let search_paths = project.search_paths(db);
     let mut modules_by_path: Vec<(usize, PythonModule)> = Vec::new();
     let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
@@ -225,7 +225,7 @@ pub(crate) fn module_file_in_search_path(
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
+pub fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
     let search_paths: Vec<_> = project.search_paths(db).iter().collect();
     for search_path in &search_paths {
         if let Some(root) = db.files().root(db, search_path.path()) {
@@ -240,7 +240,7 @@ pub(crate) fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<P
 
     let mut modules = Vec::new();
 
-    for (module_index, module_path) in crate::project::template_libraries(db, project)
+    for (module_index, module_path) in crate::settings::template_libraries(db, project)
         .registration_modules()
         .into_iter()
         .enumerate()
@@ -358,15 +358,53 @@ fn discover_model_files_excluding(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use djls_source::Db as _;
     use djls_source::InMemoryFileSystem;
 
     use super::*;
-    use crate::compute_filter_arity_specs;
-    use crate::project::refresh_external_data;
-    use crate::python::compute_model_graph;
+    use crate::refresh_external_data;
     use crate::testing::ProjectFixture;
     use crate::testing::TestDatabase;
+
+    struct TestModel {
+        module_path: ModulePath,
+    }
+
+    #[derive(Default)]
+    struct TestModelGraph {
+        models: BTreeMap<String, TestModel>,
+    }
+
+    impl TestModelGraph {
+        fn get(&self, name: &str) -> Option<&TestModel> {
+            self.models.get(name)
+        }
+    }
+
+    fn compute_model_graph(db: &TestDatabase, project: Project) -> TestModelGraph {
+        let mut graph = TestModelGraph::default();
+        for module in model_modules(db, project).iter().rev() {
+            let source = module.file().source(db);
+            for line in source.as_str().lines() {
+                let Some(rest) = line.trim_start().strip_prefix("class ") else {
+                    continue;
+                };
+                let name = rest.split(['(', ':']).next().unwrap_or("").trim();
+                if name.is_empty() {
+                    continue;
+                }
+                graph.models.insert(
+                    name.to_string(),
+                    TestModel {
+                        module_path: module.module_path().clone(),
+                    },
+                );
+            }
+        }
+        graph
+    }
 
     fn project_for_search_paths(
         db: &mut TestDatabase,
@@ -716,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_arity_specs_preserve_builtin_registration_order_across_roots() {
+    fn builtin_registration_modules_preserve_order_across_roots() {
         let mut db = TestDatabase::new();
         db.add_file(
             "/project/z_first.py",
@@ -755,10 +793,12 @@ def duplicate(value, arg):
             django_template_settings(&[], &["z_first", "a_second"]),
         );
 
-        let specs = compute_filter_arity_specs(&db, project);
-        let arity = specs.get("duplicate").expect("filter should be extracted");
-        assert!(arity.expects_arg);
-        assert!(!arity.arg_optional);
+        let modules = templatetag_modules(&db, project);
+        let module_paths: Vec<_> = modules
+            .iter()
+            .map(|module| module.module_path().as_str())
+            .collect();
+        assert_eq!(module_paths, vec!["z_first", "a_second"]);
     }
 
     #[test]

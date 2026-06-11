@@ -1,3 +1,4 @@
+use djls_project::ExprExt;
 use ruff_python_ast::Arguments;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -15,7 +16,6 @@ use crate::python::analysis::calls::resolve_call;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::state::TokenSplit;
-use crate::python::ext::ExprExt;
 use crate::python::types::SplitPosition;
 
 /// Evaluate a Python expression against the abstract environment.

@@ -10,11 +10,14 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::Db as ProjectDb;
+use djls_project::Project;
+use djls_project::StaticKnowledge;
+use djls_project::TemplateLibraries;
+use djls_project::template_dirs;
+use djls_project::template_libraries;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::Project;
-use djls_semantic::ProjectDb;
 use djls_semantic::TagSpecs;
-use djls_semantic::TemplateLibraries;
 use djls_semantic::compute_filter_arity_specs;
 use djls_semantic::compute_model_graph;
 use djls_semantic::compute_tag_specs;
@@ -147,8 +150,8 @@ impl SemanticDb for DjangoDatabase {
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
         self.project().and_then(|project| {
-            let (dirs, knowledge) = djls_semantic::template_dirs(self, project);
-            (*knowledge == djls_semantic::StaticKnowledge::Known).then(|| dirs.clone())
+            let (dirs, knowledge) = template_dirs(self, project);
+            (*knowledge == StaticKnowledge::Known).then(|| dirs.clone())
         })
     }
 
@@ -159,7 +162,7 @@ impl SemanticDb for DjangoDatabase {
     fn template_libraries(&self) -> &TemplateLibraries {
         self.project()
             .map_or(TemplateLibraries::empty_ref(), |project| {
-                djls_semantic::template_libraries(self, project)
+                template_libraries(self, project)
             })
     }
 
@@ -205,8 +208,8 @@ mod invalidation_tests {
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
     use djls_conf::Settings;
+    use djls_project::Project;
     use djls_semantic::Db as SemanticDb;
-    use djls_semantic::Project;
     use djls_semantic::SemanticOffsetContext;
     use djls_source::Db as SourceDb;
     use djls_source::InMemoryFileSystem;
@@ -672,7 +675,7 @@ mod invalidation_tests {
         let _result1 = djls_semantic::extract_filter_arities(
             &db,
             file,
-            djls_semantic::ModulePath::new("test.project.tags"),
+            djls_project::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
@@ -684,7 +687,7 @@ mod invalidation_tests {
         let _result2 = djls_semantic::extract_filter_arities(
             &db,
             file,
-            djls_semantic::ModulePath::new("test.project.tags"),
+            djls_project::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
@@ -705,7 +708,7 @@ mod invalidation_tests {
         let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
-            djls_semantic::ModulePath::new("test.project.tags"),
+            djls_project::ModulePath::new("test.project.tags"),
         );
         event_log.take();
 
@@ -717,7 +720,7 @@ mod invalidation_tests {
         let _result = djls_semantic::extract_filter_arities(
             &db,
             file,
-            djls_semantic::ModulePath::new("test.project.tags"),
+            djls_project::ModulePath::new("test.project.tags"),
         );
         let events = event_log.take();
         assert!(
@@ -769,7 +772,7 @@ def my_filter(value, arg):
         let result = djls_semantic::extract_filter_arities(
             &db,
             file,
-            djls_semantic::ModulePath::new("test.project.tags"),
+            djls_project::ModulePath::new("test.project.tags"),
         );
 
         // Should extract the filter
@@ -783,7 +786,7 @@ def my_filter(value, arg):
         let other_module_result = djls_semantic::extract_filter_arities(
             &db,
             file,
-            djls_semantic::ModulePath::new("other.project.tags"),
+            djls_project::ModulePath::new("other.project.tags"),
         );
         let other_key = djls_semantic::SymbolKey::filter("other.project.tags", "my_filter");
         assert!(other_module_result.contains_key(&other_key));
@@ -859,7 +862,7 @@ def my_filter(value, arg):
         fs.lock()
             .unwrap()
             .add_file(base_settings_path, settings_with_custom_library("new_tags"));
-        djls_semantic::refresh_external_data(&mut db);
+        djls_project::refresh_external_data(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
     }
@@ -942,7 +945,7 @@ def my_filter(value, arg):
                 settings_with_custom_library("new_tags"),
             );
         }
-        djls_semantic::refresh_external_data(&mut db);
+        djls_project::refresh_external_data(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
     }

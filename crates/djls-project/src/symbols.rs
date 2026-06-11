@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8PathBuf;
-use djls_project::StaticKnowledge;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::project::names::LibraryName;
-use crate::project::names::PyModuleName;
-use crate::project::names::TemplateSymbolName;
+use crate::extraction::StaticKnowledge;
+use crate::names::LibraryName;
+use crate::names::PyModuleName;
+use crate::names::TemplateSymbolName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

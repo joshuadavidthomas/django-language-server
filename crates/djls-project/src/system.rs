@@ -30,7 +30,7 @@ pub(super) fn env_var(key: &str) -> Result<String, VarError> {
 }
 
 #[cfg(test)]
-pub(in crate::project) mod mock {
+pub(crate) mod mock {
     use std::cell::RefCell;
     use std::thread_local;
 

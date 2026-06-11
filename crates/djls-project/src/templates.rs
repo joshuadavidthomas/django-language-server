@@ -6,15 +6,15 @@ use djls_source::Utf8PathClean;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
-use crate::project::db::Db as ProjectDb;
-use crate::project::input::Project;
+use crate::db::Db as ProjectDb;
+use crate::project::Project;
 
 /// First-party template files in Django loader precedence order.
 ///
 /// Duplicate template names are kept because shadowed templates can still be
 /// opened, inspected, and used as reference sources.
 #[derive(Clone, Default, PartialEq, Eq)]
-pub(crate) struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
+pub struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
 
 impl ProjectTemplateFiles {
     pub(crate) fn from_ordered_paths(
@@ -32,7 +32,7 @@ impl ProjectTemplateFiles {
         )
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
+    pub fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
         self.0.iter()
     }
 }
@@ -46,7 +46,7 @@ impl fmt::Debug for ProjectTemplateFiles {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ProjectTemplateFile {
+pub struct ProjectTemplateFile {
     name: String,
     path: Utf8PathBuf,
     file: File,
@@ -57,11 +57,13 @@ impl ProjectTemplateFile {
         Self { name, path, file }
     }
 
-    pub(crate) fn name(&self) -> &str {
+    #[must_use]
+    pub fn name(&self) -> &str {
         &self.name
     }
 
-    pub(crate) fn file(&self) -> File {
+    #[must_use]
+    pub fn file(&self) -> File {
         self.file
     }
 }
@@ -76,7 +78,7 @@ impl fmt::Debug for ProjectTemplateFile {
 }
 
 #[salsa::tracked(returns(ref))]
-pub(crate) fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTemplateFiles {
+pub fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTemplateFiles {
     // Freshness boundary: template discovery re-runs when any search-path root
     // revision is bumped (refresh_external_data does this), matching the
     // previous imperative refresh cadence. Template dirs that live outside
@@ -93,7 +95,7 @@ pub(crate) fn project_template_files(db: &dyn ProjectDb, project: Project) -> Pr
         }
     }
 
-    let (search_dirs, _knowledge) = crate::project::template_dirs(db, project);
+    let (search_dirs, _knowledge) = crate::settings::template_dirs(db, project);
     let mut templates = Vec::new();
     let walk_options = WalkOptions::unrestricted();
 

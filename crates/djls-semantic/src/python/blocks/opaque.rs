@@ -1,3 +1,4 @@
+use djls_project::ExprExt;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -7,7 +8,6 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::python::blocks::is_parser_receiver;
-use crate::python::ext::ExprExt;
 use crate::python::types::BlockSpec;
 
 /// Detect opaque block patterns: `parser.skip_past("endtag")`.

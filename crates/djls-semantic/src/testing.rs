@@ -13,6 +13,20 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_corpus::Corpus;
 use djls_corpus::module_path_from_file;
+use djls_project::Db as ProjectDb;
+#[cfg(test)]
+use djls_project::Interpreter;
+use djls_project::LibraryName;
+use djls_project::Project;
+use djls_project::PyModuleName;
+#[cfg(test)]
+use djls_project::SearchPaths;
+use djls_project::SymbolDefinition;
+use djls_project::TemplateLibraries;
+use djls_project::TemplateLibrary;
+use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbolKind;
+use djls_project::TemplateSymbolName;
 #[cfg(test)]
 use djls_source::Db as _;
 use djls_source::Diagnostic;
@@ -29,20 +43,6 @@ use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
-use crate::project::Db as ProjectDb;
-#[cfg(test)]
-use crate::project::Interpreter;
-use crate::project::LibraryName;
-use crate::project::Project;
-use crate::project::PyModuleName;
-use crate::project::SymbolDefinition;
-use crate::project::TemplateLibraries;
-use crate::project::TemplateLibrary;
-use crate::project::TemplateSymbol;
-use crate::project::TemplateSymbolKind;
-use crate::project::TemplateSymbolName;
-#[cfg(test)]
-use crate::project::resolve::SearchPaths;
 use crate::python::ArgumentCountConstraint;
 use crate::python::ChoiceAt;
 use crate::python::ExtractedDiagnosticConstraint;
@@ -121,7 +121,7 @@ pub(crate) fn make_template_libraries(
     builtins: &[String],
 ) -> TemplateLibraries {
     let mut result = TemplateLibraries {
-        knowledge: crate::project::StaticKnowledge::Known,
+        knowledge: djls_project::StaticKnowledge::Known,
         ..TemplateLibraries::default()
     };
 
@@ -261,10 +261,6 @@ impl TestDatabase {
             .add_file(path.into(), content.to_string());
     }
 
-    pub(crate) fn remove_file(&self, path: &str) {
-        self.fs.lock().unwrap().remove_file(Utf8Path::new(path));
-    }
-
     pub(crate) fn set_project(&mut self, project: Project) {
         self.project = Some(project);
     }
@@ -329,24 +325,6 @@ impl ProjectFixture {
     #[must_use]
     pub(crate) fn pythonpath(mut self, path: impl Into<String>) -> Self {
         self.pythonpath.push(path.into());
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn interpreter(mut self, interpreter: Interpreter) -> Self {
-        self.interpreter = interpreter;
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn search_paths(mut self, search_paths: SearchPaths) -> Self {
-        self.search_paths = Some(search_paths);
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn register_roots(mut self, register_roots: bool) -> Self {
-        self.register_roots = register_roots;
         self
     }
 
@@ -425,8 +403,8 @@ impl SemanticDb for TestDatabase {
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
         self.project.and_then(|project| {
-            let (dirs, knowledge) = crate::project::template_dirs(self, project);
-            (*knowledge == crate::project::StaticKnowledge::Known).then(|| dirs.clone())
+            let (dirs, knowledge) = djls_project::template_dirs(self, project);
+            (*knowledge == djls_project::StaticKnowledge::Known).then(|| dirs.clone())
         })
     }
 
@@ -993,7 +971,7 @@ mod project_fixture_tests {
         let paths: Vec<_> = project
             .search_paths(&db)
             .iter()
-            .map(super::super::project::resolve::SearchPath::path)
+            .map(djls_project::SearchPath::path)
             .collect();
         assert_eq!(
             paths,

@@ -1,3 +1,4 @@
+use djls_project::ExprExt;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -12,7 +13,6 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use crate::python::analysis::exceptions::direct_raise_exception;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
-use crate::python::ext::ExprExt;
 use crate::python::types::KnownOptions;
 
 /// Info about a `bits.pop(...)` call for mutation tracking.

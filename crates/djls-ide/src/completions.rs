@@ -6,13 +6,13 @@
 //! 5. Rank candidates by relevance.
 //! 6. Convert candidates into an LSP completion response using client/session facts.
 
+use djls_project::InstalledSymbolOrigin;
+use djls_project::StaticKnowledge;
+use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbolKind;
 use djls_semantic::AvailableSymbols;
-use djls_semantic::InstalledSymbolOrigin;
-use djls_semantic::StaticKnowledge;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagSpecs;
-use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateSymbolKind;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::Offset;
@@ -226,7 +226,7 @@ impl CompletionCandidate {
     }
 
     fn tag_name(
-        symbol: &djls_semantic::TemplateSymbol,
+        symbol: &djls_project::TemplateSymbol,
         prefix: &OffsetPrefix<'_>,
         needs_leading_space: bool,
         close: TagClose,
@@ -711,15 +711,15 @@ mod tests {
     use std::borrow::Cow;
     use std::collections::BTreeMap;
 
+    use djls_project::LibraryName;
+    use djls_project::PyModuleName;
+    use djls_project::SymbolDefinition;
+    use djls_project::TemplateLibrary;
+    use djls_project::TemplateSymbol;
+    use djls_project::TemplateSymbolName;
     use djls_semantic::EndTag;
-    use djls_semantic::LibraryName;
-    use djls_semantic::PyModuleName;
-    use djls_semantic::SymbolDefinition;
     use djls_semantic::TagArgument;
     use djls_semantic::TagSpec;
-    use djls_semantic::TemplateLibrary;
-    use djls_semantic::TemplateSymbol;
-    use djls_semantic::TemplateSymbolName;
     use djls_source::Span;
 
     use super::*;

@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::TagBit;
-
-use crate::project::TemplateLibraries;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoadArgument {

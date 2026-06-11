@@ -2,7 +2,6 @@ use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fmt;
 
-use camino::Utf8Path;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -55,34 +54,6 @@ macro_rules! string_newtype {
 string_newtype! {
     /// A Django model class name (e.g., `"User"`, `"Article"`).
     pub(crate) struct ModelName
-}
-
-string_newtype! {
-    /// A dotted Python module path (e.g., `"myapp.models"`,
-    /// `"django.contrib.auth.models"`).
-    pub struct ModulePath
-}
-
-impl ModulePath {
-    #[must_use]
-    pub(crate) fn from_relative_path(path: &Utf8Path) -> Self {
-        let without_ext = path.with_extension("");
-        let parts: Vec<&str> = without_ext
-            .components()
-            .map(|component| component.as_str())
-            .collect();
-        let dotted = if parts.last() == Some(&"__init__") {
-            parts[..parts.len() - 1].join(".")
-        } else {
-            parts.join(".")
-        };
-        Self::new(dotted)
-    }
-
-    #[must_use]
-    pub fn into_string(self) -> String {
-        self.0
-    }
 }
 
 string_newtype! {
@@ -254,7 +225,7 @@ fn app_label_from_module_path(module_path: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
     pub(crate) name: ModelName,
-    pub(crate) module_path: ModulePath,
+    pub(crate) module_path: djls_project::ModulePath,
     pub(crate) line: usize,
     pub(crate) relations: Vec<Relation>,
     pub(crate) kind: ModelKind,
@@ -265,7 +236,7 @@ impl ModelDef {
     pub fn new(name: impl Into<String>, module_path: impl Into<String>, line: usize) -> Self {
         Self {
             name: ModelName::new(name),
-            module_path: ModulePath::new(module_path),
+            module_path: djls_project::ModulePath::new(module_path),
             line,
             relations: Vec::new(),
             kind: ModelKind::Concrete,

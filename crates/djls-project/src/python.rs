@@ -4,7 +4,7 @@ use djls_source::FileSystem;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
-use crate::project::system;
+use crate::system;
 
 /// Interpreter specification for Python environment discovery.
 ///

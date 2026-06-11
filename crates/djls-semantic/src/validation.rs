@@ -3,6 +3,8 @@ pub(crate) mod filters;
 pub(crate) mod if_expressions;
 pub(crate) mod scoping;
 
+use djls_project::StaticKnowledge;
+use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::Node;
@@ -11,8 +13,6 @@ use djls_templates::walk_nodelist;
 
 use crate::db::Db;
 use crate::filters::FilterAritySpecs;
-use crate::project::StaticKnowledge;
-use crate::project::TemplateLibraries;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::SymbolIndex;
 use crate::structure::OpaqueRegions;

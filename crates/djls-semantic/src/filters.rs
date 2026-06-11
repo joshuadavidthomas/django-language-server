@@ -1,8 +1,8 @@
+use djls_project::Project;
+use djls_project::templatetag_modules;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
-use crate::project::Project;
-use crate::project::templatetag_modules;
 use crate::python::FilterArity;
 use crate::python::FilterArityMap;
 use crate::python::SymbolKey;

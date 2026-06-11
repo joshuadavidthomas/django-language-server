@@ -3,6 +3,9 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::Db as ProjectDb;
+use djls_project::Project;
+use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
@@ -111,7 +114,7 @@ pub struct Db {
     fs: SourceMapFileSystem,
     files: SourceFiles,
     tag_specs: Arc<TagSpecs>,
-    template_libraries: Arc<djls_semantic::TemplateLibraries>,
+    template_libraries: Arc<TemplateLibraries>,
     filter_arity_specs: Arc<FilterAritySpecs>,
     storage: salsa::Storage<Self>,
 }
@@ -125,7 +128,7 @@ impl Db {
             },
             files: SourceFiles::default(),
             tag_specs: Arc::new(TagSpecs::default()),
-            template_libraries: Arc::new(djls_semantic::TemplateLibraries::default()),
+            template_libraries: Arc::new(TemplateLibraries::default()),
             filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             storage: salsa::Storage::default(),
         }
@@ -138,7 +141,7 @@ impl Db {
     }
 
     #[must_use]
-    pub fn with_template_libraries(mut self, libs: djls_semantic::TemplateLibraries) -> Self {
+    pub fn with_template_libraries(mut self, libs: TemplateLibraries) -> Self {
         self.template_libraries = Arc::new(libs);
         self
     }
@@ -183,8 +186,8 @@ impl SourceDb for Db {
 }
 
 #[salsa::db]
-impl djls_semantic::ProjectDb for Db {
-    fn project(&self) -> Option<djls_semantic::Project> {
+impl ProjectDb for Db {
+    fn project(&self) -> Option<Project> {
         None
     }
 }
@@ -203,7 +206,7 @@ impl SemanticDb for Db {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_libraries(&self) -> &djls_semantic::TemplateLibraries {
+    fn template_libraries(&self) -> &TemplateLibraries {
         &self.template_libraries
     }
 

@@ -4,11 +4,11 @@
 //! Django, Python, and the filesystem for facts, then writes changed facts to
 //! the `Project` input. Pure semantic derivation stays in tracked queries.
 
-use crate::project::db::Db as ProjectDb;
-use crate::project::input::Project;
-use crate::project::resolve::model_modules;
-use crate::project::resolve::templatetag_modules;
-use crate::project::settings::settings_source_files;
+use crate::db::Db as ProjectDb;
+use crate::project::Project;
+use crate::resolve::model_modules;
+use crate::resolve::templatetag_modules;
+use crate::settings::settings_source_files;
 
 /// Refresh all external project data.
 ///

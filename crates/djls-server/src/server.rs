@@ -1,8 +1,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use djls_semantic::ProjectDb;
-use djls_semantic::refresh_external_data;
+use djls_project::Db as ProjectDb;
+use djls_project::refresh_external_data;
 use djls_source::FileKind;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;

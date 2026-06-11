@@ -1,17 +1,17 @@
 use std::sync::OnceLock;
 
+use djls_project::LibraryName;
+use djls_project::PyModuleName;
+use djls_project::SymbolDefinition;
+use djls_project::TemplateLibraries;
+use djls_project::TemplateLibrary;
+use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbolKind;
+use djls_project::TemplateSymbolName;
 use djls_semantic::FilterArity;
 use djls_semantic::FilterAritySpecs;
-use djls_semantic::LibraryName;
-use djls_semantic::PyModuleName;
-use djls_semantic::SymbolDefinition;
 use djls_semantic::SymbolKey;
 use djls_semantic::TagSpecs;
-use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateLibrary;
-use djls_semantic::TemplateSymbol;
-use djls_semantic::TemplateSymbolKind;
-use djls_semantic::TemplateSymbolName;
 
 use crate::Db;
 
@@ -155,7 +155,7 @@ fn build_filter_arities(
 
 fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     let mut libraries = TemplateLibraries {
-        knowledge: djls_semantic::StaticKnowledge::Known,
+        knowledge: djls_project::StaticKnowledge::Known,
         ..TemplateLibraries::default()
     };
 

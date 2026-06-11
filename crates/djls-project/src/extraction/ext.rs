@@ -3,7 +3,7 @@ use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::Number;
 
-pub(crate) trait ExprExt {
+pub trait ExprExt {
     /// Extract the full string value from a string literal expression.
     fn string_literal(&self) -> Option<String>;
 

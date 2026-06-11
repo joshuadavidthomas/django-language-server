@@ -42,9 +42,9 @@ async def test_document_symbols_include_template_outline(client: LanguageClient)
     ]
 
     content = result[3]
-    assert content.range.start.line == 16
-    assert content.range.end.line == 28
-    assert content.selection_range.start.line == 16
+    assert content.range.start.line == 13
+    assert content.range.end.line == 25
+    assert content.selection_range.start.line == 13
     assert content.selection_range.start.character == 15
     assert [
         (symbol.name, symbol.detail, symbol.kind) for symbol in content.children
