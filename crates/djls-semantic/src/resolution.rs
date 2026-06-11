@@ -9,7 +9,6 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as SemanticDb;
 use crate::project::Project;
-use crate::project::TemplateDirs;
 use crate::tags::TagRole;
 use crate::tags::TagSpecs;
 use crate::tags::compute_tag_specs;
@@ -109,7 +108,7 @@ pub(crate) struct TemplateOrigins<'db> {
     first_by_template_name: FxHashMap<TemplateName<'db>, TemplateOrigin<'db>>,
     #[tracked]
     #[returns(ref)]
-    template_dirs: TemplateDirs,
+    template_dirs: Vec<Utf8PathBuf>,
 }
 
 impl<'db> TemplateOrigins<'db> {
@@ -130,14 +129,10 @@ impl<'db> TemplateOrigins<'db> {
         let name = template_name.name(db);
         let tried = self
             .template_dirs(db)
-            .as_known()
-            .map(|dirs| {
-                dirs.iter()
-                    .filter_map(|dir| safe_join(dir, name).ok())
-                    .map(|path| TriedTemplateSource { path })
-                    .collect()
-            })
-            .unwrap_or_default();
+            .iter()
+            .filter_map(|dir| safe_join(dir, name).ok())
+            .map(|path| TriedTemplateSource { path })
+            .collect();
 
         FindTemplateResult::DoesNotExist(TemplateDoesNotExist {
             template_name,
@@ -167,7 +162,7 @@ pub(crate) fn template_origins(db: &dyn SemanticDb, project: Project) -> Templat
         db,
         ordered,
         first_by_template_name,
-        project.template_dirs(db).clone(),
+        crate::project::template_dirs(db, project).0.clone(),
     )
 }
 
@@ -333,7 +328,6 @@ impl<'bits> LiteralTemplateReference<'bits> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::TemplateDirs;
     use crate::testing::ProjectFixture;
     use crate::testing::TestDatabase;
 
@@ -342,14 +336,22 @@ mod tests {
         template_dirs: Vec<&str>,
         templates: Vec<(&str, &str, &str)>,
     ) -> Project {
-        let template_dirs =
-            TemplateDirs::Known(template_dirs.into_iter().map(Into::into).collect());
+        let dirs_literal = template_dirs
+            .into_iter()
+            .map(|dir| format!("'{dir}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let settings_source = format!(
+            "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{dirs_literal}], 'APP_DIRS': False}}]\n"
+        );
+        let fixture = ProjectFixture::new("/test/project")
+            .django_settings_module("testproject.settings")
+            .file("/test/project/testproject/settings.py", settings_source);
         templates
             .into_iter()
-            .fold(
-                ProjectFixture::new("/test/project").template_dirs(template_dirs),
-                |fixture, (name, path, source)| fixture.template_file(name, path, source),
-            )
+            .fold(fixture, |fixture, (name, path, source)| {
+                fixture.template_file(name, path, source)
+            })
             .build(db)
     }
 

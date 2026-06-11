@@ -15,26 +15,6 @@ use crate::project::resolve::SearchPaths;
 use crate::project::symbols::TemplateLibraries;
 use crate::python::ModulePath;
 
-/// Template-directory introspection state.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum TemplateDirs {
-    /// Template directories have not been loaded yet, or the last refresh failed.
-    #[default]
-    Unknown,
-    /// Template directories were loaded successfully. The list may be empty.
-    Known(Vec<Utf8PathBuf>),
-}
-
-impl TemplateDirs {
-    #[must_use]
-    pub fn as_known(&self) -> Option<&[Utf8PathBuf]> {
-        match self {
-            Self::Unknown => None,
-            Self::Known(dirs) => Some(dirs),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct PythonModule {
     module_path: ModulePath,
@@ -103,9 +83,6 @@ pub struct Project {
     /// env file (e.g. `.env`). Each entry is a `(key, value)` pair.
     #[returns(ref)]
     pub env_vars: Vec<(String, String)>,
-    /// Template directories reported by project introspection.
-    #[returns(ref)]
-    pub template_dirs: TemplateDirs,
     /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
@@ -154,7 +131,6 @@ impl Project {
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
             env_vars,
-            TemplateDirs::Unknown,
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
         )

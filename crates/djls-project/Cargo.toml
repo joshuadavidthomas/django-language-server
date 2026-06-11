@@ -8,6 +8,7 @@ camino = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_python_parser = { workspace = true }
 rustc-hash = { workspace = true }
+serde = { workspace = true }
 
 [lints]
 workspace = true

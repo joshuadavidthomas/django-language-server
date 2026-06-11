@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8PathBuf;
+use djls_project::StaticKnowledge;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -152,12 +153,6 @@ impl TemplateLibrary {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum Knowledge {
-    Known,
-    Unknown,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateLibrarySnapshot {
     pub symbols: Vec<TemplateSymbolSnapshot>,
@@ -179,7 +174,7 @@ pub struct InstalledSymbolCandidate {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateLibraries {
-    pub active_knowledge: Knowledge,
+    pub active_knowledge: StaticKnowledge,
     pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
     pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
     pub builtin_order: Vec<PyModuleName>,
@@ -188,7 +183,7 @@ pub struct TemplateLibraries {
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
-            active_knowledge: Knowledge::Unknown,
+            active_knowledge: StaticKnowledge::Unknown,
             loadable: BTreeMap::new(),
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -206,7 +201,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn registration_modules(&self) -> Vec<PyModuleName> {
-        if self.active_knowledge != Knowledge::Known {
+        if self.active_knowledge != StaticKnowledge::Known {
             return Vec::new();
         }
 
@@ -362,13 +357,13 @@ impl TemplateLibraries {
     #[must_use]
     pub fn apply_active_snapshot(mut self, response: Option<TemplateLibrarySnapshot>) -> Self {
         let Some(response) = response else {
-            self.active_knowledge = Knowledge::Unknown;
+            self.active_knowledge = StaticKnowledge::Unknown;
             self.builtins.clear();
             self.builtin_order.clear();
             return self;
         };
 
-        self.active_knowledge = Knowledge::Known;
+        self.active_knowledge = StaticKnowledge::Known;
 
         let mut enabled: BTreeMap<LibraryName, PyModuleName> = BTreeMap::new();
         for (name, module) in response.libraries {

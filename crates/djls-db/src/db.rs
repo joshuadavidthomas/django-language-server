@@ -153,10 +153,8 @@ impl SemanticDb for DjangoDatabase {
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
         self.project().and_then(|project| {
-            project
-                .template_dirs(self)
-                .as_known()
-                .map(<[Utf8PathBuf]>::to_vec)
+            let (dirs, knowledge) = djls_semantic::template_dirs(self, project);
+            (*knowledge == djls_semantic::StaticKnowledge::Known).then(|| dirs.clone())
         })
     }
 
@@ -216,6 +214,7 @@ mod invalidation_tests {
     use std::sync::Mutex;
 
     use camino::Utf8Path;
+    use camino::Utf8PathBuf;
     use djls_conf::Settings;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::Project;
@@ -227,6 +226,7 @@ mod invalidation_tests {
     use djls_source::SourceFiles;
     use salsa::Database;
     use salsa::Setter;
+    use tempfile::tempdir;
 
     use super::DjangoDatabase;
 
@@ -400,6 +400,157 @@ mod invalidation_tests {
         assert!(
             was_executed(&db, &events, "project_template_files"),
             "project_template_files should re-execute after the search root revision changes"
+        );
+    }
+
+    #[test]
+    fn semantic_db_template_dirs_returns_none_when_derivation_is_unknown() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(root.join("manage.py"), String::new());
+
+        let mut db = DjangoDatabase {
+            fs: Arc::new(fs),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        assert!(db.template_dirs().is_none());
+    }
+
+    #[test]
+    fn settings_source_change_invalidates_template_dirs() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings_path = root.join("settings.py");
+        let templates_dir = root.join("templates");
+        let other_templates_dir = root.join("other_templates");
+
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                settings_path.clone(),
+                format!(
+                    "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                ),
+            );
+            fs.add_file(templates_dir.join("base.html"), "base".to_string());
+            fs.add_file(root.join("other.py"), "VALUE = 1\n".to_string());
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        assert_eq!(db.template_dirs().unwrap(), vec![templates_dir.clone()]);
+        event_log.take();
+
+        let settings_file = db.get_or_create_file(&settings_path);
+        fs.lock().unwrap().add_file(
+            settings_path,
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{other_templates_dir}'], 'APP_DIRS': False}}]\n"
+            ),
+        );
+        db.bump_file_revision(settings_file);
+
+        assert_eq!(db.template_dirs().unwrap(), vec![other_templates_dir]);
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "template_dirs"),
+            "template_dirs should re-execute after the settings source changes"
+        );
+    }
+
+    #[test]
+    fn unrelated_file_revision_does_not_invalidate_template_dirs() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings_path = root.join("settings.py");
+        let templates_dir = root.join("templates");
+        let other_path = root.join("other.py");
+
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(root.join("manage.py"), String::new());
+        fs.add_file(
+            settings_path,
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+            ),
+        );
+        fs.add_file(templates_dir.join("base.html"), "base".to_string());
+        fs.add_file(other_path.clone(), "VALUE = 1\n".to_string());
+
+        let mut db = DjangoDatabase {
+            fs: Arc::new(fs),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        assert_eq!(db.template_dirs().unwrap(), vec![templates_dir]);
+        event_log.take();
+
+        let other_file = db.get_or_create_file(&other_path);
+        db.bump_file_revision(other_file);
+
+        assert_eq!(db.template_dirs().unwrap(), vec![root.join("templates")]);
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "template_dirs"),
+            "template_dirs should stay cached after an unrelated file revision changes"
         );
     }
 

@@ -93,41 +93,37 @@ pub(crate) fn project_template_files(db: &dyn ProjectDb, project: Project) -> Pr
         }
     }
 
-    match project.template_dirs(db).as_known() {
-        Some(search_dirs) => {
-            let mut templates = Vec::new();
-            let walk_options = WalkOptions::unrestricted();
+    let (search_dirs, _knowledge) = crate::project::template_dirs(db, project);
+    let mut templates = Vec::new();
+    let walk_options = WalkOptions::unrestricted();
 
-            for dir in search_dirs {
-                if !db.path_is_dir(dir) {
-                    tracing::warn!("Template directory does not exist: {}", dir);
-                    continue;
-                }
-
-                let mut dir_templates = Vec::new();
-                let entries = match db.walk_entries(dir, &walk_options) {
-                    Ok(entries) => entries,
-                    Err(err) => {
-                        tracing::warn!("Failed to walk template directory {}: {}", dir, err);
-                        continue;
-                    }
-                };
-                for entry in entries {
-                    if entry.kind != WalkEntryKind::File {
-                        continue;
-                    }
-                    let name = entry.relative.clean().to_string();
-                    dir_templates.push((name, entry.path));
-                }
-
-                dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
-                    a_name.cmp(b_name).then_with(|| a_path.cmp(b_path))
-                });
-                templates.extend(dir_templates);
-            }
-
-            ProjectTemplateFiles::from_ordered_paths(db, templates)
+    for dir in search_dirs {
+        if !db.path_is_dir(dir) {
+            tracing::warn!("Template directory does not exist: {}", dir);
+            continue;
         }
-        None => ProjectTemplateFiles::default(),
+
+        let mut dir_templates = Vec::new();
+        let entries = match db.walk_entries(dir, &walk_options) {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::warn!("Failed to walk template directory {}: {}", dir, err);
+                continue;
+            }
+        };
+        for entry in entries {
+            if entry.kind != WalkEntryKind::File {
+                continue;
+            }
+            let name = entry.relative.clean().to_string();
+            dir_templates.push((name, entry.path));
+        }
+
+        dir_templates.sort_by(|(a_name, a_path), (b_name, b_path)| {
+            a_name.cmp(b_name).then_with(|| a_path.cmp(b_path))
+        });
+        templates.extend(dir_templates);
     }
+
+    ProjectTemplateFiles::from_ordered_paths(db, templates)
 }
