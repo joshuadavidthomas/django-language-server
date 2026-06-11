@@ -11,7 +11,9 @@ use djls_templates::walk_nodelist;
 
 use crate::db::Db;
 use crate::filters::FilterAritySpecs;
+use crate::project::StaticKnowledge;
 use crate::project::TemplateLibraries;
+use crate::scoping::LoadedLibraries;
 use crate::scoping::SymbolIndex;
 use crate::structure::OpaqueRegions;
 use crate::tags::TagSpecs;
@@ -46,6 +48,7 @@ pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
     symbol_index: &'a SymbolIndex,
+    loaded_libraries: &'a LoadedLibraries,
     template_libraries: &'a TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
@@ -63,6 +66,7 @@ impl<'a> TemplateValidator<'a> {
     ) -> Self {
         let template_libraries = db.template_libraries();
         let tag_specs = db.tag_specs();
+        let loaded_libraries = crate::scoping::compute_loaded_libraries(db, nodelist);
         let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
         let filter_arity_specs = db.filter_arity_specs();
 
@@ -70,6 +74,7 @@ impl<'a> TemplateValidator<'a> {
             db,
             tag_specs,
             symbol_index,
+            loaded_libraries,
             template_libraries,
             opaque_regions,
             filter_arity_specs,
@@ -167,12 +172,23 @@ impl Visitor for TemplateValidator<'_> {
                 );
 
                 // 2. Filter Arity
-                filters::check_filter_arity_rule(
-                    self.db,
-                    filter,
-                    self.filter_arity_specs,
-                    self.template_libraries.active_knowledge,
-                );
+                let unknown_load_can_shadow_filter = self.template_libraries.active_knowledge
+                    == StaticKnowledge::Partial
+                    && self
+                        .loaded_libraries
+                        .has_unknown_load_that_can_shadow_symbol_before(
+                            span.start(),
+                            &filter.name,
+                            self.template_libraries,
+                        );
+                if !unknown_load_can_shadow_filter {
+                    filters::check_filter_arity_rule(
+                        self.db,
+                        filter,
+                        self.filter_arity_specs,
+                        self.template_libraries.active_knowledge,
+                    );
+                }
             }
         }
 

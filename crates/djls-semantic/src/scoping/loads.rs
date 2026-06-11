@@ -4,6 +4,8 @@ use std::collections::HashSet;
 use djls_source::Span;
 use djls_templates::TagBit;
 
+use crate::project::TemplateLibraries;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoadArgument {
     name: String,
@@ -198,6 +200,30 @@ impl LoadedLibraries {
     #[must_use]
     pub(crate) fn statements(&self) -> &[LoadStatement] {
         &self.statements
+    }
+
+    #[must_use]
+    pub(crate) fn has_unknown_load_that_can_shadow_symbol_before(
+        &self,
+        position: u32,
+        symbol: &str,
+        template_libraries: &TemplateLibraries,
+    ) -> bool {
+        self.statements.iter().any(|stmt| {
+            if stmt.span.end() > position {
+                return false;
+            }
+
+            match &stmt.kind {
+                LoadKind::FullLoad { libraries } => libraries
+                    .iter()
+                    .any(|library| !template_libraries.is_enabled_library_str(library.as_str())),
+                LoadKind::SelectiveImport { symbols, library } => {
+                    !template_libraries.is_enabled_library_str(library.as_str())
+                        && symbols.iter().any(|loaded| loaded.as_str() == symbol)
+                }
+            }
+        })
     }
 
     /// Compute the load state at a given byte position.

@@ -153,13 +153,6 @@ impl TemplateLibrary {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateLibrarySnapshot {
-    pub symbols: Vec<TemplateSymbolSnapshot>,
-    pub libraries: BTreeMap<String, String>,
-    pub builtins: Vec<String>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstalledSymbolOrigin {
     Builtin { module: PyModuleName },
@@ -201,7 +194,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn registration_modules(&self) -> Vec<PyModuleName> {
-        if self.active_knowledge != StaticKnowledge::Known {
+        if self.active_knowledge == StaticKnowledge::Unknown {
             return Vec::new();
         }
 
@@ -353,143 +346,6 @@ impl TemplateLibraries {
     pub fn is_enabled_library_str(&self, name: &str) -> bool {
         LibraryName::parse(name).is_ok_and(|name| self.is_enabled_library(&name))
     }
-
-    #[must_use]
-    pub fn apply_active_snapshot(mut self, response: Option<TemplateLibrarySnapshot>) -> Self {
-        let Some(response) = response else {
-            self.active_knowledge = StaticKnowledge::Unknown;
-            self.builtins.clear();
-            self.builtin_order.clear();
-            return self;
-        };
-
-        self.active_knowledge = StaticKnowledge::Known;
-
-        let mut enabled: BTreeMap<LibraryName, PyModuleName> = BTreeMap::new();
-        for (name, module) in response.libraries {
-            let Ok(name) = LibraryName::parse(&name) else {
-                continue;
-            };
-            let Ok(module) = PyModuleName::parse(&module) else {
-                continue;
-            };
-            enabled.insert(name, module);
-        }
-
-        for (name, module) in &enabled {
-            let entry = self.loadable.entry(name.clone()).or_default();
-
-            if let Some(existing) = entry
-                .iter_mut()
-                .find(|existing| existing.module() == module)
-            {
-                let origin = existing.origin().cloned();
-                existing.status = LibraryStatus::Active {
-                    module: module.clone(),
-                    origin,
-                };
-            } else {
-                entry.push(TemplateLibrary::new_active(
-                    name.clone(),
-                    module.clone(),
-                    None,
-                ));
-            }
-        }
-
-        for (name, libraries) in &mut self.loadable {
-            let enabled_module = enabled.get(name);
-
-            libraries.retain(|library| match &library.status {
-                LibraryStatus::Active { module, .. } => enabled_module == Some(module),
-                LibraryStatus::Builtin { .. } => true,
-            });
-
-            for library in libraries.iter_mut().filter(|library| library.is_active()) {
-                library.symbols.clear();
-            }
-        }
-
-        self.builtins.clear();
-        self.builtin_order.clear();
-        for builtin_module in response.builtins {
-            let Ok(module) = PyModuleName::parse(&builtin_module) else {
-                continue;
-            };
-            let Ok(name) =
-                LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("unknown"))
-            else {
-                continue;
-            };
-
-            push_unique_module(&mut self.builtin_order, module.clone());
-            self.builtins
-                .entry(module.clone())
-                .or_insert_with(|| TemplateLibrary::new_builtin(name, module));
-        }
-
-        for symbol in response.symbols {
-            self.apply_active_snapshot_symbol(&enabled, symbol);
-        }
-
-        self
-    }
-
-    fn apply_active_snapshot_symbol(
-        &mut self,
-        enabled: &BTreeMap<LibraryName, PyModuleName>,
-        snapshot: TemplateSymbolSnapshot,
-    ) {
-        let Some(kind) = snapshot.kind else {
-            return;
-        };
-
-        let Ok(name) = TemplateSymbolName::parse(&snapshot.name) else {
-            return;
-        };
-
-        let definition = PyModuleName::parse(&snapshot.module)
-            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
-
-        let symbol = TemplateSymbol {
-            kind,
-            name,
-            definition,
-            doc: snapshot.doc,
-        };
-
-        match snapshot.load_name {
-            None => {
-                let Ok(module) = PyModuleName::parse(&snapshot.library_module) else {
-                    return;
-                };
-
-                if let Some(library) = self.builtins.get_mut(&module) {
-                    library.merge_symbol(symbol);
-                }
-            }
-            Some(load_name) => {
-                let Ok(library_name) = LibraryName::parse(&load_name) else {
-                    return;
-                };
-
-                let module = enabled
-                    .get(&library_name)
-                    .cloned()
-                    .or_else(|| PyModuleName::parse(&snapshot.library_module).ok());
-
-                let Some(module) = module else {
-                    return;
-                };
-
-                if let Some(libraries) = self.loadable.get_mut(&library_name)
-                    && let Some(library) = libraries.iter_mut().find(|l| l.module() == &module)
-                {
-                    library.merge_symbol(symbol);
-                }
-            }
-        }
-    }
 }
 
 fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
@@ -498,48 +354,77 @@ fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateSymbolSnapshot {
-    #[serde(default)]
-    pub kind: Option<TemplateSymbolKind>,
-    pub name: String,
-    #[serde(default)]
-    pub load_name: Option<String>,
-    pub library_module: String,
-    pub module: String,
-    #[serde(default)]
-    pub doc: Option<String>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn module(name: &str) -> PyModuleName {
+        PyModuleName::parse(name).unwrap()
+    }
+
+    fn library_name(name: &str) -> LibraryName {
+        LibraryName::parse(name).unwrap()
+    }
+
+    fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TemplateSymbol {
+        TemplateSymbol {
+            kind,
+            name: TemplateSymbolName::parse(name).unwrap(),
+            definition: SymbolDefinition::Unknown,
+            doc: doc.map(str::to_string),
+        }
+    }
+
+    fn builtin_library(
+        name: &str,
+        module_name: &str,
+        symbols: Vec<TemplateSymbol>,
+    ) -> TemplateLibrary {
+        let mut library = TemplateLibrary::new_builtin(library_name(name), module(module_name));
+        for symbol in symbols {
+            library.merge_symbol(symbol);
+        }
+        library
+    }
+
+    fn active_library(name: &str, module_name: &str) -> TemplateLibrary {
+        TemplateLibrary::new_active(library_name(name), module(module_name), None)
+    }
+
     #[test]
     fn builtin_candidates_keep_last_builtin_symbol() {
-        let libraries =
-            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
-                symbols: vec![
-                    TemplateSymbolSnapshot {
-                        kind: Some(TemplateSymbolKind::Filter),
-                        name: "duplicate".to_string(),
-                        load_name: None,
-                        library_module: "z_first".to_string(),
-                        module: "z_first".to_string(),
-                        doc: Some("first".to_string()),
-                    },
-                    TemplateSymbolSnapshot {
-                        kind: Some(TemplateSymbolKind::Filter),
-                        name: "duplicate".to_string(),
-                        load_name: None,
-                        library_module: "a_second".to_string(),
-                        module: "a_second".to_string(),
-                        doc: Some("second".to_string()),
-                    },
-                ],
-                libraries: BTreeMap::new(),
-                builtins: vec!["z_first".to_string(), "a_second".to_string()],
-            }));
+        let mut libraries = TemplateLibraries {
+            active_knowledge: StaticKnowledge::Known,
+            ..TemplateLibraries::default()
+        };
+        let z_first = module("z_first");
+        let a_second = module("a_second");
+        libraries.builtin_order.push(z_first.clone());
+        libraries.builtin_order.push(a_second.clone());
+        libraries.builtins.insert(
+            z_first,
+            builtin_library(
+                "z_first",
+                "z_first",
+                vec![symbol(
+                    TemplateSymbolKind::Filter,
+                    "duplicate",
+                    Some("first"),
+                )],
+            ),
+        );
+        libraries.builtins.insert(
+            a_second.clone(),
+            builtin_library(
+                "a_second",
+                "a_second",
+                vec![symbol(
+                    TemplateSymbolKind::Filter,
+                    "duplicate",
+                    Some("second"),
+                )],
+            ),
+        );
 
         let candidates = libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
 
@@ -547,72 +432,33 @@ mod tests {
         assert_eq!(candidates[0].symbol.doc.as_deref(), Some("second"));
         assert_eq!(
             candidates[0].origin,
-            InstalledSymbolOrigin::Builtin {
-                module: PyModuleName::parse("a_second").unwrap()
-            }
+            InstalledSymbolOrigin::Builtin { module: a_second }
         );
     }
 
     #[test]
-    fn active_snapshot_replaces_loadable_symbols() {
-        let first = TemplateLibrarySnapshot {
-            symbols: vec![TemplateSymbolSnapshot {
-                kind: Some(TemplateSymbolKind::Tag),
-                name: "old_tag".to_string(),
-                load_name: Some("project_tags".to_string()),
-                library_module: "project.templatetags.project_tags".to_string(),
-                module: "project.templatetags.project_tags".to_string(),
-                doc: None,
-            }],
-            libraries: [(
-                "project_tags".to_string(),
-                "project.templatetags.project_tags".to_string(),
-            )]
-            .into(),
-            builtins: Vec::new(),
-        };
-        let second = TemplateLibrarySnapshot {
-            symbols: vec![TemplateSymbolSnapshot {
-                kind: Some(TemplateSymbolKind::Tag),
-                name: "new_tag".to_string(),
-                load_name: Some("project_tags".to_string()),
-                library_module: "project.templatetags.project_tags".to_string(),
-                module: "project.templatetags.project_tags".to_string(),
-                doc: None,
-            }],
-            libraries: [(
-                "project_tags".to_string(),
-                "project.templatetags.project_tags".to_string(),
-            )]
-            .into(),
-            builtins: Vec::new(),
-        };
-
-        let libraries = TemplateLibraries::default()
-            .apply_active_snapshot(Some(first))
-            .apply_active_snapshot(Some(second));
-
-        let names: Vec<_> = libraries
-            .installed_symbol_candidates(TemplateSymbolKind::Tag)
-            .into_iter()
-            .map(|candidate| candidate.symbol.name().to_string())
-            .collect();
-
-        assert_eq!(names, vec!["new_tag"]);
-    }
-
-    #[test]
     fn registration_modules_keep_deterministic_precedence_order() {
-        let libraries =
-            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
-                symbols: Vec::new(),
-                libraries: [("project_tags".to_string(), "project.tags".to_string())].into(),
-                builtins: vec![
-                    "z.templatetags.tags".to_string(),
-                    "django.template.defaulttags".to_string(),
-                    "z.templatetags.tags".to_string(),
-                ],
-            }));
+        let mut libraries = TemplateLibraries {
+            active_knowledge: StaticKnowledge::Known,
+            ..TemplateLibraries::default()
+        };
+        libraries
+            .loadable
+            .entry(library_name("project_tags"))
+            .or_default()
+            .push(active_library("project_tags", "project.tags"));
+        for module_name in [
+            "z.templatetags.tags",
+            "django.template.defaulttags",
+            "z.templatetags.tags",
+        ] {
+            let module = module(module_name);
+            push_unique_module(&mut libraries.builtin_order, module.clone());
+            libraries
+                .builtins
+                .entry(module.clone())
+                .or_insert_with(|| builtin_library("defaulttags", module.as_str(), Vec::new()));
+        }
 
         let modules: Vec<_> = libraries
             .registration_modules()
@@ -628,5 +474,26 @@ mod tests {
                 "django.template.defaulttags",
             ]
         );
+    }
+
+    #[test]
+    fn registration_modules_keep_known_partial_modules() {
+        let mut libraries = TemplateLibraries {
+            active_knowledge: StaticKnowledge::Partial,
+            ..TemplateLibraries::default()
+        };
+        libraries
+            .loadable
+            .entry(library_name("project_tags"))
+            .or_default()
+            .push(active_library("project_tags", "project.tags"));
+
+        let modules: Vec<_> = libraries
+            .registration_modules()
+            .into_iter()
+            .map(|module| module.as_str().to_string())
+            .collect();
+
+        assert_eq!(modules, vec!["project.tags"]);
     }
 }

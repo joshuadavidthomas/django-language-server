@@ -1,7 +1,6 @@
 mod mdtest;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -33,11 +32,16 @@ use crate::filters::FilterAritySpecs;
 use crate::project::Db as ProjectDb;
 #[cfg(test)]
 use crate::project::Interpreter;
+use crate::project::LibraryName;
 use crate::project::Project;
 use crate::project::ProjectIntrospector;
+use crate::project::PyModuleName;
+use crate::project::SymbolDefinition;
 use crate::project::TemplateLibraries;
-use crate::project::TemplateLibrarySnapshot;
-use crate::project::TemplateSymbolSnapshot;
+use crate::project::TemplateLibrary;
+use crate::project::TemplateSymbol;
+use crate::project::TemplateSymbolKind;
+use crate::project::TemplateSymbolName;
 #[cfg(test)]
 use crate::project::resolve::SearchPaths;
 use crate::python::ArgumentCountConstraint;
@@ -99,38 +103,115 @@ pub(crate) fn library_filter_json(name: &str, load_name: &str, module: &str) -> 
     })
 }
 
+#[derive(serde::Deserialize)]
+struct TemplateSymbolFixture {
+    kind: TemplateSymbolKind,
+    name: String,
+    #[serde(default)]
+    load_name: Option<String>,
+    library_module: String,
+    module: String,
+    #[serde(default)]
+    doc: Option<String>,
+}
+
 pub(crate) fn make_template_libraries(
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    let mut symbols: Vec<TemplateSymbolSnapshot> = tags
-        .iter()
-        .cloned()
-        .map(serde_json::from_value)
-        .collect::<Result<_, _>>()
-        .unwrap();
-
-    symbols.extend(
-        filters
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<Vec<TemplateSymbolSnapshot>, _>>()
-            .unwrap(),
-    );
-
-    let response = TemplateLibrarySnapshot {
-        symbols,
-        libraries: libraries
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect::<BTreeMap<_, _>>(),
-        builtins: builtins.to_vec(),
+    let mut result = TemplateLibraries {
+        active_knowledge: crate::project::StaticKnowledge::Known,
+        ..TemplateLibraries::default()
     };
 
-    TemplateLibraries::default().apply_active_snapshot(Some(response))
+    for module_name in builtins {
+        let Ok(module) = PyModuleName::parse(module_name) else {
+            continue;
+        };
+        let Ok(name) =
+            LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("builtin"))
+        else {
+            continue;
+        };
+        push_unique_module(&mut result.builtin_order, module.clone());
+        result
+            .builtins
+            .entry(module.clone())
+            .or_insert_with(|| TemplateLibrary::new_builtin(name, module));
+    }
+
+    for (load_name, module_name) in libraries {
+        let Ok(load_name) = LibraryName::parse(load_name) else {
+            continue;
+        };
+        let Ok(module) = PyModuleName::parse(module_name) else {
+            continue;
+        };
+        result
+            .loadable
+            .entry(load_name.clone())
+            .or_default()
+            .push(TemplateLibrary::new_active(load_name, module, None));
+    }
+
+    let symbols = tags.iter().chain(filters.iter()).cloned();
+    for fixture in symbols
+        .map(serde_json::from_value)
+        .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
+        .unwrap()
+    {
+        let Ok(name) = TemplateSymbolName::parse(&fixture.name) else {
+            continue;
+        };
+        let definition = PyModuleName::parse(&fixture.module)
+            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
+        let symbol = TemplateSymbol {
+            kind: fixture.kind,
+            name,
+            definition,
+            doc: fixture.doc,
+        };
+
+        match fixture.load_name {
+            None => {
+                let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                    continue;
+                };
+                if let Some(library) = result.builtins.get_mut(&module) {
+                    library.merge_symbol(symbol);
+                }
+            }
+            Some(load_name) => {
+                let Ok(load_name) = LibraryName::parse(&load_name) else {
+                    continue;
+                };
+                let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                    continue;
+                };
+                let libraries = result.loadable.entry(load_name.clone()).or_default();
+                if let Some(library) = libraries
+                    .iter_mut()
+                    .find(|library| library.module() == &module)
+                {
+                    library.merge_symbol(symbol);
+                } else {
+                    let mut library = TemplateLibrary::new_active(load_name, module, None);
+                    library.merge_symbol(symbol);
+                    libraries.push(library);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
+    if !modules.contains(&module) {
+        modules.push(module);
+    }
 }
 
 pub(crate) fn make_template_libraries_tags_only(
@@ -227,7 +308,6 @@ pub(crate) struct ProjectFixture {
     search_paths: Option<SearchPaths>,
     register_roots: bool,
     tag_specs: TagSpecDef,
-    template_libraries: TemplateLibraries,
 }
 
 #[cfg(test)]
@@ -245,7 +325,6 @@ impl ProjectFixture {
             search_paths: None,
             register_roots: true,
             tag_specs: settings.tagspecs().clone(),
-            template_libraries: TemplateLibraries::default(),
         }
     }
 
@@ -286,12 +365,6 @@ impl ProjectFixture {
     }
 
     #[must_use]
-    pub(crate) fn template_libraries(mut self, template_libraries: TemplateLibraries) -> Self {
-        self.template_libraries = template_libraries;
-        self
-    }
-
-    #[must_use]
     pub(crate) fn template_file(
         self,
         _name: impl Into<String>,
@@ -327,7 +400,6 @@ impl ProjectFixture {
             self.pythonpath,
             self.env_vars,
             self.tag_specs,
-            self.template_libraries,
         )
     }
 

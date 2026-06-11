@@ -1,5 +1,6 @@
 mod db;
 mod input;
+#[allow(dead_code)]
 mod introspector;
 mod names;
 mod python;
@@ -23,16 +24,14 @@ pub use crate::project::python::Interpreter;
 pub(crate) use crate::project::resolve::model_modules;
 pub(crate) use crate::project::resolve::templatetag_modules;
 pub use crate::project::settings::template_dirs;
+pub use crate::project::settings::template_libraries;
 pub use crate::project::symbols::InstalledSymbolCandidate;
 pub use crate::project::symbols::InstalledSymbolOrigin;
 pub use crate::project::symbols::LibraryOrigin;
 pub use crate::project::symbols::SymbolDefinition;
 pub use crate::project::symbols::TemplateLibraries;
 pub use crate::project::symbols::TemplateLibrary;
-pub use crate::project::symbols::TemplateLibrarySnapshot;
 pub use crate::project::symbols::TemplateSymbol;
 pub use crate::project::symbols::TemplateSymbolKind;
-pub use crate::project::symbols::TemplateSymbolSnapshot;
-pub use crate::project::sync::load_template_library_cache;
 pub use crate::project::sync::refresh_external_data;
 pub(crate) use crate::project::templates::project_template_files;

@@ -14,7 +14,7 @@ pub(crate) fn check_filter_arity_rule(
     arity_specs: &FilterAritySpecs,
     active_knowledge: StaticKnowledge,
 ) {
-    if active_knowledge != StaticKnowledge::Known {
+    if active_knowledge == StaticKnowledge::Unknown {
         return;
     }
 

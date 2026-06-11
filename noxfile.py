@@ -127,7 +127,7 @@ def e2e(session):
         "-q",
         "-p",
         "djls-semantic",
-        "template_dirs_match_django_facts_golden",
+        "django_facts_golden",
         "--",
         "--ignored",
         external=True,
