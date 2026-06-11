@@ -135,6 +135,9 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 007 closed)**: PR #660 merged into `main` as
+  `459d834e derive template dirs from static settings (#660)` (source commit
+  `68602120`). Next executable static-track plan is 008.
 - **2026-06-11 (Plan 007 executed)**: PR #660 / bookmark
   `plan-007-derive-template-dirs-from-settings` / source commit `68602120`
   wires `djls-project` settings extraction into Salsa and derives template

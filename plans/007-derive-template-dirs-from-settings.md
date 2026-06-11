@@ -24,6 +24,7 @@
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 - **Status**: DONE
 - **Implemented at**: source commit `68602120`, 2026-06-11
+- **Merged at**: `459d834e derive template dirs from static settings (#660)`, 2026-06-11
 - **Bookmark**: `plan-007-derive-template-dirs-from-settings`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/660
 
