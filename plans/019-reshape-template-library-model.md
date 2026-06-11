@@ -30,6 +30,11 @@
   vestiges). Independent of plans/009.
 - **Category**: tech-debt (domain-model correction)
 - **Planned at**: jj commit `710f4107`, 2026-06-11
+- **Status**: IN PROGRESS — PR open
+- **Implemented at**: source commit `11b44dec`, 2026-06-11
+- **Bookmark**: `plan-019-reshape-template-library-model`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/666
+- **Validation**: `cargo build -q`; `cargo test -q`; `cargo insta test --check`; `cargo test -q -j 2 -- --test-threads=2`; `just e2e`; `just clippy --allow-dirty`; `just fmt --check`; `just lint`; stale API guards and no `.snap.new` files.
 - **Design rationale**: `plans/memo-template-library-domain-model.md` — read
   it first; this plan implements its "Recommended model" (shape B).
 
