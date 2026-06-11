@@ -152,6 +152,9 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 008 closed)**: PR #664 merged into `main` as
+  `94eb3f68 Derive template libraries from source (#664)` (source head
+  `4257c739`). Next executable plan is 020, then 019 before 015.
 - **2026-06-11 (post-008 design review — library model + settings source
   graph)**: two design memos written against the PR #664 tree, each with an
   executor plan:
