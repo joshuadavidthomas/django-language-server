@@ -24,9 +24,11 @@ impl StaticKnowledge {
         }
     }
 
-    pub fn demote_to_partial(&mut self) {
-        if *self == Self::Known {
-            *self = Self::Partial;
+    #[must_use]
+    pub fn demoted_to_partial(self) -> Self {
+        match self {
+            Self::Known | Self::Partial => Self::Partial,
+            Self::Unknown => Self::Unknown,
         }
     }
 }
