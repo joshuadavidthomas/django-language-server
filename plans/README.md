@@ -153,7 +153,7 @@ REJECTED (with one-line rationale).
 ## Reconciliation log
 
 - **2026-06-11 (Plan 019 PR opened)**: PR #666 / bookmark
-  `plan-019-reshape-template-library-model` / source commit `11b44dec`
+  `plan-019-reshape-template-library-model` / source commit `9093a28d`
   reshapes template tag library storage around positional loadable/builtin
   mounts. It deletes `LibraryStatus`, `LibraryOrigin`, fabricated builtin
   names, one-element loadable vectors, and constant-true active/enabled
@@ -161,8 +161,14 @@ REJECTED (with one-line rationale).
   Validation passed: `cargo build -q`, `cargo test -q`,
   `cargo insta test --check`, `cargo test -q -j 2 -- --test-threads=2`,
   `just e2e`, `just clippy --allow-dirty`, `just fmt --check`, `just lint`,
-  stale API guards, and no `.snap.new` files. Do not start plan 015 until
-  this PR is merged and recorded closed.
+  stale API guards, and no `.snap.new` files. Follow-up review cleanup
+  collapsed the configured/builtin helper split into one module-path library
+  constructor; validation passed `just fmt`,
+  `cargo test -q -p djls-semantic project::settings`,
+  `cargo test -q -p djls-semantic -p djls-ide -p djls-db`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`, and
+  `just fmt --check`. Do not start plan 015 until this PR is merged and
+  recorded closed.
 - **2026-06-11 (Plan 020 closed)**: PR #665 merged into `main` as
   `ce875f09 Fix settings refresh invalidation for nested star imports (#665)`
   (source head `04e1fa9d`). Next executable design-review follow-up is

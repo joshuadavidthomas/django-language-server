@@ -31,10 +31,10 @@
 - **Category**: tech-debt (domain-model correction)
 - **Planned at**: jj commit `710f4107`, 2026-06-11
 - **Status**: IN PROGRESS — PR open
-- **Implemented at**: source commit `11b44dec`, 2026-06-11
+- **Implemented at**: source commit `9093a28d`, 2026-06-11
 - **Bookmark**: `plan-019-reshape-template-library-model`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/666
-- **Validation**: `cargo build -q`; `cargo test -q`; `cargo insta test --check`; `cargo test -q -j 2 -- --test-threads=2`; `just e2e`; `just clippy --allow-dirty`; `just fmt --check`; `just lint`; stale API guards and no `.snap.new` files.
+- **Validation**: Initial implementation passed `cargo build -q`; `cargo test -q`; `cargo insta test --check`; `cargo test -q -j 2 -- --test-threads=2`; `just e2e`; `just clippy --allow-dirty`; `just fmt --check`; `just lint`; stale API guards and no `.snap.new` files. Follow-up review cleanup passed `just fmt`, `cargo test -q -p djls-semantic project::settings`, `cargo test -q -p djls-semantic -p djls-ide -p djls-db`, `cargo clippy --all-targets --all-features --benches -- -D warnings`, and `just fmt --check`.
 - **Design rationale**: `plans/memo-template-library-domain-model.md` — read
   it first; this plan implements its "Recommended model" (shape B).
 
