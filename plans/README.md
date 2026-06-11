@@ -23,7 +23,11 @@ earlier plans delete or rewrite. Plan 018 is the **UX follow-up** to the
 static track: once library knowledge is derived from source, an
 environment scan distinguishes "unknown" from "installed but not in
 INSTALLED_APPS", restoring the diagnostics plan 002 deleted — this time
-fed by real facts.
+fed by real facts. Plans 019–020 are **design-review follow-ups** to plan
+008 (2026-06-11 review, two memos): a refresh-invalidation bugfix for
+nested settings star imports (020) and the template-library domain-model
+correction (019) — both sequenced before 015 so the move relocates the
+clean shape.
 
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
@@ -47,7 +51,9 @@ reconciliation and run early).
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | DONE |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | DONE |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
-| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009 | TODO |
+| [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | TODO |
+| [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | TODO |
+| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, façade split, export audit | P2 | M | 013, 015, 016 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
@@ -125,6 +131,17 @@ REJECTED (with one-line rationale).
   sanctioned exactly this). Running it after 009 avoids churn overlap and
   after 015 lets the scan query land in djls-project directly; both are
   soft — the plan's drift check handles either layout.
+- **019/020 before 015**: both reshape files 015's move table relocates
+  (`project/settings.rs`, `project/symbols.rs`, `sync.rs` adjacency) — land
+  the corrected shapes first so 015 moves them once. Both are independent
+  of 009 (they touch settings/symbols derivation; 009 deletes inspector
+  machinery) and may run before or after it. They touch the same file
+  (`project/settings.rs`), so sequence rather than parallelize: **020
+  first** (smaller, fixes a live staleness bug), then 019. 015's drift
+  check must be re-anchored after they land. 018 consumes 019's reshaped
+  `TemplateLibraries` and is where library *provenance* returns if its
+  diagnostics need app attribution (019 deletes the unconsumed
+  `LibraryOrigin`).
 - **010** only needs 003 and can run in parallel with the static track
   (it touches `djls-server` handlers, which 006–009 barely touch). **011**
   needs both 009 (refresh is cheap bookkeeping by then) and 010 (snapshots
@@ -135,6 +152,44 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (post-008 design review — library model + settings source
+  graph)**: two design memos written against the PR #664 tree, each with an
+  executor plan:
+  - [memo-template-library-domain-model.md](memo-template-library-domain-model.md)
+    → plan [019](019-reshape-template-library-model.md). Verdict:
+    `LibraryStatus::{Active, Builtin}` is invalid, not just misnamed — the
+    loadable/preloaded difference is a property of where a library is
+    mounted, not what it is. Evidence (all in the current tree):
+    `is_active()` matches both variants (constant true); the only code
+    matching on the status is the bucket router `apply_derived`; the
+    fabricated builtin `LibraryName` (module basename,
+    `unwrap_or("builtin")`) has zero readers; `loadable`'s per-name `Vec`
+    always holds one element, making `best_loadable_library`'s fallback
+    chain dead; `LibraryOrigin` is constructed but unconsumed. "Active" is
+    the inspector-era discovered/active axis surviving its own deletion
+    (plan 002). Recommended shape: `TemplateLibrary { module, symbols }`
+    with the mount positional on the collection — `loadable:
+    BTreeMap<LibraryName, TemplateLibrary>` (load name only as key) +
+    ordered `builtins` — matching the projection layer
+    (`InstalledSymbolOrigin`) consumers already branch on. Behavior-inert by
+    contract (snapshots + goldens).
+  - [memo-settings-source-graph.md](memo-settings-source-graph.md) → plan
+    [020](020-unify-settings-source-walker.md). Verdict: `django_settings`
+    and `settings_source_files` are two projections of one graph at
+    different freshness — Salsa view for derivation, disk view for the
+    refresh bump set — so the *role* split stays; but the duplicated walk
+    logic hides a live bug: the sync walker scans only top-level
+    `from X import *` while the extractor follows star imports inside
+    `try`/`if` bodies, so the classic `try: from .local_settings import *`
+    idiom survives `refresh_external_data` stale. Fix (option C, "one
+    walker, two drivers"): compute the footprint by running
+    `extract_settings` over **disk** content (`db.read_file`) with a
+    recording disk-backed resolver; delete `collect_settings_source_files`.
+    Test-first: the regression test must fail before the fix. Rejected
+    alternatives recorded in the memo: footprint-from-extraction (wrong
+    freshness — under-bumps on new import edges to already-known files) and
+    a Salsa source-graph query (fake layer; the graph is
+    evaluation-dependent and Salsa already records the true read-set).
 - **2026-06-11 (Plan 008 executed)**: PR #664 / bookmark
   `plan-008-derive-template-libraries-from-source` / source commits
   `097bbb0e`, `ba7b106a`, `f6ae8767`, `672211ee`, `7f3e6e91`,
