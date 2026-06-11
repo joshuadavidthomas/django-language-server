@@ -15,7 +15,7 @@ use crate::python::analysis::calls::resolve_call;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
 use crate::python::analysis::state::TokenSplit;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::SplitPosition;
 
 /// Evaluate a Python expression against the abstract environment.

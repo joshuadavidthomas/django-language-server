@@ -9,7 +9,7 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprName;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::BlockSpec;
 
 /// Extract a block spec from a tag's compile function.

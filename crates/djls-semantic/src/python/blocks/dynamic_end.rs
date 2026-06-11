@@ -13,7 +13,7 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::python::blocks::is_parser_receiver;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::BlockSpec;
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.

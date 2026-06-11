@@ -11,7 +11,7 @@ use ruff_python_ast::statement_visitor::walk_stmt;
 use crate::python::blocks::extract_string_sequence;
 use crate::python::blocks::is_parser_receiver;
 use crate::python::blocks::is_token_contents_expr;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::BlockSpec;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.

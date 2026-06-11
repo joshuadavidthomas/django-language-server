@@ -1,6 +1,5 @@
 mod analysis;
 mod blocks;
-mod ext;
 mod filters;
 mod models;
 mod registry;
@@ -10,6 +9,9 @@ mod types;
 #[cfg(test)]
 mod testing;
 
+use djls_project::extraction::RegistrationInfo;
+use djls_project::extraction::RegistrationKind;
+use djls_project::extraction::collect_registrations_from_body;
 use djls_source::File;
 use djls_source::FileKind;
 use ruff_python_ast::Stmt;
@@ -28,9 +30,7 @@ pub use crate::python::models::extract::extract_model_graph;
 pub use crate::python::models::graph::ModelGraph;
 pub use crate::python::models::graph::ModulePath;
 use crate::python::registry::ExtractionOutput;
-pub(crate) use crate::python::registry::RegistrationInfo;
-pub(crate) use crate::python::registry::RegistrationKind;
-pub(crate) use crate::python::registry::collect_registrations_from_body;
+use crate::python::registry::RegistrationKindExt;
 pub(crate) use crate::python::types::ArgumentCountConstraint;
 #[cfg(test)]
 pub(crate) use crate::python::types::AsVar;

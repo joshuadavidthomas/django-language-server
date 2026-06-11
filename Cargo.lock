@@ -923,6 +923,7 @@ name = "djls-project"
 version = "0.0.0"
 dependencies = [
  "camino",
+ "djls-corpus",
  "ruff_python_ast",
  "ruff_python_parser",
  "rustc-hash",

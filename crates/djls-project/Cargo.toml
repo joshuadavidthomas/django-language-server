@@ -10,5 +10,8 @@ ruff_python_parser = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 
+[dev-dependencies]
+djls-corpus = { workspace = true }
+
 [lints]
 workspace = true

@@ -21,7 +21,7 @@ use crate::python::analysis::exceptions::extract_exception_message;
 use crate::python::analysis::expressions::eval_expr;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::ChoiceAt;
 use crate::python::types::ExtractedDiagnosticConstraint;

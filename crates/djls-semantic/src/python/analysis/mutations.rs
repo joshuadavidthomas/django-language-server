@@ -12,7 +12,7 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use crate::python::analysis::exceptions::direct_raise_exception;
 use crate::python::analysis::state::AbstractValue;
 use crate::python::analysis::state::Env;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::KnownOptions;
 
 /// Info about a `bits.pop(...)` call for mutation tracking.

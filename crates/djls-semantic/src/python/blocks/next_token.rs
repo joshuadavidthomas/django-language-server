@@ -9,7 +9,7 @@ use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::python::blocks::dynamic_end;
 use crate::python::blocks::is_token_contents_expr;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::BlockSpec;
 
 /// Detect block structure from `parser.next_token()` loop patterns.

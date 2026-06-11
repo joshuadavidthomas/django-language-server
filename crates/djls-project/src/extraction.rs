@@ -4,11 +4,17 @@
 //! text and answer star-import recursion through `SettingsSourceResolver`. This
 //! module does not read files, resolve search paths, or depend on Salsa.
 
+pub mod ext;
 mod extractor;
 mod paths;
+pub mod registry;
 mod settings;
 
+pub use ext::ExprExt;
 pub use extractor::extract_settings;
+pub use registry::RegistrationInfo;
+pub use registry::RegistrationKind;
+pub use registry::collect_registrations_from_body;
 pub use settings::DjangoSettings;
 pub use settings::InstalledAppsSetting;
 pub use settings::SettingsSource;

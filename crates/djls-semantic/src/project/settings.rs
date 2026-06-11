@@ -9,6 +9,8 @@ use djls_project::SettingsStarImport;
 use djls_project::StaticKnowledge;
 use djls_project::TemplateDirPath;
 use djls_project::extract_settings;
+use djls_project::extraction::RegistrationKind;
+use djls_project::extraction::collect_registrations_from_body;
 use djls_source::File;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
@@ -30,8 +32,6 @@ use crate::project::symbols::TemplateLibraries;
 use crate::project::symbols::TemplateLibrary;
 use crate::project::symbols::TemplateSymbol;
 use crate::project::symbols::TemplateSymbolKind;
-use crate::python::SymbolKind;
-use crate::python::collect_registrations_from_body;
 use crate::python::parse_python_module;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
@@ -328,9 +328,12 @@ impl TemplateLibraryAnalysis {
             let Ok(name) = TemplateSymbolName::parse(&registration.name) else {
                 continue;
             };
-            let kind = match registration.kind.symbol_kind() {
-                SymbolKind::Tag => TemplateSymbolKind::Tag,
-                SymbolKind::Filter => TemplateSymbolKind::Filter,
+            let kind = match registration.kind {
+                RegistrationKind::Tag
+                | RegistrationKind::SimpleTag
+                | RegistrationKind::InclusionTag
+                | RegistrationKind::SimpleBlockTag => TemplateSymbolKind::Tag,
+                RegistrationKind::Filter => TemplateSymbolKind::Filter,
             };
             symbols.push(TemplateSymbol {
                 kind,

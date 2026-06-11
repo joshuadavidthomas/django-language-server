@@ -1,4 +1,4 @@
-mod extraction;
+pub mod extraction;
 
 pub use extraction::DjangoSettings;
 pub use extraction::InstalledAppsSetting;

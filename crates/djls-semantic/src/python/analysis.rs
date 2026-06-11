@@ -25,7 +25,7 @@ use ruff_python_ast::UnaryOp;
 
 use crate::python::analysis::constraints::ExtractedTagConstraints;
 use crate::python::analysis::guards::ExtractedRuleFragment;
-use crate::python::ext::ExprExt;
+use djls_project::extraction::ExprExt;
 use crate::python::types::ArgumentCountConstraint;
 use crate::python::types::AsVar;
 use crate::python::types::ExtractedArg;
