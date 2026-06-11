@@ -138,8 +138,8 @@ REJECTED (with one-line rationale).
 - **2026-06-11 (Plan 008 executed)**: PR #664 / bookmark
   `plan-008-derive-template-libraries-from-source` / source commits
   `097bbb0e`, `ba7b106a`, `f6ae8767`, `672211ee`, `7f3e6e91`,
-  `e09c2312`, and `b189d980` derive template tag libraries from source and
-  `DjangoSettings`.
+  `e09c2312`, `b189d980`, and `fac34c21` derive template tag libraries from
+  source and `DjangoSettings`.
   It removes the `template_libraries` project input,
   runtime inspector library
   refresh, snapshot cache, startup cache load, snapshot DTOs, and `sha2`.
@@ -200,6 +200,15 @@ REJECTED (with one-line rationale).
   as `demoted_to_partial()` instead of mutating through `&mut self`. Validation
   passed: `just fmt`, `cargo build -q`, `cargo test -q -p djls-project`,
   `cargo test -q -p djls-semantic project::settings`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
+  Follow-up cleanup `fac34c21` changed template-library discovery helpers to
+  return derived libraries plus knowledge instead of mutating `TemplateLibraries`
+  through free functions. `template_libraries()` now explicitly applies returned
+  knowledge and inserts loadable/builtin libraries through collection methods.
+  Validation passed: `just fmt`, `cargo build -q`,
+  `cargo test -q -p djls-semantic project::settings`,
+  `cargo test -q -p djls-semantic project::symbols`,
   `cargo clippy --all-targets --all-features --benches -- -D warnings`,
   `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
 - **2026-06-11 (Plan 007 closed)**: PR #660 merged into `main` as
