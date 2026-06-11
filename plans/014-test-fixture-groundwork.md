@@ -22,6 +22,9 @@
 - **Depends on**: none hard (003 makes Part A slightly cleaner; do not wait on it)
 - **Category**: tests (Tidy First pass for plans 004/007/008/009)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Status**: DONE
+- **Implemented at**: source commits `4e065e8f`, `b49cec5d`, `1e6c5368`, 2026-06-10
+- **Bookmark**: `plan-014-test-fixture-groundwork`
 
 ## Why this matters
 
@@ -242,13 +245,13 @@ identical file — sorted keys, normalized paths). `just lint` → exit 0.
 
 Machine-checkable. ALL must hold:
 
-- [ ] `rg -c "Project::new\(" crates/djls-semantic/src/` == 1
-- [ ] `tests/project/djls_app/templatetags/djls_app_tags.py` exists; `TEMPLATES[0]["DIRS"]` is non-empty in the fixture settings
-- [ ] `just e2e` exits 0 including the two new assertions (against the runtime inspector)
-- [ ] `tests/fixtures/django-facts/django-5.2.json` exists, contains `djls_app_tags`, `static`, `${PROJECT}`, `${SITE_PACKAGES}`; `just fixtures` is idempotent
-- [ ] `cargo test -q` exits 0; `just clippy` exits 0
-- [ ] Only in-scope files modified (`jj diff --stat`)
-- [ ] `plans/README.md` status row updated
+- [x] `rg -c "Project::new\(" crates/djls-semantic/src/` == 1
+- [x] `tests/project/djls_app/templatetags/djls_app_tags.py` exists; `TEMPLATES[0]["DIRS"]` is non-empty in the fixture settings
+- [x] `just e2e` exits 0 including the two new assertions (against the runtime inspector)
+- [x] `tests/fixtures/django-facts/django-5.2.json` exists, contains `djls_app_tags`, `static`, `${PROJECT}`, `${SITE_PACKAGES}`; `just fixtures` is idempotent
+- [x] `cargo test -q` exits 0; `just clippy` exits 0
+- [x] Only in-scope files modified (`jj diff --stat`)
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
