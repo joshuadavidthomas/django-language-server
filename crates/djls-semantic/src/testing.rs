@@ -122,7 +122,7 @@ pub(crate) fn make_template_libraries(
     builtins: &[String],
 ) -> TemplateLibraries {
     let mut result = TemplateLibraries {
-        active_knowledge: crate::project::StaticKnowledge::Known,
+        knowledge: crate::project::StaticKnowledge::Known,
         ..TemplateLibraries::default()
     };
 

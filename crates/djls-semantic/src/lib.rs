@@ -216,7 +216,7 @@ mod tests {
 
     fn partial_db() -> TestDatabase {
         let mut libraries = standard_inventory();
-        libraries.active_knowledge = StaticKnowledge::Partial;
+        libraries.knowledge = StaticKnowledge::Partial;
         TestDatabase::new()
             .with_template_libraries(libraries)
             .with_arity_specs(standard_arities())
@@ -235,7 +235,7 @@ mod tests {
         ]);
         let builtins = vec![default_builtins_module().to_string()];
         let mut libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
-        libraries.active_knowledge = StaticKnowledge::Partial;
+        libraries.knowledge = StaticKnowledge::Partial;
         TestDatabase::new().with_template_libraries(libraries)
     }
 

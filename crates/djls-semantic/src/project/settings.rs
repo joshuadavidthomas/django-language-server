@@ -127,7 +127,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     let settings = django_settings(db, project);
 
     let mut libraries = TemplateLibraries {
-        active_knowledge: match settings.installed_apps.knowledge {
+        knowledge: match settings.installed_apps.knowledge {
             StaticKnowledge::Known => StaticKnowledge::Known,
             StaticKnowledge::Partial | StaticKnowledge::Unknown => StaticKnowledge::Partial,
         },
@@ -135,7 +135,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     };
 
     if settings.templates.knowledge != StaticKnowledge::Known {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
     }
 
     scan_templatetags_package(&resolver, "django", &mut libraries);
@@ -157,7 +157,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         .iter()
         .filter(|backend| backend.is_django_templates_backend(backend_count))
     {
-        libraries.active_knowledge = libraries.active_knowledge.weakened_by(backend.knowledge);
+        libraries.knowledge = libraries.knowledge.weakened_by(backend.knowledge);
 
         for (load_name, module_path) in &backend.libraries {
             add_configured_library(&resolver, &mut libraries, load_name, module_path);
@@ -180,17 +180,17 @@ fn scan_templatetags_package(
     libraries: &mut TemplateLibraries,
 ) {
     if package_module.is_empty() {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     }
 
     let Ok(app_module) = PyModuleName::parse(package_module) else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     };
 
     let Some(package_dir) = resolver.package_dir(package_module) else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     };
 
@@ -209,7 +209,7 @@ fn scan_templatetags_package(
         Ok(entries) => entries,
         Err(err) => {
             tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            libraries.active_knowledge.demote_to_partial();
+            libraries.knowledge.demote_to_partial();
             return;
         }
     };
@@ -227,12 +227,12 @@ fn scan_templatetags_package(
         }
 
         let Ok(load_name) = LibraryName::parse(stem) else {
-            libraries.active_knowledge.demote_to_partial();
+            libraries.knowledge.demote_to_partial();
             continue;
         };
         let module_path = format!("{package_module}.templatetags.{stem}");
         let Ok(module) = PyModuleName::parse(&module_path) else {
-            libraries.active_knowledge.demote_to_partial();
+            libraries.knowledge.demote_to_partial();
             continue;
         };
 
@@ -262,11 +262,11 @@ fn add_configured_library(
     module_path: &str,
 ) {
     let Ok(load_name) = LibraryName::parse(load_name) else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     };
     let Ok(module) = PyModuleName::parse(module_path) else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     };
 
@@ -274,7 +274,7 @@ fn add_configured_library(
     if let Some(file) = resolver.module_file(module.as_str()) {
         library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
     } else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
     }
     libraries
         .loadable
@@ -287,12 +287,12 @@ fn add_builtin_library(
     module_path: &str,
 ) {
     let Ok(module) = PyModuleName::parse(module_path) else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     };
     let Ok(name) = LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("builtin"))
     else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
         return;
     };
 
@@ -303,7 +303,7 @@ fn add_builtin_library(
     if let Some(file) = resolver.module_file(module.as_str()) {
         library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
     } else {
-        libraries.active_knowledge.demote_to_partial();
+        libraries.knowledge.demote_to_partial();
     }
 
     libraries.builtins.entry(module).or_insert(library);
@@ -848,7 +848,7 @@ mod tests {
 
         let libraries = template_libraries(&db, project);
 
-        assert_eq!(libraries.active_knowledge, StaticKnowledge::Known);
+        assert_eq!(libraries.knowledge, StaticKnowledge::Known);
         let custom = libraries
             .best_loadable_library_str("custom")
             .expect("custom library should be discovered");
@@ -919,7 +919,7 @@ mod tests {
 
         let libraries = template_libraries(&db, project);
 
-        assert_eq!(libraries.active_knowledge, StaticKnowledge::Partial);
+        assert_eq!(libraries.knowledge, StaticKnowledge::Partial);
     }
 
     #[test]
@@ -1006,7 +1006,7 @@ mod tests {
 
         let libraries = template_libraries(&db, project);
 
-        assert_eq!(libraries.active_knowledge, StaticKnowledge::Partial);
+        assert_eq!(libraries.knowledge, StaticKnowledge::Partial);
         let custom = libraries.best_loadable_library_str("custom").unwrap();
         assert_eq!(custom.module().as_str(), "project_tags");
         assert!(

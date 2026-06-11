@@ -21,9 +21,9 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    active_knowledge: StaticKnowledge,
+    knowledge: StaticKnowledge,
 ) {
-    if active_knowledge == StaticKnowledge::Unknown {
+    if knowledge == StaticKnowledge::Unknown {
         return;
     }
 
@@ -31,7 +31,7 @@ pub(crate) fn check_tag_scoping_rule(
 
     match symbols.check(name) {
         TagAvailability::Available => {}
-        TagAvailability::Unknown if active_knowledge == StaticKnowledge::Partial => {}
+        TagAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
         TagAvailability::Unknown => {
             ValidationErrorAccumulator(ValidationError::UnknownTag {
                 tag: name.to_string(),
@@ -63,15 +63,15 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    active_knowledge: StaticKnowledge,
+    knowledge: StaticKnowledge,
 ) {
-    if active_knowledge == StaticKnowledge::Unknown {
+    if knowledge == StaticKnowledge::Unknown {
         return;
     }
 
     match symbols.check_filter(&filter.name) {
         FilterAvailability::Available => {}
-        FilterAvailability::Unknown if active_knowledge == StaticKnowledge::Partial => {}
+        FilterAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
         FilterAvailability::Unknown => {
             ValidationErrorAccumulator(ValidationError::UnknownFilter {
                 filter: filter.name.clone(),
@@ -105,7 +105,7 @@ pub(crate) fn check_load_libraries_rule(
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
 ) {
-    if template_libraries.active_knowledge == StaticKnowledge::Unknown {
+    if template_libraries.knowledge == StaticKnowledge::Unknown {
         return;
     }
 
@@ -128,7 +128,7 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         }
 
-        if template_libraries.active_knowledge == StaticKnowledge::Known {
+        if template_libraries.knowledge == StaticKnowledge::Known {
             ValidationErrorAccumulator(ValidationError::UnknownLibrary {
                 name: lib.as_str().to_string(),
                 span: lib.span(),

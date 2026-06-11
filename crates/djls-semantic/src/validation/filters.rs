@@ -12,9 +12,9 @@ pub(crate) fn check_filter_arity_rule(
     db: &dyn Db,
     filter: &Filter,
     arity_specs: &FilterAritySpecs,
-    active_knowledge: StaticKnowledge,
+    knowledge: StaticKnowledge,
 ) {
-    if active_knowledge == StaticKnowledge::Unknown {
+    if knowledge == StaticKnowledge::Unknown {
         return;
     }
 

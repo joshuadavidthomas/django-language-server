@@ -135,7 +135,7 @@ impl Visitor for TemplateValidator<'_> {
                     name,
                     span,
                     symbols,
-                    self.template_libraries.active_knowledge,
+                    self.template_libraries.knowledge,
                 );
             }
 
@@ -168,11 +168,11 @@ impl Visitor for TemplateValidator<'_> {
                     self.db,
                     filter,
                     symbols,
-                    self.template_libraries.active_knowledge,
+                    self.template_libraries.knowledge,
                 );
 
                 // 2. Filter Arity
-                let unknown_load_can_shadow_filter = self.template_libraries.active_knowledge
+                let unknown_load_can_shadow_filter = self.template_libraries.knowledge
                     == StaticKnowledge::Partial
                     && self
                         .loaded_libraries
@@ -186,7 +186,7 @@ impl Visitor for TemplateValidator<'_> {
                         self.db,
                         filter,
                         self.filter_arity_specs,
-                        self.template_libraries.active_knowledge,
+                        self.template_libraries.knowledge,
                     );
                 }
             }

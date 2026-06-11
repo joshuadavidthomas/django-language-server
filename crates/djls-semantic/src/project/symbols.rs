@@ -173,7 +173,7 @@ pub struct InstalledSymbolCandidate {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateLibraries {
-    pub active_knowledge: StaticKnowledge,
+    pub knowledge: StaticKnowledge,
     pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
     pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
     pub builtin_order: Vec<PyModuleName>,
@@ -182,7 +182,7 @@ pub struct TemplateLibraries {
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
-            active_knowledge: StaticKnowledge::Unknown,
+            knowledge: StaticKnowledge::Unknown,
             loadable: BTreeMap::new(),
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -200,7 +200,7 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn registration_modules(&self) -> Vec<PyModuleName> {
-        if self.active_knowledge == StaticKnowledge::Unknown {
+        if self.knowledge == StaticKnowledge::Unknown {
             return Vec::new();
         }
 
@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn builtin_candidates_keep_last_builtin_symbol() {
         let mut libraries = TemplateLibraries {
-            active_knowledge: StaticKnowledge::Known,
+            knowledge: StaticKnowledge::Known,
             ..TemplateLibraries::default()
         };
         let z_first = module("z_first");
@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn registration_modules_keep_deterministic_precedence_order() {
         let mut libraries = TemplateLibraries {
-            active_knowledge: StaticKnowledge::Known,
+            knowledge: StaticKnowledge::Known,
             ..TemplateLibraries::default()
         };
         libraries
@@ -485,7 +485,7 @@ mod tests {
     #[test]
     fn registration_modules_keep_known_partial_modules() {
         let mut libraries = TemplateLibraries {
-            active_knowledge: StaticKnowledge::Partial,
+            knowledge: StaticKnowledge::Partial,
             ..TemplateLibraries::default()
         };
         libraries

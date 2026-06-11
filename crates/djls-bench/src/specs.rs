@@ -155,7 +155,7 @@ fn build_filter_arities(
 
 fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     let mut libraries = TemplateLibraries {
-        active_knowledge: djls_semantic::StaticKnowledge::Known,
+        knowledge: djls_semantic::StaticKnowledge::Known,
         ..TemplateLibraries::default()
     };
 
