@@ -32,10 +32,11 @@
   2026-06-10 (crate-count review: djls-python and djls-extraction folded
   into djls-project; registry single-file-move claim corrected — see
   `plans/README.md` reconciliation log)
-- **Status**: IN PROGRESS — implemented locally, not pushed
+- **Status**: IN PROGRESS — PR open
 - **Implemented at**: source stack ending at `99c3e582`, 2026-06-11
 - **Source commits**: `d716cd6e` (`refactor: move the registration scanner into djls-project`), `c8b2c748` (`refactor: move the project model into djls-project`), `e5b7e4ab` (`docs: update architecture for the djls-project split`), `99c3e582` (`test: update template fixture line expectations`)
 - **Bookmark**: `plan-015-move-project-model`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/668
 - **Validation**: `cargo build -q -p djls-project`; `cargo build -q`; `cargo test -q`; `just test`; `just e2e`; clean-tree `just clippy`; `just fmt`; `just fmt --check`; `just lint`; moved-type import guard; semantic re-export shim guard; dependency-direction guard; extraction purity guard; semantic project directory guard.
 - **Divergence**: `system.rs` moved with the project model; the only non-`python.rs` consumer was project settings tests. Moved `resolve.rs` tests were adapted to use a project-local test database and project-level assertions instead of depending back on `djls-semantic`, preserving the one-way crate boundary. Current `main` had already removed blank lines from the e2e base template; the implementation includes a test-only expectation update so `just e2e` passes against that fixture.
 
