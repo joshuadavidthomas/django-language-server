@@ -175,8 +175,7 @@ pub struct InstalledSymbolCandidate {
 pub struct TemplateLibraries {
     pub knowledge: StaticKnowledge,
     pub loadable: BTreeMap<LibraryName, Vec<TemplateLibrary>>,
-    pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
-    pub builtin_order: Vec<PyModuleName>,
+    pub builtins: Vec<TemplateLibrary>,
 }
 
 impl Default for TemplateLibraries {
@@ -184,8 +183,7 @@ impl Default for TemplateLibraries {
         Self {
             knowledge: StaticKnowledge::Unknown,
             loadable: BTreeMap::new(),
-            builtins: BTreeMap::new(),
-            builtin_order: Vec::new(),
+            builtins: Vec::new(),
         }
     }
 }
@@ -218,21 +216,19 @@ impl TemplateLibraries {
     }
 
     pub fn builtin_modules(&self) -> impl Iterator<Item = &PyModuleName> + '_ {
-        self.builtin_order
-            .iter()
-            .filter(|module| self.builtins.contains_key(*module))
+        self.builtins.iter().map(TemplateLibrary::module)
     }
 
     pub fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        self.builtin_modules()
-            .filter_map(|module| self.builtins.get(module))
+        self.builtins.iter()
     }
 
     pub fn builtin_libraries_by_module(
         &self,
     ) -> impl Iterator<Item = (&PyModuleName, &TemplateLibrary)> + '_ {
-        self.builtin_modules()
-            .filter_map(|module| self.builtins.get(module).map(|library| (module, library)))
+        self.builtins
+            .iter()
+            .map(|library| (library.module(), library))
     }
 
     pub fn loadable_library_names(&self) -> impl Iterator<Item = &LibraryName> + '_ {
@@ -403,34 +399,25 @@ mod tests {
             knowledge: StaticKnowledge::Known,
             ..TemplateLibraries::default()
         };
-        let z_first = module("z_first");
         let a_second = module("a_second");
-        libraries.builtin_order.push(z_first.clone());
-        libraries.builtin_order.push(a_second.clone());
-        libraries.builtins.insert(
-            z_first,
-            builtin_library(
-                "z_first",
-                "z_first",
-                vec![symbol(
-                    TemplateSymbolKind::Filter,
-                    "duplicate",
-                    Some("first"),
-                )],
-            ),
-        );
-        libraries.builtins.insert(
-            a_second.clone(),
-            builtin_library(
-                "a_second",
-                "a_second",
-                vec![symbol(
-                    TemplateSymbolKind::Filter,
-                    "duplicate",
-                    Some("second"),
-                )],
-            ),
-        );
+        libraries.builtins.push(builtin_library(
+            "z_first",
+            "z_first",
+            vec![symbol(
+                TemplateSymbolKind::Filter,
+                "duplicate",
+                Some("first"),
+            )],
+        ));
+        libraries.builtins.push(builtin_library(
+            "a_second",
+            a_second.as_str(),
+            vec![symbol(
+                TemplateSymbolKind::Filter,
+                "duplicate",
+                Some("second"),
+            )],
+        ));
 
         let candidates = libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
 
@@ -459,11 +446,17 @@ mod tests {
             "z.templatetags.tags",
         ] {
             let module = module(module_name);
-            push_unique_module(&mut libraries.builtin_order, module.clone());
-            libraries
+            if !libraries
                 .builtins
-                .entry(module.clone())
-                .or_insert_with(|| builtin_library("defaulttags", module.as_str(), Vec::new()));
+                .iter()
+                .any(|library| library.module() == &module)
+            {
+                libraries.builtins.push(builtin_library(
+                    "defaulttags",
+                    module.as_str(),
+                    Vec::new(),
+                ));
+            }
         }
 
         let modules: Vec<_> = libraries

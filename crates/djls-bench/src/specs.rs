@@ -162,10 +162,9 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
         let module = PyModuleName::parse(module_name).unwrap();
         let name = LibraryName::parse(module.as_str().split('.').next_back().unwrap()).unwrap();
-        push_unique_module(&mut libraries.builtin_order, module.clone());
         libraries
             .builtins
-            .insert(module.clone(), TemplateLibrary::new_builtin(name, module));
+            .push(TemplateLibrary::new_builtin(name, module));
     }
 
     for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
@@ -182,7 +181,11 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
         match bench_symbol.load_name {
             None => {
                 let module = PyModuleName::parse(bench_symbol.module).unwrap();
-                if let Some(library) = libraries.builtins.get_mut(&module) {
+                if let Some(library) = libraries
+                    .builtins
+                    .iter_mut()
+                    .find(|library| library.module() == &module)
+                {
                     library.merge_symbol(bench_symbol.symbol);
                 }
             }
@@ -201,12 +204,6 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     }
 
     libraries
-}
-
-fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
-    if !modules.contains(&module) {
-        modules.push(module);
-    }
 }
 
 fn build_realistic_specs() -> RealisticSpecs {

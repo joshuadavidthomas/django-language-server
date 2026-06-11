@@ -759,8 +759,7 @@ mod tests {
         TemplateLibraries {
             knowledge: StaticKnowledge::Known,
             loadable,
-            builtins: BTreeMap::new(),
-            builtin_order: Vec::new(),
+            builtins: Vec::new(),
         }
     }
 
@@ -792,8 +791,7 @@ mod tests {
         TemplateLibraries {
             knowledge: StaticKnowledge::Known,
             loadable: BTreeMap::from([(library_name, vec![library])]),
-            builtins: BTreeMap::new(),
-            builtin_order: Vec::new(),
+            builtins: Vec::new(),
         }
     }
 
@@ -829,8 +827,7 @@ mod tests {
         TemplateLibraries {
             knowledge: StaticKnowledge::Known,
             loadable: BTreeMap::from([(i18n_name, vec![i18n])]),
-            builtins: BTreeMap::from([(builtin_module.clone(), builtin)]),
-            builtin_order: vec![builtin_module],
+            builtins: vec![builtin],
         }
     }
 

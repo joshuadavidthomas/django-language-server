@@ -296,9 +296,14 @@ fn add_builtin_library(
         return;
     };
 
-    if !libraries.builtin_order.contains(&module) {
-        libraries.builtin_order.push(module.clone());
+    if libraries
+        .builtins
+        .iter()
+        .any(|library| library.module() == &module)
+    {
+        return;
     }
+
     let mut library = TemplateLibrary::new_builtin(name, module.clone());
     if let Some(file) = resolver.module_file(module.as_str()) {
         library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
@@ -306,7 +311,7 @@ fn add_builtin_library(
         libraries.knowledge.demote_to_partial();
     }
 
-    libraries.builtins.entry(module).or_insert(library);
+    libraries.builtins.push(library);
 }
 
 struct TemplateLibraryAnalysis {

@@ -135,11 +135,15 @@ pub(crate) fn make_template_libraries(
         else {
             continue;
         };
-        push_unique_module(&mut result.builtin_order, module.clone());
-        result
+        if !result
             .builtins
-            .entry(module.clone())
-            .or_insert_with(|| TemplateLibrary::new_builtin(name, module));
+            .iter()
+            .any(|library| library.module() == &module)
+        {
+            result
+                .builtins
+                .push(TemplateLibrary::new_builtin(name, module));
+        }
     }
 
     for (load_name, module_name) in libraries {
@@ -179,7 +183,11 @@ pub(crate) fn make_template_libraries(
                 let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
                     continue;
                 };
-                if let Some(library) = result.builtins.get_mut(&module) {
+                if let Some(library) = result
+                    .builtins
+                    .iter_mut()
+                    .find(|library| library.module() == &module)
+                {
                     library.merge_symbol(symbol);
                 }
             }
@@ -206,12 +214,6 @@ pub(crate) fn make_template_libraries(
     }
 
     result
-}
-
-fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
-    if !modules.contains(&module) {
-        modules.push(module);
-    }
 }
 
 pub(crate) fn make_template_libraries_tags_only(
