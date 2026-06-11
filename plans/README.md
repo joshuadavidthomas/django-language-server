@@ -50,7 +50,7 @@ reconciliation and run early).
 | [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | DONE |
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | DONE |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | DONE |
-| [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
+| [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | IN PROGRESS |
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | TODO |
@@ -152,6 +152,19 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 009 implemented locally)**: source commit `437117c5` /
+  bookmark `plan-009-delete-runtime-inspector` deletes the runtime inspector
+  subprocess, embedded zipapp build, Python inspector package, project
+  introspector trait plumbing, and current-behavior docs. It is not pushed or
+  PR'd yet. Validation passed: `cargo build -q`, `cargo test -q`, `just fmt`,
+  `just lint`, `cargo test -q -j 2 -- --test-threads=2`, `just test`,
+  `just e2e`, `just clippy --allow-dirty`, `just fmt --check`, clean-tree
+  `just clippy`, clean-tree `just fmt --check`, stale inspector/introspector
+  guards, and a debug binary `djls_inspector` guard. Drift note: Step 1 also
+  found test-only `ProjectDb` inspector plumbing in
+  `crates/djls-semantic/src/project/settings.rs`; it was removed with the
+  trait method because it was not a feature caller. Plan 015 remains blocked
+  until Plan 009 is PR'd, merged, and recorded closed.
 - **2026-06-11 (Plan 019 closed)**: PR #666 merged into `main` as
   `ed6e30b6 Reshape template library model (#666)` (source head
   `9093a28d`). The source change reshapes template tag library storage around
