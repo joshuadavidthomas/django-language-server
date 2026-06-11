@@ -23,7 +23,7 @@
 - **Category**: direction (static Django discovery)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 - **Status**: DONE
-- **Implemented at**: source commits `097bbb0e`, `ba7b106a`, 2026-06-11
+- **Implemented at**: source commits `097bbb0e`, `ba7b106a`, `f6ae8767`, 2026-06-11
 - **Bookmark**: `plan-008-derive-template-libraries-from-source`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/664
 
