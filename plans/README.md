@@ -153,7 +153,7 @@ REJECTED (with one-line rationale).
 ## Reconciliation log
 
 - **2026-06-11 (Plan 015 PR opened)**: PR #668 / source stack ending at
-  `99c3e582` / bookmark `plan-015-move-project-model` moves the registration
+  `735cea66` / bookmark `plan-015-move-project-model` moves the registration
   scanner, `Project` input, Python environment discovery, search paths, module
   resolution, derived Django project facts, and project refresh from
   `djls-semantic` into `djls-project`; updates downstream crates to import
@@ -162,7 +162,11 @@ REJECTED (with one-line rationale).
   `cargo build -q`, `cargo test -q`, `just test`, `just e2e`, clean-tree
   `just clippy`, `just fmt`, `just fmt --check`, `just lint`, moved-type
   import guard, semantic re-export shim guard, dependency-direction guard,
-  extraction purity guard, and semantic project directory guard. Drift notes:
+  extraction purity guard, and semantic project directory guard. A follow-up
+  façade cleanup hides `djls-project`'s extraction implementation module behind
+  crate-root re-exports and additionally passed `cargo build -q -p
+  djls-project`, `cargo build -q`, `cargo test -q`, `just fmt`, `just fmt
+  --check`, and clean-tree `just clippy`. Drift notes:
   `system.rs` moved with the project model because the remaining settings-test
   mock consumer was project-owned; moved `resolve.rs` tests were adapted to a
   project-local test database and project-level assertions to preserve the
