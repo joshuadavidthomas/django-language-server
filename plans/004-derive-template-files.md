@@ -21,7 +21,7 @@
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 - **Status**: DONE
 - **Implemented at**: source commit `18cf545e`, 2026-06-10
-- **Bookmark**: `plan-004-derive-template-files`
+- **Merged at**: commit `d7624a91`, 2026-06-10
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/658
 
 ## Why this matters

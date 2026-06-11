@@ -135,9 +135,9 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-10 (Plan 004 executed)**: PR #658 / bookmark
-  `plan-004-derive-template-files` / source commit `18cf545e` moves
-  first-party template discovery from the `Project` input into the tracked
+- **2026-06-10 (Plan 004 closed)**: PR #658 merged into `main` as
+  `d7624a91` (source commit `18cf545e`); it moves first-party template
+  discovery from the `Project` input into the tracked
   `project_template_files` query, deletes the imperative
   `refresh_template_files` path, and adds coverage for root-revision
   invalidation plus shadowed-template precedence. Validation passed:
