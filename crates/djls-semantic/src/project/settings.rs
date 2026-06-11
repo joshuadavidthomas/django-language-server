@@ -45,7 +45,7 @@ const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
 #[salsa::tracked]
 pub(crate) fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Option<File> {
     let django_settings_module = project.django_settings_module(db).as_deref()?;
-    SalsaSettingsResolver { db, project }.module_file(django_settings_module)
+    module_file(db, project, django_settings_module)
 }
 
 #[salsa::tracked(returns(ref))]
@@ -65,10 +65,31 @@ pub(super) fn settings_source_files(db: &dyn ProjectDb, project: Project) -> Vec
         return Vec::new();
     };
 
-    let resolver = SalsaSettingsResolver { db, project };
+    let path = file.path(db).to_path_buf();
+    let Ok(source) = db.read_file(&path) else {
+        return vec![file];
+    };
+
+    // The refresh bump set must cover the same settings source graph the
+    // extractor would read against current disk content.
+    let mut resolver = DiskSettingsResolver {
+        db,
+        project,
+        touched: Vec::new(),
+    };
+    let _ = extract_settings(&source, &path, &mut resolver);
+
     let mut seen = BTreeSet::new();
     let mut files = Vec::new();
-    resolver.collect_settings_source_files(file.path(db), &mut seen, &mut files);
+    if seen.insert(path) {
+        files.push(file);
+    }
+    for file in resolver.touched {
+        let path = file.path(db).to_path_buf();
+        if seen.insert(path) {
+            files.push(file);
+        }
+    }
     files
 }
 
@@ -100,7 +121,11 @@ pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>,
         if backend.app_dirs == Some(true) {
             knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
             for app in &settings.installed_apps.values {
-                let Some(app_dir) = resolver.package_dir(installed_app_package_module(app)) else {
+                let Some(app_dir) = package_dir(
+                    resolver.db,
+                    resolver.project,
+                    installed_app_package_module(app),
+                ) else {
                     knowledge = knowledge.demoted_to_partial();
                     continue;
                 };
@@ -264,7 +289,7 @@ fn templatetag_package_libraries(
         return derived;
     };
 
-    let Some(package_dir) = resolver.package_dir(package_module) else {
+    let Some(package_dir) = package_dir(resolver.db, resolver.project, package_module) else {
         derived.demote_to_partial();
         return derived;
     };
@@ -367,7 +392,7 @@ fn library_with_symbols(
     resolver: &SalsaSettingsResolver<'_>,
     mut library: TemplateLibrary,
 ) -> DerivedTemplateLibraries {
-    if let Some(file) = resolver.module_file(library.module().as_str()) {
+    if let Some(file) = module_file(resolver.db, resolver.project, library.module().as_str()) {
         library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
         DerivedTemplateLibraries::known(library)
     } else {
@@ -443,124 +468,104 @@ struct SalsaSettingsResolver<'db> {
     project: Project,
 }
 
-impl SalsaSettingsResolver<'_> {
-    fn collect_settings_source_files(
-        &self,
-        path: &Utf8Path,
-        seen: &mut BTreeSet<Utf8PathBuf>,
-        files: &mut Vec<File>,
-    ) {
-        if !seen.insert(path.to_path_buf()) {
-            return;
-        }
-
-        files.push(self.db.get_or_create_file(path));
-
-        let Ok(source) = self.db.read_file(path) else {
-            return;
-        };
-        let Ok(parsed) = ruff_python_parser::parse_module(&source) else {
-            return;
-        };
-
-        for stmt in parsed.into_syntax().body {
-            let Stmt::ImportFrom(import) = stmt else {
-                continue;
-            };
-            if !import.names.iter().any(|alias| alias.name.as_str() == "*") {
-                continue;
-            }
-
-            let star_import = SettingsStarImport {
-                level: import.level,
-                module: import.module.map(|module| module.to_string()),
-            };
-            let Some(module_path) = self.resolve_star_import_module(path, &star_import) else {
-                continue;
-            };
-            let Some(file) = self.module_file(&module_path) else {
-                continue;
-            };
-            self.collect_settings_source_files(file.path(self.db), seen, files);
-        }
-    }
-
-    fn module_file(&self, module_path: &str) -> Option<File> {
-        self.project.touch_search_path_roots(self.db);
-
-        for search_path in self.project.search_paths(self.db).iter() {
-            let Some(path) =
-                module_file_in_search_path(self.db.file_system(), module_path, search_path.path())
-            else {
-                continue;
-            };
-            return Some(self.db.get_or_create_file(&path));
-        }
-
-        None
-    }
-
-    fn package_dir(&self, package_module: &str) -> Option<Utf8PathBuf> {
-        if package_module.is_empty() {
-            return None;
-        }
-
-        let relative = package_module.replace('.', "/");
-        for search_path in self.project.search_paths(self.db).iter() {
-            let candidate = search_path.path().join(&relative);
-            if self.db.path_is_dir(&candidate) {
-                return Some(candidate);
-            }
-        }
-
-        None
-    }
-
-    fn resolve_star_import_module(
-        &self,
-        base: &Utf8Path,
-        import: &SettingsStarImport,
-    ) -> Option<String> {
-        if import.level == 0 {
-            return import.module.clone();
-        }
-
-        let module_file = ModuleFileParts::from_path(self.db, self.project, base)?;
-        let mut parts = module_file.parts;
-        if !module_file.is_package_init {
-            parts.pop()?;
-        }
-
-        for _ in 1..import.level {
-            parts.pop()?;
-        }
-
-        if let Some(module) = &import.module {
-            parts.extend(
-                module
-                    .split('.')
-                    .filter(|part| !part.is_empty())
-                    .map(str::to_string),
-            );
-        }
-
-        (!parts.is_empty()).then(|| parts.join("."))
-    }
-}
-
 impl SettingsSourceResolver for SalsaSettingsResolver<'_> {
     fn resolve_star_import(
         &mut self,
         import: &SettingsStarImport,
         importer: &Utf8Path,
     ) -> Option<SettingsSource> {
-        let module_path = self.resolve_star_import_module(importer, import)?;
-        let file = self.module_file(&module_path)?;
+        let module_path = resolve_star_import_module(self.db, self.project, importer, import)?;
+        let file = module_file(self.db, self.project, &module_path)?;
         Some(SettingsSource {
             source: file.source(self.db).as_str().to_string(),
             path: file.path(self.db).to_path_buf(),
         })
     }
+}
+
+struct DiskSettingsResolver<'db> {
+    db: &'db dyn ProjectDb,
+    project: Project,
+    touched: Vec<File>,
+}
+
+impl SettingsSourceResolver for DiskSettingsResolver<'_> {
+    fn resolve_star_import(
+        &mut self,
+        import: &SettingsStarImport,
+        importer: &Utf8Path,
+    ) -> Option<SettingsSource> {
+        let module_path = resolve_star_import_module(self.db, self.project, importer, import)?;
+        let file = module_file(self.db, self.project, &module_path)?;
+        let path = file.path(self.db).to_path_buf();
+        self.touched.push(file);
+        let source = self.db.read_file(&path).ok()?;
+
+        Some(SettingsSource { source, path })
+    }
+}
+
+fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
+    project.touch_search_path_roots(db);
+
+    for search_path in project.search_paths(db).iter() {
+        let Some(path) =
+            module_file_in_search_path(db.file_system(), module_path, search_path.path())
+        else {
+            continue;
+        };
+        return Some(db.get_or_create_file(&path));
+    }
+
+    None
+}
+
+fn package_dir(db: &dyn ProjectDb, project: Project, package_module: &str) -> Option<Utf8PathBuf> {
+    if package_module.is_empty() {
+        return None;
+    }
+
+    let relative = package_module.replace('.', "/");
+    for search_path in project.search_paths(db).iter() {
+        let candidate = search_path.path().join(&relative);
+        if db.path_is_dir(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn resolve_star_import_module(
+    db: &dyn ProjectDb,
+    project: Project,
+    base: &Utf8Path,
+    import: &SettingsStarImport,
+) -> Option<String> {
+    if import.level == 0 {
+        return import.module.clone();
+    }
+
+    let module_file = ModuleFileParts::from_path(db, project, base)?;
+    let mut parts = module_file.parts;
+    if !module_file.is_package_init {
+        parts.pop()?;
+    }
+
+    for _ in 1..import.level {
+        parts.pop()?;
+    }
+
+    if let Some(module) = &import.module {
+        parts.extend(
+            module
+                .split('.')
+                .filter(|part| !part.is_empty())
+                .map(str::to_string),
+        );
+    }
+
+    (!parts.is_empty()).then(|| parts.join("."))
 }
 
 struct ModuleFileParts {
