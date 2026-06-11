@@ -19,8 +19,9 @@
 - **Depends on**: plans/007, plans/008
 - **Category**: tech-debt (the payoff step)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Status**: IN PROGRESS — PR open
+- **Status**: DONE
 - **Implemented at**: source commit `437117c5`, 2026-06-11
+- **Merged at**: `ed643c9c Delete runtime Python inspector (#667)`, 2026-06-11
 - **Bookmark**: `plan-009-delete-runtime-inspector`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/667
 - **Validation**: `cargo build -q`; `cargo test -q`; `just fmt`; `just lint`; `cargo test -q -j 2 -- --test-threads=2`; `just test`; `just e2e`; `just clippy --allow-dirty`; `just fmt --check`; clean-tree `just clippy`; clean-tree `just fmt --check`; stale inspector/introspector guards; debug binary `djls_inspector` guard.
