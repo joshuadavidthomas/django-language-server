@@ -25,6 +25,7 @@
 - **Status**: DONE
 - **Implemented at**: source commits `4e065e8f`, `b49cec5d`, `1e6c5368`, 2026-06-10
 - **Bookmark**: `plan-014-test-fixture-groundwork`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/657
 
 ## Why this matters
 
