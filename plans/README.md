@@ -44,7 +44,7 @@ reconciliation and run early).
 | [014](014-test-fixture-groundwork.md) | Fixture builder, enriched e2e project, golden Django facts | P1 | M | — (inspector must still run) | DONE |
 | [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | DONE |
 | [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | DONE |
-| [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | TODO |
+| [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | DONE |
 | [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | TODO |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009 | TODO |
@@ -135,6 +135,31 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 007 executed)**: PR #660 / bookmark
+  `plan-007-derive-template-dirs-from-settings` / source commit `68602120`
+  wires `djls-project` settings extraction into Salsa and derives template
+  directories statically. It removes the `TemplateDirs` input and
+  `refresh_template_dirs`, adds settings-module/file queries with star-import
+  cycle recovery, derives `DIRS` before `APP_DIRS`, and compares the
+  `tests/project` result against `tests/fixtures/django-facts/django-5.2.json`
+  in `just e2e`. Validation passed: `cargo build -q`,
+  `cargo test -q -p djls-project`, `cargo test -q -p djls-semantic`,
+  `cargo test -q -p djls-semantic project::settings`, `cargo test -q -p djls-db`,
+  `cargo test -q -j 2 -- --test-threads=2`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `just fmt`, `just fmt --check`,
+  `just test "-q -j 2 -- --test-threads=2"`, `just e2e`, `just clippy`,
+  `just lint`, and the stale-plumbing/StaticKnowledge/API guard rgs. API review
+  tightened `djls-project` so it exports only `extract_settings`, result
+  types, `StaticKnowledge`, and settings-specific source resolution
+  (`SettingsSourceResolver`, `SettingsStarImport`, `SettingsSource`);
+  extractor working bindings, partial reasons, and recursion state stay
+  internal. Deviations: `SemanticDb::template_dirs()` returns `None` unless
+  derived static knowledge is `Known` to preserve CLI project-root fallback;
+  and `noxfile.py` runs the
+  ignored golden comparison inside `just e2e`. An uncapped `just test` attempt
+  timed out under the harness before the capped nox run passed.
+
 - **2026-06-10 (PR #659 vocabulary review)**: design memo
   [memo-pr659-extraction-vocabulary.md](memo-pr659-extraction-vocabulary.md)
   reconciles the extraction API's "facts" vocabulary against ruff/ty.
@@ -145,8 +170,10 @@ REJECTED (with one-line rationale).
   `TemplateBackendFact` → `TemplateBackend`, `StringListFact` →
   `StringListSetting`, `Reason` became a closed enum, and the implementation
   module/type became `extractor`/`SettingsExtractor`; the crate public
-  surface stays empty until plan 007 adds the first explicit `pub use` items.
-  `Knowledge` stays as the single shared tri-state research.md prescribed. Plans 007/008/018 were
+  surface stays empty until plan 007 adds the first explicit `pub use` items
+  and renames public API types to settings-specific names such as
+  `InstalledAppsSetting`. `StaticKnowledge` stays as the single shared
+  tri-state research.md prescribed. Plans 007/008/018 were
   re-pointed from `SettingsFacts` and the
   `settings_facts_for_file`/`django_settings_facts` query names to
   `DjangoSettings` and `django_settings_for_file`/`django_settings`. No ruff/ty
@@ -285,7 +312,7 @@ REJECTED (with one-line rationale).
   `tests/project` lacks `django.contrib.flatpages` in `INSTALLED_APPS`
   while every Django install ships its `templatetags/flatpages.py` — a
   zero-setup e2e case. Design choices recorded in the plan: positive
-  evidence only (no `Knowledge` field on the inactive set), emission only
+  evidence only (no `StaticKnowledge` field on the inactive set), emission only
   under `Known`, soundness by module subtraction rather than app-name
   matching, and a separate fact type instead of re-merging into
   `TemplateLibraries` (the plan-002 anti-pattern). A demand-driven
@@ -335,7 +362,7 @@ REJECTED (with one-line rationale).
 - **4-variant confidence lattice (`Fact<T>` with Known/Partial/Unknown/
   Ambiguous)**: ~25 of 28 consuming matches in PR #606 treated
   Unknown/Ambiguous identically — behaviorless ceremony. The 3-state
-  `Knowledge` lands only where behavior actually branches (plan 008's
+  `StaticKnowledge` lands only where behavior actually branches (plan 008's
   diagnostics gating).
 - **General settings evaluator** (list `.sort()`/`.reverse()` emulation,
   importing path-returning functions from sibling modules, alias tracking):
@@ -399,7 +426,7 @@ REJECTED (with one-line rationale).
   the code *forced* below djls-project is only the settings extractor + the
   registration scanner (~2.5k lines steady-state) since the spec stack
   stays in djls-semantic; and the purity firewall survives as
-  `extract_settings(&str, …, &mut dyn StarImportResolver)`'s signature
+  `extract_settings(&str, …, &mut dyn SettingsSourceResolver)`'s signature
   plus a module-scoped grep. Folded into djls-project as the `extraction`
   module.
 - **A separate `djls-python` env-discovery crate** (deleted plan 005,
