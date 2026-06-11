@@ -11,8 +11,8 @@
 > and `template_dirs` queries exist in
 > `crates/djls-semantic/src/project/settings.rs` (plan 007);
 > `discovery_knowledge` no longer exists anywhere (plan 002);
-> `djls_project::Knowledge` has a `Partial` variant (exported by plan 007). If any
-> check fails, STOP.
+> `djls_project::StaticKnowledge` has a `Partial` variant (exported by
+> plan 007). If any check fails, STOP.
 
 ## Status
 
@@ -70,10 +70,10 @@ prerequisite plans' churn.)
   (`TemplateLibrarySnapshot.builtins`). Statically: Django's default
   builtins are stable (`django.template.defaulttags`,
   `django.template.defaultfilters`, `django.template.loader_tags`) plus
-  per-backend `OPTIONS["builtins"]` additions from the settings facts.
+  per-backend `OPTIONS["builtins"]` additions from `DjangoSettings`.
 - Availability gating (`crates/djls-semantic/src/validation/scoping.rs`
   after plan 002): `check_tag_scoping_rule` early-returns unless
-  `active_knowledge == Knowledge::Known`, then emits `UnknownTag` /
+  `active_knowledge == StaticKnowledge::Known`, then emits `UnknownTag` /
   `UnloadedTag` / `AmbiguousUnloadedTag`; `check_filter_scoping_rule`
   mirrors it; `check_load_libraries_rule` (`scoping.rs:134+`) flags unknown
   `{% load %}` names.
@@ -150,9 +150,10 @@ Composition (mirror Django's
    `tests/e2e/test_completions.py:48-97` asserts `static` and `i18n`
    load/complete, and `test_diagnostics.py:12` asserts unloaded-`static`
    diagnostics. Omitting this scan fails the parity gate.
-2. **App libraries**: for each `installed_apps` entry (plan 007's facts,
-   resolved to app package dirs the same way `template_dirs` resolves
-   APP_DIRS apps): if `<app_dir>/templatetags/__init__.py` exists, every
+2. **App libraries**: for each `installed_apps` entry (plan 007's
+   `DjangoSettings`, resolved to app package dirs the same way
+   `template_dirs` resolves APP_DIRS apps): if
+   `<app_dir>/templatetags/__init__.py` exists, every
    non-underscore `*.py` in it is a candidate library whose load name is the
    file stem and module is `<app>.templatetags.<stem>`. Parse each candidate
    (existing tracked parse) and include it only if registry analysis finds a
@@ -162,7 +163,7 @@ Composition (mirror Django's
    cached `parse_python_module(db, File)` like `extract_tag_rules` does at
    `python.rs:187-198`). Do not re-implement.
 3. **OPTIONS libraries**: per-backend `OPTIONS["libraries"]` name→module
-   pairs from the settings facts (resolve module → file via search paths;
+   pairs from `DjangoSettings` (resolve module → file via search paths;
    unresolvable → include the library with no symbols + demote knowledge to
    Partial).
 4. **Builtins**: the Django default builtin modules (constant list:
@@ -209,7 +210,7 @@ pass; the `djls-db` invalidation test
 ### Step 3: Partial-knowledge gating in scoping
 
 In `validation/scoping.rs`, change the early returns
-(`if active_knowledge != Knowledge::Known { return; }` at the top of
+(`if active_knowledge != StaticKnowledge::Known { return; }` at the top of
 `check_tag_scoping_rule` / `check_filter_scoping_rule` / the equivalent in
 `check_load_libraries_rule`) to three-way policy:
 
