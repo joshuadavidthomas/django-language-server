@@ -152,11 +152,11 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
-- **2026-06-11 (Plan 009 implemented locally)**: source commit `437117c5` /
-  bookmark `plan-009-delete-runtime-inspector` deletes the runtime inspector
-  subprocess, embedded zipapp build, Python inspector package, project
-  introspector trait plumbing, and current-behavior docs. It is not pushed or
-  PR'd yet. Validation passed: `cargo build -q`, `cargo test -q`, `just fmt`,
+- **2026-06-11 (Plan 009 PR opened)**: PR #667 / bookmark
+  `plan-009-delete-runtime-inspector` / source commit `437117c5` deletes the
+  runtime inspector subprocess, embedded zipapp build, Python inspector
+  package, project introspector trait plumbing, and current-behavior docs.
+  Validation passed: `cargo build -q`, `cargo test -q`, `just fmt`,
   `just lint`, `cargo test -q -j 2 -- --test-threads=2`, `just test`,
   `just e2e`, `just clippy --allow-dirty`, `just fmt --check`, clean-tree
   `just clippy`, clean-tree `just fmt --check`, stale inspector/introspector
@@ -164,7 +164,7 @@ REJECTED (with one-line rationale).
   found test-only `ProjectDb` inspector plumbing in
   `crates/djls-semantic/src/project/settings.rs`; it was removed with the
   trait method because it was not a feature caller. Plan 015 remains blocked
-  until Plan 009 is PR'd, merged, and recorded closed.
+  until Plan 009 is merged and recorded closed.
 - **2026-06-11 (Plan 019 closed)**: PR #666 merged into `main` as
   `ed6e30b6 Reshape template library model (#666)` (source head
   `9093a28d`). The source change reshapes template tag library storage around
