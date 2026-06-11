@@ -31,6 +31,12 @@
 - **Category**: tech-debt / architecture (boundary correction)
 - **Planned at**: 2026-06-11, anchored to source `735cea66`; design record:
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
+- **Status**: IN PROGRESS — implemented locally; PR not opened yet
+- **Implemented at**: `637b0761` (`refactor: move spec extraction into djls-project`), 2026-06-11
+- **Bookmark**: `plan-021-move-spec-extraction`
+- **Validation**: `cargo build -q -p djls-project`; `cargo build -q`; `cargo test -q`; `cargo test -q -p djls-project`; `cargo test -q -p djls-semantic`; `just test`; `just e2e`; clean-tree `just clippy`; `just fmt`; `just fmt --check`; `just lint`; Step 4 guard suite. Snapshot body checks passed for 13 moved golden snapshots; corpus/model snapshots moved with metadata-only `source:` updates.
+- **Test-count reconciliation**: before move, `djls-project` had 128 unit/doc target tests and no integration tests; `djls-semantic` had 435 unit/doc target tests plus 2 integration tests. After move, `djls-project` has 395 unit/doc target tests plus 2 integration tests; `djls-semantic` has 168 unit/doc target tests and no integration tests. Totals reconcile exactly.
+- **Export audit**: every new `djls-project` spec façade export has at least one consumer outside `djls-project`: semantic tag rules/spec fusion, semantic testing fixtures, `djls-db` model graph/filter-arity wiring, `djls-bench`, and/or `djls-ide` symbol conversion.
 
 ## Why this matters
 
