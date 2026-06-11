@@ -26,6 +26,7 @@
 - **Amended at**: source commit `c6bd8ac2`, 2026-06-10 — renamed extraction outputs per `plans/memo-pr659-extraction-vocabulary.md` (`DjangoSettings`, `StringListSetting`, `TemplateBackend`), converted `Reason` to a closed enum, renamed the implementation module/type to `extractor`/`SettingsExtractor`, and kept the crate public surface empty until plan 007 introduces the first external consumer.
 - **Bookmark**: `plan-006-djls-project-settings-recognizer`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/659
+- **Merged as**: `cf89c96f add djls-project settings extractor (#659)`, 2026-06-11
 
 ## Why this matters
 
