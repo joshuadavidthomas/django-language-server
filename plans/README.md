@@ -60,7 +60,7 @@ reconciliation and run early).
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | DONE |
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
-| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | IN PROGRESS |
+| [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | DONE |
 | [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015, 021 (015/021 soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, export audit | P2 | M | 013, 015, 016, 021 | TODO |
@@ -173,6 +173,20 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 015 closed)**: PR #668 merged into `main` as
+  `815951de Move project model into djls-project (#668)` (source head
+  `735cea66`). The source change moves the registration scanner, `Project`
+  input, Python environment discovery, search paths, module resolution,
+  derived Django project facts, project refresh, and shared Python parse
+  query into `djls-project`; downstream crates import moved project types
+  directly from `djls_project`; `djls-project` exposes extraction items
+  through its crate façade rather than a public `extraction` module.
+  Validation before merge passed: `cargo build -q -p djls-project`,
+  `cargo build -q`, `cargo test -q`, `just test`, `just e2e`, clean-tree
+  `just clippy`, `just fmt`, `just fmt --check`, `just lint`, moved-type
+  import guard, semantic re-export shim guard, dependency-direction guard,
+  extraction purity guard, and semantic project directory guard. Plan 021 is
+  now unblocked and is the next structural-track plan.
 - **2026-06-11 (post-015 boundary review — project/semantic seam)**:
   design memo
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
