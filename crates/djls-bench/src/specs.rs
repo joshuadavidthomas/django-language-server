@@ -1,14 +1,17 @@
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use djls_semantic::FilterArity;
 use djls_semantic::FilterAritySpecs;
+use djls_semantic::LibraryName;
+use djls_semantic::PyModuleName;
+use djls_semantic::SymbolDefinition;
 use djls_semantic::SymbolKey;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateLibrarySnapshot;
+use djls_semantic::TemplateLibrary;
+use djls_semantic::TemplateSymbol;
 use djls_semantic::TemplateSymbolKind;
-use djls_semantic::TemplateSymbolSnapshot;
+use djls_semantic::TemplateSymbolName;
 
 use crate::Db;
 
@@ -17,36 +20,43 @@ const DEFAULTFILTERS: &str = "django.template.defaultfilters";
 const I18N: &str = "django.templatetags.i18n";
 const STATIC: &str = "django.templatetags.static";
 
-fn builtin_tag(name: &str, module: &str) -> TemplateSymbolSnapshot {
-    TemplateSymbolSnapshot {
-        kind: Some(TemplateSymbolKind::Tag),
-        name: name.to_string(),
-        load_name: None,
-        library_module: module.to_string(),
-        module: module.to_string(),
+struct BenchSymbol {
+    load_name: Option<&'static str>,
+    module: &'static str,
+    symbol: TemplateSymbol,
+}
+
+fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> TemplateSymbol {
+    TemplateSymbol {
+        kind,
+        name: TemplateSymbolName::parse(name).unwrap(),
+        definition: PyModuleName::parse(module)
+            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module),
         doc: None,
     }
 }
 
-fn library_tag(name: &str, load_name: &str, module: &str) -> TemplateSymbolSnapshot {
-    TemplateSymbolSnapshot {
-        kind: Some(TemplateSymbolKind::Tag),
-        name: name.to_string(),
-        load_name: Some(load_name.to_string()),
-        library_module: module.to_string(),
-        module: module.to_string(),
-        doc: None,
+fn builtin_tag(name: &str, module: &'static str) -> BenchSymbol {
+    BenchSymbol {
+        load_name: None,
+        module,
+        symbol: template_symbol(TemplateSymbolKind::Tag, name, module),
     }
 }
 
-fn builtin_filter(name: &str, module: &str) -> TemplateSymbolSnapshot {
-    TemplateSymbolSnapshot {
-        kind: Some(TemplateSymbolKind::Filter),
-        name: name.to_string(),
+fn library_tag(name: &str, load_name: &'static str, module: &'static str) -> BenchSymbol {
+    BenchSymbol {
+        load_name: Some(load_name),
+        module,
+        symbol: template_symbol(TemplateSymbolKind::Tag, name, module),
+    }
+}
+
+fn builtin_filter(name: &str, module: &'static str) -> BenchSymbol {
+    BenchSymbol {
         load_name: None,
-        library_module: module.to_string(),
-        module: module.to_string(),
-        doc: None,
+        module,
+        symbol: template_symbol(TemplateSymbolKind::Filter, name, module),
     }
 }
 
@@ -56,7 +66,7 @@ struct RealisticSpecs {
     filter_arity_specs: FilterAritySpecs,
 }
 
-fn build_template_symbol_snapshots() -> Vec<TemplateSymbolSnapshot> {
+fn build_template_symbols() -> Vec<BenchSymbol> {
     vec![
         builtin_tag("if", DEFAULTTAGS),
         builtin_tag("for", DEFAULTTAGS),
@@ -143,22 +153,61 @@ fn build_filter_arities(
     specs
 }
 
-fn build_realistic_specs() -> RealisticSpecs {
-    let symbols = build_template_symbol_snapshots();
-
-    let mut libraries_map = BTreeMap::new();
-    libraries_map.insert("i18n".to_string(), I18N.to_string());
-    libraries_map.insert("static".to_string(), STATIC.to_string());
-
-    let builtins = vec![DEFAULTTAGS.to_string(), DEFAULTFILTERS.to_string()];
-
-    let response = TemplateLibrarySnapshot {
-        symbols,
-        libraries: libraries_map,
-        builtins,
+fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
+    let mut libraries = TemplateLibraries {
+        knowledge: djls_semantic::StaticKnowledge::Known,
+        ..TemplateLibraries::default()
     };
 
-    let template_libraries = TemplateLibraries::default().apply_active_snapshot(Some(response));
+    for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
+        let module = PyModuleName::parse(module_name).unwrap();
+        let name = LibraryName::parse(module.as_str().split('.').next_back().unwrap()).unwrap();
+        libraries
+            .builtins
+            .push(TemplateLibrary::new_builtin(name, module));
+    }
+
+    for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
+        let load_name = LibraryName::parse(load_name).unwrap();
+        let module = PyModuleName::parse(module_name).unwrap();
+        libraries
+            .loadable
+            .entry(load_name.clone())
+            .or_default()
+            .push(TemplateLibrary::new_active(load_name, module, None));
+    }
+
+    for bench_symbol in symbols {
+        match bench_symbol.load_name {
+            None => {
+                let module = PyModuleName::parse(bench_symbol.module).unwrap();
+                if let Some(library) = libraries
+                    .builtins
+                    .iter_mut()
+                    .find(|library| library.module() == &module)
+                {
+                    library.merge_symbol(bench_symbol.symbol);
+                }
+            }
+            Some(load_name) => {
+                let load_name = LibraryName::parse(load_name).unwrap();
+                let module = PyModuleName::parse(bench_symbol.module).unwrap();
+                if let Some(libraries) = libraries.loadable.get_mut(&load_name)
+                    && let Some(library) = libraries
+                        .iter_mut()
+                        .find(|library| library.module() == &module)
+                {
+                    library.merge_symbol(bench_symbol.symbol);
+                }
+            }
+        }
+    }
+
+    libraries
+}
+
+fn build_realistic_specs() -> RealisticSpecs {
+    let template_libraries = build_template_libraries(build_template_symbols());
 
     let mut tag_specs = TagSpecs::default();
 

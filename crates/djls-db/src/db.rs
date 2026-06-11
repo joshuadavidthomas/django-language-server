@@ -165,7 +165,7 @@ impl SemanticDb for DjangoDatabase {
     fn template_libraries(&self) -> &TemplateLibraries {
         self.project()
             .map_or(TemplateLibraries::empty_ref(), |project| {
-                project.template_libraries(self)
+                djls_semantic::template_libraries(self, project)
             })
     }
 
@@ -209,7 +209,6 @@ mod marker_tests {
 
 #[cfg(test)]
 mod invalidation_tests {
-    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::Mutex;
 
@@ -219,7 +218,6 @@ mod invalidation_tests {
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::Project;
     use djls_semantic::SemanticOffsetContext;
-    use djls_semantic::TemplateLibraries;
     use djls_source::Db as SourceDb;
     use djls_source::InMemoryFileSystem;
     use djls_source::Offset;
@@ -305,38 +303,69 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn template_libraries_change_validates_templatetag_module_projection() {
-        let (mut db, event_log) = test_db_with_project();
+    fn settings_source_change_validates_templatetag_module_projection() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings_path = root.join("settings.py");
+        let builtin_path = root.join("project_tags.py");
 
-        // Prime the cache
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                settings_path.clone(),
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['project_tags']}}]\n".to_string(),
+            );
+            fs.add_file(
+                builtin_path,
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef project_tag():\n    pass\n".to_string(),
+            );
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
         let _specs = db.tag_specs();
         event_log.take();
 
-        // Update template_libraries on the project
-        let project = db.project.unwrap();
+        let settings_file = db.get_or_create_file(&settings_path);
+        fs.lock().unwrap().add_file(
+            settings_path,
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'builtins': []}}]\n".to_string(),
+        );
+        db.bump_file_revision(settings_file);
 
-        let response = djls_semantic::TemplateLibrarySnapshot {
-            symbols: Vec::new(),
-            libraries: BTreeMap::new(),
-            builtins: Vec::new(),
-        };
-
-        let new_libraries = TemplateLibraries::default().apply_active_snapshot(Some(response));
-
-        project.set_template_libraries(&mut db).to(new_libraries);
-
-        // Access again. The templatetag module projection depends on template
-        // libraries, but `compute_tag_specs` can stay green when the projected
-        // module list backdates to the same value.
         let _specs = db.tag_specs();
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "templatetag_modules"),
-            "templatetag_modules should re-execute after template_libraries change"
+            was_executed(&db, &events, "template_libraries"),
+            "template_libraries should re-execute after the settings source changes"
         );
         assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should stay cached when search-path module projection is unchanged"
+            was_executed(&db, &events, "templatetag_modules"),
+            "templatetag_modules should re-execute after derived libraries change"
         );
     }
 
@@ -779,39 +808,197 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn discovered_template_libraries_stored_on_project() {
-        let (db, _event_log) = test_db_with_project();
+    fn refresh_external_data_reads_changed_star_imported_settings_source_for_template_libraries() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings_path = root.join("settings.py");
+        let base_settings_path = root.join("base.py");
 
-        let project = db.project.unwrap();
-        assert!(
-            project.template_libraries(&db).loadable.is_empty(),
-            "template libraries should initially be empty"
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(settings_path, "from .base import *\n".to_string());
+            fs.add_file(
+                base_settings_path.clone(),
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'old_tags'}}}]\n".to_string(),
+            );
+            fs.add_file(
+                root.join("old_tags.py"),
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef old_tag():\n    pass\n".to_string(),
+            );
+            fs.add_file(
+                root.join("new_tags.py"),
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n".to_string(),
+            );
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        assert_eq!(
+            db.template_libraries()
+                .best_loadable_library_str("custom")
+                .unwrap()
+                .module()
+                .as_str(),
+            "old_tags"
+        );
+
+        fs.lock().unwrap().add_file(
+            base_settings_path,
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'new_tags'}}}]\n".to_string(),
+        );
+        djls_semantic::refresh_external_data(&mut db);
+
+        assert_eq!(
+            db.template_libraries()
+                .best_loadable_library_str("custom")
+                .unwrap()
+                .module()
+                .as_str(),
+            "new_tags"
         );
     }
 
     #[test]
-    fn template_libraries_same_value_no_invalidation() {
-        let (mut db, event_log) = test_db_with_project();
+    fn semantic_db_template_libraries_returns_derived_app_libraries() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
 
-        // Prime tag_specs cache
-        let _specs = db.tag_specs();
-        event_log.take();
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(root.join("manage.py"), String::new());
+        fs.add_file(
+            root.join("settings.py"),
+            "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n".to_string(),
+        );
+        fs.add_file(root.join("blog/templatetags/__init__.py"), String::new());
+        fs.add_file(
+            root.join("blog/templatetags/custom.py"),
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello():\n    pass\n".to_string(),
+        );
 
-        let project = db.project.unwrap();
+        let mut db = DjangoDatabase {
+            fs: Arc::new(fs),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
 
-        // Setting the same value should not trigger invalidation.
-        // (manual comparison prevents setter call)
-        let current = project.template_libraries(&db).clone();
-        if project.template_libraries(&db) != &current {
-            project.set_template_libraries(&mut db).to(current);
+        let libraries = db.template_libraries();
+        let custom = libraries
+            .best_loadable_library_str("custom")
+            .expect("custom library should be derived");
+        assert_eq!(custom.module().as_str(), "blog.templatetags.custom");
+        assert!(custom.symbols.iter().any(|symbol| symbol.name() == "hello"));
+    }
+
+    #[test]
+    fn templatetag_source_change_invalidates_template_libraries() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let tag_path = root.join("blog/templatetags/custom.py");
+
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                root.join("settings.py"),
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n".to_string(),
+            );
+            fs.add_file(root.join("blog/templatetags/__init__.py"), String::new());
+            fs.add_file(
+                tag_path.clone(),
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef old_tag():\n    pass\n".to_string(),
+            );
         }
 
-        // tag_specs should NOT re-execute
-        let _specs = db.tag_specs();
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        let libraries = db.template_libraries();
+        let custom = libraries.best_loadable_library_str("custom").unwrap();
+        assert!(
+            custom
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name() == "old_tag")
+        );
+        event_log.take();
+
+        let tag_file = db.get_or_create_file(&tag_path);
+        fs.lock().unwrap().add_file(
+            tag_path,
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n".to_string(),
+        );
+        db.bump_file_revision(tag_file);
+
+        let libraries = db.template_libraries();
+        let custom = libraries.best_loadable_library_str("custom").unwrap();
+        assert!(
+            custom
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name() == "new_tag")
+        );
+        assert!(
+            !custom
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name() == "old_tag")
+        );
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should not re-execute when template_libraries unchanged"
+            was_executed(&db, &events, "template_libraries"),
+            "template_libraries should re-execute after a templatetag source change"
         );
     }
 

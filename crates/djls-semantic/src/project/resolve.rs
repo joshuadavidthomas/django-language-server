@@ -240,8 +240,7 @@ pub(crate) fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<P
 
     let mut modules = Vec::new();
 
-    for (module_index, module_path) in project
-        .template_libraries(db)
+    for (module_index, module_path) in crate::project::template_libraries(db, project)
         .registration_modules()
         .into_iter()
         .enumerate()
@@ -359,39 +358,57 @@ fn discover_model_files_excluding(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use djls_source::Db as _;
     use djls_source::InMemoryFileSystem;
 
     use super::*;
     use crate::compute_filter_arity_specs;
-    use crate::project::TemplateLibraries;
-    use crate::project::TemplateLibrarySnapshot;
     use crate::project::refresh_external_data;
     use crate::python::compute_model_graph;
     use crate::testing::ProjectFixture;
     use crate::testing::TestDatabase;
 
-    fn template_libraries_for_module(module: &str) -> TemplateLibraries {
-        TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
-            symbols: Vec::new(),
-            libraries: BTreeMap::new(),
-            builtins: vec![module.to_string()],
-        }))
-    }
-
     fn project_for_search_paths(
         db: &mut TestDatabase,
         root: &str,
         search_paths: SearchPaths,
-        template_libraries: TemplateLibraries,
     ) -> Project {
         ProjectFixture::new(root)
             .search_paths(search_paths)
             .register_roots(false)
-            .template_libraries(template_libraries)
             .build(db)
+    }
+
+    fn project_with_template_settings(
+        db: &mut TestDatabase,
+        root: &str,
+        search_paths: SearchPaths,
+        settings_source: impl Into<String>,
+    ) -> Project {
+        ProjectFixture::new(root)
+            .search_paths(search_paths)
+            .register_roots(false)
+            .django_settings_module("settings")
+            .file(format!("{root}/settings.py"), settings_source)
+            .build(db)
+    }
+
+    fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> String {
+        let installed_apps = installed_apps
+            .iter()
+            .map(|app| format!("'{app}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let builtins = builtins
+            .iter()
+            .map(|module| format!("'{module}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "INSTALLED_APPS = [{installed_apps}]\n\
+             TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', \
+             'DIRS': [], 'APP_DIRS': True, 'OPTIONS': {{'builtins': [{builtins}]}}}}]\n"
+        )
     }
 
     #[test]
@@ -483,12 +500,7 @@ mod tests {
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
 
         let modules = model_modules(&db, project);
         assert!(
@@ -550,12 +562,7 @@ mod tests {
             &Interpreter::Auto,
             &pythonpath,
         );
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
 
         let modules = model_modules(&db, project);
         assert!(
@@ -568,9 +575,10 @@ mod tests {
     #[test]
     fn templatetag_modules_tolerate_unregistered_search_paths() {
         let mut db = TestDatabase::new();
+        db.add_file("/project/django/templatetags/__init__.py", "");
         db.add_file(
             "/project/django/templatetags/i18n.py",
-            "from django import template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
         );
 
         let search_paths = SearchPaths::from_project_settings(
@@ -579,11 +587,11 @@ mod tests {
             &Interpreter::Auto,
             &[],
         );
-        let project = project_for_search_paths(
+        let project = project_with_template_settings(
             &mut db,
             "/project",
             search_paths,
-            template_libraries_for_module("django.templatetags.i18n"),
+            django_template_settings(&[], &[]),
         );
 
         let modules = templatetag_modules(&db, project);
@@ -598,8 +606,12 @@ mod tests {
     fn templatetag_resolution_uses_project_venv_site_packages_root() {
         let mut db = TestDatabase::new();
         db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/django/templatetags/__init__.py",
+            "",
+        );
+        db.add_file(
             "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
-            "from django import template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
         );
 
         let search_paths = SearchPaths::from_project_settings(
@@ -609,11 +621,11 @@ mod tests {
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
+        let project = project_with_template_settings(
             &mut db,
             "/project",
             search_paths,
-            template_libraries_for_module("django.templatetags.i18n"),
+            django_template_settings(&[], &[]),
         );
 
         let modules = templatetag_modules(&db, project);
@@ -629,13 +641,18 @@ mod tests {
     #[test]
     fn templatetag_resolution_prefers_first_party_module_shadowing_dependency() {
         let mut db = TestDatabase::new();
+        db.add_file("/project/django/templatetags/__init__.py", "");
         db.add_file(
             "/project/django/templatetags/i18n.py",
-            "from django import template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
+        );
+        db.add_file(
+            "/project/.venv/lib/python3.12/site-packages/django/templatetags/__init__.py",
+            "",
         );
         db.add_file(
             "/project/.venv/lib/python3.12/site-packages/django/templatetags/i18n.py",
-            "from django import template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
         );
 
         let search_paths = SearchPaths::from_project_settings(
@@ -645,11 +662,11 @@ mod tests {
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
+        let project = project_with_template_settings(
             &mut db,
             "/project",
             search_paths,
-            template_libraries_for_module("django.templatetags.i18n"),
+            django_template_settings(&[], &[]),
         );
 
         let modules = templatetag_modules(&db, project);
@@ -665,11 +682,11 @@ mod tests {
         let mut db = TestDatabase::new();
         db.add_file(
             "/project/a/templatetags/tags.py",
-            "from django import template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef a_tag():\n    pass\n",
         );
         db.add_file(
             "/project/.venv/lib/python3.12/site-packages/z/templatetags/tags.py",
-            "from django import template\nregister = template.Library()\n",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef z_tag():\n    pass\n",
         );
 
         let search_paths = SearchPaths::from_project_settings(
@@ -679,18 +696,11 @@ mod tests {
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
+        let project = project_with_template_settings(
             &mut db,
             "/project",
             search_paths,
-            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
-                symbols: Vec::new(),
-                libraries: BTreeMap::new(),
-                builtins: vec![
-                    "a.templatetags.tags".to_string(),
-                    "z.templatetags.tags".to_string(),
-                ],
-            })),
+            django_template_settings(&[], &["a.templatetags.tags", "z.templatetags.tags"]),
         );
 
         let modules = templatetag_modules(&db, project);
@@ -738,15 +748,11 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
+        let project = project_with_template_settings(
             &mut db,
             "/project",
             search_paths,
-            TemplateLibraries::default().apply_active_snapshot(Some(TemplateLibrarySnapshot {
-                symbols: Vec::new(),
-                libraries: BTreeMap::new(),
-                builtins: vec!["z_first".to_string(), "a_second".to_string()],
-            })),
+            django_template_settings(&[], &["z_first", "a_second"]),
         );
 
         let specs = compute_filter_arity_specs(&db, project);
@@ -770,12 +776,7 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -808,12 +809,7 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -846,12 +842,7 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -889,12 +880,7 @@ def duplicate(value, arg):
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
 
         let graph = compute_model_graph(&db, project);
         let model = graph.get("Duplicate").expect("model should be discovered");
@@ -916,12 +902,7 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -958,12 +939,7 @@ def duplicate(value, arg):
             &[],
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
         db.set_project(project);
 
         let graph = compute_model_graph(&db, project);
@@ -994,12 +970,7 @@ def duplicate(value, arg):
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
 
         let graph = compute_model_graph(&db, project);
         assert!(graph.get("SharedArticle").is_some());
@@ -1277,12 +1248,7 @@ class Article(models.Model):
             &pythonpath,
         );
         search_paths.register_roots(&db);
-        let project = project_for_search_paths(
-            &mut db,
-            "/project",
-            search_paths,
-            TemplateLibraries::default(),
-        );
+        let project = project_for_search_paths(&mut db, "/project", search_paths);
 
         let modules = model_modules(&db, project);
         let module_paths: Vec<_> = modules

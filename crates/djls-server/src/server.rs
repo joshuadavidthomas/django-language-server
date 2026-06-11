@@ -2,7 +2,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_semantic::ProjectDb;
-use djls_semantic::load_template_library_cache;
 use djls_semantic::refresh_external_data;
 use djls_source::FileKind;
 use tokio::sync::Mutex;
@@ -190,28 +189,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        // Phase 1: Load the cached template library snapshot for near-instant startup.
-        // This populates template_libraries from disk cache so completions and
-        // diagnostics work immediately while fresh project introspection runs.
-        let cache_loaded = self
-            .with_session_mut(|session| {
-                let t = std::time::Instant::now();
-                let loaded = load_template_library_cache(session.db_mut());
-                if loaded {
-                    tracing::info!(
-                        "Template library snapshot cache loaded in {:?}",
-                        t.elapsed()
-                    );
-                } else {
-                    tracing::info!("No template library snapshot cache available");
-                }
-                loaded
-            })
-            .await;
-
-        // Phase 2: Refresh project data in the background.
-        // This validates/refreshes the cached data, extracts external
-        // rules, and initializes the workspace.
+        // Refresh project data in the background and initialize the workspace.
         let rx = self
             .with_session_mut_task(|session| async move {
                 let start = std::time::Instant::now();
@@ -232,12 +210,7 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        // If we loaded from cache, the server is already functional — requests
-        // arriving during the background refresh will use cached data. If no
-        // cache was available, we wait for the full initialization like before.
-        if !cache_loaded {
-            let _ = rx.await;
-        }
+        let _ = rx.await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {

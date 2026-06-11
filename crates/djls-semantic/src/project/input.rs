@@ -12,7 +12,6 @@ use salsa::Setter;
 use crate::project::db::Db as ProjectDb;
 use crate::project::python::Interpreter;
 use crate::project::resolve::SearchPaths;
-use crate::project::symbols::TemplateLibraries;
 use crate::python::ModulePath;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -86,14 +85,6 @@ pub struct Project {
     /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
-    /// Template libraries and symbols for this project.
-    ///
-    /// This value always exists to support progressive enhancement:
-    /// - Installed libraries/symbols are populated by project introspection.
-    ///
-    /// The semantic layer combines this with `{% load %}` scope computed from templates.
-    #[returns(ref)]
-    pub template_libraries: TemplateLibraries,
 }
 
 impl Project {
@@ -107,6 +98,19 @@ impl Project {
         search_paths.register_roots(db);
         if self.search_paths(db) != &search_paths {
             self.set_search_paths(db).to(search_paths);
+        }
+    }
+
+    pub(crate) fn touch_search_path_roots(self, db: &dyn ProjectDb) {
+        for search_path in self.search_paths(db).iter() {
+            if let Some(root) = db.files().root(db, search_path.path()) {
+                let _ = root.revision(db);
+            } else {
+                tracing::warn!(
+                    "Search path has no registered source root: {}",
+                    search_path.path()
+                );
+            }
         }
     }
 
@@ -132,7 +136,6 @@ impl Project {
             settings.pythonpath().to_vec(),
             env_vars,
             settings.tagspecs().clone(),
-            TemplateLibraries::default(),
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)

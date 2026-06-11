@@ -33,15 +33,13 @@ pub use project::StaticKnowledge;
 pub use project::SymbolDefinition;
 pub use project::TemplateLibraries;
 pub use project::TemplateLibrary;
-pub use project::TemplateLibrarySnapshot;
 pub use project::TemplateSymbol;
 pub use project::TemplateSymbolKind;
 pub use project::TemplateSymbolName;
-pub use project::TemplateSymbolSnapshot;
 pub use project::load_env_file;
-pub use project::load_template_library_cache;
 pub use project::refresh_external_data;
 pub use project::template_dirs;
+pub use project::template_libraries;
 pub use python::ExtractionResult;
 pub use python::FilterArity;
 pub use python::ModelGraph;
@@ -122,6 +120,7 @@ mod tests {
     use camino::Utf8PathBuf;
 
     use crate::FilterArity;
+    use crate::StaticKnowledge;
     use crate::SymbolKey;
     use crate::TemplateLibraries;
     use crate::ValidationError;
@@ -215,8 +214,150 @@ mod tests {
             .with_arity_specs(standard_arities())
     }
 
+    fn partial_db() -> TestDatabase {
+        let mut libraries = standard_inventory();
+        libraries.knowledge = StaticKnowledge::Partial;
+        TestDatabase::new()
+            .with_template_libraries(libraries)
+            .with_arity_specs(standard_arities())
+    }
+
+    fn partial_ambiguous_db() -> TestDatabase {
+        let tags = vec![
+            builtin_tag_json("load", default_builtins_module()),
+            library_tag_json("shared", "alpha", "project.alpha_tags"),
+            library_tag_json("shared", "beta", "project.beta_tags"),
+        ];
+        let filters = Vec::new();
+        let libraries = HashMap::from([
+            ("alpha".to_string(), "project.alpha_tags".to_string()),
+            ("beta".to_string(), "project.beta_tags".to_string()),
+        ]);
+        let builtins = vec![default_builtins_module().to_string()];
+        let mut libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
+        libraries.knowledge = StaticKnowledge::Partial;
+        TestDatabase::new().with_template_libraries(libraries)
+    }
+
     fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
         collect_errors(db, "test.html", source)
+    }
+
+    #[test]
+    fn partial_knowledge_suppresses_unknown_tag() {
+        let db = partial_db();
+        let errors = collect_all_errors(&db, "{% definitely_unknown %}\n");
+
+        assert!(
+            !errors
+                .iter()
+                .any(|error| matches!(error, ValidationError::UnknownTag { .. })),
+            "unknown tags should be suppressed under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_keeps_unloaded_tag() {
+        let db = partial_db();
+        let errors = collect_all_errors(&db, "{% trans \"hello\" %}\n");
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::UnloadedTag { tag, library, .. }
+                    if tag == "trans" && library == "i18n"
+            )),
+            "known unloaded tags should still be reported under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_keeps_ambiguous_unloaded_tag() {
+        let db = partial_ambiguous_db();
+        let errors = collect_all_errors(&db, "{% shared %}\n");
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::AmbiguousUnloadedTag { tag, libraries, .. }
+                    if tag == "shared" && libraries == &vec!["alpha".to_string(), "beta".to_string()]
+            )),
+            "known ambiguous unloaded tags should still be reported under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_suppresses_unknown_load_library() {
+        let db = partial_db();
+        let errors = collect_all_errors(&db, "{% load missing_library %}\n");
+
+        assert!(
+            !errors
+                .iter()
+                .any(|error| matches!(error, ValidationError::UnknownLibrary { .. })),
+            "unknown load libraries should be suppressed under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_suppresses_unknown_filter() {
+        let db = partial_db();
+        let errors = collect_all_errors(&db, "{{ value|definitely_unknown }}\n");
+
+        assert!(
+            !errors
+                .iter()
+                .any(|error| matches!(error, ValidationError::UnknownFilter { .. })),
+            "unknown filters should be suppressed under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_keeps_known_filter_arity() {
+        let db = partial_db();
+        let errors = collect_all_errors(&db, "{{ value|truncatewords }}\n");
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
+            )),
+            "known filter arity diagnostics should still be reported under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_suppresses_filter_arity_after_unknown_load() {
+        let db = partial_db();
+        let errors = collect_all_errors(
+            &db,
+            "{% load project_filters %}\n{{ value|truncatewords }}\n",
+        );
+
+        assert!(
+            !errors.iter().any(|error| matches!(
+                error,
+                ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
+            )),
+            "unknown loaded libraries may shadow known filters under partial knowledge: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_keeps_filter_arity_after_unrelated_unknown_selective_load() {
+        let db = partial_db();
+        let errors = collect_all_errors(
+            &db,
+            "{% load other_filter from project_filters %}\n{{ value|truncatewords }}\n",
+        );
+
+        assert!(
+            errors.iter().any(|error| matches!(
+                error,
+                ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
+            )),
+            "unknown selective loads should only shadow named filters: {errors:?}"
+        );
     }
 
     // Integration: Mixed diagnostics
