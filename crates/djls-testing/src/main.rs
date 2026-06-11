@@ -4,12 +4,12 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
-use djls_corpus::LockFilter;
-use djls_corpus::Lockfile;
-use djls_corpus::Manifest;
+use djls_testing::LockFilter;
+use djls_testing::Lockfile;
+use djls_testing::Manifest;
 
 #[derive(Parser)]
-#[command(name = "djls-corpus", about = "Manage the Django template corpus")]
+#[command(name = "corpus", about = "Manage the Django template corpus")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -76,14 +76,14 @@ fn main() -> anyhow::Result<()> {
 
             let lockfile = Lockfile::load(&lockfile_path).map_err(|_| {
                 anyhow::anyhow!(
-                    "No lockfile found at {lockfile_path}. Run `djls-corpus lock` first."
+                    "No lockfile found at {lockfile_path}. Run `cargo run -p djls-testing --bin corpus -- lock` first."
                 )
             })?;
             let manifest = Manifest::load(&manifest_path)?;
             let corpus_root = manifest.corpus_root(manifest_dir);
 
             tracing::info!(%corpus_root, "syncing corpus");
-            djls_corpus::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
+            djls_testing::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
             tracing::info!(%corpus_root, "corpus synced");
         }
         Command::Clean { names } => {
@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
                 std::fs::remove_dir_all(corpus_root.as_std_path())?;
                 tracing::info!("corpus cleaned");
             } else {
-                djls_corpus::clean_entries(&corpus_root, &names)?;
+                djls_testing::clean_entries(&corpus_root, &names)?;
             }
         }
     }
@@ -125,7 +125,7 @@ fn update_lockfile(
         .join("licenses");
 
     tracing::info!("resolving latest versions");
-    let (lockfile, errors) = djls_corpus::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
+    let (lockfile, errors) = djls_testing::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
     lockfile.save(lockfile_path)?;
     tracing::info!(%lockfile_path, "lockfile updated");
 

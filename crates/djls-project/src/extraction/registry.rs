@@ -349,7 +349,7 @@ fn callable_name(expr: &Expr) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use djls_corpus::Corpus;
+    use djls_testing::Corpus;
 
     use super::*;
 

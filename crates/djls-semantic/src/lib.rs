@@ -805,9 +805,9 @@ mod tests {
     // argument validation (S114, S115, S116, S117) at scale.
     //
     // All tests skip gracefully when the corpus is unavailable.
-    // Run `cargo run -p djls-corpus -- sync` to populate it.
+    // Run `cargo run -p djls-testing --bin corpus -- sync` to populate it.
 
-    use djls_corpus::Corpus;
+    use djls_testing::Corpus;
 
     use crate::testing::build_entry_specs;
     use crate::testing::build_specs_from_extraction;

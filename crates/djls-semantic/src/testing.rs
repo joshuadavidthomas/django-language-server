@@ -11,8 +11,8 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 #[cfg(test)]
 use djls_conf::TagSpecDef;
-use djls_corpus::Corpus;
-use djls_corpus::module_path_from_file;
+use djls_testing::Corpus;
+use djls_testing::module_path_from_file;
 use djls_project::ArgumentCountConstraint;
 use djls_project::ChoiceAt;
 use djls_project::Db as ProjectDb;

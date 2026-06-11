@@ -2,7 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use serde::Deserialize;
 
-use crate::Corpus;
+use crate::corpus::Corpus;
 
 const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml");
 const CRATE_DIR: &str = env!("CARGO_MANIFEST_DIR");

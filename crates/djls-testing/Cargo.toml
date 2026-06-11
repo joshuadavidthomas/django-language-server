@@ -1,11 +1,11 @@
 [package]
-name = "djls-corpus"
+name = "djls-testing"
 version = "0.0.0"
 edition.workspace = true
-description = "Corpus management for Django template extraction testing"
+description = "Shared test infrastructure for Django Language Server"
 
 [[bin]]
-name = "djls-corpus"
+name = "corpus"
 path = "src/main.rs"
 
 [dependencies]
@@ -13,6 +13,7 @@ anyhow = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true }
 flate2 = { workspace = true }
+ignore = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -21,7 +22,6 @@ tempfile = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-ignore = { workspace = true }
 
 [lints]
 workspace = true

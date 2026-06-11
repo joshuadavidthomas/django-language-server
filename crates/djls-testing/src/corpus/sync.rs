@@ -2,7 +2,7 @@
 //!
 //! The lockfile contains fully-resolved refs, URLs, and commit SHAs.
 //! This module downloads and extracts them without any network resolution —
-//! all resolution happens in [`crate::lock`].
+//! all resolution happens in [`crate::corpus::lock`].
 
 use std::collections::HashSet;
 use std::io::Read;
@@ -15,9 +15,9 @@ use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::archive::extract_tarball;
-use crate::lock::LockedRepo;
-use crate::lock::Lockfile;
+use crate::corpus::archive::extract_tarball;
+use crate::corpus::lock::LockedRepo;
+use crate::corpus::lock::Lockfile;
 
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 

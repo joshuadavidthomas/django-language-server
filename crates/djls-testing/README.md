@@ -1,4 +1,4 @@
-# djls-corpus
+# djls-testing corpus
 
 Corpus of real-world Django projects for grounding tests in reality.
 
@@ -9,10 +9,10 @@ Django project fact tests use minimal `django_settings_module` / `django_setting
 ## Commands
 
 ```bash
-cargo run -p djls-corpus -- lock          # Resolve versions and update the lockfile
-cargo run -p djls-corpus -- sync          # Download repos from the lockfile
-cargo run -p djls-corpus -- sync -U       # Re-resolve versions then sync
-cargo run -p djls-corpus -- clean         # Remove all synced corpus data
+cargo run -p djls-testing --bin corpus -- lock          # Resolve versions and update the lockfile
+cargo run -p djls-testing --bin corpus -- sync          # Download repos from the lockfile
+cargo run -p djls-testing --bin corpus -- sync -U       # Re-resolve versions then sync
+cargo run -p djls-testing --bin corpus -- clean         # Remove all synced corpus data
 ```
 
 ## Licensing

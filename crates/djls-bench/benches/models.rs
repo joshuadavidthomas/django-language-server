@@ -101,13 +101,13 @@ struct CorpusModels {
 }
 
 fn load_corpus_models_inner(
-    get_paths: impl FnOnce(&djls_corpus::Corpus) -> Option<Vec<Utf8PathBuf>>,
+    get_paths: impl FnOnce(&djls_testing::Corpus) -> Option<Vec<Utf8PathBuf>>,
 ) -> Option<CorpusModels> {
-    if !djls_corpus::Corpus::is_available() {
+    if !djls_testing::Corpus::is_available() {
         return None;
     }
 
-    let corpus = djls_corpus::Corpus::require();
+    let corpus = djls_testing::Corpus::require();
     let mut paths = get_paths(&corpus)?;
     paths.sort();
 
@@ -115,7 +115,7 @@ fn load_corpus_models_inner(
         .into_iter()
         .filter_map(|path| {
             let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            let module_path = djls_corpus::module_path_from_file(&path);
+            let module_path = djls_testing::module_path_from_file(&path);
             Some((source, module_path))
         })
         .collect();

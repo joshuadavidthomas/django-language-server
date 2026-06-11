@@ -9,17 +9,17 @@
 //!
 //! ```bash
 //! # Sync the corpus:
-//! cargo run -p djls-corpus -- sync -U
+//! cargo run -p djls-testing --bin corpus -- sync -U
 //!
 //! # Run model corpus tests:
-//! cargo test -p djls-semantic --test corpus_models -- --nocapture
+//! cargo test -p djls-project --test corpus_models -- --nocapture
 //!
 //! # Update snapshots after intentional changes:
-//! INSTA_UPDATE=1 cargo test -p djls-semantic --test corpus_models
+//! INSTA_UPDATE=1 cargo test -p djls-project --test corpus_models
 //! ```
 
-use djls_corpus::Corpus;
-use djls_corpus::module_path_from_file;
+use djls_testing::Corpus;
+use djls_testing::module_path_from_file;
 use djls_project::extract_model_graph;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {

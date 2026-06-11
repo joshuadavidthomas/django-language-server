@@ -14,7 +14,7 @@
 //! # Usage
 //!
 //! ```no_run
-//! use djls_corpus::Corpus;
+//! use djls_testing::Corpus;
 //!
 //! let corpus = Corpus::require();
 //! let django = corpus.latest_package("django").expect("no Django in corpus");
@@ -74,7 +74,7 @@ impl Corpus {
     pub fn require() -> Self {
         assert!(
             Self::is_available(),
-            "Corpus not synced. Run: cargo run --bin djls-corpus -- sync",
+            "Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync",
         );
         let corpus = Self { _private: () };
         let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH))
@@ -413,7 +413,7 @@ fn synced_children(parent: &Utf8Path) -> Vec<Utf8PathBuf> {
 ///
 /// ```
 /// # use camino::Utf8Path;
-/// # use djls_corpus::module_path_from_file;
+/// # use djls_testing::module_path_from_file;
 /// let path = Utf8Path::new(".corpus/repos/django-6.0/django/template/defaulttags.py");
 /// assert_eq!(module_path_from_file(path), "django.template.defaulttags");
 ///

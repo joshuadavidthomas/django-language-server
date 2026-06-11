@@ -3,7 +3,7 @@
 /// These helpers load Python source from the corpus and extract specific
 /// functions for targeted unit testing. The corpus is required — helpers
 /// panic with a helpful message if it has not been synced.
-use djls_corpus::Corpus;
+use djls_testing::Corpus;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_parser::parse_module;

@@ -10,19 +10,19 @@
 //!
 //! ```bash
 //! # Sync the corpus:
-//! cargo run -p djls-corpus -- sync -U
+//! cargo run -p djls-testing --bin corpus -- sync -U
 //!
 //! # Run all corpus tests:
-//! cargo test -p djls-semantic --test corpus -- --nocapture
+//! cargo test -p djls-project --test corpus -- --nocapture
 //!
 //! # Update snapshots after intentional changes:
-//! INSTA_UPDATE=1 cargo test -p djls-semantic --test corpus
+//! INSTA_UPDATE=1 cargo test -p djls-project --test corpus
 //! ```
 
 use std::collections::BTreeMap;
 
-use djls_corpus::Corpus;
-use djls_corpus::module_path_from_file;
+use djls_testing::Corpus;
+use djls_testing::module_path_from_file;
 use djls_project::ExtractionResult;
 use djls_project::FilterArity;
 use djls_project::SymbolKey;
