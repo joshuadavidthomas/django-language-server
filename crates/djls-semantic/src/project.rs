@@ -4,14 +4,16 @@ mod introspector;
 mod names;
 mod python;
 pub(crate) mod resolve;
+mod settings;
 mod symbols;
 mod sync;
 mod system;
 mod templates;
 
+pub use djls_project::StaticKnowledge;
+
 pub use crate::project::db::Db;
 pub use crate::project::input::Project;
-pub use crate::project::input::TemplateDirs;
 pub use crate::project::input::load_env_file;
 pub use crate::project::introspector::ProjectIntrospector;
 pub use crate::project::names::LibraryName;
@@ -20,9 +22,9 @@ pub use crate::project::names::TemplateSymbolName;
 pub use crate::project::python::Interpreter;
 pub(crate) use crate::project::resolve::model_modules;
 pub(crate) use crate::project::resolve::templatetag_modules;
+pub use crate::project::settings::template_dirs;
 pub use crate::project::symbols::InstalledSymbolCandidate;
 pub use crate::project::symbols::InstalledSymbolOrigin;
-pub use crate::project::symbols::Knowledge;
 pub use crate::project::symbols::LibraryOrigin;
 pub use crate::project::symbols::SymbolDefinition;
 pub use crate::project::symbols::TemplateLibraries;

@@ -7,8 +7,8 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::project::Knowledge;
 use crate::project::LibraryName;
+use crate::project::StaticKnowledge;
 use crate::project::TemplateLibraries;
 use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
@@ -21,9 +21,9 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    active_knowledge: Knowledge,
+    active_knowledge: StaticKnowledge,
 ) {
-    if active_knowledge != Knowledge::Known {
+    if active_knowledge != StaticKnowledge::Known {
         return;
     }
 
@@ -62,9 +62,9 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    active_knowledge: Knowledge,
+    active_knowledge: StaticKnowledge,
 ) {
-    if active_knowledge != Knowledge::Known {
+    if active_knowledge != StaticKnowledge::Known {
         return;
     }
 
@@ -103,7 +103,7 @@ pub(crate) fn check_load_libraries_rule(
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
 ) {
-    if template_libraries.active_knowledge != Knowledge::Known {
+    if template_libraries.active_knowledge != StaticKnowledge::Known {
         return;
     }
 

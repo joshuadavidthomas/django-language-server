@@ -121,6 +121,18 @@ def e2e(session):
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
     session.install(f"django=={DJ_DEFAULT}")
+    session.run(
+        "cargo",
+        "test",
+        "-q",
+        "-p",
+        "djls-semantic",
+        "template_dirs_match_django_facts_golden",
+        "--",
+        "--ignored",
+        external=True,
+        env={"VIRTUAL_ENV": session.virtualenv.location},
+    )
 
     args = []
     for arg in session.posargs:

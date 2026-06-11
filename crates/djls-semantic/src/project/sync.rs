@@ -17,7 +17,6 @@ use sha2::Sha256;
 
 use crate::project::db::Db as ProjectDb;
 use crate::project::input::Project;
-use crate::project::input::TemplateDirs;
 use crate::project::introspector::IntrospectionRequest;
 use crate::project::python::Interpreter;
 use crate::project::resolve::model_modules;
@@ -36,7 +35,6 @@ pub fn refresh_external_data(db: &mut dyn ProjectDb) {
     };
 
     project.refresh_source_roots(db);
-    refresh_template_dirs(db, project);
     refresh_template_libraries(db, project);
     refresh_python_modules(db, project);
 }
@@ -85,56 +83,6 @@ pub fn load_template_library_cache(db: &mut dyn ProjectDb) -> bool {
     tracing::info!("Loaded template library snapshot from cache: {}", path);
     apply_template_library_snapshot(db, project, envelope.response);
     true
-}
-
-#[derive(Serialize)]
-struct TemplateDirsRequest;
-
-#[derive(Deserialize)]
-struct TemplateDirsResponse {
-    dirs: Vec<Utf8PathBuf>,
-}
-
-impl IntrospectionRequest for TemplateDirsRequest {
-    const NAME: &'static str = "template_dirs";
-    type Response = TemplateDirsResponse;
-}
-
-fn refresh_template_dirs(db: &mut dyn ProjectDb, project: Project) {
-    tracing::debug!("Requesting template directories from project introspection");
-
-    let Some(response) = db.project_introspector().query(db, &TemplateDirsRequest) else {
-        return;
-    };
-
-    let dir_count = response.dirs.len();
-    tracing::info!(
-        "Retrieved {} template directories from project introspection",
-        dir_count
-    );
-
-    for (i, dir) in response.dirs.iter().enumerate() {
-        tracing::debug!("  Template dir [{}]: {}", i, dir);
-    }
-
-    let missing_dirs: Vec<_> = response
-        .dirs
-        .iter()
-        .filter(|dir| !db.path_exists(dir))
-        .collect();
-
-    if !missing_dirs.is_empty() {
-        tracing::warn!(
-            "Found {} non-existent template directories: {:?}",
-            missing_dirs.len(),
-            missing_dirs
-        );
-    }
-
-    let next = TemplateDirs::Known(response.dirs);
-    if project.template_dirs(db) != &next {
-        project.set_template_dirs(db).to(next);
-    }
 }
 
 #[derive(Serialize)]

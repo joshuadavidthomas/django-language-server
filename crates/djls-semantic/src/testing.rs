@@ -35,8 +35,6 @@ use crate::project::Db as ProjectDb;
 use crate::project::Interpreter;
 use crate::project::Project;
 use crate::project::ProjectIntrospector;
-#[cfg(test)]
-use crate::project::TemplateDirs;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateLibrarySnapshot;
 use crate::project::TemplateSymbolSnapshot;
@@ -228,7 +226,6 @@ pub(crate) struct ProjectFixture {
     interpreter: Interpreter,
     search_paths: Option<SearchPaths>,
     register_roots: bool,
-    template_dirs: TemplateDirs,
     tag_specs: TagSpecDef,
     template_libraries: TemplateLibraries,
 }
@@ -247,7 +244,6 @@ impl ProjectFixture {
             interpreter: Interpreter::discover(settings.venv_path()),
             search_paths: None,
             register_roots: true,
-            template_dirs: TemplateDirs::Unknown,
             tag_specs: settings.tagspecs().clone(),
             template_libraries: TemplateLibraries::default(),
         }
@@ -286,12 +282,6 @@ impl ProjectFixture {
     #[must_use]
     pub(crate) fn register_roots(mut self, register_roots: bool) -> Self {
         self.register_roots = register_roots;
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn template_dirs(mut self, template_dirs: TemplateDirs) -> Self {
-        self.template_dirs = template_dirs;
         self
     }
 
@@ -336,7 +326,6 @@ impl ProjectFixture {
             self.django_settings_module,
             self.pythonpath,
             self.env_vars,
-            self.template_dirs,
             self.tag_specs,
             self.template_libraries,
         )
@@ -381,7 +370,10 @@ impl SemanticDb for TestDatabase {
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        None
+        self.project.and_then(|project| {
+            let (dirs, knowledge) = crate::project::template_dirs(self, project);
+            (*knowledge == crate::project::StaticKnowledge::Known).then(|| dirs.clone())
+        })
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

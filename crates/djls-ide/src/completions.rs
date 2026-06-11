@@ -8,7 +8,7 @@
 
 use djls_semantic::AvailableSymbols;
 use djls_semantic::InstalledSymbolOrigin;
-use djls_semantic::Knowledge;
+use djls_semantic::StaticKnowledge;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
@@ -408,7 +408,7 @@ pub fn completion(
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
 
-    let available_symbols = if template_libraries.active_knowledge == Knowledge::Known {
+    let available_symbols = if template_libraries.active_knowledge == StaticKnowledge::Known {
         match &context {
             CompletionOffsetContext::Template(
                 TemplateCompletionContext::TagName { .. }
@@ -503,7 +503,7 @@ fn generate_tag_name_candidates(
 ) -> Vec<CompletionCandidate> {
     let mut candidates = Vec::new();
 
-    if template_libraries.active_knowledge != Knowledge::Known {
+    if template_libraries.active_knowledge != StaticKnowledge::Known {
         return candidates;
     }
 
@@ -647,7 +647,7 @@ fn generate_load_symbol_candidates(
     needs_trailing_space: bool,
     template_libraries: &TemplateLibraries,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.active_knowledge != Knowledge::Known {
+    if template_libraries.active_knowledge != StaticKnowledge::Known {
         return Vec::new();
     }
 
@@ -677,7 +677,7 @@ fn generate_filter_candidates(
     template_libraries: &TemplateLibraries,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.active_knowledge == Knowledge::Known {
+    if template_libraries.active_knowledge == StaticKnowledge::Known {
         let mut candidates = Vec::new();
 
         for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter)
@@ -757,7 +757,7 @@ mod tests {
         }
 
         TemplateLibraries {
-            active_knowledge: Knowledge::Known,
+            active_knowledge: StaticKnowledge::Known,
             loadable,
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -790,7 +790,7 @@ mod tests {
         ));
 
         TemplateLibraries {
-            active_knowledge: Knowledge::Known,
+            active_knowledge: StaticKnowledge::Known,
             loadable: BTreeMap::from([(library_name, vec![library])]),
             builtins: BTreeMap::new(),
             builtin_order: Vec::new(),
@@ -827,7 +827,7 @@ mod tests {
         ));
 
         TemplateLibraries {
-            active_knowledge: Knowledge::Known,
+            active_knowledge: StaticKnowledge::Known,
             loadable: BTreeMap::from([(i18n_name, vec![i18n])]),
             builtins: BTreeMap::from([(builtin_module.clone(), builtin)]),
             builtin_order: vec![builtin_module],

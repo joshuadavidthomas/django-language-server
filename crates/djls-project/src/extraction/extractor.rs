@@ -2,25 +2,30 @@
 //!
 //! This extractor intentionally recognizes a small set of settings idioms. For
 //! string-list settings such as `INSTALLED_APPS`, unsupported elements are
-//! skipped and the setting becomes [`Knowledge::Partial`] instead of failing
+//! skipped and the setting becomes [`StaticKnowledge::Partial`] instead of failing
 //! the whole list. That differs from ty's `__all__` collector, but it matches
 //! Django settings in practice: one environment-driven entry should not hide
 //! the static entries around it.
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use ruff_python_ast as ast;
 use ruff_python_parser::parse_module;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 use crate::extraction::paths::evaluate_path_expr;
 use crate::extraction::settings::DjangoSettings;
-use crate::extraction::settings::Knowledge;
-use crate::extraction::settings::PathValue;
+use crate::extraction::settings::InstalledAppsSetting;
+use crate::extraction::settings::LocalBindings;
 use crate::extraction::settings::Reason;
-use crate::extraction::settings::SettingsEnv;
-use crate::extraction::settings::StarImport;
-use crate::extraction::settings::StarImportResolver;
-use crate::extraction::settings::StringListSetting;
+use crate::extraction::settings::SettingsSource;
+use crate::extraction::settings::SettingsSourceResolver;
+use crate::extraction::settings::SettingsStarImport;
+use crate::extraction::settings::StaticKnowledge;
 use crate::extraction::settings::TemplateBackend;
+use crate::extraction::settings::TemplateDirPath;
+use crate::extraction::settings::TemplateSettings;
 
 const INSTALLED_APPS: &str = "INSTALLED_APPS";
 const TEMPLATES: &str = "TEMPLATES";
@@ -30,46 +35,152 @@ const TEMPLATES: &str = "TEMPLATES";
 pub fn extract_settings(
     source: &str,
     module_path: &Utf8Path,
-    resolver: &mut dyn StarImportResolver,
+    resolver: &mut dyn SettingsSourceResolver,
 ) -> DjangoSettings {
-    extract_settings_env(source, module_path, resolver).into_settings()
+    let mut extraction = SettingsExtraction::default();
+    extraction
+        .extract_module(source, module_path, resolver)
+        .into_settings()
 }
 
-/// Extract Django settings into the reusable extraction environment.
-#[must_use]
-pub fn extract_settings_env(
-    source: &str,
-    module_path: &Utf8Path,
-    resolver: &mut dyn StarImportResolver,
-) -> SettingsEnv {
-    let mut extractor = SettingsExtractor {
-        env: SettingsEnv::new(),
-        module_path,
-        resolver,
-    };
-
-    let Ok(parsed) = parse_module(source) else {
-        extractor.mark_syntax_error();
-        return extractor.env;
-    };
-
-    let module = parsed.into_syntax();
-    extractor.walk_body(&module.body);
-    extractor.env
+#[derive(Debug, Default)]
+struct SettingsExtraction {
+    active: FxHashSet<Utf8PathBuf>,
+    cache: FxHashMap<Utf8PathBuf, SettingsBindings>,
 }
 
-struct SettingsExtractor<'a> {
-    env: SettingsEnv,
+impl SettingsExtraction {
+    fn extract_module(
+        &mut self,
+        source: &str,
+        module_path: &Utf8Path,
+        resolver: &mut dyn SettingsSourceResolver,
+    ) -> SettingsBindings {
+        let path = module_path.to_path_buf();
+        if let Some(cached) = self.cache.get(&path) {
+            return cached.clone();
+        }
+        if !self.active.insert(path.clone()) {
+            return SettingsBindings::new();
+        }
+
+        let mut collector = SettingsBindingsCollector {
+            bindings: SettingsBindings::new(),
+            module_path,
+            resolver,
+            extraction: self,
+        };
+
+        if let Ok(parsed) = parse_module(source) {
+            let module = parsed.into_syntax();
+            collector.walk_body(&module.body);
+        } else {
+            collector.mark_syntax_error();
+        }
+
+        let bindings = collector.into_bindings();
+        self.active.remove(&path);
+        self.cache.insert(path, bindings.clone());
+        bindings
+    }
+
+    fn extract_star_import(
+        &mut self,
+        imported: &SettingsSource,
+        star_imports: &mut dyn SettingsSourceResolver,
+    ) -> Option<SettingsBindings> {
+        if self.active.contains(&imported.path) {
+            return None;
+        }
+        Some(self.extract_module(&imported.source, &imported.path, star_imports))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct SettingsBindings {
+    installed_apps: Option<InstalledAppsSetting>,
+    templates: Option<TemplateSettings>,
+    locals: LocalBindings,
+}
+
+impl SettingsBindings {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn into_settings(self) -> DjangoSettings {
+        DjangoSettings {
+            installed_apps: self.installed_apps.unwrap_or_default(),
+            templates: self.templates.unwrap_or_default(),
+        }
+    }
+
+    fn merge_star_import(&mut self, other: Self) {
+        if let Some(installed_apps) = other.installed_apps {
+            self.installed_apps = Some(installed_apps);
+        }
+        if let Some(templates) = other.templates {
+            self.templates = Some(templates);
+        }
+        self.locals.extend(other.locals);
+    }
+
+    fn assign_installed_apps(&mut self, values: Vec<String>) {
+        self.installed_apps = Some(InstalledAppsSetting::known(values));
+    }
+
+    fn installed_apps_mut(&mut self) -> &mut InstalledAppsSetting {
+        self.installed_apps
+            .get_or_insert_with(InstalledAppsSetting::default)
+    }
+
+    fn make_installed_apps_unknown(&mut self, reason: Reason) {
+        self.installed_apps_mut().make_unknown(reason);
+    }
+
+    fn can_mutate_installed_apps(&self) -> bool {
+        self.installed_apps
+            .as_ref()
+            .is_some_and(|setting| setting.knowledge != StaticKnowledge::Unknown)
+    }
+
+    fn assign_templates(&mut self, backends: Vec<TemplateBackend>) {
+        self.templates = Some(TemplateSettings::known(backends));
+    }
+
+    fn templates_mut(&mut self) -> &mut TemplateSettings {
+        self.templates.get_or_insert_with(TemplateSettings::default)
+    }
+
+    fn make_templates_partial(&mut self) {
+        match &mut self.templates {
+            Some(templates) => templates.make_partial(),
+            None => self.templates = Some(TemplateSettings::partial()),
+        }
+    }
+
+    fn make_templates_unknown(&mut self) {
+        self.templates_mut().make_unknown();
+    }
+}
+
+struct SettingsBindingsCollector<'a> {
+    bindings: SettingsBindings,
     module_path: &'a Utf8Path,
-    resolver: &'a mut dyn StarImportResolver,
+    resolver: &'a mut dyn SettingsSourceResolver,
+    extraction: &'a mut SettingsExtraction,
 }
 
-impl SettingsExtractor<'_> {
+impl SettingsBindingsCollector<'_> {
+    fn into_bindings(self) -> SettingsBindings {
+        self.bindings
+    }
+
     fn mark_syntax_error(&mut self) {
-        self.env
+        self.bindings
             .installed_apps_mut()
             .make_partial(Reason::SyntaxErrors);
-        self.env.make_templates_partial();
+        self.bindings.make_templates_partial();
     }
 
     fn walk_body(&mut self, body: &[ast::Stmt]) {
@@ -191,10 +302,10 @@ impl SettingsExtractor<'_> {
         } else if let Some(index) = templates_dirs_target(&attribute.value) {
             self.apply_template_dirs_call(index, attribute.attr.as_str(), &call.arguments);
         } else if expr_touches_name(expr, INSTALLED_APPS) {
-            self.env
+            self.bindings
                 .make_installed_apps_unknown(Reason::UnsupportedMutation);
         } else if expr_touches_name(expr, TEMPLATES) {
-            self.env.make_templates_unknown();
+            self.bindings.make_templates_unknown();
         }
     }
 
@@ -211,19 +322,24 @@ impl SettingsExtractor<'_> {
     fn walk_import_from(&mut self, import: &ast::StmtImportFrom) {
         let is_star_import = import.names.iter().any(|alias| alias.name.as_str() == "*");
         if is_star_import {
-            let star_import = StarImport {
+            let star_import = SettingsStarImport {
                 level: import.level,
                 module: import.module.as_ref().map(ToString::to_string),
             };
-            if let Some(env) = self.resolver.resolve(&star_import) {
-                self.env.merge_star_import(env);
+            if let Some(bindings) = self
+                .resolver
+                .resolve_star_import(&star_import, self.module_path)
+                .and_then(|resolved| {
+                    self.extraction
+                        .extract_star_import(&resolved, self.resolver)
+                })
+            {
+                self.bindings.merge_star_import(bindings);
             } else {
-                self.env.bind_installed_apps();
-                self.env
+                self.bindings
                     .installed_apps_mut()
-                    .make_partial(Reason::UnresolvedStarImport);
-                self.env.make_templates_partial();
-                self.env.bind_templates();
+                    .make_partial(Reason::UnresolvedSettingsStarImport);
+                self.bindings.make_templates_partial();
             }
             return;
         }
@@ -276,14 +392,14 @@ impl SettingsExtractor<'_> {
             writes.merge(collect_watched_writes(arm));
         }
 
-        let base = self.env.clone();
-        let mut branch_envs = Vec::with_capacity(arms.len());
+        let base = self.bindings.clone();
+        let mut branch_bindings = Vec::with_capacity(arms.len());
         for arm in arms {
-            self.env = base.clone();
+            self.bindings = base.clone();
             self.walk_body(arm);
-            branch_envs.push(self.env.clone());
+            branch_bindings.push(self.bindings.clone());
         }
-        self.env = join_ambiguous_env(base, &branch_envs, writes);
+        self.bindings = join_ambiguous_bindings(base, &branch_bindings, writes);
     }
 
     fn evaluate_test_expr(&self, expr: &ast::Expr) -> Truthiness {
@@ -299,7 +415,8 @@ impl SettingsExtractor<'_> {
                 self.evaluate_test_expr(&unary.operand).negate()
             }
             ast::Expr::Name(name) => self
-                .env
+                .bindings
+                .locals
                 .bool_value(name.id.as_str())
                 .map_or(Truthiness::Ambiguous, Truthiness::from_bool),
             _ => Truthiness::Ambiguous,
@@ -316,62 +433,59 @@ impl SettingsExtractor<'_> {
 
     fn assign_aux(&mut self, name: &str, value: &ast::Expr) {
         match bool_literal(value) {
-            Some(value) => self.env.set_bool(name, value),
-            None => self.env.remove_bool(name),
+            Some(value) => self.bindings.locals.set_bool(name, value),
+            None => self.bindings.locals.remove_bool(name),
         }
 
-        match evaluate_path_expr(value, self.module_path, &self.env) {
-            PathValue::Resolved(path) => self.env.set_path(name, PathValue::Resolved(path)),
-            PathValue::Unknown(_) => self.env.remove_path(name),
+        match evaluate_path_expr(value, self.module_path, &self.bindings.locals) {
+            TemplateDirPath::Resolved(path) => self.bindings.locals.set_path(name, path),
+            TemplateDirPath::Unknown => self.bindings.locals.remove_path(name),
         }
     }
 
     fn assign_installed_apps(&mut self, value: &ast::Expr) {
         let Some((values, reasons)) = self.extract_string_list_assignment(value) else {
-            self.env
+            self.bindings
                 .make_installed_apps_unknown(Reason::UnsupportedAssignment);
             return;
         };
 
-        self.env.assign_installed_apps(values);
+        self.bindings.assign_installed_apps(values);
         for reason in reasons {
-            self.env.installed_apps_mut().make_partial(reason);
+            self.bindings.installed_apps_mut().make_partial(reason);
         }
     }
 
     fn extend_installed_apps(&mut self, value: &ast::Expr) {
-        if !self.can_mutate_installed_apps() {
-            self.env
+        if !self.bindings.can_mutate_installed_apps() {
+            self.bindings
                 .make_installed_apps_unknown(Reason::UnsupportedMutation);
             return;
         }
 
-        self.env.bind_installed_apps();
         let (values, reasons) = self.extract_string_list_operand(value);
-        self.env.installed_apps_mut().values.extend(values);
+        self.bindings.installed_apps_mut().values.extend(values);
         for reason in reasons {
-            self.env.installed_apps_mut().make_partial(reason);
+            self.bindings.installed_apps_mut().make_partial(reason);
         }
-    }
-
-    fn can_mutate_installed_apps(&self) -> bool {
-        self.env.installed_apps.knowledge != Knowledge::Unknown
     }
 
     fn apply_installed_apps_call(&mut self, method: &str, arguments: &ast::Arguments) {
-        if !self.can_mutate_installed_apps() {
-            self.env
+        if !self.bindings.can_mutate_installed_apps() {
+            self.bindings
                 .make_installed_apps_unknown(Reason::UnsupportedMutation);
             return;
         }
 
-        self.env.bind_installed_apps();
         match method {
             "append" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
                 if let Some(value) = string_literal(&arguments.args[0]) {
-                    self.env.installed_apps_mut().values.push(value.to_string());
+                    self.bindings
+                        .installed_apps_mut()
+                        .values
+                        .push(value.to_string());
                 } else {
-                    self.env
+                    self.bindings
                         .installed_apps_mut()
                         .make_partial(Reason::NonLiteralElement);
                 }
@@ -384,12 +498,12 @@ impl SettingsExtractor<'_> {
                 let value = string_literal(&arguments.args[1]);
                 match (index, value) {
                     (Some(index), Some(value)) => {
-                        let values = &mut self.env.installed_apps_mut().values;
+                        let values = &mut self.bindings.installed_apps_mut().values;
                         let index = index.min(values.len());
                         values.insert(index, value.to_string());
                     }
                     _ => self
-                        .env
+                        .bindings
                         .installed_apps_mut()
                         .make_partial(Reason::UnsupportedMutation),
                 }
@@ -397,22 +511,22 @@ impl SettingsExtractor<'_> {
             "remove" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
                 if let Some(value) = string_literal(&arguments.args[0]) {
                     if let Some(position) = self
-                        .env
+                        .bindings
                         .installed_apps_mut()
                         .values
                         .iter()
                         .position(|item| item == value)
                     {
-                        self.env.installed_apps_mut().values.remove(position);
+                        self.bindings.installed_apps_mut().values.remove(position);
                     }
                 } else {
-                    self.env
+                    self.bindings
                         .installed_apps_mut()
                         .make_partial(Reason::NonLiteralElement);
                 }
             }
             _ => self
-                .env
+                .bindings
                 .make_installed_apps_unknown(Reason::UnsupportedMutation),
         }
     }
@@ -450,17 +564,19 @@ impl SettingsExtractor<'_> {
                 }
                 (values, reasons)
             }
-            ast::Expr::Name(name) if name.id.as_str() == INSTALLED_APPS => (
-                self.env.installed_apps.values.clone(),
-                self.env.installed_apps.reasons.clone(),
-            ),
+            ast::Expr::Name(name) if name.id.as_str() == INSTALLED_APPS => {
+                self.bindings.installed_apps.as_ref().map_or_else(
+                    || (Vec::new(), vec![Reason::UnsupportedValue]),
+                    |setting| (setting.values.clone(), setting.reasons.clone()),
+                )
+            }
             _ => (Vec::new(), vec![Reason::UnsupportedValue]),
         }
     }
 
     fn assign_templates(&mut self, value: &ast::Expr) {
         let ast::Expr::List(list) = value else {
-            self.env.make_templates_unknown();
+            self.bindings.make_templates_unknown();
             return;
         };
 
@@ -474,17 +590,17 @@ impl SettingsExtractor<'_> {
             backends.push(self.extract_template_backend(dict));
         }
 
-        self.env.assign_templates(backends);
+        self.bindings.assign_templates(backends);
         if templates_partial {
-            self.env.make_templates_partial();
+            self.bindings.make_templates_partial();
         }
-        if self
-            .env
-            .template_backends
-            .iter()
-            .any(|backend| backend.knowledge != Knowledge::Known)
-        {
-            self.env.make_templates_partial();
+        if self.bindings.templates.as_ref().is_some_and(|templates| {
+            templates
+                .backends
+                .iter()
+                .any(|backend| backend.knowledge != StaticKnowledge::Known)
+        }) {
+            self.bindings.make_templates_partial();
         }
     }
 
@@ -522,9 +638,9 @@ impl SettingsExtractor<'_> {
             return;
         };
         for element in &list.elts {
-            let path = evaluate_path_expr(element, self.module_path, &self.env);
-            if let PathValue::Unknown(reason) = &path {
-                backend.make_partial(*reason);
+            let path = evaluate_path_expr(element, self.module_path, &self.bindings.locals);
+            if path == TemplateDirPath::Unknown {
+                backend.make_partial(Reason::UnsupportedPathExpression);
             }
             backend.dirs.push(path);
         }
@@ -573,33 +689,34 @@ impl SettingsExtractor<'_> {
             "extend" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
                 self.extend_template_dirs(index, &arguments.args[0]);
             }
-            _ => self.env.make_templates_unknown(),
+            _ => self.bindings.make_templates_unknown(),
         }
     }
 
     fn append_template_dir(&mut self, index: usize, value: &ast::Expr) {
-        let path = evaluate_path_expr(value, self.module_path, &self.env);
-        let path_reason = match &path {
-            PathValue::Resolved(_) => None,
-            PathValue::Unknown(reason) => Some(*reason),
-        };
+        let path = evaluate_path_expr(value, self.module_path, &self.bindings.locals);
+        let path_is_unknown = path == TemplateDirPath::Unknown;
 
-        let Some(backend) = self.env.template_backends.get_mut(index) else {
-            self.env.make_templates_partial();
+        let Some(templates) = self.bindings.templates.as_mut() else {
+            self.bindings.make_templates_partial();
             return;
         };
-        if let Some(reason) = path_reason {
-            backend.make_partial(reason);
+        let Some(backend) = templates.backends.get_mut(index) else {
+            self.bindings.make_templates_partial();
+            return;
+        };
+        if path_is_unknown {
+            backend.make_partial(Reason::UnsupportedPathExpression);
         }
         backend.dirs.push(path);
-        if path_reason.is_some() {
-            self.env.make_templates_partial();
+        if path_is_unknown {
+            self.bindings.make_templates_partial();
         }
     }
 
     fn extend_template_dirs(&mut self, index: usize, value: &ast::Expr) {
         let ast::Expr::List(list) = value else {
-            self.env.make_templates_partial();
+            self.bindings.make_templates_partial();
             return;
         };
 
@@ -610,20 +727,20 @@ impl SettingsExtractor<'_> {
 
     fn mark_unknown_targets(&mut self, target: &ast::Expr) {
         if target_touches_name(target, INSTALLED_APPS) {
-            self.env
+            self.bindings
                 .make_installed_apps_unknown(Reason::UnsupportedMutation);
         }
         if target_touches_name(target, TEMPLATES) {
-            self.env.make_templates_unknown();
+            self.bindings.make_templates_unknown();
         }
     }
 
     fn mark_definition_name(&mut self, name: &str) {
         match name {
             INSTALLED_APPS => self
-                .env
+                .bindings
                 .make_installed_apps_unknown(Reason::UnsupportedMutation),
-            TEMPLATES => self.env.make_templates_unknown(),
+            TEMPLATES => self.bindings.make_templates_unknown(),
             _ => {}
         }
     }
@@ -691,47 +808,53 @@ fn ambiguous_clause_arms(clauses: &[ast::ElifElseClause]) -> Vec<&[ast::Stmt]> {
     arms
 }
 
-fn join_ambiguous_env(
-    mut base: SettingsEnv,
-    branch_envs: &[SettingsEnv],
+fn join_ambiguous_bindings(
+    mut base: SettingsBindings,
+    branch_bindings: &[SettingsBindings],
     writes: TouchedNames,
-) -> SettingsEnv {
+) -> SettingsBindings {
     if writes.installed_apps {
-        base.installed_apps = join_installed_apps(branch_envs);
-        base.installed_apps_bound = branch_envs.iter().any(|env| env.installed_apps_bound);
+        base.installed_apps = Some(join_installed_apps(branch_bindings));
     }
     if writes.templates {
-        base.template_backends = join_template_backends(branch_envs);
-        base.templates_knowledge = Knowledge::Partial;
-        base.templates_bound = branch_envs.iter().any(|env| env.templates_bound);
+        base.templates = Some(TemplateSettings {
+            backends: join_template_backends(branch_bindings),
+            knowledge: StaticKnowledge::Partial,
+        });
     }
     base
 }
 
-fn join_installed_apps(branch_envs: &[SettingsEnv]) -> StringListSetting {
+fn join_installed_apps(branch_bindings: &[SettingsBindings]) -> InstalledAppsSetting {
     let mut values = Vec::new();
     let mut reasons = vec![Reason::AmbiguousCondition];
 
-    for env in branch_envs {
-        for value in &env.installed_apps.values {
+    for bindings in branch_bindings {
+        let Some(setting) = &bindings.installed_apps else {
+            continue;
+        };
+        for value in &setting.values {
             if !values.contains(value) {
                 values.push(value.clone());
             }
         }
-        reasons.extend(env.installed_apps.reasons.clone());
+        reasons.extend(setting.reasons.clone());
     }
 
-    StringListSetting {
+    InstalledAppsSetting {
         values,
-        knowledge: Knowledge::Partial,
+        knowledge: StaticKnowledge::Partial,
         reasons,
     }
 }
 
-fn join_template_backends(branch_envs: &[SettingsEnv]) -> Vec<TemplateBackend> {
+fn join_template_backends(branch_bindings: &[SettingsBindings]) -> Vec<TemplateBackend> {
     let mut backends = Vec::new();
-    for env in branch_envs {
-        for backend in &env.template_backends {
+    for bindings in branch_bindings {
+        let Some(templates) = &bindings.templates else {
+            continue;
+        };
+        for backend in &templates.backends {
             if !backends.contains(backend) {
                 backends.push(backend.clone());
             }
@@ -1034,15 +1157,21 @@ mod tests {
         }
     }
 
-    impl StarImportResolver for MapResolver {
-        fn resolve(&mut self, import: &StarImport) -> Option<SettingsEnv> {
+    impl SettingsSourceResolver for MapResolver {
+        fn resolve_star_import(
+            &mut self,
+            import: &SettingsStarImport,
+            _importer: &Utf8Path,
+        ) -> Option<SettingsSource> {
             let module = import.module.as_ref()?;
             let source = self.modules.get(module)?.clone();
-            Some(extract_settings_env(
-                &source,
-                Utf8Path::new("/project/settings/base.py"),
-                self,
-            ))
+            Some(SettingsSource {
+                source,
+                path: Utf8PathBuf::from(format!(
+                    "/project/settings/{}.py",
+                    module.replace('.', "/")
+                )),
+            })
         }
     }
 
@@ -1060,23 +1189,29 @@ mod tests {
 
     #[test]
     fn literal_list_assignment_is_known() {
-        let facts = extract("INSTALLED_APPS = ['django.contrib.admin', 'app']");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Known);
-        assert_eq!(facts.installed_apps.values, ["django.contrib.admin", "app"]);
+        let settings = extract("INSTALLED_APPS = ['django.contrib.admin', 'app']");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+        assert_eq!(
+            settings.installed_apps.values,
+            ["django.contrib.admin", "app"]
+        );
     }
 
     #[test]
     fn literal_tuple_assignment_is_known() {
-        let facts = extract("INSTALLED_APPS = ('django.contrib.auth', 'app')");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Known);
-        assert_eq!(facts.installed_apps.values, ["django.contrib.auth", "app"]);
+        let settings = extract("INSTALLED_APPS = ('django.contrib.auth', 'app')");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+        assert_eq!(
+            settings.installed_apps.values,
+            ["django.contrib.auth", "app"]
+        );
     }
 
     #[test]
     fn annotated_assignment_is_known() {
-        let facts = extract("INSTALLED_APPS: list[str] = ['app']");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Known);
-        assert_eq!(facts.installed_apps.values, ["app"]);
+        let settings = extract("INSTALLED_APPS: list[str] = ['app']");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+        assert_eq!(settings.installed_apps.values, ["app"]);
     }
 
     #[test]
@@ -1120,17 +1255,17 @@ mod tests {
 
     #[test]
     fn non_literal_element_is_partial_and_skipped() {
-        let facts = extract("INSTALLED_APPS = ['a', env('EXTRA'), 'b']");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Partial);
-        assert_eq!(facts.installed_apps.values, ["a", "b"]);
-        assert_eq!(facts.installed_apps.reasons, [Reason::NonLiteralElement]);
+        let settings = extract("INSTALLED_APPS = ['a', env('EXTRA'), 'b']");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Partial);
+        assert_eq!(settings.installed_apps.values, ["a", "b"]);
+        assert_eq!(settings.installed_apps.reasons, [Reason::NonLiteralElement]);
     }
 
     #[test]
     fn unsupported_assignment_is_unknown() {
-        let facts = extract("INSTALLED_APPS = get_apps()");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Unknown);
-        assert!(facts.installed_apps.values.is_empty());
+        let settings = extract("INSTALLED_APPS = get_apps()");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Unknown);
+        assert!(settings.installed_apps.values.is_empty());
     }
 
     #[test]
@@ -1159,11 +1294,11 @@ mod tests {
 
     #[test]
     fn ambiguous_condition_walks_all_arms_and_marks_partial() {
-        let facts = extract(
+        let settings = extract(
             "INSTALLED_APPS = ['base']\nif os.environ.get('X'):\n    INSTALLED_APPS.append('debug')\nelse:\n    INSTALLED_APPS.append('prod')",
         );
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Partial);
-        assert_eq!(facts.installed_apps.values, ["base", "debug", "prod"]);
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Partial);
+        assert_eq!(settings.installed_apps.values, ["base", "debug", "prod"]);
     }
 
     #[test]
@@ -1172,38 +1307,71 @@ mod tests {
             "base",
             "INSTALLED_APPS = ['base']\nBASE_DIR = Path(__file__).resolve().parent",
         );
-        let facts = extract_settings(
+        let settings = extract_settings(
             "from base import *\nINSTALLED_APPS += ['local']",
             Utf8Path::new("/project/config/settings.py"),
             &mut resolver,
         );
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Known);
-        assert_eq!(facts.installed_apps.values, ["base", "local"]);
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+        assert_eq!(settings.installed_apps.values, ["base", "local"]);
     }
 
     #[test]
     fn star_import_without_setting_does_not_overwrite_existing_fact() {
         let mut resolver = MapResolver::default()
             .with_module("paths", "BASE_DIR = Path(__file__).resolve().parent");
-        let facts = extract_settings(
+        let settings = extract_settings(
             "INSTALLED_APPS = ['local']\nfrom paths import *",
             Utf8Path::new("/project/config/settings.py"),
             &mut resolver,
         );
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Known);
-        assert_eq!(facts.installed_apps.values, ["local"]);
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+        assert_eq!(settings.installed_apps.values, ["local"]);
+    }
+
+    #[test]
+    fn star_imported_local_path_can_feed_later_template_dirs() {
+        let mut resolver = MapResolver::default()
+            .with_module("paths", "BASE_DIR = Path(__file__).resolve().parent.parent");
+        let settings = extract_settings(
+            "from paths import *\nTEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Known);
+        assert_eq!(
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
+        );
+    }
+
+    #[test]
+    fn cyclic_star_import_does_not_recurse_forever() {
+        let mut resolver = MapResolver::default()
+            .with_module("cycle", "from cycle import *\nINSTALLED_APPS = ['local']");
+        let settings = extract_settings(
+            "from cycle import *",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+        assert_eq!(settings.installed_apps.values, ["local"]);
     }
 
     #[test]
     fn unresolvable_star_import_is_partial() {
-        let facts = extract("from missing import *");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Partial);
-        assert_eq!(facts.templates_knowledge, Knowledge::Partial);
+        let settings = extract("from missing import *");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Partial);
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Partial);
     }
 
     #[test]
     fn templates_literal_dict_extracts_backend_options_and_paths() {
-        let facts = extract(
+        let settings = extract(
             "from pathlib import Path\n\
              BASE_DIR = Path(__file__).resolve().parent.parent\n\
              TEMPLATES = [{\n\
@@ -1216,8 +1384,8 @@ mod tests {
              },\n\
              }]",
         );
-        assert_eq!(facts.templates_knowledge, Knowledge::Known);
-        let backend = &facts.template_backends[0];
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Known);
+        let backend = &settings.templates.backends[0];
         assert_eq!(
             backend.backend.as_deref(),
             Some("django.template.backends.django.DjangoTemplates")
@@ -1230,87 +1398,102 @@ mod tests {
         assert_eq!(backend.builtins, ["django.templatetags.static"]);
         assert_eq!(
             backend.dirs,
-            [PathValue::Resolved(Utf8PathBuf::from("/project/templates"))]
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
         );
     }
 
     #[test]
     fn templates_dirs_append_mutates_existing_backend() {
-        let facts = extract(
+        let settings = extract(
             "from pathlib import Path\n\
              BASE_DIR = Path(__file__).resolve().parent.parent\n\
              TEMPLATES = [{'DIRS': []}]\n\
              TEMPLATES[0]['DIRS'].append(BASE_DIR / 'templates')",
         );
         assert_eq!(
-            facts.template_backends[0].dirs,
-            [PathValue::Resolved(Utf8PathBuf::from("/project/templates"))]
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
         );
     }
 
     #[test]
     fn templates_dirs_plus_equals_extends_existing_backend() {
-        let facts = extract(
+        let settings = extract(
             "from pathlib import Path\n\
              BASE_DIR = Path(__file__).resolve().parent.parent\n\
              TEMPLATES = [{'DIRS': []}]\n\
              TEMPLATES[0]['DIRS'] += [BASE_DIR / 'templates']",
         );
         assert_eq!(
-            facts.template_backends[0].dirs,
-            [PathValue::Resolved(Utf8PathBuf::from("/project/templates"))]
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
         );
     }
 
     #[test]
     fn non_literal_backend_is_partial() {
-        let facts = extract("TEMPLATES = [{'BACKEND': backend_name}]");
-        assert_eq!(facts.templates_knowledge, Knowledge::Partial);
-        assert_eq!(facts.template_backends[0].knowledge, Knowledge::Partial);
+        let settings = extract("TEMPLATES = [{'BACKEND': backend_name}]");
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Partial);
+        assert_eq!(
+            settings.templates.backends[0].knowledge,
+            StaticKnowledge::Partial
+        );
     }
 
     #[test]
     fn template_backend_unpack_is_partial() {
-        let facts = extract("TEMPLATES = [{'DIRS': [], **extra}]");
-        assert_eq!(facts.templates_knowledge, Knowledge::Partial);
-        assert_eq!(facts.template_backends[0].knowledge, Knowledge::Partial);
+        let settings = extract("TEMPLATES = [{'DIRS': [], **extra}]");
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Partial);
+        assert_eq!(
+            settings.templates.backends[0].knowledge,
+            StaticKnowledge::Partial
+        );
     }
 
     #[test]
     fn os_path_join_resolves_relative_to_base_dir() {
-        let facts = extract(
+        let settings = extract(
             "from pathlib import Path\n\
              import os\n\
              BASE_DIR = Path(__file__).resolve().parent.parent\n\
              TEMPLATES = [{'DIRS': [os.path.join(BASE_DIR, 'templates')]}]",
         );
         assert_eq!(
-            facts.template_backends[0].dirs,
-            [PathValue::Resolved(Utf8PathBuf::from("/project/templates"))]
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
         );
     }
 
     #[test]
     fn unknown_path_call_becomes_unknown_path_value() {
-        let facts = extract("TEMPLATES = [{'DIRS': [dynamic_path()]}]");
-        assert_eq!(facts.templates_knowledge, Knowledge::Partial);
+        let settings = extract("TEMPLATES = [{'DIRS': [dynamic_path()]}]");
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Partial);
         assert!(matches!(
-            facts.template_backends[0].dirs[0],
-            PathValue::Unknown(_)
+            settings.templates.backends[0].dirs[0],
+            TemplateDirPath::Unknown
         ));
     }
 
     #[test]
     fn ambiguous_assignment_preserves_pre_branch_possibility() {
-        let facts = extract("INSTALLED_APPS = ['base']\nif FLAG:\n    INSTALLED_APPS = ['debug']");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Partial);
-        assert_eq!(facts.installed_apps.values, ["debug", "base"]);
+        let settings =
+            extract("INSTALLED_APPS = ['base']\nif FLAG:\n    INSTALLED_APPS = ['debug']");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Partial);
+        assert_eq!(settings.installed_apps.values, ["debug", "base"]);
     }
 
     #[test]
-    fn syntax_error_source_returns_partial_facts() {
-        let facts = extract("INSTALLED_APPS = [");
-        assert_eq!(facts.installed_apps.knowledge, Knowledge::Partial);
-        assert_eq!(facts.templates_knowledge, Knowledge::Partial);
+    fn syntax_error_source_returns_partial_settings() {
+        let settings = extract("INSTALLED_APPS = [");
+        assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Partial);
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Partial);
     }
 }

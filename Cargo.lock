@@ -970,6 +970,7 @@ dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
  "rustc-hash",
+ "serde",
 ]
 
 [[package]]
@@ -980,6 +981,7 @@ dependencies = [
  "camino",
  "djls-conf",
  "djls-corpus",
+ "djls-project",
  "djls-source",
  "djls-templates",
  "dotenvy",
