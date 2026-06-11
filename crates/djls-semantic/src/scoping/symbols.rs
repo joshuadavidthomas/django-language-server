@@ -22,8 +22,8 @@ pub enum TagAvailability {
     /// The tag is known but defined in multiple unloaded libraries. Contains
     /// all candidate library names, sorted alphabetically.
     AmbiguousUnloaded { libraries: Vec<String> },
-    /// The tag is completely unknown — not in builtins and not in the inspector
-    /// inventory.
+    /// The tag is completely unknown — not builtin and not in any known
+    /// loadable library.
     Unknown,
 }
 
@@ -38,8 +38,8 @@ pub enum FilterAvailability {
     /// The filter is known but defined in multiple unloaded libraries. Contains
     /// all candidate library names, sorted alphabetically.
     AmbiguousUnloaded { libraries: Vec<String> },
-    /// The filter is completely unknown — not in builtins and not in the inspector
-    /// inventory.
+    /// The filter is completely unknown — not builtin and not in any known
+    /// loadable library.
     Unknown,
 }
 
@@ -97,7 +97,7 @@ impl AvailableSymbols {
             });
 
         let (loadable_tag_count, loadable_filter_count) = template_libraries
-            .enabled_loadable_libraries()
+            .loadable_libraries()
             .flat_map(|(_, lib)| &lib.symbols)
             .fold((0usize, 0usize), |(tags, filters), sym| match sym.kind {
                 TemplateSymbolKind::Tag => (tags + 1, filters),
@@ -133,8 +133,8 @@ impl AvailableSymbols {
             }
         }
 
-        // Build reverse indices for enabled, loadable libraries.
-        for (name, library) in template_libraries.enabled_loadable_libraries() {
+        // Build reverse indices for loadable libraries.
+        for (name, library) in template_libraries.loadable_libraries() {
             let load_name = name.as_str();
 
             for symbol in &library.symbols {
@@ -338,10 +338,10 @@ mod tests {
     use super::super::LoadKind;
     use super::super::LoadStatement;
     use super::*;
-    use crate::testing::builtin_filter_json;
-    use crate::testing::builtin_tag_json;
-    use crate::testing::library_filter_json;
-    use crate::testing::library_tag_json;
+    use crate::testing::builtin_filter;
+    use crate::testing::builtin_tag;
+    use crate::testing::library_filter;
+    use crate::testing::library_tag;
     use crate::testing::make_template_libraries;
     use crate::testing::make_template_libraries_tags_only;
 
@@ -351,13 +351,13 @@ mod tests {
 
     fn test_inventory() -> TemplateLibraries {
         let tags = vec![
-            builtin_tag_json("if", "django.template.defaulttags"),
-            builtin_tag_json("for", "django.template.defaulttags"),
-            builtin_tag_json("block", "django.template.loader_tags"),
-            library_tag_json("trans", "i18n", "django.templatetags.i18n"),
-            library_tag_json("blocktrans", "i18n", "django.templatetags.i18n"),
-            library_tag_json("static", "static", "django.templatetags.static"),
-            library_tag_json("get_static_prefix", "static", "django.templatetags.static"),
+            builtin_tag("if", "django.template.defaulttags"),
+            builtin_tag("for", "django.template.defaulttags"),
+            builtin_tag("block", "django.template.loader_tags"),
+            library_tag("trans", "i18n", "django.templatetags.i18n"),
+            library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
+            library_tag("static", "static", "django.templatetags.static"),
+            library_tag("get_static_prefix", "static", "django.templatetags.static"),
         ];
 
         let mut libraries = FxHashMap::default();
@@ -491,9 +491,9 @@ mod tests {
     fn tag_in_multiple_libraries_produces_ambiguous() {
         // Create inventory with a tag defined in two libraries
         let tags = vec![
-            builtin_tag_json("if", "django.template.defaulttags"),
-            library_tag_json("mytag", "lib_a", "app.templatetags.lib_a"),
-            library_tag_json("mytag", "lib_b", "app.templatetags.lib_b"),
+            builtin_tag("if", "django.template.defaulttags"),
+            library_tag("mytag", "lib_a", "app.templatetags.lib_a"),
+            library_tag("mytag", "lib_b", "app.templatetags.lib_b"),
         ];
 
         let mut libraries = FxHashMap::default();
@@ -516,8 +516,8 @@ mod tests {
     #[test]
     fn ambiguous_resolved_by_loading_one_library() {
         let tags = vec![
-            library_tag_json("mytag", "lib_a", "app.templatetags.lib_a"),
-            library_tag_json("mytag", "lib_b", "app.templatetags.lib_b"),
+            library_tag("mytag", "lib_a", "app.templatetags.lib_a"),
+            library_tag("mytag", "lib_b", "app.templatetags.lib_b"),
         ];
 
         let mut libraries = FxHashMap::default();
@@ -657,8 +657,8 @@ mod tests {
     fn selective_import_with_ambiguous_tag() {
         // Tag "shared" exists in both lib_a and lib_b
         let tags = vec![
-            library_tag_json("shared", "lib_a", "app.templatetags.lib_a"),
-            library_tag_json("shared", "lib_b", "app.templatetags.lib_b"),
+            library_tag("shared", "lib_a", "app.templatetags.lib_a"),
+            library_tag("shared", "lib_b", "app.templatetags.lib_b"),
         ];
 
         let mut libraries = FxHashMap::default();
@@ -683,16 +683,16 @@ mod tests {
     }
 
     fn test_inventory_with_filters() -> TemplateLibraries {
-        let tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
+        let tags = vec![builtin_tag("if", "django.template.defaulttags")];
         let filters = vec![
-            builtin_filter_json("title", "django.template.defaultfilters"),
-            builtin_filter_json("lower", "django.template.defaultfilters"),
-            library_filter_json(
+            builtin_filter("title", "django.template.defaultfilters"),
+            builtin_filter("lower", "django.template.defaultfilters"),
+            library_filter(
                 "apnumber",
                 "humanize",
                 "django.contrib.humanize.templatetags.humanize",
             ),
-            library_filter_json(
+            library_filter(
                 "intcomma",
                 "humanize",
                 "django.contrib.humanize.templatetags.humanize",
@@ -780,8 +780,8 @@ mod tests {
     #[test]
     fn filter_in_multiple_libraries_produces_ambiguous() {
         let filters = vec![
-            library_filter_json("shared", "lib_a", "app.templatetags.lib_a"),
-            library_filter_json("shared", "lib_b", "app.templatetags.lib_b"),
+            library_filter("shared", "lib_a", "app.templatetags.lib_a"),
+            library_filter("shared", "lib_b", "app.templatetags.lib_b"),
         ];
         let mut libraries = FxHashMap::default();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());

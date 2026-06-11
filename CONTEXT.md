@@ -326,7 +326,7 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - "Project model", "project context", "project knowledge", and "project state" are not canonical terms; resolved: use **Project Facts**.
 - "Django Environment" is a path-scoped Django analysis context, not a Python environment, virtual environment, or OS environment.
 - "Template Library" can mean a collection of templates; resolved: use **Template Tag Library** for Django tag/filter libraries.
-- "Installed Template Tag Library" is ambiguous between pip-installed packages and Django `INSTALLED_APPS`; resolved: describe a **Template Tag Library** as discovered, active, or builtin.
+- "Installed Template Tag Library" is ambiguous between pip-installed packages and Django `INSTALLED_APPS`; resolved: describe a **Template Tag Library** as loadable (requires `{% load %}`) or builtin (preloaded). "Active" and "discovered" are not library availability states.
 - "Tag" can mean source syntax, a known definition, structural behavior, or semantic role; resolved: use **Template Tag**, **Tag Definition**, **Tag Spec**, and **Tag Role** for those different contexts.
 - "Definition" can mean the Python source that implements a tag or DJLS's model of a known tag; resolved: use **Definition Source** for provenance or navigation targets and **Tag Definition** or **Filter Definition** for the language server model.
 - "Block" is overloaded by Django syntax, Django inheritance, parser internals, and tree structure; resolved: use **Block Tag** for the structural definition category, **Block Template Tag** for the named `block` tag, **Inheritance Block** for the thing it defines, and **Template Branch** for the tree structure.

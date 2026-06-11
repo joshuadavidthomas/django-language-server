@@ -25,8 +25,6 @@ use crate::project::names::LibraryName;
 use crate::project::names::PyModuleName;
 use crate::project::names::TemplateSymbolName;
 use crate::project::resolve::module_file_in_search_path;
-use crate::project::symbols::LibraryOrigin;
-use crate::project::symbols::LibraryStatus;
 use crate::project::symbols::SymbolDefinition;
 use crate::project::symbols::TemplateLibraries;
 use crate::project::symbols::TemplateLibrary;
@@ -164,14 +162,22 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         libraries.knowledge = libraries.knowledge.demoted_to_partial();
     }
 
-    libraries.apply_derived(templatetag_package_libraries(&resolver, "django"));
+    let (knowledge, discovered_libraries) = templatetag_package_libraries(&resolver, "django");
+    libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+    for (load_name, library) in discovered_libraries {
+        libraries.insert_loadable(load_name, library);
+    }
 
     if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
         for installed_app in &settings.installed_apps.values {
-            libraries.apply_derived(templatetag_package_libraries(
+            let (knowledge, discovered_libraries) = templatetag_package_libraries(
                 &resolver,
                 installed_app_package_module(installed_app),
-            ));
+            );
+            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+            for (load_name, library) in discovered_libraries {
+                libraries.insert_loadable(load_name, library);
+            }
         }
     }
 
@@ -184,114 +190,51 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     {
         libraries.knowledge = libraries.knowledge.weakened_by(backend.knowledge);
 
-        let configured = backend.libraries.iter().map(|(load_name, module_path)| {
-            SettingsLibraryDeclaration::Loadable {
-                load_name,
-                module_path,
+        for (load_name, module_path) in &backend.libraries {
+            let Ok(load_name) = LibraryName::parse(load_name) else {
+                libraries.knowledge = libraries.knowledge.demoted_to_partial();
+                continue;
+            };
+            let (knowledge, library) = library_from_module_path(&resolver, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+            if let Some(library) = library {
+                libraries.insert_loadable(load_name, library);
             }
-        });
-        let builtins = DEFAULT_TEMPLATE_BUILTINS
+        }
+
+        for module_path in DEFAULT_TEMPLATE_BUILTINS
             .iter()
             .copied()
             .chain(backend.builtins.iter().map(String::as_str))
-            .map(|module_path| SettingsLibraryDeclaration::Builtin { module_path });
-
-        for declaration in configured.chain(builtins) {
-            libraries.apply_derived(declaration.derive(&resolver));
+        {
+            let (knowledge, library) = library_from_module_path(&resolver, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+            if let Some(library) = library {
+                libraries.push_builtin(library);
+            }
         }
     }
 
     libraries
 }
 
-impl TemplateLibraries {
-    fn apply_derived(&mut self, derived: DerivedTemplateLibraries) {
-        self.knowledge = self.knowledge.weakened_by(derived.knowledge);
-        for library in derived.libraries {
-            match &library.status {
-                LibraryStatus::Active { .. } => self.set_loadable(library),
-                LibraryStatus::Builtin { .. } => self.push_builtin(library),
-            }
-        }
-    }
-}
-
-struct DerivedTemplateLibraries {
-    knowledge: StaticKnowledge,
-    libraries: Vec<TemplateLibrary>,
-}
-
-impl Default for DerivedTemplateLibraries {
-    fn default() -> Self {
-        Self {
-            knowledge: StaticKnowledge::Known,
-            libraries: Vec::new(),
-        }
-    }
-}
-
-impl DerivedTemplateLibraries {
-    fn known(library: TemplateLibrary) -> Self {
-        Self {
-            knowledge: StaticKnowledge::Known,
-            libraries: vec![library],
-        }
-    }
-
-    fn partial(library: Option<TemplateLibrary>) -> Self {
-        Self {
-            knowledge: StaticKnowledge::Partial,
-            libraries: library.into_iter().collect(),
-        }
-    }
-
-    fn demote_to_partial(&mut self) {
-        self.knowledge = self.knowledge.demoted_to_partial();
-    }
-}
-
-#[derive(Clone, Copy)]
-enum SettingsLibraryDeclaration<'a> {
-    Loadable {
-        load_name: &'a str,
-        module_path: &'a str,
-    },
-    Builtin {
-        module_path: &'a str,
-    },
-}
-
-impl SettingsLibraryDeclaration<'_> {
-    fn derive(self, resolver: &SalsaSettingsResolver<'_>) -> DerivedTemplateLibraries {
-        match self {
-            Self::Loadable {
-                load_name,
-                module_path,
-            } => configured_library(resolver, load_name, module_path),
-            Self::Builtin { module_path } => builtin_library(resolver, module_path),
-        }
-    }
-}
-
 fn templatetag_package_libraries(
     resolver: &SalsaSettingsResolver<'_>,
     package_module: &str,
-) -> DerivedTemplateLibraries {
-    let mut derived = DerivedTemplateLibraries::default();
+) -> (StaticKnowledge, Vec<(LibraryName, TemplateLibrary)>) {
+    let mut knowledge = StaticKnowledge::Known;
+    let mut libraries = Vec::new();
 
     if package_module.is_empty() {
-        derived.demote_to_partial();
-        return derived;
+        return (knowledge.demoted_to_partial(), libraries);
     }
 
-    let Ok(app_module) = PyModuleName::parse(package_module) else {
-        derived.demote_to_partial();
-        return derived;
-    };
+    if PyModuleName::parse(package_module).is_err() {
+        return (knowledge.demoted_to_partial(), libraries);
+    }
 
     let Some(package_dir) = package_dir(resolver.db, resolver.project, package_module) else {
-        derived.demote_to_partial();
-        return derived;
+        return (knowledge.demoted_to_partial(), libraries);
     };
 
     let templatetags_dir = package_dir.join("templatetags");
@@ -299,7 +242,7 @@ fn templatetag_package_libraries(
         .db
         .path_is_file(&templatetags_dir.join("__init__.py"))
     {
-        return derived;
+        return (knowledge, libraries);
     }
 
     let entries = match resolver
@@ -309,8 +252,7 @@ fn templatetag_package_libraries(
         Ok(entries) => entries,
         Err(err) => {
             tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            derived.demote_to_partial();
-            return derived;
+            return (knowledge.demoted_to_partial(), libraries);
         }
     };
 
@@ -327,12 +269,12 @@ fn templatetag_package_libraries(
         }
 
         let Ok(load_name) = LibraryName::parse(stem) else {
-            derived.demote_to_partial();
+            knowledge = knowledge.demoted_to_partial();
             continue;
         };
         let module_path = format!("{package_module}.templatetags.{stem}");
         let Ok(module) = PyModuleName::parse(&module_path) else {
-            derived.demote_to_partial();
+            knowledge = knowledge.demoted_to_partial();
             continue;
         };
 
@@ -342,61 +284,28 @@ fn templatetag_package_libraries(
             continue;
         }
 
-        let origin = LibraryOrigin {
-            app: app_module.clone(),
-            module: module.clone(),
-            path: entry.path,
-        };
-        let mut library = TemplateLibrary::new_active(load_name, module, Some(origin));
+        let mut library = TemplateLibrary::new(module);
         library.merge_symbols(analysis.symbols);
-        derived.libraries.push(library);
+        libraries.push((load_name, library));
     }
 
-    derived
+    (knowledge, libraries)
 }
 
-fn configured_library(
-    resolver: &SalsaSettingsResolver<'_>,
-    load_name: &str,
-    module_path: &str,
-) -> DerivedTemplateLibraries {
-    let Ok(load_name) = LibraryName::parse(load_name) else {
-        return DerivedTemplateLibraries::partial(None);
-    };
-    let Ok(module) = PyModuleName::parse(module_path) else {
-        return DerivedTemplateLibraries::partial(None);
-    };
-
-    library_with_symbols(
-        resolver,
-        TemplateLibrary::new_active(load_name, module, None),
-    )
-}
-
-fn builtin_library(
+fn library_from_module_path(
     resolver: &SalsaSettingsResolver<'_>,
     module_path: &str,
-) -> DerivedTemplateLibraries {
+) -> (StaticKnowledge, Option<TemplateLibrary>) {
     let Ok(module) = PyModuleName::parse(module_path) else {
-        return DerivedTemplateLibraries::partial(None);
-    };
-    let Ok(name) = LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("builtin"))
-    else {
-        return DerivedTemplateLibraries::partial(None);
+        return (StaticKnowledge::Partial, None);
     };
 
-    library_with_symbols(resolver, TemplateLibrary::new_builtin(name, module))
-}
-
-fn library_with_symbols(
-    resolver: &SalsaSettingsResolver<'_>,
-    mut library: TemplateLibrary,
-) -> DerivedTemplateLibraries {
+    let mut library = TemplateLibrary::new(module);
     if let Some(file) = module_file(resolver.db, resolver.project, library.module().as_str()) {
         library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
-        DerivedTemplateLibraries::known(library)
+        (StaticKnowledge::Known, Some(library))
     } else {
-        DerivedTemplateLibraries::partial(Some(library))
+        (StaticKnowledge::Partial, Some(library))
     }
 }
 
@@ -921,7 +830,7 @@ mod tests {
 
         assert_eq!(libraries.knowledge, StaticKnowledge::Known);
         let custom = libraries
-            .best_loadable_library_str("custom")
+            .loadable_library_str("custom")
             .expect("custom library should be discovered");
         assert_eq!(custom.module().as_str(), "blog.templatetags.custom");
         assert!(custom.symbols.iter().any(|symbol| symbol.name() == "hello"));
@@ -971,7 +880,7 @@ mod tests {
 
         let libraries = template_libraries(&db, project);
 
-        let empty = libraries.best_loadable_library_str("empty").unwrap();
+        let empty = libraries.loadable_library_str("empty").unwrap();
         assert_eq!(empty.module().as_str(), "blog.templatetags.empty");
         assert!(empty.symbols.is_empty());
     }
@@ -1029,7 +938,7 @@ mod tests {
 
         let libraries = template_libraries(&db, project);
 
-        let custom = libraries.best_loadable_library_str("custom").unwrap();
+        let custom = libraries.loadable_library_str("custom").unwrap();
         assert_eq!(custom.module().as_str(), "custom_tags");
         assert!(
             custom
@@ -1078,7 +987,7 @@ mod tests {
         let libraries = template_libraries(&db, project);
 
         assert_eq!(libraries.knowledge, StaticKnowledge::Partial);
-        let custom = libraries.best_loadable_library_str("custom").unwrap();
+        let custom = libraries.loadable_library_str("custom").unwrap();
         assert_eq!(custom.module().as_str(), "project_tags");
         assert!(
             custom
@@ -1125,7 +1034,7 @@ mod tests {
 
         let libraries = template_libraries(&db, project);
 
-        let custom = libraries.best_loadable_library_str("custom").unwrap();
+        let custom = libraries.loadable_library_str("custom").unwrap();
         assert_eq!(custom.module().as_str(), "project_tags");
         assert!(
             custom

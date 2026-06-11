@@ -59,7 +59,7 @@ use crate::tags::TagSpec;
 use crate::tags::TagSpecs;
 use crate::tags::builtin_tag_specs;
 
-pub(crate) fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
+pub(crate) fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "tag",
         "name": name,
@@ -70,7 +70,7 @@ pub(crate) fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
     })
 }
 
-pub(crate) fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
+pub(crate) fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "tag",
         "name": name,
@@ -81,7 +81,7 @@ pub(crate) fn library_tag_json(name: &str, load_name: &str, module: &str) -> ser
     })
 }
 
-pub(crate) fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
+pub(crate) fn builtin_filter(name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "filter",
         "name": name,
@@ -92,7 +92,7 @@ pub(crate) fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value
     })
 }
 
-pub(crate) fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
+pub(crate) fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "filter",
         "name": name,
@@ -130,19 +130,12 @@ pub(crate) fn make_template_libraries(
         let Ok(module) = PyModuleName::parse(module_name) else {
             continue;
         };
-        let Ok(name) =
-            LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("builtin"))
-        else {
-            continue;
-        };
         if !result
             .builtins
             .iter()
             .any(|library| library.module() == &module)
         {
-            result
-                .builtins
-                .push(TemplateLibrary::new_builtin(name, module));
+            result.builtins.push(TemplateLibrary::new(module));
         }
     }
 
@@ -155,9 +148,7 @@ pub(crate) fn make_template_libraries(
         };
         result
             .loadable
-            .entry(load_name.clone())
-            .or_default()
-            .push(TemplateLibrary::new_active(load_name, module, None));
+            .insert(load_name, TemplateLibrary::new(module));
     }
 
     let symbols = tags.iter().chain(filters.iter()).cloned();
@@ -198,16 +189,12 @@ pub(crate) fn make_template_libraries(
                 let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
                     continue;
                 };
-                let libraries = result.loadable.entry(load_name.clone()).or_default();
-                if let Some(library) = libraries
-                    .iter_mut()
-                    .find(|library| library.module() == &module)
-                {
+                let library = result
+                    .loadable
+                    .entry(load_name)
+                    .or_insert_with(|| TemplateLibrary::new(module.clone()));
+                if library.module() == &module {
                     library.merge_symbol(symbol);
-                } else {
-                    let mut library = TemplateLibrary::new_active(load_name, module, None);
-                    library.merge_symbol(symbol);
-                    libraries.push(library);
                 }
             }
         }
@@ -815,61 +802,61 @@ fn choice_message(
 
 fn standard_template_libraries() -> TemplateLibraries {
     let tags = vec![
-        builtin_tag_json("autoescape", default_builtins_module()),
-        builtin_tag_json("block", default_loader_tags_module()),
-        builtin_tag_json("comment", default_builtins_module()),
-        builtin_tag_json("csrf_token", default_builtins_module()),
-        builtin_tag_json("cycle", default_builtins_module()),
-        builtin_tag_json("debug", default_builtins_module()),
-        builtin_tag_json("extends", default_loader_tags_module()),
-        builtin_tag_json("filter", default_builtins_module()),
-        builtin_tag_json("firstof", default_builtins_module()),
-        builtin_tag_json("for", default_builtins_module()),
-        builtin_tag_json("if", default_builtins_module()),
-        builtin_tag_json("ifchanged", default_builtins_module()),
-        builtin_tag_json("include", default_loader_tags_module()),
-        builtin_tag_json("load", default_builtins_module()),
-        builtin_tag_json("lorem", default_builtins_module()),
-        builtin_tag_json("now", default_builtins_module()),
-        builtin_tag_json("one_arg_tag", "example.templatetags.custom"),
-        builtin_tag_json("regroup", default_builtins_module()),
-        builtin_tag_json("spaceless", default_builtins_module()),
-        builtin_tag_json("templatetag", default_builtins_module()),
-        builtin_tag_json("url", default_builtins_module()),
-        builtin_tag_json("verbatim", default_builtins_module()),
-        builtin_tag_json("widthratio", default_builtins_module()),
-        builtin_tag_json("with", default_builtins_module()),
-        library_tag_json("ambiguous_tag", "alpha", "example.alpha.templatetags.alpha"),
-        library_tag_json("ambiguous_tag", "beta", "example.beta.templatetags.beta"),
-        library_tag_json("blocktrans", "i18n", "django.templatetags.i18n"),
-        library_tag_json("blocktranslate", "i18n", "django.templatetags.i18n"),
-        library_tag_json("cache", "cache", "django.templatetags.cache"),
-        library_tag_json("localize", "l10n", "django.templatetags.l10n"),
-        library_tag_json("localtime", "tz", "django.templatetags.tz"),
-        library_tag_json("static", "static", "django.templatetags.static"),
-        library_tag_json("timezone", "tz", "django.templatetags.tz"),
-        library_tag_json("trans", "i18n", "django.templatetags.i18n"),
-        library_tag_json("translate", "i18n", "django.templatetags.i18n"),
+        builtin_tag("autoescape", default_builtins_module()),
+        builtin_tag("block", default_loader_tags_module()),
+        builtin_tag("comment", default_builtins_module()),
+        builtin_tag("csrf_token", default_builtins_module()),
+        builtin_tag("cycle", default_builtins_module()),
+        builtin_tag("debug", default_builtins_module()),
+        builtin_tag("extends", default_loader_tags_module()),
+        builtin_tag("filter", default_builtins_module()),
+        builtin_tag("firstof", default_builtins_module()),
+        builtin_tag("for", default_builtins_module()),
+        builtin_tag("if", default_builtins_module()),
+        builtin_tag("ifchanged", default_builtins_module()),
+        builtin_tag("include", default_loader_tags_module()),
+        builtin_tag("load", default_builtins_module()),
+        builtin_tag("lorem", default_builtins_module()),
+        builtin_tag("now", default_builtins_module()),
+        builtin_tag("one_arg_tag", "example.templatetags.custom"),
+        builtin_tag("regroup", default_builtins_module()),
+        builtin_tag("spaceless", default_builtins_module()),
+        builtin_tag("templatetag", default_builtins_module()),
+        builtin_tag("url", default_builtins_module()),
+        builtin_tag("verbatim", default_builtins_module()),
+        builtin_tag("widthratio", default_builtins_module()),
+        builtin_tag("with", default_builtins_module()),
+        library_tag("ambiguous_tag", "alpha", "example.alpha.templatetags.alpha"),
+        library_tag("ambiguous_tag", "beta", "example.beta.templatetags.beta"),
+        library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
+        library_tag("blocktranslate", "i18n", "django.templatetags.i18n"),
+        library_tag("cache", "cache", "django.templatetags.cache"),
+        library_tag("localize", "l10n", "django.templatetags.l10n"),
+        library_tag("localtime", "tz", "django.templatetags.tz"),
+        library_tag("static", "static", "django.templatetags.static"),
+        library_tag("timezone", "tz", "django.templatetags.tz"),
+        library_tag("trans", "i18n", "django.templatetags.i18n"),
+        library_tag("translate", "i18n", "django.templatetags.i18n"),
     ];
     let filters = vec![
-        builtin_filter_json("title", default_filters_module()),
-        builtin_filter_json("lower", default_filters_module()),
-        builtin_filter_json("length", default_filters_module()),
-        builtin_filter_json("default", default_filters_module()),
-        builtin_filter_json("truncatewords", default_filters_module()),
-        builtin_filter_json("date", default_filters_module()),
-        builtin_filter_json("upper", default_filters_module()),
-        library_filter_json(
+        builtin_filter("title", default_filters_module()),
+        builtin_filter("lower", default_filters_module()),
+        builtin_filter("length", default_filters_module()),
+        builtin_filter("default", default_filters_module()),
+        builtin_filter("truncatewords", default_filters_module()),
+        builtin_filter("date", default_filters_module()),
+        builtin_filter("upper", default_filters_module()),
+        library_filter(
             "intcomma",
             "humanize",
             "django.contrib.humanize.templatetags.humanize",
         ),
-        library_filter_json(
+        library_filter(
             "ambiguous_filter",
             "alpha",
             "example.alpha.templatetags.alpha",
         ),
-        library_filter_json("ambiguous_filter", "beta", "example.beta.templatetags.beta"),
+        library_filter("ambiguous_filter", "beta", "example.beta.templatetags.beta"),
     ];
     let mut libraries = HashMap::new();
     libraries.insert("cache".to_string(), "django.templatetags.cache".to_string());
