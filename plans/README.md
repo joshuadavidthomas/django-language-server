@@ -187,7 +187,7 @@ REJECTED (with one-line rationale).
   import guard, semantic re-export shim guard, dependency-direction guard,
   extraction purity guard, and semantic project directory guard. Plan 021 is
   now unblocked and is the next structural-track plan.
-- **2026-06-11 (Plan 021 implemented locally)**: source commit `637b0761`
+- **2026-06-11 (Plan 021 PR opened)**: PR #669 / source commit `637b0761`
   (`refactor: move spec extraction into djls-project`) / bookmark
   `plan-021-move-spec-extraction` moves `djls-semantic/src/python.rs`, the
   full `src/python/` subtree, corpus extraction tests, and their snapshots
@@ -202,8 +202,9 @@ REJECTED (with one-line rationale).
   fmt`, `just fmt --check`, `just lint`, and the six boundary guards. Test
   counts reconcile exactly: project 128→395 unit/doc target tests and 0→2
   integration tests; semantic 435→168 unit/doc target tests and 2→0
-  integration tests. The PR has not been opened yet, so Plan 021 remains IN
-  PROGRESS until review/merge close-out.
+  integration tests. PR #669 is open at
+  https://github.com/joshuadavidthomas/django-language-server/pull/669 and
+  Plan 021 remains IN PROGRESS until review/merge close-out.
 - **2026-06-11 (post-015 boundary review — project/semantic seam)**:
   design memo
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
