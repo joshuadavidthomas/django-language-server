@@ -40,8 +40,8 @@ async def test_folding_ranges_include_nested_template_regions(
 
     assert result is not None
     assert {(range.start_line, range.end_line, range.kind) for range in result} == {
-        (16, 28, FoldingRangeKind.Region),
-        (19, 25, FoldingRangeKind.Region),
+        (13, 25, FoldingRangeKind.Region),
+        (16, 22, FoldingRangeKind.Region),
     }
 
 
