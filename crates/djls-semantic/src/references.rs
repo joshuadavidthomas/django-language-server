@@ -1,8 +1,9 @@
-use camino::Utf8PathBuf;
 use djls_project::Project;
+use djls_project::TemplateName;
+use djls_project::TemplateOrigin;
+use djls_project::template_origins;
 use djls_source::File;
 use djls_source::Span;
-use djls_source::safe_join;
 use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
@@ -13,35 +14,10 @@ use crate::tags::TagRole;
 use crate::tags::TagSpecs;
 use crate::tags::compute_tag_specs;
 
-#[salsa::interned]
-#[derive(Debug)]
-pub struct TemplateName {
-    #[returns(ref)]
-    pub name: String,
-}
-
-#[salsa::tracked]
-pub struct TemplateOrigin<'db> {
-    resolved_template_name: TemplateName<'db>,
-    template_file: File,
-}
-
-impl<'db> TemplateOrigin<'db> {
-    pub fn template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
-        self.resolved_template_name(db)
-    }
-
-    pub fn file(self, db: &'db dyn SemanticDb) -> File {
-        self.template_file(db)
-    }
-
-    pub fn path_buf(self, db: &'db dyn SemanticDb) -> &'db Utf8PathBuf {
-        self.file(db).path(db)
-    }
-
-    pub(crate) fn tags(self, db: &'db dyn SemanticDb) -> &'db [Tag] {
-        template_origin_tags(db, self)
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub enum TemplateReferenceKind {
+    Extends,
+    Include,
 }
 
 #[salsa::tracked(returns(ref))]
@@ -61,12 +37,6 @@ fn template_origin_tags(db: &dyn SemanticDb, origin: TemplateOrigin<'_>) -> Vec<
             _ => None,
         })
         .collect()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
-pub enum TemplateReferenceKind {
-    Extends,
-    Include,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -99,114 +69,6 @@ impl Tag {
 }
 
 #[salsa::tracked]
-pub(crate) struct TemplateOrigins<'db> {
-    #[tracked]
-    #[returns(ref)]
-    ordered: Vec<TemplateOrigin<'db>>,
-    #[tracked]
-    #[returns(ref)]
-    first_by_template_name: FxHashMap<TemplateName<'db>, TemplateOrigin<'db>>,
-    #[tracked]
-    #[returns(ref)]
-    template_dirs: Vec<Utf8PathBuf>,
-}
-
-impl<'db> TemplateOrigins<'db> {
-    pub fn iter(self, db: &'db dyn SemanticDb) -> impl Iterator<Item = TemplateOrigin<'db>> + 'db {
-        self.ordered(db).iter().copied()
-    }
-
-    #[must_use]
-    pub fn find_template(
-        self,
-        db: &'db dyn SemanticDb,
-        template_name: TemplateName<'db>,
-    ) -> FindTemplateResult<'db> {
-        if let Some(origin) = self.first_by_template_name(db).get(&template_name) {
-            return FindTemplateResult::Found(*origin);
-        }
-
-        let name = template_name.name(db);
-        let tried = self
-            .template_dirs(db)
-            .iter()
-            .filter_map(|dir| safe_join(dir, name).ok())
-            .map(|path| TriedTemplateSource { path })
-            .collect();
-
-        FindTemplateResult::DoesNotExist(TemplateDoesNotExist {
-            template_name,
-            tried,
-        })
-    }
-}
-
-#[salsa::tracked]
-pub(crate) fn template_origins(db: &dyn SemanticDb, project: Project) -> TemplateOrigins<'_> {
-    let mut ordered = Vec::new();
-    let mut first_by_template_name = FxHashMap::default();
-
-    for template in djls_project::project_template_files(db, project).iter() {
-        let template_name = TemplateName::new(db, template.name().to_string());
-        let origin = TemplateOrigin::new(db, template_name, template.file());
-
-        first_by_template_name
-            .entry(template_name)
-            .or_insert(origin);
-        ordered.push(origin);
-    }
-
-    tracing::debug!("Discovered {} total template origins", ordered.len());
-
-    TemplateOrigins::new(
-        db,
-        ordered,
-        first_by_template_name,
-        djls_project::template_dirs(db, project).0.clone(),
-    )
-}
-
-pub fn find_template<'db>(
-    db: &'db dyn SemanticDb,
-    project: Project,
-    template_name: TemplateName<'db>,
-) -> FindTemplateResult<'db> {
-    template_origins(db, project).find_template(db, template_name)
-}
-
-#[derive(Clone, PartialEq)]
-pub enum FindTemplateResult<'db> {
-    Found(TemplateOrigin<'db>),
-    DoesNotExist(TemplateDoesNotExist<'db>),
-}
-
-impl<'db> FindTemplateResult<'db> {
-    #[must_use]
-    pub fn ok(self) -> Option<TemplateOrigin<'db>> {
-        match self {
-            Self::Found(origin) => Some(origin),
-            Self::DoesNotExist(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub fn is_found(&self) -> bool {
-        matches!(self, Self::Found(_))
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct TemplateDoesNotExist<'db> {
-    pub template_name: TemplateName<'db>,
-    pub tried: Vec<TriedTemplateSource>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TriedTemplateSource {
-    pub path: Utf8PathBuf,
-}
-
-#[salsa::tracked]
 pub(crate) struct TemplateReferences<'db> {
     #[tracked]
     #[returns(ref)]
@@ -232,7 +94,7 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
     let tag_specs = compute_tag_specs(db, project);
 
     for source in origins.iter(db) {
-        for tag in source.tags(db) {
+        for tag in template_origin_tags(db, source) {
             let Some(reference) =
                 LiteralTemplateReference::from_tag(tag_specs, tag.name(), tag.bits())
             else {
@@ -353,134 +215,6 @@ mod tests {
                 fixture.template_file(name, path, source)
             })
             .build(db)
-    }
-
-    #[test]
-    fn template_origins_preserve_django_search_order() {
-        let mut db = TestDatabase::new();
-        let project = project_with_templates(
-            &mut db,
-            vec!["/test/project/templates", "/test/project/app/templates"],
-            vec![
-                (
-                    "base.html",
-                    "/test/project/templates/base.html",
-                    "project base",
-                ),
-                (
-                    "base.html",
-                    "/test/project/app/templates/base.html",
-                    "app base",
-                ),
-                (
-                    "account/detail.html",
-                    "/test/project/app/templates/account/detail.html",
-                    "detail",
-                ),
-            ],
-        );
-
-        let names: Vec<_> = template_origins(&db, project)
-            .iter(&db)
-            .map(|origin| origin.template_name(&db).name(&db).clone())
-            .collect();
-
-        assert_eq!(names, ["base.html", "account/detail.html", "base.html"]);
-    }
-
-    #[test]
-    fn derived_template_origins_keep_shadowed_names_in_template_dir_order() {
-        let mut db = TestDatabase::new();
-        let project = project_with_templates(
-            &mut db,
-            vec!["/test/project/templates", "/test/project/app/templates"],
-            vec![
-                (
-                    "shared.html",
-                    "/test/project/app/templates/shared.html",
-                    "app shared",
-                ),
-                (
-                    "shared.html",
-                    "/test/project/templates/shared.html",
-                    "project shared",
-                ),
-            ],
-        );
-
-        let paths: Vec<_> = template_origins(&db, project)
-            .iter(&db)
-            .map(|origin| origin.file(&db).path(&db).as_str())
-            .collect();
-
-        assert_eq!(
-            paths,
-            [
-                "/test/project/templates/shared.html",
-                "/test/project/app/templates/shared.html",
-            ]
-        );
-    }
-
-    #[test]
-    fn find_template_returns_first_origin_for_duplicate_template_names() {
-        let mut db = TestDatabase::new();
-        let project = project_with_templates(
-            &mut db,
-            vec!["/test/project/templates", "/test/project/app/templates"],
-            vec![
-                (
-                    "base.html",
-                    "/test/project/templates/base.html",
-                    "project base",
-                ),
-                (
-                    "base.html",
-                    "/test/project/app/templates/base.html",
-                    "app base",
-                ),
-            ],
-        );
-
-        let name = TemplateName::new(&db, "base.html".to_string());
-        let result = template_origins(&db, project).find_template(&db, name);
-        let FindTemplateResult::Found(origin) = result else {
-            panic!("expected base.html to resolve");
-        };
-
-        assert_eq!(
-            origin.file(&db).path(&db).as_str(),
-            "/test/project/templates/base.html"
-        );
-    }
-
-    #[test]
-    fn find_template_reports_tried_sources_for_missing_template() {
-        let mut db = TestDatabase::new();
-        let project = project_with_templates(
-            &mut db,
-            vec!["/test/project/templates", "/test/project/app/templates"],
-            Vec::new(),
-        );
-
-        let name = TemplateName::new(&db, "missing.html".to_string());
-        let result = template_origins(&db, project).find_template(&db, name);
-        let FindTemplateResult::DoesNotExist(error) = result else {
-            panic!("expected missing.html to be missing");
-        };
-        let tried: Vec<_> = error
-            .tried
-            .iter()
-            .map(|source| source.path.as_str())
-            .collect();
-
-        assert_eq!(
-            tried,
-            [
-                "/test/project/templates/missing.html",
-                "/test/project/app/templates/missing.html"
-            ]
-        );
     }
 
     #[test]

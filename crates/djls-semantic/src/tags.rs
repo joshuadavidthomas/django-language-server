@@ -16,7 +16,7 @@ pub use specs::TagSpecs;
 pub use specs::builtin_tag_specs;
 
 use crate::db::Db;
-use crate::resolution::TemplateReferenceKind;
+use crate::references::TemplateReferenceKind;
 
 /// Durable Django template meaning for a tag.
 ///

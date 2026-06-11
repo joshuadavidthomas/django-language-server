@@ -1,6 +1,6 @@
-use djls_semantic::FindTemplateResult;
+use djls_project::FindTemplateResult;
+use djls_project::find_template;
 use djls_semantic::SemanticOffsetContext;
-use djls_semantic::find_template;
 use djls_semantic::references_to_template_name;
 use djls_source::File;
 use djls_source::Offset;

@@ -15,7 +15,7 @@ use djls_project::TagRuleMap;
 use rustc_hash::FxHashMap;
 
 use super::TagRole;
-use crate::resolution::TemplateReferenceKind;
+use crate::references::TemplateReferenceKind;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
 pub(crate) type L<T> = Cow<'static, [T]>;

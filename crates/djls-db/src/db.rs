@@ -402,7 +402,7 @@ mod invalidation_tests {
             else {
                 panic!("expected extends argument to be a template reference");
             };
-            let _result = djls_semantic::find_template(&db, project, name);
+            let _result = djls_project::find_template(&db, project, name);
         }
         event_log.take();
 
@@ -414,7 +414,7 @@ mod invalidation_tests {
         else {
             panic!("expected extends argument to be a template reference");
         };
-        let _result = djls_semantic::find_template(&db, project, name);
+        let _result = djls_project::find_template(&db, project, name);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "project_template_files"),

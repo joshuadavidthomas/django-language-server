@@ -35,7 +35,7 @@ Source-based **Django Discovery** that derives **Project Facts** from source fil
 _Avoid_: introspection, runtime analysis, import-time analysis
 
 **Project/Semantic Boundary**:
-Observed source facts belong to `djls-project`; project meaning — fusion, validity, availability, diagnostics, and template-domain relationships — belongs to `djls-semantic`. Only `djls-project` parses Python source.
+Observed source facts and lookup facts — including Python source facts and **Template Resolution** — belong to `djls-project`; project meaning — fusion, validity, availability, diagnostics, and template-domain relationships — belongs to `djls-semantic`. Only `djls-project` parses Python source.
 _Avoid_: classifying ownership by whether a type's name sounds semantic
 
 **Project Introspection**:

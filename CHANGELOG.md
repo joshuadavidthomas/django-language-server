@@ -28,7 +28,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Bumped Rust toolchain from 1.95 to 1.96.
 - **Internal**: Reshaped template tag library storage around loadable and builtin mounts.
 - **Internal**: Moved the project model and static source recognizers into `djls-project`.
-- **Internal**: Moved Python spec extraction into `djls-project`, leaving `djls-semantic` as the project-meaning layer.
+- **Internal**: Moved Python spec extraction and template-origin resolution into `djls-project`, leaving `djls-semantic` as the project-meaning layer.
 
 ### Removed
 

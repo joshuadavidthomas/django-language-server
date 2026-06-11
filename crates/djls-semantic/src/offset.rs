@@ -1,3 +1,4 @@
+use djls_project::TemplateName;
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
@@ -6,8 +7,7 @@ use djls_templates::TagBit;
 use djls_templates::parse_template;
 
 use crate::db::Db as SemanticDb;
-use crate::resolution::LiteralTemplateReference;
-use crate::resolution::TemplateName;
+use crate::references::LiteralTemplateReference;
 use crate::scoping::LoadKind;
 use crate::tags::TagSpecs;
 

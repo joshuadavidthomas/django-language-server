@@ -62,7 +62,7 @@ This crate should stay boring. It wires traits to concrete state and handles loc
 
 ### `crates/djls-project`
 
-The project model. This crate owns mechanical facts about a Django project: the `Project` Salsa input, Python interpreter and search-path discovery, module resolution, Django settings extraction, template directories, template libraries, discovered template files, Python spec extraction, model graph extraction, and project refresh. It owns two tiers of source recognizers: pure recognizers in `extraction/` for Django settings values and template tag registrations, and Salsa-assisted recognizers in `specs/` for tag rules, block specs, filter arities, and Django model graphs.
+The project model. This crate owns mechanical facts about a Django project: the `Project` Salsa input, Python interpreter and search-path discovery, module resolution, Django settings extraction, template directories, template libraries, discovered template files, template origins/resolution, Python spec extraction, model graph extraction, and project refresh. It owns two tiers of source recognizers: pure recognizers in `extraction/` for Django settings values and template tag registrations, and Salsa-assisted recognizers in `specs/` for tag rules, block specs, filter arities, and Django model graphs.
 
 `djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way boundary lets semantic analysis consume observed source facts without project discovery needing to know about template validation, scoping, or diagnostics.
 
@@ -91,10 +91,10 @@ All errors go through a `ValidationErrorAccumulator` — the validator never ret
 
 This crate also owns:
 - **Load scoping** — tracking which tags and filters are available at each position based on preceding `{% load %}` tags
-- **Template name resolution** — resolving template names to files on disk using project template files and directories
+- **Template-reference relationships** — deciding which tag usages create template-domain references after `djls-project` has resolved template origins
 - **Tag specifications** — the merged view of validation rules (extracted from Python source and combined with manual specs) that the validator checks against
 
-**Architecture Invariant:** `djls-project` observes source; `djls-semantic` decides project meaning. Ruff-backed Python parsing and extraction stay in `djls-project`; semantic fusion, availability, validity, and diagnostics stay in `djls-semantic`.
+**Architecture Invariant:** `djls-project` observes source; `djls-semantic` decides project meaning. Ruff-backed Python parsing/extraction and Django template-origin resolution stay in `djls-project`; semantic fusion, template-reference relationships, availability, validity, and diagnostics stay in `djls-semantic`.
 
 **Architecture Invariant:** static extraction never imports Django or runs Python. It parses Python source as text with the same Ruff parser that powers the Ruff linter. If a templatetag file is syntactically valid Python, we can analyze it. We don't need a working Django installation, a virtual environment, or even a Python interpreter.
 
