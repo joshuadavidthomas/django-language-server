@@ -32,12 +32,13 @@
 - **Planned at**: 2026-06-11, anchored to source `735cea66`; design record:
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
 - **Status**: IN PROGRESS — PR open
-- **Implemented at**: `637b0761` (`refactor: move spec extraction into djls-project`), 2026-06-11
+- **Implemented at**: source stack ending at `db822024`, 2026-06-11
+- **Source commits**: `637b0761` (`refactor: move spec extraction into djls-project`), `db822024` (`refactor: move template lookup into djls-project`)
 - **Bookmark**: `plan-021-move-spec-extraction`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/669
-- **Validation**: `cargo build -q -p djls-project`; `cargo build -q`; `cargo test -q`; `cargo test -q -p djls-project`; `cargo test -q -p djls-semantic`; `just test`; `just e2e`; clean-tree `just clippy`; `just fmt`; `just fmt --check`; `just lint`; Step 4 guard suite. Snapshot body checks passed for 13 moved golden snapshots; corpus/model snapshots moved with metadata-only `source:` updates.
-- **Test-count reconciliation**: before move, `djls-project` had 128 unit/doc target tests and no integration tests; `djls-semantic` had 435 unit/doc target tests plus 2 integration tests. After move, `djls-project` has 395 unit/doc target tests plus 2 integration tests; `djls-semantic` has 168 unit/doc target tests and no integration tests. Totals reconcile exactly.
-- **Export audit**: every new `djls-project` spec façade export has at least one consumer outside `djls-project`: semantic tag rules/spec fusion, semantic testing fixtures, `djls-db` model graph/filter-arity wiring, `djls-bench`, and/or `djls-ide` symbol conversion.
+- **Validation**: `cargo build -q -p djls-project`; `cargo build -q`; `cargo test -q`; `cargo test -q -p djls-project`; `cargo test -q -p djls-semantic`; `cargo test -q -p djls-project templates`; `cargo test -q -p djls-semantic references`; `just test`; `just e2e`; clean-tree `just clippy`; `just fmt`; `just fmt --check`; `just lint`; Step 4 guard suite plus no semantic `resolution.rs`. Snapshot body checks passed for 13 moved golden snapshots; corpus/model snapshots moved with metadata-only `source:` updates.
+- **Test-count reconciliation**: before move, `djls-project` had 128 unit/doc target tests and no integration tests; `djls-semantic` had 435 unit/doc target tests plus 2 integration tests. After the spec and template-lookup moves, `djls-project` has 399 unit/doc target tests plus 2 integration tests; `djls-semantic` has 164 unit/doc target tests and no integration tests. Totals reconcile exactly.
+- **Export audit**: every new `djls-project` spec and template-lookup façade export has at least one consumer outside `djls-project`: semantic tag rules/spec fusion, semantic testing fixtures, semantic template-reference indexing, `djls-db` model graph/filter-arity/template-refresh tests, `djls-bench`, `djls-ide`, and/or public `FindTemplateResult` variants.
 
 ## Why this matters
 
