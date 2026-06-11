@@ -136,9 +136,10 @@ REJECTED (with one-line rationale).
 ## Reconciliation log
 
 - **2026-06-11 (Plan 008 executed)**: PR #664 / bookmark
-  `plan-008-derive-template-libraries-from-source` / source commit
-  `097bbb0e` derives template tag libraries from source and `DjangoSettings`.
-  It removes the `template_libraries` project input, runtime inspector library
+  `plan-008-derive-template-libraries-from-source` / source commits
+  `097bbb0e`, `ba7b106a` derive template tag libraries from source and
+  `DjangoSettings`. It removes the `template_libraries` project input,
+  runtime inspector library
   refresh, snapshot cache, startup cache load, snapshot DTOs, and `sha2`.
   `TemplateLibraries` now comes from Salsa queries over settings, Django/app
   `templatetags` packages, configured `OPTIONS["libraries"]`, default
@@ -154,7 +155,13 @@ REJECTED (with one-line rationale).
   `cargo clippy --all-targets --all-features --benches -- -D warnings`,
   `just fmt`, `just fmt --check`,
   `just test "-q -j 2 -- --test-threads=2"`, `just e2e`, `just clippy`,
-  `just lint`, and the stale inspector/cache/snapshot guard rgs.
+  `just lint`, and the stale inspector/cache/snapshot guard rgs. Follow-up
+  cleanup `ba7b106a` collapsed one-use settings/template-library helpers,
+  narrowed the sync-only settings source closure, and inlined trivial mutation
+  wrappers. Cleanup validation passed: `cargo build -q`,
+  `cargo test -q -p djls-semantic project::settings`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
 - **2026-06-11 (Plan 007 closed)**: PR #660 merged into `main` as
   `459d834e derive template dirs from static settings (#660)` (source commit
   `68602120`). Next executable static-track plan is 008.
