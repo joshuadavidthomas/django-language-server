@@ -8,8 +8,14 @@ use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+#[cfg(test)]
+use djls_conf::Settings;
+#[cfg(test)]
+use djls_conf::TagSpecDef;
 use djls_corpus::Corpus;
 use djls_corpus::module_path_from_file;
+#[cfg(test)]
+use djls_source::Db as _;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -25,11 +31,19 @@ use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
 use crate::project::Db as ProjectDb;
+#[cfg(test)]
+use crate::project::Interpreter;
 use crate::project::Project;
 use crate::project::ProjectIntrospector;
+#[cfg(test)]
+use crate::project::ProjectTemplateFiles;
+#[cfg(test)]
+use crate::project::TemplateDirs;
 use crate::project::TemplateLibraries;
 use crate::project::TemplateLibrarySnapshot;
 use crate::project::TemplateSymbolSnapshot;
+#[cfg(test)]
+use crate::project::resolve::SearchPaths;
 use crate::python::ArgumentCountConstraint;
 use crate::python::ChoiceAt;
 use crate::python::ExtractedDiagnosticConstraint;
@@ -203,6 +217,144 @@ impl TestDatabase {
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)
             .new(self)
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct ProjectFixture {
+    root: Utf8PathBuf,
+    files: Vec<(Utf8PathBuf, String)>,
+    django_settings_module: Option<String>,
+    pythonpath: Vec<String>,
+    env_vars: Vec<(String, String)>,
+    interpreter: Interpreter,
+    search_paths: Option<SearchPaths>,
+    register_roots: bool,
+    template_dirs: TemplateDirs,
+    tag_specs: TagSpecDef,
+    template_libraries: TemplateLibraries,
+    template_files: Vec<(String, Utf8PathBuf)>,
+}
+
+#[cfg(test)]
+impl ProjectFixture {
+    #[must_use]
+    pub(crate) fn new(root: impl Into<Utf8PathBuf>) -> Self {
+        let settings = Settings::default();
+        Self {
+            root: root.into(),
+            files: Vec::new(),
+            django_settings_module: None,
+            pythonpath: Vec::new(),
+            env_vars: Vec::new(),
+            interpreter: Interpreter::discover(settings.venv_path()),
+            search_paths: None,
+            register_roots: true,
+            template_dirs: TemplateDirs::Unknown,
+            tag_specs: settings.tagspecs().clone(),
+            template_libraries: TemplateLibraries::default(),
+            template_files: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn file(mut self, path: impl Into<Utf8PathBuf>, source: impl Into<String>) -> Self {
+        self.files.push((path.into(), source.into()));
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn django_settings_module(mut self, module: impl Into<String>) -> Self {
+        self.django_settings_module = Some(module.into());
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn pythonpath(mut self, path: impl Into<String>) -> Self {
+        self.pythonpath.push(path.into());
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn interpreter(mut self, interpreter: Interpreter) -> Self {
+        self.interpreter = interpreter;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn search_paths(mut self, search_paths: SearchPaths) -> Self {
+        self.search_paths = Some(search_paths);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn register_roots(mut self, register_roots: bool) -> Self {
+        self.register_roots = register_roots;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn template_dirs(mut self, template_dirs: TemplateDirs) -> Self {
+        self.template_dirs = template_dirs;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn template_libraries(mut self, template_libraries: TemplateLibraries) -> Self {
+        self.template_libraries = template_libraries;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn template_file(
+        mut self,
+        name: impl Into<String>,
+        path: impl Into<Utf8PathBuf>,
+        source: impl Into<String>,
+    ) -> Self {
+        let path = path.into();
+        self.files.push((path.clone(), source.into()));
+        self.template_files.push((name.into(), path));
+        self
+    }
+
+    pub(crate) fn build(self, db: &TestDatabase) -> Project {
+        for (path, source) in self.files {
+            db.add_file(path.as_str(), &source);
+        }
+
+        let template_files = ProjectTemplateFiles::from_ordered_paths(db, self.template_files);
+        let search_paths = self.search_paths.unwrap_or_else(|| {
+            SearchPaths::from_project_settings(
+                db.file_system(),
+                &self.root,
+                &self.interpreter,
+                &self.pythonpath,
+            )
+        });
+        if self.register_roots {
+            search_paths.register_roots(db);
+        }
+
+        Project::new(
+            db,
+            self.root,
+            search_paths,
+            self.interpreter,
+            self.django_settings_module,
+            self.pythonpath,
+            self.env_vars,
+            self.template_dirs,
+            self.tag_specs,
+            self.template_libraries,
+            template_files,
+        )
+    }
+
+    pub(crate) fn install(self, db: &mut TestDatabase) -> Project {
+        let project = self.build(db);
+        db.set_project(project);
+        project
     }
 }
 
@@ -779,4 +931,42 @@ where
     errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
 
     render_diagnostic_snapshot(path, source, &errors)
+}
+
+#[cfg(test)]
+mod project_fixture_tests {
+    use djls_source::Db as _;
+
+    use super::*;
+
+    #[test]
+    fn project_fixture_builds_project_with_settings_and_search_paths() {
+        let mut db = TestDatabase::new();
+        let project = ProjectFixture::new("/fixture")
+            .file("/fixture/app/__init__.py", "")
+            .django_settings_module("fixture.settings")
+            .pythonpath("/fixture/app")
+            .install(&mut db);
+
+        assert_eq!(
+            project.django_settings_module(&db).as_deref(),
+            Some("fixture.settings")
+        );
+
+        let paths: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .map(super::super::project::resolve::SearchPath::path)
+            .collect();
+        assert_eq!(
+            paths,
+            [Utf8Path::new("/fixture"), Utf8Path::new("/fixture/app")]
+        );
+        assert!(
+            db.files()
+                .root(&db, Utf8Path::new("/fixture/app/__init__.py"))
+                .is_some()
+        );
+        assert_eq!(db.project(), Some(project));
+    }
 }

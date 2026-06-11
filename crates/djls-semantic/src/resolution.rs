@@ -332,60 +332,32 @@ impl<'bits> LiteralTemplateReference<'bits> {
 
 #[cfg(test)]
 mod tests {
-    use djls_conf::Settings;
-    use djls_source::Db as _;
-    use djls_source::FileRootKind;
-
     use super::*;
-    use crate::project::Interpreter;
-    use crate::project::ProjectTemplateFiles;
-    use crate::project::TemplateLibraries;
-    use crate::project::resolve::SearchPaths;
+    use crate::project::TemplateDirs;
+    use crate::testing::ProjectFixture;
     use crate::testing::TestDatabase;
 
     fn project_with_templates(
-        db: &TestDatabase,
+        db: &mut TestDatabase,
         template_dirs: Vec<&str>,
         templates: Vec<(&str, &str, &str)>,
     ) -> Project {
-        for (_, path, source) in &templates {
-            db.add_file(path, source);
-        }
-
-        let template_files = ProjectTemplateFiles::from_ordered_paths(
-            db,
-            templates
-                .into_iter()
-                .map(|(name, path, _)| (name.to_string(), path.into()))
-                .collect(),
-        );
         let template_dirs =
             TemplateDirs::Known(template_dirs.into_iter().map(Into::into).collect());
-        let settings = Settings::default();
-
-        db.files()
-            .try_add_root(db, "/test/project".into(), FileRootKind::Project);
-
-        Project::new(
-            db,
-            "/test/project".into(),
-            SearchPaths::default(),
-            Interpreter::discover(settings.venv_path()),
-            None,
-            Vec::new(),
-            Vec::new(),
-            template_dirs,
-            settings.tagspecs().clone(),
-            TemplateLibraries::default(),
-            template_files,
-        )
+        templates
+            .into_iter()
+            .fold(
+                ProjectFixture::new("/test/project").template_dirs(template_dirs),
+                |fixture, (name, path, source)| fixture.template_file(name, path, source),
+            )
+            .build(db)
     }
 
     #[test]
     fn template_origins_preserve_django_search_order() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         let project = project_with_templates(
-            &db,
+            &mut db,
             vec!["/test/project/templates", "/test/project/app/templates"],
             vec![
                 (
@@ -416,9 +388,9 @@ mod tests {
 
     #[test]
     fn find_template_returns_first_origin_for_duplicate_template_names() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         let project = project_with_templates(
-            &db,
+            &mut db,
             vec!["/test/project/templates", "/test/project/app/templates"],
             vec![
                 (
@@ -448,9 +420,9 @@ mod tests {
 
     #[test]
     fn find_template_reports_tried_sources_for_missing_template() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         let project = project_with_templates(
-            &db,
+            &mut db,
             vec!["/test/project/templates", "/test/project/app/templates"],
             Vec::new(),
         );
@@ -477,9 +449,9 @@ mod tests {
 
     #[test]
     fn template_references_record_extends_and_include_kinds() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         let project = project_with_templates(
-            &db,
+            &mut db,
             vec!["/test/project/templates"],
             vec![
                 (
@@ -514,9 +486,9 @@ mod tests {
 
     #[test]
     fn template_references_ignore_dynamic_template_names() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         let project = project_with_templates(
-            &db,
+            &mut db,
             vec!["/test/project/templates"],
             vec![
                 (
@@ -541,9 +513,9 @@ mod tests {
 
     #[test]
     fn template_references_to_template_name_include_all_sources() {
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         let project = project_with_templates(
-            &db,
+            &mut db,
             vec!["/test/project/templates"],
             vec![
                 (

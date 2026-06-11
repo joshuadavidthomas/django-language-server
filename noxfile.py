@@ -129,6 +129,31 @@ def e2e(session):
     session.run("pytest", *args)
 
 
+@nox.session(python=PY_DEFAULT)
+def fixtures(session):
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--inexact",
+        "--python",
+        session.python,
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.install(f"django=={DJ_DEFAULT}")
+
+    output = session.run(
+        "python",
+        "tools/django_facts.py",
+        "--project",
+        "tests/project",
+        silent=True,
+    )
+    output_path = Path("tests/fixtures/django-facts/django-5.2.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
+
+
 @nox.session
 def lint(session):
     for python_version in reversed(PY_VERSIONS):

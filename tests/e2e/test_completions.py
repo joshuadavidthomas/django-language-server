@@ -16,6 +16,14 @@ BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.h
 LOAD_TEMPLATE = (
     TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "tags" / "load.html"
 )
+FIRST_PARTY_LOAD_TEMPLATE = (
+    TEST_WORKSPACE
+    / "djls_app"
+    / "templates"
+    / "djls_app"
+    / "tags"
+    / "first_party_load.html"
+)
 
 
 @pytest.mark.asyncio
@@ -69,6 +77,33 @@ async def test_completes_load_library_names(client: LanguageClient):
     assert static.kind == CompletionItemKind.Module
     assert static.insert_text_format == InsertTextFormat.PlainText
     assert static.detail.startswith("Django template library")
+
+
+@pytest.mark.asyncio
+async def test_completes_first_party_load_library_names(client: LanguageClient):
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=FIRST_PARTY_LOAD_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=FIRST_PARTY_LOAD_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    result = await client.text_document_completion_async(
+        CompletionParams(
+            text_document=TextDocumentIdentifier(uri=FIRST_PARTY_LOAD_TEMPLATE.as_uri()),
+            position=position_after(FIRST_PARTY_LOAD_TEMPLATE, "{% load djls_app"),
+        )
+    )
+
+    assert result is not None
+    first_party = next(item for item in result if item.label == "djls_app_tags")
+    assert first_party.kind == CompletionItemKind.Module
+    assert first_party.insert_text_format == InsertTextFormat.PlainText
+    assert first_party.detail.startswith("Django template library")
 
 
 @pytest.mark.asyncio
