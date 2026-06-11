@@ -31,9 +31,10 @@
 - **Category**: tech-debt / architecture (boundary correction)
 - **Planned at**: 2026-06-11, anchored to source `735cea66`; design record:
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
-- **Status**: IN PROGRESS — PR open
+- **Status**: DONE — merged
 - **Implemented at**: source stack ending at `db822024`, 2026-06-11
 - **Source commits**: `637b0761` (`refactor: move spec extraction into djls-project`), `db822024` (`refactor: move template lookup into djls-project`)
+- **Merged at**: `3876398c` (`Move spec extraction into djls-project (#669)`), 2026-06-11
 - **Bookmark**: `plan-021-move-spec-extraction`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/669
 - **Validation**: `cargo build -q -p djls-project`; `cargo build -q`; `cargo test -q`; `cargo test -q -p djls-project`; `cargo test -q -p djls-semantic`; `cargo test -q -p djls-project templates`; `cargo test -q -p djls-semantic references`; `just test`; `just e2e`; clean-tree `just clippy`; `just fmt`; `just fmt --check`; `just lint`; Step 4 guard suite plus no semantic `resolution.rs`. Snapshot body checks passed for 13 moved golden snapshots; corpus/model snapshots moved with metadata-only `source:` updates.

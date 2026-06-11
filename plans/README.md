@@ -61,7 +61,7 @@ reconciliation and run early).
 | [020](020-unify-settings-source-walker.md) | Compute the settings refresh footprint with the extractor's own walk | P1 | S/M | 007, 008 (before 015) | DONE |
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | DONE |
-| [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | IN PROGRESS |
+| [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | DONE |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015, 021 (015/021 soft) | TODO |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, export audit | P2 | M | 013, 015, 016, 021 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
@@ -173,6 +173,15 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 021 closed)**: PR #669 merged into `main` as
+  `3876398c Move spec extraction into djls-project (#669)` (source head
+  `db822024`). The source change moves Python spec extraction and
+  template-origin lookup/resolution into `djls-project`; `djls-semantic`
+  retains project-meaning behavior: tag/filter fusion, availability,
+  validation, template-reference relationships, structure, scoping, and
+  diagnostics. Post-merge fetch updated local `main`; the plans stack was
+  rebased onto that merge and now carries planning docs only. Plan 016 is
+  the next structural-track plan, followed by Plan 017.
 - **2026-06-11 (Plan 015 closed)**: PR #668 merged into `main` as
   `815951de Move project model into djls-project (#668)` (source head
   `735cea66`). The source change moves the registration scanner, `Project`
@@ -207,9 +216,9 @@ REJECTED (with one-line rationale).
   `just lint`, the six boundary guards, and the no-`resolution.rs` guard. Test
   counts reconcile exactly: project 128→399 unit/doc target tests and 0→2
   integration tests; semantic 435→164 unit/doc target tests and 2→0
-  integration tests. PR #669 is open at
+  integration tests. PR #669 was opened at
   https://github.com/joshuadavidthomas/django-language-server/pull/669 and
-  Plan 021 remains IN PROGRESS until review/merge close-out.
+  remained IN PROGRESS until merge close-out.
 - **2026-06-11 (post-015 boundary review — project/semantic seam)**:
   design memo
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md)
