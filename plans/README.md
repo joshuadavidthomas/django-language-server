@@ -45,7 +45,7 @@ reconciliation and run early).
 | [004](004-derive-template-files.md) | Derive template files via tracked query (kill the first push-fact) | P1 | M | 003 (014 rec.) | DONE |
 | [006](006-create-djls-project-settings-recognizer.md) | Create `djls-project` with the bounded settings recognizer | P1 | L | 001 | DONE |
 | [007](007-derive-template-dirs-from-settings.md) | Wire extraction into Salsa; derive template dirs | P1 | L | 003, 004, 006, 013, 014 | DONE |
-| [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | TODO |
+| [008](008-derive-template-libraries-from-source.md) | Derive template libraries from source; Partial gating | P1 | L | 002, 006, 007, 013, 014 | DONE |
 | [009](009-delete-runtime-inspector.md) | Delete the runtime Python inspector | P2 | M | 007, 008 | TODO |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009 | TODO |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015 (soft) | TODO |
@@ -135,6 +135,26 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 008 executed)**: PR #664 / bookmark
+  `plan-008-derive-template-libraries-from-source` / source commit
+  `097bbb0e` derives template tag libraries from source and `DjangoSettings`.
+  It removes the `template_libraries` project input, runtime inspector library
+  refresh, snapshot cache, startup cache load, snapshot DTOs, and `sha2`.
+  `TemplateLibraries` now comes from Salsa queries over settings, Django/app
+  `templatetags` packages, configured `OPTIONS["libraries"]`, default
+  builtins, and configured `OPTIONS["builtins"]`; `just e2e` runs ignored
+  golden comparisons for both template dirs and template libraries. Partial
+  knowledge now suppresses absence claims while keeping evidence-backed
+  unloaded and arity diagnostics, with safeguards for unknown loads that can
+  shadow filters. Review-found edge cases fixed before PR: configured library
+  load-name overrides, settings star-import refresh invalidation, empty
+  registered templatetag modules, configured libraries when `INSTALLED_APPS` is
+  unknown, and selective unknown-load arity shadowing. Validation passed:
+  `cargo build -q`, `cargo test -q -j 2 -- --test-threads=2`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `just fmt`, `just fmt --check`,
+  `just test "-q -j 2 -- --test-threads=2"`, `just e2e`, `just clippy`,
+  `just lint`, and the stale inspector/cache/snapshot guard rgs.
 - **2026-06-11 (Plan 007 closed)**: PR #660 merged into `main` as
   `459d834e derive template dirs from static settings (#660)` (source commit
   `68602120`). Next executable static-track plan is 008.
