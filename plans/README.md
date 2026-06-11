@@ -137,8 +137,8 @@ REJECTED (with one-line rationale).
 
 - **2026-06-11 (Plan 008 executed)**: PR #664 / bookmark
   `plan-008-derive-template-libraries-from-source` / source commits
-  `097bbb0e`, `ba7b106a` derive template tag libraries from source and
-  `DjangoSettings`. It removes the `template_libraries` project input,
+  `097bbb0e`, `ba7b106a`, and `f6ae8767` derive template tag libraries from
+  source and `DjangoSettings`. It removes the `template_libraries` project input,
   runtime inspector library
   refresh, snapshot cache, startup cache load, snapshot DTOs, and `sha2`.
   `TemplateLibraries` now comes from Salsa queries over settings, Django/app
@@ -159,6 +159,18 @@ REJECTED (with one-line rationale).
   cleanup `ba7b106a` collapsed one-use settings/template-library helpers,
   narrowed the sync-only settings source closure, and inlined trivial mutation
   wrappers. Cleanup validation passed: `cargo build -q`,
+  `cargo test -q -p djls-semantic project::settings`,
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
+  Follow-up cleanup `f6ae8767` moved method-shaped helpers onto their owning
+  types/resolver: `StaticKnowledge::{weakened_by, demote_to_partial}`,
+  `TemplateBackend::is_django_templates_backend`,
+  `TemplateLibrary::merge_symbols`, `TemplateLibraryAnalysis::from_file`,
+  `ModuleFileParts::from_path`, and `SalsaSettingsResolver` methods for
+  settings-source recursion, module lookup, package lookup, root touching, and
+  star-import resolution. It also inlined the one-use configured-library parser.
+  Validation passed: `just fmt`, `cargo build -q`,
+  `cargo test -q -p djls-project`,
   `cargo test -q -p djls-semantic project::settings`,
   `cargo clippy --all-targets --all-features --benches -- -D warnings`,
   `cargo test -q -j 2 -- --test-threads=2`, and `just fmt --check`.
