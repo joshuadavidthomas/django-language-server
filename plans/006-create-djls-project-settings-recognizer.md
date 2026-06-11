@@ -21,6 +21,10 @@
 - **Planned at**: commit `922cc4d7`, 2026-06-10; retargeted from a separate
   `djls-extraction` crate to `djls-project` at `95e30371`, 2026-06-10
   (crate-count review — see `plans/README.md` reconciliation log)
+- **Status**: DONE
+- **Implemented at**: source commit `731d353b`, 2026-06-10
+- **Bookmark**: `plan-006-djls-project-settings-recognizer`
+- **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/659
 
 ## Why this matters
 
