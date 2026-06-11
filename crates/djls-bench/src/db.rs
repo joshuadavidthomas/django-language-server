@@ -187,10 +187,6 @@ impl djls_semantic::ProjectDb for Db {
     fn project(&self) -> Option<djls_semantic::Project> {
         None
     }
-
-    fn project_introspector(&self) -> Arc<djls_semantic::ProjectIntrospector> {
-        Arc::new(djls_semantic::ProjectIntrospector::new())
-    }
 }
 
 #[salsa::db]

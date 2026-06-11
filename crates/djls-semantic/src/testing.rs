@@ -34,7 +34,6 @@ use crate::project::Db as ProjectDb;
 use crate::project::Interpreter;
 use crate::project::LibraryName;
 use crate::project::Project;
-use crate::project::ProjectIntrospector;
 use crate::project::PyModuleName;
 use crate::project::SymbolDefinition;
 use crate::project::TemplateLibraries;
@@ -221,7 +220,6 @@ pub(crate) struct TestDatabase {
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
     project: Option<Project>,
-    project_introspector: Arc<ProjectIntrospector>,
 }
 
 impl TestDatabase {
@@ -235,7 +233,6 @@ impl TestDatabase {
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
             project: None,
-            project_introspector: Arc::new(ProjectIntrospector::new()),
         }
     }
 
@@ -417,10 +414,6 @@ impl djls_source::Db for TestDatabase {
 impl ProjectDb for TestDatabase {
     fn project(&self) -> Option<Project> {
         self.project
-    }
-
-    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-        self.project_introspector.clone()
     }
 }
 

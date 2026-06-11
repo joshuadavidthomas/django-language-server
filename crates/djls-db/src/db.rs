@@ -13,7 +13,6 @@ use djls_conf::Settings;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::Project;
 use djls_semantic::ProjectDb;
-use djls_semantic::ProjectIntrospector;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateLibraries;
 use djls_semantic::compute_filter_arity_specs;
@@ -52,9 +51,6 @@ pub struct DjangoDatabase {
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
 
-    /// Shared introspector for external project facts.
-    pub(crate) project_introspector: Arc<ProjectIntrospector>,
-
     pub(crate) storage: salsa::Storage<Self>,
 
     // The logs are only used for testing and demonstrating reuse:
@@ -75,7 +71,6 @@ impl Default for DjangoDatabase {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(Settings::default())),
-            project_introspector: Arc::new(ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -106,7 +101,6 @@ impl DjangoDatabase {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(ProjectIntrospector::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -189,10 +183,6 @@ impl ProjectDb for DjangoDatabase {
     fn project(&self) -> Option<Project> {
         self.project
     }
-
-    fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-        self.project_introspector.clone()
-    }
 }
 
 #[cfg(test)]
@@ -265,7 +255,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -335,7 +324,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -389,7 +377,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -450,7 +437,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -494,7 +480,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -557,7 +542,6 @@ mod invalidation_tests {
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -769,7 +753,6 @@ def my_filter(value, arg):
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {
@@ -865,7 +848,6 @@ def my_filter(value, arg):
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -938,7 +920,6 @@ def my_filter(value, arg):
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -994,7 +975,6 @@ def my_filter(value, arg):
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
@@ -1042,7 +1022,6 @@ def my_filter(value, arg):
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(Mutex::new(settings.clone())),
-            project_introspector: Arc::new(djls_semantic::ProjectIntrospector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let log = event_log.clone();
                 move |event| {

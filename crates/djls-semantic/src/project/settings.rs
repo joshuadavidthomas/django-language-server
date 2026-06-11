@@ -545,7 +545,6 @@ mod tests {
 
     use super::*;
     use crate::project::Interpreter;
-    use crate::project::ProjectIntrospector;
     use crate::project::resolve::SearchPaths;
     use crate::project::system::mock as sys_mock;
     use crate::testing::ProjectFixture;
@@ -580,7 +579,6 @@ mod tests {
         fs: Arc<OsFileSystem>,
         files: SourceFiles,
         project: Option<Project>,
-        project_introspector: Arc<ProjectIntrospector>,
     }
 
     impl OsTestDatabase {
@@ -590,7 +588,6 @@ mod tests {
                 fs: Arc::new(OsFileSystem),
                 files: SourceFiles::default(),
                 project: None,
-                project_introspector: Arc::new(ProjectIntrospector::new()),
             }
         }
     }
@@ -613,10 +610,6 @@ mod tests {
     impl ProjectDb for OsTestDatabase {
         fn project(&self) -> Option<Project> {
             self.project
-        }
-
-        fn project_introspector(&self) -> Arc<ProjectIntrospector> {
-            self.project_introspector.clone()
         }
     }
 
