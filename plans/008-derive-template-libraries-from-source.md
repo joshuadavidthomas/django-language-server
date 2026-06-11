@@ -24,6 +24,7 @@
 - **Planned at**: commit `922cc4d7`, 2026-06-10
 - **Status**: DONE
 - **Implemented at**: source commits `097bbb0e`, `ba7b106a`, `f6ae8767`, `672211ee`, `7f3e6e91`, `e09c2312`, `b189d980`, `fac34c21`, `4257c739`, 2026-06-11
+- **Merged at**: `94eb3f68 Derive template libraries from source (#664)`, 2026-06-11
 - **Bookmark**: `plan-008-derive-template-libraries-from-source`
 - **PR**: https://github.com/joshuadavidthomas/django-language-server/pull/664
 
