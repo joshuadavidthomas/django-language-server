@@ -963,6 +963,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-project"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "ruff_python_ast",
+ "ruff_python_parser",
+ "rustc-hash",
+]
+
+[[package]]
 name = "djls-semantic"
 version = "0.0.0"
 dependencies = [
