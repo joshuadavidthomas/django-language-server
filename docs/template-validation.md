@@ -6,15 +6,16 @@ Django Language Server validates your Django templates as you write them, catchi
 
 Template validation relies on three systems working together:
 
-### Inspector
+### Static project discovery
 
-The **inspector** is a Python process that introspects your running Django project to discover:
+DJLS statically reads your Django settings and Python search paths to discover:
 
-- Which template tags and filters exist
-- Which libraries they belong to (builtins vs third-party)
-- Which library load-name maps to which module
+- Which apps are listed in `INSTALLED_APPS`
+- Which template tag libraries are active for this project
+- Which template tag libraries exist on the search paths but are not active
+- Which tags and filters each library registers
 
-This gives djls an accurate picture of your project's template tag ecosystem — the same tags Django would see at runtime. The inspector reflects your `INSTALLED_APPS` configuration, so it only reports tags and filters from apps that are actually activated.
+This gives djls an evidence-backed picture of your project's template tag ecosystem without starting Django. The active inventory reflects `INSTALLED_APPS`, so tags and filters from packages outside the active app list are reported separately.
 
 ### Extraction
 
@@ -25,7 +26,7 @@ The **extraction engine** analyzes Python source code (using static AST analysis
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
 - **Expression syntax** — valid operator usage in `{% if %}` / `{% elif %}` expressions
 
-Together, the inspector tells djls *what's active in your project*, and extraction tells djls *how to validate usage*.
+Together, static project discovery tells djls *what's active in your project*, and extraction tells djls *how to validate usage*.
 
 ## Template Symbol Resolution
 
@@ -40,12 +41,13 @@ Each layer has a different failure mode and a different fix:
 
 | Layer | Failure | Diagnostic | Fix |
 |---|---|---|---|
-| Not active in the Django project | Package not installed or app not activated | S108/S111 (Unknown) | Install the package and add the app to `INSTALLED_APPS` |
+| Not found in active or inactive libraries | Unknown package, library, tag, or filter | S108/S111/S120 (Unknown) | Check the name or install the package |
+| Found on the Python search paths, not active in this project | App missing from `INSTALLED_APPS` | S118/S119/S121 (Not in `INSTALLED_APPS`) | Add the app to `INSTALLED_APPS` |
 | Active, not loaded | No `{% load %}` | S109/S112 (Unloaded) | Add `{% load <library> %}` |
 
-`{% load %}` library names are checked against the active inspector inventory. A library name not reported by the active Django project is reported as S120 (unknown library).
+`{% load %}` library names are checked against the active static inventory first. If the library exists on the project's Python search paths but its app is not in `INSTALLED_APPS`, djls reports S121. If no inactive-library evidence exists, djls reports S120.
 
-This gives you diagnostics based on the same template tag inventory Django would use at runtime.
+This gives you diagnostics based on the same template tag inventory Django would use at runtime, while distinguishing "not installed or misspelled" from "installed but not activated".
 
 ## What djls Validates
 
@@ -58,27 +60,30 @@ Validates that block tags are properly opened, closed, and nested:
 - **S102** — Orphaned tag (intermediate tag like `{% else %}` without a parent `{% if %}`)
 - **S103** — Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
 
-### Tag Scoping (S108–S110)
+### Tag Scoping (S108–S110, S118)
 
 Validates that template tags are available at their point of use, using [template symbol resolution](#template-symbol-resolution):
 
-- **S108** — Unknown tag (not found in any active library)
-- **S109** — Unloaded tag (defined in a library that hasn't been loaded via `{% load %}`)
-- **S110** — Ambiguous unloaded tag (defined in multiple libraries — load the correct one to resolve)
+- **S108** — Unknown tag (not found in any active or inactive library)
+- **S109** — Unloaded tag (defined in an active library that hasn't been loaded via `{% load %}`)
+- **S110** — Ambiguous unloaded tag (defined in multiple active libraries — load the correct one to resolve)
+- **S118** — Tag exists in a library whose app is not in `INSTALLED_APPS`
 
-### Filter Scoping (S111–S113)
+### Filter Scoping (S111–S113, S119)
 
 Validates that template filters are available at their point of use, with the same resolution layers as tags:
 
-- **S111** — Unknown filter (not found in any active library)
-- **S112** — Unloaded filter (defined in a library that hasn't been loaded)
-- **S113** — Ambiguous unloaded filter (defined in multiple libraries)
+- **S111** — Unknown filter (not found in any active or inactive library)
+- **S112** — Unloaded filter (defined in an active library that hasn't been loaded)
+- **S113** — Ambiguous unloaded filter (defined in multiple active libraries)
+- **S119** — Filter exists in a library whose app is not in `INSTALLED_APPS`
 
-### Library Validation (S120)
+### Library Validation (S120–S121)
 
 Validates that `{% load %}` library names refer to known template tag libraries:
 
-- **S120** — Unknown library (not found in the inspector inventory)
+- **S120** — Unknown library (not found in active or inactive libraries)
+- **S121** — Library exists on the project's Python search paths, but its app is not in `INSTALLED_APPS`
 
 ### Extends Validation (S122–S123)
 
@@ -118,25 +123,26 @@ Django templates are deeply dynamic — many things can only be checked at runti
 - **Dynamic tag behavior** — Tags whose validation depends on runtime state
 - **Format strings** — Whether date/time format strings are valid
 
-## Inspector Availability
+## Static Knowledge Availability
 
-The inspector requires a working Django environment (correct `DJANGO_SETTINGS_MODULE`, virtual environment with Django installed, no import errors during Django setup).
+Static discovery can be complete, partial, or unavailable. It is complete only when djls can resolve the active settings, installed apps, template backends, and relevant Python modules.
 
-When the inspector is **healthy**:
+When static discovery is **complete**:
 
 - Full validation is active — all current validation diagnostics are emitted
 - Completions are scoped to loaded libraries at cursor position
 
-When the inspector is **unavailable** (Django init failed, Python not configured, etc.):
+When static discovery is **partial or unavailable**:
 
-- **S108–S113 and S120 are suppressed** — Without knowing which tags/filters and libraries exist, djls cannot determine whether something is unknown or unloaded
-- **S115–S116 are suppressed** — Filter arity rules come from extraction, which depends on knowing the source modules
-- **S117 is suppressed** — Tag argument rules come from extraction, which depends on the inspector discovering tag source modules
+- **Absence-claim diagnostics are suppressed** — S108, S111, S118, S119, S120, and S121 require a complete active set, so djls does not emit them from partial evidence
+- **Known unloaded diagnostics can still appear under partial knowledge** — S109, S110, S112, and S113 are based on positive active-library evidence
+- **S115–S116 are suppressed when filter arity rules are unavailable** — Filter arity rules come from extraction, which depends on knowing source modules
+- **S117 is suppressed when tag argument rules are unavailable** — Tag argument rules come from extraction, which depends on discovering tag source modules
 - **S100–S103 still work** — Block structure validation uses built-in tag specs
 - **S114 still works** — Expression syntax validation is purely structural
-- **Inspector-backed completions are unavailable** — Tag, filter, and library completions that depend on active inventory are suppressed; syntax-only completions may still appear
+- **Project-backed completions are unavailable** when the active inventory is unknown; syntax-only completions may still appear
 
-This design avoids false positives when the Python environment isn't available.
+This design avoids false positives when djls cannot prove whether a tag, filter, or library is absent from the active project.
 
 ## Configuring Diagnostic Severity
 

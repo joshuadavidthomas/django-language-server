@@ -17,6 +17,7 @@ FIRST_PARTY_UNLOADED_TEMPLATE = (
     / "tags"
     / "first_party_unloaded.html"
 )
+NOT_IN_INSTALLED_APPS_TEMPLATE = TEST_WORKSPACE / "templates" / "not_in_installed_apps.html"
 EXPECTED_DIAGNOSTICS = {"S108", "S109", "S111", "S112", "S115", "S116"}
 
 
@@ -66,6 +67,39 @@ async def test_publish_diagnostics_for_unloaded_first_party_tag(
         for diagnostic in client.diagnostics[FIRST_PARTY_UNLOADED_TEMPLATE.as_uri()]
         if diagnostic.code
     } == {"S109"}
+
+
+@pytest.mark.asyncio
+async def test_publish_diagnostics_for_inactive_django_contrib_library(
+    client: LanguageClient,
+):
+    client.text_document_did_open(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=NOT_IN_INSTALLED_APPS_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=NOT_IN_INSTALLED_APPS_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    while not client.diagnostics.get(NOT_IN_INSTALLED_APPS_TEMPLATE.as_uri()):
+        await client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS)
+
+    diagnostics = client.diagnostics[NOT_IN_INSTALLED_APPS_TEMPLATE.as_uri()]
+    load_diagnostics = [
+        diagnostic for diagnostic in diagnostics if diagnostic.range.start.line == 0
+    ]
+    tag_diagnostics = [
+        diagnostic for diagnostic in diagnostics if diagnostic.range.start.line == 2
+    ]
+
+    assert [str(diagnostic.code) for diagnostic in load_diagnostics] == ["S121"]
+    assert "django.contrib.flatpages" in load_diagnostics[0].message
+    assert [str(diagnostic.code) for diagnostic in tag_diagnostics] == ["S118"]
+    assert "django.contrib.flatpages" in tag_diagnostics[0].message
+    assert "S108" not in {str(diagnostic.code) for diagnostic in diagnostics}
 
 
 @pytest.mark.asyncio
