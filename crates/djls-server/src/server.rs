@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
@@ -17,6 +18,9 @@ use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::queue::Queue;
 use crate::session::Session;
+use crate::session::SessionSnapshot;
+
+const SNAPSHOT_CANCEL_RETRIES: usize = 2;
 
 pub(crate) struct DjangoLanguageServer {
     client: Client,
@@ -52,6 +56,47 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
+    /// Capture a snapshot under a brief lock, then compute on the blocking
+    /// pool so the single-threaded event loop stays responsive.
+    pub(crate) async fn with_snapshot<F, R>(&self, f: F) -> R
+    where
+        F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
+        R: Default + Send + 'static,
+    {
+        let f = Arc::new(f);
+
+        for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+            let snapshot = { self.session.lock().await.snapshot() };
+            let f = Arc::clone(&f);
+            let result = tokio::task::spawn_blocking(move || {
+                salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
+            })
+            .await
+            .expect("snapshot task must not panic");
+
+            match result {
+                Ok(result) => return result,
+                Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                    tracing::debug!(
+                        ?cancelled,
+                        attempt = attempt + 1,
+                        "Snapshot request cancelled; retrying with fresh snapshot"
+                    );
+                }
+                Err(cancelled) => {
+                    tracing::debug!(
+                        ?cancelled,
+                        retries = SNAPSHOT_CANCEL_RETRIES,
+                        "Snapshot request cancelled; returning fallback"
+                    );
+                    return R::default();
+                }
+            }
+        }
+
+        unreachable!("snapshot retry loop must return")
+    }
+
     pub(crate) async fn with_session_mut_task<F, Fut>(
         &self,
         f: F,
@@ -85,14 +130,15 @@ impl DjangoLanguageServer {
     }
 
     async fn maybe_push_diagnostics(&self, document: &TextDocument) {
+        let file = document.file();
         let Some(diagnostics) = self
-            .with_session(|session| {
-                if session.client_info().supports_pull_diagnostics() {
+            .with_snapshot(move |snapshot| {
+                if snapshot.client_info().supports_pull_diagnostics() {
                     tracing::debug!("Client supports pull diagnostics, skipping push");
                     return None;
                 }
 
-                djls_ide::collect_diagnostics(session.db(), document.file())
+                djls_ide::collect_diagnostics(snapshot.db(), file)
             })
             .await
         else {
@@ -260,13 +306,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::CompletionParams,
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
                     "completion",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -276,8 +322,8 @@ impl LanguageServer for DjangoLanguageServer {
                     db,
                     file,
                     offset,
-                    session.client_info().position_encoding(),
-                    session.client_info().supports_snippets(),
+                    snapshot.client_info().position_encoding(),
+                    snapshot.client_info().supports_snippets(),
                 )
             })
             .await;
@@ -287,13 +333,13 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn hover(&self, params: ls_types::HoverParams) -> LspResult<Option<ls_types::Hover>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
                     "hover",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -316,14 +362,14 @@ impl LanguageServer for DjangoLanguageServer {
         );
 
         let diagnostics = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "diagnostic")
+                    snapshot.file_for_document_request(&params.text_document, "diagnostic")
                 else {
                     return Vec::new();
                 };
 
-                djls_ide::collect_diagnostics(session.db(), file).unwrap_or_default()
+                djls_ide::collect_diagnostics(snapshot.db(), file).unwrap_or_default()
             })
             .await;
 
@@ -345,13 +391,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::FoldingRangeParams,
     ) -> LspResult<Option<Vec<ls_types::FoldingRange>>> {
         let ranges = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "folding")
+                    snapshot.file_for_document_request(&params.text_document, "folding")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return Vec::new();
@@ -369,13 +415,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::DocumentSymbolParams,
     ) -> LspResult<Option<ls_types::DocumentSymbolResponse>> {
         let symbols = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "document symbol")
+                    snapshot.file_for_document_request(&params.text_document, "document symbol")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return Vec::new();
@@ -393,13 +439,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::GotoDefinitionParams,
     ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
                     "goto definition",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -417,13 +463,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::ReferenceParams,
     ) -> LspResult<Option<Vec<ls_types::Location>>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
                     "references",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -441,13 +487,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::DocumentFormattingParams,
     ) -> LspResult<Option<Vec<ls_types::TextEdit>>> {
         let edits = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "formatting")
+                    snapshot.file_for_document_request(&params.text_document, "formatting")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
+                let db = snapshot.db();
                 let format_config = db.settings().format().clone();
 
                 if !format_config.enabled() {
@@ -462,7 +508,7 @@ impl LanguageServer for DjangoLanguageServer {
                 djls_ide::format_document(
                     db,
                     file,
-                    session.client_info().position_encoding(),
+                    snapshot.client_info().position_encoding(),
                     format_config.backend(),
                     &params.options,
                 )
