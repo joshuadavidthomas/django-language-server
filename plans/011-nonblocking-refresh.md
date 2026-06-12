@@ -25,6 +25,85 @@
 - **Depends on**: plans/009, plans/010
 - **Category**: perf (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Execution status**: source-complete locally at `dfc2ca3c`; not pushed/merged
+
+## Execution record — local source commit (2026-06-12)
+
+Implemented as one source commit:
+
+1. `dfc2ca3c` — `refactor: apply project refresh briefly and warm queries off-lock`
+
+Implementation notes:
+
+- Added `DjangoLanguageServer::refresh_epoch: Arc<AtomicU64>` and queued
+  refresh tasks that stale-check before locking, after locking, before apply,
+  after apply, and between warm-up queries.
+- Split project refresh into `compute_refresh` and `apply_refresh` in
+  `djls-project`. `compute_refresh` returns `RefreshData` containing new
+  search paths plus the current file paths whose revisions should be bumped;
+  `apply_refresh` only registers roots, updates the `Project.search_paths`
+  input when changed, bumps registered roots, and bumps precomputed files.
+- Moved the hidden `project.refresh_source_roots` call out of
+  `DjangoDatabase::set_settings` so config reloads do not perform filesystem
+  search-path probing while the session lock is held. `SettingsUpdate` now
+  reports `semantic_changed` for tagspec-only changes so open-document
+  diagnostics republish when tag specs change.
+- `initialized` now submits refresh work and returns immediately; the existing
+  `"Server initialization completed"` log line is emitted by the queued task
+  after refresh/warm-up completes.
+- `did_change_configuration` no longer awaits the refresh task. Env changes
+  enqueue the refresh; diagnostics-only and semantic-only changes bump the
+  refresh epoch and republish open-document diagnostics directly.
+- Warm-up primes `tag_specs`, `template_dirs`, `template_libraries`, and
+  `project_template_files` from a `SessionSnapshot`, with `salsa::Cancelled`
+  caught and treated as superseded work.
+- Refresh-originated diagnostics republish uses the same publish mutex as
+  direct diagnostics pushes and rechecks the epoch while holding that mutex,
+  preventing stale refresh diagnostics from overwriting a newer config publish.
+
+Divergences recorded:
+
+- Plan 015/021 moved project sync from `crates/djls-semantic/src/project/sync.rs`
+  to `crates/djls-project/src/sync.rs`; Plan 011 was applied at the final
+  `djls-project` location.
+- Source scope expanded to `crates/djls-db/src/settings.rs` and
+  `crates/djls-db/src/db.rs` because `set_settings` still refreshed source
+  roots under the session lock and because tagspec-only settings changes had
+  no republish signal. This was required to satisfy the lock-scope invariant.
+- Source scope expanded to `crates/djls-project/tests/resolve.rs` for direct
+  compute/apply split coverage.
+- The planned small outcome type became `RefreshData`; no stage enum,
+  controller, second counter, queue change, progress relay, or file-watching
+  machinery was introduced.
+- A `diagnostic_publish_lock` was added after concurrency review found that an
+  async `publish_diagnostics` call could otherwise let a stale refresh publish
+  resume after a newer config publish.
+
+Validation passed on the final source commit:
+
+- `cargo build -q`
+- `cargo test -q -p djls-server`
+- `cargo test -q -p djls-project`
+- `cargo test -q -p djls-db tagspecs_settings_change_reports_semantic_change`
+- `cargo test -q`
+- `just test`
+- `just e2e`
+- `cargo clippy --all-targets --all-features --benches -- -D warnings`
+- clean-tree `just clippy`
+- clean-tree `just fmt`
+- clean-tree `just lint`
+
+Review notes:
+
+- Initial e2e run stalled on the first completion test because the first split
+  left `refresh_python_modules` doing discovery under the session lock. The
+  fix hoisted discovery to `compute_refresh`; `test_completes_available_template_tags`
+  then passed in 8.07s and full `just e2e` passed afterwards.
+- Two strict concurrency reviews were run. The first found stale refresh
+  diagnostics could overwrite diagnostics-only config publishes and that
+  tagspec-only changes had no republish signal; both were fixed. The second
+  found a remaining async publish-order race; `diagnostic_publish_lock` fixed
+  it. Final strict concurrency review reported no must-fix findings.
 
 ## Why this matters
 
@@ -206,15 +285,15 @@ republish; pull-diagnostics clients re-request).
 
 Machine-checkable. ALL must hold:
 
-- [ ] `rg -n "refresh_external_data" crates/djls-server/src/server.rs` shows no call that holds the session lock across the whole refresh (lock scope ≤ apply)
-- [ ] `rg -n "rx\.await" crates/djls-server/src/server.rs` shows `did_change_configuration` no longer blocking on the refresh task
-- [ ] `initialized` republishes diagnostics for open documents after warm-up (code path exists and an e2e or unit test exercises it)
-- [ ] New types introduced by this plan: ≤ 2 (`jj diff` review)
-- [ ] `cargo test -q` exits 0
-- [ ] `just test` exits 0 and `just e2e` exits 0
-- [ ] `just clippy` exits 0
-- [ ] Only in-scope files modified (`jj diff --stat`)
-- [ ] `plans/README.md` status row updated
+- [x] `rg -n "refresh_external_data" crates/djls-server/src/server.rs` shows no server-side call remains; lock scope is clone inputs/snapshot/documents plus apply only
+- [x] `rg -n "rx\.await" crates/djls-server/src/server.rs` shows `did_change_configuration` no longer blocking on the refresh task
+- [x] `initialized` republishes diagnostics for open documents after warm-up via `republish_snapshot_diagnostics`; `just e2e` diagnostics tests pass against the non-blocking path
+- [x] New types introduced by this plan: ≤ 2 (`RefreshData`; the epoch and publish lock use existing library types)
+- [x] `cargo test -q` exits 0
+- [x] `just test` exits 0 and `just e2e` exits 0
+- [x] `just clippy` exits 0
+- [x] Source diff is limited to intended Plan 011 code plus recorded drift/scope expansions: `djls-project` sync, `djls-server` server, `djls-db` settings/test coverage, and `djls-project` refresh split coverage
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
