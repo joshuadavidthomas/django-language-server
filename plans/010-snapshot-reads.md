@@ -20,13 +20,14 @@
 - **Depends on**: plans/003 (stable project handle); independent of the static track otherwise
 - **Category**: perf / dx (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Execution status**: PR #673 open at `b5912e47`; not merged
+- **Execution status**: DONE; merged in PR #673 at `a0777037`
 
-## Execution record — local source stack (2026-06-12)
+## Execution record — source stack and merge (2026-06-12)
 
 Implemented as one source commit:
 
 1. `b5912e47` — `refactor: serve read requests from session snapshots`
+2. `a0777037` — `refactor: serve read requests from session snapshots (#673)`
 
 Implementation notes:
 
@@ -102,7 +103,11 @@ plan's explicit instruction. One residual noted, not a blocker: a
 triple-cancelled pull-diagnostics request falls back to an empty `Vec`, which
 a client may read as "no diagnostics" — this is the plan's own stated policy,
 and the maintenance note already names `ContentModified` as the upgrade path
-if it ever matters in practice. PR #673 is open.
+if it ever matters in practice.
+
+**Merge record (2026-06-12)**: PR #673 merged at `a0777037`
+(`refactor: serve read requests from session snapshots (#673)`). Local `main`
+is at that merge commit after fetch. Plan 010 source work is complete.
 
 ## Why this matters
 
