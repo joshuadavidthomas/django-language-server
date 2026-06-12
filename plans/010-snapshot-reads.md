@@ -20,13 +20,13 @@
 - **Depends on**: plans/003 (stable project handle); independent of the static track otherwise
 - **Category**: perf / dx (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Execution status**: source-complete locally at `8d22896d`; not pushed/merged
+- **Execution status**: PR #673 open at `b5912e47`; not merged
 
 ## Execution record — local source stack (2026-06-12)
 
 Implemented as one source commit:
 
-1. `8d22896d` — `refactor: serve read requests from session snapshots`
+1. `b5912e47` — `refactor: serve read requests from session snapshots`
 
 Implementation notes:
 
@@ -42,8 +42,9 @@ Implementation notes:
   `formatting` to `with_snapshot`. `formatting` was included because it is a
   read-only feature handler and the done criteria require no read-only feature
   handlers to keep using `with_session`.
-- Added server tests for plain snapshot task reads and conversion of a manual
-  `salsa::Cancelled::PendingWrite` unwind into a caught cancellation result.
+- Inlined `salsa::Cancelled::catch` directly inside the `with_snapshot` retry
+  loop during PR review, rather than keeping a single-use `run_snapshot_task`
+  helper.
 
 Divergences recorded:
 
@@ -56,9 +57,11 @@ Divergences recorded:
   rather than an explicit fallback argument. Current handlers return `Option`
   or `Vec` shapes where `Default` is the planned fallback (`None` or empty
   vector).
-- The test plan's full concurrent setter/read orchestration was not added;
-  the accepted proxy test path was used instead: a plain snapshot read plus a
-  manually raised `salsa::Cancelled` unwind through the same catch wrapper.
+- The test plan's full concurrent setter/read orchestration was not added. An
+  earlier helper-specific proxy test was also removed when `run_snapshot_task`
+  was inlined during PR review; existing server/e2e tests remain the behavior
+  gate for unchanged responses, and cancellation handling is covered by build
+  and review rather than a dedicated unit seam.
 - `Session::file_for_document_request` and
   `Session::position_for_document_request` are retained as delegating methods
   per the plan, but are currently unused after the read-handler conversion.
@@ -77,7 +80,7 @@ Validation passed on the final source commit:
 - `just lint`
 
 **Review verdict (2026-06-12): approved.** Independently re-verified on
-source commit `8d22896d`: `cargo test -q`, `just clippy`, `just fmt --check`,
+source commit `b5912e47`: `cargo test -q`, `just clippy`, `just fmt --check`,
 and `just e2e` (27 passed) all exit 0; the done-criteria sweeps confirm 10
 `with_snapshot` call sites, the only remaining `with_session` read is the
 `Session::open_documents` accessor (explicitly carved out — the documents map
@@ -92,15 +95,14 @@ the fallback mechanism, `Fn` + `Arc` instead of `FnOnce` (forced by the retry
 policy, which must re-invoke the closure against a fresh snapshot — the plan's
 `FnOnce` sketch and its retry policy were mutually incompatible; the
 implementation resolved it the right way), `formatting` included in the
-conversion per the done criteria, the proxy cancellation test path (both
-tests verified meaningful: a plain read and a manual
-`Cancelled::PendingWrite` unwind through `run_snapshot_task`), and the
+conversion per the done criteria, inlining the cancellation catch at the
+retry loop instead of retaining a single-use helper, and the
 `#[allow(dead_code)]` retention of the delegating `Session` methods per the
 plan's explicit instruction. One residual noted, not a blocker: a
 triple-cancelled pull-diagnostics request falls back to an empty `Vec`, which
 a client may read as "no diagnostics" — this is the plan's own stated policy,
 and the maintenance note already names `ContentModified` as the upgrade path
-if it ever matters in practice. Remaining: push and PR when Josh says go.
+if it ever matters in practice. PR #673 is open.
 
 ## Why this matters
 
@@ -327,7 +329,7 @@ behavioral contract: identical responses, now computed off-lock).
 Machine-checkable. ALL must hold:
 
 - [x] `rg -n "cfg\(test\)" crates/djls-server/src/session.rs` shows `SessionSnapshot` no longer gated (`cfg(test)` remains only for test imports/helpers/modules)
-- [x] `rg -c "with_snapshot" crates/djls-server/src/server.rs` ≥ 8 (`10` on source commit `8d22896d`)
+- [x] `rg -c "with_snapshot" crates/djls-server/src/server.rs` ≥ 8 (`10` on source commit `b5912e47`)
 - [x] `rg -n "with_session\(" crates/djls-server/src/server.rs` shows no remaining *read-only feature* handlers (only `Session::open_documents` accessor remains)
 - [x] `cargo test -q` exits 0
 - [x] `just test` exits 0
