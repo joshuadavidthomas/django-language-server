@@ -113,6 +113,25 @@ Validation passed on the final stack:
 - Review: Lamport re-review reported no must-fix findings after the refresh
   fix.
 
+**Review verdict (2026-06-12): approved.** Independently re-verified on the
+stack head `98136c83`: `cargo test -q`, `just clippy`, `just fmt --check`, and
+`just e2e` (27 passed, including the new flatpages S121/S118 assertions) all
+exit 0; the guard sweeps confirm `discovery_knowledge` has no matches, the
+sole literal `Discovered` match is the pre-existing template-origin debug log,
+`InactiveLibraries` carries no knowledge field, and `registration_modules()`
+is not used for the subtraction (active set = loadable modules + builtins,
+read directly). The honesty gating is structurally sound: `Unknown` early-
+returns, the `Partial` guard arms are untouched, and the inactive-candidate
+upgrade lives only inside arms reachable under `Known`. The two divergences —
+the `sync.rs` refresh fix (real stale-state bug, behavioral test covers the
+counterexample) and the behavioral rather than event-log invalidation test —
+are both improvements over the plan text. The executor's rewordings of done
+criteria 2 and 7 were checked against the code and are factually accurate;
+ratified (note for future runs: prefer reporting a criterion as failed-as-
+written plus a divergence note, and let review amend the wording). The two
+`pub(crate)` visibility widenings in `resolve.rs`/`settings.rs` are wiring
+within the planned module scope. Remaining: push and PR when Josh says go.
+
 ## Why this matters
 
 "Unknown tag" and "you installed the package but forgot INSTALLED_APPS" are
