@@ -39,6 +39,14 @@ pub enum ValidationError {
     #[error("Unknown tag '{tag}'")]
     UnknownTag { tag: String, span: Span },
 
+    #[error("Add '{app}' to INSTALLED_APPS to use tag '{tag}'")]
+    TagNotInInstalledApps {
+        tag: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
+
     #[error("Tag '{tag}' requires the '{library}' tag library")]
     UnloadedTag {
         tag: String,
@@ -58,6 +66,14 @@ pub enum ValidationError {
 
     #[error("Unknown filter '{filter}'")]
     UnknownFilter { filter: String, span: Span },
+
+    #[error("Add '{app}' to INSTALLED_APPS to use filter '{filter}'")]
+    FilterNotInInstalledApps {
+        filter: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
 
     #[error("Filter '{filter}' requires the '{library}' tag library")]
     UnloadedFilter {
@@ -99,6 +115,14 @@ pub enum ValidationError {
     #[error("Unknown template tag library '{name}'")]
     UnknownLibrary { name: String, span: Span },
 
+    #[error("Add '{app}' to INSTALLED_APPS to use template tag library '{name}'")]
+    LibraryNotInInstalledApps {
+        name: String,
+        app: String,
+        candidates: Vec<String>,
+        span: Span,
+    },
+
     #[error("The 'extends' tag must be the first tag in the template")]
     ExtendsMustBeFirst { span: Span },
 
@@ -132,7 +156,10 @@ impl ValidationError {
             Self::FilterMissingArgument { .. } => "S115",
             Self::FilterUnexpectedArgument { .. } => "S116",
             Self::ExtractedRuleViolation { .. } => "S117",
+            Self::TagNotInInstalledApps { .. } => "S118",
+            Self::FilterNotInInstalledApps { .. } => "S119",
             Self::UnknownLibrary { .. } => "S120",
+            Self::LibraryNotInInstalledApps { .. } => "S121",
             Self::ExtendsMustBeFirst { .. } => "S122",
             Self::MultipleExtends { .. } => "S123",
         }
@@ -147,9 +174,11 @@ impl ValidationError {
             | Self::OrphanedClosingTag { span, .. }
             | Self::UnmatchedBlockName { span, .. }
             | Self::UnknownTag { span, .. }
+            | Self::TagNotInInstalledApps { span, .. }
             | Self::UnloadedTag { span, .. }
             | Self::AmbiguousUnloadedTag { span, .. }
             | Self::UnknownFilter { span, .. }
+            | Self::FilterNotInInstalledApps { span, .. }
             | Self::UnloadedFilter { span, .. }
             | Self::AmbiguousUnloadedFilter { span, .. }
             | Self::ExpressionSyntaxError { span, .. }
@@ -157,6 +186,7 @@ impl ValidationError {
             | Self::FilterUnexpectedArgument { span, .. }
             | Self::ExtractedRuleViolation { span, .. }
             | Self::UnknownLibrary { span, .. }
+            | Self::LibraryNotInInstalledApps { span, .. }
             | Self::ExtendsMustBeFirst { span, .. }
             | Self::MultipleExtends { span, .. } => Some(*span),
         }

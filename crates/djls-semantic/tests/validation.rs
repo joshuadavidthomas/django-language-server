@@ -9,6 +9,7 @@ use djls_project::SymbolKey;
 use djls_project::TemplateLibraries;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::builtin_filter;
 use djls_testing::builtin_tag;
@@ -121,6 +122,49 @@ fn partial_ambiguous_db() -> TestDatabase {
     let mut libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
     libraries.knowledge = StaticKnowledge::Partial;
     TestDatabase::new().with_template_libraries(libraries)
+}
+
+fn db_with_project_files(
+    template_libraries: TemplateLibraries,
+    files: &[(&str, &str)],
+) -> TestDatabase {
+    let mut db = TestDatabase::new()
+        .with_template_libraries(template_libraries)
+        .with_arity_specs(standard_arities());
+    let mut fixture = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+        )
+        .file("/proj/myapp/__init__.py", "")
+        .file("/proj/myapp/templatetags/__init__.py", "");
+    for (path, source) in files {
+        fixture = fixture.file(*path, *source);
+    }
+    fixture.install(&mut db);
+    db
+}
+
+fn standard_db_with_inactive_files(files: &[(&str, &str)]) -> TestDatabase {
+    db_with_project_files(standard_inventory(), files)
+}
+
+fn partial_db_with_inactive_files(files: &[(&str, &str)]) -> TestDatabase {
+    let mut libraries = standard_inventory();
+    libraries.knowledge = StaticKnowledge::Partial;
+    db_with_project_files(libraries, files)
+}
+
+fn crispy_inactive_files() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("/proj/crispy/__init__.py", ""),
+        ("/proj/crispy/templatetags/__init__.py", ""),
+        (
+            "/proj/crispy/templatetags/crispy.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n@register.filter\ndef crispy_filter(value):\n    return value\n",
+        ),
+    ]
 }
 
 fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
@@ -241,6 +285,173 @@ fn partial_knowledge_keeps_filter_arity_after_unrelated_unknown_selective_load()
             ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"
         )),
         "unknown selective loads should only shadow named filters: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_name_with_inactive_candidate_reports_not_in_installed_apps() {
+    let files = crispy_inactive_files();
+    let db = standard_db_with_inactive_files(&files);
+    let errors = collect_all_errors(&db, "{% load crispy %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::LibraryNotInInstalledApps { name, app, candidates, .. }
+                if name == "crispy"
+                    && app == "crispy"
+                    && candidates == &vec!["crispy".to_string()]
+        )),
+        "inactive library should produce S121: {errors:?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnknownLibrary { name, .. } if name == "crispy")),
+        "S121 should replace S120 when inactive evidence exists: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_load_name_without_inactive_candidate_stays_unknown_library() {
+    let db = standard_db();
+    let errors = collect_all_errors(&db, "{% load missing_library %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownLibrary { name, .. } if name == "missing_library"
+        )),
+        "missing library should keep S120: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_tag_with_inactive_candidate_reports_not_in_installed_apps() {
+    let files = crispy_inactive_files();
+    let db = standard_db_with_inactive_files(&files);
+    let errors = collect_all_errors(&db, "{% crispy_tag %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
+                if tag == "crispy_tag" && app == "crispy" && load_name == "crispy"
+        )),
+        "inactive tag should produce S118 naming app and load name: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(
+            |error| matches!(error, ValidationError::UnknownTag { tag, .. } if tag == "crispy_tag")
+        ),
+        "S118 should replace S108 when inactive evidence exists: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_tag_without_inactive_candidate_stays_unknown_tag() {
+    let db = standard_db();
+    let errors = collect_all_errors(&db, "{% definitely_unknown %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownTag { tag, .. } if tag == "definitely_unknown"
+        )),
+        "unknown tag should keep S108: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_filter_with_inactive_candidate_reports_not_in_installed_apps() {
+    let files = crispy_inactive_files();
+    let db = standard_db_with_inactive_files(&files);
+    let errors = collect_all_errors(&db, "{{ value|crispy_filter }}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
+                if filter == "crispy_filter" && app == "crispy" && load_name == "crispy"
+        )),
+        "inactive filter should produce S119: {errors:?}"
+    );
+}
+
+#[test]
+fn active_unloaded_tag_wins_over_inactive_candidate() {
+    let files = [
+        ("/proj/otherapp/__init__.py", ""),
+        ("/proj/otherapp/templatetags/__init__.py", ""),
+        (
+            "/proj/otherapp/templatetags/other_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
+        ),
+    ];
+    let db = standard_db_with_inactive_files(&files);
+    let errors = collect_all_errors(&db, "{% trans \"hello\" %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedTag { tag, library, .. }
+                if tag == "trans" && library == "i18n"
+        )),
+        "active unloaded library should win: {errors:?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::TagNotInInstalledApps { tag, .. } if tag == "trans")),
+        "inactive candidates must not override active unloaded symbols: {errors:?}"
+    );
+}
+
+#[test]
+fn partial_knowledge_suppresses_inactive_absence_claim() {
+    let files = crispy_inactive_files();
+    let db = partial_db_with_inactive_files(&files);
+    let errors = collect_all_errors(&db, "{% load crispy %}\n");
+
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnknownLibrary { name, .. }
+                | ValidationError::LibraryNotInInstalledApps { name, .. }
+                if name == "crispy"
+        )),
+        "partial knowledge should suppress S120 and S121: {errors:?}"
+    );
+}
+
+#[test]
+fn inactive_library_candidates_are_sorted_for_deterministic_s121() {
+    let files = [
+        ("/proj/beta/__init__.py", ""),
+        ("/proj/beta/templatetags/__init__.py", ""),
+        (
+            "/proj/beta/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n",
+        ),
+        ("/proj/alpha/__init__.py", ""),
+        ("/proj/alpha/templatetags/__init__.py", ""),
+        (
+            "/proj/alpha/templatetags/shared.py",
+            "from django import template\nregister = template.Library()\n",
+        ),
+    ];
+    let db = standard_db_with_inactive_files(&files);
+    let errors = collect_all_errors(&db, "{% load shared %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::LibraryNotInInstalledApps { name, app, candidates, .. }
+                if name == "shared"
+                    && app == "alpha"
+                    && candidates == &vec!["alpha".to_string(), "beta".to_string()]
+        )),
+        "S121 should use the first sorted candidate and include all apps: {errors:?}"
     );
 }
 
