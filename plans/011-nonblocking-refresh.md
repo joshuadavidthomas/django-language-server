@@ -25,13 +25,13 @@
 - **Depends on**: plans/009, plans/010
 - **Category**: perf (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Execution status**: source-complete locally at `dfc2ca3c`; not pushed/merged
+- **Execution status**: source-complete locally at `cc341451`; not pushed/merged
 
 ## Execution record — local source commit (2026-06-12)
 
 Implemented as one source commit:
 
-1. `dfc2ca3c` — `refactor: apply project refresh briefly and warm queries off-lock`
+1. `cc341451` — `refactor: apply project refresh briefly and warm queries off-lock`
 
 Implementation notes:
 
@@ -60,6 +60,8 @@ Implementation notes:
 - Refresh-originated diagnostics republish uses the same publish mutex as
   direct diagnostics pushes and rechecks the epoch while holding that mutex,
   preventing stale refresh diagnostics from overwriting a newer config publish.
+- Removed the now-dead `Project::refresh_source_roots`; its body had been
+  absorbed by `compute_refresh`/`apply_refresh`.
 
 Divergences recorded:
 
@@ -92,6 +94,8 @@ Validation passed on the final source commit:
 - clean-tree `just clippy`
 - clean-tree `just fmt`
 - clean-tree `just lint`
+- review cleanup: `rg "refresh_source_roots" crates/djls-project/src crates/djls-db/src crates/djls-server/src -g '*.rs'` returns no matches
+- review cleanup: `cargo test -q -p djls-project`, `cargo build -q`, and `cargo clippy --all-targets --all-features --benches -- -D warnings` exit 0
 
 Review notes:
 
@@ -106,7 +110,7 @@ Review notes:
   it. Final strict concurrency review reported no must-fix findings.
 
 **Review verdict (2026-06-12): approved.** Independently re-verified on source
-commit `dfc2ca3c` (bookmark `plan-011-nonblocking-refresh`, parented on the
+commit `cc341451` (bookmark `plan-011-nonblocking-refresh`, parented on the
 merged plan-010 main): `cargo test -q`, `just clippy`, `just fmt --check`,
 `just e2e` (27 passed), and `just lint` all exit 0. Lock-scope invariant
 checked by reading, not trusting names: the compute lock holds only a db
@@ -124,13 +128,12 @@ the session lock, defeating the plan), `semantic_changed` on `SettingsUpdate`
 (tagspec-only changes previously had no republish signal), the
 `diagnostic_publish_lock` (closes a real publish-order race the epoch alone
 cannot, since publishes are async sends), and applying at the post-015/021
-`djls-project` location per the drift note. Two residuals noted, not blockers:
-(1) `Project::refresh_source_roots` (project.rs:91) now has zero callers —
-its body was absorbed by compute/apply; delete it in the next tidy pass;
-(2) pull-diagnostics clients are skipped by the refresh republish and the
-server sends no `workspace/diagnostic/refresh`, so a pull client sees
-post-warm-up facts only on its next request — same family as plan 010's
-recorded residual. One ordering nuance verified safe: `compute_refresh`
+`djls-project` location per the drift note. Review follow-up: the dead
+`Project::refresh_source_roots` method was deleted before PR. One residual
+noted, not a blocker: pull-diagnostics clients are skipped by the refresh
+republish and the server sends no `workspace/diagnostic/refresh`, so a pull
+client sees post-warm-up facts only on its next request — same family as plan
+010's recorded residual. One ordering nuance verified safe: `compute_refresh`
 gathers bump paths against pre-refresh roots, but the root-revision bumps in
 apply invalidate discovery queries, and the new
 `compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap`
