@@ -62,7 +62,7 @@ reconciliation and run early).
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | DONE |
 | [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | DONE |
-| [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest; scaffolding tests relocate to `tests/` | P2 | L | 014, 015, 021 (015/021 soft) | IN PROGRESS (PR #670 open at `6296c953`; source work complete, awaiting maintainer merge) |
+| [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest; scaffolding tests relocate to `tests/` | P2 | L | 014, 015, 021 (015/021 soft) | DONE |
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: dead trait, export audit | P2 | S | 013, 015, 016, 021 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | TODO |
@@ -214,10 +214,11 @@ REJECTED (with one-line rationale).
   landed as `942fc962` ("test: vendor spec extraction fixtures");
   follow-ups `8640a34d` (storage-last shared test DB) and `6296c953`
   (mechanical `just corpus vendor-spec-fixtures` updater plus `--check`)
-  leave PR #670 source-complete pending maintainer merge. Plan 016's
+  completed the source stack. PR #670 merged into `main` on 2026-06-12
+  as `f53b63b6` ("Create djls-testing crate (#670)"). Plan 016's
   "Execution record" section has the details; two interim docs commits
   recording the superseded states were abandoned in favor of this
-  consolidated entry.
+  consolidated entry. Plan 017 is now unblocked.
 - **2026-06-11 (Plan 016 mid-execution redesign — the crate-identity
   limit)**: Step 1 (corpus move) landed as `d7340eb2`; the original
   Step 2 then failed in execution. Root cause: Cargo resolves the
