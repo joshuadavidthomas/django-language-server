@@ -1,5 +1,6 @@
 use djls_source::Span;
 use djls_templates::Filter;
+use djls_templates::NodeList;
 use djls_templates::ParseError;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
@@ -17,7 +18,6 @@ use crate::structure::tree::RegionId;
 use crate::structure::tree::Regions;
 use crate::structure::tree::TemplateNode;
 use crate::structure::tree::TemplateTree;
-use crate::traits::SemanticModel;
 
 #[derive(Debug, Clone)]
 enum TreeOp {
@@ -57,6 +57,14 @@ impl<'db> TemplateTreeBuilder<'db> {
         };
         builder.root = builder.alloc_region_id(Span::new(0, 0), None);
         builder
+    }
+
+    pub(crate) fn model(mut self, db: &'db dyn Db, nodelist: NodeList<'db>) -> TemplateTree<'db> {
+        for node in nodelist.nodelist(db) {
+            self.visit_node(node);
+        }
+        self.finish();
+        self.apply_operations()
     }
 
     fn alloc_region_id(&mut self, span: Span, parent: Option<RegionId>) -> RegionId {
@@ -415,14 +423,5 @@ impl Visitor for TemplateTreeBuilder<'_> {
             target: self.active_region(),
             node: TemplateNode::Text { span },
         });
-    }
-}
-
-impl<'db> SemanticModel<'db> for TemplateTreeBuilder<'db> {
-    type Model = TemplateTree<'db>;
-
-    fn construct(mut self) -> Self::Model {
-        self.finish();
-        self.apply_operations()
     }
 }
