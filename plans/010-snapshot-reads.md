@@ -76,6 +76,32 @@ Validation passed on the final source commit:
 - `just fmt`
 - `just lint`
 
+**Review verdict (2026-06-12): approved.** Independently re-verified on
+source commit `8d22896d`: `cargo test -q`, `just clippy`, `just fmt --check`,
+and `just e2e` (27 passed) all exit 0; the done-criteria sweeps confirm 10
+`with_snapshot` call sites, the only remaining `with_session` read is the
+`Session::open_documents` accessor (explicitly carved out — the documents map
+lives on `Session`, not the snapshot), and `cfg(test)` in `session.rs` gates
+only test imports/helpers/modules. The vendored salsa exposes
+`Cancelled::catch` and `Cancelled::PendingWrite` exactly as the implementation
+uses them, so the preferred Step 3 shape was available and taken. Closures in
+every converted handler touch only the snapshot — no path re-locks the
+session, so the deadlock STOP condition cannot trigger. Divergences ratified:
+the `Cargo.toml` salsa dependency-scope move (pre-approved), `R: Default` as
+the fallback mechanism, `Fn` + `Arc` instead of `FnOnce` (forced by the retry
+policy, which must re-invoke the closure against a fresh snapshot — the plan's
+`FnOnce` sketch and its retry policy were mutually incompatible; the
+implementation resolved it the right way), `formatting` included in the
+conversion per the done criteria, the proxy cancellation test path (both
+tests verified meaningful: a plain read and a manual
+`Cancelled::PendingWrite` unwind through `run_snapshot_task`), and the
+`#[allow(dead_code)]` retention of the delegating `Session` methods per the
+plan's explicit instruction. One residual noted, not a blocker: a
+triple-cancelled pull-diagnostics request falls back to an empty `Vec`, which
+a client may read as "no diagnostics" — this is the plan's own stated policy,
+and the maintenance note already names `ContentModified` as the upgrade path
+if it ever matters in practice. Remaining: push and PR when Josh says go.
+
 ## Why this matters
 
 Every LSP request currently locks the whole `Session` for its full duration
