@@ -40,9 +40,9 @@
   mid-execution redesign: the lib.rs test-module move — this plan's
   original Step 2 — was absorbed by 016's test relocation, leaving the
   trait deletion and the export audit)
-- **Execution status**: source-complete locally at `378a7179`
-  ("refactor: tidy djls-semantic structure post-split"); not pushed per
-  this plan's git workflow
+- **Execution status**: DONE — PR #671 merged into `main` as
+  `58d5ead8` ("Tidy djls-semantic structure post-split (#671)");
+  source head `378a7179`
 
 ## Execution record — local source commit `378a7179` (2026-06-11)
 
@@ -79,7 +79,14 @@ exports kept for integration tests match exactly what
 consumed by `djls-bench`. The Step 2 divergence — counting the crate's
 own `tests/` as public-API consumers — was reported rather than worked
 around, and is ratified as the correct reading (see the amended done
-criterion below). Remaining: push and PR when Josh says go.
+criterion below). PR #671 was opened from
+`plan-017-tidy-djls-semantic` and merged on 2026-06-12 as `58d5ead8`
+("Tidy djls-semantic structure post-split (#671)").
+
+**Merge record (2026-06-12)**: PR #671 merged into `main` as
+`58d5ead8`. Post-merge fetch updated local `main`; the remote
+`plan-017-tidy-djls-semantic` bookmark was deleted. Plan 018 is now the
+next static-discovery plan.
 
 ## Why this matters
 
