@@ -13,6 +13,8 @@ cargo run -p djls-testing --bin corpus -- lock          # Resolve versions and u
 cargo run -p djls-testing --bin corpus -- sync          # Download repos from the lockfile
 cargo run -p djls-testing --bin corpus -- sync -U       # Re-resolve versions then sync
 cargo run -p djls-testing --bin corpus -- clean         # Remove all synced corpus data
+cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures         # Regenerate vendored djls-project spec fixtures
+cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check vendored spec fixtures are current
 ```
 
 ## Licensing

@@ -7,6 +7,7 @@ use clap::Subcommand;
 use djls_testing::LockFilter;
 use djls_testing::Lockfile;
 use djls_testing::Manifest;
+use djls_testing::VendorSpecFixturesOptions;
 
 #[derive(Parser)]
 #[command(name = "corpus", about = "Manage the Django template corpus")]
@@ -40,6 +41,16 @@ enum Command {
     Clean {
         /// Repo names to remove (removes all if omitted)
         names: Vec<String>,
+    },
+    /// Regenerate vendored djls-project spec extraction fixtures from the synced corpus
+    VendorSpecFixtures {
+        /// Check whether generated fixtures match the working tree without writing changes
+        #[arg(long)]
+        check: bool,
+
+        /// Fixture output directory (defaults to crates/djls-project/src/specs/testdata)
+        #[arg(long)]
+        output_dir: Option<Utf8PathBuf>,
     },
 }
 
@@ -101,6 +112,9 @@ fn main() -> anyhow::Result<()> {
             } else {
                 djls_testing::clean_entries(&corpus_root, &names)?;
             }
+        }
+        Command::VendorSpecFixtures { check, output_dir } => {
+            djls_testing::vendor_spec_fixtures(VendorSpecFixturesOptions { check, output_dir })?;
         }
     }
 

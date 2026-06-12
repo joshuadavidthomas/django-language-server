@@ -2,6 +2,7 @@ mod corpus;
 mod db;
 mod fixtures;
 mod mdtest;
+mod vendor;
 
 pub use corpus::Corpus;
 pub use corpus::Fixture;
@@ -35,3 +36,5 @@ pub use fixtures::snapshot_validate;
 pub use fixtures::snapshot_validate_file;
 pub use fixtures::standard_validation_db;
 pub use mdtest::run_suite;
+pub use vendor::VendorSpecFixturesOptions;
+pub use vendor::vendor_spec_fixtures;
