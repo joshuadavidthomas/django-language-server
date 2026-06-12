@@ -3,6 +3,7 @@ mod document;
 mod ext;
 mod logging;
 mod queue;
+mod refresh;
 mod server;
 mod session;
 mod workspace;

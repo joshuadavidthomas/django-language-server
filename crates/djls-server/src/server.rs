@@ -3,7 +3,6 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
-use djls_project::refresh_external_data;
 use djls_source::FileKind;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
@@ -17,10 +16,10 @@ use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::queue::Queue;
+use crate::refresh;
+use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
-
-const SNAPSHOT_CANCEL_RETRIES: usize = 2;
 
 pub(crate) struct DjangoLanguageServer {
     client: Client,
@@ -97,6 +96,36 @@ impl DjangoLanguageServer {
         unreachable!("snapshot retry loop must return")
     }
 
+    /// Bump the session's refresh epoch and queue a refresh task for the new
+    /// epoch. The task body lives in [`crate::refresh`].
+    async fn submit_project_refresh(&self, log_initialization: bool) {
+        let client = self.client.clone();
+        let (epoch, refresh_epoch, diagnostic_publish_lock) = self
+            .with_session(|session| {
+                (
+                    session.bump_refresh_epoch(),
+                    session.refresh_epoch(),
+                    session.diagnostic_publish_lock(),
+                )
+            })
+            .await;
+
+        let rx = self
+            .with_session_mut_task(move |session| async move {
+                refresh::run_project_refresh(
+                    session,
+                    client,
+                    refresh_epoch,
+                    diagnostic_publish_lock,
+                    epoch,
+                    log_initialization,
+                )
+                .await
+            })
+            .await;
+        drop(rx);
+    }
+
     pub(crate) async fn with_session_mut_task<F, Fut>(
         &self,
         f: F,
@@ -151,6 +180,8 @@ impl DjangoLanguageServer {
 
         let diagnostic_count = diagnostics.len();
         let lsp_uri_text = lsp_uri.to_string();
+        let publish_lock = self.with_session(Session::diagnostic_publish_lock).await;
+        let _publish_guard = publish_lock.lock().await;
         self.client
             .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
             .await;
@@ -236,27 +267,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Server received initialized notification.");
 
         // Refresh project data in the background and initialize the workspace.
-        let rx = self
-            .with_session_mut_task(|session| async move {
-                let start = std::time::Instant::now();
-
-                let mut session_lock = session.lock().await;
-                let db = session_lock.db_mut();
-
-                let t = std::time::Instant::now();
-                refresh_external_data(db);
-                tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                if db.project().is_none() {
-                    tracing::info!("Task: No project configured, skipping initialization.");
-                }
-
-                tracing::info!("Server initialization completed in {:?}", start.elapsed());
-                Ok(())
-            })
-            .await;
-
-        let _ = rx.await;
+        self.submit_project_refresh(true).await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -542,41 +553,16 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        if !settings_update.env_changed && !settings_update.diagnostics_changed {
-            return;
-        }
-
-        if settings_update.env_changed {
-            let rx = self
-                .with_session_mut_task(|session| async move {
-                    let start = std::time::Instant::now();
-
-                    let mut session_lock = session.lock().await;
-                    let db = session_lock.db_mut();
-
-                    if db.project().is_none() {
-                        return Ok(());
-                    }
-
-                    let t = std::time::Instant::now();
-                    refresh_external_data(db);
-                    tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                    tracing::info!("Environment refresh completed in {:?}", start.elapsed());
-                    Ok(())
-                })
-                .await;
-
-            // Wait for environment update to complete before republishing diagnostics
-            let _ = rx.await;
-        }
-
-        if settings_update.env_changed || settings_update.diagnostics_changed {
-            let documents = self.with_session(Session::open_documents).await;
-
-            for document in documents {
-                self.maybe_push_diagnostics(&document).await;
-            }
+        // Any relevant change submits a refresh: the epoch bump supersedes
+        // in-flight refresh work (so a stale republish cannot overwrite newer
+        // settings), and the new task re-applies and republishes diagnostics
+        // for open documents. Bumping without resubmitting would drop a
+        // superseded refresh's apply on the floor.
+        if settings_update.env_changed
+            || settings_update.diagnostics_changed
+            || settings_update.semantic_changed
+        {
+            self.submit_project_refresh(false).await;
         }
     }
 }

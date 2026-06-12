@@ -571,6 +571,40 @@ mod invalidation_tests {
     }
 
     #[test]
+    fn tagspecs_settings_change_reports_semantic_change() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            r#"
+[tagspecs]
+version = "0.6.0"
+
+[[tagspecs.libraries]]
+module = "myapp.templatetags.custom"
+
+[[tagspecs.libraries.tags]]
+name = "switch"
+type = "block"
+"#,
+        )
+        .unwrap();
+
+        let mut db = DjangoDatabase::new(
+            Arc::new(InMemoryFileSystem::new()),
+            &Settings::default(),
+            Some(root.as_path()),
+        );
+        let settings = Settings::new(root.as_path(), None).unwrap();
+
+        let update = db.set_settings(settings);
+
+        assert!(!update.env_changed);
+        assert!(!update.diagnostics_changed);
+        assert!(update.semantic_changed);
+    }
+
+    #[test]
     fn tagspecs_change_invalidates_compute_tag_specs() {
         let (mut db, event_log) = test_db_with_project();
 
