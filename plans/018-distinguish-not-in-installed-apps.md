@@ -27,6 +27,19 @@
 > accordingly (use the rg locations from checks 1–5 as ground truth); the
 > validator paths (`validation.rs`, `validation/scoping.rs`, `errors.rs`)
 > stay in djls-semantic either way.
+>
+> **Drift adaptation (ratified 2026-06-12)**: the tri-state enum shipped as
+> `StaticKnowledge` (exported from `djls_project::extraction`), and the field
+> on `TemplateLibraries` is `knowledge`, not `active_knowledge`. Read every
+> `Knowledge` in this plan as `StaticKnowledge` and every `active_knowledge`
+> as `TemplateLibraries::knowledge`; drift check 3's pattern is
+> `enum StaticKnowledge`. The shipped name is correct — it scopes the
+> confidence to static extraction, not runtime Django truth — so do NOT
+> rename the code to match this plan. One further drift:
+> `registration_modules()` returns empty only under `Unknown` (the plan said
+> "unless Known"). Do not "fix" that; this plan already forbids using
+> `registration_modules()` for the inactive-set subtraction — iterate
+> loadable and builtins directly.
 
 ## Status
 
