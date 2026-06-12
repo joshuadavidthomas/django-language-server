@@ -349,31 +349,13 @@ fn callable_name(expr: &Expr) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use djls_testing::Corpus;
-
     use super::*;
-
-    fn corpus_source(relative_path: &str) -> Option<String> {
-        let corpus = Corpus::require();
-        let path = corpus.root().join(relative_path);
-        std::fs::read_to_string(path.as_std_path()).ok()
-    }
-
-    fn package_source(package: &str, relative_to_package: &str) -> Option<String> {
-        let corpus = Corpus::require();
-        let pkg_dir = corpus.latest_package(package)?;
-        let full_path = pkg_dir.join(relative_to_package);
-        if full_path.as_std_path().exists() {
-            let rel = full_path.strip_prefix(corpus.root()).ok()?.to_string();
-            corpus_source(&rel)
-        } else {
-            None
-        }
-    }
-
-    fn django_source(relative_to_django: &str) -> Option<String> {
-        package_source("django", relative_to_django)
-    }
+    use crate::specs::testing::CUSTOM_SOURCE;
+    use crate::specs::testing::DEFAULTFILTERS_SOURCE;
+    use crate::specs::testing::DEFAULTTAGS_SOURCE;
+    use crate::specs::testing::INCLUSION_SOURCE;
+    use crate::specs::testing::TESTTAGS_SOURCE;
+    use crate::specs::testing::WAGTAILADMIN_TAGS_SOURCE;
 
     fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
         let parsed = ruff_python_parser::parse_module(source).expect("valid Python");
@@ -390,8 +372,8 @@ mod tests {
     // Corpus: `autoescape` in django/template/defaulttags.py uses `@register.tag` (bare)
     #[test]
     fn decorator_bare_tag() {
-        let source = django_source("django/template/defaulttags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "autoescape");
         assert_eq!(reg.kind, RegistrationKind::Tag);
         assert_eq!(reg.func_name.as_deref(), Some("autoescape"));
@@ -401,8 +383,8 @@ mod tests {
     // `@register.simple_tag(name="querystring", takes_context=True)`
     #[test]
     fn decorator_simple_tag_with_name_kwarg() {
-        let source = django_source("django/template/defaulttags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "querystring");
         assert_eq!(reg.kind, RegistrationKind::SimpleTag);
         assert_eq!(reg.func_name.as_deref(), Some("querystring"));
@@ -412,8 +394,8 @@ mod tests {
     // `@register.inclusion_tag("inclusion.html")`
     #[test]
     fn decorator_inclusion_tag() {
-        let source = django_source("tests/template_tests/templatetags/inclusion.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = INCLUSION_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "inclusion_no_params");
         assert_eq!(reg.kind, RegistrationKind::InclusionTag);
     }
@@ -421,8 +403,8 @@ mod tests {
     // Corpus: `cut` in django/template/defaultfilters.py uses `@register.filter` (bare)
     #[test]
     fn decorator_filter_bare() {
-        let source = django_source("django/template/defaultfilters.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTFILTERS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "cut");
         assert_eq!(reg.kind, RegistrationKind::Filter);
     }
@@ -431,8 +413,8 @@ mod tests {
     // `@register.filter("escapejs")` — positional string name, func is `escapejs_filter`
     #[test]
     fn decorator_filter_with_positional_string_name() {
-        let source = django_source("django/template/defaultfilters.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTFILTERS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "escapejs");
         assert_eq!(reg.kind, RegistrationKind::Filter);
         assert_eq!(reg.func_name.as_deref(), Some("escapejs_filter"));
@@ -442,8 +424,8 @@ mod tests {
     // `register.tag("other_echo", echo)` — call-style registration
     #[test]
     fn call_style_tag_registration() {
-        let source = django_source("tests/template_tests/templatetags/testtags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = TESTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "other_echo");
         assert_eq!(reg.kind, RegistrationKind::Tag);
         assert_eq!(reg.func_name.as_deref(), Some("echo"));
@@ -453,9 +435,8 @@ mod tests {
     // `register.filter("intcomma", intcomma)` — call-style filter registration
     #[test]
     fn call_style_filter_registration() {
-        let source =
-            package_source("wagtail", "wagtail/admin/templatetags/wagtailadmin_tags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = WAGTAILADMIN_TAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "intcomma");
         assert_eq!(reg.kind, RegistrationKind::Filter);
         assert_eq!(reg.func_name.as_deref(), Some("intcomma"));
@@ -465,8 +446,8 @@ mod tests {
     // — positional string name overrides function name `do_for`
     #[test]
     fn tag_with_positional_string_name() {
-        let source = django_source("django/template/defaulttags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "for");
         assert_eq!(reg.kind, RegistrationKind::Tag);
         assert_eq!(reg.func_name.as_deref(), Some("do_for"));
@@ -476,8 +457,8 @@ mod tests {
     // `@register.filter(is_safe=True)` — name defaults to function name
     #[test]
     fn filter_with_is_safe_kwarg() {
-        let source = django_source("django/template/defaultfilters.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTFILTERS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "addslashes");
         assert_eq!(reg.kind, RegistrationKind::Filter);
         assert_eq!(reg.func_name.as_deref(), Some("addslashes"));
@@ -487,8 +468,8 @@ mod tests {
     // `@register.tag(name="partialdef")` — name kwarg overrides func name `partialdef_func`
     #[test]
     fn tag_with_name_kwarg() {
-        let source = django_source("django/template/defaulttags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "partialdef");
         assert_eq!(reg.kind, RegistrationKind::Tag);
         assert_eq!(reg.func_name.as_deref(), Some("partialdef_func"));
@@ -498,9 +479,8 @@ mod tests {
     // `register.tag("dialog", DialogNode.handle)` — call-style with method callable
     #[test]
     fn call_style_tag_with_method_callable() {
-        let source =
-            package_source("wagtail", "wagtail/admin/templatetags/wagtailadmin_tags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = WAGTAILADMIN_TAGS_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "dialog");
         assert_eq!(reg.kind, RegistrationKind::Tag);
         assert_eq!(reg.func_name.as_deref(), Some("DialogNode.handle"));
@@ -510,8 +490,8 @@ mod tests {
     // `@register.simple_block_tag` (bare decorator)
     #[test]
     fn simple_block_tag_decorator() {
-        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = CUSTOM_SOURCE;
+        let regs = collect_registrations(source);
         let reg = find_reg(&regs, "div");
         assert_eq!(reg.kind, RegistrationKind::SimpleBlockTag);
     }
@@ -519,8 +499,8 @@ mod tests {
     // Corpus: defaulttags.py has many registrations (tags + simple_tags)
     #[test]
     fn multiple_registrations() {
-        let source = django_source("django/template/defaulttags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = DEFAULTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         assert!(
             regs.len() > 10,
             "expected many registrations in defaulttags.py, got {}",
@@ -544,8 +524,8 @@ mod tests {
     // Tests that both decorator and call-style registrations are discovered
     #[test]
     fn mixed_decorator_and_call_style() {
-        let source = django_source("tests/template_tests/templatetags/testtags.py").unwrap();
-        let regs = collect_registrations(&source);
+        let source = TESTTAGS_SOURCE;
+        let regs = collect_registrations(source);
         let tag_regs: Vec<_> = regs
             .iter()
             .filter(|r| r.kind == RegistrationKind::Tag)

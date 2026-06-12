@@ -1,6 +1,5 @@
 ---
 source: crates/djls-project/src/specs.rs
-assertion_line: 560
 expression: "snapshot(extract_rules(&source, \"django.template.defaulttags\"))"
 ---
 tag_rules:
@@ -71,36 +70,6 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    extracted_args:
-      - name: arg1
-        required: true
-        kind: Variable
-        position: 0
-      - name: arg2
-        required: true
-        kind: Variable
-        position: 1
-      - name: arg3
-        required: true
-        kind: Variable
-        position: 2
-    as_var: keep
-  "django.template.defaulttags::tag::lorem":
-    arg_constraints:
-      - Exact: 4
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    diagnostic_messages:
-      - constraint:
-          ArgumentCount:
-            Exact: 4
-        message:
-          PercentFormat:
-            template: Incorrect format for %r tag
-            args:
-              - SplitElement:
-                  Forward: 0
     extracted_args:
       - name: arg1
         required: true
@@ -234,28 +203,6 @@ tag_rules:
         kind: Variable
         position: 4
     as_var: keep
-  "django.template.defaulttags::tag::resetcycle":
-    arg_constraints:
-      - Max: 2
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    diagnostic_messages:
-      - constraint:
-          ArgumentCount:
-            Max: 2
-        message:
-          PercentFormat:
-            template: "%r tag accepts at most one argument."
-            args:
-              - SplitElement:
-                  Forward: 0
-    extracted_args:
-      - name: name
-        required: true
-        kind: Variable
-        position: 0
-    as_var: keep
   "django.template.defaulttags::tag::templatetag":
     arg_constraints:
       - Exact: 2
@@ -345,10 +292,6 @@ block_specs:
     end_tag: endcomment
     intermediates: []
     opaque: true
-  "django.template.defaulttags::tag::filter":
-    end_tag: endfilter
-    intermediates: []
-    opaque: false
   "django.template.defaulttags::tag::for":
     end_tag: endfor
     intermediates:
@@ -360,20 +303,11 @@ block_specs:
       - elif
       - else
     opaque: false
-  "django.template.defaulttags::tag::ifchanged":
-    end_tag: endifchanged
-    intermediates:
-      - else
-    opaque: false
   "django.template.defaulttags::tag::spaceless":
     end_tag: endspaceless
     intermediates: []
     opaque: false
   "django.template.defaulttags::tag::verbatim":
     end_tag: endverbatim
-    intermediates: []
-    opaque: false
-  "django.template.defaulttags::tag::with":
-    end_tag: endwith
     intermediates: []
     opaque: false
