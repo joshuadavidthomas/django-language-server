@@ -49,16 +49,18 @@
 - **Depends on**: plans/007, plans/008 (hard); plans/009 recommended first (pure deletion, avoids churn overlap); plans/015 soft (paths move — see drift check)
 - **Category**: direction (static Django discovery — UX follow-up)
 - **Planned at**: jj/git commit `7671145d`, 2026-06-10
-- **Execution status**: source-complete locally at `83a40294` +
-  `1504d527` + `98136c83`; not pushed/merged
+- **Execution status**: PR #672 open at `fe57d5ae`; source-complete,
+  not merged
 
 ## Execution record — local source stack (2026-06-12)
 
-Implemented as three source commits:
+Implemented as source commits:
 
 1. `83a40294` — `add inactive template library scan`
 2. `1504d527` — `feat: restore not-in-INSTALLED_APPS diagnostics from static facts`
 3. `98136c83` — `test: cover inactive template library diagnostics end-to-end`
+4. `2fe4dbb9` — `Update CHANGELOG.md` (PR-branch edit removing the initial changelog entry)
+5. `fe57d5ae` — `refactor: simplify inactive template library scan`
 
 Drift adaptation applied as planned: every planned `Knowledge` reference maps
 to `StaticKnowledge`, and `TemplateLibraries::knowledge` is the active-set
@@ -78,7 +80,7 @@ Implementation notes:
   Unknown still suppress absence claims.
 - Added e2e coverage for inactive `django.contrib.flatpages` with
   `{% load flatpages %}` → S121 and `{% get_flatpages as pages %}` → S118.
-- Added docs and changelog entries for the restored static diagnostics.
+- Added docs for the restored static diagnostics. The initial changelog entry was removed by the PR-branch `Update CHANGELOG.md` commit before the scan API cleanup was pushed.
 
 Divergences recorded:
 
@@ -112,6 +114,20 @@ Validation passed on the final stack:
   `cargo test -q -p djls-semantic`
 - Review: Lamport re-review reported no must-fix findings after the refresh
   fix.
+
+**PR update (2026-06-12)**: after API review, `fe57d5ae` simplified
+`crates/djls-project/src/environment.rs` without changing behavior. The raw
+scan record is now `TemplateTagCandidate`, candidate construction owns module
+name derivation, conversion to the final public `InactiveLibrary` fact lives
+on `InactiveLibrary::from_candidate`, `InactiveLibraries` owns push/sort/dedup
+behavior, and the one-off helpers (`TemplateTagFile`, `touch_search_path_root`,
+`nested_non_first_party_paths`, `record_longest_search_path_file`,
+`active_template_library_modules`, `inactive_library_from_candidate`,
+`sorted_symbol_names`, `sort_inactive_libraries`, and
+`module_from_app_and_library`) are gone. The tracked query uses the existing
+`Project::touch_search_path_roots` boundary hook. Full validation passed again:
+`cargo test -q`, `just test`, `just e2e`, `just clippy`, `just fmt --check`,
+and `just lint`.
 
 **Review verdict (2026-06-12): approved.** Independently re-verified on the
 stack head `98136c83`: `cargo test -q`, `just clippy`, `just fmt --check`, and
