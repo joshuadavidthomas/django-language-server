@@ -44,7 +44,7 @@
   ("refactor: tidy djls-semantic structure post-split"); not pushed per
   this plan's git workflow
 
-## Execution record — local source commit `378a7179` (2026-06-12)
+## Execution record — local source commit `378a7179` (2026-06-11)
 
 Drift check passed after PR #670: `src/testing.rs` absent, no
 `#[cfg(test)]` in `src/lib.rs`, `src/python/` absent, and Plan 016 marked
@@ -69,6 +69,17 @@ semantic test counts: 90 lib tests plus integration targets
 `crates/djls-semantic/src/lib.rs`, `src/structure.rs`,
 `src/structure/builder.rs`, and the deleted `src/traits.rs`; no snapshot
 files changed.
+
+**Review verdict (2026-06-11): approved.** Independently re-verified:
+the inlined `model()` body is behavior-identical to the old trait path
+(visit loop, then the former `construct()` = `finish()` +
+`apply_operations()`); the builder retains its `Visitor` impl; the nine
+exports kept for integration tests match exactly what
+`crates/djls-semantic/tests/*.rs` imports; `compute_opaque_regions` is
+consumed by `djls-bench`. The Step 2 divergence — counting the crate's
+own `tests/` as public-API consumers — was reported rather than worked
+around, and is ratified as the correct reading (see the amended done
+criterion below). Remaining: push and PR when Josh says go.
 
 ## Why this matters
 
@@ -237,15 +248,15 @@ full suite plus two invariants this plan must demonstrate:
 
 Machine-checkable. ALL must hold:
 
-- [ ] `crates/djls-semantic/src/traits.rs` does not exist; `rg "SemanticModel" crates/` → no matches
-- [ ] `wc -l crates/djls-semantic/src/lib.rs` ≤ 150 (inherited from 016; this plan only shrinks it further)
-- [ ] Every `pub use` left in lib.rs has ≥ 1 consumer outside djls-semantic (sweep table in report)
-- [ ] Snapshot files untouched (no renames, no content changes); test counts unchanged
-- [ ] New types/traits/helpers introduced: 0 (`jj diff` review)
-- [ ] `cargo test -q` exits 0; `just test` exits 0
-- [ ] `just clippy` exits 0
-- [ ] Only in-scope files modified (`jj diff --stat`)
-- [ ] `plans/README.md` status row updated
+- [x] `crates/djls-semantic/src/traits.rs` does not exist; `rg "SemanticModel" crates/` → no matches
+- [x] `wc -l crates/djls-semantic/src/lib.rs` ≤ 150 (inherited from 016; this plan only shrinks it further) — 82 at `378a7179`
+- [x] Every `pub use` left in lib.rs has ≥ 1 consumer outside `djls-semantic/src/` (sweep table in report). *Amended at review (2026-06-11): the crate's own `tests/` directory counts as a consumer — plan 016 deliberately made integration tests public-API consumers, so exports they name are earned. The original "outside djls-semantic" wording predates 016's revised test relocation.*
+- [x] Snapshot files untouched (no renames, no content changes); test counts unchanged
+- [x] New types/traits/helpers introduced: 0 (`jj diff` review — one inherent method, body moved verbatim)
+- [x] `cargo test -q` exits 0; `just test` exits 0
+- [x] `just clippy` exits 0
+- [x] Only in-scope files modified (`jj diff --stat`: 4 files, all in scope)
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
