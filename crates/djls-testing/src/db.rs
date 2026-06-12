@@ -19,13 +19,13 @@ use djls_source::SourceFiles;
 #[salsa::db]
 #[derive(Clone)]
 pub struct TestDatabase {
-    storage: salsa::Storage<Self>,
     fs: Arc<Mutex<InMemoryFileSystem>>,
     files: SourceFiles,
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
     project: Option<Project>,
+    storage: salsa::Storage<Self>,
 }
 
 impl Default for TestDatabase {
@@ -38,13 +38,13 @@ impl TestDatabase {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            storage: salsa::Storage::default(),
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             files: SourceFiles::default(),
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
             project: None,
+            storage: salsa::Storage::default(),
         }
     }
 
