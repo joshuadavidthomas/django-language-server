@@ -3,8 +3,10 @@ pub(crate) mod filters;
 pub(crate) mod if_expressions;
 pub(crate) mod scoping;
 
+use djls_project::InactiveLibraries;
 use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
+use djls_project::inactive_template_libraries;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::Node;
@@ -50,6 +52,7 @@ pub(crate) struct TemplateValidator<'a> {
     symbol_index: &'a SymbolIndex,
     loaded_libraries: &'a LoadedLibraries,
     template_libraries: &'a TemplateLibraries,
+    inactive_libraries: &'a InactiveLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
 
@@ -65,6 +68,11 @@ impl<'a> TemplateValidator<'a> {
         opaque_regions: &'a OpaqueRegions,
     ) -> Self {
         let template_libraries = db.template_libraries();
+        let inactive_libraries = db
+            .project()
+            .map_or(InactiveLibraries::empty_ref(), |project| {
+                inactive_template_libraries(db, project)
+            });
         let tag_specs = db.tag_specs();
         let loaded_libraries = crate::scoping::compute_loaded_libraries(db, nodelist);
         let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
@@ -76,6 +84,7 @@ impl<'a> TemplateValidator<'a> {
             symbol_index,
             loaded_libraries,
             template_libraries,
+            inactive_libraries,
             opaque_regions,
             filter_arity_specs,
             extends_position: ExtendsPosition::default(),
@@ -135,6 +144,7 @@ impl Visitor for TemplateValidator<'_> {
                     name,
                     span,
                     symbols,
+                    self.inactive_libraries,
                     self.template_libraries.knowledge,
                 );
             }
@@ -147,7 +157,13 @@ impl Visitor for TemplateValidator<'_> {
             }
 
             // 4. Load library validation
-            scoping::check_load_libraries_rule(self.db, name, bits, self.template_libraries);
+            scoping::check_load_libraries_rule(
+                self.db,
+                name,
+                bits,
+                self.template_libraries,
+                self.inactive_libraries,
+            );
 
             // 5. If expression validation
             if name == "if" || name == "elif" {
@@ -168,6 +184,7 @@ impl Visitor for TemplateValidator<'_> {
                     self.db,
                     filter,
                     symbols,
+                    self.inactive_libraries,
                     self.template_libraries.knowledge,
                 );
 

@@ -309,13 +309,13 @@ fn library_from_module_path(
     }
 }
 
-struct TemplateLibraryAnalysis {
-    defines_library: bool,
-    symbols: Vec<TemplateSymbol>,
+pub(crate) struct TemplateLibraryAnalysis {
+    pub(crate) defines_library: bool,
+    pub(crate) symbols: Vec<TemplateSymbol>,
 }
 
 impl TemplateLibraryAnalysis {
-    fn from_file(db: &dyn ProjectDb, file: File) -> Self {
+    pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
         let Some(parsed) = parse_python_module(db, file) else {
             return Self {
                 defines_library: false,

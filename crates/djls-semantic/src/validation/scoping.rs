@@ -1,3 +1,4 @@
+use djls_project::InactiveLibraries;
 use djls_project::LibraryName;
 use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
@@ -21,6 +22,7 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
+    inactive_libraries: &InactiveLibraries,
     knowledge: StaticKnowledge,
 ) {
     if knowledge == StaticKnowledge::Unknown {
@@ -33,11 +35,21 @@ pub(crate) fn check_tag_scoping_rule(
         TagAvailability::Available => {}
         TagAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
         TagAvailability::Unknown => {
-            ValidationErrorAccumulator(ValidationError::UnknownTag {
-                tag: name.to_string(),
-                span: full_span,
-            })
-            .accumulate(db);
+            if let Some(candidate) = inactive_libraries.tag_candidates(name).first() {
+                ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                    tag: name.to_string(),
+                    app: candidate.app.as_str().to_string(),
+                    load_name: candidate.name.as_str().to_string(),
+                    span: full_span,
+                })
+                .accumulate(db);
+            } else {
+                ValidationErrorAccumulator(ValidationError::UnknownTag {
+                    tag: name.to_string(),
+                    span: full_span,
+                })
+                .accumulate(db);
+            }
         }
         TagAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedTag {
@@ -63,6 +75,7 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
+    inactive_libraries: &InactiveLibraries,
     knowledge: StaticKnowledge,
 ) {
     if knowledge == StaticKnowledge::Unknown {
@@ -73,11 +86,21 @@ pub(crate) fn check_filter_scoping_rule(
         FilterAvailability::Available => {}
         FilterAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
         FilterAvailability::Unknown => {
-            ValidationErrorAccumulator(ValidationError::UnknownFilter {
-                filter: filter.name.clone(),
-                span: filter.span,
-            })
-            .accumulate(db);
+            if let Some(candidate) = inactive_libraries.filter_candidates(&filter.name).first() {
+                ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
+                    filter: filter.name.clone(),
+                    app: candidate.app.as_str().to_string(),
+                    load_name: candidate.name.as_str().to_string(),
+                    span: filter.span,
+                })
+                .accumulate(db);
+            } else {
+                ValidationErrorAccumulator(ValidationError::UnknownFilter {
+                    filter: filter.name.clone(),
+                    span: filter.span,
+                })
+                .accumulate(db);
+            }
         }
         FilterAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedFilter {
@@ -104,6 +127,7 @@ pub(crate) fn check_load_libraries_rule(
     name: &str,
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
+    inactive_libraries: &InactiveLibraries,
 ) {
     if template_libraries.knowledge == StaticKnowledge::Unknown {
         return;
@@ -119,21 +143,36 @@ pub(crate) fn check_load_libraries_rule(
     };
 
     for lib in libs {
-        if let Ok(name) = LibraryName::parse(lib.as_str()) {
-            if template_libraries.loadable.contains_key(&name) {
-                continue;
-            }
-        } else {
+        let Ok(load_name) = LibraryName::parse(lib.as_str()) else {
             // Invalid library name string (shouldn't happen given LoadKind parser, but safety first)
+            continue;
+        };
+        if template_libraries.loadable.contains_key(&load_name) {
             continue;
         }
 
         if template_libraries.knowledge == StaticKnowledge::Known {
-            ValidationErrorAccumulator(ValidationError::UnknownLibrary {
-                name: lib.as_str().to_string(),
-                span: lib.span(),
-            })
-            .accumulate(db);
+            let candidates = inactive_libraries.library_candidates(&load_name);
+            if let Some(first) = candidates.first() {
+                let mut apps: Vec<_> = candidates
+                    .iter()
+                    .map(|candidate| candidate.app.as_str().to_string())
+                    .collect();
+                apps.dedup();
+                ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
+                    name: lib.as_str().to_string(),
+                    app: first.app.as_str().to_string(),
+                    candidates: apps,
+                    span: lib.span(),
+                })
+                .accumulate(db);
+            } else {
+                ValidationErrorAccumulator(ValidationError::UnknownLibrary {
+                    name: lib.as_str().to_string(),
+                    span: lib.span(),
+                })
+                .accumulate(db);
+            }
         }
     }
 }

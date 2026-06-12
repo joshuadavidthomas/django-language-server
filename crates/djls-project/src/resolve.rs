@@ -62,7 +62,7 @@ impl SearchPath {
         matches!(self, Self::FirstParty(_))
     }
 
-    fn root_kind(&self) -> FileRootKind {
+    pub(crate) fn root_kind(&self) -> FileRootKind {
         match self {
             // Extra pythonpath entries are user-edited code, so they get the
             // same low-durability treatment as project files.
