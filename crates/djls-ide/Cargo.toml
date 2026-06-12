@@ -16,7 +16,7 @@ tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-salsa = { workspace = true }
+djls-testing = { workspace = true }
 
 [lints]
 workspace = true

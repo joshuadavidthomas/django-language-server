@@ -15,22 +15,20 @@ pub(crate) mod opaque;
 pub(crate) mod outline;
 pub(crate) mod tree;
 
-#[cfg(test)]
-pub(crate) mod snapshot;
-
 use crate::db::Db;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
 pub(crate) use crate::structure::grammar::TagIndex;
-pub(crate) use crate::structure::opaque::OpaqueRegions;
+pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
 pub use crate::structure::outline::OutlineItem;
 pub use crate::structure::outline::OutlineKind;
 pub use crate::structure::outline::build_template_outline;
-pub(crate) use crate::structure::tree::BlockRole;
-pub(crate) use crate::structure::tree::RegionId;
-pub(crate) use crate::structure::tree::Regions;
-pub(crate) use crate::structure::tree::TemplateNode;
-pub(crate) use crate::structure::tree::TemplateTree;
+pub use crate::structure::tree::BlockRole;
+pub use crate::structure::tree::RegionId;
+pub use crate::structure::tree::Regions;
+pub use crate::structure::tree::TemplateNode;
+pub use crate::structure::tree::TemplateRegion;
+pub use crate::structure::tree::TemplateTree;
 use crate::traits::SemanticModel;
 
 #[salsa::tracked]

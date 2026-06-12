@@ -1,0 +1,501 @@
+use std::borrow::Cow;
+
+use camino::Utf8Path;
+use djls_semantic::BlockRole;
+use djls_semantic::EndTag;
+use djls_semantic::RegionId;
+use djls_semantic::TagSpec;
+use djls_semantic::TagSpecs;
+use djls_semantic::TemplateNode;
+use djls_semantic::TemplateRegion;
+use djls_semantic::TemplateTree;
+use djls_semantic::ValidationError;
+use djls_semantic::ValidationErrorAccumulator;
+use djls_semantic::build_template_tree;
+use djls_semantic::builtin_tag_specs;
+use djls_source::Span;
+use djls_templates::Node;
+use djls_templates::TagBit;
+use djls_templates::parse_template;
+use djls_testing::TestDatabase;
+use rustc_hash::FxHashMap;
+
+#[derive(serde::Serialize)]
+struct TemplateTreeSnapshot {
+    root: u32,
+    regions: Vec<RegionSnapshot>,
+}
+
+impl TemplateTreeSnapshot {
+    fn from_tree(tree: TemplateTree<'_>, db: &dyn djls_semantic::Db) -> Self {
+        let root = tree.root(db);
+        let regions_ref = tree.regions(db);
+
+        let regions: Vec<RegionSnapshot> = regions_ref
+            .iter()
+            .map(|region| RegionSnapshot {
+                span: *region.span(),
+                parent: region.parent().map(RegionId::id),
+                nodes: region.nodes().iter().map(NodeSnapshot::from).collect(),
+            })
+            .collect();
+
+        Self {
+            root: root.id(),
+            regions,
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct RegionSnapshot {
+    span: djls_source::Span,
+    parent: Option<u32>,
+    nodes: Vec<NodeSnapshot>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "node")]
+enum NodeSnapshot {
+    BlockTag {
+        tag: String,
+        name_span: djls_source::Span,
+        bits: Vec<djls_templates::TagBit>,
+        full_span: djls_source::Span,
+        body: u32,
+        role: String,
+    },
+    StandaloneTag {
+        tag: String,
+        name_span: djls_source::Span,
+        bits: Vec<djls_templates::TagBit>,
+        full_span: djls_source::Span,
+    },
+    Variable {
+        var: String,
+        var_span: djls_source::Span,
+        filters: Vec<djls_templates::Filter>,
+        span: djls_source::Span,
+    },
+    Comment {
+        span: djls_source::Span,
+    },
+    Text {
+        span: djls_source::Span,
+    },
+    Error {
+        span: djls_source::Span,
+        full_span: djls_source::Span,
+    },
+}
+
+impl From<&TemplateNode> for NodeSnapshot {
+    fn from(node: &TemplateNode) -> Self {
+        match node {
+            TemplateNode::Block {
+                tag,
+                name_span,
+                bits,
+                full_span,
+                body,
+                role,
+            } => Self::BlockTag {
+                tag: tag.clone(),
+                name_span: *name_span,
+                bits: bits.clone(),
+                full_span: *full_span,
+                body: body.id(),
+                role: format!("{role:?}"),
+            },
+            TemplateNode::StandaloneTag {
+                tag,
+                name_span,
+                bits,
+                full_span,
+            } => Self::StandaloneTag {
+                tag: tag.clone(),
+                name_span: *name_span,
+                bits: bits.clone(),
+                full_span: *full_span,
+            },
+            TemplateNode::Variable {
+                var,
+                var_span,
+                filters,
+                span,
+            } => Self::Variable {
+                var: var.clone(),
+                var_span: *var_span,
+                filters: filters.clone(),
+                span: *span,
+            },
+            TemplateNode::Comment { span } => Self::Comment { span: *span },
+            TemplateNode::Text { span } => Self::Text { span: *span },
+            TemplateNode::Error { span, full_span } => Self::Error {
+                span: *span,
+                full_span: *full_span,
+            },
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct NodeListView {
+    nodes: Vec<NodeView>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind")]
+enum NodeView {
+    Tag {
+        name: String,
+        name_span: Span,
+        bits: Vec<djls_templates::TagBit>,
+        span: Span,
+    },
+    Variable {
+        var: String,
+        var_span: Span,
+        filters: Vec<djls_templates::Filter>,
+        span: Span,
+    },
+    Comment {
+        content: String,
+        span: Span,
+    },
+    Text {
+        span: Span,
+    },
+    Error {
+        span: Span,
+        full_span: Span,
+        error: String,
+    },
+}
+
+impl From<&Node> for NodeView {
+    fn from(node: &Node) -> Self {
+        match node {
+            Node::Tag {
+                name,
+                name_span,
+                bits,
+                span,
+            } => Self::Tag {
+                name: name.clone(),
+                name_span: *name_span,
+                bits: bits.clone(),
+                span: *span,
+            },
+            Node::Variable {
+                var,
+                var_span,
+                filters,
+                span,
+            } => Self::Variable {
+                var: var.clone(),
+                var_span: *var_span,
+                filters: filters.clone(),
+                span: *span,
+            },
+            Node::Comment { content, span } => Self::Comment {
+                content: content.clone(),
+                span: *span,
+            },
+            Node::Text { span } => Self::Text { span: *span },
+            Node::Error {
+                span,
+                full_span,
+                error,
+            } => Self::Error {
+                span: *span,
+                full_span: *full_span,
+                error: error.to_string(),
+            },
+        }
+    }
+}
+
+fn nodelist_view(nodes: &[Node]) -> NodeListView {
+    NodeListView {
+        nodes: nodes.iter().map(NodeView::from).collect(),
+    }
+}
+
+#[test]
+fn test_template_tree_building() {
+    let db = TestDatabase::new();
+
+    let source = r#"
+{% extends "base.html" %}
+{% load static i18n %}
+{% block header %}
+    <h1>Title</h1>
+{% endblock header %}
+
+{% if user.is_authenticated %}
+    <p>Welcome {{ user.name }}</p>
+    {% if user.is_superuser %}
+        <span>Admin</span>
+    {% elif user.is_staff %}
+        <span>Manager</span>
+    {% else %}
+        <span>Regular user</span>
+    {% endif %}
+{% else %}
+    <p>Please log in</p>
+{% endif %}
+
+{% for item in items %}
+    <li>{{ item }}</li>
+{% endfor %}
+"#;
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+
+    insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
+    let template_tree = build_template_tree(&db, nodelist);
+    insta::assert_yaml_snapshot!(
+        "template_tree",
+        TemplateTreeSnapshot::from_tree(template_tree, &db)
+    );
+}
+
+fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> TemplateTree<'db> {
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(db, file).expect("should parse");
+    build_template_tree(db, nodelist)
+}
+
+fn root_region<'db>(
+    tree: TemplateTree<'db>,
+    db: &'db dyn djls_semantic::Db,
+) -> &'db TemplateRegion {
+    let root = tree.root(db);
+    tree.regions(db).get(root)
+}
+
+fn first_block_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
+    region
+        .nodes()
+        .iter()
+        .find_map(|node| match node {
+            TemplateNode::Block { tag, body, .. } if tag == tag_name => Some(*body),
+            _ => None,
+        })
+        .expect("expected block node")
+}
+
+fn segment_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
+    region
+        .nodes()
+        .iter()
+        .find_map(|node| match node {
+            TemplateNode::Block {
+                tag,
+                body,
+                role: BlockRole::Segment,
+                ..
+            } if tag == tag_name => Some(*body),
+            _ => None,
+        })
+        .expect("expected segment node")
+}
+
+#[test]
+fn top_level_standalone_tags_are_visible() {
+    let db = TestDatabase::new();
+    let tree = tree_for_source(
+        &db,
+        r#"{% extends "base.html" %}
+{% load static i18n %}
+{% include "partials/nav.html" %}"#,
+    );
+
+    let tags = root_region(tree, &db)
+        .nodes()
+        .iter()
+        .filter_map(|node| match node {
+            TemplateNode::StandaloneTag { tag, bits, .. } => Some((
+                tag.as_str(),
+                bits.iter().map(TagBit::as_str).collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(tags.len(), 3);
+    assert_eq!(tags[0], ("extends", vec!["\"base.html\""]));
+    assert_eq!(tags[1], ("load", vec!["static", "i18n"]));
+    assert_eq!(tags[2], ("include", vec!["\"partials/nav.html\""]));
+}
+
+#[test]
+fn nested_blocks_preserve_hierarchy() {
+    let db = TestDatabase::new();
+    let tree = tree_for_source(
+        &db,
+        r"{% block content %}
+  {% block title %}Title{% endblock %}
+{% endblock %}",
+    );
+
+    let root = root_region(tree, &db);
+    let content_container = first_block_body(root, "block");
+    let content_body = segment_body(tree.regions(&db).get(content_container), "block");
+    let title_container = first_block_body(tree.regions(&db).get(content_body), "block");
+    let title_body = segment_body(tree.regions(&db).get(title_container), "block");
+
+    assert!(
+        tree.regions(&db)
+            .get(title_body)
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::Text { .. }))
+    );
+}
+
+#[test]
+fn intermediate_tags_preserve_segments() {
+    let db = TestDatabase::new();
+    let tree = tree_for_source(
+        &db,
+        r"{% if user %}
+  Hello
+{% elif staff %}
+  Staff
+{% else %}
+  Anonymous
+{% endif %}",
+    );
+
+    let if_container = first_block_body(root_region(tree, &db), "if");
+    let segment_tags = tree
+        .regions(&db)
+        .get(if_container)
+        .nodes()
+        .iter()
+        .filter_map(|node| match node {
+            TemplateNode::Block {
+                tag,
+                bits,
+                role: BlockRole::Segment,
+                ..
+            } => Some((
+                tag.as_str(),
+                bits.iter().map(TagBit::as_str).collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(segment_tags.len(), 3);
+    assert_eq!(segment_tags[0], ("if", vec!["user"]));
+    assert_eq!(segment_tags[1], ("elif", vec!["staff"]));
+    assert_eq!(segment_tags[2], ("else", Vec::<&str>::new()));
+}
+
+#[test]
+fn standalone_tags_inside_blocks_attach_to_block_region() {
+    let db = TestDatabase::new();
+    let tree = tree_for_source(
+        &db,
+        r#"{% block content %}
+  {% include "card.html" %}
+{% endblock %}"#,
+    );
+
+    let content_container = first_block_body(root_region(tree, &db), "block");
+    let content_body = segment_body(tree.regions(&db).get(content_container), "block");
+    assert!(
+        tree.regions(&db)
+            .get(content_body)
+            .nodes()
+            .iter()
+            .any(|node| matches!(
+                node,
+                TemplateNode::StandaloneTag { tag, bits, .. }
+                    if tag == "include"
+                        && bits.first().is_some_and(|arg| arg.as_str() == "\"card.html\"")
+            ))
+    );
+}
+
+#[test]
+fn malformed_recovery_is_best_effort() {
+    let db = TestDatabase::new();
+    let source = r"{% block content %}
+  {% if user %}
+{% endblock %}";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+
+    assert!(
+        root_region(tree, &db)
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::Block { tag, .. } if tag == "block"))
+    );
+    assert!(errors.iter().any(
+        |error| matches!(error.0, ValidationError::UnclosedTag { ref tag, .. } if tag == "if")
+    ));
+}
+
+#[test]
+fn custom_block_tags_from_specs_are_blocks() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+        "partialdef".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("django_template_partials.templatetags.partials"),
+            Some(EndTag {
+                name: Cow::Borrowed("endpartialdef"),
+                required: true,
+            }),
+            Cow::Borrowed(&[]),
+            false,
+        ),
+    )])));
+    let db = TestDatabase::new().with_specs(specs);
+    let tree = tree_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
+
+    assert!(root_region(tree, &db).nodes().iter().any(|node| matches!(
+        node,
+        TemplateNode::Block { tag, bits, .. }
+            if tag == "partialdef"
+                && bits.first().is_some_and(|arg| arg.as_str() == "card")
+    )));
+}
+
+#[test]
+fn test_endblock_name_mismatch() {
+    let db = TestDatabase::new();
+
+    let source = r"
+{% block content %}
+    <p>Hello</p>
+{% endblock fdsaf %}
+";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    assert_eq!(errors.len(), 1);
+    assert!(
+        matches!(
+            &errors[0].0,
+            ValidationError::UnmatchedBlockName { expected, got, .. }
+                if expected == "content" && got == "fdsaf"
+        ),
+        "Expected UnmatchedBlockName, got: {:?}",
+        errors[0].0
+    );
+}

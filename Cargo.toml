@@ -9,7 +9,6 @@ edition = "2024"
 djls = { path = "crates/djls" }
 djls-bench = { path = "crates/djls-bench" }
 djls-conf = { path = "crates/djls-conf" }
-djls-corpus = { path = "crates/djls-corpus" }
 djls-db = { path = "crates/djls-db" }
 djls-format = { path = "crates/djls-format" }
 djls-ide = { path = "crates/djls-ide" }
@@ -18,6 +17,7 @@ djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
+djls-testing = { path = "crates/djls-testing" }
 
 # core deps, pin exact versions
 salsa = "0.26.1"

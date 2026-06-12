@@ -517,19 +517,18 @@ impl TagSpec {
         self.extracted_rules.as_deref()
     }
 
-    pub(crate) fn set_extracted_rules(&mut self, rules: Arc<TagRule>) {
+    pub fn set_extracted_rules(&mut self, rules: Arc<TagRule>) {
         self.extracted_rules = Some(rules);
     }
 
     #[must_use]
-    pub(crate) fn with_extracted_rules(mut self, rules: Arc<TagRule>) -> Self {
+    pub fn with_extracted_rules(mut self, rules: Arc<TagRule>) -> Self {
         self.set_extracted_rules(rules);
         self
     }
 
-    #[cfg(test)]
     #[must_use]
-    pub(crate) fn with_role(mut self, role: TagRole) -> Self {
+    pub fn with_role(mut self, role: TagRole) -> Self {
         self.role = Some(role);
         self
     }

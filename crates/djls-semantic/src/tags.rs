@@ -7,8 +7,7 @@ use djls_project::extract_tag_rules;
 use djls_project::templatetag_modules;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
-#[cfg(test)]
-pub(crate) use specs::IntermediateTag;
+pub use specs::IntermediateTag;
 pub use specs::TagArgument;
 pub use specs::TagArgumentKind;
 pub use specs::TagSpec;

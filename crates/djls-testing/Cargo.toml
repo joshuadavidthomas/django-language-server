@@ -1,0 +1,35 @@
+[package]
+name = "djls-testing"
+version = "0.0.0"
+edition.workspace = true
+description = "Shared test infrastructure for Django Language Server"
+
+[[bin]]
+name = "corpus"
+path = "src/main.rs"
+
+[dependencies]
+djls-conf = { workspace = true }
+djls-project = { workspace = true }
+djls-semantic = { workspace = true }
+djls-source = { workspace = true }
+djls-templates = { workspace = true }
+
+anyhow = { workspace = true }
+camino = { workspace = true }
+clap = { workspace = true }
+flate2 = { workspace = true }
+ignore = { workspace = true }
+pulldown-cmark = { workspace = true }
+reqwest = { workspace = true }
+salsa = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

@@ -164,7 +164,7 @@ string_newtype! {
 
 impl ModulePath {
     #[must_use]
-    pub(crate) fn from_relative_path(path: &Utf8Path) -> Self {
+    pub fn from_relative_path(path: &Utf8Path) -> Self {
         let without_ext = path.with_extension("");
         let parts: Vec<&str> = without_ext
             .components()

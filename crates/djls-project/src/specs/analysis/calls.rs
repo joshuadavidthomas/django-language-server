@@ -168,7 +168,7 @@ mod tests {
     use super::*;
     use crate::specs::analysis::CallContext;
     use crate::specs::analysis::statements::process_statements;
-    use crate::specs::testing::package_source;
+    use crate::specs::testing::ALLAUTH_SOURCE;
     use crate::specs::types::SplitPosition;
 
     #[salsa::db]
@@ -341,8 +341,8 @@ def do_tag(parser, token):
 
     #[test]
     fn allauth_parse_tag_pattern() {
-        let source = package_source("django-allauth", "allauth/templatetags/allauth.py").unwrap();
-        let env = analyze_function_with_helpers(&source, "do_element");
+        let source = ALLAUTH_SOURCE;
+        let env = analyze_function_with_helpers(source, "do_element");
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {

@@ -105,7 +105,7 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
-    session.run("cargo", "run", "-p", "djls-corpus", "--", "sync", external=True)
+    session.run("cargo", "run", "-p", "djls-testing", "--bin", "corpus", "--", "sync", external=True)
     session.run(*command, external=True)
 
 

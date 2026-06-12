@@ -831,13 +831,13 @@ dependencies = [
  "camino",
  "codspeed-divan-compat",
  "djls-conf",
- "djls-corpus",
  "djls-db",
  "djls-ide",
  "djls-project",
  "djls-semantic",
  "djls-source",
  "djls-templates",
+ "djls-testing",
  "salsa",
 ]
 
@@ -855,25 +855,6 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tracing",
-]
-
-[[package]]
-name = "djls-corpus"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "camino",
- "clap",
- "flate2",
- "ignore",
- "reqwest",
- "serde",
- "serde_json",
- "tar",
- "tempfile",
- "toml",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -916,7 +897,7 @@ dependencies = [
  "djls-semantic",
  "djls-source",
  "djls-templates",
- "salsa",
+ "djls-testing",
  "tower-lsp-server",
  "tracing",
 ]
@@ -927,8 +908,8 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
- "djls-corpus",
  "djls-source",
+ "djls-testing",
  "dotenvy",
  "insta",
  "ruff_python_ast",
@@ -950,13 +931,12 @@ dependencies = [
  "anyhow",
  "camino",
  "djls-conf",
- "djls-corpus",
  "djls-project",
  "djls-source",
  "djls-templates",
+ "djls-testing",
  "dotenvy",
  "insta",
- "pulldown-cmark",
  "rustc-hash",
  "salsa",
  "serde",
@@ -1025,6 +1005,32 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "toml",
+]
+
+[[package]]
+name = "djls-testing"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "camino",
+ "clap",
+ "djls-conf",
+ "djls-project",
+ "djls-semantic",
+ "djls-source",
+ "djls-templates",
+ "flate2",
+ "ignore",
+ "pulldown-cmark",
+ "reqwest",
+ "salsa",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

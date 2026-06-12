@@ -1,0 +1,430 @@
+//! Download and sync corpus repos from the lockfile.
+//!
+//! The lockfile contains fully-resolved refs, URLs, and commit SHAs.
+//! This module downloads and extracts them without any network resolution —
+//! all resolution happens in [`crate::corpus::lock`].
+
+use std::collections::HashSet;
+use std::io::Read;
+use std::io::Write;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use serde::Deserialize;
+use serde::Serialize;
+
+use crate::corpus::archive::extract_tarball;
+use crate::corpus::lock::LockedRepo;
+use crate::corpus::lock::Lockfile;
+
+const MAX_CONCURRENT_DOWNLOADS: usize = 8;
+
+const COMPLETE_MARKER: &str = ".complete.json";
+const EXTRACT_FORMAT_VERSION: u32 = 2;
+const MAX_TARBALL_BYTES: u64 = 512 * 1024 * 1024;
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct RepoMarker {
+    name: String,
+    url: String,
+    git_ref: String,
+    tag: String,
+    extract_format_version: u32,
+}
+
+fn write_marker(out_dir: &Utf8Path, value: &impl Serialize) -> anyhow::Result<()> {
+    let json = serde_json::to_string_pretty(value)?;
+    let marker_path = out_dir.join(COMPLETE_MARKER);
+    std::fs::write(marker_path.as_std_path(), format!("{json}\n"))?;
+    Ok(())
+}
+
+impl From<&LockedRepo> for RepoMarker {
+    fn from(repo: &LockedRepo) -> Self {
+        Self {
+            name: repo.name.clone(),
+            url: repo.url.clone(),
+            git_ref: repo.git_ref.clone(),
+            tag: repo.tag.clone(),
+            extract_format_version: EXTRACT_FORMAT_VERSION,
+        }
+    }
+}
+
+fn is_synced(repo: &LockedRepo, out_dir: &Utf8Path) -> bool {
+    let marker_path = out_dir.join(COMPLETE_MARKER);
+    std::fs::read_to_string(marker_path.as_std_path())
+        .ok()
+        .and_then(|content| serde_json::from_str::<RepoMarker>(&content).ok())
+        .is_some_and(|marker| marker == RepoMarker::from(repo))
+}
+
+/// Validate that the local corpus checkout matches the lockfile.
+pub(crate) fn validate_synced_corpus(
+    lockfile: &Lockfile,
+    corpus_root: &Utf8Path,
+) -> anyhow::Result<()> {
+    let repos_dir = corpus_root.join("repos");
+    let stale: Vec<&str> = lockfile
+        .repos
+        .iter()
+        .filter(|repo| !is_synced(repo, &repos_dir.join(&repo.name)))
+        .map(|repo| repo.name.as_str())
+        .collect();
+
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Corpus is out of sync with manifest.lock for: {}. Run: just corpus sync",
+        stale.join(", ")
+    );
+}
+
+/// Download a tarball to a temp file.
+fn download_tarball(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    label: &str,
+) -> anyhow::Result<tempfile::NamedTempFile> {
+    let mut resp = client.get(url).send()?;
+    if !resp.status().is_success() {
+        anyhow::bail!("HTTP {} fetching tarball from {url}", resp.status());
+    }
+
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    let mut total_bytes: u64 = 0;
+
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        let n = resp.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+
+        total_bytes += n as u64;
+        if total_bytes > MAX_TARBALL_BYTES {
+            anyhow::bail!(
+                "Tarball too large ({total_bytes} bytes) for {label} (max {MAX_TARBALL_BYTES} bytes)"
+            );
+        }
+
+        tmp.write_all(&buf[..n])?;
+    }
+
+    tmp.flush()?;
+    Ok(tmp)
+}
+
+fn repo_archive_url(repo: &LockedRepo) -> anyhow::Result<String> {
+    let base_url = repo.url.trim_end_matches(".git");
+    let host = base_url
+        .strip_prefix("https://")
+        .or_else(|| base_url.strip_prefix("http://"))
+        .and_then(|s| s.split('/').next())
+        .unwrap_or_default();
+
+    if host == "gitlab.com" {
+        let project = base_url
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("cannot extract project name from {base_url}"))?;
+        Ok(format!(
+            "{base_url}/-/archive/{ref}/{project}-{ref}.tar.gz",
+            ref = repo.git_ref,
+            project = project,
+        ))
+    } else {
+        Ok(format!("{base_url}/archive/{}.tar.gz", repo.git_ref))
+    }
+}
+
+fn sync_repo(
+    client: &reqwest::blocking::Client,
+    repo: &LockedRepo,
+    out_dir: &Utf8Path,
+    label: &str,
+) -> anyhow::Result<()> {
+    tracing::info!("{label}: downloading");
+    let url = repo_archive_url(repo)?;
+    let tmp = download_tarball(client, &url, label)?;
+
+    tracing::info!("{label}: extracting");
+    let file = tmp.reopen()?;
+    let warnings = extract_tarball(file, out_dir)?;
+    for w in &warnings {
+        tracing::warn!("{w}");
+    }
+
+    write_marker(out_dir, &RepoMarker::from(repo))?;
+
+    Ok(())
+}
+
+pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> anyhow::Result<()> {
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_mins(5))
+        .build()?;
+
+    let repos_dir = corpus_root.join("repos");
+    std::fs::create_dir_all(repos_dir.as_std_path())?;
+
+    let mut work: Vec<SyncItem> = Vec::new();
+    let mut skipped = 0usize;
+
+    for repo in &lockfile.repos {
+        let out_dir = repos_dir.join(&repo.name);
+        let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
+        let label = format!("{} @ {} ({short_ref})", repo.name, repo.tag);
+        if is_synced(repo, &out_dir) {
+            skipped += 1;
+        } else {
+            if out_dir.as_std_path().exists() {
+                tracing::info!(repo = repo.name, "removing stale corpus checkout");
+                std::fs::remove_dir_all(out_dir.as_std_path())?;
+            }
+            work.push(SyncItem {
+                repo,
+                out_dir,
+                label,
+            });
+        }
+    }
+
+    if skipped > 0 {
+        tracing::info!(skipped, "already synced");
+    }
+
+    let errors = if work.is_empty() {
+        Vec::new()
+    } else {
+        tracing::info!(count = work.len(), "downloading");
+        sync_parallel(&client, &work)
+    };
+
+    if prune {
+        prune_corpus(lockfile, corpus_root)?;
+    }
+
+    if !errors.is_empty() {
+        for e in &errors {
+            tracing::error!("{e}");
+        }
+        anyhow::bail!("failed to sync {} entries", errors.len());
+    }
+
+    Ok(())
+}
+
+struct SyncItem<'a> {
+    repo: &'a LockedRepo,
+    out_dir: Utf8PathBuf,
+    label: String,
+}
+
+fn sync_parallel(client: &reqwest::blocking::Client, work: &[SyncItem]) -> Vec<String> {
+    let (permit_tx, permit_rx) = std::sync::mpsc::sync_channel(MAX_CONCURRENT_DOWNLOADS);
+    for _ in 0..MAX_CONCURRENT_DOWNLOADS {
+        permit_tx.send(()).unwrap();
+    }
+
+    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    std::thread::scope(|s| {
+        for item in work {
+            permit_rx.recv().unwrap();
+            let permit_tx = permit_tx.clone();
+            let errors = &errors;
+
+            s.spawn(move || {
+                if let Err(e) = sync_repo(client, item.repo, &item.out_dir, &item.label) {
+                    errors.lock().unwrap().push(format!("{}: {e}", item.label));
+                }
+
+                let _ = permit_tx.send(());
+            });
+        }
+    });
+
+    errors.into_inner().unwrap()
+}
+
+/// Remove synced data for specific entries by name.
+pub fn clean_entries(corpus_root: &Utf8Path, names: &[String]) -> anyhow::Result<()> {
+    let repos_dir = corpus_root.join("repos");
+
+    for name in names {
+        let dir = repos_dir.join(name);
+        if dir.as_std_path().exists() {
+            std::fs::remove_dir_all(dir.as_std_path())?;
+            tracing::info!(name, "cleaned");
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove synced data not present in the lockfile.
+fn prune_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+    let repos_dir = corpus_root.join("repos");
+
+    let locked_repo_dirs: HashSet<&str> = lockfile.repos.iter().map(|r| r.name.as_str()).collect();
+
+    prune_dir(&repos_dir, &locked_repo_dirs)?;
+
+    // Also clean up leftover packages/ directory from old layout
+    let packages_dir = corpus_root.join("packages");
+    if packages_dir.as_std_path().exists() {
+        tracing::info!("pruned old packages/ directory");
+        std::fs::remove_dir_all(packages_dir.as_std_path())?;
+    }
+
+    Ok(())
+}
+
+/// Remove directories under `base/` whose names are not in `keep`.
+fn prune_dir(base: &Utf8Path, keep: &HashSet<impl AsRef<str>>) -> anyhow::Result<()> {
+    let Ok(entries) = std::fs::read_dir(base.as_std_path()) else {
+        return Ok(());
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let Some(dir_name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+
+        if !keep.iter().any(|k| k.as_ref() == dir_name) {
+            let dir = base.join(&dir_name);
+            if dir.join(".complete.json").as_std_path().exists() {
+                tracing::info!(dir_name, "pruned");
+                std::fs::remove_dir_all(dir.as_std_path())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn locked_repo(url: &str) -> LockedRepo {
+        LockedRepo {
+            name: "test".to_string(),
+            url: url.to_string(),
+            tag: "main".to_string(),
+            git_ref: "abc123def456".to_string(),
+        }
+    }
+
+    fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        (dir, path)
+    }
+
+    #[test]
+    fn synced_repo_requires_matching_marker() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let (_dir, out) = temp_dir();
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&repo)).unwrap();
+
+        assert!(is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn synced_repo_rejects_stale_marker_ref() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let mut stale = locked_repo("https://github.com/owner/project.git");
+        stale.git_ref = "old-ref".to_string();
+        let (_dir, out) = temp_dir();
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+
+        assert!(!is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn synced_repo_rejects_missing_marker() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let (_dir, out) = temp_dir();
+
+        assert!(!is_synced(&repo, &out));
+    }
+
+    #[test]
+    fn validate_synced_corpus_accepts_matching_markers() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let lockfile = Lockfile { repos: vec![repo] };
+        let (_dir, root) = temp_dir();
+        let out = root.join("repos/test");
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&lockfile.repos[0])).unwrap();
+
+        validate_synced_corpus(&lockfile, &root).unwrap();
+    }
+
+    #[test]
+    fn validate_synced_corpus_rejects_stale_markers() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let lockfile = Lockfile { repos: vec![repo] };
+        let mut stale = locked_repo("https://github.com/owner/project.git");
+        stale.git_ref = "old-ref".to_string();
+        let (_dir, root) = temp_dir();
+        let out = root.join("repos/test");
+        std::fs::create_dir_all(out.as_std_path()).unwrap();
+        write_marker(&out, &RepoMarker::from(&stale)).unwrap();
+
+        let error = validate_synced_corpus(&lockfile, &root).unwrap_err();
+        assert!(error.to_string().contains("test"));
+    }
+
+    #[test]
+    fn github_archive_url() {
+        let repo = locked_repo("https://github.com/owner/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://github.com/owner/project/archive/abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn github_archive_url_without_dot_git() {
+        let repo = locked_repo("https://github.com/owner/project");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://github.com/owner/project/archive/abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn gitlab_com_archive_url() {
+        let repo = locked_repo("https://gitlab.com/group/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://gitlab.com/group/project/-/archive/abc123def456/project-abc123def456.tar.gz"
+        );
+    }
+
+    #[test]
+    fn gitlab_com_nested_group() {
+        let repo = locked_repo("https://gitlab.com/group/subgroup/project.git");
+        let url = repo_archive_url(&repo).unwrap();
+        assert_eq!(
+            url,
+            "https://gitlab.com/group/subgroup/project/-/archive/abc123def456/project-abc123def456.tar.gz"
+        );
+    }
+}
