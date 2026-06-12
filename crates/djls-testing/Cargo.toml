@@ -20,6 +20,7 @@ camino = { workspace = true }
 clap = { workspace = true }
 flate2 = { workspace = true }
 ignore = { workspace = true }
+pulldown-cmark = { workspace = true }
 reqwest = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }

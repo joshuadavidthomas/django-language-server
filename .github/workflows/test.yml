@@ -107,8 +107,8 @@ jobs:
       - name: Cache corpus
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: crates/djls-corpus/.corpus
-          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-corpus/manifest.lock') }}
+          path: crates/djls-testing/.corpus
+          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-testing/manifest.lock') }}
           restore-keys: |
             ${{ runner.os }}-corpus-
 

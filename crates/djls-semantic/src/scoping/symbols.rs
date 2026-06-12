@@ -333,20 +333,161 @@ impl SymbolIndex {
 
 #[cfg(test)]
 mod tests {
+    use djls_project::LibraryName;
+    use djls_project::PyModuleName;
+    use djls_project::StaticKnowledge;
+    use djls_project::SymbolDefinition;
+    use djls_project::TemplateLibrary;
+    use djls_project::TemplateSymbolName;
     use djls_source::Span;
 
     use super::super::LoadKind;
     use super::super::LoadStatement;
     use super::*;
-    use crate::testing::builtin_filter;
-    use crate::testing::builtin_tag;
-    use crate::testing::library_filter;
-    use crate::testing::library_tag;
-    use crate::testing::make_template_libraries;
-    use crate::testing::make_template_libraries_tags_only;
 
     fn make_load(span: (u32, u32), kind: LoadKind) -> LoadStatement {
         LoadStatement::new(Span::new(span.0, span.1), kind)
+    }
+
+    fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
+        template_symbol_fixture("tag", name, None, module, module)
+    }
+
+    fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Value {
+        template_symbol_fixture("tag", name, Some(load_name), module, module)
+    }
+
+    fn builtin_filter(name: &str, module: &str) -> serde_json::Value {
+        template_symbol_fixture("filter", name, None, module, module)
+    }
+
+    fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::Value {
+        template_symbol_fixture("filter", name, Some(load_name), module, module)
+    }
+
+    fn template_symbol_fixture(
+        kind: &str,
+        name: &str,
+        load_name: Option<&str>,
+        library_module: &str,
+        module: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "kind": kind,
+            "name": name,
+            "load_name": load_name,
+            "library_module": library_module,
+            "module": module,
+            "doc": null,
+        })
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TemplateSymbolFixture {
+        kind: TemplateSymbolKind,
+        name: String,
+        #[serde(default)]
+        load_name: Option<String>,
+        library_module: String,
+        module: String,
+        #[serde(default)]
+        doc: Option<String>,
+    }
+
+    fn make_template_libraries(
+        tags: &[serde_json::Value],
+        filters: &[serde_json::Value],
+        libraries: &FxHashMap<String, String>,
+        builtins: &[String],
+    ) -> TemplateLibraries {
+        let mut result = TemplateLibraries {
+            knowledge: StaticKnowledge::Known,
+            ..TemplateLibraries::default()
+        };
+
+        for module_name in builtins {
+            let Ok(module) = PyModuleName::parse(module_name) else {
+                continue;
+            };
+            if !result
+                .builtins
+                .iter()
+                .any(|library| library.module() == &module)
+            {
+                result.builtins.push(TemplateLibrary::new(module));
+            }
+        }
+
+        for (load_name, module_name) in libraries {
+            let Ok(load_name) = LibraryName::parse(load_name) else {
+                continue;
+            };
+            let Ok(module) = PyModuleName::parse(module_name) else {
+                continue;
+            };
+            result
+                .loadable
+                .insert(load_name, TemplateLibrary::new(module));
+        }
+
+        let symbols = tags.iter().chain(filters.iter()).cloned();
+        for fixture in symbols
+            .map(serde_json::from_value)
+            .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
+            .unwrap()
+        {
+            let Ok(name) = TemplateSymbolName::parse(&fixture.name) else {
+                continue;
+            };
+            let definition = PyModuleName::parse(&fixture.module)
+                .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
+            let symbol = TemplateSymbol {
+                kind: fixture.kind,
+                name,
+                definition,
+                doc: fixture.doc,
+            };
+
+            match fixture.load_name {
+                None => {
+                    let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                        continue;
+                    };
+                    if let Some(library) = result
+                        .builtins
+                        .iter_mut()
+                        .find(|library| library.module() == &module)
+                    {
+                        library.merge_symbol(symbol);
+                    }
+                }
+                Some(load_name) => {
+                    let Ok(load_name) = LibraryName::parse(&load_name) else {
+                        continue;
+                    };
+                    let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                        continue;
+                    };
+                    let library = result
+                        .loadable
+                        .entry(load_name)
+                        .or_insert_with(|| TemplateLibrary::new(module.clone()));
+                    if library.module() == &module {
+                        library.merge_symbol(symbol);
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    fn make_template_libraries_tags_only(
+        tags: &[serde_json::Value],
+        libraries: &FxHashMap<String, String>,
+        builtins: &[String],
+    ) -> TemplateLibraries {
+        make_template_libraries(tags, &[], libraries, builtins)
     }
 
     fn test_inventory() -> TemplateLibraries {

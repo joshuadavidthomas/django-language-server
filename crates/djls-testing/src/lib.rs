@@ -1,6 +1,7 @@
 mod corpus;
 mod db;
 mod fixtures;
+mod mdtest;
 
 pub use corpus::Corpus;
 pub use corpus::Fixture;
@@ -27,3 +28,10 @@ pub use fixtures::library_filter;
 pub use fixtures::library_tag;
 pub use fixtures::make_template_libraries;
 pub use fixtures::make_template_libraries_tags_only;
+pub use fixtures::render_diagnostic_snapshot;
+pub use fixtures::render_validate_snapshot;
+pub use fixtures::render_validate_snapshot_filtered;
+pub use fixtures::snapshot_validate;
+pub use fixtures::snapshot_validate_file;
+pub use fixtures::standard_validation_db;
+pub use mdtest::run_suite;

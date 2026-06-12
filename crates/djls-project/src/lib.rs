@@ -12,9 +12,6 @@ mod sync;
 mod system;
 mod templates;
 
-#[cfg(test)]
-mod testing;
-
 pub use db::Db;
 pub use extraction::DjangoSettings;
 pub use extraction::ExprExt;
@@ -41,8 +38,11 @@ pub use project::load_env_file;
 pub use python::Interpreter;
 pub use resolve::SearchPath;
 pub use resolve::SearchPaths;
+pub use resolve::discover_model_files;
 pub use resolve::model_modules;
 pub use resolve::templatetag_modules;
+pub use settings::django_settings;
+pub use settings::settings_module_file;
 pub use settings::template_dirs;
 pub use settings::template_libraries;
 pub use specs::ArgumentCountConstraint;

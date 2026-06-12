@@ -18,9 +18,9 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus_models
 //! ```
 
+use djls_project::extract_model_graph;
 use djls_testing::Corpus;
 use djls_testing::module_path_from_file;
-use djls_project::extract_model_graph;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     let mut settings = insta::Settings::clone_current();

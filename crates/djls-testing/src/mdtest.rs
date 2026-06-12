@@ -13,8 +13,8 @@ use pulldown_cmark::Parser as MarkdownParser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 
-use crate::testing::snapshot_validate;
-use crate::testing::snapshot_validate_file;
+use crate::snapshot_validate;
+use crate::snapshot_validate_file;
 
 const UPDATE_ENV: &str = "DJLS_UPDATE_MDTEST_SNAPSHOTS";
 const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
@@ -95,9 +95,8 @@ impl SnapshotUpdate {
     }
 }
 
-#[test]
-fn markdown_diagnostic_snapshots() {
-    MdtestRun::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/mdtest")).run();
+pub fn run_suite(dir: &Path) {
+    MdtestRun::new(dir.to_path_buf()).run();
 }
 
 struct MdtestRun {

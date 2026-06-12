@@ -120,9 +120,9 @@ Settings and diagnostics configuration. Merges configuration from multiple sourc
 
 Benchmarks using [divan](https://github.com/nvzqz/divan). Owns a `BenchDatabase` that implements `SemanticDb` with realistic tag specs, plus benchmarks for parsing, validation, extraction, and full-pipeline `djls check` runs. `just dev profile <bench> [filter]` generates flamegraphs.
 
-### `crates/djls-corpus`
+### `crates/djls-testing`
 
-Corpus management for integration tests. Syncs real-world Django project source — templates and templatetag modules from 40+ packages and 17 real projects — for testing extraction and validation against code that actually exists in the wild. See the [Testing](#testing) section for how corpus tests work.
+Shared test infrastructure. Owns the corpus sync tool, shared Salsa test database, fixture builders, and markdown test runner. The corpus syncs real-world Django project source — templates and templatetag modules from 40+ packages and 17 real projects — for testing extraction and validation against code that actually exists in the wild. See the [Testing](#testing) section for how corpus tests work.
 
 ## The Database Trait Stack
 
@@ -279,7 +279,7 @@ Corpus tests serve two purposes:
 1. **Extraction snapshot tests** — parse every `templatetags/*.py` file with the Ruff parser and snapshot the extracted rules. This catches regressions in Python AST analysis and documents what we can extract from real-world code.
 2. **Validation integration tests** — validate real templates against extracted rules. This is our "zero false positives" check: if we report a diagnostic on a template from a real project, it's probably a bug in our analysis, not in the project.
 
-The corpus is deliberately not checked into the repository (it's ~hundreds of MB of third-party source). `just corpus sync` downloads it from the lockfile (`crates/djls-corpus/manifest.lock`), which pins exact versions and SHA-256 checksums.
+The corpus is deliberately not checked into the repository (it's ~hundreds of MB of third-party source). `just corpus sync` downloads it from the lockfile (`crates/djls-testing/manifest.lock`), which pins exact versions and SHA-256 checksums.
 
 ### Incremental Computation Tests
 

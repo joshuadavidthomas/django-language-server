@@ -158,4 +158,3 @@ impl SemanticDb for TestDatabase {
         ModelGraph::empty_ref()
     }
 }
-

@@ -1,5 +1,5 @@
 ---
-source: crates/djls-semantic/src/structure/tree.rs
+source: crates/djls-semantic/tests/structure_tree.rs
 expression: "TemplateTreeSnapshot::from_tree(template_tree, &db)"
 ---
 root: 0

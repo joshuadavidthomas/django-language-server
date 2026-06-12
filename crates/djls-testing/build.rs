@@ -10,6 +10,8 @@ fn main() {
     println!("cargo:rerun-if-changed=.corpus");
 
     if !corpus_dir.is_dir() {
-        println!("cargo:warning=Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync");
+        println!(
+            "cargo:warning=Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync"
+        );
     }
 }

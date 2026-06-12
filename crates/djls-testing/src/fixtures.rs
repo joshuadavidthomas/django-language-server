@@ -1,25 +1,42 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
+use djls_project::ArgumentCountConstraint;
+use djls_project::ChoiceAt;
+use djls_project::ExtractedDiagnosticConstraint;
+use djls_project::ExtractedDiagnosticMessage;
+use djls_project::ExtractedMessageTemplate;
+use djls_project::FilterArity;
 use djls_project::Interpreter;
 use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::PyModuleName;
+use djls_project::RequiredKeyword;
 use djls_project::SearchPaths;
+use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
+use djls_project::SymbolKey;
+use djls_project::TagRule;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
 use djls_semantic::FilterAritySpecs;
+use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
+use djls_semantic::builtin_tag_specs;
 use djls_source::Db as _;
+use djls_source::Diagnostic;
+use djls_source::DiagnosticRenderer;
+use djls_source::Severity;
+use djls_source::Span;
 use djls_templates::parse_template;
 
 use crate::Corpus;
@@ -386,10 +403,7 @@ pub fn build_specs_from_extraction(
 }
 
 #[must_use]
-pub fn build_entry_specs(
-    corpus: &Corpus,
-    entry_dir: &Utf8Path,
-) -> (TagSpecs, FilterAritySpecs) {
+pub fn build_entry_specs(corpus: &Corpus, entry_dir: &Utf8Path) -> (TagSpecs, FilterAritySpecs) {
     let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
 
@@ -404,3 +418,427 @@ pub fn build_entry_specs(
     (specs, arities)
 }
 
+/// Render validation errors into a plain-text diagnostic snapshot.
+///
+/// # Panics
+///
+/// Panics if a validation error has no primary span.
+#[must_use]
+pub fn render_diagnostic_snapshot(path: &str, source: &str, errors: &[ValidationError]) -> String {
+    let renderer = DiagnosticRenderer::plain();
+    let mut parts = Vec::new();
+
+    for err in errors {
+        let span = err
+            .primary_span()
+            .expect("all validation errors have a span");
+        let message = err.to_string();
+        let code = err.code();
+
+        let mut diag = Diagnostic::new(source, path, code, &message, Severity::Error, span, "");
+
+        if let ValidationError::UnbalancedStructure {
+            closing_span: Some(cs),
+            ..
+        } = err
+        {
+            diag = diag.annotation(*cs, "", false);
+        }
+
+        parts.push(renderer.render(&diag));
+    }
+
+    parts.join("\n")
+}
+
+#[must_use]
+pub fn snapshot_validate(source: &str) -> String {
+    snapshot_validate_file("test.html", source)
+}
+
+#[must_use]
+pub fn snapshot_validate_file(path: &str, source: &str) -> String {
+    render_validate_snapshot(&standard_validation_db(), path, 0, source)
+}
+
+/// Curated validation environment for mdtest snapshots.
+///
+/// This keeps diagnostic snapshots deterministic and easy to author. It is not
+/// a live Django project inspection fixture; add libraries, tags, and filters
+/// here when a scenario needs them.
+#[must_use]
+pub fn standard_validation_db() -> TestDatabase {
+    TestDatabase::new()
+        .with_specs(standard_tag_specs())
+        .with_template_libraries(standard_template_libraries())
+        .with_arity_specs(standard_filter_arities())
+}
+
+fn standard_tag_specs() -> TagSpecs {
+    let mut specs = builtin_tag_specs();
+
+    set_tag_rule(&mut specs, "autoescape", autoescape_rule());
+    set_tag_rule(&mut specs, "cycle", cycle_rule());
+    set_tag_rule(&mut specs, "lorem", lorem_rule());
+    set_tag_rule(&mut specs, "now", now_rule());
+    set_tag_rule(&mut specs, "regroup", regroup_rule());
+    set_tag_rule(&mut specs, "url", url_rule());
+    set_tag_rule(&mut specs, "widthratio", widthratio_rule());
+
+    specs.insert(
+        "one_arg_tag".to_string(),
+        TagSpec::new(
+            "example.templatetags.custom".into(),
+            None,
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_extracted_rules(
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                ..TagRule::default()
+            }
+            .into(),
+        ),
+    );
+    specs
+}
+
+fn autoescape_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+        choice_at_constraints: vec![ChoiceAt {
+            position: SplitPosition::Forward(1),
+            values: vec!["on".to_string(), "off".to_string()],
+        }],
+        diagnostic_messages: Some(vec![
+            count_message(
+                ArgumentCountConstraint::Exact(2),
+                "'autoescape' tag requires exactly one argument.",
+            ),
+            choice_message(
+                SplitPosition::Forward(1),
+                &["on", "off"],
+                "'autoescape' argument should be 'on' or 'off'",
+            ),
+        ]),
+        ..TagRule::default()
+    }
+}
+
+fn cycle_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+        diagnostic_messages: Some(vec![count_message(
+            ArgumentCountConstraint::Min(2),
+            "'cycle' tag requires at least two arguments",
+        )]),
+        ..TagRule::default()
+    }
+}
+
+fn lorem_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(4)],
+        diagnostic_messages: Some(vec![count_message(
+            ArgumentCountConstraint::Exact(4),
+            "Incorrect format for 'lorem' tag",
+        )]),
+        ..TagRule::default()
+    }
+}
+
+fn now_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+        diagnostic_messages: Some(vec![count_message(
+            ArgumentCountConstraint::Exact(2),
+            "'now' statement takes one argument",
+        )]),
+        ..TagRule::default()
+    }
+}
+
+fn regroup_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Exact(6)],
+        required_keywords: vec![
+            RequiredKeyword {
+                position: SplitPosition::Forward(2),
+                value: "by".to_string(),
+            },
+            RequiredKeyword {
+                position: SplitPosition::Forward(4),
+                value: "as".to_string(),
+            },
+        ],
+        diagnostic_messages: Some(vec![
+            count_message(
+                ArgumentCountConstraint::Exact(6),
+                "'regroup' tag takes five arguments",
+            ),
+            keyword_message(
+                SplitPosition::Forward(2),
+                "by",
+                "second argument to 'regroup' tag must be 'by'",
+            ),
+            keyword_message(
+                SplitPosition::Forward(4),
+                "as",
+                "next-to-last argument to 'regroup' tag must be 'as'",
+            ),
+        ]),
+        ..TagRule::default()
+    }
+}
+
+fn url_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::Min(2)],
+        diagnostic_messages: Some(vec![count_message(
+            ArgumentCountConstraint::Min(2),
+            "'url' takes at least one argument, a URL pattern name.",
+        )]),
+        ..TagRule::default()
+    }
+}
+
+fn widthratio_rule() -> TagRule {
+    TagRule {
+        arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![4, 6])],
+        required_keywords: vec![RequiredKeyword {
+            position: SplitPosition::Forward(4),
+            value: "as".to_string(),
+        }],
+        diagnostic_messages: Some(vec![
+            count_message(
+                ArgumentCountConstraint::OneOf(vec![4, 6]),
+                "widthratio takes at least three arguments",
+            ),
+            keyword_message(
+                SplitPosition::Forward(4),
+                "as",
+                "Invalid syntax in widthratio tag. Expecting 'as' keyword",
+            ),
+        ]),
+        ..TagRule::default()
+    }
+}
+
+fn set_tag_rule(specs: &mut TagSpecs, name: &str, rule: TagRule) {
+    if let Some(spec) = specs.get_mut(name) {
+        spec.set_extracted_rules(rule.into());
+    }
+}
+
+fn count_message(constraint: ArgumentCountConstraint, message: &str) -> ExtractedDiagnosticMessage {
+    ExtractedDiagnosticMessage {
+        constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+        message: ExtractedMessageTemplate::Static(message.to_string()),
+    }
+}
+
+fn keyword_message(
+    position: SplitPosition,
+    value: &str,
+    message: &str,
+) -> ExtractedDiagnosticMessage {
+    ExtractedDiagnosticMessage {
+        constraint: ExtractedDiagnosticConstraint::RequiredKeyword {
+            position,
+            value: value.to_string(),
+        },
+        message: ExtractedMessageTemplate::Static(message.to_string()),
+    }
+}
+
+fn choice_message(
+    position: SplitPosition,
+    values: &[&str],
+    message: &str,
+) -> ExtractedDiagnosticMessage {
+    ExtractedDiagnosticMessage {
+        constraint: ExtractedDiagnosticConstraint::ChoiceAt {
+            position,
+            values: values.iter().map(|value| (*value).to_string()).collect(),
+        },
+        message: ExtractedMessageTemplate::Static(message.to_string()),
+    }
+}
+
+fn standard_template_libraries() -> TemplateLibraries {
+    let tags = vec![
+        builtin_tag("autoescape", default_builtins_module()),
+        builtin_tag("block", default_loader_tags_module()),
+        builtin_tag("comment", default_builtins_module()),
+        builtin_tag("csrf_token", default_builtins_module()),
+        builtin_tag("cycle", default_builtins_module()),
+        builtin_tag("debug", default_builtins_module()),
+        builtin_tag("extends", default_loader_tags_module()),
+        builtin_tag("filter", default_builtins_module()),
+        builtin_tag("firstof", default_builtins_module()),
+        builtin_tag("for", default_builtins_module()),
+        builtin_tag("if", default_builtins_module()),
+        builtin_tag("ifchanged", default_builtins_module()),
+        builtin_tag("include", default_loader_tags_module()),
+        builtin_tag("load", default_builtins_module()),
+        builtin_tag("lorem", default_builtins_module()),
+        builtin_tag("now", default_builtins_module()),
+        builtin_tag("one_arg_tag", "example.templatetags.custom"),
+        builtin_tag("regroup", default_builtins_module()),
+        builtin_tag("spaceless", default_builtins_module()),
+        builtin_tag("templatetag", default_builtins_module()),
+        builtin_tag("url", default_builtins_module()),
+        builtin_tag("verbatim", default_builtins_module()),
+        builtin_tag("widthratio", default_builtins_module()),
+        builtin_tag("with", default_builtins_module()),
+        library_tag("ambiguous_tag", "alpha", "example.alpha.templatetags.alpha"),
+        library_tag("ambiguous_tag", "beta", "example.beta.templatetags.beta"),
+        library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
+        library_tag("blocktranslate", "i18n", "django.templatetags.i18n"),
+        library_tag("cache", "cache", "django.templatetags.cache"),
+        library_tag("localize", "l10n", "django.templatetags.l10n"),
+        library_tag("localtime", "tz", "django.templatetags.tz"),
+        library_tag("static", "static", "django.templatetags.static"),
+        library_tag("timezone", "tz", "django.templatetags.tz"),
+        library_tag("trans", "i18n", "django.templatetags.i18n"),
+        library_tag("translate", "i18n", "django.templatetags.i18n"),
+    ];
+    let filters = vec![
+        builtin_filter("title", default_filters_module()),
+        builtin_filter("lower", default_filters_module()),
+        builtin_filter("length", default_filters_module()),
+        builtin_filter("default", default_filters_module()),
+        builtin_filter("truncatewords", default_filters_module()),
+        builtin_filter("date", default_filters_module()),
+        builtin_filter("upper", default_filters_module()),
+        library_filter(
+            "intcomma",
+            "humanize",
+            "django.contrib.humanize.templatetags.humanize",
+        ),
+        library_filter(
+            "ambiguous_filter",
+            "alpha",
+            "example.alpha.templatetags.alpha",
+        ),
+        library_filter("ambiguous_filter", "beta", "example.beta.templatetags.beta"),
+    ];
+    let mut libraries = HashMap::new();
+    libraries.insert("cache".to_string(), "django.templatetags.cache".to_string());
+    libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+    libraries.insert("l10n".to_string(), "django.templatetags.l10n".to_string());
+    libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
+    libraries.insert(
+        "humanize".to_string(),
+        "django.contrib.humanize.templatetags.humanize".to_string(),
+    );
+    libraries.insert(
+        "static".to_string(),
+        "django.templatetags.static".to_string(),
+    );
+    libraries.insert(
+        "alpha".to_string(),
+        "example.alpha.templatetags.alpha".to_string(),
+    );
+    libraries.insert(
+        "beta".to_string(),
+        "example.beta.templatetags.beta".to_string(),
+    );
+    let builtins = vec![
+        default_builtins_module().to_string(),
+        default_filters_module().to_string(),
+        default_loader_tags_module().to_string(),
+        "example.templatetags.custom".to_string(),
+    ];
+
+    make_template_libraries(&tags, &filters, &libraries, &builtins)
+}
+
+fn standard_filter_arities() -> FilterAritySpecs {
+    let mut specs = FilterAritySpecs::new();
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "title"),
+        FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "lower"),
+        FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "upper"),
+        FilterArity {
+            expects_arg: false,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "default"),
+        FilterArity {
+            expects_arg: true,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "truncatewords"),
+        FilterArity {
+            expects_arg: true,
+            arg_optional: false,
+        },
+    );
+    specs.insert(
+        SymbolKey::filter(default_filters_module(), "date"),
+        FilterArity {
+            expects_arg: true,
+            arg_optional: true,
+        },
+    );
+    specs
+}
+
+fn default_builtins_module() -> &'static str {
+    "django.template.defaulttags"
+}
+
+fn default_filters_module() -> &'static str {
+    "django.template.defaultfilters"
+}
+
+fn default_loader_tags_module() -> &'static str {
+    "django.template.loader_tags"
+}
+
+pub fn render_validate_snapshot(
+    db: &TestDatabase,
+    path: &str,
+    revision: u64,
+    source: &str,
+) -> String {
+    render_validate_snapshot_filtered(db, path, revision, source, |_| true)
+}
+
+pub fn render_validate_snapshot_filtered<F>(
+    db: &TestDatabase,
+    path: &str,
+    revision: u64,
+    source: &str,
+    filter: F,
+) -> String
+where
+    F: Fn(&ValidationError) -> bool,
+{
+    let mut errors: Vec<ValidationError> = collect_errors_with_revision(db, path, revision, source)
+        .into_iter()
+        .filter(|e| filter(e))
+        .collect();
+
+    errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
+
+    render_diagnostic_snapshot(path, source, &errors)
+}

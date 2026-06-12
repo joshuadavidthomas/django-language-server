@@ -125,7 +125,8 @@ fn update_lockfile(
         .join("licenses");
 
     tracing::info!("resolving latest versions");
-    let (lockfile, errors) = djls_testing::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
+    let (lockfile, errors) =
+        djls_testing::lock_corpus(&manifest, &existing, filter, &licenses_dir)?;
     lockfile.save(lockfile_path)?;
     tracing::info!(%lockfile_path, "lockfile updated");
 

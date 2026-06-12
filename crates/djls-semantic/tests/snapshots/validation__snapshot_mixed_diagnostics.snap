@@ -1,5 +1,5 @@
 ---
-source: crates/djls-semantic/src/lib.rs
+source: crates/djls-semantic/tests/validation.rs
 expression: rendered
 ---
 error[S114]: Not expecting 'and' in this position in if tag.
