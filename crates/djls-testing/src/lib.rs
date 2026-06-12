@@ -1,4 +1,6 @@
 mod corpus;
+mod db;
+mod fixtures;
 
 pub use corpus::Corpus;
 pub use corpus::Fixture;
@@ -10,3 +12,18 @@ pub use corpus::clean_entries;
 pub use corpus::lock_corpus;
 pub use corpus::module_path_from_file;
 pub use corpus::sync_corpus;
+pub use db::TestDatabase;
+pub use fixtures::ProjectFixture;
+pub use fixtures::build_entry_specs;
+pub use fixtures::build_specs_from_extraction;
+pub use fixtures::builtin_filter;
+pub use fixtures::builtin_tag;
+pub use fixtures::collect_argument_validation_errors_with_revision;
+pub use fixtures::collect_errors;
+pub use fixtures::collect_errors_with_revision;
+pub use fixtures::extract_and_merge;
+pub use fixtures::is_argument_validation_error;
+pub use fixtures::library_filter;
+pub use fixtures::library_tag;
+pub use fixtures::make_template_libraries;
+pub use fixtures::make_template_libraries_tags_only;
