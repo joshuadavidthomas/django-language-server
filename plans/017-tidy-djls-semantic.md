@@ -40,6 +40,35 @@
   mid-execution redesign: the lib.rs test-module move — this plan's
   original Step 2 — was absorbed by 016's test relocation, leaving the
   trait deletion and the export audit)
+- **Execution status**: source-complete locally at `378a7179`
+  ("refactor: tidy djls-semantic structure post-split"); not pushed per
+  this plan's git workflow
+
+## Execution record — local source commit `378a7179` (2026-06-12)
+
+Drift check passed after PR #670: `src/testing.rs` absent, no
+`#[cfg(test)]` in `src/lib.rs`, `src/python/` absent, and Plan 016 marked
+DONE in the local plan index.
+
+Step 1 deleted `crates/djls-semantic/src/traits.rs`, removed `mod
+traits;`, and moved the `SemanticModel::model` traversal directly onto
+`TemplateTreeBuilder::model`. `rg "SemanticModel" crates/` is empty.
+
+Step 2 kept every existing `pub use` in `src/lib.rs`. A strict
+other-crates-only sweep showed some structural exports are only named by
+`djls-semantic` integration tests, but deleting them would make those
+public-API tests impossible without changing module visibility, which is
+outside this plan. Counting integration tests as public consumers, every
+remaining re-export has at least one consumer. `compute_opaque_regions`,
+the planned-at candidate, is also consumed by `djls-bench`.
+
+Validation passed: `cargo test -p djls-semantic` before and after (same
+semantic test counts: 90 lib tests plus integration targets
+1/9/3/10/8/8/28), `cargo build -q`, `cargo test -q`, `just test`, clean
+`just clippy`, `just fmt`, and `just lint`. Diff is confined to
+`crates/djls-semantic/src/lib.rs`, `src/structure.rs`,
+`src/structure/builder.rs`, and the deleted `src/traits.rs`; no snapshot
+files changed.
 
 ## Why this matters
 
