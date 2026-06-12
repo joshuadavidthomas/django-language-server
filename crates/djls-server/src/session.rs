@@ -86,8 +86,7 @@ impl Session {
         }
     }
 
-    #[cfg(test)]
-    fn snapshot(&self) -> SessionSnapshot {
+    pub(crate) fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot::new(self.db.clone(), self.client_info.clone())
     }
 
@@ -196,6 +195,69 @@ impl Session {
     /// Open editor buffers are exposed to Salsa through the workspace overlay,
     /// so feature code should read current text through [`File::source`]
     /// instead of reaching back into [`TextDocument`] state.
+    #[allow(dead_code)]
+    pub(crate) fn file_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        request: &str,
+    ) -> Option<File> {
+        self.snapshot()
+            .file_for_document_request(text_document, request)
+    }
+
+    /// Resolve an LSP positioned document request to a tracked file and byte offset.
+    #[allow(dead_code)]
+    pub(crate) fn position_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        position: ls_types::Position,
+        request: &str,
+    ) -> Option<(File, Offset)> {
+        self.snapshot()
+            .position_for_document_request(text_document, position, request)
+    }
+
+    /// Get all currently open documents.
+    pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
+        self.workspace
+            .buffers()
+            .iter()
+            .map(|(_path, document)| document)
+            .collect()
+    }
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self::new(&ls_types::InitializeParams::default())
+    }
+}
+
+/// Immutable snapshot of session state.
+#[derive(Clone)]
+pub(crate) struct SessionSnapshot {
+    db: DjangoDatabase,
+    client_info: ClientInfo,
+}
+
+impl SessionSnapshot {
+    fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
+        Self { db, client_info }
+    }
+
+    pub(crate) fn db(&self) -> &DjangoDatabase {
+        &self.db
+    }
+
+    pub(crate) fn client_info(&self) -> &ClientInfo {
+        &self.client_info
+    }
+
+    /// Resolve an LSP document request to the tracked file for that URI.
+    ///
+    /// Open editor buffers are exposed to Salsa through the workspace overlay,
+    /// so feature code should read current text through [`File::source`]
+    /// instead of reaching back into [`TextDocument`] state.
     pub(crate) fn file_for_document_request(
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
@@ -230,44 +292,6 @@ impl Session {
         );
 
         Some((file, offset))
-    }
-
-    /// Get all currently open documents.
-    pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
-        self.workspace
-            .buffers()
-            .iter()
-            .map(|(_path, document)| document)
-            .collect()
-    }
-}
-
-impl Default for Session {
-    fn default() -> Self {
-        Self::new(&ls_types::InitializeParams::default())
-    }
-}
-
-/// Immutable snapshot of session state for tests.
-#[cfg(test)]
-#[derive(Clone)]
-struct SessionSnapshot {
-    db: DjangoDatabase,
-    client_info: ClientInfo,
-}
-
-#[cfg(test)]
-impl SessionSnapshot {
-    fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
-        Self { db, client_info }
-    }
-
-    fn db(&self) -> &DjangoDatabase {
-        &self.db
-    }
-
-    fn client_info(&self) -> &ClientInfo {
-        &self.client_info
     }
 }
 
