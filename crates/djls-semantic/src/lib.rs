@@ -6,7 +6,6 @@ mod references;
 mod scoping;
 mod structure;
 mod tags;
-mod traits;
 mod validation;
 
 pub use db::Db;

@@ -29,7 +29,6 @@ pub use crate::structure::tree::Regions;
 pub use crate::structure::tree::TemplateNode;
 pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;
-use crate::traits::SemanticModel;
 
 #[salsa::tracked]
 pub fn build_template_tree<'db>(
