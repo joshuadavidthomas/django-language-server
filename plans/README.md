@@ -63,7 +63,7 @@ reconciliation and run early).
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | DONE |
 | [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | DONE |
 | [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest; scaffolding tests relocate to `tests/` | P2 | L | 014, 015, 021 (015/021 soft) | DONE |
-| [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: dead trait, export audit | P2 | S | 013, 015, 016, 021 | IN PROGRESS (source complete at `378a7179`, review approved 2026-06-11; awaiting push/PR) |
+| [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: dead trait, export audit | P2 | S | 013, 015, 016, 021 | DONE |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | TODO |
 | [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | TODO |
