@@ -37,7 +37,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
-- Restored S118/S119/S121 diagnostics for template tags, filters, and libraries that exist on Python search paths but whose app is not in `INSTALLED_APPS`.
 - Fixed settings refreshes for star imports inside `try` and `if` blocks.
 
 ## [6.0.3]
