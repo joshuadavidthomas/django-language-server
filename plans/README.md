@@ -66,7 +66,7 @@ reconciliation and run early).
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: dead trait, export audit | P2 | S | 013, 015, 016, 021 | DONE |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | DONE |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | DONE |
-| [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | IN PROGRESS (PR #675 open at `cc341451`, review approved 2026-06-12; awaiting merge) |
+| [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | IN PROGRESS (PR #675 open at `0d912c41`, review approved 2026-06-12; awaiting merge) |
 | [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
