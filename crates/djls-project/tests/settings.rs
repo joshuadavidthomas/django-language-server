@@ -343,6 +343,143 @@ fn template_libraries_include_empty_registered_modules() {
 }
 
 #[test]
+fn inactive_template_libraries_collect_uninstalled_templatetags() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/myapp/__init__.py", ""),
+            ("/proj/myapp/templatetags/__init__.py", ""),
+            (
+                "/proj/myapp/templatetags/myapp_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef active_tag():\n    pass\n",
+            ),
+            ("/proj/crispy/__init__.py", ""),
+            ("/proj/crispy/templatetags/__init__.py", ""),
+            (
+                "/proj/crispy/templatetags/crispy.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n@register.filter\ndef crispy_filter(value):\n    return value\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let inactive = inactive_template_libraries(&db, project);
+
+    let crispy = LibraryName::parse("crispy").unwrap();
+    let candidates = inactive.library_candidates(&crispy);
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].name.as_str(), "crispy");
+    assert_eq!(candidates[0].app.as_str(), "crispy");
+    assert_eq!(candidates[0].module.as_str(), "crispy.templatetags.crispy");
+    assert_eq!(candidates[0].tags, vec!["crispy_tag"]);
+    assert_eq!(candidates[0].filters, vec!["crispy_filter"]);
+    assert!(
+        inactive
+            .library_candidates(&LibraryName::parse("myapp_tags").unwrap())
+            .is_empty(),
+        "installed app libraries must be subtracted from inactive candidates"
+    );
+}
+
+#[test]
+fn inactive_template_libraries_rerun_after_search_root_revision_bump() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/myapp/__init__.py", ""),
+            ("/proj/myapp/templatetags/__init__.py", ""),
+            (
+                "/proj/myapp/templatetags/myapp_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    assert!(
+        inactive_template_libraries(&db, project)
+            .library_candidates(&LibraryName::parse("crispy").unwrap())
+            .is_empty()
+    );
+
+    db.add_file("/proj/crispy/__init__.py", "");
+    db.add_file("/proj/crispy/templatetags/__init__.py", "");
+    db.add_file(
+        "/proj/crispy/templatetags/crispy.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n",
+    );
+    let root = db
+        .files()
+        .expect_root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"));
+    db.bump_file_root_revision(root);
+
+    let inactive = inactive_template_libraries(&db, project);
+
+    assert_eq!(
+        inactive
+            .library_candidates(&LibraryName::parse("crispy").unwrap())
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn refresh_external_data_updates_inactive_template_library_symbols() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/myapp/__init__.py", ""),
+            ("/proj/myapp/templatetags/__init__.py", ""),
+            (
+                "/proj/myapp/templatetags/myapp_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            ("/proj/crispy/__init__.py", ""),
+            ("/proj/crispy/templatetags/__init__.py", ""),
+            (
+                "/proj/crispy/templatetags/crispy.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef old_tag():\n    pass\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    assert!(
+        inactive_template_libraries(&db, project)
+            .tag_candidates("new_tag")
+            .is_empty()
+    );
+
+    db.add_file(
+        "/proj/crispy/templatetags/crispy.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n",
+    );
+    refresh_external_data(&mut db);
+
+    assert_eq!(
+        inactive_template_libraries(&db, project)
+            .tag_candidates("new_tag")
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn template_libraries_demote_unresolved_app_to_partial() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(

@@ -5,6 +5,7 @@
 //! the `Project` input. Pure semantic derivation stays in tracked queries.
 
 use crate::db::Db as ProjectDb;
+use crate::environment::templatetag_candidate_paths;
 use crate::project::Project;
 use crate::resolve::model_modules;
 use crate::resolve::templatetag_modules;
@@ -55,6 +56,7 @@ fn refresh_python_modules(db: &mut dyn ProjectDb, project: Project) {
             .iter()
             .map(|module| module.path().to_path_buf()),
     );
+    file_paths.extend(templatetag_candidate_paths(db, project));
 
     file_paths.sort();
     file_paths.dedup();
