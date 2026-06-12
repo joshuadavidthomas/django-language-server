@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -16,7 +17,6 @@ use crate::names::PyModuleName;
 use crate::project::Project;
 use crate::settings::TemplateLibraryAnalysis;
 use crate::settings::template_libraries;
-use crate::symbols::TemplateLibraries;
 use crate::symbols::TemplateSymbolKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +26,52 @@ pub struct InactiveLibrary {
     pub module: PyModuleName,
     pub tags: Vec<String>,
     pub filters: Vec<String>,
+}
+
+impl InactiveLibrary {
+    fn from_candidate(
+        db: &dyn ProjectDb,
+        candidate: TemplateTagCandidate,
+        active_modules: &BTreeSet<PyModuleName>,
+    ) -> Option<Self> {
+        if active_modules.contains(&candidate.module) {
+            return None;
+        }
+
+        let file = db.get_or_create_file(&candidate.path);
+        let analysis = TemplateLibraryAnalysis::from_file(db, file);
+        if !analysis.defines_library && analysis.symbols.is_empty() {
+            return None;
+        }
+
+        let mut tags = Vec::new();
+        let mut filters = Vec::new();
+        for symbol in analysis.symbols {
+            match symbol.kind {
+                TemplateSymbolKind::Tag => tags.push(symbol.name.as_str().to_string()),
+                TemplateSymbolKind::Filter => filters.push(symbol.name.as_str().to_string()),
+            }
+        }
+        tags.sort();
+        tags.dedup();
+        filters.sort();
+        filters.dedup();
+
+        Some(Self {
+            name: candidate.name,
+            app: candidate.app,
+            module: candidate.module,
+            tags,
+            filters,
+        })
+    }
+
+    fn cmp_by_app_name_module(&self, other: &Self) -> Ordering {
+        self.app
+            .cmp(&other.app)
+            .then_with(|| self.name.cmp(&other.name))
+            .then_with(|| self.module.cmp(&other.module))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -38,6 +84,20 @@ impl InactiveLibraries {
     pub fn empty_ref() -> &'static Self {
         static EMPTY: LazyLock<InactiveLibraries> = LazyLock::new(InactiveLibraries::default);
         &EMPTY
+    }
+
+    fn push(&mut self, library: InactiveLibrary) {
+        self.by_name
+            .entry(library.name.clone())
+            .or_default()
+            .push(library);
+    }
+
+    fn sort_and_dedup(&mut self) {
+        for libraries in self.by_name.values_mut() {
+            libraries.sort_by(InactiveLibrary::cmp_by_app_name_module);
+            libraries.dedup_by(|left, right| left.app == right.app && left.module == right.module);
+        }
     }
 
     #[must_use]
@@ -53,7 +113,7 @@ impl InactiveLibraries {
             .flat_map(|libraries| libraries.iter())
             .filter(|library| library.tags.iter().any(|candidate| candidate == tag))
             .collect();
-        sort_candidates(&mut candidates);
+        candidates.sort_by(|left, right| left.cmp_by_app_name_module(right));
         candidates
     }
 
@@ -65,45 +125,65 @@ impl InactiveLibraries {
             .flat_map(|libraries| libraries.iter())
             .filter(|library| library.filters.iter().any(|candidate| candidate == filter))
             .collect();
-        sort_candidates(&mut candidates);
+        candidates.sort_by(|left, right| left.cmp_by_app_name_module(right));
         candidates
     }
 }
 
-fn sort_candidates(candidates: &mut [&InactiveLibrary]) {
-    candidates.sort_by(|left, right| {
-        left.app
-            .cmp(&right.app)
-            .then_with(|| left.name.cmp(&right.name))
-            .then_with(|| left.module.cmp(&right.module))
-    });
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct TemplateTagFile {
+struct TemplateTagCandidate {
     app: PyModuleName,
     name: LibraryName,
     module: PyModuleName,
     path: Utf8PathBuf,
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn inactive_template_libraries(db: &dyn ProjectDb, project: Project) -> InactiveLibraries {
-    let active_modules = active_template_library_modules(template_libraries(db, project));
-    let mut inactive = InactiveLibraries::default();
+impl TemplateTagCandidate {
+    fn new(app: PyModuleName, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
+        let module =
+            PyModuleName::parse(&format!("{}.templatetags.{}", app.as_str(), name.as_str()))
+                .ok()?;
 
-    for candidate in discover_project_templatetag_files(db, project) {
-        let Some(library) = inactive_library_from_candidate(db, candidate, &active_modules) else {
-            continue;
-        };
-        inactive
-            .by_name
-            .entry(library.name.clone())
-            .or_default()
-            .push(library);
+        Some(Self {
+            app,
+            name,
+            module,
+            path,
+        })
     }
 
-    sort_inactive_libraries(&mut inactive);
+    fn into_path(self) -> Utf8PathBuf {
+        self.path
+    }
+
+    fn cmp_by_app_name_path(&self, other: &Self) -> Ordering {
+        self.app
+            .cmp(&other.app)
+            .then_with(|| self.name.cmp(&other.name))
+            .then_with(|| self.path.cmp(&other.path))
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn inactive_template_libraries(db: &dyn ProjectDb, project: Project) -> InactiveLibraries {
+    project.touch_search_path_roots(db);
+
+    let template_libraries = template_libraries(db, project);
+    let active_modules: BTreeSet<_> = template_libraries
+        .loadable
+        .values()
+        .map(|library| library.module().clone())
+        .chain(template_libraries.builtin_modules().cloned())
+        .collect();
+
+    let mut inactive = InactiveLibraries::default();
+    for candidate in discover_project_templatetag_candidates(db, project) {
+        if let Some(library) = InactiveLibrary::from_candidate(db, candidate, &active_modules) {
+            inactive.push(library);
+        }
+    }
+
+    inactive.sort_and_dedup();
     inactive
 }
 
@@ -111,167 +191,66 @@ pub(crate) fn templatetag_candidate_paths(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Vec<Utf8PathBuf> {
-    discover_project_templatetag_files(db, project)
+    discover_project_templatetag_candidates(db, project)
         .into_iter()
-        .map(|file| file.path)
+        .map(TemplateTagCandidate::into_path)
         .collect()
 }
 
-fn discover_project_templatetag_files(
+fn discover_project_templatetag_candidates(
     db: &dyn ProjectDb,
     project: Project,
-) -> Vec<TemplateTagFile> {
+) -> Vec<TemplateTagCandidate> {
     let search_paths = project.search_paths(db);
-    let mut files_by_path: Vec<(usize, TemplateTagFile)> = Vec::new();
+    let mut candidates_by_path: Vec<(usize, TemplateTagCandidate)> = Vec::new();
     let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
 
     for search_path in search_paths.iter() {
-        touch_search_path_root(db, search_path.path());
         let excluded_paths = if search_path.is_first_party() {
-            nested_non_first_party_paths(project, db, search_path.path())
+            search_paths
+                .iter()
+                .filter(|other| {
+                    !other.is_first_party() && other.path().starts_with(search_path.path())
+                })
+                .map(|other| other.path().to_path_buf())
+                .collect()
         } else {
             Vec::new()
         };
         let search_path_len = search_path.path().as_str().len();
 
-        for (app, name, path) in discover_templatetag_files(
+        for candidate in discover_templatetag_candidates(
             db.file_system(),
             search_path.path(),
             search_path.root_kind(),
             &excluded_paths,
         ) {
-            let Some(module) = module_from_app_and_library(&app, &name) else {
-                continue;
-            };
-            let file = TemplateTagFile {
-                app,
-                name,
-                module,
-                path: path.clone(),
-            };
-            record_longest_search_path_file(
-                &mut files_by_path,
-                &mut path_indexes,
-                search_path_len,
-                path,
-                file,
-            );
+            let path = candidate.path.clone();
+            if let Some(index) = path_indexes.get(&path).copied() {
+                let (existing_search_path_len, existing) = &mut candidates_by_path[index];
+                if search_path_len > *existing_search_path_len {
+                    *existing_search_path_len = search_path_len;
+                    *existing = candidate;
+                }
+            } else {
+                path_indexes.insert(path, candidates_by_path.len());
+                candidates_by_path.push((search_path_len, candidate));
+            }
         }
     }
 
-    files_by_path
+    candidates_by_path
         .into_iter()
-        .map(|(_search_path_len, file)| file)
+        .map(|(_search_path_len, candidate)| candidate)
         .collect()
 }
 
-fn touch_search_path_root(db: &dyn ProjectDb, path: &Utf8Path) {
-    if let Some(root) = db.files().root(db, path) {
-        let _ = root.revision(db);
-    } else {
-        tracing::warn!("Search path has no registered source root: {}", path);
-    }
-}
-
-fn nested_non_first_party_paths(
-    project: Project,
-    db: &dyn ProjectDb,
-    search_path: &Utf8Path,
-) -> Vec<Utf8PathBuf> {
-    project
-        .search_paths(db)
-        .iter()
-        .filter(|other| !other.is_first_party() && other.path().starts_with(search_path))
-        .map(|other| other.path().to_path_buf())
-        .collect()
-}
-
-fn record_longest_search_path_file(
-    files_by_path: &mut Vec<(usize, TemplateTagFile)>,
-    path_indexes: &mut FxHashMap<Utf8PathBuf, usize>,
-    search_path_len: usize,
-    path: Utf8PathBuf,
-    file: TemplateTagFile,
-) {
-    if let Some(index) = path_indexes.get(&path).copied() {
-        let (existing_search_path_len, existing) = &mut files_by_path[index];
-        if search_path_len > *existing_search_path_len {
-            *existing_search_path_len = search_path_len;
-            *existing = file;
-        }
-    } else {
-        path_indexes.insert(path, files_by_path.len());
-        files_by_path.push((search_path_len, file));
-    }
-}
-
-fn active_template_library_modules(libraries: &TemplateLibraries) -> BTreeSet<PyModuleName> {
-    libraries
-        .loadable
-        .values()
-        .map(|library| library.module().clone())
-        .chain(libraries.builtin_modules().cloned())
-        .collect()
-}
-
-fn inactive_library_from_candidate(
-    db: &dyn ProjectDb,
-    candidate: TemplateTagFile,
-    active_modules: &BTreeSet<PyModuleName>,
-) -> Option<InactiveLibrary> {
-    if active_modules.contains(&candidate.module) {
-        return None;
-    }
-
-    let file = db.get_or_create_file(&candidate.path);
-    let analysis = TemplateLibraryAnalysis::from_file(db, file);
-    if !analysis.defines_library && analysis.symbols.is_empty() {
-        return None;
-    }
-
-    let (tags, filters) = sorted_symbol_names(analysis);
-    Some(InactiveLibrary {
-        name: candidate.name,
-        app: candidate.app,
-        module: candidate.module,
-        tags,
-        filters,
-    })
-}
-
-fn sorted_symbol_names(analysis: TemplateLibraryAnalysis) -> (Vec<String>, Vec<String>) {
-    let mut tags = Vec::new();
-    let mut filters = Vec::new();
-    for symbol in analysis.symbols {
-        match symbol.kind {
-            TemplateSymbolKind::Tag => tags.push(symbol.name.as_str().to_string()),
-            TemplateSymbolKind::Filter => filters.push(symbol.name.as_str().to_string()),
-        }
-    }
-    tags.sort();
-    tags.dedup();
-    filters.sort();
-    filters.dedup();
-    (tags, filters)
-}
-
-fn sort_inactive_libraries(inactive: &mut InactiveLibraries) {
-    for libraries in inactive.by_name.values_mut() {
-        libraries.sort_by(|left, right| {
-            left.app
-                .cmp(&right.app)
-                .then_with(|| left.module.cmp(&right.module))
-        });
-        libraries.dedup_by(|left, right| left.app == right.app && left.module == right.module);
-    }
-}
-
-fn discover_templatetag_files(
+fn discover_templatetag_candidates(
     fs: &dyn FileSystem,
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
-) -> Vec<(PyModuleName, LibraryName, Utf8PathBuf)> {
+) -> Vec<TemplateTagCandidate> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
@@ -336,23 +315,15 @@ fn discover_templatetag_files(
         let Ok(name) = LibraryName::parse(stem) else {
             continue;
         };
+        let Some(candidate) = TemplateTagCandidate::new(app, name, path) else {
+            continue;
+        };
 
-        results.push((app, name, path));
+        results.push(candidate);
     }
 
-    results.sort_by(
-        |(left_app, left_name, left_path), (right_app, right_name, right_path)| {
-            left_app
-                .cmp(right_app)
-                .then_with(|| left_name.cmp(right_name))
-                .then_with(|| left_path.cmp(right_path))
-        },
-    );
+    results.sort_by(TemplateTagCandidate::cmp_by_app_name_path);
     results
-}
-
-fn module_from_app_and_library(app: &PyModuleName, name: &LibraryName) -> Option<PyModuleName> {
-    PyModuleName::parse(&format!("{}.templatetags.{}", app.as_str(), name.as_str())).ok()
 }
 
 #[cfg(test)]
@@ -363,7 +334,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_templatetag_files_requires_django_package_shape() {
+    fn discover_templatetag_candidates_requires_django_package_shape() {
         let mut fs = InMemoryFileSystem::new();
         fs.add_file("/root/pkg_a/__init__.py".into(), String::new());
         fs.add_file("/root/pkg_a/templatetags/__init__.py".into(), String::new());
@@ -374,13 +345,18 @@ mod tests {
         fs.add_file("/root/loose/templatetags/__init__.py".into(), String::new());
         fs.add_file("/root/loose/templatetags/baz.py".into(), String::new());
 
-        let discovered =
-            discover_templatetag_files(&fs, Utf8Path::new("/root"), FileRootKind::Project, &[]);
+        let discovered = discover_templatetag_candidates(
+            &fs,
+            Utf8Path::new("/root"),
+            FileRootKind::Project,
+            &[],
+        );
 
         assert_eq!(discovered.len(), 1);
-        let (app, name, path) = &discovered[0];
-        assert_eq!(app.as_str(), "pkg_a");
-        assert_eq!(name.as_str(), "foo");
-        assert_eq!(path.as_str(), "/root/pkg_a/templatetags/foo.py");
+        let candidate = &discovered[0];
+        assert_eq!(candidate.app.as_str(), "pkg_a");
+        assert_eq!(candidate.name.as_str(), "foo");
+        assert_eq!(candidate.module.as_str(), "pkg_a.templatetags.foo");
+        assert_eq!(candidate.path.as_str(), "/root/pkg_a/templatetags/foo.py");
     }
 }
