@@ -51,8 +51,9 @@
   centralizes (maintainer call), consuming tests relocate to `tests/`.
   Effort M → L (the relocation is the added cost)
 - **Execution status**: PR #670 open from bookmark
-  `plan-016-create-djls-testing`, head `60a9472a`; one review
-  correction outstanding (the corpus-fixture vendoring pass below)
+  `plan-016-create-djls-testing`, head `6296c953`; source work complete
+  after the corpus-fixture vendoring pass and updater; awaiting
+  maintainer merge
 
 ## Execution record — PR #670 (2026-06-11)
 
@@ -95,9 +96,23 @@ helpers in `specs/testing.rs` (`corpus_source`, `package_source`,
 `django_source`) are deleted; pure parsing helpers
 (`find_function_in_source`) stay. Drift defense in depth: live-corpus
 coverage continues in `tests/corpus*.rs`, which glob-snapshot
-`extract_rules` over every extraction target. **This vendoring pass is
-the remaining work on PR #670** — at `60a9472a` the `Corpus` imports
-are still present in those two `src/` test modules.
+`extract_rules` over every extraction target. The vendoring pass landed
+as `942fc962` ("test: vendor spec extraction fixtures"):
+`djls-project/src/specs/testdata/` now holds the pinned
+provenance-cited snippets, `specs/testing.rs` exposes only deterministic
+fixture constants plus pure parsing helpers, and `djls-project/src` no
+longer imports `djls_testing::Corpus` or any live corpus lookup helper.
+The follow-up `6296c953` ("test: add vendored spec fixture updater")
+adds `just corpus vendor-spec-fixtures` and
+`just corpus vendor-spec-fixtures --check`, so the vendored snippets are
+mechanically regenerated from the synced corpus rather than hand-copied.
+The same source stack also includes `8640a34d` ("test: drop test
+database storage last"), matching the production database's field-order
+style. Validation rerun at `6296c953`: `cargo test -q`, `just test`,
+`just corpus vendor-spec-fixtures --check`, clean-tree `just clippy`,
+`just fmt --check`, `just lint`, and the Plan 016 guards (no
+`djls_testing` outside `crates/djls-testing/src/**`, no live corpus
+helpers in `djls-project/src`, no `#[path]`/`tests/support` hybrids).
 
 ## Why this matters
 
