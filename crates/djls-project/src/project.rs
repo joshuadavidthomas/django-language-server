@@ -7,7 +7,6 @@ use djls_conf::TagSpecDef;
 use djls_source::File;
 use djls_source::FileSystem;
 use salsa::Durability;
-use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
 use crate::names::ModulePath;
@@ -88,19 +87,6 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn refresh_source_roots(self, db: &mut dyn ProjectDb) {
-        let search_paths = SearchPaths::from_project_settings(
-            db.file_system(),
-            self.root(db),
-            self.interpreter(db),
-            self.pythonpath(db),
-        );
-        search_paths.register_roots(db);
-        if self.search_paths(db) != &search_paths {
-            self.set_search_paths(db).to(search_paths);
-        }
-    }
-
     pub(crate) fn touch_search_path_roots(self, db: &dyn ProjectDb) {
         for search_path in self.search_paths(db).iter() {
             if let Some(root) = db.files().root(db, search_path.path()) {

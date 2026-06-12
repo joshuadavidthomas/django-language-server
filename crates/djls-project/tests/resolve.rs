@@ -694,6 +694,37 @@ fn refresh_external_data_discovers_site_packages_created_after_bootstrap() {
 }
 
 #[test]
+fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
+    let mut db = TestDatabase::new();
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = ProjectFixture::new("/project")
+        .search_paths(search_paths)
+        .interpreter(Interpreter::Auto)
+        .register_roots(false)
+        .install(&mut db);
+
+    db.add_file(
+        "/project/.venv/lib/python3.12/site-packages/blog/models.py",
+        "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
+    );
+
+    let refresh = compute_refresh(&db).expect("project should be configured");
+    apply_refresh(&mut db, refresh);
+
+    assert!(project.search_paths(&db).iter().any(|search_path| {
+        search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
+    }));
+    let graph = compute_model_graph(&db, project);
+    assert!(graph.get("VenvArticle").is_some());
+}
+
+#[test]
 fn discover_external_model_files_finds_models() {
     let tmp = tempfile::TempDir::new().unwrap();
     let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();

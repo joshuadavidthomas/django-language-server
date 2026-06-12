@@ -11,6 +11,7 @@ use crate::db::DjangoDatabase;
 pub struct SettingsUpdate {
     pub env_changed: bool,
     pub diagnostics_changed: bool,
+    pub semantic_changed: bool,
 }
 
 impl DjangoDatabase {
@@ -37,20 +38,23 @@ impl DjangoDatabase {
         let previous = self.settings();
         *self.settings.lock().unwrap() = settings;
 
-        let diagnostics_changed = previous.diagnostics() != self.settings().diagnostics();
+        let current = self.settings();
+        let diagnostics_changed = previous.diagnostics() != current.diagnostics();
+        let semantic_changed = previous.tagspecs() != current.tagspecs();
 
         if self.project().is_some() {
-            let settings = self.settings();
-            let env_changed = self.update_project_from_settings(&settings);
+            let env_changed = self.update_project_from_settings(&current);
             return SettingsUpdate {
                 env_changed,
                 diagnostics_changed,
+                semantic_changed,
             };
         }
 
         SettingsUpdate {
             env_changed: false,
             diagnostics_changed,
+            semantic_changed,
         }
     }
 
@@ -58,8 +62,8 @@ impl DjangoDatabase {
     /// Salsa setters when values actually change (Ruff/RA pattern).
     ///
     /// Returns `true` if environment-related fields changed (`interpreter`,
-    /// `django_settings_module`, `pythonpath`), indicating project data should
-    /// be refreshed.
+    /// `django_settings_module`, `pythonpath`, `env_vars`), indicating project
+    /// data should be refreshed by the caller.
     pub(crate) fn update_project_from_settings(&mut self, settings: &Settings) -> bool {
         let Some(project) = self.project() else {
             return false;
@@ -104,10 +108,6 @@ impl DjangoDatabase {
         let new_tagspecs = settings.tagspecs().clone();
         if project.tagspecs(self) != &new_tagspecs {
             project.set_tagspecs(self).to(new_tagspecs);
-        }
-
-        if env_changed {
-            project.refresh_source_roots(self);
         }
 
         env_changed
