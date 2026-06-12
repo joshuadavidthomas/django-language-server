@@ -50,6 +50,54 @@
   redesigned after the dev-cycle identity blocker: scaffolding
   centralizes (maintainer call), consuming tests relocate to `tests/`.
   Effort M → L (the relocation is the added cost)
+- **Execution status**: PR #670 open from bookmark
+  `plan-016-create-djls-testing`, head `60a9472a`; one review
+  correction outstanding (the corpus-fixture vendoring pass below)
+
+## Execution record — PR #670 (2026-06-11)
+
+Steps 2–7 landed as `d6e91ff9` → `88e3567c` and PR #670 opened. Full
+validation passed at that head (`cargo build -q`, corpus CLI `--help`,
+`cargo test -q`, `just test`, clean-tree `just clippy`,
+`just fmt --check`, `just lint`).
+
+**Review verdict on `88e3567c`**: the centralization core was accepted
+as planned (shared `TestDatabase`/fixtures/mdtest in djls-testing;
+djls-semantic fully scrubbed; project/ide tests in true integration
+position; snapshots re-keyed byte-identically). Rejected: four
+internal-shaped test modules had been physically parked under
+`tests/support/` and compiled back in-crate via
+`#[cfg(test)] #[path = "../tests/support/…"] mod tests;`. That hybrid
+satisfied the placement guard only textually — most acutely
+`djls-server`'s document tests, which imported the shared
+`djls_testing::TestDatabase` from what is semantically `src/` unit-test
+code — and left `tests/support/` as a trap (unit modules with `crate::`
+paths sitting where integration-test helpers conventionally live;
+djls-server's `tests/` had no test target at all). The revert landed as
+`60a9472a` ("test: restore private unit test modules"): all four
+modules back in `src/` as plain `#[cfg(test)] mod tests`, document.rs
+back on its minimal local source-only `TestDb`, `tests/support/`
+deleted.
+
+**Corpus ruling (maintainer call, 2026-06-11, supersedes the interim
+`Corpus` carve-out)**: the synced corpus is an **integration-boundary
+asset** — unit tests must run without external syncing. The
+corpus-grounded unit tests in `djls-project`
+(`src/extraction/registry.rs` `mod tests`, ~21 tests asserting
+recognizer behavior on real Django decorators, and the
+`src/specs/analysis/calls.rs` tests fed by `src/specs/testing.rs`
+helpers) therefore do not import `djls_testing::Corpus`. Instead they
+**vendor pinned fixtures**: inline snippet literals (or `include_str!`
+from a small in-crate `testdata/` dir for function bodies) with
+provenance comments naming the corpus file they came from — the
+existing `// Corpus: ...` comments become citations. The corpus-access
+helpers in `specs/testing.rs` (`corpus_source`, `package_source`,
+`django_source`) are deleted; pure parsing helpers
+(`find_function_in_source`) stay. Drift defense in depth: live-corpus
+coverage continues in `tests/corpus*.rs`, which glob-snapshot
+`extract_rules` over every extraction target. **This vendoring pass is
+the remaining work on PR #670** — at `60a9472a` the `Corpus` imports
+are still present in those two `src/` test modules.
 
 ## Why this matters
 
@@ -139,7 +187,15 @@ a crate sits on:
   `module_path_from_file`) are identity-safe everywhere — which is why
   Step 1's imports inside `djls-semantic/src/testing.rs` compile fine —
   but the uniform rule applies to them all the same: test code that
-  needs them sits in `tests/` (or `benches/`).
+  needs them sits in `tests/` (or `benches/`). Identity-safety earns no
+  carve-out (ruled at PR #670 review): an in-crate test that wants
+  corpus source vendors a pinned snippet with a provenance comment
+  instead — unit tests must run without external syncing, and the
+  live-corpus coverage belongs to integration tests.
+- Physical placement is not the rule's substance — a module
+  `#[path]`-included from `tests/` into `src/` is still an in-crate
+  unit test and counts as `src/` for every rule above. No `#[path]`
+  test includes, period.
 
 ## Current state
 
@@ -577,7 +633,9 @@ Machine-checkable. ALL must hold:
 - [ ] `rg -l "djls_corpus" crates/` → no matches
 - [ ] `just corpus sync` invokes the new crate (read the Justfile diff)
 - [ ] `rg -n "struct TestDb|struct TestDatabase" crates/ -g '!target'` matches only `crates/djls-testing/src/db.rs`, `crates/djls-server/src/workspace.rs`, and the internal-shaped residues recorded in the Step 4/5/6 reports (expected: at most djls-project's specs analysis and djls-server's document tests)
-- [ ] `rg -n "djls_testing" crates/*/src/ -g '!djls-testing/**'` → no matches (the uniform guard: shared test scaffolding is consumed only from `tests/` and `benches/`, in every crate)
+- [ ] `rg -n "djls_testing" crates/*/src/ -g '!djls-testing/**'` → no matches (the uniform guard: shared test scaffolding is consumed only from `tests/` and `benches/`, in every crate — zero exceptions, including `Corpus`)
+- [ ] `rg -n "#\[path" crates/*/src/` → no matches (no test modules path-included from outside `src/`; `tests/support/` directories do not exist)
+- [ ] `rg -n "djls_testing::Corpus" crates/djls-project/src/` → no matches (corpus-grounded unit tests vendor pinned fixtures; corpus reads happen only in `tests/corpus*.rs`)
 - [ ] `rg -n "mod testing" crates/djls-semantic/src/lib.rs` → no matches; `rg -c "#\[cfg\(test\)\]" crates/djls-semantic/src/lib.rs` → 0 (the inline test module moved to `tests/validation.rs`)
 - [ ] mdtest suites still run from djls-semantic (`cargo test -q -p djls-semantic mdtest` lists ≥ 1 test) and the corrupt-snapshot probe failed then passed
 - [ ] Per-crate test counts unchanged (record before/after numbers in your report)
@@ -597,6 +655,11 @@ Stop and report back (do not improvise) if:
   shared database: it cannot import it (identity limit) and its target
   is not public (cannot relocate). Do not widen visibility or duplicate
   the database to unblock yourself — report the test and the options.
+- An internal-shaped test needs corpus source. Do not import
+  `djls_testing::Corpus` in `src/`, do not `#[path]`-include the module
+  from `tests/`, and do not copy corpus files in a build script —
+  vendor the needed snippet inline with a provenance comment. If the
+  needed input is too large to vendor sensibly, report.
 - The Step 4/5 classification finds that a *large share* of consuming
   tests are internal-shaped (more than a handful of modules) — the
   centralization premise would be wrong; report before relocating
@@ -626,6 +689,17 @@ Stop and report back (do not improvise) if:
   test that needs a database keeps a minimal local helper). One rule to
   review against, no dependency-graph qualifier, and `rg "djls_testing"
   crates/*/src/` staying empty is the whole enforcement story.
+  Placement is semantic, not physical: `#[path]`-including a module
+  from `tests/` into `src/` does not move it out of the unit-test
+  binary and is banned outright.
+- **The corpus is an integration-boundary asset** (ruled at PR #670
+  review): unit tests never require a synced corpus — no
+  `djls_testing::Corpus` under `src/`, no build-script copying.
+  Recognizer-level tests pin real-world snippets inline with
+  provenance comments naming the corpus file; corpus-wide coverage
+  lives in `tests/corpus*.rs` glob snapshots. Defense in depth: the
+  pinned snippets give stage isolation, the integration snapshots
+  catch real-Django drift.
 - **djls-bench's database**: left alone on purpose. The right future
   consolidation is for benches to construct the slimmed production
   `DjangoDatabase` (post plan 009 it has no inspector baggage), not the
