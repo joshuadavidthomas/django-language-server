@@ -49,6 +49,69 @@
 - **Depends on**: plans/007, plans/008 (hard); plans/009 recommended first (pure deletion, avoids churn overlap); plans/015 soft (paths move — see drift check)
 - **Category**: direction (static Django discovery — UX follow-up)
 - **Planned at**: jj/git commit `7671145d`, 2026-06-10
+- **Execution status**: source-complete locally at `83a40294` +
+  `1504d527` + `98136c83`; not pushed/merged
+
+## Execution record — local source stack (2026-06-12)
+
+Implemented as three source commits:
+
+1. `83a40294` — `add inactive template library scan`
+2. `1504d527` — `feat: restore not-in-INSTALLED_APPS diagnostics from static facts`
+3. `98136c83` — `test: cover inactive template library diagnostics end-to-end`
+
+Drift adaptation applied as planned: every planned `Knowledge` reference maps
+to `StaticKnowledge`, and `TemplateLibraries::knowledge` is the active-set
+gate. No code was renamed.
+
+Implementation notes:
+
+- Added `crates/djls-project/src/environment.rs` with
+  `InactiveLibrary`, `InactiveLibraries`, and
+  `inactive_template_libraries(db, project)`.
+- The scan walks every search path using the same root-kind walk policy and
+  nested non-first-party exclusion rule as model discovery, keeps only Django
+  `templatetags/*.py` package shapes, and subtracts modules already present in
+  active `TemplateLibraries`.
+- Restored S118/S119/S121 in `ValidationError` and upgraded only the
+  `StaticKnowledge::Known` unknown-tag/filter/library paths. Partial and
+  Unknown still suppress absence claims.
+- Added e2e coverage for inactive `django.contrib.flatpages` with
+  `{% load flatpages %}` → S121 and `{% get_flatpages as pages %}` → S118.
+- Added docs and changelog entries for the restored static diagnostics.
+
+Divergences recorded:
+
+- `crates/djls-project/src/sync.rs` was added to the source scope after a
+  Lamport review found a real stale-state trace: root revision bumps reran
+  inactive discovery, but unchanged per-file revisions could keep parsed
+  inactive-library symbols stale. `refresh_external_data` now also bumps every
+  discovered templatetag candidate path via `templatetag_candidate_paths`, and
+  `refresh_external_data_updates_inactive_template_library_symbols` covers the
+  old counterexample.
+- The invalidation test is behavioral rather than event-log based: it edits an
+  inactive templatetag file, calls `refresh_external_data`, and proves the new
+  tag appears. This directly covers the required state transition.
+- The literal guard `rg -n "Discovered|discovery_knowledge" crates/` has one
+  unrelated pre-existing match in `crates/djls-project/src/templates.rs`:
+  `tracing::debug!("Discovered {} total template origins", ...)`. The old
+  `discovery_knowledge` field and old discovered-library machinery remain
+  absent.
+
+Validation passed on the final stack:
+
+- `cargo test -q`
+- `just test`
+- `just e2e`
+- `just clippy`
+- `just fmt --check`
+- `just lint`
+- Targeted checks: `cargo test -q -p djls-project inactive`,
+  `cargo test -q -p djls-project discover_templatetag`,
+  `cargo test -q -p djls-project refresh_external_data_updates_inactive_template_library_symbols`,
+  `cargo test -q -p djls-semantic`
+- Review: Lamport re-review reported no must-fix findings after the refresh
+  fix.
 
 ## Why this matters
 
@@ -511,14 +574,14 @@ present.
 
 Machine-checkable. ALL must hold:
 
-- [ ] `rg -n "S118|S119|S121" crates/djls-semantic/src/errors.rs` shows the three code arms
-- [ ] `rg -n "Discovered|discovery_knowledge" crates/` returns no matches (the old machinery stayed dead)
-- [ ] `rg -n "Knowledge" <new scan module>` shows no `Knowledge` field on `InactiveLibraries` (honesty rule 1; the validator gate lives in scoping.rs)
-- [ ] `cargo test -q` exits 0, including the 8 policy tests + walker + query + invalidation tests
-- [ ] `just test` exits 0 AND `just e2e` exits 0 (including the new flatpages assertions)
-- [ ] `just clippy`, `just fmt --check`, `just lint` all exit 0
-- [ ] Only in-scope files modified (`jj diff --stat`)
-- [ ] `plans/README.md` status row updated
+- [x] `rg -n "S118|S119|S121" crates/djls-semantic/src/errors.rs` shows the three code arms
+- [x] Old discovered-library machinery stayed dead: `discovery_knowledge` has no matches; the only literal `Discovered` match is an unrelated pre-existing template-origin debug log in `crates/djls-project/src/templates.rs`
+- [x] `rg -n "Knowledge" crates/djls-project/src/environment.rs` shows no `Knowledge` field on `InactiveLibraries` (honesty rule 1; the validator gate lives in scoping.rs)
+- [x] `cargo test -q` exits 0, including the 8 policy tests + walker + query + invalidation tests
+- [x] `just test` exits 0 AND `just e2e` exits 0 (including the new flatpages assertions)
+- [x] `just clippy`, `just fmt --check`, `just lint` all exit 0
+- [x] Modified files are in the intended project/semantic/test/docs scope plus `crates/djls-project/src/sync.rs` for the reviewer-found refresh invalidation fix (`jj diff --stat` recorded in execution report)
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
