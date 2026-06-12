@@ -553,28 +553,16 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        if !settings_update.env_changed
-            && !settings_update.diagnostics_changed
-            && !settings_update.semantic_changed
+        // Any relevant change submits a refresh: the epoch bump supersedes
+        // in-flight refresh work (so a stale republish cannot overwrite newer
+        // settings), and the new task re-applies and republishes diagnostics
+        // for open documents. Bumping without resubmitting would drop a
+        // superseded refresh's apply on the floor.
+        if settings_update.env_changed
+            || settings_update.diagnostics_changed
+            || settings_update.semantic_changed
         {
-            return;
-        }
-
-        if settings_update.env_changed {
             self.submit_project_refresh(false).await;
-        } else if settings_update.diagnostics_changed || settings_update.semantic_changed {
-            // Bump without queueing a refresh: supersede any in-flight refresh
-            // republish so it cannot overwrite the publishes below.
-            let documents = self
-                .with_session(|session| {
-                    session.bump_refresh_epoch();
-                    session.open_documents()
-                })
-                .await;
-
-            for document in documents {
-                self.maybe_push_diagnostics(&document).await;
-            }
         }
     }
 }

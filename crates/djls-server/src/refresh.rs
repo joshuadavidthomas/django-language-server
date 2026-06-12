@@ -71,39 +71,59 @@ async fn run_project_refresh_inner(
         return Ok(());
     }
 
-    let Some(compute_db) = ({
-        let session_lock = session.lock().await;
-        if refresh_is_stale(&refresh_epoch, epoch) {
-            tracing::debug!(
-                epoch,
-                "Skipping stale project refresh after locking session"
-            );
+    // Cancellation here usually means a document edit, not a config change:
+    // nothing bumps the epoch or resubmits, so dropping the compute would lose
+    // the refresh for good. Retry with a fresh database clone instead, like
+    // the snapshot reads do.
+    let mut refresh = None;
+    for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+        let Some(compute_db) = ({
+            let session_lock = session.lock().await;
+            if refresh_is_stale(&refresh_epoch, epoch) {
+                tracing::debug!(
+                    epoch,
+                    "Skipping stale project refresh after locking session"
+                );
+                return Ok(());
+            }
+
+            let db = session_lock.db();
+            db.project().map(|_| db.clone())
+        }) else {
+            tracing::info!("Task: No project configured, skipping initialization.");
             return Ok(());
+        };
+
+        let result = tokio::task::spawn_blocking(move || {
+            salsa::Cancelled::catch(AssertUnwindSafe(|| compute_refresh(&compute_db)))
+        })
+        .await
+        .expect("project refresh compute task must not panic");
+
+        match result {
+            Ok(computed) => {
+                refresh = computed;
+                break;
+            }
+            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                tracing::debug!(
+                    ?cancelled,
+                    attempt = attempt + 1,
+                    "Project refresh compute cancelled; retrying with fresh database clone"
+                );
+            }
+            Err(cancelled) => {
+                tracing::warn!(
+                    ?cancelled,
+                    retries = SNAPSHOT_CANCEL_RETRIES,
+                    "Project refresh compute cancelled repeatedly; project facts may be stale until the next refresh"
+                );
+                return Ok(());
+            }
         }
+    }
 
-        let db = session_lock.db();
-        db.project().map(|_| db.clone())
-    }) else {
-        tracing::info!("Task: No project configured, skipping initialization.");
-        return Ok(());
-    };
-
-    let refresh = tokio::task::spawn_blocking(move || {
-        salsa::Cancelled::catch(AssertUnwindSafe(|| compute_refresh(&compute_db)))
-    })
-    .await
-    .expect("project refresh compute task must not panic");
-
-    let Some(refresh) = (match refresh {
-        Ok(refresh) => refresh,
-        Err(cancelled) => {
-            tracing::debug!(
-                ?cancelled,
-                "Project refresh compute cancelled; newer inputs will re-run refresh"
-            );
-            return Ok(());
-        }
-    }) else {
+    let Some(refresh) = refresh else {
         return Ok(());
     };
 
