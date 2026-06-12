@@ -7,7 +7,6 @@ mod signature;
 mod types;
 
 #[cfg(test)]
-#[path = "../tests/support/specs_testing.rs"]
 mod testing;
 
 use djls_source::File;
