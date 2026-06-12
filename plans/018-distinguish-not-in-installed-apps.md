@@ -49,10 +49,9 @@
 - **Depends on**: plans/007, plans/008 (hard); plans/009 recommended first (pure deletion, avoids churn overlap); plans/015 soft (paths move — see drift check)
 - **Category**: direction (static Django discovery — UX follow-up)
 - **Planned at**: jj/git commit `7671145d`, 2026-06-10
-- **Execution status**: PR #672 open at `fe57d5ae`; source-complete,
-  not merged
+- **Execution status**: DONE; merged in PR #672 at `90e165d6`
 
-## Execution record — local source stack (2026-06-12)
+## Execution record — source stack and merge (2026-06-12)
 
 Implemented as source commits:
 
@@ -61,6 +60,7 @@ Implemented as source commits:
 3. `98136c83` — `test: cover inactive template library diagnostics end-to-end`
 4. `2fe4dbb9` — `Update CHANGELOG.md` (PR-branch edit removing the initial changelog entry)
 5. `fe57d5ae` — `refactor: simplify inactive template library scan`
+6. `90e165d6` — `Restore not-in-INSTALLED_APPS diagnostics from static facts (#672)`
 
 Drift adaptation applied as planned: every planned `Knowledge` reference maps
 to `StaticKnowledge`, and `TemplateLibraries::knowledge` is the active-set
@@ -146,7 +146,12 @@ criteria 2 and 7 were checked against the code and are factually accurate;
 ratified (note for future runs: prefer reporting a criterion as failed-as-
 written plus a divergence note, and let review amend the wording). The two
 `pub(crate)` visibility widenings in `resolve.rs`/`settings.rs` are wiring
-within the planned module scope. Remaining: push and PR when Josh says go.
+within the planned module scope.
+
+**Merge record (2026-06-12)**: PR #672 merged at `90e165d6`
+(`Restore not-in-INSTALLED_APPS diagnostics from static facts (#672)`). The
+local `main` bookmark is at that merge commit after pull. Plan 018 source work
+is complete.
 
 ## Why this matters
 
