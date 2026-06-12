@@ -50,10 +50,9 @@
   redesigned after the dev-cycle identity blocker: scaffolding
   centralizes (maintainer call), consuming tests relocate to `tests/`.
   Effort M → L (the relocation is the added cost)
-- **Execution status**: PR #670 open from bookmark
-  `plan-016-create-djls-testing`, head `6296c953`; source work complete
-  after the corpus-fixture vendoring pass and updater; awaiting
-  maintainer merge
+- **Execution status**: DONE — PR #670 merged into `main` as
+  `f53b63b6` ("Create djls-testing crate (#670)"); source head
+  `6296c953`
 
 ## Execution record — PR #670 (2026-06-11)
 
@@ -113,6 +112,11 @@ style. Validation rerun at `6296c953`: `cargo test -q`, `just test`,
 `just fmt --check`, `just lint`, and the Plan 016 guards (no
 `djls_testing` outside `crates/djls-testing/src/**`, no live corpus
 helpers in `djls-project/src`, no `#[path]`/`tests/support` hybrids).
+
+**Merge record (2026-06-12)**: PR #670 merged into `main` as
+`f53b63b6` ("Create djls-testing crate (#670)"). Post-merge fetch
+updated local `main`; the remote `plan-016-create-djls-testing`
+bookmark was deleted. Plan 017 is now unblocked.
 
 ## Why this matters
 
