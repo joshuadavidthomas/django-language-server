@@ -25,13 +25,13 @@
 - **Depends on**: plans/009, plans/010
 - **Category**: perf (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Execution status**: PR #675 open at `cc341451`; not merged
+- **Execution status**: PR #675 open at `0d912c41`; not merged
 
 ## Execution record — local source commit (2026-06-12)
 
 Implemented as one source commit:
 
-1. `cc341451` — `refactor: apply project refresh briefly and warm queries off-lock`
+1. `0d912c41` — `refactor: apply project refresh briefly and warm queries off-lock`
 
 Implementation notes:
 
@@ -62,6 +62,8 @@ Implementation notes:
   preventing stale refresh diagnostics from overwriting a newer config publish.
 - Removed the now-dead `Project::refresh_source_roots`; its body had been
   absorbed by `compute_refresh`/`apply_refresh`.
+- Inlined the single-use `refresh_file_paths` and `bump_python_modules`
+  helpers back into their owning compute/apply functions during PR review.
 
 Divergences recorded:
 
@@ -95,7 +97,7 @@ Validation passed on the final source commit:
 - clean-tree `just fmt`
 - clean-tree `just lint`
 - review cleanup: `rg "refresh_source_roots" crates/djls-project/src crates/djls-db/src crates/djls-server/src -g '*.rs'` returns no matches
-- review cleanup: `cargo test -q -p djls-project`, `cargo build -q`, and `cargo clippy --all-targets --all-features --benches -- -D warnings` exit 0
+- review cleanup: `cargo test -q -p djls-project`, `cargo build -q`, `cargo clippy --all-targets --all-features --benches -- -D warnings`, and clean-tree `just clippy` exit 0
 
 Review notes:
 
@@ -110,7 +112,7 @@ Review notes:
   it. Final strict concurrency review reported no must-fix findings.
 
 **Review verdict (2026-06-12): approved.** Independently re-verified on source
-commit `cc341451` (bookmark `plan-011-nonblocking-refresh`, parented on the
+commit `0d912c41` (bookmark `plan-011-nonblocking-refresh`, parented on the
 merged plan-010 main): `cargo test -q`, `just clippy`, `just fmt --check`,
 `just e2e` (27 passed), and `just lint` all exit 0. Lock-scope invariant
 checked by reading, not trusting names: the compute lock holds only a db
