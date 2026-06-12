@@ -62,8 +62,8 @@ reconciliation and run early).
 | [019](019-reshape-template-library-model.md) | Make the loadable/builtin distinction positional — delete `LibraryStatus` | P1 | M | 008 (before 015; after 020 if both queued) | DONE |
 | [015](015-move-project-model-into-djls-project.md) | Move the project model into `djls-project` | P2 | M/L | 006, 007, 008, 009, 019, 020 | DONE |
 | [021](021-move-spec-extraction-into-djls-project.md) | Move spec extraction into `djls-project` — semantic becomes the project-meaning layer | P2 | M/L | 015 (before 016/017) | DONE |
-| [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest | P2 | M | 014, 015, 021 (015/021 soft) | TODO |
-| [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: tests out of lib.rs, dead trait, export audit | P2 | M | 013, 015, 016, 021 | TODO |
+| [016](016-create-djls-testing-crate.md) | Create `djls-testing`: corpus + shared test database/fixtures/mdtest; scaffolding tests relocate to `tests/` | P2 | L | 014, 015, 021 (015/021 soft) | IN PROGRESS (Step 1 landed as `d7340eb2`; Steps 2–7 revised mid-execution) |
+| [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: dead trait, export audit | P2 | S | 013, 015, 016, 021 | TODO |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | TODO |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | TODO |
 | [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | TODO |
@@ -126,6 +126,18 @@ REJECTED (with one-line rationale).
   (djls-semantic dev-depends on djls-testing, which depends on
   djls-semantic) is Cargo-sanctioned and is exactly ty's `ty_test` shape
   (verified: `ty_python_semantic/Cargo.toml:54` ↔ `ty_test/Cargo.toml:24`).
+  **Identity caveat (learned in execution, 2026-06-11)**: Cargo resolves
+  the dev-cycle by building the host crate twice, so
+  `djls_testing::TestDatabase` cannot satisfy `crate::Db` inside
+  djls-semantic's or djls-project's own `#[cfg(test)]` modules — only
+  integration tests (`tests/`) and crates djls-testing does not depend
+  on can consume the shared scaffolding. Maintainer call: centralize
+  anyway and relocate the consuming tests to `tests/`; the standing
+  convention is *any test that constructs a salsa database lives in
+  `tests/` — uniformly, even in crates where an in-crate import would
+  be legal — and in-crate test modules are for `pub(crate)` internals
+  only* (see plan 016, "The crate-identity limit"). Enforcement is one
+  sweep: `rg "djls_testing" crates/*/src/` stays empty.
 - **021 after 015, before 016/017**: the 2026-06-11 boundary memo
   ([memo-project-semantic-boundary.md](memo-project-semantic-boundary.md))
   re-derives the crate seam by *activity* (observed source facts →
@@ -173,6 +185,43 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-11 (Plan 016 mid-execution redesign — the crate-identity
+  limit)**: Step 1 (corpus move) landed as `d7340eb2`; the original
+  Step 2 then failed in execution. Root cause: Cargo resolves the
+  sanctioned dev-dependency cycle by building the host crate twice (the
+  normal lib that djls-testing links, and the `#[cfg(test)]` unit-test
+  crate), and trait identities do not unify across the two — so
+  `djls_testing::TestDatabase` can never satisfy `crate::Db` inside
+  djls-semantic's or djls-project's own unit tests
+  (`error[E0277]` + "multiple different versions of crate
+  `djls_semantic` in the dependency graph"). The plan had cited ty's
+  dev-cycle as precedent but missed that ty consumes `ty_test` only
+  from integration position (`ty_python_semantic/tests/mdtest.rs`,
+  `tests/corpus.rs`) and keeps an in-crate `pub(crate) TestDb` for unit
+  tests. Maintainer call: **centralization is the point of the crate —
+  keep it.** The scaffolding (database, fixtures, mdtest runner +
+  curated environment) all moves to djls-testing, and the tests that
+  consume it relocate to `tests/`, where the identity limit does not
+  apply; in-crate `#[cfg(test)]` modules are reserved for
+  `pub(crate)`-internal tests (minimal local helper only where such a
+  test needs a database — expected residue: djls-project's specs
+  analysis and djls-server's document tests, plus the sanctioned
+  `workspace.rs` one). DLS can centralize further than ty
+  because its database-consuming tests are overwhelmingly
+  public-API-shaped. A same-day refinement made the rule **uniform**:
+  database-consuming tests relocate to `tests/` in djls-ide and
+  djls-server too, even though the identity limit does not bind there —
+  one rule with no dependency-graph qualifier, enforced by
+  `rg "djls_testing" crates/*/src/` staying empty. Consequences
+  applied: plan 016 Steps 2–7 rewritten (copy-then-relocate-then-delete
+  sequencing so every step lands green), effort M→L, status IN
+  PROGRESS; plan 016 absorbs plan 017's original Step 2 (the lib.rs
+  inline test module moves to `tests/validation.rs` as part of the
+  relocation); plan 017 re-scoped to trait deletion + export audit,
+  effort M→S; the 016 dependency-notes bullet above gains the identity
+  caveat. Standing convention recorded in both plans: *any test that
+  constructs a salsa database lives in `tests/`; in-crate test modules
+  are for `pub(crate)` internals only.*
 - **2026-06-11 (Plan 021 closed)**: PR #669 merged into `main` as
   `3876398c Move spec extraction into djls-project (#669)` (source head
   `db822024`). The source change moves Python spec extraction and

@@ -9,18 +9,25 @@
 > **Drift check (run first)**: Plans 013, 015, 016, and 021 must be DONE
 > (README status table). This plan tidies what *remains* in djls-semantic
 > after the project model moved to djls-project (015), spec extraction
-> followed it (021), and the test infrastructure moved to djls-testing
-> (016) — if any still lives in djls-semantic, STOP. In particular,
-> `crates/djls-semantic/src/python/` must NOT exist (021 moved it); if it
-> does, 021 has not landed. All planned-at line numbers below WILL have
-> shifted; every step begins with its own discovery command — trust
-> those, not the excerpts' line numbers.
+> followed it (021), and the test scaffolding — corpus harness, shared
+> database, fixtures, mdtest runner — moved to djls-testing along with
+> the tests that consume it (016, as revised 2026-06-11). Expect:
+> `src/testing.rs` gone, no `#[cfg(test)]` in `lib.rs` (the inline test
+> module now lives at `tests/validation.rs` — 016 absorbed this plan's
+> original Step 2), and the database-consuming tests under `tests/`.
+> One deliberate keeper is NOT a leftover: `resources/mdtest/` (the
+> suites; only the runner moved). If lib.rs still carries the ~720-line
+> inline `mod tests`, 016's revised form has not landed — STOP. In
+> particular, `crates/djls-semantic/src/python/` must NOT exist (021
+> moved it); if it does, 021 has not landed. All planned-at line numbers
+> below WILL have shifted; every step begins with its own discovery
+> command — trust those, not the excerpts' line numbers.
 
 ## Status
 
 - **Priority**: P2
-- **Effort**: M
-- **Risk**: LOW-MED (structure-only; behavior frozen by the full suite +
+- **Effort**: S (was M; plan 016 absorbed the test-module move)
+- **Risk**: LOW (structure-only; behavior frozen by the full suite +
   mdtest + insta snapshots)
 - **Depends on**: plans/013, plans/015, plans/016, plans/021
 - **Category**: tech-debt
@@ -29,32 +36,36 @@
   [memo-project-semantic-boundary.md](memo-project-semantic-boundary.md):
   plan 021 moves the `python/` subtree to djls-project — the original
   Step 3 (split query logic out of the python.rs façade) is removed and
-  the export audit re-scoped)
+  the export audit re-scoped); revised again 2026-06-11 (016
+  mid-execution redesign: the lib.rs test-module move — this plan's
+  original Step 2 — was absorbed by 016's test relocation, leaving the
+  trait deletion and the export audit)
 
 ## Why this matters
 
 djls-semantic grew through semi-automated implementation loops; it works,
-but accumulated layers nobody chose: an 840-line `lib.rs` that is 85% inline
-test module, a one-implementor trait with its own removal TODO, and a
-public API where several re-exports have zero external consumers. (The
-third original finding — a 1,100-line python.rs façade with query logic
-buried between re-exports — left the crate with plan 021.) After plans
-001–016 and 021 strip the dead scaffolding and relocate the project
-model, spec extraction, and test infra, this plan is the final pass: make
-every remaining file's name match its contents, every façade thin, and
-every public export earned. **Zero new types, zero new traits, zero new
-helpers** — this plan only deletes, inlines, and relocates.
+but accumulated layers nobody chose: a one-implementor trait with its own
+removal TODO and a public API where several re-exports have zero external
+consumers. (Two other original findings left with other plans: the
+1,100-line python.rs façade went to djls-project with plan 021, and the
+840-line lib.rs that was 85% inline test module was thinned by 016's
+revised test relocation, which moved that module to
+`tests/validation.rs`.) After plans 001–016 and 021 strip the dead
+scaffolding and relocate the project model, spec extraction, and test
+infra, this plan is the final pass: delete the trait nobody needed and
+make every public export earned. **Zero new types, zero new traits, zero
+new helpers** — this plan only deletes and inlines.
 
 ## Current state
 
 (Verified at `922cc4d7`; expect heavy drift — re-discover everything.)
 
-- `crates/djls-semantic/src/lib.rs` — 840 lines: module decls (`:1-15`),
-  62 `pub use` re-exports (`:17-78`), two tracked queries
-  (`validate_template_file`, `validate_nodelist`, `:81-119`), then a
-  **720-line `#[cfg(test)] mod tests`** (`:121-840`) of end-to-end
-  validation tests (fixture inventories, `collect_errors` assertions, two
-  `insta::assert_snapshot!` calls at `:462` and `:551`).
+- `crates/djls-semantic/src/lib.rs` — at planned-at, 840 lines: module
+  decls, 62 `pub use` re-exports, two tracked queries
+  (`validate_template_file`, `validate_nodelist`), then a 720-line
+  `#[cfg(test)] mod tests`. Post-016 (revised) the test module lives at
+  `tests/validation.rs` and lib.rs is down to decls, re-exports (~10
+  fewer after 021), and the two queries.
 - `crates/djls-semantic/src/traits.rs` — 30 lines, one `pub(crate) trait
   SemanticModel` whose default `model()` is a visit-loop + `construct()`.
   Its own header comment says:
@@ -105,12 +116,10 @@ helpers** — this plan only deletes, inlines, and relocates.
 ## Scope
 
 **In scope** (the only files you should modify/create/delete):
-- `crates/djls-semantic/src/lib.rs`
+- `crates/djls-semantic/src/lib.rs` (re-export deletions only)
 - `crates/djls-semantic/src/traits.rs` (delete)
 - `crates/djls-semantic/src/structure.rs`, `src/structure/builder.rs`
   (trait inlining only)
-- `crates/djls-semantic/tests/` (new `validation.rs` + relocated insta
-  snapshots)
 - Import-line-only updates in other djls-semantic files and in consumer
   crates where a deleted re-export forces the owning-module path
 
@@ -148,35 +157,14 @@ crate-local trait wrapper dies.
 **Verify**: `rg -n "SemanticModel" crates/` → no matches;
 `cargo test -q -p djls-semantic` → all pass.
 
-### Step 2: Move the lib.rs test module out
+### Step 2: Audit the public re-exports
 
-Discovery: `rg -n "#\[cfg\(test\)\]" crates/djls-semantic/src/lib.rs` and
-read the module — post-016 its scaffolding imports already come from
-`djls_testing::`.
-
-Move the entire `mod tests` to a new integration test
-`crates/djls-semantic/tests/validation.rs` (these are end-to-end
-validate-a-template tests — integration is their honest shape). Rules:
-
-- Imports flip from `crate::X` to `djls_semantic::X`. If any needed item
-  is not public, do NOT widen visibility for it — fall back to moving the
-  affected tests into `src/validation.rs`'s own `#[cfg(test)]` module
-  instead, and say which in your report.
-- The two insta snapshots will be re-homed (snapshot files are keyed by
-  module path; integration-test snapshots live under `tests/snapshots/`).
-  Run the suite, accept the *renamed* files, then **diff old vs new
-  snapshot content — it must be byte-identical**. Delete the orphaned old
-  `.snap` files.
-
-**Verify**: `cargo test -q -p djls-semantic` → all pass, same test count
-as before the move; `rg -c "#\[cfg\(test\)\]" crates/djls-semantic/src/lib.rs`
-→ 0; `wc -l crates/djls-semantic/src/lib.rs` → ≤ 150.
-
-### Step 3: Audit the public re-exports
-
-(The original Step 3 — splitting query logic out of the python.rs
-façade — was removed on 2026-06-11: plan 021 moved those queries to
-djls-project, so there is nothing left to split.)
+(The original Step 2 — moving the lib.rs inline test module out — was
+absorbed by plan 016's revised test relocation on 2026-06-11; the
+module now lives at `tests/validation.rs`. The original Step 3 —
+splitting query logic out of the python.rs façade — was removed earlier
+the same day: plan 021 moved those queries to djls-project, so there is
+nothing left to split.)
 
 For each remaining `pub use` in `lib.rs` (list them:
 `rg -n "^pub use" crates/djls-semantic/src/lib.rs`), check for an external
@@ -200,12 +188,11 @@ Record the kept/deleted table in your report.
 **Verify**: `cargo build -q` → exit 0 (workspace-wide, proving no consumer
 broke); `cargo test -q` → all pass.
 
-### Step 4: Full validation
+### Step 3: Full validation
 
 **Verify**: `cargo test -q`, `just test`, `just clippy`, `just fmt`,
 `just lint` → all exit 0. Then `jj diff --stat`: changes confined to
-in-scope files; snapshot files renamed but not content-changed (Step 2's
-byte-diff is the evidence).
+in-scope files.
 
 ## Test plan
 
@@ -213,18 +200,18 @@ No new tests — the deliverable is structure. The regression net is the
 full suite plus two invariants this plan must demonstrate:
 
 1. Test count per crate unchanged (record before/after).
-2. Insta snapshot and mdtest snapshot *content* unchanged — renames from
-   the test relocation are expected; content drift means behavior changed
-   and is a STOP.
+2. Insta snapshot and mdtest snapshot *content* unchanged — this plan
+   relocates no tests, so even renames are unexpected; any snapshot
+   churn means behavior changed and is a STOP.
 
 ## Done criteria
 
 Machine-checkable. ALL must hold:
 
 - [ ] `crates/djls-semantic/src/traits.rs` does not exist; `rg "SemanticModel" crates/` → no matches
-- [ ] `rg -c "#\[cfg\(test\)\]" crates/djls-semantic/src/lib.rs` → 0 and `wc -l` ≤ 150
+- [ ] `wc -l crates/djls-semantic/src/lib.rs` ≤ 150 (inherited from 016; this plan only shrinks it further)
 - [ ] Every `pub use` left in lib.rs has ≥ 1 consumer outside djls-semantic (sweep table in report)
-- [ ] Snapshot content byte-identical (renames allowed); test counts unchanged
+- [ ] Snapshot files untouched (no renames, no content changes); test counts unchanged
 - [ ] New types/traits/helpers introduced: 0 (`jj diff` review)
 - [ ] `cargo test -q` exits 0; `just test` exits 0
 - [ ] `just clippy` exits 0
@@ -238,9 +225,7 @@ Stop and report back (do not improvise) if:
 - Inlining `SemanticModel` requires changing visitor traversal order or
   any `TemplateTree` output — that means the trait was load-bearing;
   report instead of adapting.
-- Step 2's fallback also fails (a test needs an item that is neither
-  public nor reachable from `validation.rs`) — report the item.
-- Any snapshot's *content* changes at any step.
+- Any snapshot changes at any step (this plan relocates no tests).
 - A re-export deletion breaks djls-testing or djls-ide in a way an import
   edit doesn't fix — re-add it, record it as a kept consumer, continue;
   stop only if that happens for more than three items (the audit premise
