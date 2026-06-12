@@ -20,6 +20,61 @@
 - **Depends on**: plans/003 (stable project handle); independent of the static track otherwise
 - **Category**: perf / dx (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Execution status**: source-complete locally at `8d22896d`; not pushed/merged
+
+## Execution record — local source stack (2026-06-12)
+
+Implemented as one source commit:
+
+1. `8d22896d` — `refactor: serve read requests from session snapshots`
+
+Implementation notes:
+
+- Promoted `SessionSnapshot` and `Session::snapshot()` out of test-only code.
+- Moved document request resolution helpers onto `SessionSnapshot`, with
+  `Session` retaining delegating methods for the old call surface.
+- Added `with_snapshot`, which captures a snapshot under the session lock,
+  runs request work through `tokio::task::spawn_blocking`, catches
+  `salsa::Cancelled`, retries twice with fresh snapshots, then returns the
+  response type's default fallback.
+- Converted `maybe_push_diagnostics`, `completion`, `hover`, `diagnostic`,
+  `folding_range`, `document_symbol`, `goto_definition`, `references`, and
+  `formatting` to `with_snapshot`. `formatting` was included because it is a
+  read-only feature handler and the done criteria require no read-only feature
+  handlers to keep using `with_session`.
+- Added server tests for plain snapshot task reads and conversion of a manual
+  `salsa::Cancelled::PendingWrite` unwind into a caught cancellation result.
+
+Divergences recorded:
+
+- `crates/djls-server/Cargo.toml` entered source scope after the plan's STOP
+  check found that `djls-server` only had `salsa` as a dev-dependency. The
+  production `server.rs` cancellation path needs `salsa::Cancelled`, so the
+  dependency moved from `[dev-dependencies]` to `[dependencies]` with Josh's
+  approval.
+- The cancellation fallback is represented by `R: Default` on `with_snapshot`
+  rather than an explicit fallback argument. Current handlers return `Option`
+  or `Vec` shapes where `Default` is the planned fallback (`None` or empty
+  vector).
+- The test plan's full concurrent setter/read orchestration was not added;
+  the accepted proxy test path was used instead: a plain snapshot read plus a
+  manually raised `salsa::Cancelled` unwind through the same catch wrapper.
+- `Session::file_for_document_request` and
+  `Session::position_for_document_request` are retained as delegating methods
+  per the plan, but are currently unused after the read-handler conversion.
+  They carry local `#[allow(dead_code)]` attributes so `just clippy`'s
+  `-D warnings` gate stays green without deleting the planned compatibility
+  surface inside the crate.
+
+Validation passed on the final source commit:
+
+- `cargo test -q -p djls-server`
+- `cargo build -q`
+- `cargo test -q`
+- `just test`
+- `just clippy`
+- `just fmt`
+- `just lint`
 
 ## Why this matters
 
@@ -245,14 +300,14 @@ behavioral contract: identical responses, now computed off-lock).
 
 Machine-checkable. ALL must hold:
 
-- [ ] `rg -n "cfg\(test\)" crates/djls-server/src/session.rs` shows `SessionSnapshot` no longer gated
-- [ ] `rg -c "with_snapshot" crates/djls-server/src/server.rs` ≥ 8 (7 read handlers + push diagnostics)
-- [ ] `rg -n "with_session\(" crates/djls-server/src/server.rs` shows no remaining *read-only feature* handlers (only write paths / trivial accessors)
-- [ ] `cargo test -q` exits 0
-- [ ] `just test` exits 0
-- [ ] `just clippy` exits 0
-- [ ] Only in-scope files modified (`jj diff --stat`)
-- [ ] `plans/README.md` status row updated
+- [x] `rg -n "cfg\(test\)" crates/djls-server/src/session.rs` shows `SessionSnapshot` no longer gated (`cfg(test)` remains only for test imports/helpers/modules)
+- [x] `rg -c "with_snapshot" crates/djls-server/src/server.rs` ≥ 8 (`10` on source commit `8d22896d`)
+- [x] `rg -n "with_session\(" crates/djls-server/src/server.rs` shows no remaining *read-only feature* handlers (only `Session::open_documents` accessor remains)
+- [x] `cargo test -q` exits 0
+- [x] `just test` exits 0
+- [x] `just clippy` exits 0
+- [x] Source diff limited to `crates/djls-server/src/session.rs`, `crates/djls-server/src/server.rs`, plus approved `crates/djls-server/Cargo.toml` dependency-scope divergence (`jj diff --stat -r @-`)
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
