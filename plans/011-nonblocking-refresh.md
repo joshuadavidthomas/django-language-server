@@ -105,6 +105,38 @@ Review notes:
   found a remaining async publish-order race; `diagnostic_publish_lock` fixed
   it. Final strict concurrency review reported no must-fix findings.
 
+**Review verdict (2026-06-12): approved.** Independently re-verified on source
+commit `dfc2ca3c` (bookmark `plan-011-nonblocking-refresh`, parented on the
+merged plan-010 main): `cargo test -q`, `just clippy`, `just fmt --check`,
+`just e2e` (27 passed), and `just lint` all exit 0. Lock-scope invariant
+checked by reading, not trusting names: the compute lock holds only a db
+clone; the apply lock holds `apply_refresh` (register_roots is pure over
+precomputed paths plus a side-table `replace_roots` — no fs walking, so the
+named STOP condition does not trigger), the setter compare, revision bumps,
+and the snapshot/documents capture; compute, warm-up, and diagnostics
+collection all run on `spawn_blocking` against clones/snapshots inside
+`Cancelled::catch`. Done-criteria sweeps confirm no `refresh_external_data`
+or `rx.await` remains in `server.rs`; new types are exactly one
+(`RefreshData`); no stage enum, second counter, or relay — the #626 slope was
+avoided. Divergences ratified: the djls-db scope expansion (required — leaving
+`refresh_source_roots` inside `set_settings` would have re-probed the fs under
+the session lock, defeating the plan), `semantic_changed` on `SettingsUpdate`
+(tagspec-only changes previously had no republish signal), the
+`diagnostic_publish_lock` (closes a real publish-order race the epoch alone
+cannot, since publishes are async sends), and applying at the post-015/021
+`djls-project` location per the drift note. Two residuals noted, not blockers:
+(1) `Project::refresh_source_roots` (project.rs:91) now has zero callers —
+its body was absorbed by compute/apply; delete it in the next tidy pass;
+(2) pull-diagnostics clients are skipped by the refresh republish and the
+server sends no `workspace/diagnostic/refresh`, so a pull client sees
+post-warm-up facts only on its next request — same family as plan 010's
+recorded residual. One ordering nuance verified safe: `compute_refresh`
+gathers bump paths against pre-refresh roots, but the root-revision bumps in
+apply invalidate discovery queries, and the new
+`compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap`
+test covers the new-roots case directly. Remaining: push and PR when Josh
+says go.
+
 ## Why this matters
 
 `initialized` and `did_change_configuration` currently run the whole project
