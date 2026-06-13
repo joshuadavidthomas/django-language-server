@@ -41,6 +41,11 @@ impl LoadProgress {
             NEXT_PROGRESS_TOKEN.fetch_add(1, Ordering::Relaxed)
         ));
 
+        // This awaits the client's response, gating the (sequential) refresh
+        // queue on it. tower-lsp-server requests have no timeout, so a client
+        // that advertises the capability but never answers would stall the
+        // refresh — accepted because clients answer create requests
+        // immediately, and a hung client breaks far more than progress.
         match client.create_work_done_progress(token.clone()).await {
             Ok(()) => {
                 send_begin(&client, token.clone(), title.clone()).await;
@@ -90,8 +95,10 @@ impl Drop for LoadProgress {
             return;
         };
 
+        // Drop without finish() means the refresh future itself was dropped
+        // (cancellation or unwind), not a normal supersede.
         tokio::spawn(async move {
-            send_end(&client, token, Some("superseded".to_string())).await;
+            send_end(&client, token, Some("cancelled".to_string())).await;
         });
     }
 }
