@@ -92,7 +92,7 @@ async def wait_for_progress_events(
 
 
 @pytest.mark.asyncio
-async def test_initialize_returns_capabilities_before_project_load_finishes(
+async def test_initialize_returns_protocol_capabilities_without_project_loading(
     startup_client: LanguageClient,
 ):
     capabilities = startup_client.djls_initialize_result.capabilities
@@ -105,9 +105,11 @@ async def test_initialize_returns_capabilities_before_project_load_finishes(
 
 
 @pytest.mark.asyncio
-async def test_server_accepts_template_requests_after_initialized(
+async def test_server_accepts_template_requests_after_startup_load(
     startup_client: LanguageClient,
 ):
+    await wait_for_progress_events(startup_client)
+
     startup_client.text_document_did_open(
         types.DidOpenTextDocumentParams(
             text_document=types.TextDocumentItem(
