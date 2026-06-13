@@ -25,7 +25,9 @@
 - **Depends on**: plans/009, plans/010
 - **Category**: perf (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Execution status**: PR #675 open at `0d912c41`; not merged
+- **Execution status**: DONE — PR #675 merged into `main` on 2026-06-12 as
+  `65b62947 Make project refresh non-blocking (#675)` (source head
+  `0d912c41`)
 
 ## Execution record — local source commit (2026-06-12)
 
@@ -139,7 +141,10 @@ client sees post-warm-up facts only on its next request — same family as plan
 gathers bump paths against pre-refresh roots, but the root-revision bumps in
 apply invalidate discovery queries, and the new
 `compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap`
-test covers the new-roots case directly. PR #675 is open.
+test covers the new-roots case directly.
+
+**Merge record (2026-06-12):** PR #675 merged into `main` as
+`65b62947 Make project refresh non-blocking (#675)`.
 
 ## Why this matters
 

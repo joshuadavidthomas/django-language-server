@@ -66,8 +66,8 @@ reconciliation and run early).
 | [017](017-tidy-djls-semantic.md) | Tidy djls-semantic: dead trait, export audit | P2 | S | 013, 015, 016, 021 | DONE |
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | DONE |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | DONE |
-| [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | IN PROGRESS (PR #675 open at `0d912c41`, review approved 2026-06-12; awaiting merge) |
-| [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | TODO |
+| [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | DONE |
+| [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | TODO (NEXT; prerequisites merged) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
@@ -189,6 +189,17 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-12 (Plan 011 closed)**: PR #675 merged into `main` as
+  `65b62947 Make project refresh non-blocking (#675)` (source head
+  `0d912c41`). The source change applies refresh inputs briefly under the
+  session lock, warms derived project queries on snapshots, guards refresh
+  work with an epoch, catches `salsa::Cancelled`, and serializes refresh
+  diagnostics publishes so stale async sends cannot overwrite newer config
+  publishes. The review-approved divergences stand: refresh compute/apply
+  lives at the post-015/021 `djls-project` location, `djls-db` settings
+  changes report `semantic_changed`, and the old
+  `Project::refresh_source_roots` path is gone. Plan 012 is now unblocked
+  and is the next startup-track plan.
 - **2026-06-11 (Plan 016 PR #670 — review verdict and the corpus
   ruling)**: Steps 2–7 landed as `d6e91ff9` → `88e3567c` and PR #670
   opened from bookmark `plan-016-create-djls-testing` (full validation
