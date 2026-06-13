@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::time::Duration;
 
 use djls_project::Db as ProjectDb;
 use djls_source::FileKind;
@@ -20,6 +21,8 @@ use crate::refresh;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
+
+const PROJECT_REFRESH_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) struct DjangoLanguageServer {
     client: Client,
@@ -100,11 +103,12 @@ impl DjangoLanguageServer {
     /// epoch. The task body lives in [`crate::refresh`].
     async fn submit_project_refresh(&self, log_initialization: bool) {
         let client = self.client.clone();
-        let (epoch, refresh_epoch, diagnostic_publish_lock, client_info) = self
+        let (epoch, refresh_epoch, refresh_completion, diagnostic_publish_lock, client_info) = self
             .with_session(|session| {
                 (
                     session.bump_refresh_epoch(),
                     session.refresh_epoch(),
+                    session.refresh_completion(),
                     session.diagnostic_publish_lock(),
                     session.client_info().clone(),
                 )
@@ -113,16 +117,15 @@ impl DjangoLanguageServer {
 
         let rx = self
             .with_session_mut_task(move |session| async move {
-                refresh::run_project_refresh(
-                    session,
-                    client,
+                let request = refresh::ProjectRefreshRequest::new(
                     refresh_epoch,
+                    refresh_completion,
                     diagnostic_publish_lock,
                     client_info,
                     epoch,
                     log_initialization,
-                )
-                .await
+                );
+                refresh::run_project_refresh(session, client, request).await
             })
             .await;
         drop(rx);
@@ -158,6 +161,50 @@ impl DjangoLanguageServer {
         }
 
         rx
+    }
+
+    async fn wait_for_current_project_refresh(&self, request: &str) {
+        let Some((epoch, mut refresh_completion)) = self
+            .with_session(|session| {
+                let epoch = session.refresh_epoch_value();
+                (session.db().project().is_some() && epoch > 0)
+                    .then(|| (epoch, session.subscribe_refresh_completion()))
+            })
+            .await
+        else {
+            return;
+        };
+
+        let wait_for_completion = async {
+            loop {
+                if *refresh_completion.borrow_and_update() >= epoch {
+                    return true;
+                }
+
+                if refresh_completion.changed().await.is_err() {
+                    return false;
+                }
+            }
+        };
+
+        match tokio::time::timeout(PROJECT_REFRESH_REQUEST_TIMEOUT, wait_for_completion).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::debug!(
+                    request,
+                    epoch,
+                    "Refresh completion channel closed before project-aware request"
+                );
+            }
+            Err(_) => {
+                tracing::debug!(
+                    request,
+                    epoch,
+                    timeout = ?PROJECT_REFRESH_REQUEST_TIMEOUT,
+                    "Timed out waiting for project refresh before project-aware request"
+                );
+            }
+        }
     }
 
     async fn maybe_push_diagnostics(&self, document: &TextDocument) {
@@ -318,6 +365,8 @@ impl LanguageServer for DjangoLanguageServer {
         &self,
         params: ls_types::CompletionParams,
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
+        self.wait_for_current_project_refresh("completion").await;
+
         let response = self
             .with_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
@@ -345,6 +394,8 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn hover(&self, params: ls_types::HoverParams) -> LspResult<Option<ls_types::Hover>> {
+        self.wait_for_current_project_refresh("hover").await;
+
         let response = self
             .with_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
@@ -451,6 +502,9 @@ impl LanguageServer for DjangoLanguageServer {
         &self,
         params: ls_types::GotoDefinitionParams,
     ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
+        self.wait_for_current_project_refresh("goto definition")
+            .await;
+
         let response = self
             .with_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
@@ -475,6 +529,8 @@ impl LanguageServer for DjangoLanguageServer {
         &self,
         params: ls_types::ReferenceParams,
     ) -> LspResult<Option<Vec<ls_types::Location>>> {
+        self.wait_for_current_project_refresh("references").await;
+
         let response = self
             .with_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
@@ -532,39 +588,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
-        tracing::info!("Configuration change detected. Reloading settings...");
-
-        let settings_update = self
-            .with_session_mut(|session| {
-                if session.project().is_none() {
-                    return djls_db::SettingsUpdate::default();
-                }
-
-                let project_root = session.db().project_root_or_cwd();
-
-                match djls_conf::Settings::new(
-                    &project_root,
-                    Some(session.client_info().config_overrides().clone()),
-                ) {
-                    Ok(new_settings) => session.set_settings(new_settings),
-                    Err(e) => {
-                        tracing::error!("Error loading settings: {}", e);
-                        djls_db::SettingsUpdate::default()
-                    }
-                }
-            })
-            .await;
-
-        // Any relevant change submits a refresh: the epoch bump supersedes
-        // in-flight refresh work (so a stale republish cannot overwrite newer
-        // settings), and the new task re-applies and republishes diagnostics
-        // for open documents. Bumping without resubmitting would drop a
-        // superseded refresh's apply on the floor.
-        if settings_update.env_changed
-            || settings_update.diagnostics_changed
-            || settings_update.semantic_changed
-        {
-            self.submit_project_refresh(false).await;
-        }
+        tracing::info!("Configuration change detected. Queuing project refresh...");
+        self.submit_project_refresh(false).await;
     }
 }

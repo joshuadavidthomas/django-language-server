@@ -92,7 +92,7 @@ async def wait_for_progress_events(
 
 
 @pytest.mark.asyncio
-async def test_initialize_returns_capabilities_before_project_load_finishes(
+async def test_initialize_returns_protocol_capabilities_without_project_loading(
     startup_client: LanguageClient,
 ):
     capabilities = startup_client.djls_initialize_result.capabilities

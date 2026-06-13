@@ -154,7 +154,8 @@ impl Command for Check {
         }
 
         let fs: Arc<dyn FileSystem> = Arc::new(OsFileSystem);
-        let db = DjangoDatabase::new(fs, &settings, Some(&project_root));
+        let mut db = DjangoDatabase::new(fs, &settings, Some(&project_root));
+        db.set_settings(settings.clone());
 
         let walk_options = WalkOptions {
             hidden: self.hidden,
@@ -252,7 +253,8 @@ fn check_stdin(
     let stdin_path = Utf8PathBuf::from("<stdin>.html");
     mem_fs.add_file(stdin_path.clone(), source);
     let fs: Arc<dyn FileSystem> = Arc::new(mem_fs);
-    let db = DjangoDatabase::new(fs, settings, Some(project_root));
+    let mut db = DjangoDatabase::new(fs, settings, Some(project_root));
+    db.set_settings(settings.clone());
 
     let result = check_file_with_source(&db, &stdin_path);
     if quiet {
