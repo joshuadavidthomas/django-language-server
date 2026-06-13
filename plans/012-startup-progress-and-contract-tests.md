@@ -20,6 +20,8 @@
 - **Depends on**: plans/010, plans/011
 - **Category**: dx (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
+- **Execution status**: READY — prerequisites 010 and 011 are merged; this is
+  the next startup-track plan
 
 ## Why this matters
 
