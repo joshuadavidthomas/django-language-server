@@ -84,6 +84,7 @@ pub use symbols::TemplateLibraries;
 pub use symbols::TemplateLibrary;
 pub use symbols::TemplateSymbol;
 pub use symbols::TemplateSymbolKind;
+pub use sync::RefreshData;
 pub use sync::apply_refresh;
 pub use sync::compute_refresh;
 pub use sync::refresh_external_data;

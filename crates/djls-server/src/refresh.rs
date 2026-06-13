@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use djls_project::Db as ProjectDb;
+use djls_project::RefreshData;
 use djls_project::apply_refresh;
 use djls_project::compute_refresh;
 use djls_project::project_template_files;
@@ -19,11 +20,19 @@ use tokio::sync::Mutex;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
 
+use crate::client::ClientInfo;
 use crate::document::TextDocument;
 use crate::ext::UriExt;
+use crate::progress::LoadProgress;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
+
+enum RefreshOutcome {
+    Complete,
+    Skipped,
+    Superseded,
+}
 
 fn refresh_is_stale(refresh_epoch: &AtomicU64, epoch: u64) -> bool {
     refresh_epoch.load(Ordering::Acquire) != epoch
@@ -34,18 +43,37 @@ pub(crate) async fn run_project_refresh(
     client: Client,
     refresh_epoch: Arc<AtomicU64>,
     diagnostic_publish_lock: Arc<Mutex<()>>,
+    client_info: ClientInfo,
     epoch: u64,
     log_initialization: bool,
 ) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
+    let progress =
+        LoadProgress::begin(client.clone(), &client_info, "Loading Django project").await;
     let result = run_project_refresh_inner(
         session,
         client,
         refresh_epoch,
         diagnostic_publish_lock,
+        &progress,
         epoch,
     )
     .await;
+
+    match &result {
+        Ok(RefreshOutcome::Complete) => {
+            progress.finish("complete").await;
+        }
+        Ok(RefreshOutcome::Skipped) => {
+            progress.finish("skipped").await;
+        }
+        Ok(RefreshOutcome::Superseded) => {
+            progress.finish("superseded").await;
+        }
+        Err(_) => {
+            progress.finish("failed").await;
+        }
+    }
 
     if log_initialization {
         tracing::info!("Server initialization completed in {:?}", start.elapsed());
@@ -53,7 +81,7 @@ pub(crate) async fn run_project_refresh(
         tracing::info!("Environment refresh completed in {:?}", start.elapsed());
     }
 
-    result
+    result.map(|_| ())
 }
 
 async fn run_project_refresh_inner(
@@ -61,37 +89,104 @@ async fn run_project_refresh_inner(
     client: Client,
     refresh_epoch: Arc<AtomicU64>,
     diagnostic_publish_lock: Arc<Mutex<()>>,
+    progress: &LoadProgress,
     epoch: u64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<RefreshOutcome> {
     if refresh_is_stale(&refresh_epoch, epoch) {
         tracing::debug!(
             epoch,
             "Skipping stale project refresh before locking session"
         );
-        return Ok(());
+        return Ok(RefreshOutcome::Superseded);
     }
 
+    progress.report("Resolving environment").await;
+
+    let Some(refresh) = compute_project_refresh(&session, &refresh_epoch, epoch).await? else {
+        return Ok(RefreshOutcome::Skipped);
+    };
+
+    if refresh_is_stale(&refresh_epoch, epoch) {
+        tracing::debug!(epoch, "Skipping stale project refresh before apply");
+        return Ok(RefreshOutcome::Superseded);
+    }
+
+    progress.report("Applying project facts").await;
+
+    let (snapshot, documents) = {
+        let mut session_lock = session.lock().await;
+        if refresh_is_stale(&refresh_epoch, epoch) {
+            tracing::debug!(epoch, "Skipping stale project refresh after apply lock");
+            return Ok(RefreshOutcome::Superseded);
+        }
+
+        let db = session_lock.db_mut();
+        if db.project().is_none() {
+            return Ok(RefreshOutcome::Skipped);
+        }
+
+        let t = std::time::Instant::now();
+        apply_refresh(db, refresh);
+        tracing::info!("External data refresh completed in {:?}", t.elapsed());
+
+        if refresh_is_stale(&refresh_epoch, epoch) {
+            tracing::debug!(epoch, "Skipping stale project refresh after apply");
+            return Ok(RefreshOutcome::Superseded);
+        }
+
+        (session_lock.snapshot(), session_lock.open_documents())
+    };
+
+    progress.report("Warming caches").await;
+    warm_project_queries(snapshot.clone(), Arc::clone(&refresh_epoch), epoch).await;
+
+    if refresh_is_stale(&refresh_epoch, epoch) {
+        tracing::debug!(epoch, "Skipping stale project refresh after warm-up");
+        return Ok(RefreshOutcome::Superseded);
+    }
+
+    progress.report("Publishing diagnostics").await;
+    if !republish_snapshot_diagnostics(
+        client,
+        snapshot,
+        documents,
+        refresh_epoch,
+        diagnostic_publish_lock,
+        epoch,
+    )
+    .await
+    {
+        return Ok(RefreshOutcome::Superseded);
+    }
+
+    Ok(RefreshOutcome::Complete)
+}
+
+async fn compute_project_refresh(
+    session: &Arc<Mutex<Session>>,
+    refresh_epoch: &Arc<AtomicU64>,
+    epoch: u64,
+) -> anyhow::Result<Option<RefreshData>> {
     // Cancellation here usually means a document edit, not a config change:
     // nothing bumps the epoch or resubmits, so dropping the compute would lose
     // the refresh for good. Retry with a fresh database clone instead, like
     // the snapshot reads do.
-    let mut refresh = None;
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
         let Some(compute_db) = ({
             let session_lock = session.lock().await;
-            if refresh_is_stale(&refresh_epoch, epoch) {
+            if refresh_is_stale(refresh_epoch, epoch) {
                 tracing::debug!(
                     epoch,
                     "Skipping stale project refresh after locking session"
                 );
-                return Ok(());
+                return Ok(None);
             }
 
             let db = session_lock.db();
             db.project().map(|_| db.clone())
         }) else {
             tracing::info!("Task: No project configured, skipping initialization.");
-            return Ok(());
+            return Ok(None);
         };
 
         let result = tokio::task::spawn_blocking(move || {
@@ -101,10 +196,7 @@ async fn run_project_refresh_inner(
         .expect("project refresh compute task must not panic");
 
         match result {
-            Ok(computed) => {
-                refresh = computed;
-                break;
-            }
+            Ok(refresh) => return Ok(refresh),
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 tracing::debug!(
                     ?cancelled,
@@ -118,56 +210,12 @@ async fn run_project_refresh_inner(
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Project refresh compute cancelled repeatedly; project facts may be stale until the next refresh"
                 );
-                return Ok(());
+                return Ok(None);
             }
         }
     }
 
-    let Some(refresh) = refresh else {
-        return Ok(());
-    };
-
-    if refresh_is_stale(&refresh_epoch, epoch) {
-        tracing::debug!(epoch, "Skipping stale project refresh before apply");
-        return Ok(());
-    }
-
-    let (snapshot, documents) = {
-        let mut session_lock = session.lock().await;
-        if refresh_is_stale(&refresh_epoch, epoch) {
-            tracing::debug!(epoch, "Skipping stale project refresh after apply lock");
-            return Ok(());
-        }
-
-        let db = session_lock.db_mut();
-        if db.project().is_none() {
-            return Ok(());
-        }
-
-        let t = std::time::Instant::now();
-        apply_refresh(db, refresh);
-        tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-        if refresh_is_stale(&refresh_epoch, epoch) {
-            tracing::debug!(epoch, "Skipping stale project refresh after apply");
-            return Ok(());
-        }
-
-        (session_lock.snapshot(), session_lock.open_documents())
-    };
-
-    warm_project_queries(snapshot.clone(), Arc::clone(&refresh_epoch), epoch).await;
-    republish_snapshot_diagnostics(
-        client,
-        snapshot,
-        documents,
-        refresh_epoch,
-        diagnostic_publish_lock,
-        epoch,
-    )
-    .await;
-
-    Ok(())
+    unreachable!("project refresh retry loop must return")
 }
 
 async fn warm_project_queries(
@@ -221,16 +269,16 @@ async fn republish_snapshot_diagnostics(
     refresh_epoch: Arc<AtomicU64>,
     diagnostic_publish_lock: Arc<Mutex<()>>,
     epoch: u64,
-) {
+) -> bool {
     if snapshot.client_info().supports_pull_diagnostics() {
         tracing::debug!("Client supports pull diagnostics, skipping refresh diagnostics push");
-        return;
+        return true;
     }
 
     for document in documents {
         if refresh_is_stale(&refresh_epoch, epoch) {
             tracing::debug!(epoch, "Skipping stale refresh diagnostics republish");
-            return;
+            return false;
         }
 
         let file = document.file();
@@ -240,7 +288,7 @@ async fn republish_snapshot_diagnostics(
 
         if refresh_is_stale(&refresh_epoch, epoch) {
             tracing::debug!(epoch, "Skipping stale refresh diagnostics publish");
-            return;
+            return false;
         }
 
         let Some(lsp_uri) = ls_types::Uri::from_path(document.path()) else {
@@ -252,7 +300,7 @@ async fn republish_snapshot_diagnostics(
         let _publish_guard = diagnostic_publish_lock.lock().await;
         if refresh_is_stale(&refresh_epoch, epoch) {
             tracing::debug!(epoch, "Skipping stale refresh diagnostics publish");
-            return;
+            return false;
         }
         client
             .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
@@ -264,6 +312,8 @@ async fn republish_snapshot_diagnostics(
             lsp_uri_text
         );
     }
+
+    true
 }
 
 async fn collect_snapshot_diagnostics(

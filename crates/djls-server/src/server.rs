@@ -100,12 +100,13 @@ impl DjangoLanguageServer {
     /// epoch. The task body lives in [`crate::refresh`].
     async fn submit_project_refresh(&self, log_initialization: bool) {
         let client = self.client.clone();
-        let (epoch, refresh_epoch, diagnostic_publish_lock) = self
+        let (epoch, refresh_epoch, diagnostic_publish_lock, client_info) = self
             .with_session(|session| {
                 (
                     session.bump_refresh_epoch(),
                     session.refresh_epoch(),
                     session.diagnostic_publish_lock(),
+                    session.client_info().clone(),
                 )
             })
             .await;
@@ -117,6 +118,7 @@ impl DjangoLanguageServer {
                     client,
                     refresh_epoch,
                     diagnostic_publish_lock,
+                    client_info,
                     epoch,
                     log_initialization,
                 )
