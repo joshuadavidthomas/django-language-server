@@ -236,7 +236,7 @@ a crate sits on:
   root `.gitignore:201` pattern `.corpus/`, possibly gigabytes). Moving the
   crate moves where the consts point.
 
-  `build.rs` emits `cargo:rustc-cfg=corpus_available` — **dead**: 
+  `build.rs` emits `cargo:rustc-cfg=corpus_available` — **dead**:
   `rg "cfg\(corpus_available\)" crates/ -g '!target'` matches only the
   emitter. The useful parts are the `rerun-if-changed` lines and the
   "Corpus not synced" warning.

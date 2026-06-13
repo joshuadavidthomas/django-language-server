@@ -34,7 +34,13 @@ spec extraction — djls-semantic's `python/` subtree — moves into
 djls-project, making djls-semantic the **project-meaning** layer
 (maintainer framing: "project meaning", not "template meaning");
 sequenced after 015 merges and before 016/017 so the test-infra and tidy
-plans wire against final crate homes.
+plans wire against final crate homes. Plans 022–023 are the
+**startup-loading follow-up** after plan 012 landed: 022 made `initialize`
+truly protocol-only by deferring project settings/fact loading; 023
+investigated deterministic in-flight tests and was rejected because the
+hook-heavy proof coupled tests to refresh internals instead of the behavioral
+startup contract. Plan 024 is the small docs cleanup that removes stale
+current-state references to the deleted runtime inspector.
 
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
@@ -68,6 +74,9 @@ reconciliation and run early).
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | DONE |
 | [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | DONE |
 | [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | DONE |
+| [022](022-make-initialize-protocol-only.md) | Make initialize protocol-only and defer project loading | P2 | M | 010, 011, 012 | DONE |
+| [023](023-harden-startup-in-flight-tests.md) | Reject internal in-flight startup hooks | P2 | S/M | 022 | REJECTED — hook-heavy test seam not worth the maintenance cost |
+| [024](024-clean-stale-inspector-docs.md) | Clean stale inspector documentation | P3 | S | 009, 012 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
@@ -186,9 +195,77 @@ REJECTED (with one-line rationale).
   reporting and pins the whole contract with pytest-lsp tests; its budget
   is deliberately tiny — PR #626's six-layer progress relay is the
   anti-model all three startup plans cite.
+- **022 after 012; 023 after 022**: plan 012 proved the queued refresh path
+  reports progress and accepts requests after `initialized`, but
+  `Session::new` still read settings and fully bootstrapped `Project` during
+  `initialize`. 022 landed as PR #679: initialize now creates only protocol
+  state plus a stable root-only `Project`, while the refresh task loads
+  settings, applies them to the stable handle, computes facts, warms caches,
+  and republishes diagnostics. The final shape intentionally has **no**
+  request wait path: no `wait_for_current_project_refresh`, no refresh
+  completion latch, and no request-purpose enum. Progress remains the user
+  signal while requests answer from best-effort snapshots. 023 attempted to
+  harden the no-wait in-flight contract with private deterministic hooks, but
+  that approach was rejected after draft PR #682: it proved current lock
+  choreography rather than the stable behavior, and would add ongoing test
+  churn for future refresh refactors. No replacement test is planned unless a
+  deterministic black-box check becomes available without sleeps, production
+  test protocol, or internal pause hooks.
+- **024 independent cleanup**: stale inspector wording is a documentation
+  debt left after plan 009 and observed again after plan 012. It can run after
+  009/012 at any time, but should not be bundled with 022's startup behavior
+  change.
 
 ## Reconciliation log
 
+- **2026-06-22 (Plan 023 rejected after draft PR #682)**: plan 023's
+  deterministic Rust test approach was attempted on
+  `plan-023-startup-in-flight-tests` and opened as draft PR #682, then
+  rejected before merge. The useful contract is behavioral — initialize
+  returns promptly, startup progress/log fallback is visible, feature
+  requests do not wait for refresh completion, and facts-backed features work
+  after progress completes. Internal refresh pause hooks would freeze the
+  current lock choreography and add maintenance cost without improving the
+  user-visible contract. Plan 023 is now a rejected decision record; no source
+  changes are required.
+- **2026-06-22 (Plan 024 implemented)**: source commit `60d3ac50`
+  (`plan-024-clean-stale-inspector-docs`) removes stale current-state runtime
+  inspector language from configuration docs, Sublime client docs,
+  contributing docs, and template fixture comments. Remaining inventory hits
+  are intentional: glossary guidance against using "introspection" for static
+  extraction, architecture text saying the inspector is absent, and
+  configuration text saying DJLS does not run `django.setup()`. Validation:
+  `just fmt --check`, `just lint`.
+- **2026-06-21 (Plan 022 merged; planning stack rebased)**: after fetching
+  remote `main` at `bbff2406` (`server: defer project loading from initialize
+  (#679)`), the planning bookmark `static-discovery-plans-docs` was rebased
+  onto the merge. Plan 022 is closed: `initialize` creates protocol state and
+  a stable root-only `Project`; startup/config refresh loads
+  `Settings::new` off-lock, applies settings through
+  `Project::reload_from_settings`, computes project facts from a cloned DB,
+  warms from a snapshot, and publishes diagnostics with epoch checks. The
+  review-approved final shape removed the temporary request wait gate
+  entirely — no `wait_for_current_project_refresh`, no stringly typed wait
+  reason, no refresh-completion field, and no timeout. Feature handlers now
+  answer immediately from current snapshots while work-done progress reports
+  `Loading Django project` / `Refreshing Django project` stages. Plan 023 was
+  re-anchored to `bbff2406` and narrowed to deterministic Rust tests for this
+  no-wait in-flight contract. Plan 024 was re-anchored to the same merge and
+  its inspector-reference inventory was refreshed.
+- **2026-06-13 (post-Plan 012 startup-loading review)**: after fetching
+  remote `main` at `23008060` (`Report startup progress and cover startup
+  contract (#677)`), the remaining PR #626 startup work was re-audited
+  against the completed static-discovery refactor. Plan 012 is now on `main`,
+  so "add startup progress/tests" is closed. The live gap is narrower:
+  `Session::new` still calls `Settings::new` and full `Project::bootstrap`
+  during `initialize`, while the queued refresh path already has the right
+  compute/apply/warm/publish shape. Added plan 022 to make initialize
+  protocol-only without replacing the stable `Project` handle, plan 023 to
+  add deterministic in-flight startup-loading tests, and plan 024 to clean
+  stale current-state inspector docs. Explicitly rejected reusing PR #626's
+  `startup.rs`, `discovery_run.rs`, source-file-set model, or startup
+  controller. The planning stack was rebased onto current `main` before these
+  plans were added so source anchors reflect PR #677.
 - **2026-06-13 (Plan 012 implemented)**: source commit `b852cf93`
   (`plan-012-startup-progress`) adds startup load progress and e2e startup
   contract coverage. The server now negotiates `window.workDoneProgress`,
