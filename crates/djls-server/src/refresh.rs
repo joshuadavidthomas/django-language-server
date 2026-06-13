@@ -34,6 +34,12 @@ enum RefreshOutcome {
     Superseded,
 }
 
+enum ComputeOutcome {
+    Computed(RefreshData),
+    Skipped,
+    Superseded,
+}
+
 fn refresh_is_stale(refresh_epoch: &AtomicU64, epoch: u64) -> bool {
     refresh_epoch.load(Ordering::Acquire) != epoch
 }
@@ -102,8 +108,10 @@ async fn run_project_refresh_inner(
 
     progress.report("Resolving environment").await;
 
-    let Some(refresh) = compute_project_refresh(&session, &refresh_epoch, epoch).await? else {
-        return Ok(RefreshOutcome::Skipped);
+    let refresh = match compute_project_refresh(&session, &refresh_epoch, epoch).await {
+        ComputeOutcome::Computed(refresh) => refresh,
+        ComputeOutcome::Skipped => return Ok(RefreshOutcome::Skipped),
+        ComputeOutcome::Superseded => return Ok(RefreshOutcome::Superseded),
     };
 
     if refresh_is_stale(&refresh_epoch, epoch) {
@@ -166,7 +174,7 @@ async fn compute_project_refresh(
     session: &Arc<Mutex<Session>>,
     refresh_epoch: &Arc<AtomicU64>,
     epoch: u64,
-) -> anyhow::Result<Option<RefreshData>> {
+) -> ComputeOutcome {
     // Cancellation here usually means a document edit, not a config change:
     // nothing bumps the epoch or resubmits, so dropping the compute would lose
     // the refresh for good. Retry with a fresh database clone instead, like
@@ -179,14 +187,14 @@ async fn compute_project_refresh(
                     epoch,
                     "Skipping stale project refresh after locking session"
                 );
-                return Ok(None);
+                return ComputeOutcome::Superseded;
             }
 
             let db = session_lock.db();
             db.project().map(|_| db.clone())
         }) else {
             tracing::info!("Task: No project configured, skipping initialization.");
-            return Ok(None);
+            return ComputeOutcome::Skipped;
         };
 
         let result = tokio::task::spawn_blocking(move || {
@@ -196,7 +204,8 @@ async fn compute_project_refresh(
         .expect("project refresh compute task must not panic");
 
         match result {
-            Ok(refresh) => return Ok(refresh),
+            Ok(Some(refresh)) => return ComputeOutcome::Computed(refresh),
+            Ok(None) => return ComputeOutcome::Skipped,
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 tracing::debug!(
                     ?cancelled,
@@ -210,7 +219,7 @@ async fn compute_project_refresh(
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Project refresh compute cancelled repeatedly; project facts may be stale until the next refresh"
                 );
-                return Ok(None);
+                return ComputeOutcome::Skipped;
             }
         }
     }
