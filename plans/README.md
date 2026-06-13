@@ -67,7 +67,7 @@ reconciliation and run early).
 | [018](018-distinguish-not-in-installed-apps.md) | Restore not-in-INSTALLED_APPS diagnostics from an environment library scan | P2 | M | 007, 008 (009 rec., 015 soft) | DONE |
 | [010](010-snapshot-reads.md) | Serve read requests from session snapshots | P2 | M | 003 | DONE |
 | [011](011-nonblocking-refresh.md) | Non-blocking refresh with an epoch guard | P2 | M | 009, 010 | DONE |
-| [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | TODO (NEXT; prerequisites merged) |
+| [012](012-startup-progress-and-contract-tests.md) | Startup progress + e2e contract tests | P3 | M | 010, 011 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
@@ -189,6 +189,26 @@ REJECTED (with one-line rationale).
 
 ## Reconciliation log
 
+- **2026-06-13 (Plan 012 implemented)**: source commit `b852cf93`
+  (`plan-012-startup-progress`) adds startup load progress and e2e startup
+  contract coverage. The server now negotiates `window.workDoneProgress`,
+  creates a server-initiated string progress token for project loading when
+  supported, falls back to `window/logMessage`-routed tracing logs otherwise,
+  reports refresh phases around the plan-011 compute/apply/warm-up flow, and
+  closes progress on normal, skipped, superseded, and failed outcomes. The
+  pytest-lsp suite now covers initialize capability return, post-initialized
+  request responsiveness, Begin/Report/End progress sequence with observed
+  `window/workDoneProgress/create`, and log fallback for a client with
+  work-done progress stripped. Implementation note: `RefreshData` is
+  re-exported from `djls-project` because `compute_refresh` already exposes it
+  in the public return type and the server names it in a small compute retry
+  helper. Validation passed: `cargo build -q -p djls-server`,
+  `cargo test -q -p djls-server`, focused startup e2e via
+  `uv run pytest tests/e2e/test_startup.py -q -x`, `cargo test -q` (after
+  `just corpus sync` for the moved corpus location), `just test`,
+  `just e2e` (31 passed), non-mutating
+  `cargo clippy --all-targets --all-features --benches -- -D warnings`,
+  clean-tree `just clippy`, `just fmt`, and `just lint`.
 - **2026-06-12 (Plan 011 closed)**: PR #675 merged into `main` as
   `65b62947 Make project refresh non-blocking (#675)` (source head
   `0d912c41`). The source change applies refresh inputs briefly under the
