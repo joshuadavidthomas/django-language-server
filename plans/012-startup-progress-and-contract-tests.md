@@ -20,8 +20,56 @@
 - **Depends on**: plans/010, plans/011
 - **Category**: dx (startup track, salvaged from PR #626)
 - **Planned at**: commit `922cc4d7`, 2026-06-10
-- **Execution status**: READY — prerequisites 010 and 011 are merged; this is
-  the next startup-track plan
+- **Execution status**: DONE — implemented at source commit `b852cf93`
+  (`plan-012-startup-progress`)
+
+## Execution record — source commit (2026-06-13)
+
+Implemented as one source commit:
+
+1. `b852cf93` — `feat: report startup progress and cover startup contract`
+
+Implementation notes:
+
+- Added `ClientInfo::supports_work_done_progress` from
+  `ClientCapabilities.window.work_done_progress`.
+- Added `crates/djls-server/src/progress.rs` with one `LoadProgress`
+  helper. It requests a server-initiated string token through
+  `window/workDoneProgress/create`, sends Begin/Report/End only after that
+  request succeeds, falls back to tracing logs when unsupported or rejected,
+  and sends an End on drop for unfinished LSP progress handles.
+- Wired load progress around Plan 011's refresh task: resolving environment,
+  applying project facts, warming caches, and publishing diagnostics.
+  Completion messages distinguish complete, skipped, superseded, and failed
+  refresh outcomes.
+- Extracted the refresh compute retry loop to keep `run_project_refresh_inner`
+  below the clippy line-count limit.
+- Re-exported `RefreshData` from `djls-project`; `compute_refresh` already
+  exposes that type in its public return signature, and the server now names
+  it in the retry helper.
+- Added `tests/e2e/test_startup.py` with four pytest-lsp tests for the
+  startup contract: initialize returns capabilities, template requests work
+  after `initialized`, supported clients receive a Begin/Report/End progress
+  stream with observed `window/workDoneProgress/create`, and unsupported
+  clients receive log fallback without progress notifications.
+
+Validation passed:
+
+- `cargo build -q -p djls-server`
+- `cargo test -q -p djls-server`
+- `uv run pytest tests/e2e/test_startup.py -q -x`
+- `cargo test -q`
+- `just test`
+- `just e2e` (31 passed)
+- `cargo clippy --all-targets --all-features --benches -- -D warnings`
+- clean-tree `just clippy`
+- `just fmt`
+- `just lint`
+
+Execution note: the first full `cargo test -q` failed because the synced
+corpus was absent at the post-plan-016 `djls-testing` location. `just corpus
+sync` populated `crates/djls-testing/.corpus`; the targeted corpus test and
+the final full suites passed afterward.
 
 ## Why this matters
 
