@@ -75,6 +75,11 @@ impl ClientInfo {
     }
 
     #[must_use]
+    pub(crate) fn supports_work_done_progress(&self) -> bool {
+        self.capabilities.work_done_progress
+    }
+
+    #[must_use]
     pub(crate) fn supports_snippets(&self) -> bool {
         self.capabilities.snippets
     }
@@ -96,6 +101,7 @@ pub(crate) enum Client {
 pub(crate) struct ClientCapabilities {
     pull_diagnostics: bool,
     snippets: bool,
+    work_done_progress: bool,
 }
 
 impl ClientCapabilities {
@@ -115,9 +121,16 @@ impl ClientCapabilities {
             .and_then(|completion_item| completion_item.snippet_support)
             .unwrap_or(false);
 
+        let work_done_progress = capabilities
+            .window
+            .as_ref()
+            .and_then(|window| window.work_done_progress)
+            .unwrap_or(false);
+
         Self {
             pull_diagnostics,
             snippets,
+            work_done_progress,
         }
     }
 }

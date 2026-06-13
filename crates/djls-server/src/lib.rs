@@ -2,6 +2,7 @@ mod client;
 mod document;
 mod ext;
 mod logging;
+mod progress;
 mod queue;
 mod refresh;
 mod server;
