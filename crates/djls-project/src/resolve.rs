@@ -84,6 +84,13 @@ pub struct SearchPaths {
 
 impl SearchPaths {
     #[must_use]
+    pub fn root_only(root: &Utf8Path) -> Self {
+        let mut search_paths = Self::default();
+        search_paths.push(SearchPath::first_party(root.to_path_buf()));
+        search_paths
+    }
+
+    #[must_use]
     pub fn from_project_settings(
         fs: &dyn FileSystem,
         root: &Utf8Path,

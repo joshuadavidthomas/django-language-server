@@ -10,13 +10,12 @@ use std::sync::atomic::Ordering;
 #[cfg(test)]
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_conf::Settings;
 use djls_db::DjangoDatabase;
-use djls_project::Db as ProjectDb;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Offset;
 use tokio::sync::Mutex;
+use tokio::sync::watch;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
@@ -59,6 +58,11 @@ pub(crate) struct Session {
     /// matches — a later bump supersedes any in-flight refresh.
     refresh_epoch: Arc<AtomicU64>,
 
+    /// Broadcasts the most recent refresh epoch that reached a terminal state.
+    /// Project-aware requests subscribe so they can wait for initial static
+    /// discovery without moving that work back into `initialize`.
+    refresh_completion: watch::Sender<u64>,
+
     /// Serializes `publishDiagnostics` sends so a refresh-originated republish
     /// can re-check the epoch under the lock and never overwrite a newer
     /// publish.
@@ -85,12 +89,11 @@ impl Session {
         let client_settings = client_options.settings.clone();
 
         let workspace = Workspace::new();
-        let settings = project_path
-            .as_ref()
-            .and_then(|path| djls_conf::Settings::new(path, Some(client_settings.clone())).ok())
-            .unwrap_or(client_settings);
-
-        let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
+        let db = DjangoDatabase::new(
+            workspace.overlay(),
+            &client_settings,
+            project_path.as_deref(),
+        );
 
         let client_info = ClientInfo::new(
             &params.capabilities,
@@ -98,11 +101,14 @@ impl Session {
             client_options,
         );
 
+        let (refresh_completion, _) = watch::channel(0);
+
         Self {
             workspace,
             client_info,
             db,
             refresh_epoch: Arc::new(AtomicU64::new(0)),
+            refresh_completion,
             diagnostic_publish_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -121,6 +127,18 @@ impl Session {
         Arc::clone(&self.refresh_epoch)
     }
 
+    pub(crate) fn refresh_epoch_value(&self) -> u64 {
+        self.refresh_epoch.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn refresh_completion(&self) -> watch::Sender<u64> {
+        self.refresh_completion.clone()
+    }
+
+    pub(crate) fn subscribe_refresh_completion(&self) -> watch::Receiver<u64> {
+        self.refresh_completion.subscribe()
+    }
+
     pub(crate) fn diagnostic_publish_lock(&self) -> Arc<Mutex<()>> {
         Arc::clone(&self.diagnostic_publish_lock)
     }
@@ -135,15 +153,6 @@ impl Session {
 
     pub(crate) fn db_mut(&mut self) -> &mut DjangoDatabase {
         &mut self.db
-    }
-
-    pub(crate) fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
-        self.db.set_settings(settings)
-    }
-
-    /// Get the current project for this session
-    pub(crate) fn project(&self) -> Option<djls_project::Project> {
-        self.db.project()
     }
 
     /// Open a document in the session.
@@ -332,7 +341,10 @@ impl SessionSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use djls_project::Db as ProjectDb;
+    use djls_project::Interpreter;
     use djls_source::Db as SourceDb;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -415,8 +427,70 @@ mod tests {
             snapshot.client_info().position_encoding()
         );
         assert_eq!(
-            session.project().is_some(),
+            session.db().project().is_some(),
             snapshot.db().project().is_some()
         );
+    }
+
+    #[test]
+    fn session_new_uses_initial_project_until_refresh_loads_settings() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let config_extra_path = root.join("config_extra");
+        let client_extra_path = root.join("client_extra");
+        let venv_path = root.join(".venv");
+        std::fs::create_dir_all(config_extra_path.as_std_path()).unwrap();
+        std::fs::create_dir_all(client_extra_path.as_std_path()).unwrap();
+        std::fs::write(
+            root.join(".env").as_std_path(),
+            "FROM_ENV=should_not_load\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            format!(
+                r#"
+django_settings_module = "config.settings"
+pythonpath = ["{config_extra_path}"]
+"#
+            ),
+        )
+        .unwrap();
+
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.as_std_path()).unwrap(),
+                name: "test_project".to_string(),
+            }]),
+            initialization_options: Some(serde_json::json!({
+                "django_settings_module": "client.settings",
+                "pythonpath": [client_extra_path.to_string()],
+                "venv_path": venv_path.to_string(),
+            })),
+            ..Default::default()
+        };
+
+        let session = Session::new(&params);
+        let db = session.db();
+        let project = db.project().expect("initialize should create a project");
+
+        assert_eq!(project.root(db), root.as_path());
+        assert_eq!(
+            project.django_settings_module(db).as_deref(),
+            Some("client.settings")
+        );
+        assert_eq!(project.pythonpath(db), &vec![client_extra_path.to_string()]);
+        assert_eq!(
+            project.interpreter(db),
+            &Interpreter::VenvPath(venv_path.to_string())
+        );
+        assert!(project.env_vars(db).is_empty());
+
+        let search_paths: Vec<_> = project
+            .search_paths(db)
+            .iter()
+            .map(|search_path| search_path.path().to_path_buf())
+            .collect();
+        assert_eq!(search_paths, vec![root]);
     }
 }

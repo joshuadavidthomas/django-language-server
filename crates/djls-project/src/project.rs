@@ -13,6 +13,53 @@ use crate::names::ModulePath;
 use crate::python::Interpreter;
 use crate::resolve::SearchPaths;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectInputData {
+    pub search_paths: SearchPaths,
+    pub interpreter: Interpreter,
+    pub django_settings_module: Option<String>,
+    pub pythonpath: Vec<String>,
+    pub env_vars: Vec<(String, String)>,
+    pub tagspecs: TagSpecDef,
+}
+
+impl ProjectInputData {
+    #[must_use]
+    pub fn initial(root: &Utf8Path, settings: &Settings) -> Self {
+        Self {
+            search_paths: SearchPaths::root_only(root),
+            interpreter: settings.venv_path().map_or(Interpreter::Auto, |path| {
+                Interpreter::VenvPath(path.to_string())
+            }),
+            django_settings_module: settings.django_settings_module().map(String::from),
+            pythonpath: settings.pythonpath().to_vec(),
+            env_vars: Vec::new(),
+            tagspecs: settings.tagspecs().clone(),
+        }
+    }
+
+    pub fn load(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Self {
+        let interpreter = Interpreter::discover(settings.venv_path());
+        let django_settings_module = resolve_django_settings(db.file_system(), root, settings);
+        let env_vars = load_env_file(db.file_system(), root, settings);
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            root,
+            &interpreter,
+            settings.pythonpath(),
+        );
+
+        Self {
+            search_paths,
+            interpreter,
+            django_settings_module,
+            pythonpath: settings.pythonpath().to_vec(),
+            env_vars,
+            tagspecs: settings.tagspecs().clone(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct PythonModule {
     module_path: ModulePath,
@@ -100,28 +147,30 @@ impl Project {
         }
     }
 
+    pub fn initial(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
+        let input_data = ProjectInputData::initial(root, settings);
+        Self::from_input_data(db, root, input_data)
+    }
+
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
-        let interpreter = Interpreter::discover(settings.venv_path());
-        let resolved_django_settings_module =
-            resolve_django_settings(db.file_system(), root, settings);
-        let env_vars = load_env_file(db.file_system(), root, settings);
+        let input_data = ProjectInputData::load(db, root, settings);
+        Self::from_input_data(db, root, input_data)
+    }
 
-        let search_paths = SearchPaths::from_project_settings(
-            db.file_system(),
-            root,
-            &interpreter,
-            settings.pythonpath(),
-        );
-        search_paths.register_roots(db);
-
+    fn from_input_data(
+        db: &dyn ProjectDb,
+        root: &Utf8Path,
+        input_data: ProjectInputData,
+    ) -> Project {
+        input_data.search_paths.register_roots(db);
         Project::builder(
             root.to_path_buf(),
-            search_paths,
-            interpreter,
-            resolved_django_settings_module,
-            settings.pythonpath().to_vec(),
-            env_vars,
-            settings.tagspecs().clone(),
+            input_data.search_paths,
+            input_data.interpreter,
+            input_data.django_settings_module,
+            input_data.pythonpath,
+            input_data.env_vars,
+            input_data.tagspecs,
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)

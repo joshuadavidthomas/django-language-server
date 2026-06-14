@@ -47,7 +47,7 @@ pub struct DjangoDatabase {
     /// replacing the handle (or flipping None→Some after queries have run)
     /// changes results outside Salsa's dependency graph. Set once during
     /// construction; reloads mutate fields via Salsa setters
-    /// (see `update_project_from_settings`). Same invariant as ty's
+    /// (see `apply_project_inputs`). Same invariant as ty's
     /// `ProjectDatabase` (`ty_project/src/db.rs`).
     pub(crate) project: Option<Project>,
 
@@ -94,6 +94,12 @@ impl Default for DjangoDatabase {
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
+    ///
+    /// The constructor creates protocol state only. When a project path is
+    /// present, it installs a stable initial `Project` handle with root-only
+    /// search paths and settings values that are already in memory. Callers
+    /// that need disk-derived project facts must load and apply project inputs
+    /// explicitly after construction.
     pub fn new(
         file_system: Arc<dyn FileSystem>,
         settings: &Settings,
@@ -117,7 +123,7 @@ impl DjangoDatabase {
     }
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
-        let project = Project::bootstrap(self, root, settings);
+        let project = Project::initial(self, root, settings);
         self.project = Some(project);
     }
 }
@@ -208,12 +214,14 @@ mod invalidation_tests {
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
     use djls_conf::Settings;
+    use djls_project::Db as ProjectDb;
     use djls_project::Project;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
     use djls_source::Db as SourceDb;
     use djls_source::InMemoryFileSystem;
     use djls_source::Offset;
+    use djls_source::OsFileSystem;
     use djls_source::SourceFiles;
     use salsa::Database;
     use salsa::Setter;
@@ -247,7 +255,7 @@ mod invalidation_tests {
 
     /// Create a test database with event logging and a pre-configured project.
     ///
-    /// Uses `Interpreter::discover(None)` to match what `update_project_from_settings`
+    /// Uses `Interpreter::discover(None)` to match what `ProjectInputData::load`
     /// produces, avoiding spurious interpreter mismatches from `$VIRTUAL_ENV`.
     fn test_db_with_project() -> (DjangoDatabase, EventLog) {
         let event_log = EventLog::default();
@@ -599,9 +607,69 @@ type = "block"
 
         let update = db.set_settings(settings);
 
-        assert!(!update.env_changed);
         assert!(!update.diagnostics_changed);
         assert!(update.semantic_changed);
+    }
+
+    #[test]
+    fn initial_project_loads_disk_facts_into_same_handle() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let extra_path = root.join("extra_python");
+        std::fs::create_dir_all(extra_path.as_std_path()).unwrap();
+        std::fs::write(root.join(".env.local").as_std_path(), "FROM_ENV=loaded\n").unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            format!(
+                r#"
+django_settings_module = "config.settings"
+pythonpath = ["{extra_path}"]
+env_file = ".env.local"
+"#
+            ),
+        )
+        .unwrap();
+
+        let mut db = DjangoDatabase::new(
+            Arc::new(OsFileSystem),
+            &Settings::default(),
+            Some(root.as_path()),
+        );
+        let project = db.project().expect("initial project should exist");
+
+        assert_eq!(project.root(&db), root.as_path());
+        assert_eq!(project.django_settings_module(&db).as_deref(), None);
+        assert!(project.pythonpath(&db).is_empty());
+        assert!(project.env_vars(&db).is_empty());
+        let initial_paths: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .map(|search_path| search_path.path().to_path_buf())
+            .collect();
+        assert_eq!(initial_paths, vec![root.clone()]);
+
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let input_data = djls_project::ProjectInputData::load(&db, root.as_path(), &settings);
+        let update = db.apply_loaded_settings(settings, input_data);
+
+        assert!(update.env_changed);
+        assert_eq!(db.project(), Some(project));
+        assert_eq!(
+            project.django_settings_module(&db).as_deref(),
+            Some("config.settings")
+        );
+        assert_eq!(project.pythonpath(&db), &vec![extra_path.to_string()]);
+        assert_eq!(
+            project.env_vars(&db),
+            &vec![("FROM_ENV".to_string(), "loaded".to_string())]
+        );
+        let loaded_paths: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .map(|search_path| search_path.path().to_path_buf())
+            .collect();
+        assert_eq!(loaded_paths.first(), Some(&root));
+        assert!(loaded_paths.contains(&extra_path));
     }
 
     #[test]
@@ -671,16 +739,18 @@ type = "block"
     }
 
     #[test]
-    fn update_project_from_settings_unchanged_no_invalidation() {
+    fn apply_project_inputs_unchanged_no_invalidation() {
         let (mut db, event_log) = test_db_with_project();
 
         // Prime the cache
         let _specs = db.tag_specs();
         event_log.take();
 
-        // Call update_project_from_settings with default settings (same as project was created with)
+        // Apply default project inputs, matching what the project was created with.
         let settings = Settings::default();
-        let env_changed = db.update_project_from_settings(&settings);
+        let inputs =
+            djls_project::ProjectInputData::load(&db, Utf8Path::new("/test/project"), &settings);
+        let env_changed = db.apply_project_inputs(inputs);
         assert!(
             !env_changed,
             "env should not have changed with default settings"

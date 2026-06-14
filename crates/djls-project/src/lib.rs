@@ -38,6 +38,7 @@ pub use names::TemplateSymbolName;
 pub use parse::ParsedPythonModule;
 pub use parse::parse_python_module;
 pub use project::Project;
+pub use project::ProjectInputData;
 pub use project::load_env_file;
 pub use python::Interpreter;
 pub use resolve::SearchPath;

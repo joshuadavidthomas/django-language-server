@@ -10,13 +10,16 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
+use djls_project::ProjectInputData;
 use djls_project::RefreshData;
 use djls_project::apply_refresh;
 use djls_project::compute_refresh;
 use djls_project::project_template_files;
 use djls_semantic::Db as SemanticDb;
 use tokio::sync::Mutex;
+use tokio::sync::watch;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
 
@@ -34,10 +37,50 @@ enum RefreshOutcome {
     Superseded,
 }
 
+struct LoadedProjectSettings {
+    settings: Settings,
+    project_inputs: ProjectInputData,
+}
+
+enum LoadOutcome {
+    Loaded(Box<LoadedProjectSettings>),
+    Skipped,
+    Superseded,
+}
+
 enum ComputeOutcome {
     Computed(RefreshData),
     Skipped,
     Superseded,
+}
+
+pub(crate) struct ProjectRefreshRequest {
+    refresh_epoch: Arc<AtomicU64>,
+    refresh_completion: watch::Sender<u64>,
+    diagnostic_publish_lock: Arc<Mutex<()>>,
+    client_info: ClientInfo,
+    epoch: u64,
+    log_initialization: bool,
+}
+
+impl ProjectRefreshRequest {
+    pub(crate) fn new(
+        refresh_epoch: Arc<AtomicU64>,
+        refresh_completion: watch::Sender<u64>,
+        diagnostic_publish_lock: Arc<Mutex<()>>,
+        client_info: ClientInfo,
+        epoch: u64,
+        log_initialization: bool,
+    ) -> Self {
+        Self {
+            refresh_epoch,
+            refresh_completion,
+            diagnostic_publish_lock,
+            client_info,
+            epoch,
+            log_initialization,
+        }
+    }
 }
 
 fn refresh_is_stale(refresh_epoch: &AtomicU64, epoch: u64) -> bool {
@@ -47,22 +90,22 @@ fn refresh_is_stale(refresh_epoch: &AtomicU64, epoch: u64) -> bool {
 pub(crate) async fn run_project_refresh(
     session: Arc<Mutex<Session>>,
     client: Client,
-    refresh_epoch: Arc<AtomicU64>,
-    diagnostic_publish_lock: Arc<Mutex<()>>,
-    client_info: ClientInfo,
-    epoch: u64,
-    log_initialization: bool,
+    request: ProjectRefreshRequest,
 ) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
-    let progress =
-        LoadProgress::begin(client.clone(), &client_info, "Loading Django project").await;
+    let progress = LoadProgress::begin(
+        client.clone(),
+        &request.client_info,
+        "Loading Django project",
+    )
+    .await;
     let result = run_project_refresh_inner(
         session,
         client,
-        refresh_epoch,
-        diagnostic_publish_lock,
+        request.refresh_epoch,
+        request.diagnostic_publish_lock,
         &progress,
-        epoch,
+        request.epoch,
     )
     .await;
 
@@ -81,10 +124,14 @@ pub(crate) async fn run_project_refresh(
         }
     }
 
-    if log_initialization {
+    if request.log_initialization {
         tracing::info!("Server initialization completed in {:?}", start.elapsed());
     } else if result.is_ok() {
         tracing::info!("Environment refresh completed in {:?}", start.elapsed());
+    }
+
+    if !matches!(result, Ok(RefreshOutcome::Superseded)) {
+        let _ = request.refresh_completion.send(request.epoch);
     }
 
     result.map(|_| ())
@@ -107,6 +154,47 @@ async fn run_project_refresh_inner(
     }
 
     progress.report("Resolving environment").await;
+
+    let loaded_settings = match load_project_settings(&session, &refresh_epoch, epoch).await {
+        LoadOutcome::Loaded(loaded_settings) => *loaded_settings,
+        LoadOutcome::Skipped => return Ok(RefreshOutcome::Skipped),
+        LoadOutcome::Superseded => return Ok(RefreshOutcome::Superseded),
+    };
+
+    if refresh_is_stale(&refresh_epoch, epoch) {
+        tracing::debug!(
+            epoch,
+            "Skipping stale project refresh before settings apply"
+        );
+        return Ok(RefreshOutcome::Superseded);
+    }
+
+    progress.report("Applying project settings").await;
+
+    {
+        let mut session_lock = session.lock().await;
+        if refresh_is_stale(&refresh_epoch, epoch) {
+            tracing::debug!(
+                epoch,
+                "Skipping stale project refresh after settings apply lock"
+            );
+            return Ok(RefreshOutcome::Superseded);
+        }
+
+        let db = session_lock.db_mut();
+        if db.project().is_none() {
+            return Ok(RefreshOutcome::Skipped);
+        }
+
+        db.apply_loaded_settings(loaded_settings.settings, loaded_settings.project_inputs);
+    }
+
+    if refresh_is_stale(&refresh_epoch, epoch) {
+        tracing::debug!(epoch, "Skipping stale project refresh after settings apply");
+        return Ok(RefreshOutcome::Superseded);
+    }
+
+    progress.report("Computing project facts").await;
 
     let refresh = match compute_project_refresh(&session, &refresh_epoch, epoch).await {
         ComputeOutcome::Computed(refresh) => refresh,
@@ -168,6 +256,60 @@ async fn run_project_refresh_inner(
     }
 
     Ok(RefreshOutcome::Complete)
+}
+
+async fn load_project_settings(
+    session: &Arc<Mutex<Session>>,
+    refresh_epoch: &Arc<AtomicU64>,
+    epoch: u64,
+) -> LoadOutcome {
+    let Some((project_root, config_overrides, load_db)) = ({
+        let session_lock = session.lock().await;
+        if refresh_is_stale(refresh_epoch, epoch) {
+            tracing::debug!(
+                epoch,
+                "Skipping stale project settings load after locking session"
+            );
+            return LoadOutcome::Superseded;
+        }
+
+        let db = session_lock.db();
+        db.project().map(|project| {
+            (
+                project.root(db).clone(),
+                session_lock.client_info().config_overrides().clone(),
+                db.clone(),
+            )
+        })
+    }) else {
+        tracing::info!("Task: No project configured, skipping settings load.");
+        return LoadOutcome::Skipped;
+    };
+
+    let loaded_settings = tokio::task::spawn_blocking(move || {
+        let settings = match Settings::new(&project_root, Some(config_overrides.clone())) {
+            Ok(settings) => settings,
+            Err(err) => {
+                tracing::error!("Error loading settings: {}", err);
+                config_overrides
+            }
+        };
+        let project_inputs = ProjectInputData::load(&load_db, &project_root, &settings);
+
+        LoadedProjectSettings {
+            settings,
+            project_inputs,
+        }
+    })
+    .await
+    .expect("project settings load task must not panic");
+
+    if refresh_is_stale(refresh_epoch, epoch) {
+        tracing::debug!(epoch, "Skipping stale project refresh after settings load");
+        return LoadOutcome::Superseded;
+    }
+
+    LoadOutcome::Loaded(Box::new(loaded_settings))
 }
 
 async fn compute_project_refresh(
