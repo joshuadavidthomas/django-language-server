@@ -33,6 +33,13 @@ pub struct RefreshData {
     file_paths: Vec<Utf8PathBuf>,
 }
 
+impl RefreshData {
+    #[must_use]
+    pub fn file_paths(&self) -> &[Utf8PathBuf] {
+        &self.file_paths
+    }
+}
+
 pub fn compute_refresh(db: &dyn ProjectDb) -> Option<RefreshData> {
     let project = db.project()?;
     let search_paths = SearchPaths::from_project_settings(
@@ -78,14 +85,12 @@ pub fn apply_refresh(db: &mut dyn ProjectDb, refresh: RefreshData) {
         file_paths,
     } = refresh;
 
-    search_paths.register_roots(db);
-    if project.search_paths(db) != &search_paths {
+    let search_paths_changed = project.search_paths(db) != &search_paths;
+    if search_paths_changed {
+        search_paths.register_roots(db);
         project.set_search_paths(db).to(search_paths);
     }
 
-    // The LSP currently has no watched-file stream for dependency roots. Treat
-    // an explicit refresh as the freshness boundary for module discovery and
-    // currently discovered Python files.
     let roots: Vec<_> = project
         .search_paths(db)
         .iter()
@@ -98,6 +103,11 @@ pub fn apply_refresh(db: &mut dyn ProjectDb, refresh: RefreshData) {
 
     for path in file_paths {
         let file = db.get_or_create_file(&path);
-        db.bump_file_revision(file);
+        let current = file.source(db);
+        let latest = db.read_file(&path).unwrap_or_default();
+
+        if current.as_str() != latest {
+            db.bump_file_revision(file);
+        }
     }
 }

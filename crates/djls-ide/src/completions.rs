@@ -253,6 +253,32 @@ impl CompletionCandidate {
         }
     }
 
+    fn tag_name_from_spec(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        needs_leading_space: bool,
+        close: TagClose,
+        spec: &djls_semantic::TagSpec,
+        supports_snippets: bool,
+    ) -> Self {
+        let edit = if supports_snippets {
+            CompletionEdit::tag_snippet(name, spec, prefix, needs_leading_space, close)
+                .unwrap_or_else(|| {
+                    CompletionEdit::tag_plain(name, prefix, needs_leading_space, close)
+                })
+        } else {
+            CompletionEdit::tag_plain(name, prefix, needs_leading_space, close)
+        };
+
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::TagName,
+            edit,
+            detail: Some("Django template tag".to_string()),
+            documentation: None,
+        }
+    }
+
     fn end_tag(
         opener_name: &str,
         name: &str,
@@ -408,7 +434,9 @@ pub fn completion(
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
 
-    let available_symbols = if template_libraries.knowledge == StaticKnowledge::Known {
+    let available_symbols = if template_libraries.knowledge == StaticKnowledge::Unknown {
+        None
+    } else {
         match &context {
             CompletionOffsetContext::Template(
                 TemplateCompletionContext::TagName { .. }
@@ -423,8 +451,6 @@ pub fn completion(
             )
             | CompletionOffsetContext::None => None,
         }
-    } else {
-        None
     };
 
     let mut candidates = match &context {
@@ -503,10 +529,6 @@ fn generate_tag_name_candidates(
 ) -> Vec<CompletionCandidate> {
     let mut candidates = Vec::new();
 
-    if template_libraries.knowledge != StaticKnowledge::Known {
-        return candidates;
-    }
-
     if prefix.text.starts_with("end") {
         for (opener_name, spec) in tag_specs {
             let Some(end_tag) = &spec.end_tag else {
@@ -523,6 +545,27 @@ fn generate_tag_name_candidates(
                 ));
             }
         }
+    }
+
+    if template_libraries.knowledge == StaticKnowledge::Unknown {
+        for (name, spec) in tag_specs {
+            if !name.starts_with(prefix.text) {
+                continue;
+            }
+
+            candidates.push(CompletionCandidate::tag_name_from_spec(
+                name,
+                prefix,
+                needs_leading_space,
+                close,
+                spec,
+                supports_snippets,
+            ));
+        }
+
+        candidates.sort_by(CompletionCandidate::cmp_rank);
+        candidates.dedup_by(|left, right| left.label == right.label);
+        return candidates;
     }
 
     for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Tag) {
@@ -1077,6 +1120,62 @@ mod tests {
 
         assert_eq!(labels(&before_candidates), vec!["if"]);
         assert_eq!(after_labels, vec!["blocktrans", "if", "trans"]);
+    }
+
+    #[test]
+    fn tag_candidates_fall_back_to_specs_when_libraries_are_unknown() {
+        let mut specs = TagSpecs::default();
+        specs.insert(
+            "static".to_string(),
+            TagSpec::new(
+                Cow::Borrowed("django.templatetags.static"),
+                None,
+                Cow::Borrowed(&[]),
+                false,
+            ),
+        );
+
+        let candidates = generate_tag_name_candidates(
+            &prefix("sta"),
+            false,
+            full_close(),
+            TemplateLibraries::empty_ref(),
+            &specs,
+            None,
+            false,
+        );
+
+        assert_eq!(labels(&candidates), vec!["static"]);
+        assert_eq!(candidates[0].detail.as_deref(), Some("Django template tag"));
+    }
+
+    #[test]
+    fn partial_tag_candidates_use_known_libraries_not_raw_specs() {
+        let mut libraries = tag_libraries();
+        libraries.knowledge = StaticKnowledge::Partial;
+        let mut specs = TagSpecs::default();
+        specs.insert(
+            "project_only".to_string(),
+            TagSpec::new(
+                Cow::Borrowed("project.templatetags.project_only"),
+                None,
+                Cow::Borrowed(&[]),
+                false,
+            ),
+        );
+        let available_symbols = AvailableSymbols::from_loads(Vec::new(), &libraries, 0);
+
+        let candidates = generate_tag_name_candidates(
+            &prefix("project"),
+            false,
+            full_close(),
+            &libraries,
+            &specs,
+            Some(&available_symbols),
+            false,
+        );
+
+        assert!(candidates.is_empty());
     }
 
     #[test]

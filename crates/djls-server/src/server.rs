@@ -1,11 +1,8 @@
-use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use djls_project::Db as ProjectDb;
 use djls_source::FileKind;
 use tokio::sync::Mutex;
-use tokio::sync::oneshot;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tower_lsp_server::jsonrpc::Result as LspResult;
@@ -98,54 +95,34 @@ impl DjangoLanguageServer {
 
     /// Bump the session's refresh epoch and queue a refresh task for the new
     /// epoch. The task body lives in [`crate::refresh`].
-    async fn submit_project_refresh(&self, log_initialization: bool) {
+    async fn submit_project_refresh(&self, reason: refresh::ProjectRefreshReason) {
         let client = self.client.clone();
-        let (epoch, refresh_epoch, diagnostic_publish_lock, client_info) = self
+        let (epoch, project_refresh, diagnostic_publish_lock, client_info) = self
             .with_session(|session| {
+                let project_refresh = session.project_refresh().clone();
+                let epoch = project_refresh.begin_refresh();
+
                 (
-                    session.bump_refresh_epoch(),
-                    session.refresh_epoch(),
+                    epoch,
+                    project_refresh,
                     session.diagnostic_publish_lock(),
                     session.client_info().clone(),
                 )
             })
             .await;
 
-        let rx = self
-            .with_session_mut_task(move |session| async move {
-                refresh::run_project_refresh(
-                    session,
-                    client,
-                    refresh_epoch,
-                    diagnostic_publish_lock,
-                    client_info,
-                    epoch,
-                    log_initialization,
-                )
-                .await
-            })
-            .await;
-        drop(rx);
-    }
-
-    pub(crate) async fn with_session_mut_task<F, Fut>(
-        &self,
-        f: F,
-    ) -> oneshot::Receiver<anyhow::Result<()>>
-    where
-        F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
-        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
-    {
         let session = Arc::clone(&self.session);
-        let (tx, rx) = oneshot::channel();
+        let request = refresh::ProjectRefreshRequest::new(
+            project_refresh,
+            diagnostic_publish_lock,
+            client_info,
+            epoch,
+            reason,
+        );
 
         let submit_result = self
             .queue
-            .submit(async move {
-                let res = f(session).await;
-                let _ = tx.send(res);
-                Ok(())
-            })
+            .submit(async move { refresh::run_project_refresh(session, client, request).await })
             .await;
 
         match submit_result {
@@ -156,21 +133,20 @@ impl DjangoLanguageServer {
                 tracing::error!("Failed to submit task: {}", e);
             }
         }
-
-        rx
     }
 
     async fn maybe_push_diagnostics(&self, document: &TextDocument) {
+        if self
+            .with_session(|session| session.client_info().supports_pull_diagnostics())
+            .await
+        {
+            tracing::debug!("Client supports pull diagnostics, skipping push");
+            return;
+        }
+
         let file = document.file();
         let Some(diagnostics) = self
-            .with_snapshot(move |snapshot| {
-                if snapshot.client_info().supports_pull_diagnostics() {
-                    tracing::debug!("Client supports pull diagnostics, skipping push");
-                    return None;
-                }
-
-                djls_ide::collect_diagnostics(snapshot.db(), file)
-            })
+            .with_snapshot(move |snapshot| djls_ide::collect_diagnostics(snapshot.db(), file))
             .await
         else {
             return;
@@ -269,7 +245,8 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Server received initialized notification.");
 
         // Refresh project data in the background and initialize the workspace.
-        self.submit_project_refresh(true).await;
+        self.submit_project_refresh(refresh::ProjectRefreshReason::Startup)
+            .await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -532,39 +509,8 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
-        tracing::info!("Configuration change detected. Reloading settings...");
-
-        let settings_update = self
-            .with_session_mut(|session| {
-                if session.project().is_none() {
-                    return djls_db::SettingsUpdate::default();
-                }
-
-                let project_root = session.db().project_root_or_cwd();
-
-                match djls_conf::Settings::new(
-                    &project_root,
-                    Some(session.client_info().config_overrides().clone()),
-                ) {
-                    Ok(new_settings) => session.set_settings(new_settings),
-                    Err(e) => {
-                        tracing::error!("Error loading settings: {}", e);
-                        djls_db::SettingsUpdate::default()
-                    }
-                }
-            })
+        tracing::info!("Configuration change detected. Queuing configuration refresh...");
+        self.submit_project_refresh(refresh::ProjectRefreshReason::ConfigurationChanged)
             .await;
-
-        // Any relevant change submits a refresh: the epoch bump supersedes
-        // in-flight refresh work (so a stale republish cannot overwrite newer
-        // settings), and the new task re-applies and republishes diagnostics
-        // for open documents. Bumping without resubmitting would drop a
-        // superseded refresh's apply on the floor.
-        if settings_update.env_changed
-            || settings_update.diagnostics_changed
-            || settings_update.semantic_changed
-        {
-            self.submit_project_refresh(false).await;
-        }
     }
 }

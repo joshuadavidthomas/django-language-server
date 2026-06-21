@@ -46,8 +46,8 @@ pub struct DjangoDatabase {
     /// tracked queries branch on the untracked `db.project()` read, so
     /// replacing the handle (or flipping None→Some after queries have run)
     /// changes results outside Salsa's dependency graph. Set once during
-    /// construction; reloads mutate fields via Salsa setters
-    /// (see `update_project_from_settings`). Same invariant as ty's
+    /// construction; reloads mutate fields via Salsa setters through
+    /// `Project::reload_from_settings`. Same invariant as ty's
     /// `ProjectDatabase` (`ty_project/src/db.rs`).
     pub(crate) project: Option<Project>,
 
@@ -94,6 +94,12 @@ impl Default for DjangoDatabase {
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
+    ///
+    /// The constructor creates protocol state only. When a project path is
+    /// present, it installs a stable initial `Project` handle with root-only
+    /// search paths and settings values that are already in memory. Applying
+    /// project settings reloads disk-derived project fields onto the same
+    /// stable handle.
     pub fn new(
         file_system: Arc<dyn FileSystem>,
         settings: &Settings,
@@ -117,7 +123,7 @@ impl DjangoDatabase {
     }
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
-        let project = Project::bootstrap(self, root, settings);
+        let project = Project::initial(self, root, settings);
         self.project = Some(project);
     }
 }
@@ -208,12 +214,14 @@ mod invalidation_tests {
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
     use djls_conf::Settings;
+    use djls_project::Db as ProjectDb;
     use djls_project::Project;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
     use djls_source::Db as SourceDb;
     use djls_source::InMemoryFileSystem;
     use djls_source::Offset;
+    use djls_source::OsFileSystem;
     use djls_source::SourceFiles;
     use salsa::Database;
     use salsa::Setter;
@@ -247,7 +255,7 @@ mod invalidation_tests {
 
     /// Create a test database with event logging and a pre-configured project.
     ///
-    /// Uses `Interpreter::discover(None)` to match what `update_project_from_settings`
+    /// Uses `Interpreter::discover(None)` to match what `Project::bootstrap`
     /// produces, avoiding spurious interpreter mismatches from `$VIRTUAL_ENV`.
     fn test_db_with_project() -> (DjangoDatabase, EventLog) {
         let event_log = EventLog::default();
@@ -597,11 +605,75 @@ type = "block"
         );
         let settings = Settings::new(root.as_path(), None).unwrap();
 
-        let update = db.set_settings(settings);
+        db.apply_project_settings(settings);
 
-        assert!(!update.env_changed);
-        assert!(!update.diagnostics_changed);
-        assert!(update.semantic_changed);
+        let project = db.project().expect("project should exist");
+        assert!(
+            project
+                .tagspecs(&db)
+                .libraries
+                .iter()
+                .any(|library| library.module == "myapp.templatetags.custom")
+        );
+    }
+
+    #[test]
+    fn initial_project_loads_disk_facts_into_same_handle() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let extra_path = root.join("extra_python");
+        std::fs::create_dir_all(extra_path.as_std_path()).unwrap();
+        std::fs::write(root.join(".env.local").as_std_path(), "FROM_ENV=loaded\n").unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            format!(
+                r#"
+django_settings_module = "config.settings"
+pythonpath = ["{extra_path}"]
+env_file = ".env.local"
+"#
+            ),
+        )
+        .unwrap();
+
+        let mut db = DjangoDatabase::new(
+            Arc::new(OsFileSystem),
+            &Settings::default(),
+            Some(root.as_path()),
+        );
+        let project = db.project().expect("initial project should exist");
+
+        assert_eq!(project.root(&db), root.as_path());
+        assert_eq!(project.django_settings_module(&db).as_deref(), None);
+        assert!(project.pythonpath(&db).is_empty());
+        assert!(project.env_vars(&db).is_empty());
+        let initial_paths: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .map(|search_path| search_path.path().to_path_buf())
+            .collect();
+        assert_eq!(initial_paths, vec![root.clone()]);
+
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        db.apply_project_settings(settings);
+
+        assert_eq!(db.project(), Some(project));
+        assert_eq!(
+            project.django_settings_module(&db).as_deref(),
+            Some("config.settings")
+        );
+        assert_eq!(project.pythonpath(&db), &vec![extra_path.to_string()]);
+        assert_eq!(
+            project.env_vars(&db),
+            &vec![("FROM_ENV".to_string(), "loaded".to_string())]
+        );
+        let loaded_paths: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .map(|search_path| search_path.path().to_path_buf())
+            .collect();
+        assert_eq!(loaded_paths.first(), Some(&root));
+        assert!(loaded_paths.contains(&extra_path));
     }
 
     #[test]
@@ -671,20 +743,18 @@ type = "block"
     }
 
     #[test]
-    fn update_project_from_settings_unchanged_no_invalidation() {
+    fn project_settings_unchanged_no_invalidation() {
         let (mut db, event_log) = test_db_with_project();
 
         // Prime the cache
         let _specs = db.tag_specs();
         event_log.take();
 
-        // Call update_project_from_settings with default settings (same as project was created with)
+        // Apply default project settings, matching what the project was created with.
         let settings = Settings::default();
-        let env_changed = db.update_project_from_settings(&settings);
-        assert!(
-            !env_changed,
-            "env should not have changed with default settings"
-        );
+        db.project()
+            .expect("project should exist")
+            .reload_from_settings(&mut db, &settings);
 
         // Access tag_specs — should still be cached
         let _specs = db.tag_specs();
@@ -982,6 +1052,89 @@ def my_filter(value, arg):
         djls_project::refresh_external_data(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
+    }
+
+    #[test]
+    fn apply_refresh_bumps_roots_but_not_unchanged_file_contents() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let tag_path = root.join("blog/templatetags/custom.py");
+
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                root.join("settings.py"),
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n".to_string(),
+            );
+            fs.add_file(root.join("blog/templatetags/__init__.py"), String::new());
+            fs.add_file(tag_path, template_tag_library_source("custom_tag"));
+        }
+
+        let mut db = DjangoDatabase {
+            fs,
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::default(),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+
+        let refresh = djls_project::compute_refresh(&db).expect("project refresh data");
+        let file_paths: Vec<_> = refresh.file_paths().to_vec();
+        assert!(!file_paths.is_empty());
+        djls_project::apply_refresh(&mut db, refresh);
+
+        let project = db.project().expect("project should exist");
+        let file_revisions: Vec<_> = file_paths
+            .iter()
+            .map(|path| {
+                let file = db.get_or_create_file(path);
+                (path.clone(), file.revision(&db))
+            })
+            .collect();
+        assert!(!file_revisions.is_empty());
+
+        let root_revisions: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .filter_map(|search_path| db.files().root(&db, search_path.path()))
+            .map(|root| (root.path(&db).clone(), root.revision(&db)))
+            .collect();
+        assert!(!root_revisions.is_empty());
+
+        let refresh = djls_project::compute_refresh(&db).expect("project refresh data");
+        djls_project::apply_refresh(&mut db, refresh);
+
+        let unchanged_file_revisions: Vec<_> = file_paths
+            .iter()
+            .map(|path| {
+                let file = db.get_or_create_file(path);
+                (path.clone(), file.revision(&db))
+            })
+            .collect();
+        let unchanged_root_revisions: Vec<_> = project
+            .search_paths(&db)
+            .iter()
+            .filter_map(|search_path| db.files().root(&db, search_path.path()))
+            .map(|root| (root.path(&db).clone(), root.revision(&db)))
+            .collect();
+
+        assert_eq!(unchanged_file_revisions, file_revisions);
+        assert!(unchanged_root_revisions.iter().zip(root_revisions).all(
+            |((new_path, new_revision), (old_path, old_revision))| {
+                new_path == &old_path && *new_revision > old_revision
+            }
+        ));
     }
 
     #[test]

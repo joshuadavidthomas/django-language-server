@@ -9,4 +9,3 @@ mod db;
 mod settings;
 
 pub use db::DjangoDatabase;
-pub use settings::SettingsUpdate;
