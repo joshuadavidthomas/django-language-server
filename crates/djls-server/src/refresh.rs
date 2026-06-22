@@ -8,7 +8,13 @@
 
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex as StdMutex;
 
+#[cfg(test)]
+use camino::Utf8Path;
+#[cfg(test)]
+use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::RefreshData;
@@ -45,6 +51,80 @@ enum ComputeOutcome {
     Computed(RefreshData),
     Skipped,
     Superseded,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RefreshTestPoint {
+    SettingsCaptured,
+    ComputeCloned,
+}
+
+#[cfg(test)]
+struct RefreshTestHook {
+    project_root: Utf8PathBuf,
+    point: RefreshTestPoint,
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+impl RefreshTestHook {
+    fn new(project_root: Utf8PathBuf, point: RefreshTestPoint) -> Arc<Self> {
+        Arc::new(Self {
+            project_root,
+            point,
+            reached: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        })
+    }
+
+    async fn wait_until_reached(&self) {
+        self.reached.notified().await;
+    }
+
+    fn resume(&self) {
+        self.resume.notify_one();
+    }
+
+    async fn pause_if_matches(&self, project_root: &Utf8Path, point: RefreshTestPoint) {
+        if self.point != point || self.project_root != project_root {
+            return;
+        }
+
+        self.reached.notify_one();
+        self.resume.notified().await;
+    }
+}
+
+#[cfg(test)]
+struct RefreshTestHookGuard;
+
+#[cfg(test)]
+impl Drop for RefreshTestHookGuard {
+    fn drop(&mut self) {
+        let mut hook = REFRESH_TEST_HOOK.lock().unwrap();
+        *hook = None;
+    }
+}
+
+#[cfg(test)]
+static REFRESH_TEST_HOOK: StdMutex<Option<Arc<RefreshTestHook>>> = StdMutex::new(None);
+
+#[cfg(test)]
+fn install_refresh_test_hook(hook: Arc<RefreshTestHook>) -> RefreshTestHookGuard {
+    let mut installed = REFRESH_TEST_HOOK.lock().unwrap();
+    assert!(installed.is_none(), "refresh test hook already installed");
+    *installed = Some(hook);
+    RefreshTestHookGuard
+}
+
+#[cfg(test)]
+async fn pause_for_refresh_test(project_root: &Utf8Path, point: RefreshTestPoint) {
+    let hook = REFRESH_TEST_HOOK.lock().unwrap().clone();
+    if let Some(hook) = hook {
+        hook.pause_if_matches(project_root, point).await;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -312,6 +392,9 @@ async fn load_project_settings(
         return LoadOutcome::Skipped;
     };
 
+    #[cfg(test)]
+    pause_for_refresh_test(&project_root, RefreshTestPoint::SettingsCaptured).await;
+
     let settings =
         tokio::task::spawn_blocking(move || Settings::new(&project_root, Some(config_overrides)))
             .await
@@ -359,6 +442,12 @@ async fn compute_project_refresh(
             tracing::info!("Task: No project configured, skipping initialization.");
             return ComputeOutcome::Skipped;
         };
+
+        #[cfg(test)]
+        if let Some(project) = compute_db.project() {
+            pause_for_refresh_test(project.root(&compute_db), RefreshTestPoint::ComputeCloned)
+                .await;
+        }
 
         let result = tokio::task::spawn_blocking(move || {
             salsa::Cancelled::catch(AssertUnwindSafe(|| compute_refresh(&compute_db)))
@@ -527,10 +616,161 @@ async fn collect_snapshot_diagnostics(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
 
     use super::*;
+
+    static REFRESH_TEST_HOOK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn initialize_params(root: &Utf8Path) -> ls_types::InitializeParams {
+        ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.as_std_path()).unwrap(),
+                name: "test_project".to_string(),
+            }]),
+            ..Default::default()
+        }
+    }
+
+    fn session_for_root(root: &Utf8Path) -> Session {
+        Session::new(&initialize_params(root))
+    }
+
+    async fn snapshot_while_refresh_is_paused(session: &Arc<Mutex<Session>>) -> SessionSnapshot {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            session.lock().await.snapshot()
+        })
+        .await
+        .expect("session snapshot should be available while project refresh is paused")
+    }
+
+    async fn wait_for_refresh_pause(hook: &RefreshTestHook) {
+        tokio::time::timeout(Duration::from_secs(1), hook.wait_until_reached())
+            .await
+            .expect("refresh test hook should reach its pause point");
+    }
+
+    #[tokio::test]
+    async fn startup_settings_load_does_not_block_session_snapshots() {
+        let _serial = REFRESH_TEST_HOOK_LOCK.lock().await;
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let session = session_for_root(root.as_path());
+        let project_refresh = session.project_refresh().clone();
+        let epoch = project_refresh.begin_refresh();
+        let session = Arc::new(Mutex::new(session));
+        let hook = RefreshTestHook::new(root.clone(), RefreshTestPoint::SettingsCaptured);
+        let _hook_guard = install_refresh_test_hook(Arc::clone(&hook));
+
+        let settings_load = tokio::spawn({
+            let session = Arc::clone(&session);
+            let project_refresh = project_refresh.clone();
+            async move { load_project_settings(&session, &project_refresh, epoch).await }
+        });
+
+        wait_for_refresh_pause(&hook).await;
+
+        let snapshot = snapshot_while_refresh_is_paused(&session).await;
+        assert!(snapshot.db().project().is_some());
+
+        hook.resume();
+        let outcome = settings_load.await.unwrap();
+        assert!(matches!(outcome, LoadOutcome::Loaded(_)));
+    }
+
+    #[tokio::test]
+    async fn startup_refresh_compute_does_not_block_session_snapshots() {
+        let _serial = REFRESH_TEST_HOOK_LOCK.lock().await;
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let session = session_for_root(root.as_path());
+        let project_refresh = session.project_refresh().clone();
+        let epoch = project_refresh.begin_refresh();
+        let session = Arc::new(Mutex::new(session));
+        let hook = RefreshTestHook::new(root.clone(), RefreshTestPoint::ComputeCloned);
+        let _hook_guard = install_refresh_test_hook(Arc::clone(&hook));
+
+        let refresh_compute = tokio::spawn({
+            let session = Arc::clone(&session);
+            let project_refresh = project_refresh.clone();
+            async move { compute_project_refresh(&session, &project_refresh, epoch).await }
+        });
+
+        wait_for_refresh_pause(&hook).await;
+
+        let snapshot = snapshot_while_refresh_is_paused(&session).await;
+        assert!(snapshot.db().project().is_some());
+
+        hook.resume();
+        let outcome = refresh_compute.await.unwrap();
+        assert!(matches!(outcome, ComputeOutcome::Computed(_)));
+    }
+
+    #[tokio::test]
+    async fn startup_superseded_settings_load_is_dropped_before_apply() {
+        let _serial = REFRESH_TEST_HOOK_LOCK.lock().await;
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"config.settings\"\n",
+        )
+        .unwrap();
+
+        let session = session_for_root(root.as_path());
+        let project_refresh = session.project_refresh().clone();
+        let epoch = project_refresh.begin_refresh();
+        let session = Arc::new(Mutex::new(session));
+        let hook = RefreshTestHook::new(root.clone(), RefreshTestPoint::SettingsCaptured);
+        let _hook_guard = install_refresh_test_hook(Arc::clone(&hook));
+
+        let settings_load = tokio::spawn({
+            let session = Arc::clone(&session);
+            let project_refresh = project_refresh.clone();
+            async move { load_project_settings(&session, &project_refresh, epoch).await }
+        });
+
+        wait_for_refresh_pause(&hook).await;
+        project_refresh.begin_refresh();
+        hook.resume();
+
+        let outcome = settings_load.await.unwrap();
+        assert!(matches!(outcome, LoadOutcome::Superseded));
+
+        let stale_settings = Settings::new(root.as_path(), None).unwrap();
+        let outcome =
+            apply_project_settings(&session, &project_refresh, epoch, stale_settings).await;
+        assert!(matches!(outcome, Err(RefreshOutcome::Superseded)));
+
+        let session_lock = session.lock().await;
+        let db = session_lock.db();
+        let project = db.project().expect("project should exist");
+        assert_eq!(project.django_settings_module(db).as_deref(), None);
+    }
+
+    #[tokio::test]
+    async fn startup_superseded_project_facts_are_dropped_before_apply() {
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        let session = session_for_root(root.as_path());
+        let project_refresh = session.project_refresh().clone();
+        let epoch = project_refresh.begin_refresh();
+        let session = Arc::new(Mutex::new(session));
+
+        let refresh = match compute_project_refresh(&session, &project_refresh, epoch).await {
+            ComputeOutcome::Computed(refresh) => refresh,
+            ComputeOutcome::Skipped => panic!("project refresh should have project facts"),
+            ComputeOutcome::Superseded => panic!("project refresh should not be superseded yet"),
+        };
+
+        project_refresh.begin_refresh();
+
+        let outcome = apply_project_facts(&session, &project_refresh, epoch, refresh).await;
+        assert!(matches!(outcome, Err(RefreshOutcome::Superseded)));
+    }
 
     #[tokio::test]
     async fn project_settings_load_error_skips_refresh_inputs() {
@@ -542,14 +782,7 @@ mod tests {
         )
         .unwrap();
 
-        let params = ls_types::InitializeParams {
-            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
-                uri: ls_types::Uri::from_file_path(root.as_std_path()).unwrap(),
-                name: "test_project".to_string(),
-            }]),
-            ..Default::default()
-        };
-        let session = Session::new(&params);
+        let session = session_for_root(root.as_path());
         let project_refresh = session.project_refresh().clone();
         let epoch = project_refresh.begin_refresh();
         let session = Arc::new(Mutex::new(session));
