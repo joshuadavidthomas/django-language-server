@@ -6,36 +6,23 @@ Django Language Server auto-detects your project configuration in most cases. It
 
 ## Handling environment variables
 
-DJLS does not start Django or execute your settings module. That means missing
-application secrets usually do not break the language server the way they
-would break `django.setup()`.
+Environment variables matter when they identify project configuration.
 
-Environment variables still matter for the language server process itself. If
-`django_settings_module` is not configured, DJLS reads
-`DJANGO_SETTINGS_MODULE` from the environment inherited from your editor.
-Editors launched from desktop environments (app launchers, dock icons) often
-do not inherit shell variables set in `.bashrc`, `.zshrc`, or similar files.
+If `django_settings_module` is not configured, the language server reads `DJANGO_SETTINGS_MODULE` from the environment inherited from your editor. Editors launched from desktop environments (app launchers, dock icons) often do not inherit shell variables set in `.bashrc`, `.zshrc`, or similar files.
 
-For a language server, the most reliable setup is to configure the Django
-settings module explicitly:
+The most reliable setup is to configure the Django settings module explicitly:
 
 ```toml
 [tool.djls]
 django_settings_module = "myproject.settings"
 ```
 
-DJLS also reads `.env` in the project root, or the file configured by
-[`env_file`](#env_file), during static project introspection. The file uses the
-same format as `python-dotenv` and similar tools.
+The language server also reads `.env` in the project root, or the file configured by [`env_file`](#env_file), during static project introspection. The file uses the same format as `python-dotenv` and similar tools.
 
 ```toml
 [tool.djls]
 env_file = ".env.local"
 ```
-
-The env file is not forwarded to a subprocess, and DJLS does not use it to
-execute arbitrary settings code. Prefer explicit static configuration when
-possible.
 
 ## Options
 
@@ -45,9 +32,7 @@ possible.
 
 Your Django settings module path (e.g., `"myproject.settings"`).
 
-The server uses this to statically introspect your Django project for template
-tag completions, diagnostics, and navigation. If not explicitly configured, the
-server reads the `DJANGO_SETTINGS_MODULE` environment variable.
+The server uses this to statically introspect your Django project for template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
 **When to configure:**
 
@@ -71,10 +56,7 @@ The server needs access to your virtual environment to discover installed Django
 
 **Default:** `[]` (empty list)
 
-Additional directories to add to the Python import search paths used for
-static project introspection. These paths are searched alongside the project
-root when DJLS resolves settings modules, installed apps, template tag
-libraries, and Python sources.
+Additional directories to add to the Python import search paths used for static project introspection. These paths are searched alongside the project root when the server resolves settings modules, installed apps, template tag libraries, and Python sources.
 
 **When to configure:**
 
@@ -87,13 +69,9 @@ libraries, and Python sources.
 
 **Default:** `.env` in the project root (auto-detected, no error if missing)
 
-Path to an environment file (relative to the project root) whose variables are
-read during static project introspection.
+Path to an environment file (relative to the project root) whose variables are read during static project introspection.
 
-Many Django projects keep local configuration in `.env` files. DJLS parses the
-configured file and records the variables with the project state used by static
-analysis. It does not execute Django settings with those variables and does not
-modify the language server process environment.
+Many Django projects keep local configuration in `.env` files. The language server parses the configured file and records the variables with the project state used by static analysis.
 
 If no `env_file` is configured, the server looks for a `.env` file in the project root automatically. If the file doesn't exist, nothing happens. When `env_file` is set explicitly and the file is missing, a warning is logged.
 
