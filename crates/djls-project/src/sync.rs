@@ -21,7 +21,7 @@ use crate::settings::settings_source_files;
 /// into the `Project` input, then lets tracked semantic queries handle editor
 /// file contents and downstream derivations.
 pub fn refresh_external_data(db: &mut dyn ProjectDb) {
-    let Some(refresh) = compute_refresh(db) else {
+    let Some(refresh) = compute_refresh(db, |_| {}) else {
         return;
     };
     apply_refresh(db, refresh);
@@ -40,8 +40,35 @@ impl RefreshData {
     }
 }
 
-pub fn compute_refresh(db: &dyn ProjectDb) -> Option<RefreshData> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RefreshStage {
+    ResolveEnvironment,
+    ScanSettings,
+    DiscoverModelModules,
+    DiscoverTemplateLibraries,
+    DiscoverTemplateTagCandidates,
+}
+
+impl RefreshStage {
+    #[must_use]
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::ResolveEnvironment => "Resolving environment",
+            Self::ScanSettings => "Scanning settings",
+            Self::DiscoverModelModules => "Discovering model modules",
+            Self::DiscoverTemplateLibraries => "Discovering template libraries",
+            Self::DiscoverTemplateTagCandidates => "Discovering template tag candidates",
+        }
+    }
+}
+
+pub fn compute_refresh(
+    db: &dyn ProjectDb,
+    mut report_stage: impl FnMut(RefreshStage),
+) -> Option<RefreshData> {
     let project = db.project()?;
+
+    report_stage(RefreshStage::ResolveEnvironment);
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         project.root(db),
@@ -49,22 +76,27 @@ pub fn compute_refresh(db: &dyn ProjectDb) -> Option<RefreshData> {
         project.pythonpath(db),
     );
 
+    report_stage(RefreshStage::ScanSettings);
     let mut file_paths: Vec<_> = settings_source_files(db, project)
         .into_iter()
         .map(|file| file.path(db).to_path_buf())
         .collect();
 
+    report_stage(RefreshStage::DiscoverModelModules);
     file_paths.extend(
         model_modules(db, project)
             .iter()
             .map(|module| module.path().to_path_buf()),
     );
 
+    report_stage(RefreshStage::DiscoverTemplateLibraries);
     file_paths.extend(
         templatetag_modules(db, project)
             .iter()
             .map(|module| module.path().to_path_buf()),
     );
+
+    report_stage(RefreshStage::DiscoverTemplateTagCandidates);
     file_paths.extend(templatetag_candidate_paths(db, project));
 
     file_paths.sort();

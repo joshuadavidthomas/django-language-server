@@ -714,8 +714,21 @@ fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
     );
 
-    let refresh = compute_refresh(&db).expect("project should be configured");
+    let mut stages = Vec::new();
+    let refresh =
+        compute_refresh(&db, |stage| stages.push(stage)).expect("project should be configured");
     apply_refresh(&mut db, refresh);
+
+    assert_eq!(
+        stages,
+        vec![
+            RefreshStage::ResolveEnvironment,
+            RefreshStage::ScanSettings,
+            RefreshStage::DiscoverModelModules,
+            RefreshStage::DiscoverTemplateLibraries,
+            RefreshStage::DiscoverTemplateTagCandidates,
+        ]
+    );
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
