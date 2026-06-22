@@ -9,7 +9,7 @@
 
 ## Configuration
 
-To use Django Language Server with Sublime Text, you'll need to configure two things: the LSP client settings to enable and run the server, and your Python environment and Django project settings so the server can introspect your project.
+To use Django Language Server with Sublime Text, you'll need to configure two things: the LSP client settings to enable and run the server, and your Python environment and Django project settings so the server can statically introspect your project.
 
 ### LSP client
 
@@ -46,7 +46,7 @@ The language server requires two settings to provide full functionality:
 - `django_settings_module` **(required)**: Your Django settings module (e.g., `"myproject.settings"`)
 - `venv_path` **(optional)**: Path to your virtual environment
 
-Without these, the language server can't introspect your Django project and will only provide basic built-in template tag completions. The language server attempts to auto-detect these settings from the `DJANGO_SETTINGS_MODULE` and `VIRTUAL_ENV` environment variables, and will also search for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`) in your project root.
+Without these, the language server may not be able to fully introspect your Django project and will only provide basic built-in template tag completions. The language server attempts to auto-detect these settings from the `DJANGO_SETTINGS_MODULE` and `VIRTUAL_ENV` environment variables, and will also search for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`) in your project root.
 
 However, **Sublime Text launches language servers as subprocesses that don't inherit your terminal's environment**, so you must explicitly configure at least `django_settings_module`, and likely `venv_path` as well unless your venv uses a standard name.
 

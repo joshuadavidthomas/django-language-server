@@ -6,47 +6,23 @@ Django Language Server auto-detects your project configuration in most cases. It
 
 ## Handling environment variables
 
-Django projects commonly read secrets and configuration from environment variables — whether through `os.environ`, `django-environ`, `environs`, `python-decouple`, or similar libraries.
+Environment variables matter when they identify project configuration.
 
-When a required variable is missing, the language server's inspector process fails to initialize Django and you'll see an error like:
+If `django_settings_module` is not configured, the language server reads `DJANGO_SETTINGS_MODULE` from the environment inherited from your editor. Editors launched from desktop environments (app launchers, dock icons) often do not inherit shell variables set in `.bashrc`, `.zshrc`, or similar files.
 
-> Missing required environment variable: DJANGO_SECRET_KEY. Django settings failed to load because 'DJANGO_SECRET_KEY' is not set in the editor's environment.
+The most reliable setup is to configure the Django settings module explicitly:
 
-This happens because editors launched from desktop environments (app launchers, dock icons) don't inherit shell variables set in `.bashrc`, `.zshrc`, or similar.
-
-### How environment variables reach the inspector
-
-The inspector subprocess inherits the full environment of its parent process (the language server, which inherits from the editor). Variables set in your shell are available automatically **if the editor was launched from that shell**. The [`env_file`](#env_file) option exists for cases where that inheritance doesn't work.
-
-### Recommended setup
-
-If your Django settings depend on environment variables, create a `.env` file in your project root:
-
-```shell
-# .env
-DJANGO_SECRET_KEY=not-a-real-secret
-DATABASE_URL=postgres://localhost/mydb
+```toml
+[tool.djls]
+django_settings_module = "myproject.settings"
 ```
 
-The server automatically detects `.env` in the project root and loads its variables into the inspector process — no configuration needed. This is the same format used by `python-dotenv` and similar tools.
-
-!!! tip
-    The values only need to be valid enough for Django to initialize. For a language server, a placeholder `SECRET_KEY` works fine.
-
-If your env file has a different name or location, point to it explicitly:
+The language server also reads `.env` in the project root, or the file configured by [`env_file`](#env_file), during static project introspection. The file uses the same format as `python-dotenv` and similar tools.
 
 ```toml
 [tool.djls]
 env_file = ".env.local"
 ```
-
-### Other approaches
-
-If you prefer not to use an env file:
-
-- **Launch your editor from the terminal** where the variables are already set. Most editors inherit the shell's environment when started this way.
-- **Configure your editor** to set environment variables before starting language servers. See your editor's documentation for details.
-- **Set `django_settings_module`** in your djls config if the only missing variable is `DJANGO_SETTINGS_MODULE`.
 
 ## Options
 
@@ -56,7 +32,7 @@ If you prefer not to use an env file:
 
 Your Django settings module path (e.g., `"myproject.settings"`).
 
-The server uses this to introspect your Django project and provide template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
+The server uses this to statically introspect your Django project for template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
 **When to configure:**
 
@@ -80,22 +56,22 @@ The server needs access to your virtual environment to discover installed Django
 
 **Default:** `[]` (empty list)
 
-Additional directories to add to Python's import search path when the inspector process runs. These paths are added to `PYTHONPATH` alongside the project root and any existing `PYTHONPATH` environment variable.
+Additional directories to add to the Python import search paths used for static project introspection. These paths are searched alongside the project root when the server resolves settings modules, installed apps, template tag libraries, and Python sources.
 
 **When to configure:**
 
 - Your project has a non-standard structure where Django code imports from directories outside the project root
 - You're working in a monorepo where Django imports shared packages from other directories
 - Your project depends on internal libraries in non-standard locations
-- You need to make additional packages importable for Django introspection
+- You need to make additional packages visible to static introspection
 
 ### `env_file`
 
 **Default:** `.env` in the project root (auto-detected, no error if missing)
 
-Path to an environment file (relative to the project root) whose variables are injected into the inspector subprocess.
+Path to an environment file (relative to the project root) whose variables are read during static project introspection.
 
-Many Django projects read secrets and configuration from environment variables at settings load time. When the editor is launched from a desktop environment rather than a terminal, those variables aren't available and the inspector fails. This option tells the server to read a `.env` file and forward the variables to the inspector process, so Django settings load correctly without duplicating secrets into config files.
+Many Django projects keep local configuration in `.env` files. The language server parses the configured file and records the variables with the project state used by static analysis.
 
 If no `env_file` is configured, the server looks for a `.env` file in the project root automatically. If the file doesn't exist, nothing happens. When `env_file` is set explicitly and the file is missing, a warning is logged.
 
@@ -171,13 +147,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
     S108 = "warning" # New
     ```
 
-*Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+*Tag Scoping (requires complete [static knowledge](../template-validation.md#static-knowledge-availability)):*
 
 - `S108` - Unknown tag (not found in any active library)
 - `S109` - Unloaded tag (requires `{% load %}` for a specific library)
 - `S110` - Ambiguous unloaded tag (defined in multiple libraries)
 
-*Filter Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+*Filter Scoping (requires complete [static knowledge](../template-validation.md#static-knowledge-availability)):*
 
 - `S111` - Unknown filter (not found in any active library)
 - `S112` - Unloaded filter (requires `{% load %}` for a specific library)
@@ -193,9 +169,9 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 - `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
 
-*Library Resolution (requires [inspector](../template-validation.md#inspector-availability)):*
+*Library Resolution (requires complete [static knowledge](../template-validation.md#static-knowledge-availability)):*
 
-- `S120` - Unknown template tag library (not found in inspector inventory)
+- `S120` - Unknown template tag library (not found among known template tag libraries)
 
 *Extends Validation:*
 
