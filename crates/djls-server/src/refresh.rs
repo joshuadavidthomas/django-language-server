@@ -218,7 +218,7 @@ async fn run_project_refresh_inner(
     }
 
     let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
-    warm_project_queries(
+    let warm_outcome = warm_project_queries(
         snapshot.clone(),
         project_refresh.clone(),
         epoch,
@@ -231,10 +231,19 @@ async fn run_project_refresh_inner(
         warm_progress.finish("superseded").await;
         return Ok(RefreshOutcome::Superseded);
     }
-    warm_progress.finish("complete").await;
+    warm_progress.finish(warm_outcome.progress_message()).await;
 
     let diagnostics_progress = progress.begin(PUBLISH_DIAGNOSTICS_TITLE).await;
     diagnostics_progress.report("Publishing diagnostics").await;
+    diagnostics_progress
+        .report(&count_message(
+            documents.len(),
+            CountUnits {
+                singular: "diagnostics document",
+                plural: "diagnostics documents",
+            },
+        ))
+        .await;
     if !republish_snapshot_diagnostics(
         client,
         snapshot,
@@ -470,7 +479,7 @@ async fn compute_project_refresh(
             facts_progress,
         )
         .await;
-        let result = collect_refresh_jobs(handles).await;
+        let result = collect_refresh_jobs(handles, environment_progress, facts_progress).await;
 
         if project_refresh.is_stale(epoch) {
             tracing::debug!(epoch, "Skipping stale project refresh after compute jobs");
@@ -647,47 +656,121 @@ fn spawn_refresh_template_tag_candidate_paths_job(
     })
 }
 
-async fn collect_refresh_jobs(handles: RefreshJobHandles) -> RefreshJobsOutcome {
+#[derive(Clone, Copy)]
+struct ProgressFraction {
+    done: usize,
+    total: usize,
+}
+
+#[derive(Clone, Copy)]
+struct CountUnits {
+    singular: &'static str,
+    plural: &'static str,
+}
+
+struct RefreshJobCounts {
+    search_paths: usize,
+    settings_sources: usize,
+    model_modules: usize,
+    template_library_modules: usize,
+    template_tag_candidates: usize,
+}
+
+async fn collect_refresh_jobs(
+    handles: RefreshJobHandles,
+    environment_progress: &mut Option<ProgressItem>,
+    facts_progress: &mut Option<ProgressItem>,
+) -> RefreshJobsOutcome {
     let mut cancellation = None;
     let mut file_paths = Vec::new();
 
-    let search_paths = match await_search_paths_job(handles.search_paths).await {
-        Ok(search_paths) => Some(search_paths),
-        Err(cancelled) => {
-            remember_cancellation(&mut cancellation, cancelled);
-            None
-        }
+    let search_paths = collect_search_paths_job(handles.search_paths, &mut cancellation).await;
+    let search_path_count = search_paths
+        .as_ref()
+        .map_or(0, |search_paths| search_paths.iter().count());
+    let counts = RefreshJobCounts {
+        search_paths: search_path_count,
+        settings_sources: collect_file_paths_job(
+            RefreshStage::ScanSettings,
+            handles.settings_sources,
+            &mut file_paths,
+            &mut cancellation,
+        )
+        .await,
+        model_modules: collect_file_paths_job(
+            RefreshStage::DiscoverModelModules,
+            handles.model_modules,
+            &mut file_paths,
+            &mut cancellation,
+        )
+        .await,
+        template_library_modules: collect_file_paths_job(
+            RefreshStage::DiscoverTemplateLibraries,
+            handles.template_library_modules,
+            &mut file_paths,
+            &mut cancellation,
+        )
+        .await,
+        template_tag_candidates: collect_file_paths_job(
+            RefreshStage::DiscoverTemplateTagCandidates,
+            handles.template_tag_candidates,
+            &mut file_paths,
+            &mut cancellation,
+        )
+        .await,
     };
 
-    collect_file_paths_job(
-        RefreshStage::ScanSettings,
-        handles.settings_sources,
-        &mut file_paths,
-        &mut cancellation,
+    complete_refresh_jobs(
+        search_paths,
+        file_paths,
+        counts,
+        environment_progress.as_ref(),
+        facts_progress.as_ref(),
+        cancellation,
     )
-    .await;
-    collect_file_paths_job(
-        RefreshStage::DiscoverModelModules,
-        handles.model_modules,
-        &mut file_paths,
-        &mut cancellation,
-    )
-    .await;
-    collect_file_paths_job(
-        RefreshStage::DiscoverTemplateLibraries,
-        handles.template_library_modules,
-        &mut file_paths,
-        &mut cancellation,
-    )
-    .await;
-    collect_file_paths_job(
-        RefreshStage::DiscoverTemplateTagCandidates,
-        handles.template_tag_candidates,
-        &mut file_paths,
-        &mut cancellation,
-    )
-    .await;
+    .await
+}
 
+async fn collect_search_paths_job(
+    handle: SearchPathsJobHandle,
+    cancellation: &mut Option<salsa::Cancelled>,
+) -> Option<SearchPaths> {
+    match await_search_paths_job(handle).await {
+        Ok(search_paths) => Some(search_paths),
+        Err(cancelled) => {
+            remember_cancellation(cancellation, cancelled);
+            None
+        }
+    }
+}
+
+async fn collect_file_paths_job(
+    stage: RefreshStage,
+    handle: FilePathsJobHandle,
+    file_paths: &mut Vec<Utf8PathBuf>,
+    cancellation: &mut Option<salsa::Cancelled>,
+) -> usize {
+    match await_file_paths_job(stage, handle).await {
+        Ok(paths) => {
+            let count = paths.len();
+            file_paths.extend(paths);
+            count
+        }
+        Err(cancelled) => {
+            remember_cancellation(cancellation, cancelled);
+            0
+        }
+    }
+}
+
+async fn complete_refresh_jobs(
+    search_paths: Option<SearchPaths>,
+    file_paths: Vec<Utf8PathBuf>,
+    counts: RefreshJobCounts,
+    environment_progress: Option<&ProgressItem>,
+    facts_progress: Option<&ProgressItem>,
+    cancellation: Option<salsa::Cancelled>,
+) -> RefreshJobsOutcome {
     if let Some(cancelled) = cancellation {
         return RefreshJobsOutcome::Cancelled(cancelled);
     }
@@ -696,25 +779,90 @@ async fn collect_refresh_jobs(handles: RefreshJobHandles) -> RefreshJobsOutcome 
         unreachable!("cancelled search-path job returned without cancellation")
     };
 
-    RefreshJobsOutcome::Computed(RefreshData::from_parts(search_paths, file_paths))
+    let refresh = RefreshData::from_parts(search_paths, file_paths);
+    report_refresh_job_counts(
+        counts,
+        refresh.file_paths().len(),
+        environment_progress,
+        facts_progress,
+    )
+    .await;
+
+    RefreshJobsOutcome::Computed(refresh)
+}
+
+async fn report_refresh_job_counts(
+    counts: RefreshJobCounts,
+    discovered_file_count: usize,
+    environment_progress: Option<&ProgressItem>,
+    facts_progress: Option<&ProgressItem>,
+) {
+    report_count(
+        environment_progress,
+        ProgressFraction { done: 1, total: 2 },
+        counts.search_paths,
+        CountUnits {
+            singular: "search path",
+            plural: "search paths",
+        },
+    )
+    .await;
+    report_count(
+        environment_progress,
+        ProgressFraction { done: 2, total: 2 },
+        counts.settings_sources,
+        CountUnits {
+            singular: "settings file",
+            plural: "settings files",
+        },
+    )
+    .await;
+    report_count(
+        facts_progress,
+        ProgressFraction { done: 1, total: 4 },
+        counts.model_modules,
+        CountUnits {
+            singular: "model module",
+            plural: "model modules",
+        },
+    )
+    .await;
+    report_count(
+        facts_progress,
+        ProgressFraction { done: 2, total: 4 },
+        counts.template_library_modules,
+        CountUnits {
+            singular: "template library module",
+            plural: "template library modules",
+        },
+    )
+    .await;
+    report_count(
+        facts_progress,
+        ProgressFraction { done: 3, total: 4 },
+        counts.template_tag_candidates,
+        CountUnits {
+            singular: "template tag candidate",
+            plural: "template tag candidates",
+        },
+    )
+    .await;
+    report_count(
+        facts_progress,
+        ProgressFraction { done: 4, total: 4 },
+        discovered_file_count,
+        CountUnits {
+            singular: "discovered file",
+            plural: "discovered files",
+        },
+    )
+    .await;
 }
 
 async fn await_search_paths_job(handle: SearchPathsJobHandle) -> SearchPathsJobResult {
     handle
         .await
         .expect("project refresh search-path task must not panic")
-}
-
-async fn collect_file_paths_job(
-    stage: RefreshStage,
-    handle: FilePathsJobHandle,
-    file_paths: &mut Vec<Utf8PathBuf>,
-    cancellation: &mut Option<salsa::Cancelled>,
-) {
-    match await_file_paths_job(stage, handle).await {
-        Ok(paths) => file_paths.extend(paths),
-        Err(cancelled) => remember_cancellation(cancellation, cancelled),
-    }
 }
 
 async fn await_file_paths_job(
@@ -724,6 +872,30 @@ async fn await_file_paths_job(
     handle.await.unwrap_or_else(|error| {
         panic!("project refresh {stage:?} task must not panic: {error}");
     })
+}
+
+async fn report_count(
+    progress: Option<&ProgressItem>,
+    fraction: ProgressFraction,
+    count: usize,
+    units: CountUnits,
+) {
+    let message = count_message(count, units);
+
+    if let Some(progress) = progress {
+        progress
+            .report_fraction(fraction.done, fraction.total, &message)
+            .await;
+    }
+}
+
+fn count_message(count: usize, units: CountUnits) -> String {
+    let unit = if count == 1 {
+        units.singular
+    } else {
+        units.plural
+    };
+    format!("{count} {unit}")
 }
 
 fn remember_cancellation(cancellation: &mut Option<salsa::Cancelled>, cancelled: salsa::Cancelled) {
@@ -766,8 +938,23 @@ async fn finish_progress(progress: &mut Option<ProgressItem>, message: &str) {
     }
 }
 
-type WarmJobResult = Result<(), salsa::Cancelled>;
+type WarmJobResult = Result<Option<usize>, salsa::Cancelled>;
 type WarmJobHandle = tokio::task::JoinHandle<WarmJobResult>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WarmOutcome {
+    Complete,
+    Partial,
+}
+
+impl WarmOutcome {
+    const fn progress_message(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Partial => "partial",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 enum WarmStage {
@@ -800,6 +987,35 @@ impl WarmStage {
         }
     }
 
+    const fn progress_index(self) -> usize {
+        match self {
+            Self::BuildTagSpecs => 1,
+            Self::BuildFilterAritySpecs => 2,
+            Self::BuildModelGraph => 3,
+            Self::ResolveTemplateDirs => 4,
+            Self::IndexTemplateLibraries => 5,
+            Self::IndexTemplates => 6,
+        }
+    }
+
+    const fn count_units(self) -> Option<CountUnits> {
+        match self {
+            Self::BuildTagSpecs | Self::BuildFilterAritySpecs | Self::BuildModelGraph => None,
+            Self::ResolveTemplateDirs => Some(CountUnits {
+                singular: "template directory",
+                plural: "template directories",
+            }),
+            Self::IndexTemplateLibraries => Some(CountUnits {
+                singular: "template library",
+                plural: "template libraries",
+            }),
+            Self::IndexTemplates => Some(CountUnits {
+                singular: "template",
+                plural: "templates",
+            }),
+        }
+    }
+
     fn spawn(
         self,
         snapshot: SessionSnapshot,
@@ -808,40 +1024,43 @@ impl WarmStage {
     ) -> WarmJobHandle {
         tokio::task::spawn_blocking(move || {
             salsa::Cancelled::catch(AssertUnwindSafe(|| {
-                self.run(&snapshot, &project_refresh, epoch);
+                self.run(&snapshot, &project_refresh, epoch)
             }))
         })
     }
 
-    fn run(self, snapshot: &SessionSnapshot, project_refresh: &ProjectRefreshState, epoch: u64) {
+    fn run(
+        self,
+        snapshot: &SessionSnapshot,
+        project_refresh: &ProjectRefreshState,
+        epoch: u64,
+    ) -> Option<usize> {
         if project_refresh.is_stale(epoch) {
-            return;
+            return None;
         }
 
         let db = snapshot.db();
-        let Some(project) = db.project() else {
-            return;
-        };
+        let project = db.project()?;
 
         match self {
             Self::BuildTagSpecs => {
                 let _ = db.tag_specs();
+                None
             }
             Self::BuildFilterAritySpecs => {
                 let _ = db.filter_arity_specs();
+                None
             }
             Self::BuildModelGraph => {
                 let _ = db.model_graph();
+                None
             }
-            Self::ResolveTemplateDirs => {
-                let _ = db.template_dirs();
-            }
+            Self::ResolveTemplateDirs => Some(db.template_dirs().map_or(0, |dirs| dirs.len())),
             Self::IndexTemplateLibraries => {
-                let _ = db.template_libraries();
+                let libraries = db.template_libraries();
+                Some(libraries.loadable_libraries().count() + libraries.builtin_libraries().count())
             }
-            Self::IndexTemplates => {
-                let _ = project_template_files(db, project);
-            }
+            Self::IndexTemplates => Some(project_template_files(db, project).iter().count()),
         }
     }
 
@@ -857,9 +1076,9 @@ async fn warm_project_queries(
     project_refresh: ProjectRefreshState,
     epoch: u64,
     progress: &ProgressItem,
-) {
+) -> WarmOutcome {
     if project_refresh.is_stale(epoch) {
-        return;
+        return WarmOutcome::Partial;
     }
 
     let mut handles = Vec::new();
@@ -871,15 +1090,47 @@ async fn warm_project_queries(
         progress.report(stage.message()).await;
     }
 
+    let mut summaries = Vec::new();
+    let mut outcome = WarmOutcome::Complete;
     for (stage, handle) in handles {
-        if let Err(cancelled) = stage.join(handle).await {
-            tracing::debug!(
-                ?cancelled,
-                ?stage,
-                "Project refresh warm-up cancelled; newer inputs will re-warm queries"
-            );
+        match stage.join(handle).await {
+            Ok(Some(count)) => summaries.push((stage, count)),
+            Ok(None) => {}
+            Err(cancelled) => {
+                outcome = WarmOutcome::Partial;
+                tracing::debug!(
+                    ?cancelled,
+                    ?stage,
+                    "Project refresh warm-up cancelled; newer inputs will re-warm queries"
+                );
+            }
         }
     }
+
+    if outcome == WarmOutcome::Complete {
+        for (stage, count) in summaries {
+            report_warm_summary(progress, stage, count).await;
+        }
+    }
+
+    outcome
+}
+
+async fn report_warm_summary(progress: &ProgressItem, stage: WarmStage, count: usize) {
+    let Some(units) = stage.count_units() else {
+        return;
+    };
+
+    report_count(
+        Some(progress),
+        ProgressFraction {
+            done: stage.progress_index(),
+            total: WarmStage::ALL.len(),
+        },
+        count,
+        units,
+    )
+    .await;
 }
 
 async fn republish_snapshot_diagnostics(

@@ -20,6 +20,40 @@ EXPECTED_STARTUP_PROGRESS_TITLES = {
     "Warming Django caches",
     "Publishing diagnostics",
 }
+COUNTED_PROGRESS_UNITS = [
+    ("search path", "search paths"),
+    ("settings file", "settings files"),
+    ("model module", "model modules"),
+    ("template library module", "template library modules"),
+    ("template tag candidate", "template tag candidates"),
+    ("discovered file", "discovered files"),
+    ("template directory", "template directories"),
+    ("template library", "template libraries"),
+    ("template", "templates"),
+    ("diagnostics document", "diagnostics documents"),
+]
+
+
+def has_fraction(message: str | None) -> bool:
+    if message is None:
+        return False
+
+    for word in message.split():
+        if "/" not in word:
+            continue
+        done, total = word.split("/", 1)
+        if done.isdigit() and total.isdigit():
+            return True
+
+    return False
+
+
+def has_counted_unit(messages: list[str], units: tuple[str, str]) -> bool:
+    return any(
+        any(message.endswith(unit) for unit in units)
+        and any(character.isdigit() for character in message)
+        for message in messages
+    )
 
 
 @pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
@@ -215,11 +249,10 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
     assert EXPECTED_STARTUP_PROGRESS_TITLES <= observed_titles
     assert "Loading Django project" not in observed_titles
 
-    report_messages = [
-        event.message
-        for event in events
-        if isinstance(event, types.WorkDoneProgressReport)
+    report_events = [
+        event for event in events if isinstance(event, types.WorkDoneProgressReport)
     ]
+    report_messages = [event.message for event in report_events if event.message is not None]
     for expected in [
         "Resolving environment",
         "Scanning settings",
@@ -236,6 +269,11 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
         "Publishing diagnostics",
     ]:
         assert expected in report_messages
+
+    assert any(event.percentage is not None for event in report_events)
+    assert any(has_fraction(message) for message in report_messages)
+    for units in COUNTED_PROGRESS_UNITS:
+        assert has_counted_unit(report_messages, units)
 
 
 @pytest.mark.asyncio
@@ -260,3 +298,6 @@ async def test_unsupported_client_receives_log_fallback(
         message.startswith("Warming Django caches: Indexing templates")
         for message in messages
     )
+    assert any(has_fraction(message) for message in messages)
+    for units in COUNTED_PROGRESS_UNITS:
+        assert has_counted_unit(messages, units)
