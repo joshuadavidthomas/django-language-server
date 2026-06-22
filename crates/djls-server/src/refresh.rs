@@ -9,12 +9,20 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_db::DjangoDatabase;
 use djls_project::Db as ProjectDb;
+use djls_project::Project;
 use djls_project::RefreshData;
 use djls_project::RefreshStage;
+use djls_project::SearchPaths;
 use djls_project::apply_refresh;
-use djls_project::compute_refresh;
+use djls_project::compute_refresh_model_module_paths;
+use djls_project::compute_refresh_search_paths;
+use djls_project::compute_refresh_settings_source_paths;
+use djls_project::compute_refresh_template_library_module_paths;
+use djls_project::compute_refresh_template_tag_candidate_paths;
 use djls_project::project_template_files;
 use djls_semantic::Db as SemanticDb;
 use tokio::sync::Mutex;
@@ -45,6 +53,15 @@ enum LoadOutcome {
 
 enum ComputeOutcome {
     Computed(RefreshData),
+    Skipped,
+    Superseded,
+}
+
+enum CaptureOutcome {
+    Captured {
+        db: DjangoDatabase,
+        project: Project,
+    },
     Skipped,
     Superseded,
 }
@@ -194,6 +211,11 @@ async fn run_project_refresh_inner(
                 return Ok(outcome);
             }
         };
+
+    if project_refresh.is_stale(epoch) {
+        tracing::debug!(epoch, "Skipping stale project refresh before warm-up");
+        return Ok(RefreshOutcome::Superseded);
+    }
 
     let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
     warm_project_queries(
@@ -387,6 +409,24 @@ async fn load_project_settings(
     LoadOutcome::Loaded(Box::new(settings))
 }
 
+type SearchPathsJobResult = Result<SearchPaths, salsa::Cancelled>;
+type FilePathsJobResult = Result<Vec<Utf8PathBuf>, salsa::Cancelled>;
+type SearchPathsJobHandle = tokio::task::JoinHandle<SearchPathsJobResult>;
+type FilePathsJobHandle = tokio::task::JoinHandle<FilePathsJobResult>;
+
+struct RefreshJobHandles {
+    search_paths: SearchPathsJobHandle,
+    settings_sources: FilePathsJobHandle,
+    model_modules: FilePathsJobHandle,
+    template_library_modules: FilePathsJobHandle,
+    template_tag_candidates: FilePathsJobHandle,
+}
+
+enum RefreshJobsOutcome {
+    Computed(RefreshData),
+    Cancelled(salsa::Cancelled),
+}
+
 async fn compute_project_refresh(
     session: &Arc<Mutex<Session>>,
     project_refresh: &ProjectRefreshState,
@@ -400,72 +440,51 @@ async fn compute_project_refresh(
     // the refresh for good. Retry with a fresh database clone instead, like
     // the snapshot reads do.
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
-        let Some(compute_db) = ({
-            let session_lock = session.lock().await;
-            if project_refresh.is_stale(epoch) {
-                tracing::debug!(
-                    epoch,
-                    "Skipping stale project refresh after locking session"
-                );
-                finish_progress(environment_progress, "superseded").await;
-                finish_progress(facts_progress, "superseded").await;
-                return ComputeOutcome::Superseded;
-            }
-
-            let db = session_lock.db();
-            db.project().map(|_| db.clone())
-        }) else {
-            tracing::info!("Task: No project configured, skipping initialization.");
-            finish_progress(environment_progress, "skipped").await;
-            finish_progress(facts_progress, "skipped").await;
-            return ComputeOutcome::Skipped;
-        };
-
-        let (stage_tx, mut stage_rx) = tokio::sync::mpsc::unbounded_channel::<RefreshStage>();
-        let mut task = tokio::task::spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| {
-                compute_refresh(&compute_db, |stage| {
-                    let _ = stage_tx.send(stage);
-                })
-            }))
-        });
-
-        let result = loop {
-            tokio::select! {
-                maybe_stage = stage_rx.recv() => {
-                    if let Some(stage) = maybe_stage {
-                        report_refresh_stage(
-                            stage,
-                            progress,
-                            environment_progress,
-                            facts_progress,
-                        )
-                        .await;
-                    } else {
-                        break task.await.expect("project refresh compute task must not panic");
-                    }
-                }
-                result = &mut task => {
-                    break result.expect("project refresh compute task must not panic");
-                }
-            }
-        };
-
-        while let Ok(stage) = stage_rx.try_recv() {
-            report_refresh_stage(stage, progress, environment_progress, facts_progress).await;
-        }
-
-        match result {
-            Ok(Some(refresh)) => {
-                finish_progress(environment_progress, "complete").await;
-                return ComputeOutcome::Computed(refresh);
-            }
-            Ok(None) => {
+        let (compute_db, project) = match capture_refresh_db(session, project_refresh, epoch).await
+        {
+            CaptureOutcome::Captured { db, project } => (db, project),
+            CaptureOutcome::Skipped => {
                 finish_progress(environment_progress, "skipped").await;
                 finish_progress(facts_progress, "skipped").await;
                 return ComputeOutcome::Skipped;
             }
-            Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+            CaptureOutcome::Superseded => {
+                finish_progress(environment_progress, "superseded").await;
+                finish_progress(facts_progress, "superseded").await;
+                return ComputeOutcome::Superseded;
+            }
+        };
+
+        if project_refresh.is_stale(epoch) {
+            tracing::debug!(epoch, "Skipping stale project refresh before compute jobs");
+            finish_progress(environment_progress, "superseded").await;
+            finish_progress(facts_progress, "superseded").await;
+            return ComputeOutcome::Superseded;
+        }
+
+        let handles = spawn_refresh_jobs(
+            compute_db,
+            project,
+            progress,
+            environment_progress,
+            facts_progress,
+        )
+        .await;
+        let result = collect_refresh_jobs(handles).await;
+
+        if project_refresh.is_stale(epoch) {
+            tracing::debug!(epoch, "Skipping stale project refresh after compute jobs");
+            finish_progress(environment_progress, "superseded").await;
+            finish_progress(facts_progress, "superseded").await;
+            return ComputeOutcome::Superseded;
+        }
+
+        match result {
+            RefreshJobsOutcome::Computed(refresh) => {
+                finish_progress(environment_progress, "complete").await;
+                return ComputeOutcome::Computed(refresh);
+            }
+            RefreshJobsOutcome::Cancelled(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 finish_progress(environment_progress, "retrying").await;
                 finish_progress(facts_progress, "retrying").await;
                 tracing::debug!(
@@ -474,7 +493,7 @@ async fn compute_project_refresh(
                     "Project refresh compute cancelled; retrying with fresh database clone"
                 );
             }
-            Err(cancelled) => {
+            RefreshJobsOutcome::Cancelled(cancelled) => {
                 finish_progress(environment_progress, "cancelled").await;
                 finish_progress(facts_progress, "cancelled").await;
                 tracing::warn!(
@@ -488,6 +507,229 @@ async fn compute_project_refresh(
     }
 
     unreachable!("project refresh retry loop must return")
+}
+
+async fn capture_refresh_db(
+    session: &Arc<Mutex<Session>>,
+    project_refresh: &ProjectRefreshState,
+    epoch: u64,
+) -> CaptureOutcome {
+    let session_lock = session.lock().await;
+    if project_refresh.is_stale(epoch) {
+        tracing::debug!(
+            epoch,
+            "Skipping stale project refresh after locking session"
+        );
+        return CaptureOutcome::Superseded;
+    }
+
+    let db = session_lock.db();
+    let Some(project) = db.project() else {
+        tracing::info!("Task: No project configured, skipping initialization.");
+        return CaptureOutcome::Skipped;
+    };
+
+    CaptureOutcome::Captured {
+        db: db.clone(),
+        project,
+    }
+}
+
+async fn spawn_refresh_jobs(
+    compute_db: DjangoDatabase,
+    project: Project,
+    reporter: &ProgressReporter,
+    environment_progress: &mut Option<ProgressItem>,
+    facts_progress: &mut Option<ProgressItem>,
+) -> RefreshJobHandles {
+    let search_paths = spawn_refresh_search_paths_job(compute_db.clone(), project);
+    let settings_sources = spawn_refresh_settings_source_paths_job(compute_db.clone(), project);
+    let model_modules = spawn_refresh_model_module_paths_job(compute_db.clone(), project);
+    let template_library_modules =
+        spawn_refresh_template_library_module_paths_job(compute_db.clone(), project);
+    let template_tag_candidates =
+        spawn_refresh_template_tag_candidate_paths_job(compute_db, project);
+
+    report_refresh_stage(
+        RefreshStage::ResolveEnvironment,
+        reporter,
+        environment_progress,
+        facts_progress,
+    )
+    .await;
+    report_refresh_stage(
+        RefreshStage::ScanSettings,
+        reporter,
+        environment_progress,
+        facts_progress,
+    )
+    .await;
+    report_refresh_stage(
+        RefreshStage::DiscoverModelModules,
+        reporter,
+        environment_progress,
+        facts_progress,
+    )
+    .await;
+    report_refresh_stage(
+        RefreshStage::DiscoverTemplateLibraries,
+        reporter,
+        environment_progress,
+        facts_progress,
+    )
+    .await;
+    report_refresh_stage(
+        RefreshStage::DiscoverTemplateTagCandidates,
+        reporter,
+        environment_progress,
+        facts_progress,
+    )
+    .await;
+
+    RefreshJobHandles {
+        search_paths,
+        settings_sources,
+        model_modules,
+        template_library_modules,
+        template_tag_candidates,
+    }
+}
+
+fn spawn_refresh_search_paths_job(db: DjangoDatabase, project: Project) -> SearchPathsJobHandle {
+    tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| {
+            compute_refresh_search_paths(&db, project)
+        }))
+    })
+}
+
+fn spawn_refresh_settings_source_paths_job(
+    db: DjangoDatabase,
+    project: Project,
+) -> FilePathsJobHandle {
+    tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| {
+            compute_refresh_settings_source_paths(&db, project)
+        }))
+    })
+}
+
+fn spawn_refresh_model_module_paths_job(
+    db: DjangoDatabase,
+    project: Project,
+) -> FilePathsJobHandle {
+    tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| {
+            compute_refresh_model_module_paths(&db, project)
+        }))
+    })
+}
+
+fn spawn_refresh_template_library_module_paths_job(
+    db: DjangoDatabase,
+    project: Project,
+) -> FilePathsJobHandle {
+    tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| {
+            compute_refresh_template_library_module_paths(&db, project)
+        }))
+    })
+}
+
+fn spawn_refresh_template_tag_candidate_paths_job(
+    db: DjangoDatabase,
+    project: Project,
+) -> FilePathsJobHandle {
+    tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| {
+            compute_refresh_template_tag_candidate_paths(&db, project)
+        }))
+    })
+}
+
+async fn collect_refresh_jobs(handles: RefreshJobHandles) -> RefreshJobsOutcome {
+    let mut cancellation = None;
+    let mut file_paths = Vec::new();
+
+    let search_paths = match await_search_paths_job(handles.search_paths).await {
+        Ok(search_paths) => Some(search_paths),
+        Err(cancelled) => {
+            remember_cancellation(&mut cancellation, cancelled);
+            None
+        }
+    };
+
+    collect_file_paths_job(
+        RefreshStage::ScanSettings,
+        handles.settings_sources,
+        &mut file_paths,
+        &mut cancellation,
+    )
+    .await;
+    collect_file_paths_job(
+        RefreshStage::DiscoverModelModules,
+        handles.model_modules,
+        &mut file_paths,
+        &mut cancellation,
+    )
+    .await;
+    collect_file_paths_job(
+        RefreshStage::DiscoverTemplateLibraries,
+        handles.template_library_modules,
+        &mut file_paths,
+        &mut cancellation,
+    )
+    .await;
+    collect_file_paths_job(
+        RefreshStage::DiscoverTemplateTagCandidates,
+        handles.template_tag_candidates,
+        &mut file_paths,
+        &mut cancellation,
+    )
+    .await;
+
+    if let Some(cancelled) = cancellation {
+        return RefreshJobsOutcome::Cancelled(cancelled);
+    }
+
+    let Some(search_paths) = search_paths else {
+        unreachable!("cancelled search-path job returned without cancellation")
+    };
+
+    RefreshJobsOutcome::Computed(RefreshData::from_parts(search_paths, file_paths))
+}
+
+async fn await_search_paths_job(handle: SearchPathsJobHandle) -> SearchPathsJobResult {
+    handle
+        .await
+        .expect("project refresh search-path task must not panic")
+}
+
+async fn collect_file_paths_job(
+    stage: RefreshStage,
+    handle: FilePathsJobHandle,
+    file_paths: &mut Vec<Utf8PathBuf>,
+    cancellation: &mut Option<salsa::Cancelled>,
+) {
+    match await_file_paths_job(stage, handle).await {
+        Ok(paths) => file_paths.extend(paths),
+        Err(cancelled) => remember_cancellation(cancellation, cancelled),
+    }
+}
+
+async fn await_file_paths_job(
+    stage: RefreshStage,
+    handle: FilePathsJobHandle,
+) -> FilePathsJobResult {
+    handle.await.unwrap_or_else(|error| {
+        panic!("project refresh {stage:?} task must not panic: {error}");
+    })
+}
+
+fn remember_cancellation(cancellation: &mut Option<salsa::Cancelled>, cancelled: salsa::Cancelled) {
+    if cancellation.is_none() {
+        *cancellation = Some(cancelled);
+    }
 }
 
 async fn report_refresh_stage(
@@ -508,7 +750,6 @@ async fn report_refresh_stage(
         RefreshStage::DiscoverModelModules
         | RefreshStage::DiscoverTemplateLibraries
         | RefreshStage::DiscoverTemplateTagCandidates => {
-            finish_progress(environment_progress, "complete").await;
             if facts_progress.is_none() {
                 *facts_progress = Some(reporter.begin(DISCOVER_PROJECT_FACTS_TITLE).await);
             }
@@ -525,22 +766,89 @@ async fn finish_progress(progress: &mut Option<ProgressItem>, message: &str) {
     }
 }
 
-#[derive(Clone, Copy)]
+type WarmJobResult = Result<(), salsa::Cancelled>;
+type WarmJobHandle = tokio::task::JoinHandle<WarmJobResult>;
+
+#[derive(Clone, Copy, Debug)]
 enum WarmStage {
     BuildTagSpecs,
+    BuildFilterAritySpecs,
+    BuildModelGraph,
     ResolveTemplateDirs,
     IndexTemplateLibraries,
     IndexTemplates,
 }
 
 impl WarmStage {
+    const ALL: [Self; 6] = [
+        Self::BuildTagSpecs,
+        Self::BuildFilterAritySpecs,
+        Self::BuildModelGraph,
+        Self::ResolveTemplateDirs,
+        Self::IndexTemplateLibraries,
+        Self::IndexTemplates,
+    ];
+
     fn message(self) -> &'static str {
         match self {
             Self::BuildTagSpecs => "Building tag specs",
+            Self::BuildFilterAritySpecs => "Building filter arity specs",
+            Self::BuildModelGraph => "Building model graph",
             Self::ResolveTemplateDirs => "Resolving template directories",
             Self::IndexTemplateLibraries => "Indexing template libraries",
             Self::IndexTemplates => "Indexing templates",
         }
+    }
+
+    fn spawn(
+        self,
+        snapshot: SessionSnapshot,
+        project_refresh: ProjectRefreshState,
+        epoch: u64,
+    ) -> WarmJobHandle {
+        tokio::task::spawn_blocking(move || {
+            salsa::Cancelled::catch(AssertUnwindSafe(|| {
+                self.run(&snapshot, &project_refresh, epoch);
+            }))
+        })
+    }
+
+    fn run(self, snapshot: &SessionSnapshot, project_refresh: &ProjectRefreshState, epoch: u64) {
+        if project_refresh.is_stale(epoch) {
+            return;
+        }
+
+        let db = snapshot.db();
+        let Some(project) = db.project() else {
+            return;
+        };
+
+        match self {
+            Self::BuildTagSpecs => {
+                let _ = db.tag_specs();
+            }
+            Self::BuildFilterAritySpecs => {
+                let _ = db.filter_arity_specs();
+            }
+            Self::BuildModelGraph => {
+                let _ = db.model_graph();
+            }
+            Self::ResolveTemplateDirs => {
+                let _ = db.template_dirs();
+            }
+            Self::IndexTemplateLibraries => {
+                let _ = db.template_libraries();
+            }
+            Self::IndexTemplates => {
+                let _ = project_template_files(db, project);
+            }
+        }
+    }
+
+    async fn join(self, handle: WarmJobHandle) -> WarmJobResult {
+        handle.await.unwrap_or_else(|error| {
+            panic!("project warm-up {self:?} task must not panic: {error}");
+        })
     }
 }
 
@@ -550,64 +858,27 @@ async fn warm_project_queries(
     epoch: u64,
     progress: &ProgressItem,
 ) {
-    let (stage_tx, mut stage_rx) = tokio::sync::mpsc::unbounded_channel::<WarmStage>();
-    let mut task = tokio::task::spawn_blocking(move || {
-        salsa::Cancelled::catch(AssertUnwindSafe(|| {
-            let db = snapshot.db();
-            let Some(project) = db.project() else {
-                return;
-            };
+    if project_refresh.is_stale(epoch) {
+        return;
+    }
 
-            if project_refresh.is_stale(epoch) {
-                return;
-            }
-            let _ = stage_tx.send(WarmStage::BuildTagSpecs);
-            let _ = db.tag_specs();
-
-            if project_refresh.is_stale(epoch) {
-                return;
-            }
-            let _ = stage_tx.send(WarmStage::ResolveTemplateDirs);
-            let _ = db.template_dirs();
-
-            if project_refresh.is_stale(epoch) {
-                return;
-            }
-            let _ = stage_tx.send(WarmStage::IndexTemplateLibraries);
-            let _ = db.template_libraries();
-
-            if project_refresh.is_stale(epoch) {
-                return;
-            }
-            let _ = stage_tx.send(WarmStage::IndexTemplates);
-            let _ = project_template_files(db, project);
-        }))
-    });
-
-    let result = loop {
-        tokio::select! {
-            maybe_stage = stage_rx.recv() => {
-                if let Some(stage) = maybe_stage {
-                    progress.report(stage.message()).await;
-                } else {
-                    break task.await.expect("project warm-up task must not panic");
-                }
-            }
-            result = &mut task => {
-                break result.expect("project warm-up task must not panic");
-            }
-        }
-    };
-
-    while let Ok(stage) = stage_rx.try_recv() {
+    let mut handles = Vec::new();
+    for stage in WarmStage::ALL {
+        handles.push((
+            stage,
+            stage.spawn(snapshot.clone(), project_refresh.clone(), epoch),
+        ));
         progress.report(stage.message()).await;
     }
 
-    if let Err(cancelled) = result {
-        tracing::debug!(
-            ?cancelled,
-            "Project refresh warm-up cancelled; newer inputs will re-warm queries"
-        );
+    for (stage, handle) in handles {
+        if let Err(cancelled) = stage.join(handle).await {
+            tracing::debug!(
+                ?cancelled,
+                ?stage,
+                "Project refresh warm-up cancelled; newer inputs will re-warm queries"
+            );
+        }
     }
 }
 

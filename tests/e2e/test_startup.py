@@ -69,12 +69,26 @@ async def no_progress_client(lsp_client: LanguageClient):
     await lsp_client.shutdown_session()
 
 
+async def wait_for_notification(
+    client: LanguageClient,
+    method: str,
+    timeout: float = 5,
+) -> None:
+    future = asyncio.wrap_future(client.protocol.wait_for_notification(method))
+    await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
+
+
 async def wait_for_log_message(client: LanguageClient, prefix: str) -> None:
-    while not any(message.message.startswith(prefix) for message in client.log_messages):
-        await asyncio.wait_for(
-            client.wait_for_notification(types.WINDOW_LOG_MESSAGE),
-            timeout=5,
-        )
+    def found_message() -> bool:
+        return any(message.message.startswith(prefix) for message in client.log_messages)
+
+    while not found_message():
+        try:
+            await wait_for_notification(client, types.WINDOW_LOG_MESSAGE)
+        except TimeoutError as exc:
+            if found_message():
+                return
+            raise AssertionError(f"Timed out waiting for log message: {prefix}") from exc
 
 
 async def wait_for_progress_titles(
@@ -106,7 +120,15 @@ async def wait_for_progress_titles(
         return titles
 
     while not expected_titles <= completed_titles():
-        await asyncio.wait_for(client.wait_for_notification(types.PROGRESS), timeout=5)
+        try:
+            await wait_for_notification(client, types.PROGRESS)
+        except TimeoutError as exc:
+            observed_titles = completed_titles()
+            missing_titles = expected_titles - observed_titles
+            raise AssertionError(
+                f"Timed out waiting for progress titles: {sorted(missing_titles)}; "
+                f"observed: {sorted(observed_titles)}"
+            ) from exc
 
     return client.progress_reports
 
@@ -206,6 +228,8 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
         "Discovering template tag candidates",
         "Applying project facts",
         "Building tag specs",
+        "Building filter arity specs",
+        "Building model graph",
         "Resolving template directories",
         "Indexing template libraries",
         "Indexing templates",

@@ -74,6 +74,22 @@ fn project_with_template_settings(
         .build(db)
 }
 
+fn build_refresh_data(db: &TestDatabase) -> RefreshData {
+    let project = db.project().expect("project should be configured");
+    let search_paths = compute_refresh_search_paths(db, project);
+    let mut file_paths = compute_refresh_settings_source_paths(db, project);
+    file_paths.extend(compute_refresh_model_module_paths(db, project));
+    file_paths.extend(compute_refresh_template_library_module_paths(db, project));
+    file_paths.extend(compute_refresh_template_tag_candidate_paths(db, project));
+
+    RefreshData::from_parts(search_paths, file_paths)
+}
+
+fn apply_project_refresh(db: &mut TestDatabase) {
+    let refresh = build_refresh_data(db);
+    apply_refresh(db, refresh);
+}
+
 fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> String {
     let installed_apps = installed_apps
         .iter()
@@ -466,7 +482,7 @@ fn project_model_graph_refresh_reads_changed_project_file() {
         "/project/blog/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_none());
@@ -499,7 +515,7 @@ fn project_model_discovery_refreshes_through_project_refresh() {
         "/project/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_some());
@@ -532,7 +548,7 @@ fn external_model_graph_refresh_reads_changed_site_packages_file() {
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_none());
@@ -592,7 +608,7 @@ fn external_model_discovery_refreshes_through_project_refresh() {
         "/project/.venv/lib/python3.12/site-packages/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_some());
@@ -626,7 +642,7 @@ fn external_model_discovery_removes_deleted_models_through_project_refresh() {
     assert!(graph.get("Comment").is_some());
 
     db.remove_file("/project/.venv/lib/python3.12/site-packages/comments/models.py");
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_some());
@@ -656,7 +672,7 @@ fn external_model_graph_reads_extra_pythonpath_models() {
 }
 
 #[test]
-fn refresh_external_data_discovers_site_packages_created_after_bootstrap() {
+fn project_refresh_discovers_site_packages_created_after_bootstrap() {
     let mut db = TestDatabase::new();
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -684,7 +700,7 @@ fn refresh_external_data_discovers_site_packages_created_after_bootstrap() {
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
     );
 
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
@@ -714,21 +730,7 @@ fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
     );
 
-    let mut stages = Vec::new();
-    let refresh =
-        compute_refresh(&db, |stage| stages.push(stage)).expect("project should be configured");
-    apply_refresh(&mut db, refresh);
-
-    assert_eq!(
-        stages,
-        vec![
-            RefreshStage::ResolveEnvironment,
-            RefreshStage::ScanSettings,
-            RefreshStage::DiscoverModelModules,
-            RefreshStage::DiscoverTemplateLibraries,
-            RefreshStage::DiscoverTemplateTagCandidates,
-        ]
-    );
+    apply_project_refresh(&mut db);
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
