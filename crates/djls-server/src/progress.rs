@@ -102,9 +102,26 @@ impl ProgressItem {
     }
 
     pub(crate) async fn report(&self, message: &str) {
+        self.send_report(message.to_string(), None).await;
+    }
+
+    pub(crate) async fn report_fraction(&self, done: usize, total: usize, message: &str) {
+        let message = if total == 0 {
+            format!("{done} {message}")
+        } else {
+            format!("{done}/{total} {message}")
+        };
+        let percentage = done.saturating_mul(100).checked_div(total).map(|value| {
+            u32::try_from(value.min(100)).expect("progress percentage is clamped to 100")
+        });
+
+        self.send_report(message, percentage).await;
+    }
+
+    async fn send_report(&self, message: String, percentage: Option<u32>) {
         match self.state.as_ref() {
             Some(ProgressState::Lsp { client, token }) => {
-                send_report(client, token.clone(), message.to_string()).await;
+                send_report(client, token.clone(), message, percentage).await;
             }
             Some(ProgressState::Log) | None => {
                 tracing::info!("{}: {message}", self.title);
@@ -156,7 +173,12 @@ async fn send_begin(client: &Client, token: ls_types::ProgressToken, title: Stri
         .await;
 }
 
-async fn send_report(client: &Client, token: ls_types::ProgressToken, message: String) {
+async fn send_report(
+    client: &Client,
+    token: ls_types::ProgressToken,
+    message: String,
+    percentage: Option<u32>,
+) {
     client
         .send_notification::<ProgressNotification>(ls_types::ProgressParams {
             token,
@@ -164,7 +186,7 @@ async fn send_report(client: &Client, token: ls_types::ProgressToken, message: S
                 ls_types::WorkDoneProgressReport {
                     cancellable: None,
                     message: Some(message),
-                    percentage: None,
+                    percentage,
                 },
             )),
         })
