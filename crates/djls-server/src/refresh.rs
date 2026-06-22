@@ -38,23 +38,40 @@ use crate::session::ProjectRefreshState;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
+use crate::status::ServerStatusHealth;
+use crate::status::ServerStatusNotification;
+use crate::status::ServerStatusParams;
 
 enum RefreshOutcome {
     Complete,
-    Skipped,
+    NoProjectConfigured,
     Superseded,
+    Failed(anyhow::Error),
+}
+
+impl RefreshOutcome {
+    fn progress_message(&self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::NoProjectConfigured => "skipped",
+            Self::Superseded => "superseded",
+            Self::Failed(_) => "failed",
+        }
+    }
 }
 
 enum LoadOutcome {
     Loaded(Box<Settings>),
-    Skipped,
+    NoProjectConfigured,
     Superseded,
+    Failed(anyhow::Error),
 }
 
 enum ComputeOutcome {
     Computed(RefreshData),
-    Skipped,
+    NoProjectConfigured,
     Superseded,
+    Failed(anyhow::Error),
 }
 
 enum CaptureOutcome {
@@ -62,7 +79,7 @@ enum CaptureOutcome {
         db: DjangoDatabase,
         project: Project,
     },
-    Skipped,
+    NoProjectConfigured,
     Superseded,
 }
 
@@ -121,7 +138,7 @@ pub(crate) async fn run_project_refresh(
     let progress = ProgressReporter::new(client.clone(), request.client_info.clone());
     let result = run_project_refresh_inner(
         session,
-        client,
+        client.clone(),
         &request.project_refresh,
         request.diagnostic_publish_lock,
         &progress,
@@ -129,7 +146,7 @@ pub(crate) async fn run_project_refresh(
     )
     .await;
 
-    if result.is_ok() {
+    if !matches!(&result, RefreshOutcome::Failed(_)) {
         tracing::info!(
             "{} in {:?}",
             request.reason.completion_log(),
@@ -137,7 +154,39 @@ pub(crate) async fn run_project_refresh(
         );
     }
 
-    result.map(|_| ())
+    match result {
+        RefreshOutcome::Complete => {
+            client
+                .send_notification::<ServerStatusNotification>(ServerStatusParams {
+                    health: ServerStatusHealth::Ok,
+                    quiescent: true,
+                    message: "Ready".to_string(),
+                })
+                .await;
+            Ok(())
+        }
+        RefreshOutcome::NoProjectConfigured => {
+            client
+                .send_notification::<ServerStatusNotification>(ServerStatusParams {
+                    health: ServerStatusHealth::Warning,
+                    quiescent: true,
+                    message: "No Django project configured".to_string(),
+                })
+                .await;
+            Ok(())
+        }
+        RefreshOutcome::Superseded => Ok(()),
+        RefreshOutcome::Failed(error) => {
+            client
+                .send_notification::<ServerStatusNotification>(ServerStatusParams {
+                    health: ServerStatusHealth::Error,
+                    quiescent: true,
+                    message: format!("Project refresh failed: {error}"),
+                })
+                .await;
+            Err(error)
+        }
+    }
 }
 
 async fn run_project_refresh_inner(
@@ -147,13 +196,13 @@ async fn run_project_refresh_inner(
     diagnostic_publish_lock: Arc<Mutex<()>>,
     progress: &ProgressReporter,
     epoch: u64,
-) -> anyhow::Result<RefreshOutcome> {
+) -> RefreshOutcome {
     if project_refresh.is_stale(epoch) {
         tracing::debug!(
             epoch,
             "Skipping stale project refresh before locking session"
         );
-        return Ok(RefreshOutcome::Superseded);
+        return RefreshOutcome::Superseded;
     }
 
     // Start visible progress before touching the session. Clients often send
@@ -168,7 +217,7 @@ async fn run_project_refresh_inner(
         load_and_apply_project_settings(&session, project_refresh, epoch, &mut environment_progress)
             .await
     {
-        return Ok(outcome);
+        return outcome;
     }
 
     let mut facts_progress = None;
@@ -183,14 +232,15 @@ async fn run_project_refresh_inner(
     .await
     {
         ComputeOutcome::Computed(refresh) => refresh,
-        ComputeOutcome::Skipped => return Ok(RefreshOutcome::Skipped),
-        ComputeOutcome::Superseded => return Ok(RefreshOutcome::Superseded),
+        ComputeOutcome::NoProjectConfigured => return RefreshOutcome::NoProjectConfigured,
+        ComputeOutcome::Superseded => return RefreshOutcome::Superseded,
+        ComputeOutcome::Failed(error) => return RefreshOutcome::Failed(error),
     };
 
     if project_refresh.is_stale(epoch) {
         tracing::debug!(epoch, "Skipping stale project refresh before apply");
         finish_progress(&mut facts_progress, "superseded").await;
-        return Ok(RefreshOutcome::Superseded);
+        return RefreshOutcome::Superseded;
     }
 
     if facts_progress.is_none() {
@@ -208,13 +258,13 @@ async fn run_project_refresh_inner(
             }
             Err(outcome) => {
                 finish_progress(&mut facts_progress, outcome.progress_message()).await;
-                return Ok(outcome);
+                return outcome;
             }
         };
 
     if project_refresh.is_stale(epoch) {
         tracing::debug!(epoch, "Skipping stale project refresh before warm-up");
-        return Ok(RefreshOutcome::Superseded);
+        return RefreshOutcome::Superseded;
     }
 
     let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
@@ -229,20 +279,18 @@ async fn run_project_refresh_inner(
     if project_refresh.is_stale(epoch) {
         tracing::debug!(epoch, "Skipping stale project refresh after warm-up");
         warm_progress.finish("superseded").await;
-        return Ok(RefreshOutcome::Superseded);
+        return RefreshOutcome::Superseded;
     }
     warm_progress.finish(warm_outcome.progress_message()).await;
 
     let diagnostics_progress = progress.begin(PUBLISH_DIAGNOSTICS_TITLE).await;
     diagnostics_progress.report("Publishing diagnostics").await;
+    let units = CountUnits {
+        singular: "diagnostics document",
+        plural: "diagnostics documents",
+    };
     diagnostics_progress
-        .report(&count_message(
-            documents.len(),
-            CountUnits {
-                singular: "diagnostics document",
-                plural: "diagnostics documents",
-            },
-        ))
+        .report(&count_message(documents.len(), units))
         .await;
     if !republish_snapshot_diagnostics(
         client,
@@ -255,21 +303,11 @@ async fn run_project_refresh_inner(
     .await
     {
         diagnostics_progress.finish("superseded").await;
-        return Ok(RefreshOutcome::Superseded);
+        return RefreshOutcome::Superseded;
     }
     diagnostics_progress.finish("complete").await;
 
-    Ok(RefreshOutcome::Complete)
-}
-
-impl RefreshOutcome {
-    fn progress_message(&self) -> &'static str {
-        match self {
-            Self::Complete => "complete",
-            Self::Skipped => "skipped",
-            Self::Superseded => "superseded",
-        }
-    }
+    RefreshOutcome::Complete
 }
 
 async fn load_and_apply_project_settings(
@@ -280,13 +318,17 @@ async fn load_and_apply_project_settings(
 ) -> Result<(), RefreshOutcome> {
     let settings = match load_project_settings(session, project_refresh, epoch).await {
         LoadOutcome::Loaded(settings) => *settings,
-        LoadOutcome::Skipped => {
+        LoadOutcome::NoProjectConfigured => {
             finish_progress(progress, "skipped").await;
-            return Err(RefreshOutcome::Skipped);
+            return Err(RefreshOutcome::NoProjectConfigured);
         }
         LoadOutcome::Superseded => {
             finish_progress(progress, "superseded").await;
             return Err(RefreshOutcome::Superseded);
+        }
+        LoadOutcome::Failed(error) => {
+            finish_progress(progress, "failed").await;
+            return Err(RefreshOutcome::Failed(error));
         }
     };
 
@@ -334,7 +376,7 @@ async fn apply_project_settings(
 
     let db = session_lock.db_mut();
     if db.project().is_none() {
-        return Err(RefreshOutcome::Skipped);
+        return Err(RefreshOutcome::NoProjectConfigured);
     }
 
     db.apply_project_settings(settings);
@@ -355,7 +397,7 @@ async fn apply_project_facts(
 
     let db = session_lock.db_mut();
     if db.project().is_none() {
-        return Err(RefreshOutcome::Skipped);
+        return Err(RefreshOutcome::NoProjectConfigured);
     }
 
     let t = std::time::Instant::now();
@@ -394,7 +436,7 @@ async fn load_project_settings(
         })
     }) else {
         tracing::info!("Task: No project configured, skipping settings load.");
-        return LoadOutcome::Skipped;
+        return LoadOutcome::NoProjectConfigured;
     };
 
     let settings =
@@ -406,7 +448,7 @@ async fn load_project_settings(
         Ok(settings) => settings,
         Err(err) => {
             tracing::error!("Error loading settings: {}", err);
-            return LoadOutcome::Skipped;
+            return LoadOutcome::Failed(err.into());
         }
     };
 
@@ -452,10 +494,10 @@ async fn compute_project_refresh(
         let (compute_db, project) = match capture_refresh_db(session, project_refresh, epoch).await
         {
             CaptureOutcome::Captured { db, project } => (db, project),
-            CaptureOutcome::Skipped => {
+            CaptureOutcome::NoProjectConfigured => {
                 finish_progress(environment_progress, "skipped").await;
                 finish_progress(facts_progress, "skipped").await;
-                return ComputeOutcome::Skipped;
+                return ComputeOutcome::NoProjectConfigured;
             }
             CaptureOutcome::Superseded => {
                 finish_progress(environment_progress, "superseded").await;
@@ -510,7 +552,9 @@ async fn compute_project_refresh(
                     retries = SNAPSHOT_CANCEL_RETRIES,
                     "Project refresh compute cancelled repeatedly; project facts may be stale until the next refresh"
                 );
-                return ComputeOutcome::Skipped;
+                return ComputeOutcome::Failed(anyhow::anyhow!(
+                    "project refresh compute cancelled after {SNAPSHOT_CANCEL_RETRIES} retries"
+                ));
             }
         }
     }
@@ -535,7 +579,7 @@ async fn capture_refresh_db(
     let db = session_lock.db();
     let Some(project) = db.project() else {
         tracing::info!("Task: No project configured, skipping initialization.");
-        return CaptureOutcome::Skipped;
+        return CaptureOutcome::NoProjectConfigured;
     };
 
     CaptureOutcome::Captured {
@@ -1232,7 +1276,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn project_settings_load_error_skips_refresh_inputs() {
+    async fn project_settings_load_error_fails_refresh() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -1255,6 +1299,6 @@ mod tests {
 
         let outcome = load_project_settings(&session, &project_refresh, epoch).await;
 
-        assert!(matches!(outcome, LoadOutcome::Skipped));
+        assert!(matches!(outcome, LoadOutcome::Failed(_)));
     }
 }

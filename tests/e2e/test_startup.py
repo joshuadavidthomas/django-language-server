@@ -14,6 +14,7 @@ from .conftest import TEST_WORKSPACE
 from .utils import position_after
 
 BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
+SERVER_STATUS = "djls/serverStatus"
 EXPECTED_STARTUP_PROGRESS_TITLES = {
     "Resolving Django environment",
     "Discovering Django project facts",
@@ -58,6 +59,18 @@ def has_counted_unit(messages: list[str], units: tuple[str, str]) -> bool:
 
 @pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
 async def startup_client(lsp_client: LanguageClient):
+    lsp_client.djls_server_statuses = []
+
+    @lsp_client.feature(SERVER_STATUS)
+    def server_status(client: LanguageClient, params):
+        client.djls_server_statuses.append(
+            {
+                "health": params.health,
+                "quiescent": params.quiescent,
+                "message": params.message,
+            }
+        )
+
     initialize_result = await lsp_client.initialize_session(
         types.InitializeParams(
             capabilities=client_capabilities("visual-studio-code"),
@@ -86,6 +99,18 @@ def no_progress_capabilities() -> types.ClientCapabilities:
 
 @pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
 async def no_progress_client(lsp_client: LanguageClient):
+    lsp_client.djls_server_statuses = []
+
+    @lsp_client.feature(SERVER_STATUS)
+    def server_status(client: LanguageClient, params):
+        client.djls_server_statuses.append(
+            {
+                "health": params.health,
+                "quiescent": params.quiescent,
+                "message": params.message,
+            }
+        )
+
     await lsp_client.initialize_session(
         types.InitializeParams(
             capabilities=no_progress_capabilities(),
@@ -93,6 +118,40 @@ async def no_progress_client(lsp_client: LanguageClient):
                 types.WorkspaceFolder(
                     uri=TEST_WORKSPACE.as_uri(),
                     name="test_project",
+                )
+            ],
+        )
+    )
+
+    yield lsp_client
+
+    await lsp_client.shutdown_session()
+
+
+@pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
+async def bad_settings_client(lsp_client: LanguageClient, tmp_path):
+    workspace = tmp_path / "bad_settings"
+    workspace.mkdir()
+    (workspace / "djls.toml").write_text("debug = not_a_boolean", encoding="utf-8")
+    lsp_client.djls_server_statuses = []
+
+    @lsp_client.feature(SERVER_STATUS)
+    def server_status(client: LanguageClient, params):
+        client.djls_server_statuses.append(
+            {
+                "health": params.health,
+                "quiescent": params.quiescent,
+                "message": params.message,
+            }
+        )
+
+    await lsp_client.initialize_session(
+        types.InitializeParams(
+            capabilities=client_capabilities("visual-studio-code"),
+            workspace_folders=[
+                types.WorkspaceFolder(
+                    uri=workspace.as_uri(),
+                    name="bad_settings",
                 )
             ],
         )
@@ -178,6 +237,82 @@ async def test_initialize_returns_protocol_capabilities_without_project_loading(
     assert capabilities.text_document_sync is not None
     assert capabilities.completion_provider is not None
     assert capabilities.diagnostic_provider is not None
+
+
+@pytest.mark.asyncio
+async def test_server_publishes_loading_and_ready_status(startup_client: LanguageClient):
+    while not any(
+        status.get("health") == "ok"
+        and status.get("quiescent") is True
+        and status.get("message") == "Ready"
+        for status in startup_client.djls_server_statuses
+    ):
+        await wait_for_notification(startup_client, SERVER_STATUS)
+
+    statuses = startup_client.djls_server_statuses
+    loading_index = next(
+        (
+            index
+            for index, status in enumerate(statuses)
+            if status.get("health") == "ok"
+            and status.get("quiescent") is False
+            and status.get("message") == "Loading Django project"
+        ),
+        None,
+    )
+    ready_index = next(
+        (
+            index
+            for index, status in enumerate(statuses)
+            if status.get("health") == "ok"
+            and status.get("quiescent") is True
+            and status.get("message") == "Ready"
+        ),
+        None,
+    )
+
+    assert loading_index is not None
+    assert ready_index is not None
+    assert loading_index < ready_index
+
+
+@pytest.mark.asyncio
+async def test_server_publishes_error_status_for_failed_refresh(
+    bad_settings_client: LanguageClient,
+):
+    while not any(
+        status.get("health") == "error"
+        and status.get("quiescent") is True
+        and str(status.get("message", "")).startswith("Project refresh failed")
+        for status in bad_settings_client.djls_server_statuses
+    ):
+        await wait_for_notification(bad_settings_client, SERVER_STATUS)
+
+    statuses = bad_settings_client.djls_server_statuses
+    loading_index = next(
+        (
+            index
+            for index, status in enumerate(statuses)
+            if status.get("health") == "ok"
+            and status.get("quiescent") is False
+            and status.get("message") == "Loading Django project"
+        ),
+        None,
+    )
+    error_index = next(
+        (
+            index
+            for index, status in enumerate(statuses)
+            if status.get("health") == "error"
+            and status.get("quiescent") is True
+            and str(status.get("message", "")).startswith("Project refresh failed")
+        ),
+        None,
+    )
+
+    assert loading_index is not None
+    assert error_index is not None
+    assert loading_index < error_index
 
 
 @pytest.mark.asyncio

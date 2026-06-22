@@ -7,6 +7,7 @@ mod queue;
 mod refresh;
 mod server;
 mod session;
+mod status;
 mod workspace;
 
 use std::io::IsTerminal;

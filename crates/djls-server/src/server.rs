@@ -17,6 +17,9 @@ use crate::refresh;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
+use crate::status::ServerStatusHealth;
+use crate::status::ServerStatusNotification;
+use crate::status::ServerStatusParams;
 
 pub(crate) struct DjangoLanguageServer {
     client: Client,
@@ -120,6 +123,18 @@ impl DjangoLanguageServer {
             reason,
         );
 
+        let message = match reason {
+            refresh::ProjectRefreshReason::Startup => "Loading Django project",
+            refresh::ProjectRefreshReason::ConfigurationChanged => "Refreshing Django project",
+        };
+        self.client
+            .send_notification::<ServerStatusNotification>(ServerStatusParams {
+                health: ServerStatusHealth::Ok,
+                quiescent: false,
+                message: message.to_string(),
+            })
+            .await;
+
         let submit_result = self
             .queue
             .submit(async move { refresh::run_project_refresh(session, client, request).await })
@@ -131,6 +146,13 @@ impl DjangoLanguageServer {
             }
             Err(e) => {
                 tracing::error!("Failed to submit task: {}", e);
+                self.client
+                    .send_notification::<ServerStatusNotification>(ServerStatusParams {
+                        health: ServerStatusHealth::Error,
+                        quiescent: true,
+                        message: format!("Project refresh failed: {e}"),
+                    })
+                    .await;
             }
         }
     }
