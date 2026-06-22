@@ -93,44 +93,27 @@ impl DjangoLanguageServer {
         unreachable!("snapshot retry loop must return")
     }
 
-    /// Bump the session's refresh epoch and queue a refresh task for the new
-    /// epoch. The task body lives in [`crate::refresh`].
-    async fn submit_project_refresh(&self, reason: refresh::ProjectRefreshReason) {
+    /// Queue a project refresh task. The task body lives in [`crate::refresh`].
+    async fn submit_project_refresh(&self) {
         let client = self.client.clone();
-        let (epoch, project_refresh, diagnostic_publish_lock, client_info) = self
-            .with_session(|session| {
-                let project_refresh = session.project_refresh().clone();
-                let epoch = project_refresh.begin_refresh();
-
-                (
-                    epoch,
-                    project_refresh,
-                    session.diagnostic_publish_lock(),
-                    session.client_info().clone(),
-                )
-            })
+        let client_info = self
+            .with_session(|session| session.client_info().clone())
             .await;
 
         let session = Arc::clone(&self.session);
-        let request = refresh::ProjectRefreshRequest::new(
-            project_refresh,
-            diagnostic_publish_lock,
-            client_info,
-            epoch,
-            reason,
-        );
-
         let submit_result = self
             .queue
-            .submit(async move { refresh::run_project_refresh(session, client, request).await })
+            .submit(async move {
+                refresh::run_project_refresh(session, client, client_info).await;
+            })
             .await;
 
         match submit_result {
             Ok(()) => {
-                tracing::info!("Task submitted successfully");
+                tracing::info!("Project refresh queued");
             }
             Err(e) => {
-                tracing::error!("Failed to submit task: {}", e);
+                tracing::error!("Failed to queue project refresh: {}", e);
             }
         }
     }
@@ -158,8 +141,6 @@ impl DjangoLanguageServer {
 
         let diagnostic_count = diagnostics.len();
         let lsp_uri_text = lsp_uri.to_string();
-        let publish_lock = self.with_session(Session::diagnostic_publish_lock).await;
-        let _publish_guard = publish_lock.lock().await;
         self.client
             .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
             .await;
@@ -244,9 +225,8 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        // Refresh project data in the background and initialize the workspace.
-        self.submit_project_refresh(refresh::ProjectRefreshReason::Startup)
-            .await;
+        // Queue project data refresh in the background.
+        self.submit_project_refresh().await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -510,7 +490,6 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Queuing configuration refresh...");
-        self.submit_project_refresh(refresh::ProjectRefreshReason::ConfigurationChanged)
-            .await;
+        self.submit_project_refresh().await;
     }
 }

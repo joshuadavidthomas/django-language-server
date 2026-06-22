@@ -281,7 +281,7 @@ async def test_unsupported_client_receives_log_fallback(
     no_progress_client: LanguageClient,
 ):
     await wait_for_log_message(no_progress_client, "Resolving Django environment")
-    await wait_for_log_message(no_progress_client, "Server initialization completed")
+    await wait_for_log_message(no_progress_client, "Project refresh completed")
 
     messages = [message.message for message in no_progress_client.log_messages]
 

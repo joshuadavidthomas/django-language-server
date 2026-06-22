@@ -1056,19 +1056,12 @@ def my_filter(value, arg):
 
     fn build_refresh_data(db: &DjangoDatabase) -> djls_project::RefreshData {
         let project = db.project().expect("project refresh data");
-        let search_paths = djls_project::compute_refresh_search_paths(db, project);
-        let mut file_paths = djls_project::compute_refresh_settings_source_paths(db, project);
-        file_paths.extend(djls_project::compute_refresh_model_module_paths(
-            db, project,
-        ));
-        file_paths.extend(djls_project::compute_refresh_template_library_module_paths(
-            db, project,
-        ));
-        file_paths.extend(djls_project::compute_refresh_template_tag_candidate_paths(
-            db, project,
-        ));
-
-        djls_project::RefreshData::from_parts(search_paths, file_paths)
+        djls_project::RefreshData::from_query_results(
+            djls_project::RefreshQuery::ALL
+                .iter()
+                .copied()
+                .map(|query| query.compute(db, project)),
+        )
     }
 
     fn apply_project_refresh(db: &mut DjangoDatabase) {

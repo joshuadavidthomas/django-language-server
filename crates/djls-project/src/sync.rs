@@ -21,9 +21,125 @@ pub struct RefreshData {
     file_paths: Vec<Utf8PathBuf>,
 }
 
-impl RefreshData {
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RefreshDataPart {
+    SearchPaths(SearchPaths),
+    FilePaths(Vec<Utf8PathBuf>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefreshQueryResult {
+    query: RefreshQuery,
+    part: RefreshDataPart,
+}
+
+impl RefreshQueryResult {
     #[must_use]
-    pub fn from_parts(search_paths: SearchPaths, mut file_paths: Vec<Utf8PathBuf>) -> Self {
+    pub fn query(&self) -> RefreshQuery {
+        self.query
+    }
+
+    #[must_use]
+    pub fn item_count(&self) -> usize {
+        match &self.part {
+            RefreshDataPart::SearchPaths(search_paths) => search_paths.iter().count(),
+            RefreshDataPart::FilePaths(paths) => paths.len(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RefreshQuery {
+    SearchPaths,
+    SettingsSources,
+    ModelModules,
+    TemplateLibraryModules,
+    TemplateTagCandidates,
+}
+
+impl RefreshQuery {
+    pub const ALL: &'static [Self] = &[
+        Self::SearchPaths,
+        Self::SettingsSources,
+        Self::ModelModules,
+        Self::TemplateLibraryModules,
+        Self::TemplateTagCandidates,
+    ];
+
+    #[must_use]
+    pub fn compute(self, db: &dyn ProjectDb, project: Project) -> RefreshQueryResult {
+        let part = match self {
+            Self::SearchPaths => RefreshDataPart::SearchPaths(SearchPaths::from_project_settings(
+                db.file_system(),
+                project.root(db),
+                project.interpreter(db),
+                project.pythonpath(db),
+            )),
+            Self::SettingsSources => RefreshDataPart::FilePaths(
+                settings_source_files(db, project)
+                    .into_iter()
+                    .map(|file| file.path(db).to_path_buf())
+                    .collect(),
+            ),
+            Self::ModelModules => RefreshDataPart::FilePaths(
+                model_modules(db, project)
+                    .iter()
+                    .map(|module| module.path().to_path_buf())
+                    .collect(),
+            ),
+            Self::TemplateLibraryModules => RefreshDataPart::FilePaths(
+                templatetag_modules(db, project)
+                    .iter()
+                    .map(|module| module.path().to_path_buf())
+                    .collect(),
+            ),
+            Self::TemplateTagCandidates => {
+                RefreshDataPart::FilePaths(templatetag_candidate_paths(db, project))
+            }
+        };
+
+        RefreshQueryResult { query: self, part }
+    }
+}
+
+impl RefreshData {
+    /// Build refresh data from the closed set of refresh query results.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the results do not contain exactly one result for each
+    /// [`RefreshQuery::ALL`] member.
+    #[must_use]
+    pub fn from_query_results(results: impl IntoIterator<Item = RefreshQueryResult>) -> Self {
+        let mut seen = Vec::new();
+        let mut search_paths = None;
+        let mut file_paths = Vec::new();
+
+        for result in results {
+            assert!(
+                !seen.contains(&result.query),
+                "refresh data must not include duplicate query results"
+            );
+            seen.push(result.query);
+
+            match result.part {
+                RefreshDataPart::SearchPaths(paths) => {
+                    search_paths = Some(paths);
+                }
+                RefreshDataPart::FilePaths(paths) => file_paths.extend(paths),
+            }
+        }
+
+        for query in RefreshQuery::ALL {
+            assert!(
+                seen.contains(query),
+                "refresh data must include every refresh query result"
+            );
+        }
+        let Some(search_paths) = search_paths else {
+            unreachable!("RefreshQuery::SearchPaths result was marked as seen")
+        };
+
         file_paths.sort();
         file_paths.dedup();
 
@@ -37,74 +153,6 @@ impl RefreshData {
     pub fn file_paths(&self) -> &[Utf8PathBuf] {
         &self.file_paths
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RefreshStage {
-    ResolveEnvironment,
-    ScanSettings,
-    DiscoverModelModules,
-    DiscoverTemplateLibraries,
-    DiscoverTemplateTagCandidates,
-}
-
-impl RefreshStage {
-    #[must_use]
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::ResolveEnvironment => "Resolving environment",
-            Self::ScanSettings => "Scanning settings",
-            Self::DiscoverModelModules => "Discovering model modules",
-            Self::DiscoverTemplateLibraries => "Discovering template libraries",
-            Self::DiscoverTemplateTagCandidates => "Discovering template tag candidates",
-        }
-    }
-}
-
-pub fn compute_refresh_search_paths(db: &dyn ProjectDb, project: Project) -> SearchPaths {
-    SearchPaths::from_project_settings(
-        db.file_system(),
-        project.root(db),
-        project.interpreter(db),
-        project.pythonpath(db),
-    )
-}
-
-pub fn compute_refresh_settings_source_paths(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<Utf8PathBuf> {
-    settings_source_files(db, project)
-        .into_iter()
-        .map(|file| file.path(db).to_path_buf())
-        .collect()
-}
-
-pub fn compute_refresh_model_module_paths(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<Utf8PathBuf> {
-    model_modules(db, project)
-        .iter()
-        .map(|module| module.path().to_path_buf())
-        .collect()
-}
-
-pub fn compute_refresh_template_library_module_paths(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<Utf8PathBuf> {
-    templatetag_modules(db, project)
-        .iter()
-        .map(|module| module.path().to_path_buf())
-        .collect()
-}
-
-pub fn compute_refresh_template_tag_candidate_paths(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> Vec<Utf8PathBuf> {
-    templatetag_candidate_paths(db, project)
 }
 
 pub fn apply_refresh(db: &mut dyn ProjectDb, refresh: RefreshData) {
