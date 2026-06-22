@@ -89,6 +89,17 @@ fn project_with_settings(
     fixture.install(db)
 }
 
+fn apply_project_refresh(db: &mut TestDatabase) {
+    let project = db.project().expect("project should be configured");
+    let search_paths = compute_refresh_search_paths(db, project);
+    let mut file_paths = compute_refresh_settings_source_paths(db, project);
+    file_paths.extend(compute_refresh_model_module_paths(db, project));
+    file_paths.extend(compute_refresh_template_library_module_paths(db, project));
+    file_paths.extend(compute_refresh_template_tag_candidate_paths(db, project));
+
+    apply_refresh(db, RefreshData::from_parts(search_paths, file_paths));
+}
+
 #[test]
 fn settings_module_file_resolves_python_module() {
     let mut db = TestDatabase::new();
@@ -434,7 +445,7 @@ fn inactive_template_libraries_rerun_after_search_root_revision_bump() {
 }
 
 #[test]
-fn refresh_external_data_updates_inactive_template_library_symbols() {
+fn project_refresh_updates_inactive_template_library_symbols() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -469,7 +480,7 @@ fn refresh_external_data_updates_inactive_template_library_symbols() {
         "/proj/crispy/templatetags/crispy.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n",
     );
-    refresh_external_data(&mut db);
+    apply_project_refresh(&mut db);
 
     assert_eq!(
         inactive_template_libraries(&db, project)

@@ -9,23 +9,11 @@ use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
 use crate::environment::templatetag_candidate_paths;
+use crate::project::Project;
 use crate::resolve::SearchPaths;
 use crate::resolve::model_modules;
 use crate::resolve::templatetag_modules;
 use crate::settings::settings_source_files;
-
-/// Refresh all external project data.
-///
-/// This is the imperative boundary between the outside world and Salsa inputs:
-/// it asks Django/Python/the filesystem for current facts, writes changed facts
-/// into the `Project` input, then lets tracked semantic queries handle editor
-/// file contents and downstream derivations.
-pub fn refresh_external_data(db: &mut dyn ProjectDb) {
-    let Some(refresh) = compute_refresh(db, |_| {}) else {
-        return;
-    };
-    apply_refresh(db, refresh);
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefreshData {
@@ -34,6 +22,17 @@ pub struct RefreshData {
 }
 
 impl RefreshData {
+    #[must_use]
+    pub fn from_parts(search_paths: SearchPaths, mut file_paths: Vec<Utf8PathBuf>) -> Self {
+        file_paths.sort();
+        file_paths.dedup();
+
+        Self {
+            search_paths,
+            file_paths,
+        }
+    }
+
     #[must_use]
     pub fn file_paths(&self) -> &[Utf8PathBuf] {
         &self.file_paths
@@ -62,50 +61,50 @@ impl RefreshStage {
     }
 }
 
-pub fn compute_refresh(
-    db: &dyn ProjectDb,
-    mut report_stage: impl FnMut(RefreshStage),
-) -> Option<RefreshData> {
-    let project = db.project()?;
-
-    report_stage(RefreshStage::ResolveEnvironment);
-    let search_paths = SearchPaths::from_project_settings(
+pub fn compute_refresh_search_paths(db: &dyn ProjectDb, project: Project) -> SearchPaths {
+    SearchPaths::from_project_settings(
         db.file_system(),
         project.root(db),
         project.interpreter(db),
         project.pythonpath(db),
-    );
+    )
+}
 
-    report_stage(RefreshStage::ScanSettings);
-    let mut file_paths: Vec<_> = settings_source_files(db, project)
+pub fn compute_refresh_settings_source_paths(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Vec<Utf8PathBuf> {
+    settings_source_files(db, project)
         .into_iter()
         .map(|file| file.path(db).to_path_buf())
-        .collect();
+        .collect()
+}
 
-    report_stage(RefreshStage::DiscoverModelModules);
-    file_paths.extend(
-        model_modules(db, project)
-            .iter()
-            .map(|module| module.path().to_path_buf()),
-    );
+pub fn compute_refresh_model_module_paths(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Vec<Utf8PathBuf> {
+    model_modules(db, project)
+        .iter()
+        .map(|module| module.path().to_path_buf())
+        .collect()
+}
 
-    report_stage(RefreshStage::DiscoverTemplateLibraries);
-    file_paths.extend(
-        templatetag_modules(db, project)
-            .iter()
-            .map(|module| module.path().to_path_buf()),
-    );
+pub fn compute_refresh_template_library_module_paths(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Vec<Utf8PathBuf> {
+    templatetag_modules(db, project)
+        .iter()
+        .map(|module| module.path().to_path_buf())
+        .collect()
+}
 
-    report_stage(RefreshStage::DiscoverTemplateTagCandidates);
-    file_paths.extend(templatetag_candidate_paths(db, project));
-
-    file_paths.sort();
-    file_paths.dedup();
-
-    Some(RefreshData {
-        search_paths,
-        file_paths,
-    })
+pub fn compute_refresh_template_tag_candidate_paths(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> Vec<Utf8PathBuf> {
+    templatetag_candidate_paths(db, project)
 }
 
 pub fn apply_refresh(db: &mut dyn ProjectDb, refresh: RefreshData) {

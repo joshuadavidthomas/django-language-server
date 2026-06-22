@@ -966,32 +966,32 @@ def my_filter(value, arg):
         fs.lock()
             .unwrap()
             .add_file(base_settings_path, settings_with_custom_library("new_tags"));
-        djls_project::refresh_external_data(&mut db);
+        apply_project_refresh(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
     }
 
     #[test]
-    fn refresh_external_data_reads_changed_star_imported_settings_source_for_template_libraries() {
+    fn project_refresh_reads_changed_star_imported_settings_source_for_template_libraries() {
         assert_refresh_updates_star_imported_settings_source("from .base import *\n");
     }
 
     #[test]
-    fn refresh_external_data_reads_changed_try_star_imported_settings_source() {
+    fn project_refresh_reads_changed_try_star_imported_settings_source() {
         assert_refresh_updates_star_imported_settings_source(
             "try:\n    from .base import *\nexcept ImportError:\n    pass\n",
         );
     }
 
     #[test]
-    fn refresh_external_data_reads_changed_conditionally_star_imported_settings_source() {
+    fn project_refresh_reads_changed_conditionally_star_imported_settings_source() {
         assert_refresh_updates_star_imported_settings_source(
             "import os\nif os.environ.get(\"EXTRA\"):\n    from .base import *\nelse:\n    from .base import *\n",
         );
     }
 
     #[test]
-    fn refresh_external_data_discovers_newly_star_imported_known_file() {
+    fn project_refresh_discovers_newly_star_imported_known_file() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -1049,9 +1049,31 @@ def my_filter(value, arg):
                 settings_with_custom_library("new_tags"),
             );
         }
-        djls_project::refresh_external_data(&mut db);
+        apply_project_refresh(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
+    }
+
+    fn build_refresh_data(db: &DjangoDatabase) -> djls_project::RefreshData {
+        let project = db.project().expect("project refresh data");
+        let search_paths = djls_project::compute_refresh_search_paths(db, project);
+        let mut file_paths = djls_project::compute_refresh_settings_source_paths(db, project);
+        file_paths.extend(djls_project::compute_refresh_model_module_paths(
+            db, project,
+        ));
+        file_paths.extend(djls_project::compute_refresh_template_library_module_paths(
+            db, project,
+        ));
+        file_paths.extend(djls_project::compute_refresh_template_tag_candidate_paths(
+            db, project,
+        ));
+
+        djls_project::RefreshData::from_parts(search_paths, file_paths)
+    }
+
+    fn apply_project_refresh(db: &mut DjangoDatabase) {
+        let refresh = build_refresh_data(db);
+        djls_project::apply_refresh(db, refresh);
     }
 
     #[test]
@@ -1089,7 +1111,7 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let refresh = djls_project::compute_refresh(&db, |_| {}).expect("project refresh data");
+        let refresh = build_refresh_data(&db);
         let file_paths: Vec<_> = refresh.file_paths().to_vec();
         assert!(!file_paths.is_empty());
         djls_project::apply_refresh(&mut db, refresh);
@@ -1112,7 +1134,7 @@ def my_filter(value, arg):
             .collect();
         assert!(!root_revisions.is_empty());
 
-        let refresh = djls_project::compute_refresh(&db, |_| {}).expect("project refresh data");
+        let refresh = build_refresh_data(&db);
         djls_project::apply_refresh(&mut db, refresh);
 
         let unchanged_file_revisions: Vec<_> = file_paths
