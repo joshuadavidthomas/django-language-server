@@ -1089,7 +1089,7 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let refresh = djls_project::compute_refresh(&db).expect("project refresh data");
+        let refresh = djls_project::compute_refresh(&db, |_| {}).expect("project refresh data");
         let file_paths: Vec<_> = refresh.file_paths().to_vec();
         assert!(!file_paths.is_empty());
         djls_project::apply_refresh(&mut db, refresh);
@@ -1112,7 +1112,7 @@ def my_filter(value, arg):
             .collect();
         assert!(!root_revisions.is_empty());
 
-        let refresh = djls_project::compute_refresh(&db).expect("project refresh data");
+        let refresh = djls_project::compute_refresh(&db, |_| {}).expect("project refresh data");
         djls_project::apply_refresh(&mut db, refresh);
 
         let unchanged_file_revisions: Vec<_> = file_paths

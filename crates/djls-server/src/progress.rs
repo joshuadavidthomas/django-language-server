@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
@@ -7,9 +8,17 @@ use tower_lsp_server::ls_types::notification::Progress as ProgressNotification;
 
 use crate::client::ClientInfo;
 
+const CREATE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(2);
+
 static NEXT_PROGRESS_TOKEN: AtomicU64 = AtomicU64::new(1);
 
-pub(crate) struct LoadProgress {
+#[derive(Clone)]
+pub(crate) struct ProgressReporter {
+    client: Client,
+    info: ClientInfo,
+}
+
+pub(crate) struct ProgressItem {
     title: String,
     state: Option<ProgressState>,
 }
@@ -22,16 +31,17 @@ enum ProgressState {
     Log,
 }
 
-impl LoadProgress {
-    pub(crate) async fn begin(client: Client, info: &ClientInfo, title: &str) -> Self {
+impl ProgressReporter {
+    pub(crate) fn new(client: Client, info: ClientInfo) -> Self {
+        Self { client, info }
+    }
+
+    pub(crate) async fn begin(&self, title: &str) -> ProgressItem {
         let title = title.to_string();
 
-        if !info.supports_work_done_progress() {
+        if !self.info.supports_work_done_progress() {
             tracing::info!("{title}");
-            return Self {
-                title,
-                state: Some(ProgressState::Log),
-            };
+            return ProgressItem::log(title);
         }
 
         let token = ls_types::ProgressToken::String(format!(
@@ -41,27 +51,53 @@ impl LoadProgress {
             NEXT_PROGRESS_TOKEN.fetch_add(1, Ordering::Relaxed)
         ));
 
-        // This awaits the client's response, gating the (sequential) refresh
-        // queue on it. tower-lsp-server requests have no timeout, so a client
-        // that advertises the capability but never answers would stall the
-        // refresh — accepted because clients answer create requests
-        // immediately, and a hung client breaks far more than progress.
-        match client.create_work_done_progress(token.clone()).await {
-            Ok(()) => {
-                send_begin(&client, token.clone(), title.clone()).await;
-                Self {
+        let (created_tx, created_rx) = tokio::sync::oneshot::channel();
+        let create_client = self.client.clone();
+        let create_token = token.clone();
+        tokio::spawn(async move {
+            let result = create_client.create_work_done_progress(create_token).await;
+            let _ = created_tx.send(result);
+        });
+
+        match tokio::time::timeout(CREATE_PROGRESS_TIMEOUT, created_rx).await {
+            Ok(Ok(Ok(()))) => {
+                send_begin(&self.client, token.clone(), title.clone()).await;
+                ProgressItem {
                     title,
-                    state: Some(ProgressState::Lsp { client, token }),
+                    state: Some(ProgressState::Lsp {
+                        client: self.client.clone(),
+                        token,
+                    }),
                 }
             }
-            Err(error) => {
-                tracing::debug!(?error, "Falling back to log-only project load progress");
+            Ok(Ok(Err(error))) => {
+                tracing::debug!(?error, title, "Falling back to log-only progress");
                 tracing::info!("{title}");
-                Self {
-                    title,
-                    state: Some(ProgressState::Log),
-                }
+                ProgressItem::log(title)
             }
+            Ok(Err(_)) => {
+                tracing::debug!(title, "Progress creation task was cancelled");
+                tracing::info!("{title}");
+                ProgressItem::log(title)
+            }
+            Err(_) => {
+                tracing::debug!(
+                    title,
+                    timeout_ms = CREATE_PROGRESS_TIMEOUT.as_millis(),
+                    "Timed out creating work-done progress; falling back to log-only progress"
+                );
+                tracing::info!("{title}");
+                ProgressItem::log(title)
+            }
+        }
+    }
+}
+
+impl ProgressItem {
+    fn log(title: String) -> Self {
+        Self {
+            title,
+            state: Some(ProgressState::Log),
         }
     }
 
@@ -89,14 +125,15 @@ impl LoadProgress {
     }
 }
 
-impl Drop for LoadProgress {
+impl Drop for ProgressItem {
     fn drop(&mut self) {
         let Some(ProgressState::Lsp { client, token }) = self.state.take() else {
             return;
         };
 
-        // Drop without finish() means the refresh future itself was dropped
-        // (cancellation or unwind), not a normal supersede.
+        // Only LSP items that sent Begin owe the client an End. Drop without
+        // finish() means the refresh future itself was dropped (cancellation or
+        // unwind), not a normal supersede.
         tokio::spawn(async move {
             send_end(&client, token, Some("cancelled".to_string())).await;
         });

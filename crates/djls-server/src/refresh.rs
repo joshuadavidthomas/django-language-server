@@ -12,6 +12,7 @@ use std::sync::Arc;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::RefreshData;
+use djls_project::RefreshStage;
 use djls_project::apply_refresh;
 use djls_project::compute_refresh;
 use djls_project::project_template_files;
@@ -23,7 +24,8 @@ use tower_lsp_server::ls_types;
 use crate::client::ClientInfo;
 use crate::document::TextDocument;
 use crate::ext::UriExt;
-use crate::progress::LoadProgress;
+use crate::progress::ProgressItem;
+use crate::progress::ProgressReporter;
 use crate::session::ProjectRefreshState;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
@@ -54,13 +56,6 @@ pub(crate) enum ProjectRefreshReason {
 }
 
 impl ProjectRefreshReason {
-    fn progress_title(self) -> &'static str {
-        match self {
-            Self::Startup => "Loading Django project",
-            Self::ConfigurationChanged => "Refreshing Django project",
-        }
-    }
-
     fn completion_log(self) -> &'static str {
         match self {
             Self::Startup => "Server initialization completed",
@@ -95,18 +90,18 @@ impl ProjectRefreshRequest {
     }
 }
 
+const RESOLVE_ENVIRONMENT_TITLE: &str = "Resolving Django environment";
+const DISCOVER_PROJECT_FACTS_TITLE: &str = "Discovering Django project facts";
+const WARM_CACHES_TITLE: &str = "Warming Django caches";
+const PUBLISH_DIAGNOSTICS_TITLE: &str = "Publishing diagnostics";
+
 pub(crate) async fn run_project_refresh(
     session: Arc<Mutex<Session>>,
     client: Client,
     request: ProjectRefreshRequest,
 ) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
-    let progress = LoadProgress::begin(
-        client.clone(),
-        &request.client_info,
-        request.reason.progress_title(),
-    )
-    .await;
+    let progress = ProgressReporter::new(client.clone(), request.client_info.clone());
     let result = run_project_refresh_inner(
         session,
         client,
@@ -116,21 +111,6 @@ pub(crate) async fn run_project_refresh(
         request.epoch,
     )
     .await;
-
-    match &result {
-        Ok(RefreshOutcome::Complete) => {
-            progress.finish("complete").await;
-        }
-        Ok(RefreshOutcome::Skipped) => {
-            progress.finish("skipped").await;
-        }
-        Ok(RefreshOutcome::Superseded) => {
-            progress.finish("superseded").await;
-        }
-        Err(_) => {
-            progress.finish("failed").await;
-        }
-    }
 
     if result.is_ok() {
         tracing::info!(
@@ -148,7 +128,7 @@ async fn run_project_refresh_inner(
     client: Client,
     project_refresh: &ProjectRefreshState,
     diagnostic_publish_lock: Arc<Mutex<()>>,
-    progress: &LoadProgress,
+    progress: &ProgressReporter,
     epoch: u64,
 ) -> anyhow::Result<RefreshOutcome> {
     if project_refresh.is_stale(epoch) {
@@ -159,36 +139,32 @@ async fn run_project_refresh_inner(
         return Ok(RefreshOutcome::Superseded);
     }
 
-    progress.report("Resolving environment").await;
-
-    let settings = match load_project_settings(&session, project_refresh, epoch).await {
-        LoadOutcome::Loaded(settings) => *settings,
-        LoadOutcome::Skipped => return Ok(RefreshOutcome::Skipped),
-        LoadOutcome::Superseded => return Ok(RefreshOutcome::Superseded),
-    };
-
-    if project_refresh.is_stale(epoch) {
-        tracing::debug!(
-            epoch,
-            "Skipping stale project refresh before settings apply"
-        );
-        return Ok(RefreshOutcome::Superseded);
+    // Start visible progress before touching the session. Clients often send
+    // didOpen/completion immediately after initialized; progress setup should
+    // not sit behind a session snapshot in that race.
+    let mut environment_progress = Some(progress.begin(RESOLVE_ENVIRONMENT_TITLE).await);
+    if let Some(progress) = environment_progress.as_ref() {
+        progress.report("Resolving environment").await;
     }
 
-    progress.report("Applying project settings").await;
-
-    if let Err(outcome) = apply_project_settings(&session, project_refresh, epoch, settings).await {
+    if let Err(outcome) =
+        load_and_apply_project_settings(&session, project_refresh, epoch, &mut environment_progress)
+            .await
+    {
         return Ok(outcome);
     }
 
-    if project_refresh.is_stale(epoch) {
-        tracing::debug!(epoch, "Skipping stale project refresh after settings apply");
-        return Ok(RefreshOutcome::Superseded);
-    }
-
-    progress.report("Computing project facts").await;
-
-    let refresh = match compute_project_refresh(&session, project_refresh, epoch).await {
+    let mut facts_progress = None;
+    let refresh = match compute_project_refresh(
+        &session,
+        project_refresh,
+        epoch,
+        progress,
+        &mut environment_progress,
+        &mut facts_progress,
+    )
+    .await
+    {
         ComputeOutcome::Computed(refresh) => refresh,
         ComputeOutcome::Skipped => return Ok(RefreshOutcome::Skipped),
         ComputeOutcome::Superseded => return Ok(RefreshOutcome::Superseded),
@@ -196,26 +172,47 @@ async fn run_project_refresh_inner(
 
     if project_refresh.is_stale(epoch) {
         tracing::debug!(epoch, "Skipping stale project refresh before apply");
+        finish_progress(&mut facts_progress, "superseded").await;
         return Ok(RefreshOutcome::Superseded);
     }
 
-    progress.report("Applying project facts").await;
+    if facts_progress.is_none() {
+        facts_progress = Some(progress.begin(DISCOVER_PROJECT_FACTS_TITLE).await);
+    }
+    if let Some(progress) = facts_progress.as_ref() {
+        progress.report("Applying project facts").await;
+    }
 
     let (snapshot, documents) =
         match apply_project_facts(&session, project_refresh, epoch, refresh).await {
-            Ok(snapshot) => snapshot,
-            Err(outcome) => return Ok(outcome),
+            Ok(snapshot) => {
+                finish_progress(&mut facts_progress, "complete").await;
+                snapshot
+            }
+            Err(outcome) => {
+                finish_progress(&mut facts_progress, outcome.progress_message()).await;
+                return Ok(outcome);
+            }
         };
 
-    progress.report("Warming caches").await;
-    warm_project_queries(snapshot.clone(), project_refresh.clone(), epoch).await;
+    let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
+    warm_project_queries(
+        snapshot.clone(),
+        project_refresh.clone(),
+        epoch,
+        &warm_progress,
+    )
+    .await;
 
     if project_refresh.is_stale(epoch) {
         tracing::debug!(epoch, "Skipping stale project refresh after warm-up");
+        warm_progress.finish("superseded").await;
         return Ok(RefreshOutcome::Superseded);
     }
+    warm_progress.finish("complete").await;
 
-    progress.report("Publishing diagnostics").await;
+    let diagnostics_progress = progress.begin(PUBLISH_DIAGNOSTICS_TITLE).await;
+    diagnostics_progress.report("Publishing diagnostics").await;
     if !republish_snapshot_diagnostics(
         client,
         snapshot,
@@ -226,10 +223,67 @@ async fn run_project_refresh_inner(
     )
     .await
     {
+        diagnostics_progress.finish("superseded").await;
         return Ok(RefreshOutcome::Superseded);
     }
+    diagnostics_progress.finish("complete").await;
 
     Ok(RefreshOutcome::Complete)
+}
+
+impl RefreshOutcome {
+    fn progress_message(&self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Skipped => "skipped",
+            Self::Superseded => "superseded",
+        }
+    }
+}
+
+async fn load_and_apply_project_settings(
+    session: &Arc<Mutex<Session>>,
+    project_refresh: &ProjectRefreshState,
+    epoch: u64,
+    progress: &mut Option<ProgressItem>,
+) -> Result<(), RefreshOutcome> {
+    let settings = match load_project_settings(session, project_refresh, epoch).await {
+        LoadOutcome::Loaded(settings) => *settings,
+        LoadOutcome::Skipped => {
+            finish_progress(progress, "skipped").await;
+            return Err(RefreshOutcome::Skipped);
+        }
+        LoadOutcome::Superseded => {
+            finish_progress(progress, "superseded").await;
+            return Err(RefreshOutcome::Superseded);
+        }
+    };
+
+    if project_refresh.is_stale(epoch) {
+        tracing::debug!(
+            epoch,
+            "Skipping stale project refresh before settings apply"
+        );
+        finish_progress(progress, "superseded").await;
+        return Err(RefreshOutcome::Superseded);
+    }
+
+    if let Some(progress) = progress.as_ref() {
+        progress.report("Applying project settings").await;
+    }
+
+    if let Err(outcome) = apply_project_settings(session, project_refresh, epoch, settings).await {
+        finish_progress(progress, outcome.progress_message()).await;
+        return Err(outcome);
+    }
+
+    if project_refresh.is_stale(epoch) {
+        tracing::debug!(epoch, "Skipping stale project refresh after settings apply");
+        finish_progress(progress, "superseded").await;
+        return Err(RefreshOutcome::Superseded);
+    }
+
+    Ok(())
 }
 
 async fn apply_project_settings(
@@ -337,6 +391,9 @@ async fn compute_project_refresh(
     session: &Arc<Mutex<Session>>,
     project_refresh: &ProjectRefreshState,
     epoch: u64,
+    progress: &ProgressReporter,
+    environment_progress: &mut Option<ProgressItem>,
+    facts_progress: &mut Option<ProgressItem>,
 ) -> ComputeOutcome {
     // Cancellation here usually means a document edit, not a config change:
     // nothing bumps the epoch or resubmits, so dropping the compute would lose
@@ -350,6 +407,8 @@ async fn compute_project_refresh(
                     epoch,
                     "Skipping stale project refresh after locking session"
                 );
+                finish_progress(environment_progress, "superseded").await;
+                finish_progress(facts_progress, "superseded").await;
                 return ComputeOutcome::Superseded;
             }
 
@@ -357,19 +416,58 @@ async fn compute_project_refresh(
             db.project().map(|_| db.clone())
         }) else {
             tracing::info!("Task: No project configured, skipping initialization.");
+            finish_progress(environment_progress, "skipped").await;
+            finish_progress(facts_progress, "skipped").await;
             return ComputeOutcome::Skipped;
         };
 
-        let result = tokio::task::spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| compute_refresh(&compute_db)))
-        })
-        .await
-        .expect("project refresh compute task must not panic");
+        let (stage_tx, mut stage_rx) = tokio::sync::mpsc::unbounded_channel::<RefreshStage>();
+        let mut task = tokio::task::spawn_blocking(move || {
+            salsa::Cancelled::catch(AssertUnwindSafe(|| {
+                compute_refresh(&compute_db, |stage| {
+                    let _ = stage_tx.send(stage);
+                })
+            }))
+        });
+
+        let result = loop {
+            tokio::select! {
+                maybe_stage = stage_rx.recv() => {
+                    if let Some(stage) = maybe_stage {
+                        report_refresh_stage(
+                            stage,
+                            progress,
+                            environment_progress,
+                            facts_progress,
+                        )
+                        .await;
+                    } else {
+                        break task.await.expect("project refresh compute task must not panic");
+                    }
+                }
+                result = &mut task => {
+                    break result.expect("project refresh compute task must not panic");
+                }
+            }
+        };
+
+        while let Ok(stage) = stage_rx.try_recv() {
+            report_refresh_stage(stage, progress, environment_progress, facts_progress).await;
+        }
 
         match result {
-            Ok(Some(refresh)) => return ComputeOutcome::Computed(refresh),
-            Ok(None) => return ComputeOutcome::Skipped,
+            Ok(Some(refresh)) => {
+                finish_progress(environment_progress, "complete").await;
+                return ComputeOutcome::Computed(refresh);
+            }
+            Ok(None) => {
+                finish_progress(environment_progress, "skipped").await;
+                finish_progress(facts_progress, "skipped").await;
+                return ComputeOutcome::Skipped;
+            }
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                finish_progress(environment_progress, "retrying").await;
+                finish_progress(facts_progress, "retrying").await;
                 tracing::debug!(
                     ?cancelled,
                     attempt = attempt + 1,
@@ -377,6 +475,8 @@ async fn compute_project_refresh(
                 );
             }
             Err(cancelled) => {
+                finish_progress(environment_progress, "cancelled").await;
+                finish_progress(facts_progress, "cancelled").await;
                 tracing::warn!(
                     ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
@@ -390,12 +490,68 @@ async fn compute_project_refresh(
     unreachable!("project refresh retry loop must return")
 }
 
+async fn report_refresh_stage(
+    stage: RefreshStage,
+    reporter: &ProgressReporter,
+    environment_progress: &mut Option<ProgressItem>,
+    facts_progress: &mut Option<ProgressItem>,
+) {
+    match stage {
+        RefreshStage::ResolveEnvironment | RefreshStage::ScanSettings => {
+            if environment_progress.is_none() {
+                *environment_progress = Some(reporter.begin(RESOLVE_ENVIRONMENT_TITLE).await);
+            }
+            if let Some(progress) = environment_progress.as_ref() {
+                progress.report(stage.message()).await;
+            }
+        }
+        RefreshStage::DiscoverModelModules
+        | RefreshStage::DiscoverTemplateLibraries
+        | RefreshStage::DiscoverTemplateTagCandidates => {
+            finish_progress(environment_progress, "complete").await;
+            if facts_progress.is_none() {
+                *facts_progress = Some(reporter.begin(DISCOVER_PROJECT_FACTS_TITLE).await);
+            }
+            if let Some(progress) = facts_progress.as_ref() {
+                progress.report(stage.message()).await;
+            }
+        }
+    }
+}
+
+async fn finish_progress(progress: &mut Option<ProgressItem>, message: &str) {
+    if let Some(progress) = progress.take() {
+        progress.finish(message).await;
+    }
+}
+
+#[derive(Clone, Copy)]
+enum WarmStage {
+    BuildTagSpecs,
+    ResolveTemplateDirs,
+    IndexTemplateLibraries,
+    IndexTemplates,
+}
+
+impl WarmStage {
+    fn message(self) -> &'static str {
+        match self {
+            Self::BuildTagSpecs => "Building tag specs",
+            Self::ResolveTemplateDirs => "Resolving template directories",
+            Self::IndexTemplateLibraries => "Indexing template libraries",
+            Self::IndexTemplates => "Indexing templates",
+        }
+    }
+}
+
 async fn warm_project_queries(
     snapshot: SessionSnapshot,
     project_refresh: ProjectRefreshState,
     epoch: u64,
+    progress: &ProgressItem,
 ) {
-    let result = tokio::task::spawn_blocking(move || {
+    let (stage_tx, mut stage_rx) = tokio::sync::mpsc::unbounded_channel::<WarmStage>();
+    let mut task = tokio::task::spawn_blocking(move || {
         salsa::Cancelled::catch(AssertUnwindSafe(|| {
             let db = snapshot.db();
             let Some(project) = db.project() else {
@@ -405,26 +561,47 @@ async fn warm_project_queries(
             if project_refresh.is_stale(epoch) {
                 return;
             }
+            let _ = stage_tx.send(WarmStage::BuildTagSpecs);
             let _ = db.tag_specs();
 
             if project_refresh.is_stale(epoch) {
                 return;
             }
+            let _ = stage_tx.send(WarmStage::ResolveTemplateDirs);
             let _ = db.template_dirs();
 
             if project_refresh.is_stale(epoch) {
                 return;
             }
+            let _ = stage_tx.send(WarmStage::IndexTemplateLibraries);
             let _ = db.template_libraries();
 
             if project_refresh.is_stale(epoch) {
                 return;
             }
+            let _ = stage_tx.send(WarmStage::IndexTemplates);
             let _ = project_template_files(db, project);
         }))
-    })
-    .await
-    .expect("project warm-up task must not panic");
+    });
+
+    let result = loop {
+        tokio::select! {
+            maybe_stage = stage_rx.recv() => {
+                if let Some(stage) = maybe_stage {
+                    progress.report(stage.message()).await;
+                } else {
+                    break task.await.expect("project warm-up task must not panic");
+                }
+            }
+            result = &mut task => {
+                break result.expect("project warm-up task must not panic");
+            }
+        }
+    };
+
+    while let Ok(stage) = stage_rx.try_recv() {
+        progress.report(stage.message()).await;
+    }
 
     if let Err(cancelled) = result {
         tracing::debug!(
