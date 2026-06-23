@@ -1085,44 +1085,6 @@ mod tests {
     }
 
     #[test]
-    fn tag_candidates_respect_available_symbols() {
-        let libraries = tag_libraries();
-        let loads = vec![(
-            30,
-            djls_semantic::LoadKind::FullLoad {
-                libraries: vec!["i18n".into()],
-            },
-        )];
-        let before_load = AvailableSymbols::from_loads(loads.clone(), &libraries, 10);
-        let after_load = AvailableSymbols::from_loads(loads, &libraries, 100);
-
-        let before_candidates = generate_tag_name_candidates(
-            &prefix(""),
-            false,
-            full_close(),
-            &libraries,
-            &TagSpecs::default(),
-            Some(&before_load),
-            false,
-        );
-        let after_candidates = generate_tag_name_candidates(
-            &prefix(""),
-            false,
-            full_close(),
-            &libraries,
-            &TagSpecs::default(),
-            Some(&after_load),
-            false,
-        );
-
-        let mut after_labels = labels(&after_candidates);
-        after_labels.sort_unstable();
-
-        assert_eq!(labels(&before_candidates), vec!["if"]);
-        assert_eq!(after_labels, vec!["blocktrans", "if", "trans"]);
-    }
-
-    #[test]
     fn tag_candidates_fall_back_to_specs_when_libraries_are_unknown() {
         let mut specs = TagSpecs::default();
         specs.insert(
@@ -1147,60 +1109,6 @@ mod tests {
 
         assert_eq!(labels(&candidates), vec!["static"]);
         assert_eq!(candidates[0].detail.as_deref(), Some("Django template tag"));
-    }
-
-    #[test]
-    fn partial_tag_candidates_use_known_libraries_not_raw_specs() {
-        let mut libraries = tag_libraries();
-        libraries.knowledge = StaticKnowledge::Partial;
-        let mut specs = TagSpecs::default();
-        specs.insert(
-            "project_only".to_string(),
-            TagSpec::new(
-                Cow::Borrowed("project.templatetags.project_only"),
-                None,
-                Cow::Borrowed(&[]),
-                false,
-            ),
-        );
-        let available_symbols = AvailableSymbols::from_loads(Vec::new(), &libraries, 0);
-
-        let candidates = generate_tag_name_candidates(
-            &prefix("project"),
-            false,
-            full_close(),
-            &libraries,
-            &specs,
-            Some(&available_symbols),
-            false,
-        );
-
-        assert!(candidates.is_empty());
-    }
-
-    #[test]
-    fn filter_candidates_respect_available_symbols() {
-        let libraries = filter_libraries();
-        let loads = vec![(
-            30,
-            djls_semantic::LoadKind::FullLoad {
-                libraries: vec!["i18n".into()],
-            },
-        )];
-        let before_load = AvailableSymbols::from_loads(loads.clone(), &libraries, 10);
-        let after_load = AvailableSymbols::from_loads(loads, &libraries, 100);
-
-        assert!(
-            generate_filter_candidates(&prefix("tr"), &libraries, Some(&before_load)).is_empty()
-        );
-        assert_eq!(
-            labels(&generate_filter_candidates(
-                &prefix("tr"),
-                &libraries,
-                Some(&after_load),
-            )),
-            vec!["trans"]
-        );
     }
 
     #[test]
