@@ -5,6 +5,7 @@
 //! under the lock, then warm derived queries and republish diagnostics from a
 //! snapshot.
 
+use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ use djls_project::apply_refresh;
 use djls_project::project_template_files;
 use djls_semantic::Db as SemanticDb;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
@@ -31,6 +33,52 @@ use crate::progress::ProgressReporter;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
+
+/// Drives project reloads off the LSP handler path.
+///
+/// A capacity-1 channel serializes reloads and leaves room for at most one
+/// pending follow-up request while a reload is running. Dropping the sender
+/// lets the worker exit after it drains any current or queued request.
+pub(crate) struct ProjectReload {
+    tx: mpsc::Sender<()>,
+}
+
+impl ProjectReload {
+    pub(crate) fn new(session: Arc<Mutex<Session>>, client: Client) -> Self {
+        Self::spawn(move || {
+            let session = Arc::clone(&session);
+            let client = client.clone();
+            async move {
+                let client_info = { session.lock().await.client_info().clone() };
+                reload_project(session, client, client_info).await;
+            }
+        })
+    }
+
+    fn spawn<F, Fut>(runner: F) -> Self
+    where
+        F: Fn() -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (tx, mut rx) = mpsc::channel(1);
+        tokio::spawn(async move {
+            while rx.recv().await.is_some() {
+                runner().await;
+            }
+        });
+
+        Self { tx }
+    }
+
+    pub(crate) fn request(&self) {
+        match self.tx.try_send(()) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}
+            Err(mpsc::error::TrySendError::Closed(())) => {
+                tracing::error!("project reload worker is gone");
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProgressEnd {
@@ -179,7 +227,7 @@ pub(crate) async fn reload_project(
     warm_snapshot_queries(&progress, snapshot.clone()).await;
     publish_refresh_diagnostics(&progress, client, snapshot, documents).await;
 
-    tracing::info!("Project reload completed in {:?}", start.elapsed());
+    tracing::info!("Project refresh completed in {:?}", start.elapsed());
 }
 
 async fn warm_snapshot_queries(progress: &ProgressReporter, snapshot: SessionSnapshot) {
@@ -739,10 +787,163 @@ async fn collect_snapshot_diagnostics(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex as StdMutex;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
+    use tokio::sync::Notify;
+    use tokio::sync::oneshot;
+    use tokio::time::sleep;
+    use tokio::time::timeout;
 
     use super::*;
+
+    #[tokio::test]
+    async fn request_runs_one_reload() {
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(Notify::new());
+        let reload = ProjectReload::spawn({
+            let run_count = Arc::clone(&run_count);
+            let completed = Arc::clone(&completed);
+            move || {
+                let run_count = Arc::clone(&run_count);
+                let completed = Arc::clone(&completed);
+                async move {
+                    run_count.fetch_add(1, Ordering::SeqCst);
+                    completed.notify_one();
+                }
+            }
+        });
+
+        reload.request();
+
+        timeout(Duration::from_secs(1), completed.notified())
+            .await
+            .unwrap();
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn requests_during_run_coalesce_to_one_followup() {
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let first_started = Arc::new(Notify::new());
+        let followup_completed = Arc::new(Notify::new());
+        let (release_tx, release_rx) = oneshot::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let reload = ProjectReload::spawn({
+            let run_count = Arc::clone(&run_count);
+            let first_started = Arc::clone(&first_started);
+            let followup_completed = Arc::clone(&followup_completed);
+            let release_rx = Arc::clone(&release_rx);
+            move || {
+                let run_count = Arc::clone(&run_count);
+                let first_started = Arc::clone(&first_started);
+                let followup_completed = Arc::clone(&followup_completed);
+                let release_rx = Arc::clone(&release_rx);
+                async move {
+                    let run = run_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if run == 1 {
+                        first_started.notify_one();
+                        let release_rx = release_rx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("first reload owns release receiver");
+                        release_rx.await.ok();
+                    } else {
+                        followup_completed.notify_one();
+                    }
+                }
+            }
+        });
+
+        reload.request();
+        timeout(Duration::from_secs(1), first_started.notified())
+            .await
+            .unwrap();
+
+        for _ in 0..5 {
+            reload.request();
+        }
+
+        release_tx.send(()).unwrap();
+        timeout(Duration::from_secs(1), followup_completed.notified())
+            .await
+            .unwrap();
+        sleep(Duration::from_millis(50)).await;
+
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn reloads_never_overlap() {
+        let active_count = Arc::new(AtomicUsize::new(0));
+        let overlap_detected = Arc::new(AtomicBool::new(false));
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let first_started = Arc::new(Notify::new());
+        let second_completed = Arc::new(Notify::new());
+        let (release_tx, release_rx) = oneshot::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let reload = ProjectReload::spawn({
+            let active_count = Arc::clone(&active_count);
+            let overlap_detected = Arc::clone(&overlap_detected);
+            let run_count = Arc::clone(&run_count);
+            let first_started = Arc::clone(&first_started);
+            let second_completed = Arc::clone(&second_completed);
+            let release_rx = Arc::clone(&release_rx);
+            move || {
+                let active_count = Arc::clone(&active_count);
+                let overlap_detected = Arc::clone(&overlap_detected);
+                let run_count = Arc::clone(&run_count);
+                let first_started = Arc::clone(&first_started);
+                let second_completed = Arc::clone(&second_completed);
+                let release_rx = Arc::clone(&release_rx);
+                async move {
+                    if active_count.fetch_add(1, Ordering::SeqCst) != 0 {
+                        overlap_detected.store(true, Ordering::SeqCst);
+                    }
+
+                    let run = run_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if run == 1 {
+                        first_started.notify_one();
+                        let release_rx = release_rx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("first reload owns release receiver");
+                        release_rx.await.ok();
+                    }
+
+                    active_count.fetch_sub(1, Ordering::SeqCst);
+                    if run == 2 {
+                        second_completed.notify_one();
+                    }
+                }
+            }
+        });
+
+        reload.request();
+        timeout(Duration::from_secs(1), first_started.notified())
+            .await
+            .unwrap();
+        reload.request();
+        sleep(Duration::from_millis(50)).await;
+
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+        assert!(!overlap_detected.load(Ordering::SeqCst));
+
+        release_tx.send(()).unwrap();
+        timeout(Duration::from_secs(1), second_completed.notified())
+            .await
+            .unwrap();
+
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+        assert!(!overlap_detected.load(Ordering::SeqCst));
+    }
 
     #[tokio::test]
     async fn project_settings_load_error_skips_refresh_inputs() {

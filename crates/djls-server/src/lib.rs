@@ -3,7 +3,6 @@ mod document;
 mod ext;
 mod logging;
 mod progress;
-mod queue;
 mod reload;
 mod server;
 mod session;
