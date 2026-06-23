@@ -3,10 +3,6 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
-
 #[cfg(test)]
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -14,7 +10,6 @@ use djls_db::DjangoDatabase;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Offset;
-use tokio::sync::Mutex;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
@@ -29,27 +24,6 @@ use crate::workspace::Workspace;
 /// How many times snapshot-based reads retry after Salsa cancellation before
 /// giving up and returning a fallback.
 pub(crate) const SNAPSHOT_CANCEL_RETRIES: usize = 2;
-
-#[derive(Clone)]
-pub(crate) struct ProjectRefreshState {
-    epoch: Arc<AtomicU64>,
-}
-
-impl ProjectRefreshState {
-    fn new() -> Self {
-        Self {
-            epoch: Arc::new(AtomicU64::new(0)),
-        }
-    }
-
-    pub(crate) fn begin_refresh(&self) -> u64 {
-        self.epoch.fetch_add(1, Ordering::AcqRel) + 1
-    }
-
-    pub(crate) fn is_stale(&self, epoch: u64) -> bool {
-        self.epoch.load(Ordering::Acquire) != epoch
-    }
-}
 
 /// LSP Session managing project-specific state and database operations.
 ///
@@ -72,16 +46,6 @@ pub(crate) struct Session {
 
     /// The Salsa database for incremental computation
     db: DjangoDatabase,
-
-    /// Tracks the current project refresh generation. Background refresh tasks
-    /// capture the value at submission and drop their work when it no longer
-    /// matches; a later bump supersedes any in-flight refresh.
-    project_refresh: ProjectRefreshState,
-
-    /// Serializes `publishDiagnostics` sends so a refresh-originated republish
-    /// can re-check the epoch under the lock and never overwrite a newer
-    /// publish.
-    diagnostic_publish_lock: Arc<Mutex<()>>,
 }
 
 impl Session {
@@ -120,21 +84,11 @@ impl Session {
             workspace,
             client_info,
             db,
-            project_refresh: ProjectRefreshState::new(),
-            diagnostic_publish_lock: Arc::new(Mutex::new(())),
         }
     }
 
     pub(crate) fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot::new(self.db.clone(), self.client_info.clone())
-    }
-
-    pub(crate) fn project_refresh(&self) -> &ProjectRefreshState {
-        &self.project_refresh
-    }
-
-    pub(crate) fn diagnostic_publish_lock(&self) -> Arc<Mutex<()>> {
-        Arc::clone(&self.diagnostic_publish_lock)
     }
 
     pub(crate) fn client_info(&self) -> &ClientInfo {

@@ -91,13 +91,14 @@ fn project_with_settings(
 
 fn apply_project_refresh(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
-    let search_paths = compute_refresh_search_paths(db, project);
-    let mut file_paths = compute_refresh_settings_source_paths(db, project);
-    file_paths.extend(compute_refresh_model_module_paths(db, project));
-    file_paths.extend(compute_refresh_template_library_module_paths(db, project));
-    file_paths.extend(compute_refresh_template_tag_candidate_paths(db, project));
+    let refresh = RefreshData::from_query_results(
+        RefreshQuery::ALL
+            .iter()
+            .copied()
+            .map(|query| query.compute(db, project)),
+    );
 
-    apply_refresh(db, RefreshData::from_parts(search_paths, file_paths));
+    apply_refresh(db, refresh);
 }
 
 #[test]

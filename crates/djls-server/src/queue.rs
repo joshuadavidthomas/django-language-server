@@ -7,13 +7,11 @@ use anyhow::anyhow;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-/// Type alias for a type-erased, pinned, heap-allocated, Send-able future
-/// that resolves to `Result<()>`.
+/// Type alias for a type-erased, pinned, heap-allocated, Send-able future.
 ///
 /// This allows storing different concrete `Future` types (resulting from
 /// various `async` blocks) in a uniform way, suitable for sending over a channel
-/// or storing in collections, as long as they meet the `Send` bound and
-/// produce the expected `Result<()>`.
+/// or storing in collections, as long as they meet the `Send` bound.
 ///
 /// - `Pin`: Ensures the `Future`'s memory location is stable, which is often
 ///   required for self-referential `async` blocks.
@@ -22,7 +20,7 @@ use tokio::sync::oneshot;
 /// - `+ Send`: Ensures the `Future` can be safely sent across threads and required
 ///   by the tower-lsp-server LSP server trait bounds, even in our single-threaded
 ///   runtime.
-type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+type TaskFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// Type alias for a type-erased, heap-allocated, Send-able closure that,
 /// when called, returns a `TaskFuture`.
@@ -40,11 +38,11 @@ type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 ///   for compatibility with our async runtime and LSP traits.
 type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 
-/// A simple asynchronous task queue for sequential execution.
+/// A coalescing asynchronous task queue.
 ///
 /// Tasks are submitted as closures that return futures. These closures are sent
-/// to a dedicated worker task which executes them one at a time in the order
-/// they were received. This ensures sequential processing of background tasks.
+/// to a dedicated worker task which executes one task at a time. When multiple
+/// tasks are pending while a task is running, only the latest pending task runs.
 ///
 /// The queue runs within our single-threaded runtime but maintains compatibility
 /// with the Send+Sync requirements of the LSP. This provides the benefits of
@@ -71,7 +69,6 @@ impl Queue {
     ///
     /// The worker task runs indefinitely, waiting for tasks on the MPSC channel
     /// or a shutdown signal. Received tasks (closures) are executed sequentially.
-    /// If a task's future resolves to an `Err`, the error is printed to stderr.
     pub(crate) fn new() -> Self {
         // Create the channel for sending task closures. Bounded to 32 pending tasks.
         let (sender, mut receiver) = mpsc::channel::<TaskClosure>(32);
@@ -95,15 +92,15 @@ impl Queue {
                     }
                     // Wait for a task closure from the channel.
                     maybe_task_closure = receiver.recv() => {
-                        if let Some(task_closure) = maybe_task_closure {
+                        if let Some(mut task_closure) = maybe_task_closure {
+                            while let Ok(newer_task_closure) = receiver.try_recv() {
+                                task_closure = newer_task_closure;
+                            }
+
                             // Received a task closure. Execute it to get the future.
                             let task_future: TaskFuture = task_closure();
                             // Await the future's completion.
-                            if let Err(e) = task_future.await {
-                                // Log the error if the task failed.
-                                // TODO: Integrate with a proper logging framework.
-                                eprintln!("Task failed: {e}");
-                            }
+                            task_future.await;
                         } else {
                             // Channel closed, implies all senders (Queue instances)
                             // are dropped. Break the loop.
@@ -126,16 +123,17 @@ impl Queue {
     /// Submits an asynchronous task to the queue.
     ///
     /// This method accepts a `Future` directly and sends it to the background worker
-    /// task for sequential execution. The future should resolve to `Result<()>`.
+    /// task for sequential execution.
     ///
     /// The `await` on this method only waits for the task to be *sent* to the
     /// queue's channel, not for the task to be *executed*. If the queue's
     /// channel is full, this method will wait until space becomes available.
+    /// Pending tasks are coalesced so only the latest pending task runs after
+    /// the active task completes.
     ///
     /// # Usage
     ///
-    /// The `future` must be a `Future` which resolves to `Result<()>`. Typically,
-    /// this is provided using an `async move` block:
+    /// The `future` is typically provided using an `async move` block:
     ///
     /// ```rust,ignore
     /// let data_to_capture = 42;
@@ -143,16 +141,15 @@ impl Queue {
     ///     // ... perform async work using data_to_capture ...
     ///     println!("Processing data: {}", data_to_capture);
     ///     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    ///     Ok(()) // Indicate success
     /// }).await?;
     /// ```
     ///
     /// # Type Parameters
     ///
-    /// - `F`: The type of the `Future`. Must resolve to `Result<()>` and be `Send + 'static`.
+    /// - `F`: The type of the `Future`. Must be `Send + 'static`.
     pub(crate) async fn submit<F>(&self, future: F) -> Result<()>
     where
-        F: Future<Output = Result<()>> + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         // Create the inner closure that matches `TaskClosure`'s signature.
         // This closure wraps the future in a way that TaskClosure expects.
@@ -197,209 +194,101 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use anyhow::anyhow;
+    use tokio::sync::oneshot;
     use tokio::time::sleep;
 
     use super::*;
 
     #[tokio::test]
-    async fn test_submit_and_process() {
+    async fn runs_submitted_task() {
         let queue = Queue::new();
         let counter = Arc::new(AtomicUsize::new(0));
 
-        // Submit a few tasks
-        for i in 0..5 {
-            let counter_clone = Arc::clone(&counter);
+        let counter_clone = Arc::clone(&counter);
+        queue
+            .submit(async move {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+
+        sleep(Duration::from_millis(50)).await;
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn coalesces_pending_tasks() {
+        let queue = Queue::new();
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let first_count = Arc::new(AtomicUsize::new(0));
+        let pending_count = Arc::new(AtomicUsize::new(0));
+        let latest_value = Arc::new(AtomicUsize::new(0));
+
+        let first_count_clone = Arc::clone(&first_count);
+        queue
+            .submit(async move {
+                started_tx.send(()).ok();
+                release_rx.await.ok();
+                first_count_clone.fetch_add(1, Ordering::SeqCst);
+            })
+            .await
+            .unwrap();
+        started_rx.await.unwrap();
+
+        for value in 1..=5 {
+            let pending_count_clone = Arc::clone(&pending_count);
+            let latest_value_clone = Arc::clone(&latest_value);
             queue
                 .submit(async move {
-                    sleep(Duration::from_millis(5)).await;
-                    println!("Processing task {i}");
-                    counter_clone.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
+                    pending_count_clone.fetch_add(1, Ordering::SeqCst);
+                    latest_value_clone.store(value, Ordering::SeqCst);
                 })
                 .await
                 .unwrap();
         }
 
-        // Submit a task that will fail
-        queue
-            .submit(async {
-                println!("Submitting failing task");
-                Err(anyhow!("Task failed intentionally"))
-            })
-            .await
-            .unwrap();
-
-        sleep(Duration::from_millis(100)).await;
-        assert_eq!(counter.load(Ordering::SeqCst), 5);
-
-        // Submit another task
-        let counter_clone = Arc::clone(&counter);
-        queue
-            .submit(async move {
-                println!("Processing task after error");
-                counter_clone.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
+        release_tx.send(()).unwrap();
         sleep(Duration::from_millis(50)).await;
-        assert_eq!(counter.load(Ordering::SeqCst), 6);
+
+        assert_eq!(first_count.load(Ordering::SeqCst), 1);
+        assert_eq!(pending_count.load(Ordering::SeqCst), 1);
+        assert_eq!(latest_value.load(Ordering::SeqCst), 5);
     }
 
     #[tokio::test]
-    async fn test_channel_backpressure_submit() {
+    async fn submit_waits_when_pending_buffer_is_full() {
         let queue = Queue::new();
-        let counter = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+
+        queue
+            .submit(async move {
+                started_tx.send(()).ok();
+                release_rx.await.ok();
+            })
+            .await
+            .unwrap();
+        started_rx.await.unwrap();
 
         let mut tasks = Vec::new();
-        for i in 0..32 {
+        for _ in 0..32 {
             let queue_clone = queue.clone();
-            let counter_clone = Arc::clone(&counter);
             tasks.push(tokio::spawn(async move {
-                queue_clone
-                    .submit(async move {
-                        counter_clone.fetch_add(1, Ordering::Relaxed);
-                        sleep(Duration::from_millis(2)).await;
-                        Ok(())
-                    })
-                    .await
-                    .expect("Submit should succeed");
-                println!("Submitted task {i}");
+                queue_clone.submit(async {}).await.unwrap();
             }));
         }
         for task in tasks {
             task.await.unwrap();
         }
-        println!("Finished submitting initial 32 tasks");
 
-        let counter_clone = Arc::clone(&counter);
-        let submit_task = queue.submit(async move {
-            println!("Processing the 33rd task");
-            counter_clone.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        });
+        let submit_task = queue.submit(async {});
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), submit_task)
+                .await
+                .is_err()
+        );
 
-        #[cfg(windows)]
-        let timeout_ms = 1000;
-        #[cfg(not(windows))]
-        let timeout_ms = 500;
-
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), submit_task).await {
-            Ok(Ok(())) => {
-                println!("Successfully submitted 33rd task");
-            }
-            Ok(Err(e)) => panic!("Submit failed unexpectedly: {e}"),
-            Err(timeout_err) => panic!(
-                "Submit timed out: {timeout_err}, likely blocked due to backpressure not resolving"
-            ),
-        }
-
-        #[cfg(windows)]
-        sleep(Duration::from_millis(1000)).await;
-        #[cfg(not(windows))]
-        sleep(Duration::from_millis(200)).await;
-
-        assert_eq!(counter.load(Ordering::Relaxed), 33);
-    }
-
-    #[tokio::test]
-    async fn test_shutdown() {
-        let queue = Queue::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let counter_clone1 = Arc::clone(&counter);
-        queue
-            .submit(async move {
-                sleep(Duration::from_millis(50)).await;
-                counter_clone1.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
-        let counter_clone2 = Arc::clone(&counter);
-        queue
-            .submit(async move {
-                sleep(Duration::from_millis(50)).await;
-                counter_clone2.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
-        drop(queue);
-        sleep(Duration::from_millis(200)).await;
-
-        let final_count = counter.load(Ordering::SeqCst);
-        println!("Final count after shutdown: {final_count}");
-        assert!(final_count <= 2);
-    }
-
-    #[tokio::test]
-    async fn test_queue_cloning() {
-        let queue1 = Queue::new();
-        let queue2 = queue1.clone();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let counter_clone1 = Arc::clone(&counter);
-        let task1 = queue1.submit(async move {
-            counter_clone1.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        });
-
-        let counter_clone2 = Arc::clone(&counter);
-        let task2 = queue2.submit(async move {
-            counter_clone2.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        });
-
-        tokio::try_join!(task1, task2).unwrap();
-        sleep(Duration::from_millis(100)).await;
-        assert_eq!(counter.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn test_error_task_does_not_stop_queue() {
-        let queue = Queue::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let counter_clone1 = Arc::clone(&counter);
-        queue
-            .submit(async move {
-                counter_clone1.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
-        queue
-            .submit(async { Err(anyhow!("Intentional failure")) })
-            .await
-            .unwrap();
-
-        let counter_clone2 = Arc::clone(&counter);
-        queue
-            .submit(async move {
-                counter_clone2.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
-        sleep(Duration::from_millis(100)).await;
-
-        let counter_clone3 = Arc::clone(&counter);
-        queue
-            .submit(async move {
-                counter_clone3.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
-        sleep(Duration::from_millis(50)).await;
-        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        release_tx.send(()).unwrap();
     }
 }
