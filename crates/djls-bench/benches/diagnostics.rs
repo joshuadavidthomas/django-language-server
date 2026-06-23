@@ -198,7 +198,7 @@ fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRend
 }
 
 #[divan::bench]
-fn render_validation(bencher: Bencher) {
+fn render_validation_output(bencher: Bencher) {
     let fixtures: Vec<_> = validation_error_fixtures()
         .iter()
         .map(validation_render_fixture)
@@ -207,7 +207,7 @@ fn render_validation(bencher: Bencher) {
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        let mut rendered_bytes = 0;
+        let mut rendered_count = 0;
         for fixture in &fixtures {
             for error in &fixture.check.validation_errors {
                 if let Some(output) = djls_bench::render_validation_error(
@@ -217,16 +217,17 @@ fn render_validation(bencher: Bencher) {
                     &config,
                     &renderer,
                 ) {
-                    rendered_bytes += output.len();
+                    divan::black_box_drop(output);
+                    rendered_count += 1;
                 }
             }
         }
-        divan::black_box(rendered_bytes);
+        divan::black_box(rendered_count);
     });
 }
 
 #[divan::bench]
-fn render_validation_synthetic(bencher: Bencher) {
+fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = realistic_db();
     let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
 
@@ -240,7 +241,7 @@ fn render_validation_synthetic(bencher: Bencher) {
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        let mut rendered_bytes = 0;
+        let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for error in &check.validation_errors {
                 if let Some(output) = djls_bench::render_validation_error(
@@ -250,10 +251,11 @@ fn render_validation_synthetic(bencher: Bencher) {
                     &config,
                     &renderer,
                 ) {
-                    rendered_bytes += output.len();
+                    divan::black_box_drop(output);
+                    rendered_count += 1;
                 }
             }
         }
-        divan::black_box(rendered_bytes);
+        divan::black_box(rendered_count);
     });
 }
