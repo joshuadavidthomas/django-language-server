@@ -12,8 +12,7 @@ use crate::document::TextDocument;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
-use crate::queue::Queue;
-use crate::refresh;
+use crate::reload::ProjectReload;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
@@ -21,17 +20,20 @@ use crate::session::SessionSnapshot;
 pub(crate) struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
-    queue: Queue,
+    reload: ProjectReload,
     logging: LoggingGuard,
 }
 
 impl DjangoLanguageServer {
     #[must_use]
     pub(crate) fn new(client: Client, logging: LoggingGuard) -> Self {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let reload = ProjectReload::new(Arc::clone(&session), client.clone());
+
         Self {
             client,
-            session: Arc::new(Mutex::new(Session::default())),
-            queue: Queue::new(),
+            session,
+            reload,
             logging,
         }
     }
@@ -91,31 +93,6 @@ impl DjangoLanguageServer {
         }
 
         unreachable!("snapshot retry loop must return")
-    }
-
-    /// Queue a project refresh task. The task body lives in [`crate::refresh`].
-    async fn submit_project_refresh(&self) {
-        let client = self.client.clone();
-        let client_info = self
-            .with_session(|session| session.client_info().clone())
-            .await;
-
-        let session = Arc::clone(&self.session);
-        let submit_result = self
-            .queue
-            .submit(async move {
-                refresh::run_project_refresh(session, client, client_info).await;
-            })
-            .await;
-
-        match submit_result {
-            Ok(()) => {
-                tracing::info!("Project refresh queued");
-            }
-            Err(e) => {
-                tracing::error!("Failed to queue project refresh: {}", e);
-            }
-        }
     }
 
     async fn maybe_push_diagnostics(&self, document: &TextDocument) {
@@ -225,8 +202,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        // Queue project data refresh in the background.
-        self.submit_project_refresh().await;
+        self.reload.request();
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -489,7 +465,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
-        tracing::info!("Configuration change detected. Queuing configuration refresh...");
-        self.submit_project_refresh().await;
+        tracing::info!("Configuration change detected. Requesting project reload...");
+        self.reload.request();
     }
 }
