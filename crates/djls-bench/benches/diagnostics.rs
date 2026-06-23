@@ -198,7 +198,7 @@ fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRend
 }
 
 #[divan::bench]
-fn render_validation(bencher: Bencher) {
+fn render_validation_output(bencher: Bencher) {
     let fixtures: Vec<_> = validation_error_fixtures()
         .iter()
         .map(validation_render_fixture)
@@ -210,15 +210,14 @@ fn render_validation(bencher: Bencher) {
         let mut rendered_count = 0;
         for fixture in &fixtures {
             for error in &fixture.check.validation_errors {
-                if djls_bench::render_validation_error(
+                if let Some(output) = djls_bench::render_validation_error(
                     fixture.source,
                     fixture.path,
                     error,
                     &config,
                     &renderer,
-                )
-                .is_some()
-                {
+                ) {
+                    divan::black_box_drop(output);
                     rendered_count += 1;
                 }
             }
@@ -228,7 +227,7 @@ fn render_validation(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn render_validation_synthetic(bencher: Bencher) {
+fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = realistic_db();
     let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
 
@@ -245,15 +244,14 @@ fn render_validation_synthetic(bencher: Bencher) {
         let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for error in &check.validation_errors {
-                if djls_bench::render_validation_error(
+                if let Some(output) = djls_bench::render_validation_error(
                     MANY_ERRORS_SOURCE,
                     "bench.html",
                     error,
                     &config,
                     &renderer,
-                )
-                .is_some()
-                {
+                ) {
+                    divan::black_box_drop(output);
                     rendered_count += 1;
                 }
             }
