@@ -207,23 +207,21 @@ fn render_validation(bencher: Bencher) {
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        let mut rendered_count = 0;
+        let mut rendered_bytes = 0;
         for fixture in &fixtures {
             for error in &fixture.check.validation_errors {
-                if djls_bench::render_validation_error(
+                if let Some(output) = djls_bench::render_validation_error(
                     fixture.source,
                     fixture.path,
                     error,
                     &config,
                     &renderer,
-                )
-                .is_some()
-                {
-                    rendered_count += 1;
+                ) {
+                    rendered_bytes += output.len();
                 }
             }
         }
-        divan::black_box(rendered_count);
+        divan::black_box(rendered_bytes);
     });
 }
 
@@ -242,22 +240,20 @@ fn render_validation_synthetic(bencher: Bencher) {
     let renderer = DiagnosticRenderer::plain();
 
     bencher.bench_local(move || {
-        let mut rendered_count = 0;
+        let mut rendered_bytes = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for error in &check.validation_errors {
-                if djls_bench::render_validation_error(
+                if let Some(output) = djls_bench::render_validation_error(
                     MANY_ERRORS_SOURCE,
                     "bench.html",
                     error,
                     &config,
                     &renderer,
-                )
-                .is_some()
-                {
-                    rendered_count += 1;
+                ) {
+                    rendered_bytes += output.len();
                 }
             }
         }
-        divan::black_box(rendered_count);
+        divan::black_box(rendered_bytes);
     });
 }

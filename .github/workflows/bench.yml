@@ -49,5 +49,5 @@ jobs:
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd
         with:
-          mode: instrumentation
+          mode: simulation
           run: cargo codspeed run -p djls-bench
