@@ -13,7 +13,7 @@ use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
 use crate::queue::Queue;
-use crate::refresh;
+use crate::reload;
 use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
@@ -93,7 +93,7 @@ impl DjangoLanguageServer {
         unreachable!("snapshot retry loop must return")
     }
 
-    /// Queue a project refresh task. The task body lives in [`crate::refresh`].
+    /// Queue a project reload task. The task body lives in [`crate::reload`].
     async fn submit_project_refresh(&self) {
         let client = self.client.clone();
         let client_info = self
@@ -104,16 +104,16 @@ impl DjangoLanguageServer {
         let submit_result = self
             .queue
             .submit(async move {
-                refresh::run_project_refresh(session, client, client_info).await;
+                reload::reload_project(session, client, client_info).await;
             })
             .await;
 
         match submit_result {
             Ok(()) => {
-                tracing::info!("Project refresh queued");
+                tracing::info!("Project reload queued");
             }
             Err(e) => {
-                tracing::error!("Failed to queue project refresh: {}", e);
+                tracing::error!("Failed to queue project reload: {}", e);
             }
         }
     }
@@ -225,7 +225,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        // Queue project data refresh in the background.
+        // Queue project data reload in the background.
         self.submit_project_refresh().await;
     }
 
@@ -489,7 +489,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
-        tracing::info!("Configuration change detected. Queuing configuration refresh...");
+        tracing::info!("Configuration change detected. Queuing configuration reload...");
         self.submit_project_refresh().await;
     }
 }

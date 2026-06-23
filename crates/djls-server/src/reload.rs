@@ -1,6 +1,6 @@
-//! Background project refresh.
+//! Project reload orchestration.
 //!
-//! Runs expensive refresh work off the session lock: load settings on a
+//! Runs expensive reload work off the session lock: load settings on a
 //! blocking task, compute project facts on a database clone, apply the results
 //! under the lock, then warm derived queries and republish diagnostics from a
 //! snapshot.
@@ -131,7 +131,7 @@ const DISCOVER_PROJECT_FACTS_TITLE: &str = "Discovering Django project facts";
 const WARM_CACHES_TITLE: &str = "Warming Django caches";
 const PUBLISH_DIAGNOSTICS_TITLE: &str = "Publishing diagnostics";
 
-pub(crate) async fn run_project_refresh(
+pub(crate) async fn reload_project(
     session: Arc<Mutex<Session>>,
     client: Client,
     client_info: ClientInfo,
@@ -179,7 +179,7 @@ pub(crate) async fn run_project_refresh(
     warm_snapshot_queries(&progress, snapshot.clone()).await;
     publish_refresh_diagnostics(&progress, client, snapshot, documents).await;
 
-    tracing::info!("Project refresh completed in {:?}", start.elapsed());
+    tracing::info!("Project reload completed in {:?}", start.elapsed());
 }
 
 async fn warm_snapshot_queries(progress: &ProgressReporter, snapshot: SessionSnapshot) {

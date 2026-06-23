@@ -4,7 +4,7 @@ mod ext;
 mod logging;
 mod progress;
 mod queue;
-mod refresh;
+mod reload;
 mod server;
 mod session;
 mod workspace;
