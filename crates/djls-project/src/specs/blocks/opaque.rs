@@ -6,7 +6,7 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::blocks::is_parser_receiver;
 use crate::specs::types::BlockSpec;
 

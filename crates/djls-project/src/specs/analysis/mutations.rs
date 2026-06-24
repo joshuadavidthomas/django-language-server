@@ -9,7 +9,7 @@ use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtWhile;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::exceptions::direct_raise_exception;
 use crate::specs::analysis::state::AbstractValue;
 use crate::specs::analysis::state::Env;

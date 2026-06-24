@@ -9,7 +9,7 @@ use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];

@@ -7,7 +7,7 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::blocks::dynamic_end;
 use crate::specs::blocks::is_token_contents_expr;
 use crate::specs::types::BlockSpec;

@@ -23,7 +23,7 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::UnaryOp;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::constraints::ExtractedTagConstraints;
 use crate::specs::analysis::guards::ExtractedRuleFragment;
 use crate::specs::types::ArgumentCountConstraint;

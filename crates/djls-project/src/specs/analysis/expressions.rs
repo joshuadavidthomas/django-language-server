@@ -10,7 +10,7 @@ use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Number;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::CallContext;
 use crate::specs::analysis::calls::resolve_call;
 use crate::specs::analysis::state::AbstractValue;

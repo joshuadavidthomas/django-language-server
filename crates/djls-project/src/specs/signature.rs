@@ -2,7 +2,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::types::ArgumentCountConstraint;
 use crate::specs::types::AsVar;
 use crate::specs::types::TagArgument;

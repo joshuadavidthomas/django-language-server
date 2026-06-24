@@ -5,7 +5,7 @@ use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtRaise;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::expressions::eval_expr;
 use crate::specs::analysis::state::AbstractValue;
 use crate::specs::analysis::state::Env;

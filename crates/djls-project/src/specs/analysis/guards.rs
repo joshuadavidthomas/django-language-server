@@ -15,7 +15,7 @@ use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::UnaryOp;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::constraints::ExtractedTagConstraints;
 use crate::specs::analysis::exceptions::direct_raise_exception;
 use crate::specs::analysis::exceptions::extract_exception_message;
