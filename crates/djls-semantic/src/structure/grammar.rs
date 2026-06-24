@@ -61,10 +61,7 @@ impl TagIndex {
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
-        if !matches!(
-            self.roles.get(opener_name),
-            Some(TagGrammarRole::Opener(_))
-        ) {
+        if !matches!(self.roles.get(opener_name), Some(TagGrammarRole::Opener(_))) {
             return CloseValidation::NotABlock;
         }
 
@@ -125,7 +122,7 @@ impl TagIndex {
 ///
 /// Borrows data from the [`TagIndex`]'s Salsa-tracked storage, avoiding
 /// clones of opener names and possible-opener lists.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TagClass<'a> {
     /// This tag opens a block
     Opener,
@@ -142,4 +139,137 @@ pub(crate) enum CloseValidation {
     Valid,
     NotABlock,
     ArgumentMismatch { expected: String, got: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use rustc_hash::FxHashMap;
+
+    use super::*;
+    use crate::tags::EndTag;
+    use crate::tags::IntermediateTag;
+    use crate::tags::TagSpec;
+    use crate::tags::TagSpecs;
+
+    fn create_test_specs() -> TagSpecs {
+        let mut specs = FxHashMap::default();
+
+        let block = |end_tag: &'static str, intermediates: Vec<&'static str>| {
+            let intermediate_tags: Cow<'static, [IntermediateTag]> = if intermediates.is_empty() {
+                Cow::Borrowed(&[])
+            } else {
+                Cow::Owned(
+                    intermediates
+                        .into_iter()
+                        .map(|name| IntermediateTag { name: name.into() })
+                        .collect(),
+                )
+            };
+
+            TagSpec::new(
+                "django.template.defaulttags".into(),
+                Some(EndTag {
+                    name: end_tag.into(),
+                    required: true,
+                }),
+                intermediate_tags,
+                false,
+            )
+        };
+
+        specs.insert(
+            "csrf_token".to_string(),
+            TagSpec::new(
+                "django.template.defaulttags".into(),
+                None,
+                Cow::Borrowed(&[]),
+                false,
+            ),
+        );
+        specs.insert("if".to_string(), block("endif", vec!["elif", "else"]));
+        specs.insert("for".to_string(), block("endfor", vec!["empty", "else"]));
+        specs.insert("block".to_string(), block("endblock", vec![]));
+
+        TagSpecs::new(specs)
+    }
+
+    #[test]
+    fn classifies_opening_tags() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert_eq!(index.classify("if"), TagClass::Opener);
+        assert_eq!(index.classify("for"), TagClass::Opener);
+        assert_eq!(index.classify("block"), TagClass::Opener);
+    }
+
+    #[test]
+    fn classifies_closing_tags_with_their_openers() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert_eq!(
+            index.classify("endif"),
+            TagClass::Closer { opener_name: "if" }
+        );
+        assert_eq!(
+            index.classify("endfor"),
+            TagClass::Closer { opener_name: "for" }
+        );
+        assert_eq!(
+            index.classify("endblock"),
+            TagClass::Closer {
+                opener_name: "block"
+            }
+        );
+        assert_eq!(index.classify("endnonexistent"), TagClass::Unknown);
+    }
+
+    #[test]
+    fn classifies_intermediate_tags_with_possible_openers() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        match index.classify("elif") {
+            TagClass::Intermediate { possible_openers } => assert_eq!(possible_openers, ["if"]),
+            tag_class => panic!("expected elif to classify as intermediate, got {tag_class:?}"),
+        }
+
+        match index.classify("else") {
+            TagClass::Intermediate { possible_openers } => {
+                let mut possible_openers = possible_openers.to_vec();
+                possible_openers.sort();
+                assert_eq!(possible_openers, ["for", "if"]);
+            }
+            tag_class => panic!("expected else to classify as intermediate, got {tag_class:?}"),
+        }
+
+        match index.classify("empty") {
+            TagClass::Intermediate { possible_openers } => assert_eq!(possible_openers, ["for"]),
+            tag_class => panic!("expected empty to classify as intermediate, got {tag_class:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_standalone_and_unknown_tags_as_unknown() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert_eq!(index.classify("csrf_token"), TagClass::Unknown);
+        assert_eq!(index.classify("nonexistent"), TagClass::Unknown);
+    }
+
+    #[test]
+    fn tracks_required_end_tags() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert!(index.is_end_required("if"));
+        assert!(index.is_end_required("for"));
+        assert!(index.is_end_required("block"));
+        assert!(!index.is_end_required("csrf_token"));
+        assert!(!index.is_end_required("nonexistent"));
+    }
 }
