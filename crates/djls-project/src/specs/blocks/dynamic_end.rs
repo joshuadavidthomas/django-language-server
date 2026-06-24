@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprBinOp;
@@ -9,10 +11,10 @@ use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtReturn;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::blocks::is_parser_receiver;
 use crate::specs::types::BlockSpec;
 
@@ -32,55 +34,24 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
 }
 
 fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = DynamicEndFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
-}
-
-struct DynamicEndFinder<'a> {
-    parser_var: &'a str,
-    found: bool,
-}
-
-impl<'a> DynamicEndFinder<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            found: false,
-        }
-    }
-}
-
-impl StatementVisitor<'_> for DynamicEndFinder<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        match stmt {
-            Stmt::Expr(expr_stmt) => {
-                self.found = is_dynamic_end_parse_call(&expr_stmt.value, self.parser_var);
-            }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                self.found = is_dynamic_end_parse_call(value, self.parser_var);
-            }
+    let mut found = false;
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
+        let has_dynamic_end = match stmt {
+            Stmt::Expr(expr_stmt) => is_dynamic_end_parse_call(&expr_stmt.value, parser_var),
+            Stmt::Assign(StmtAssign { value, .. }) => is_dynamic_end_parse_call(value, parser_var),
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
-            }) => {
-                self.found = is_dynamic_end_parse_call(val, self.parser_var);
-            }
-            // Recurse into control flow to find all possible parse calls.
-            Stmt::If(_)
-            | Stmt::For(_)
-            | Stmt::While(_)
-            | Stmt::Try(_)
-            | Stmt::With(_)
-            | Stmt::Match(_) => {
-                walk_stmt(self, stmt);
-            }
-            _ => {}
+            }) => is_dynamic_end_parse_call(val, parser_var),
+            _ => false,
+        };
+        if has_dynamic_end {
+            found = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
+    });
+    found
 }
 
 /// Check if an expression is `parser.parse((f"end{...}",))`.
@@ -162,46 +133,24 @@ pub(super) fn is_end_fstring(expr: &Expr) -> bool {
 
 /// Check for dynamic end-tag format strings: `"end%s" % bits[0]` or `f"end{bits[0]}"`.
 pub(super) fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
-    let mut visitor = DynamicEndFormatFinder::default();
-    visitor.visit_body(body);
-    visitor.found
-}
-
-#[derive(Default)]
-struct DynamicEndFormatFinder {
-    found: bool,
-}
-
-impl StatementVisitor<'_> for DynamicEndFormatFinder {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        match stmt {
-            Stmt::Expr(expr_stmt) => {
-                self.found = is_end_format_expr(&expr_stmt.value);
-            }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                self.found = is_end_format_expr(value);
-            }
+    let mut found = false;
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
+        let has_dynamic_end = match stmt {
+            Stmt::Expr(expr_stmt) => is_end_format_expr(&expr_stmt.value),
+            Stmt::Assign(StmtAssign { value, .. }) => is_end_format_expr(value),
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
-            }) => {
-                self.found = is_end_format_expr(val);
-            }
-            // Recurse into control flow to find all possible parse calls.
-            Stmt::If(_)
-            | Stmt::For(_)
-            | Stmt::While(_)
-            | Stmt::Try(_)
-            | Stmt::With(_)
-            | Stmt::Match(_) => {
-                walk_stmt(self, stmt);
-            }
-            _ => {}
+            }) => is_end_format_expr(val),
+            _ => false,
+        };
+        if has_dynamic_end {
+            found = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
+    });
+    found
 }
 
 /// Check if an expression is `"end%s" % something` or similar end-tag format.

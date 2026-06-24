@@ -1,12 +1,14 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::blocks::is_parser_receiver;
 use crate::specs::types::BlockSpec;
 
@@ -33,49 +35,21 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
 /// Uses Ruff's statement visitor to avoid hand-written recursion across
 /// statement variants.
 fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
-    let mut visitor = SkipPastVisitor::new(parser_var);
-    visitor.visit_body(body);
-    visitor.tokens
-}
-
-struct SkipPastVisitor<'a> {
-    parser_var: &'a str,
-    tokens: Vec<String>,
-}
-
-impl<'a> SkipPastVisitor<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            tokens: Vec::new(),
+    let mut tokens = Vec::new();
+    walk_stmts(body, Recurse::WithinScope, |stmt| {
+        let token = match stmt {
+            Stmt::Expr(expr_stmt) => extract_skip_past_token(&expr_stmt.value, parser_var),
+            Stmt::Assign(StmtAssign { value, .. }) => extract_skip_past_token(value, parser_var),
+            _ => None,
+        };
+        if let Some(token) = token
+            && !tokens.contains(&token)
+        {
+            tokens.push(token);
         }
-    }
-
-    fn insert_token(&mut self, token: String) {
-        if !self.tokens.contains(&token) {
-            self.tokens.push(token);
-        }
-    }
-}
-
-impl StatementVisitor<'_> for SkipPastVisitor<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Expr(expr_stmt) => {
-                if let Some(token) = extract_skip_past_token(&expr_stmt.value, self.parser_var) {
-                    self.insert_token(token);
-                }
-            }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(token) = extract_skip_past_token(value, self.parser_var) {
-                    self.insert_token(token);
-                }
-            }
-            // Stay within the current function scope.
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-            _ => walk_stmt(self, stmt),
-        }
-    }
+        ControlFlow::Continue(())
+    });
+    tokens
 }
 
 /// Check if an expression is `parser.skip_past("token")` and extract the token.

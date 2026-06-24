@@ -1,12 +1,14 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::blocks::dynamic_end;
 use crate::specs::blocks::is_token_contents_expr;
 use crate::specs::types::BlockSpec;
@@ -67,46 +69,19 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option
 
 /// Check if a body contains `while parser.tokens:` with `parser.next_token()`.
 fn has_next_token_loop(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = NextTokenLoopFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
-}
-
-struct NextTokenLoopFinder<'a> {
-    parser_var: &'a str,
-    found: bool,
-}
-
-impl<'a> NextTokenLoopFinder<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            found: false,
+    let mut found = false;
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
+        if let Stmt::While(while_stmt) = stmt
+            && is_parser_tokens_check(&while_stmt.test, parser_var)
+            && body_has_next_token_call(&while_stmt.body, parser_var)
+        {
+            found = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
-}
-
-impl StatementVisitor<'_> for NextTokenLoopFinder<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        match stmt {
-            Stmt::While(while_stmt) => {
-                if is_parser_tokens_check(&while_stmt.test, self.parser_var)
-                    && body_has_next_token_call(&while_stmt.body, self.parser_var)
-                {
-                    self.found = true;
-                    return;
-                }
-                walk_stmt(self, stmt);
-            }
-            // Recurse into control flow to find all possible loop patterns.
-            Stmt::If(_) | Stmt::For(_) | Stmt::Try(_) => walk_stmt(self, stmt),
-            _ => {}
-        }
-    }
+    });
+    found
 }
 
 /// Check if an expression is `parser.tokens` (the token list attribute).
@@ -121,41 +96,21 @@ fn is_parser_tokens_check(expr: &Expr, parser_var: &str) -> bool {
 
 /// Check if a body contains a `parser.next_token()` call.
 fn body_has_next_token_call(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = NextTokenCallFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
-}
-
-struct NextTokenCallFinder<'a> {
-    parser_var: &'a str,
-    found: bool,
-}
-
-impl<'a> NextTokenCallFinder<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            found: false,
+    let mut found = false;
+    walk_stmts(body, Recurse::Flat, |stmt| {
+        let has_next_token_call = match stmt {
+            Stmt::Assign(StmtAssign { value, .. }) => is_next_token_call(value, parser_var),
+            Stmt::Expr(expr_stmt) => is_next_token_call(&expr_stmt.value, parser_var),
+            _ => false,
+        };
+        if has_next_token_call {
+            found = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
-}
-
-impl StatementVisitor<'_> for NextTokenCallFinder<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        match stmt {
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                self.found = is_next_token_call(value, self.parser_var);
-            }
-            Stmt::Expr(expr_stmt) => {
-                self.found = is_next_token_call(&expr_stmt.value, self.parser_var);
-            }
-            _ => {}
-        }
-    }
+    });
+    found
 }
 
 /// Check if an expression is `parser.next_token()`.
@@ -185,57 +140,37 @@ fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
 /// - `token.contents == "endblocktrans"`
 /// - `token.contents.strip() != end_tag_name` (skipped — dynamic)
 fn collect_token_content_comparisons(body: &[Stmt], token_var: &str) -> Vec<String> {
-    let mut visitor = TokenComparisonVisitor::new(token_var);
-    visitor.visit_body(body);
-    visitor.comparisons
-}
-
-struct TokenComparisonVisitor<'a> {
-    token_var: &'a str,
-    comparisons: Vec<String>,
-}
-
-impl<'a> TokenComparisonVisitor<'a> {
-    fn new(token_var: &'a str) -> Self {
-        Self {
-            token_var,
-            comparisons: Vec::new(),
-        }
-    }
-
-    fn add_all(&mut self, values: Vec<String>) {
-        for value in values {
-            if !self.comparisons.contains(&value) {
-                self.comparisons.push(value);
-            }
-        }
-    }
-}
-
-impl StatementVisitor<'_> for TokenComparisonVisitor<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
+    let mut comparisons = Vec::new();
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
         match stmt {
             Stmt::If(if_stmt) => {
-                self.add_all(extract_comparisons_from_expr(&if_stmt.test, self.token_var));
-                for clause in &if_stmt.elif_else_clauses {
-                    if let Some(test) = &clause.test {
-                        self.add_all(extract_comparisons_from_expr(test, self.token_var));
+                for value in extract_comparisons_from_expr(&if_stmt.test, token_var) {
+                    if !comparisons.contains(&value) {
+                        comparisons.push(value);
                     }
                 }
-                walk_stmt(self, stmt);
+                for clause in &if_stmt.elif_else_clauses {
+                    if let Some(test) = &clause.test {
+                        for value in extract_comparisons_from_expr(test, token_var) {
+                            if !comparisons.contains(&value) {
+                                comparisons.push(value);
+                            }
+                        }
+                    }
+                }
             }
             Stmt::While(while_stmt) => {
-                self.add_all(extract_comparisons_from_expr(
-                    &while_stmt.test,
-                    self.token_var,
-                ));
-                walk_stmt(self, stmt);
+                for value in extract_comparisons_from_expr(&while_stmt.test, token_var) {
+                    if !comparisons.contains(&value) {
+                        comparisons.push(value);
+                    }
+                }
             }
-            // Recurse into control flow to find all possible loop patterns.
-            Stmt::For(_) | Stmt::Try(_) => walk_stmt(self, stmt),
             _ => {}
         }
-    }
+        ControlFlow::Continue(())
+    });
+    comparisons
 }
 
 /// Extract string comparisons against token.contents from a comparison expression.
