@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use ruff_python_ast as ast;
 
+use crate::ast::ExprExt;
 use crate::extraction::settings::LocalBindings;
 use crate::extraction::settings::TemplateDirPath;
 
@@ -33,7 +34,7 @@ fn evaluate_path(
         }
         ast::Expr::BinOp(bin_op) if bin_op.op == ast::Operator::Div => {
             let base = evaluate_path(&bin_op.left, module_path, locals)?;
-            let segment = string_literal(&bin_op.right)?;
+            let segment = bin_op.right.string_literal()?;
             Some(base.join(segment))
         }
         ast::Expr::Call(call) => evaluate_path_call(call, module_path, locals),
@@ -75,7 +76,7 @@ fn evaluate_path_call(
             "joinpath" => {
                 let mut path = evaluate_path(&attribute.value, module_path, locals)?;
                 for argument in positional_arguments(&call.arguments) {
-                    path = path.join(string_literal(argument)?);
+                    path = path.join(argument.string_literal()?);
                 }
                 Some(path)
             }
@@ -84,7 +85,7 @@ fn evaluate_path_call(
                 let first = arguments.next()?;
                 let mut path = evaluate_path(first, module_path, locals)?;
                 for argument in arguments {
-                    path = path.join(string_literal(argument)?);
+                    path = path.join(argument.string_literal()?);
                 }
                 Some(path)
             }
@@ -128,11 +129,4 @@ fn single_positional_argument(arguments: &ast::Arguments) -> Option<&ast::Expr> 
 
 fn positional_arguments(arguments: &ast::Arguments) -> impl Iterator<Item = &ast::Expr> {
     arguments.args.iter()
-}
-
-fn string_literal(expr: &ast::Expr) -> Option<&str> {
-    match expr {
-        ast::Expr::StringLiteral(literal) => Some(literal.value.to_str()),
-        _ => None,
-    }
 }

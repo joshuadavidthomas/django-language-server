@@ -244,9 +244,8 @@ fn comparison_is_as_keyword_check(compare: &ExprCompare, name: &str) -> bool {
     };
     let left = compare.left.as_ref();
 
-    (subscript_is_negative_index(left, name, 2) && right.string_literal().as_deref() == Some("as"))
-        || (left.string_literal().as_deref() == Some("as")
-            && subscript_is_negative_index(right, name, 2))
+    (subscript_is_negative_index(left, name, 2) && right.string_literal() == Some("as"))
+        || (left.string_literal() == Some("as") && subscript_is_negative_index(right, name, 2))
 }
 
 fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {

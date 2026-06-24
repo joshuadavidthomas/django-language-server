@@ -101,5 +101,5 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
     if arguments.args.is_empty() {
         return None;
     }
-    arguments.args[0].string_literal()
+    arguments.args[0].string_literal().map(str::to_string)
 }

@@ -35,7 +35,7 @@ pub(super) fn extract_exception_message(
     let first_arg = arguments.args.first()?;
 
     if let Some(message) = first_arg.string_literal() {
-        return Some(ExtractedMessageTemplate::Static(message));
+        return Some(ExtractedMessageTemplate::Static(message.to_string()));
     }
 
     let Expr::BinOp(ExprBinOp {
@@ -48,7 +48,7 @@ pub(super) fn extract_exception_message(
         return None;
     };
 
-    let template = left.string_literal()?;
+    let template = left.string_literal()?.to_string();
     let args = match right.as_ref() {
         Expr::Tuple(tuple) => tuple
             .elts

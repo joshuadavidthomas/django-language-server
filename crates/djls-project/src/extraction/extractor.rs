@@ -14,6 +14,7 @@ use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use crate::ast::ExprExt;
 use crate::extraction::paths::evaluate_path_expr;
 use crate::extraction::settings::DjangoSettings;
 use crate::extraction::settings::InstalledAppsSetting;
@@ -479,7 +480,7 @@ impl SettingsBindingsCollector<'_> {
 
         match method {
             "append" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
-                if let Some(value) = string_literal(&arguments.args[0]) {
+                if let Some(value) = arguments.args[0].string_literal() {
                     self.bindings
                         .installed_apps_mut()
                         .values
@@ -495,7 +496,7 @@ impl SettingsBindingsCollector<'_> {
             }
             "insert" if arguments.args.len() == 2 && arguments.keywords.is_empty() => {
                 let index = non_negative_integer(&arguments.args[0]);
-                let value = string_literal(&arguments.args[1]);
+                let value = arguments.args[1].string_literal();
                 match (index, value) {
                     (Some(index), Some(value)) => {
                         let values = &mut self.bindings.installed_apps_mut().values;
@@ -509,7 +510,7 @@ impl SettingsBindingsCollector<'_> {
                 }
             }
             "remove" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
-                if let Some(value) = string_literal(&arguments.args[0]) {
+                if let Some(value) = arguments.args[0].string_literal() {
                     if let Some(position) = self
                         .bindings
                         .installed_apps_mut()
@@ -611,12 +612,12 @@ impl SettingsBindingsCollector<'_> {
                 backend.make_partial(Reason::DictUnpack);
                 continue;
             };
-            let Some(key) = string_literal(key_expr) else {
+            let Some(key) = key_expr.string_literal() else {
                 backend.make_partial(Reason::NonLiteralKey);
                 continue;
             };
             match key {
-                "BACKEND" => match string_literal(&item.value) {
+                "BACKEND" => match item.value.string_literal() {
                     Some(value) => backend.backend = Some(value.to_string()),
                     None => backend.make_partial(Reason::UnsupportedValue),
                 },
@@ -657,7 +658,7 @@ impl SettingsBindingsCollector<'_> {
                 backend.make_partial(Reason::DictUnpack);
                 continue;
             };
-            let Some(key) = string_literal(key_expr) else {
+            let Some(key) = key_expr.string_literal() else {
                 backend.make_partial(Reason::NonLiteralKey);
                 continue;
             };
@@ -996,8 +997,8 @@ fn extract_string_pair_dict(value: &ast::Expr) -> (Vec<(String, String)>, Vec<Re
     let mut reasons = Vec::new();
     for item in &dict.items {
         match (
-            item.key.as_ref().and_then(string_literal),
-            string_literal(&item.value),
+            item.key.as_ref().and_then(ExprExt::string_literal),
+            item.value.string_literal(),
         ) {
             (Some(key), Some(value)) => values.push((key.to_string(), value.to_string())),
             _ => reasons.push(Reason::UnsupportedValue),
@@ -1017,7 +1018,7 @@ fn extract_string_elements(elements: &[ast::Expr]) -> (Vec<String>, Vec<Reason>)
     let mut values = Vec::new();
     let mut reasons = Vec::new();
     for element in elements {
-        if let Some(value) = string_literal(element) {
+        if let Some(value) = element.string_literal() {
             values.push(value.to_string());
         } else {
             reasons.push(Reason::NonLiteralElement);
@@ -1046,7 +1047,7 @@ fn templates_dirs_target(expr: &ast::Expr) -> Option<usize> {
     let ast::Expr::Subscript(outer) = expr else {
         return None;
     };
-    if string_literal(&outer.slice) != Some("DIRS") {
+    if outer.slice.string_literal() != Some("DIRS") {
         return None;
     }
     let ast::Expr::Subscript(inner) = outer.value.as_ref() else {
@@ -1107,13 +1108,6 @@ fn name_target(expr: &ast::Expr) -> Option<&str> {
 
 fn is_name(expr: &ast::Expr, expected: &str) -> bool {
     matches!(expr, ast::Expr::Name(name) if name.id.as_str() == expected)
-}
-
-fn string_literal(expr: &ast::Expr) -> Option<&str> {
-    match expr {
-        ast::Expr::StringLiteral(literal) => Some(literal.value.to_str()),
-        _ => None,
-    }
 }
 
 fn bool_literal(expr: &ast::Expr) -> Option<bool> {

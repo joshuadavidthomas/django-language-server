@@ -257,7 +257,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
                 let position = index;
                 return ExtractedTagConstraints::single_keyword(RequiredKeyword {
                     position,
-                    value: keyword,
+                    value: keyword.to_string(),
                 });
             }
             return ExtractedTagConstraints::default();
@@ -265,7 +265,8 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
 
         // SplitElement not in ("a", "b") → ChoiceAt constraint
         if matches!(op, CmpOp::NotIn)
-            && let Some(values) = comparator.collection_map(ExprExt::string_literal)
+            && let Some(values) =
+                comparator.collection_map(|expr| expr.string_literal().map(str::to_string))
             && !values.is_empty()
         {
             let position = index;
@@ -282,7 +283,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
             let position = index;
             return ExtractedTagConstraints::single_keyword(RequiredKeyword {
                 position,
-                value: keyword,
+                value: keyword.to_string(),
             });
         }
         return ExtractedTagConstraints::default();

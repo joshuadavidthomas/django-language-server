@@ -259,14 +259,14 @@ fn extract_comparisons_from_expr(expr: &Expr, token_var: &str) -> Vec<String> {
                 || is_token_contents_expr(right, Some(token_var))
             {
                 if let Some(s) = left.string_literal()
-                    && !comparisons.contains(&s)
+                    && !comparisons.iter().any(|comparison| comparison == s)
                 {
-                    comparisons.push(s);
+                    comparisons.push(s.to_string());
                 }
                 if let Some(s) = right.string_literal()
-                    && !comparisons.contains(&s)
+                    && !comparisons.iter().any(|comparison| comparison == s)
                 {
-                    comparisons.push(s);
+                    comparisons.push(s.to_string());
                 }
             }
         }

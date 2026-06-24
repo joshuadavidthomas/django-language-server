@@ -86,17 +86,17 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
         Expr::Tuple(t) => t
             .elts
             .iter()
-            .filter_map(ExprExt::string_literal_first_word)
+            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
             .collect(),
         Expr::List(l) => l
             .elts
             .iter()
-            .filter_map(ExprExt::string_literal_first_word)
+            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
             .collect(),
         Expr::Set(s) => s
             .elts
             .iter()
-            .filter_map(ExprExt::string_literal_first_word)
+            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
             .collect(),
         _ => Vec::new(),
     }

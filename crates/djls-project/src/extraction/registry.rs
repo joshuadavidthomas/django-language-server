@@ -217,7 +217,11 @@ fn tag_registration_from_call(
         // `register.tag("name", func)` — first arg is string name, second is callable
         if let Some(name) = args[0].string_literal() {
             let fn_name = callable_name(&args[1]).or(func_name);
-            return Some((name_override.unwrap_or(name), kind, fn_name));
+            return Some((
+                name_override.unwrap_or_else(|| name.to_string()),
+                kind,
+                fn_name,
+            ));
         }
     }
 
@@ -264,7 +268,7 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
         // `register.filter("name", func)`
         if let Some(name) = args[0].string_literal() {
             let fn_name = callable_name(&args[1]).or(func_name);
-            return Some((name_override.unwrap_or(name), fn_name));
+            return Some((name_override.unwrap_or_else(|| name.to_string()), fn_name));
         }
     }
 
@@ -311,7 +315,7 @@ fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
             continue;
         }
         if let Some(s) = kw.value.string_literal() {
-            return Some(s);
+            return Some(s.to_string());
         }
     }
     None
@@ -332,7 +336,9 @@ fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String
 
 /// Extract the first positional argument's string value.
 fn first_string_arg(args: &[Expr]) -> Option<String> {
-    args.first().and_then(ExprExt::string_literal)
+    args.first()
+        .and_then(ExprExt::string_literal)
+        .map(str::to_string)
 }
 
 /// Best-effort callable name extraction for debugging / registration mapping.
