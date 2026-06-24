@@ -11,15 +11,6 @@ use crate::specs::types::BlockSpec;
 use crate::specs::types::FilterArity;
 use crate::specs::types::TagRule;
 
-/// Output of [`RegistrationKind::extract`], distinguishing filter vs tag results.
-pub(crate) enum ExtractionOutput {
-    Filter(FilterArity),
-    Tag {
-        rule: Option<Box<TagRule>>,
-        block_spec: Option<BlockSpec>,
-    },
-}
-
 impl RegistrationKind {
     pub(crate) fn symbol_kind(self) -> TemplateSymbolKind {
         match self {
@@ -34,18 +25,6 @@ impl RegistrationKind {
         match self {
             Self::SimpleTag | Self::SimpleBlockTag => AsVar::Strip,
             Self::Tag | Self::InclusionTag | Self::Filter => AsVar::Keep,
-        }
-    }
-
-    pub(crate) fn extract(self, func: &StmtFunctionDef) -> ExtractionOutput {
-        match self {
-            Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
-            Self::SimpleTag | Self::InclusionTag | Self::Tag | Self::SimpleBlockTag => {
-                ExtractionOutput::Tag {
-                    rule: self.extract_tag_rule(func),
-                    block_spec: self.extract_block_spec(func),
-                }
-            }
         }
     }
 

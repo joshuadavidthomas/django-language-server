@@ -1,7 +1,9 @@
 use std::sync::OnceLock;
 
 use djls_project::FilterArity;
+use djls_project::FilterArityMap;
 use djls_project::LibraryName;
+use djls_project::ModulePath;
 use djls_project::PyModuleName;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
@@ -12,6 +14,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
+use djls_testing::extract_bundle;
 
 use crate::Db;
 
@@ -120,10 +123,12 @@ fn build_template_symbols() -> Vec<BenchSymbol> {
 
 fn build_filter_arities(
     defaultfilters: &str,
-    extraction: &djls_project::ExtractionResult,
+    extracted_arities: &[&FilterArityMap],
 ) -> FilterAritySpecs {
     let mut specs = FilterAritySpecs::new();
-    specs.merge_extraction_result(extraction);
+    for filter_arities in extracted_arities {
+        specs.merge_filter_arities(filter_arities);
+    }
 
     let known: &[(&str, bool, bool)] = &[
         ("title", false, false),
@@ -205,19 +210,35 @@ fn build_realistic_specs() -> RealisticSpecs {
     let mut tag_specs = TagSpecs::default();
 
     let fixture_root = crate::fixtures::crate_root().join("fixtures/python");
-    let defaulttags_source = std::fs::read_to_string(fixture_root.join("large/defaulttags.py"))
+    let defaulttags_path = fixture_root.join("large/defaulttags.py");
+    let defaulttags_source = std::fs::read_to_string(&defaulttags_path)
         .unwrap_or_else(|err| panic!("failed to load defaulttags.py fixture: {err}"));
-
-    let mut extraction = djls_project::extract_rules(&defaulttags_source, DEFAULTTAGS);
-    tag_specs.merge_extraction_results(&extraction);
-
-    let i18n_source = std::fs::read_to_string(fixture_root.join("medium/i18n.py"))
+    let i18n_path = fixture_root.join("medium/i18n.py");
+    let i18n_source = std::fs::read_to_string(&i18n_path)
         .unwrap_or_else(|err| panic!("failed to load i18n.py fixture: {err}"));
-    let i18n_extraction = djls_project::extract_rules(&i18n_source, I18N);
-    tag_specs.merge_extraction_results(&i18n_extraction);
-    extraction.merge(i18n_extraction);
 
-    let filter_arity_specs = build_filter_arities(DEFAULTFILTERS, &extraction);
+    let mut extraction_db = Db::new();
+    let defaulttags_file = extraction_db.file_with_contents(defaulttags_path, &defaulttags_source);
+    let i18n_file = extraction_db.file_with_contents(i18n_path, &i18n_source);
+
+    let defaulttags = extract_bundle(
+        &extraction_db,
+        defaulttags_file,
+        ModulePath::new(DEFAULTTAGS),
+    );
+    tag_specs
+        .merge_block_specs(&defaulttags.block_specs)
+        .merge_tag_rules(&defaulttags.tag_rules);
+
+    let i18n = extract_bundle(&extraction_db, i18n_file, ModulePath::new(I18N));
+    tag_specs
+        .merge_block_specs(&i18n.block_specs)
+        .merge_tag_rules(&i18n.tag_rules);
+
+    let filter_arity_specs = build_filter_arities(
+        DEFAULTFILTERS,
+        &[&defaulttags.filter_arities, &i18n.filter_arities],
+    );
 
     RealisticSpecs {
         tag_specs,

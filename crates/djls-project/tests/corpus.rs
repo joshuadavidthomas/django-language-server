@@ -19,54 +19,12 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus
 //! ```
 
-use std::collections::BTreeMap;
-
-use djls_project::ExtractionResult;
-use djls_project::FilterArity;
-use djls_project::SymbolKey;
-use djls_project::TagRule;
-use djls_project::TemplateSymbolKind;
-use djls_project::extract_rules;
+use djls_project::ModulePath;
 use djls_testing::Corpus;
+use djls_testing::TestDatabase;
+use djls_testing::extract_bundle;
 use djls_testing::module_path_from_file;
-use serde::Serialize;
-
-#[derive(Debug, Serialize)]
-struct SortedExtractionResult {
-    tag_rules: BTreeMap<String, TagRule>,
-    filter_arities: BTreeMap<String, FilterArity>,
-    block_specs: BTreeMap<String, serde_json::Value>,
-}
-
-impl From<ExtractionResult> for SortedExtractionResult {
-    fn from(result: ExtractionResult) -> Self {
-        let key_str = |k: &SymbolKey| {
-            let kind = match k.kind {
-                TemplateSymbolKind::Tag => "tag",
-                TemplateSymbolKind::Filter => "filter",
-            };
-            format!("{}::{kind}::{}", k.registration_module, k.name)
-        };
-        Self {
-            tag_rules: result
-                .tag_rules
-                .iter()
-                .map(|(k, v)| (key_str(k), v.as_ref().clone()))
-                .collect(),
-            filter_arities: result
-                .filter_arities
-                .iter()
-                .map(|(k, v)| (key_str(k), v.clone()))
-                .collect(),
-            block_specs: serde_json::from_value(serde_json::to_value(&result.block_specs).unwrap())
-                .unwrap(),
-        }
-    }
-}
-
-fn snapshot(result: ExtractionResult) -> SortedExtractionResult {
-    result.into()
-}
+use djls_testing::sorted_snapshot;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     let mut settings = insta::Settings::clone_current();
@@ -81,15 +39,18 @@ fn extraction_snapshots() {
     assert!(!targets.is_empty(), "No extraction targets in corpus.");
 
     let _guard = snapshot_dir();
+    let db = TestDatabase::new();
 
     for path in targets {
         let source = std::fs::read_to_string(path.as_std_path()).unwrap();
         let module_path = module_path_from_file(&path);
-        let result = extract_rules(&source, &module_path);
+        db.add_file(path.as_str(), &source);
+        let file = db.get_or_create_file(&path);
+        let bundle = extract_bundle(&db, file, ModulePath::new(module_path));
 
         let relative = path.strip_prefix(corpus.root()).unwrap_or(&path);
         let snapshot_name = relative.as_str().replace('/', "__");
 
-        insta::assert_yaml_snapshot!(snapshot_name, snapshot(result));
+        insta::assert_yaml_snapshot!(snapshot_name, sorted_snapshot(&bundle));
     }
 }

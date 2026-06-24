@@ -98,33 +98,6 @@ impl BlockSpecs {
     }
 }
 
-/// Result of extracting rules from a Python registration module.
-///
-/// Maps each discovered symbol to its extracted validation rules. This remains
-/// as a convenience aggregate for non-Salsa callers and snapshots; the Salsa
-/// pipeline uses domain-specific query results so downstream consumers only
-/// depend on the extracted data they read.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ExtractionResult {
-    pub tag_rules: TagRuleMap,
-    pub filter_arities: FilterArityMap,
-    pub block_specs: BlockSpecs,
-}
-
-impl ExtractionResult {
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.tag_rules.is_empty() && self.filter_arities.is_empty() && self.block_specs.is_empty()
-    }
-
-    /// Merge another extraction result into this one. The other takes precedence.
-    pub fn merge(&mut self, other: Self) {
-        self.tag_rules.extend(other.tag_rules);
-        self.filter_arities.extend(other.filter_arities);
-        self.block_specs.extend(other.block_specs);
-    }
-}
-
 /// How to treat trailing `as <varname>` in tag arguments.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -406,69 +379,6 @@ mod tests {
         assert_eq!(key.registration_module, "django.template.defaultfilters");
         assert_eq!(key.name, "title");
         assert_eq!(key.kind, TemplateSymbolKind::Filter);
-    }
-
-    #[test]
-    fn extraction_result_empty() {
-        let result = ExtractionResult::default();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn extraction_result_merge() {
-        let mut result1 = ExtractionResult::default();
-        result1.tag_rules.insert(
-            SymbolKey::tag("mod1", "tag1"),
-            TagRule {
-                arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
-                ..Default::default()
-            }
-            .into(),
-        );
-
-        let mut result2 = ExtractionResult::default();
-        result2.filter_arities.insert(
-            SymbolKey::filter("mod2", "filter1"),
-            FilterArity {
-                expects_arg: true,
-                arg_optional: false,
-            },
-        );
-
-        result1.merge(result2);
-        assert!(!result1.is_empty());
-        assert_eq!(result1.tag_rules.len(), 1);
-        assert_eq!(result1.filter_arities.len(), 1);
-    }
-
-    #[test]
-    fn extraction_result_merge_overwrites() {
-        let mut result1 = ExtractionResult::default();
-        let key = SymbolKey::tag("mod1", "tag1");
-        result1.tag_rules.insert(
-            key.clone(),
-            TagRule {
-                arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
-                ..Default::default()
-            }
-            .into(),
-        );
-
-        let mut result2 = ExtractionResult::default();
-        result2.tag_rules.insert(
-            key.clone(),
-            TagRule {
-                arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-                ..Default::default()
-            }
-            .into(),
-        );
-
-        result1.merge(result2);
-        assert_eq!(result1.tag_rules.len(), 1);
-
-        let rule = result1.tag_rules.get(&key).unwrap();
-        assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
 
     #[test]

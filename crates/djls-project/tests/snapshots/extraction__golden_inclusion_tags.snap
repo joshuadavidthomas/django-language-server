@@ -1,6 +1,6 @@
 ---
-source: crates/djls-project/src/specs.rs
-expression: "snapshot(extract_rules(&source,\n\"tests.template_tests.templatetags.inclusion\"))"
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
 ---
 tag_rules:
   "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params":
