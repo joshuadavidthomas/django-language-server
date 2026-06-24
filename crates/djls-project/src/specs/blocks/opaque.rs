@@ -6,7 +6,7 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::blocks::is_parser_receiver;
 use crate::specs::types::BlockSpec;
 
@@ -101,5 +101,5 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
     if arguments.args.is_empty() {
         return None;
     }
-    arguments.args[0].string_literal()
+    arguments.args[0].string_literal().map(str::to_string)
 }

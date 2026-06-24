@@ -2,14 +2,13 @@ use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCompare;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtWhile;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::exceptions::direct_raise_exception;
 use crate::specs::analysis::state::AbstractValue;
 use crate::specs::analysis::state::Env;
@@ -34,9 +33,7 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
     if attr.as_str() != "pop" {
         return None;
     }
-    let Expr::Name(ExprName { id, .. }) = value.as_ref() else {
-        return None;
-    };
+    let var_name = value.name_target()?;
 
     let from_front = if let Some(arg) = call.arguments.args.first() {
         arg.non_negative_integer() == Some(0)
@@ -45,7 +42,7 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
     };
 
     Some(PopInfo {
-        var_name: id.to_string(),
+        var_name: var_name.to_string(),
         from_front,
     })
 }
@@ -78,10 +75,8 @@ pub(super) fn apply_pop_mutation(env: &mut Env, pop_info: &PopInfo) {
 /// ```
 pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Option<KnownOptions> {
     // The loop test must be a simple name that resolves to SplitResult (or derivative)
-    let Expr::Name(ExprName { id: loop_var, .. }) = &*while_stmt.test else {
-        return None;
-    };
-    let loop_value = env.get(loop_var.as_str());
+    let loop_var = while_stmt.test.name_target()?;
+    let loop_value = env.get(loop_var);
     if !matches!(
         loop_value,
         AbstractValue::SplitResult(_) | AbstractValue::Unknown
@@ -90,7 +85,7 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
     }
 
     // Look for `option = loop_var.pop(0)` in the body
-    let option_var = find_option_pop_var(&while_stmt.body, loop_var.as_str())?;
+    let option_var = find_option_pop_var(&while_stmt.body, loop_var)?;
 
     // Scan if/elif/else chains for option value checks
     let mut values = Vec::new();
@@ -149,12 +144,12 @@ impl StatementVisitor<'_> for OptionPopFinder<'_> {
 
         if let Stmt::Assign(assign) = stmt
             && assign.targets.len() == 1
-            && let Expr::Name(ExprName { id, .. }) = &assign.targets[0]
+            && let Some(name) = assign.targets[0].name_target()
         {
             let is_pop_zero = try_extract_pop_call(&assign.value)
                 .is_some_and(|info| info.var_name == self.loop_var && info.from_front);
             if is_pop_zero {
-                self.option_var = Some(id.to_string());
+                self.option_var = Some(name.to_string());
             }
         }
         // Do not recurse into nested statements.
@@ -245,13 +240,10 @@ fn is_duplicate_check(test: &Expr, option_var: &str) -> bool {
     if !matches!(ops[0], CmpOp::In) {
         return false;
     }
-    let Expr::Name(ExprName { id, .. }) = left.as_ref() else {
-        return false;
-    };
-    if id.as_str() != option_var {
+    if left.name_target() != Some(option_var) {
         return false;
     }
-    matches!(comparators[0], Expr::Name(_))
+    comparators[0].name_target().is_some()
 }
 
 /// Extract option name from `option == "name"`.
@@ -271,10 +263,7 @@ fn extract_option_equality(test: &Expr, option_var: &str) -> Option<String> {
     if !matches!(ops[0], CmpOp::Eq) {
         return None;
     }
-    let Expr::Name(ExprName { id, .. }) = left.as_ref() else {
-        return None;
-    };
-    if id.as_str() != option_var {
+    if left.name_target() != Some(option_var) {
         return None;
     }
     if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = &comparators[0] {

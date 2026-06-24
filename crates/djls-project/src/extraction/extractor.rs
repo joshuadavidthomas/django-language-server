@@ -14,6 +14,7 @@ use ruff_python_parser::parse_module;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use crate::ast::ExprExt;
 use crate::extraction::paths::evaluate_path_expr;
 use crate::extraction::settings::DjangoSettings;
 use crate::extraction::settings::InstalledAppsSetting;
@@ -254,7 +255,7 @@ impl SettingsBindingsCollector<'_> {
         }
 
         let target = &assign.targets[0];
-        if let Some(name) = name_target(target) {
+        if let Some(name) = target.name_target() {
             self.assign_name(name, &assign.value);
         } else {
             self.mark_unknown_targets(target);
@@ -267,7 +268,7 @@ impl SettingsBindingsCollector<'_> {
             return;
         };
 
-        if let Some(name) = name_target(&assign.target) {
+        if let Some(name) = assign.target.name_target() {
             self.assign_name(name, value);
         } else {
             self.mark_unknown_targets(&assign.target);
@@ -280,7 +281,7 @@ impl SettingsBindingsCollector<'_> {
             return;
         }
 
-        if is_name(&assign.target, INSTALLED_APPS) {
+        if assign.target.name_target() == Some(INSTALLED_APPS) {
             self.extend_installed_apps(&assign.value);
         } else if let Some(index) = templates_dirs_target(&assign.target) {
             self.extend_template_dirs(index, &assign.value);
@@ -297,7 +298,7 @@ impl SettingsBindingsCollector<'_> {
             return;
         };
 
-        if is_name(&attribute.value, INSTALLED_APPS) {
+        if attribute.value.name_target() == Some(INSTALLED_APPS) {
             self.apply_installed_apps_call(attribute.attr.as_str(), &call.arguments);
         } else if let Some(index) = templates_dirs_target(&attribute.value) {
             self.apply_template_dirs_call(index, attribute.attr.as_str(), &call.arguments);
@@ -403,6 +404,14 @@ impl SettingsBindingsCollector<'_> {
     }
 
     fn evaluate_test_expr(&self, expr: &ast::Expr) -> Truthiness {
+        if let Some(name) = expr.name_target() {
+            return self
+                .bindings
+                .locals
+                .bool_value(name)
+                .map_or(Truthiness::Ambiguous, Truthiness::from_bool);
+        }
+
         match expr {
             ast::Expr::BooleanLiteral(literal) => {
                 if literal.value {
@@ -414,11 +423,6 @@ impl SettingsBindingsCollector<'_> {
             ast::Expr::UnaryOp(unary) if unary.op == ast::UnaryOp::Not => {
                 self.evaluate_test_expr(&unary.operand).negate()
             }
-            ast::Expr::Name(name) => self
-                .bindings
-                .locals
-                .bool_value(name.id.as_str())
-                .map_or(Truthiness::Ambiguous, Truthiness::from_bool),
             _ => Truthiness::Ambiguous,
         }
     }
@@ -432,7 +436,7 @@ impl SettingsBindingsCollector<'_> {
     }
 
     fn assign_aux(&mut self, name: &str, value: &ast::Expr) {
-        match bool_literal(value) {
+        match value.bool_literal() {
             Some(value) => self.bindings.locals.set_bool(name, value),
             None => self.bindings.locals.remove_bool(name),
         }
@@ -479,7 +483,7 @@ impl SettingsBindingsCollector<'_> {
 
         match method {
             "append" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
-                if let Some(value) = string_literal(&arguments.args[0]) {
+                if let Some(value) = arguments.args[0].string_literal() {
                     self.bindings
                         .installed_apps_mut()
                         .values
@@ -494,8 +498,8 @@ impl SettingsBindingsCollector<'_> {
                 self.extend_installed_apps(&arguments.args[0]);
             }
             "insert" if arguments.args.len() == 2 && arguments.keywords.is_empty() => {
-                let index = non_negative_integer(&arguments.args[0]);
-                let value = string_literal(&arguments.args[1]);
+                let index = arguments.args[0].non_negative_integer();
+                let value = arguments.args[1].string_literal();
                 match (index, value) {
                     (Some(index), Some(value)) => {
                         let values = &mut self.bindings.installed_apps_mut().values;
@@ -509,7 +513,7 @@ impl SettingsBindingsCollector<'_> {
                 }
             }
             "remove" if arguments.args.len() == 1 && arguments.keywords.is_empty() => {
-                if let Some(value) = string_literal(&arguments.args[0]) {
+                if let Some(value) = arguments.args[0].string_literal() {
                     if let Some(position) = self
                         .bindings
                         .installed_apps_mut()
@@ -542,7 +546,7 @@ impl SettingsBindingsCollector<'_> {
                 op: ast::Operator::Add,
                 ..
             }) => Some(self.extract_string_list_operand(value)),
-            ast::Expr::Name(name) if name.id.as_str() == INSTALLED_APPS => {
+            expr if expr.name_target() == Some(INSTALLED_APPS) => {
                 Some(self.extract_string_list_operand(value))
             }
             _ => None,
@@ -564,7 +568,7 @@ impl SettingsBindingsCollector<'_> {
                 }
                 (values, reasons)
             }
-            ast::Expr::Name(name) if name.id.as_str() == INSTALLED_APPS => {
+            expr if expr.name_target() == Some(INSTALLED_APPS) => {
                 self.bindings.installed_apps.as_ref().map_or_else(
                     || (Vec::new(), vec![Reason::UnsupportedValue]),
                     |setting| (setting.values.clone(), setting.reasons.clone()),
@@ -611,17 +615,17 @@ impl SettingsBindingsCollector<'_> {
                 backend.make_partial(Reason::DictUnpack);
                 continue;
             };
-            let Some(key) = string_literal(key_expr) else {
+            let Some(key) = key_expr.string_literal() else {
                 backend.make_partial(Reason::NonLiteralKey);
                 continue;
             };
             match key {
-                "BACKEND" => match string_literal(&item.value) {
+                "BACKEND" => match item.value.string_literal() {
                     Some(value) => backend.backend = Some(value.to_string()),
                     None => backend.make_partial(Reason::UnsupportedValue),
                 },
                 "DIRS" => self.extract_template_dirs(&item.value, &mut backend),
-                "APP_DIRS" => match bool_literal(&item.value) {
+                "APP_DIRS" => match item.value.bool_literal() {
                     Some(value) => backend.app_dirs = Some(value),
                     None => backend.make_partial(Reason::UnsupportedValue),
                 },
@@ -657,7 +661,7 @@ impl SettingsBindingsCollector<'_> {
                 backend.make_partial(Reason::DictUnpack);
                 continue;
             };
-            let Some(key) = string_literal(key_expr) else {
+            let Some(key) = key_expr.string_literal() else {
                 backend.make_partial(Reason::NonLiteralKey);
                 continue;
             };
@@ -996,8 +1000,8 @@ fn extract_string_pair_dict(value: &ast::Expr) -> (Vec<(String, String)>, Vec<Re
     let mut reasons = Vec::new();
     for item in &dict.items {
         match (
-            item.key.as_ref().and_then(string_literal),
-            string_literal(&item.value),
+            item.key.as_ref().and_then(ExprExt::string_literal),
+            item.value.string_literal(),
         ) {
             (Some(key), Some(value)) => values.push((key.to_string(), value.to_string())),
             _ => reasons.push(Reason::UnsupportedValue),
@@ -1017,7 +1021,7 @@ fn extract_string_elements(elements: &[ast::Expr]) -> (Vec<String>, Vec<Reason>)
     let mut values = Vec::new();
     let mut reasons = Vec::new();
     for element in elements {
-        if let Some(value) = string_literal(element) {
+        if let Some(value) = element.string_literal() {
             values.push(value.to_string());
         } else {
             reasons.push(Reason::NonLiteralElement);
@@ -1046,21 +1050,21 @@ fn templates_dirs_target(expr: &ast::Expr) -> Option<usize> {
     let ast::Expr::Subscript(outer) = expr else {
         return None;
     };
-    if string_literal(&outer.slice) != Some("DIRS") {
+    if outer.slice.string_literal() != Some("DIRS") {
         return None;
     }
     let ast::Expr::Subscript(inner) = outer.value.as_ref() else {
         return None;
     };
-    if !is_name(&inner.value, TEMPLATES) {
+    if inner.value.name_target() != Some(TEMPLATES) {
         return None;
     }
-    non_negative_integer(&inner.slice)
+    inner.slice.non_negative_integer()
 }
 
 fn target_touches_name(target: &ast::Expr, expected: &str) -> bool {
     match target {
-        ast::Expr::Name(name) => name.id.as_str() == expected,
+        expr if expr.name_target() == Some(expected) => true,
         ast::Expr::Attribute(attribute) => target_touches_name(&attribute.value, expected),
         ast::Expr::Subscript(subscript) => target_touches_name(&subscript.value, expected),
         ast::Expr::Tuple(tuple) => tuple
@@ -1078,7 +1082,7 @@ fn target_touches_name(target: &ast::Expr, expected: &str) -> bool {
 
 fn expr_touches_name(expr: &ast::Expr, expected: &str) -> bool {
     match expr {
-        ast::Expr::Name(name) => name.id.as_str() == expected,
+        expr if expr.name_target() == Some(expected) => true,
         ast::Expr::Attribute(attribute) => expr_touches_name(&attribute.value, expected),
         ast::Expr::Subscript(subscript) => expr_touches_name(&subscript.value, expected),
         ast::Expr::Call(call) => expr_touches_name(&call.func, expected),
@@ -1096,41 +1100,6 @@ fn expr_touches_name(expr: &ast::Expr, expected: &str) -> bool {
         ast::Expr::Starred(starred) => expr_touches_name(&starred.value, expected),
         _ => false,
     }
-}
-
-fn name_target(expr: &ast::Expr) -> Option<&str> {
-    match expr {
-        ast::Expr::Name(name) => Some(name.id.as_str()),
-        _ => None,
-    }
-}
-
-fn is_name(expr: &ast::Expr, expected: &str) -> bool {
-    matches!(expr, ast::Expr::Name(name) if name.id.as_str() == expected)
-}
-
-fn string_literal(expr: &ast::Expr) -> Option<&str> {
-    match expr {
-        ast::Expr::StringLiteral(literal) => Some(literal.value.to_str()),
-        _ => None,
-    }
-}
-
-fn bool_literal(expr: &ast::Expr) -> Option<bool> {
-    match expr {
-        ast::Expr::BooleanLiteral(literal) => Some(literal.value),
-        _ => None,
-    }
-}
-
-fn non_negative_integer(expr: &ast::Expr) -> Option<usize> {
-    let ast::Expr::NumberLiteral(literal) = expr else {
-        return None;
-    };
-    let ast::Number::Int(value) = &literal.value else {
-        return None;
-    };
-    usize::try_from(value.as_i64()?).ok()
 }
 
 fn first_import_segment(name: &str) -> &str {

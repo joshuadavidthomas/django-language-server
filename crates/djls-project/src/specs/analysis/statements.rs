@@ -1,10 +1,10 @@
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBoolOp;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
+use crate::ast::ExprExt;
 use crate::specs::analysis::AnalysisResult;
 use crate::specs::analysis::CallContext;
 use crate::specs::analysis::expressions::eval_expr;
@@ -156,17 +156,15 @@ fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
     let Expr::Call(call) = expr else {
         return None;
     };
-    let Expr::Name(ExprName { id, .. }) = call.func.as_ref() else {
-        return None;
-    };
-    if id.as_str() != "token_kwargs" {
+    if call.func.name_target() != Some("token_kwargs") {
         return None;
     }
     // First argument is the bits variable that gets mutated
-    if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
-        return Some(arg_name.to_string());
-    }
-    None
+    call.arguments
+        .args
+        .first()
+        .and_then(ExprExt::name_target)
+        .map(str::to_string)
 }
 
 /// Check if a condition expression involves comparing a `SplitElement` value.
@@ -195,14 +193,13 @@ fn condition_involves_element_check(expr: &Expr, env: &mut Env) -> bool {
 
 /// Process an assignment target with the evaluated RHS value.
 fn process_assignment_target(target: &Expr, value: &AbstractValue, env: &mut Env) {
-    match target {
-        Expr::Name(ExprName { id, .. }) => {
-            env.set(id.to_string(), value.clone());
-        }
-        Expr::Tuple(ExprTuple { elts, .. }) => {
-            process_tuple_unpack(elts, value, env);
-        }
-        _ => {}
+    if let Some(name) = target.name_target() {
+        env.set(name.to_string(), value.clone());
+        return;
+    }
+
+    if let Expr::Tuple(ExprTuple { elts, .. }) = target {
+        process_tuple_unpack(elts, value, env);
     }
 }
 
@@ -212,8 +209,8 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
         AbstractValue::Tuple(elements) => {
             for (i, target) in targets.iter().enumerate() {
                 let elem = elements.get(i).cloned().unwrap_or(AbstractValue::Unknown);
-                if let Expr::Name(ExprName { id, .. }) = target {
-                    env.set(id.to_string(), elem);
+                if let Some(name) = target.name_target() {
+                    env.set(name.to_string(), elem);
                 }
             }
         }
@@ -227,9 +224,9 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
             if let Some(si) = star_index {
                 // Elements before the star
                 for (i, target) in targets[..si].iter().enumerate() {
-                    if let Expr::Name(ExprName { id, .. }) = target {
+                    if let Some(name) = target.name_target() {
                         env.set(
-                            id.to_string(),
+                            name.to_string(),
                             AbstractValue::SplitElement {
                                 index: split.resolve_index(i),
                             },
@@ -243,7 +240,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                 // The star target captures everything between pre-star and post-star elements.
                 // Its back_offset must include the trailing targets it doesn't contain.
                 if let Expr::Starred(starred) = &targets[si]
-                    && let Expr::Name(ExprName { id, .. }) = starred.value.as_ref()
+                    && let Some(name) = starred.value.name_target()
                 {
                     // Start from the current split sliced past the pre-star targets,
                     // which preserves the original back_offset.
@@ -252,12 +249,12 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                     for _ in 0..after_star {
                         star_split = star_split.after_pop_back();
                     }
-                    env.set(id.to_string(), AbstractValue::SplitResult(star_split));
+                    env.set(name.to_string(), AbstractValue::SplitResult(star_split));
                 }
                 for (j, target) in targets[si + 1..].iter().enumerate() {
-                    if let Expr::Name(ExprName { id, .. }) = target {
+                    if let Some(name) = target.name_target() {
                         env.set(
-                            id.to_string(),
+                            name.to_string(),
                             AbstractValue::SplitElement {
                                 index: SplitPosition::Backward(after_star - j),
                             },
@@ -267,9 +264,9 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
             } else {
                 // No star: each target gets a SplitElement at its position
                 for (i, target) in targets.iter().enumerate() {
-                    if let Expr::Name(ExprName { id, .. }) = target {
+                    if let Some(name) = target.name_target() {
                         env.set(
-                            id.to_string(),
+                            name.to_string(),
                             AbstractValue::SplitElement {
                                 index: split.resolve_index(i),
                             },
@@ -281,8 +278,8 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
 
         _ => {
             for target in targets {
-                if let Expr::Name(ExprName { id, .. }) = target {
-                    env.set(id.to_string(), AbstractValue::Unknown);
+                if let Some(name) = target.name_target() {
+                    env.set(name.to_string(), AbstractValue::Unknown);
                 }
             }
         }

@@ -2,7 +2,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::types::ArgumentCountConstraint;
 use crate::specs::types::AsVar;
 use crate::specs::types::TagArgument;
@@ -104,7 +104,7 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
             for kw in &arguments.keywords {
                 if let Some(arg) = &kw.arg
                     && arg.as_str() == "takes_context"
-                    && kw.value.is_true_literal()
+                    && kw.value.bool_literal() == Some(true)
                 {
                     return true;
                 }

@@ -8,10 +8,10 @@ use djls_source::WalkOptions;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
+use crate::ast::ExprExt;
 use crate::db::Db as ProjectDb;
 use crate::extraction::DjangoSettings;
 use crate::extraction::SettingsSource;
@@ -347,9 +347,10 @@ impl TemplateLibraryAnalysis {
         let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
             return false;
         };
-        if !targets.iter().any(
-            |target| matches!(target, Expr::Name(ExprName { id, .. }) if id.as_str() == "register"),
-        ) {
+        if !targets
+            .iter()
+            .any(|target| target.name_target() == Some("register"))
+        {
             return false;
         }
 
@@ -358,11 +359,9 @@ impl TemplateLibraryAnalysis {
         };
         match func.as_ref() {
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                attr.as_str() == "Library"
-                    && matches!(value.as_ref(), Expr::Name(ExprName { id, .. }) if id.as_str() == "template")
+                attr.as_str() == "Library" && value.name_target() == Some("template")
             }
-            Expr::Name(ExprName { id, .. }) => id.as_str() == "Library",
-            _ => false,
+            expr => expr.name_target() == Some("Library"),
         }
     }
 }

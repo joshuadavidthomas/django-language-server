@@ -1,7 +1,6 @@
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
@@ -9,7 +8,7 @@ use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -217,7 +216,11 @@ fn tag_registration_from_call(
         // `register.tag("name", func)` — first arg is string name, second is callable
         if let Some(name) = args[0].string_literal() {
             let fn_name = callable_name(&args[1]).or(func_name);
-            return Some((name_override.unwrap_or(name), kind, fn_name));
+            return Some((
+                name_override.unwrap_or_else(|| name.to_string()),
+                kind,
+                fn_name,
+            ));
         }
     }
 
@@ -264,7 +267,7 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
         // `register.filter("name", func)`
         if let Some(name) = args[0].string_literal() {
             let fn_name = callable_name(&args[1]).or(func_name);
-            return Some((name_override.unwrap_or(name), fn_name));
+            return Some((name_override.unwrap_or_else(|| name.to_string()), fn_name));
         }
     }
 
@@ -311,7 +314,7 @@ fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
             continue;
         }
         if let Some(s) = kw.value.string_literal() {
-            return Some(s);
+            return Some(s.to_string());
         }
     }
     None
@@ -322,9 +325,9 @@ fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String
     for kw in keywords {
         let Some(arg) = &kw.arg else { continue };
         if kwarg_names.contains(&arg.as_str())
-            && let Expr::Name(ExprName { id, .. }) = &kw.value
+            && let Some(name) = kw.value.name_target()
         {
-            return Some(id.to_string());
+            return Some(name.to_string());
         }
     }
     None
@@ -332,13 +335,18 @@ fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String
 
 /// Extract the first positional argument's string value.
 fn first_string_arg(args: &[Expr]) -> Option<String> {
-    args.first().and_then(ExprExt::string_literal)
+    args.first()
+        .and_then(ExprExt::string_literal)
+        .map(str::to_string)
 }
 
 /// Best-effort callable name extraction for debugging / registration mapping.
 fn callable_name(expr: &Expr) -> Option<String> {
+    if let Some(name) = expr.name_target() {
+        return Some(name.to_string());
+    }
+
     match expr {
-        Expr::Name(ExprName { id, .. }) => Some(id.to_string()),
         Expr::Attribute(ExprAttribute { value, attr, .. }) => {
             let base = callable_name(value)?;
             Some(format!("{base}.{}", attr.as_str()))

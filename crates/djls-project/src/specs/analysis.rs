@@ -14,16 +14,13 @@ use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCompare;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprSlice;
 use ruff_python_ast::ExprSubscript;
-use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
-use ruff_python_ast::UnaryOp;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::analysis::constraints::ExtractedTagConstraints;
 use crate::specs::analysis::guards::ExtractedRuleFragment;
 use crate::specs::types::ArgumentCountConstraint;
@@ -194,17 +191,13 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         let [target] = targets.as_slice() else {
             return None;
         };
-        let Expr::Name(ExprName { id: target, .. }) = target else {
-            return None;
-        };
+        let target_name = target.name_target()?;
 
         let Expr::Subscript(ExprSubscript { value, slice, .. }) = value.as_ref() else {
             return None;
         };
-        let Expr::Name(ExprName { id: source, .. }) = value.as_ref() else {
-            return None;
-        };
-        if target.as_str() != source.as_str() {
+        let source_name = value.name_target()?;
+        if target_name != source_name {
             return None;
         }
 
@@ -217,7 +210,7 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         else {
             return None;
         };
-        (negative_integer(upper) == Some(2)).then(|| target.to_string())
+        (upper.negative_integer() == Some(2)).then(|| target_name.to_string())
     })
 }
 
@@ -244,31 +237,15 @@ fn comparison_is_as_keyword_check(compare: &ExprCompare, name: &str) -> bool {
     };
     let left = compare.left.as_ref();
 
-    (subscript_is_negative_index(left, name, 2) && right.string_literal().as_deref() == Some("as"))
-        || (left.string_literal().as_deref() == Some("as")
-            && subscript_is_negative_index(right, name, 2))
+    (subscript_is_negative_index(left, name, 2) && right.string_literal() == Some("as"))
+        || (left.string_literal() == Some("as") && subscript_is_negative_index(right, name, 2))
 }
 
 fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {
     let Expr::Subscript(ExprSubscript { value, slice, .. }) = expr else {
         return false;
     };
-    let Expr::Name(ExprName { id, .. }) = value.as_ref() else {
-        return false;
-    };
-    id == name && negative_integer(slice) == Some(index)
-}
-
-fn negative_integer(expr: &Expr) -> Option<usize> {
-    let Expr::UnaryOp(ExprUnaryOp {
-        op: UnaryOp::USub,
-        operand,
-        ..
-    }) = expr
-    else {
-        return None;
-    };
-    operand.non_negative_integer()
+    value.name_target() == Some(name) && slice.negative_integer() == Some(index)
 }
 
 /// Extract argument names from the environment after analysis.

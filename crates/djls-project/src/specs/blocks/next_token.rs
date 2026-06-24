@@ -1,13 +1,12 @@
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-use crate::extraction::ext::ExprExt;
+use crate::ast::ExprExt;
 use crate::specs::blocks::dynamic_end;
 use crate::specs::blocks::is_token_contents_expr;
 use crate::specs::types::BlockSpec;
@@ -114,9 +113,8 @@ impl StatementVisitor<'_> for NextTokenLoopFinder<'_> {
 fn is_parser_tokens_check(expr: &Expr, parser_var: &str) -> bool {
     if let Expr::Attribute(ExprAttribute { attr, value, .. }) = expr
         && attr.as_str() == "tokens"
-        && let Expr::Name(ExprName { id, .. }) = value.as_ref()
     {
-        return id.as_str() == parser_var;
+        return value.name_target() == Some(parser_var);
     }
     false
 }
@@ -177,10 +175,7 @@ fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
     if attr.as_str() != "next_token" {
         return false;
     }
-    if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
-        return id.as_str() == parser_var;
-    }
-    false
+    value.name_target() == Some(parser_var)
 }
 
 /// Collect string literals compared against `token.contents` in a body.
@@ -259,14 +254,14 @@ fn extract_comparisons_from_expr(expr: &Expr, token_var: &str) -> Vec<String> {
                 || is_token_contents_expr(right, Some(token_var))
             {
                 if let Some(s) = left.string_literal()
-                    && !comparisons.contains(&s)
+                    && !comparisons.iter().any(|comparison| comparison == s)
                 {
-                    comparisons.push(s);
+                    comparisons.push(s.to_string());
                 }
                 if let Some(s) = right.string_literal()
-                    && !comparisons.contains(&s)
+                    && !comparisons.iter().any(|comparison| comparison == s)
                 {
-                    comparisons.push(s);
+                    comparisons.push(s.to_string());
                 }
             }
         }
