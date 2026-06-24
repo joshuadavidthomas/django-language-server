@@ -9,12 +9,14 @@ mod types;
 #[cfg(test)]
 pub(crate) mod testing;
 
+use std::ops::ControlFlow;
+
 use djls_source::File;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::extraction::registry::RegistrationInfo;
 use crate::extraction::registry::collect_registrations_from_body;
 use crate::names::ModulePath;
@@ -267,28 +269,14 @@ fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option
 
 /// Recursively collect all function definitions from a module body.
 fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
-    let mut visitor = FunctionDefCollector::default();
-    visitor.visit_body(body);
-    visitor.defs
-}
-
-#[derive(Default)]
-struct FunctionDefCollector<'a> {
-    defs: Vec<&'a StmtFunctionDef>,
-}
-
-impl<'a> StatementVisitor<'a> for FunctionDefCollector<'a> {
-    fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        match stmt {
-            Stmt::FunctionDef(func) => {
-                self.defs.push(func);
-            }
-            Stmt::ClassDef(_) => {
-                walk_stmt(self, stmt);
-            }
-            _ => {}
+    let mut defs = Vec::new();
+    walk_stmts(body, Recurse::IntoClasses, |stmt| {
+        if let Stmt::FunctionDef(func) = stmt {
+            defs.push(func);
         }
-    }
+        ControlFlow::Continue(())
+    });
+    defs
 }
 
 #[cfg(test)]

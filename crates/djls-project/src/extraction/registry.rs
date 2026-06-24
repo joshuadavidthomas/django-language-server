@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -5,10 +7,10 @@ use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -36,33 +38,22 @@ pub enum RegistrationKind {
 /// This avoids re-parsing the source when the caller already has the AST.
 #[must_use]
 pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
-    let mut visitor = RegistrationCollector::default();
-    visitor.visit_body(body);
-    visitor.registrations
-}
-
-#[derive(Default)]
-struct RegistrationCollector {
-    registrations: Vec<RegistrationInfo>,
-}
-
-impl StatementVisitor<'_> for RegistrationCollector {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
+    let mut registrations = Vec::new();
+    walk_stmts(body, Recurse::IntoClasses, |stmt| {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                collect_from_decorated_function(func_def, &mut self.registrations);
+                collect_from_decorated_function(func_def, &mut registrations);
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 if let Expr::Call(call) = value.as_ref() {
-                    collect_from_call_statement(call, &mut self.registrations);
+                    collect_from_call_statement(call, &mut registrations);
                 }
-            }
-            Stmt::ClassDef(_) => {
-                walk_stmt(self, stmt);
             }
             _ => {}
         }
-    }
+        ControlFlow::Continue(())
+    });
+    registrations
 }
 
 /// Extract registrations from a decorated function definition.

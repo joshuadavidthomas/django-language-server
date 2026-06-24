@@ -12,10 +12,6 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_body;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
-#[expect(
-    dead_code,
-    reason = "later migration phases construct the remaining policies"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Recurse {
     /// Control-flow bodies only: If/For/While/Try/With/Match. Stops at nested fn/class scopes.
