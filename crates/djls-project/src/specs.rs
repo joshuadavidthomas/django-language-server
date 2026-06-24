@@ -16,7 +16,6 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::extraction::registry::RegistrationInfo;
-use crate::extraction::registry::RegistrationKind;
 use crate::extraction::registry::collect_registrations_from_body;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
@@ -154,26 +153,18 @@ pub fn extract_tag_rules(
     file: File,
     registration_module: ModulePath,
 ) -> TagRuleMap {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return TagRuleMap::default();
-    };
+    with_parsed_body(db, file, |body| {
+        let registration_module = registration_module.into_string();
+        let mut tag_rules = TagRuleMap::default();
 
-    extract_tag_rules_from_body(parsed.body(db), registration_module)
-}
+        for_each_registration(body, &registration_module, |reg, func, key| {
+            if let Some(rule) = reg.kind.extract_tag_rule(func) {
+                tag_rules.insert(key, rule.into());
+            }
+        });
 
-fn extract_tag_rules_from_body(body: &[Stmt], registration_module: ModulePath) -> TagRuleMap {
-    let registration_module = registration_module.into_string();
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-    let mut tag_rules = TagRuleMap::default();
-
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
-        if let Some(rule) = reg.kind.extract_tag_rule(func) {
-            tag_rules.insert(key, rule.into());
-        }
-    }
-
-    tag_rules
+        tag_rules
+    })
 }
 
 /// Extract filter arities from a Python file, cached by Salsa.
@@ -186,29 +177,18 @@ pub fn extract_filter_arities(
     file: File,
     registration_module: ModulePath,
 ) -> FilterArityMap {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return FilterArityMap::default();
-    };
+    with_parsed_body(db, file, |body| {
+        let registration_module = registration_module.into_string();
+        let mut filter_arities = FilterArityMap::default();
 
-    extract_filter_arities_from_body(parsed.body(db), registration_module)
-}
+        for_each_registration(body, &registration_module, |reg, func, key| {
+            if let Some(arity) = reg.kind.extract_filter_arity(func) {
+                filter_arities.insert(key, arity);
+            }
+        });
 
-fn extract_filter_arities_from_body(
-    body: &[Stmt],
-    registration_module: ModulePath,
-) -> FilterArityMap {
-    let registration_module = registration_module.into_string();
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-    let mut filter_arities = FilterArityMap::default();
-
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
-        if let Some(arity) = reg.kind.extract_filter_arity(func) {
-            filter_arities.insert(key, arity);
-        }
-    }
-
-    filter_arities
+        filter_arities
+    })
 }
 
 /// Extract block specs from a Python file, cached by Salsa.
@@ -221,27 +201,20 @@ pub fn extract_block_specs(
     file: File,
     registration_module: ModulePath,
 ) -> BlockSpecs {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return BlockSpecs::default();
-    };
+    with_parsed_body(db, file, |body| {
+        let registration_module = registration_module.into_string();
+        let mut block_specs = BlockSpecs::default();
 
-    extract_block_specs_from_body(parsed.body(db), registration_module)
-}
+        for_each_registration(body, &registration_module, |reg, func, key| {
+            if let Some(block_spec) =
+                normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
+            {
+                block_specs.insert(key, block_spec);
+            }
+        });
 
-fn extract_block_specs_from_body(body: &[Stmt], registration_module: ModulePath) -> BlockSpecs {
-    let registration_module = registration_module.into_string();
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-    let mut block_specs = BlockSpecs::default();
-
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
-        if let Some(block_spec) = normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
-        {
-            block_specs.insert(key, block_spec);
-        }
-    }
-
-    block_specs
+        block_specs
+    })
 }
 
 /// Extract validation rules from a Python registration module source.
@@ -263,12 +236,9 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
         return ExtractionResult::default();
     };
     let module = parsed.into_syntax();
-    let registrations = collect_registrations_from_body(&module.body);
-    let func_defs = collect_func_defs(&module.body);
-
     let mut result = ExtractionResult::default();
 
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
+    for_each_registration(&module.body, module_path, |reg, func, key| {
         match reg.kind.extract(func) {
             ExtractionOutput::Filter(arity) => {
                 result.filter_arities.insert(key, arity);
@@ -282,35 +252,50 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
                 }
             }
         }
-    }
+    });
 
     result
 }
 
-fn registered_functions<'a>(
-    registrations: &'a [RegistrationInfo],
-    func_defs: &'a [&'a ruff_python_ast::StmtFunctionDef],
-    module_path: &'a str,
-) -> impl Iterator<
-    Item = (
-        &'a RegistrationInfo,
-        &'a ruff_python_ast::StmtFunctionDef,
-        SymbolKey,
-    ),
-> + 'a {
-    registrations.iter().filter_map(move |reg| {
-        let func = reg
-            .func_name
-            .as_deref()
-            .and_then(|name| func_defs.iter().find(|f| f.name.as_str() == name).copied())?;
-        let kind: RegistrationKind = reg.kind;
+fn with_parsed_body<M: Default>(
+    db: &dyn djls_source::Db,
+    file: File,
+    f: impl FnOnce(&[Stmt]) -> M,
+) -> M {
+    let Some(parsed) = parse_python_module(db, file) else {
+        return M::default();
+    };
+
+    f(parsed.body(db))
+}
+
+fn for_each_registration(
+    body: &[Stmt],
+    module_path: &str,
+    mut f: impl FnMut(&RegistrationInfo, &StmtFunctionDef, SymbolKey),
+) {
+    let registrations = collect_registrations_from_body(body);
+    let func_defs = collect_func_defs(body);
+
+    for reg in &registrations {
+        let Some(func) = reg.func_name.as_deref().and_then(|name| {
+            func_defs
+                .iter()
+                .find(|func| func.name.as_str() == name)
+                .copied()
+        }) else {
+            continue;
+        };
+
+        let kind = reg.kind;
         let key = SymbolKey {
             registration_module: module_path.to_string(),
             name: reg.name.clone(),
             kind: kind.symbol_kind(),
         };
-        Some((reg, func, key))
-    })
+
+        f(reg, func, key);
+    }
 }
 
 fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option<BlockSpec> {
@@ -356,6 +341,7 @@ mod tests {
     use serde::Serialize;
 
     use super::*;
+    use crate::extraction::registry::RegistrationKind;
     use crate::specs::testing::CUSTOM_SOURCE;
     use crate::specs::testing::DEFAULTFILTERS_SOURCE;
     use crate::specs::testing::DEFAULTTAGS_SOURCE;
