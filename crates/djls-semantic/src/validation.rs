@@ -18,6 +18,9 @@ use crate::filters::FilterAritySpecs;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::SymbolIndex;
 use crate::structure::OpaqueRegions;
+use crate::structure::compute_tag_index;
+use crate::structure::grammar::TagClass;
+use crate::structure::grammar::TagIndex;
 use crate::tags::TagSpecs;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
@@ -49,6 +52,7 @@ impl ExtendsPosition {
 pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
+    tag_index: &'a TagIndex,
     symbol_index: &'a SymbolIndex,
     loaded_libraries: &'a LoadedLibraries,
     template_libraries: &'a TemplateLibraries,
@@ -74,6 +78,7 @@ impl<'a> TemplateValidator<'a> {
                 inactive_template_libraries(db, project)
             });
         let tag_specs = db.tag_specs();
+        let tag_index = compute_tag_index(db);
         let loaded_libraries = crate::scoping::compute_loaded_libraries(db, nodelist);
         let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
         let filter_arity_specs = db.filter_arity_specs();
@@ -81,6 +86,7 @@ impl<'a> TemplateValidator<'a> {
         Self {
             db,
             tag_specs,
+            tag_index,
             symbol_index,
             loaded_libraries,
             template_libraries,
@@ -137,7 +143,12 @@ impl Visitor for TemplateValidator<'_> {
 
         if !is_opaque {
             // 2. Scoping validation (skip structural tags and "load")
-            if name != "load" && !scoping::is_closer_or_intermediate(name, self.tag_specs) {
+            if name != "load"
+                && !matches!(
+                    self.tag_index.classify(name),
+                    TagClass::Closer { .. } | TagClass::Intermediate { .. }
+                )
+            {
                 let symbols = self.symbol_index.symbols_at(span.start());
                 scoping::check_tag_scoping_rule(
                     self.db,
