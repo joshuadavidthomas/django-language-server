@@ -3,6 +3,9 @@ use djls_semantic::EndTag;
 use djls_semantic::IntermediateTag;
 use djls_semantic::OpaqueRegions;
 use djls_semantic::TagSpec;
+use djls_semantic::ValidationError;
+use djls_semantic::ValidationErrorAccumulator;
+use djls_semantic::build_template_tree;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
@@ -18,7 +21,7 @@ fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {
 }
 
 #[test]
-fn opaque_intermediate_segments_are_opaque() {
+fn opaque_opener_treats_intermediate_as_raw_content() {
     let mut specs = builtin_tag_specs();
     specs.insert(
         "opaque_if".to_string(),
@@ -43,8 +46,13 @@ fn opaque_intermediate_segments_are_opaque() {
     let nodelist = parse_template(&db, file).expect("should parse");
     let regions = compute_opaque_regions(&db, nodelist);
     let first = u32::try_from(source.find("first").unwrap()).unwrap();
+    let opaque_else = u32::try_from(source.find("{% opaque_else %}").unwrap()).unwrap();
+    let opaque_else_last = opaque_else + u32::try_from("{% opaque_else %}".len()).unwrap() - 1;
     let second = u32::try_from(source.find("second").unwrap()).unwrap();
+
     assert!(regions.is_opaque(first));
+    assert!(regions.is_opaque(opaque_else));
+    assert!(regions.is_opaque(opaque_else_last));
     assert!(regions.is_opaque(second));
 }
 
@@ -124,6 +132,37 @@ fn test_non_opaque_block_no_region() {
         regions.is_empty(),
         "if block should NOT produce an opaque region"
     );
+}
+
+#[test]
+fn unclosed_opaque_block_creates_no_region() {
+    let db = TestDatabase::new();
+    let path = "test.html";
+    let source = "{% verbatim %}body";
+    db.add_file(path, source);
+    let file = db.get_or_create_file(Utf8Path::new(path));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let regions = compute_opaque_regions(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+    let body = u32::try_from(source.find("body").unwrap()).unwrap();
+
+    assert!(!regions.is_opaque(body));
+    assert!(errors.iter().any(|error| matches!(
+        &error.0,
+        ValidationError::UnclosedTag { tag, .. } if tag == "verbatim"
+    )));
+}
+
+#[test]
+fn outer_closer_inside_opaque_content_does_not_end_outer_block() {
+    let db = TestDatabase::new();
+    let source = "{% if outer %}{% verbatim %}{% endif %}body{% endverbatim %}{% endif %}";
+    let regions = compute_regions(&db, source);
+    let raw_closer = u32::try_from(source.find("{% endif %}").unwrap()).unwrap();
+    let body = u32::try_from(source.find("body").unwrap()).unwrap();
+
+    assert!(regions.is_opaque(raw_closer));
+    assert!(regions.is_opaque(body));
 }
 
 #[test]

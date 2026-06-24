@@ -65,6 +65,13 @@ enum NodeSnapshot {
         body: u32,
         role: String,
     },
+    Opaque {
+        tag: String,
+        name_span: djls_source::Span,
+        bits: Vec<djls_templates::TagBit>,
+        full_span: djls_source::Span,
+        body_span: djls_source::Span,
+    },
     StandaloneTag {
         tag: String,
         name_span: djls_source::Span,
@@ -106,6 +113,19 @@ impl From<&TemplateNode> for NodeSnapshot {
                 full_span: *full_span,
                 body: body.id(),
                 role: format!("{role:?}"),
+            },
+            TemplateNode::Opaque {
+                tag,
+                name_span,
+                bits,
+                full_span,
+                body_span,
+            } => Self::Opaque {
+                tag: tag.clone(),
+                name_span: *name_span,
+                bits: bits.clone(),
+                full_span: *full_span,
+                body_span: *body_span,
             },
             TemplateNode::StandaloneTag {
                 tag,
@@ -303,6 +323,258 @@ fn segment_body(region: &TemplateRegion, tag_name: &str) -> RegionId {
             _ => None,
         })
         .expect("expected segment node")
+}
+
+fn opaque_body_span(region: &TemplateRegion, tag_name: &str) -> Span {
+    region
+        .nodes()
+        .iter()
+        .find_map(|node| match node {
+            TemplateNode::Opaque { tag, body_span, .. } if tag == tag_name => Some(*body_span),
+            _ => None,
+        })
+        .expect("expected opaque node")
+}
+
+fn assert_position_inside(span: Span, source: &str, needle: &str) {
+    let position = u32::try_from(source.find(needle).expect("needle should exist")).unwrap();
+    assert!(
+        span.start() <= position && position < span.end(),
+        "expected {needle:?} at {position} inside {span:?}"
+    );
+}
+
+#[test]
+fn opaque_blocks_are_opaque_nodes_without_segments() {
+    let db = TestDatabase::new();
+    let source = "{% verbatim %}raw{% endverbatim %}{% if user %}visible{% endif %}";
+    let tree = tree_for_source(&db, source);
+    let root = root_region(tree, &db);
+
+    let body_span = opaque_body_span(root, "verbatim");
+    assert_position_inside(body_span, source, "raw");
+    assert!(
+        !root
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TemplateNode::Block { tag, .. } if tag == "verbatim"))
+    );
+    assert!(root
+        .nodes()
+        .iter()
+        .any(|node| matches!(node, TemplateNode::Block { tag, role: BlockRole::Opener, .. } if tag == "if")));
+}
+
+#[test]
+fn shared_intermediate_inside_opaque_block_has_no_structure() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+        "opaque_if".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("test"),
+            Some(EndTag {
+                name: Cow::Borrowed("endopaque_if"),
+                required: true,
+            }),
+            Cow::Owned(vec![djls_semantic::IntermediateTag {
+                name: Cow::Borrowed("else"),
+            }]),
+            true,
+        ),
+    )])));
+    let db = TestDatabase::new().with_specs(specs);
+    let source = "{% opaque_if %}{% if cond %}first{% else %}second{% endif %}{% endopaque_if %}";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
+
+    let validation_errors = errors.iter().map(|error| &error.0).collect::<Vec<_>>();
+    assert!(
+        validation_errors.is_empty(),
+        "shared intermediate should not be orphaned inside opaque content: {validation_errors:?}"
+    );
+
+    let root = root_region(tree, &db);
+    let body_span = opaque_body_span(root, "opaque_if");
+    assert_position_inside(body_span, source, "{% else %}");
+    assert!(
+        !tree
+            .regions(&db)
+            .iter()
+            .flat_map(TemplateRegion::nodes)
+            .any(
+                |node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "else")
+                    || matches!(node, TemplateNode::Block { tag, .. } if tag == "else")
+            )
+    );
+}
+
+#[test]
+fn opaque_closer_name_can_also_be_structured_opener() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([
+        (
+            "raw".to_string(),
+            TagSpec::new(
+                Cow::Borrowed("test"),
+                Some(EndTag {
+                    name: Cow::Borrowed("panel"),
+                    required: true,
+                }),
+                Cow::Borrowed(&[]),
+                true,
+            ),
+        ),
+        (
+            "panel".to_string(),
+            TagSpec::new(
+                Cow::Borrowed("test"),
+                Some(EndTag {
+                    name: Cow::Borrowed("endpanel"),
+                    required: true,
+                }),
+                Cow::Borrowed(&[]),
+                false,
+            ),
+        ),
+    ])));
+    let db = TestDatabase::new().with_specs(specs);
+    let source = "{% raw %}body{% panel %}";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+        .iter()
+        .map(|error| &error.0)
+        .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "opaque closer should win over colliding opener role: {errors:?}"
+    );
+    assert_position_inside(
+        opaque_body_span(root_region(tree, &db), "raw"),
+        source,
+        "body",
+    );
+
+    let outside_source = "{% panel %}body{% endpanel %}";
+    db.add_file("outside.html", outside_source);
+    let outside_file = db.get_or_create_file(Utf8Path::new("outside.html"));
+    let outside_nodelist = parse_template(&db, outside_file).expect("should parse");
+    let outside_tree = build_template_tree(&db, outside_nodelist);
+    let outside_errors =
+        build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, outside_nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
+
+    assert!(
+        outside_errors.is_empty(),
+        "colliding closer should not hide opener role outside opaque content: {outside_errors:?}"
+    );
+    assert!(root_region(outside_tree, &db).nodes().iter().any(
+        |node| matches!(node, TemplateNode::Block { tag, role: BlockRole::Opener, .. } if tag == "panel")
+    ));
+}
+
+#[test]
+fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
+    let mut specs = builtin_tag_specs();
+    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
+        "raw".to_string(),
+        TagSpec::new(
+            Cow::Borrowed("test"),
+            Some(EndTag {
+                name: Cow::Borrowed("endraw"),
+                required: false,
+            }),
+            Cow::Borrowed(&[]),
+            true,
+        ),
+    )])));
+    let db = TestDatabase::new().with_specs(specs);
+    let source = "{% raw %}body";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+        .iter()
+        .map(|error| &error.0)
+        .collect::<Vec<_>>();
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "raw"))
+    );
+    assert!(
+        !tree
+            .regions(&db)
+            .iter()
+            .flat_map(TemplateRegion::nodes)
+            .any(|node| matches!(node, TemplateNode::Opaque { tag, .. } if tag == "raw"))
+    );
+}
+
+#[test]
+fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
+    let db = TestDatabase::new();
+    let source = "{% verbatim %}{% if x %}body{% endif %}{% endverbatim %}";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+        .iter()
+        .map(|error| &error.0)
+        .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "known tags inside opaque content should not affect structure: {errors:?}"
+    );
+
+    let body_span = opaque_body_span(root_region(tree, &db), "verbatim");
+    assert_position_inside(body_span, source, "{% if x %}");
+    assert_position_inside(body_span, source, "{% endif %}");
+    assert!(!tree.regions(&db).iter().flat_map(TemplateRegion::nodes).any(
+        |node| matches!(node, TemplateNode::StandaloneTag { tag, .. } if tag == "if" || tag == "endif")
+            || matches!(node, TemplateNode::Block { tag, .. } if tag == "if")
+    ));
+}
+
+#[test]
+fn outer_closer_inside_opaque_block_has_no_structure() {
+    let db = TestDatabase::new();
+    let source = "{% if outer %}{% verbatim %}{% endif %}{% endverbatim %}{% endif %}";
+
+    db.add_file("test.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("test.html"));
+    let nodelist = parse_template(&db, file).expect("should parse");
+    let tree = build_template_tree(&db, nodelist);
+    let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+        .iter()
+        .map(|error| &error.0)
+        .collect::<Vec<_>>();
+
+    assert!(
+        errors.is_empty(),
+        "outer closer inside opaque content should be raw content: {errors:?}"
+    );
+
+    let if_container = first_block_body(root_region(tree, &db), "if");
+    let if_body = segment_body(tree.regions(&db).get(if_container), "if");
+    let body_span = opaque_body_span(tree.regions(&db).get(if_body), "verbatim");
+    assert_position_inside(body_span, source, "{% endif %}");
 }
 
 #[test]

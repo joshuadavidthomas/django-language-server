@@ -1,11 +1,11 @@
 use djls_source::Span;
-use djls_templates::Node;
 use djls_templates::NodeList;
-use djls_templates::TagDelimiter;
 
 use crate::db::Db;
-use crate::structure::grammar::TagClass;
-use crate::structure::grammar::compute_tag_index;
+use crate::structure::build_template_tree;
+use crate::structure::tree::Regions;
+use crate::structure::tree::TemplateNode;
+use crate::structure::tree::TemplateRegion;
 
 /// Sorted, non-overlapping byte-offset spans where validation should be skipped.
 ///
@@ -45,78 +45,26 @@ impl OpaqueRegions {
     }
 }
 
-/// Compute opaque regions for a template by scanning for opaque block tags.
-///
-/// This uses a lightweight source-order scan instead of building a full
-/// `TemplateTree`.
-pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegions {
-    let tag_specs = db.tag_specs();
-    let index = compute_tag_index(db);
-    let mut spans = Vec::new();
-    let mut stack = Vec::new();
+/// Compute opaque regions for a template by projecting from the template tree.
+pub fn compute_opaque_regions<'db>(db: &'db dyn Db, nodelist: NodeList<'db>) -> OpaqueRegions {
+    let tree = build_template_tree(db, nodelist);
+    opaque_regions_from_tree(tree.regions(db))
+}
 
-    for node in nodelist.nodelist(db) {
-        let Node::Tag { name, span, .. } = node else {
-            continue;
-        };
-
-        match index.classify(name) {
-            TagClass::Opener => {
-                let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                stack.push(OpaqueFrame {
-                    opener_name: name,
-                    segment_start: body_start,
-                    is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
-                });
-            }
-            TagClass::Closer { opener_name } => {
-                let Some(frame_idx) = stack
-                    .iter()
-                    .rposition(|frame| frame.opener_name == opener_name)
-                else {
-                    continue;
-                };
-
-                while stack.len() > frame_idx + 1 {
-                    stack.pop();
-                }
-
-                let Some(frame) = stack.pop() else {
-                    continue;
-                };
-                push_opaque_segment(&frame, *span, &mut spans);
-            }
-            TagClass::Intermediate { possible_openers } => {
-                if let Some(frame) = stack.last_mut()
-                    && possible_openers
-                        .iter()
-                        .any(|opener| opener == frame.opener_name)
-                {
-                    push_opaque_segment(frame, *span, &mut spans);
-                    frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                }
-            }
-            TagClass::Unknown => {}
-        }
-    }
+pub(crate) fn opaque_regions_from_tree(regions: &Regions) -> OpaqueRegions {
+    let spans = regions
+        .iter()
+        .flat_map(TemplateRegion::nodes)
+        .filter_map(|node| match node {
+            TemplateNode::Opaque { body_span, .. } => Some(*body_span),
+            TemplateNode::Block { .. }
+            | TemplateNode::StandaloneTag { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Text { .. }
+            | TemplateNode::Error { .. } => None,
+        })
+        .collect();
 
     OpaqueRegions::new(spans)
-}
-
-fn push_opaque_segment(frame: &OpaqueFrame<'_>, content_span: Span, spans: &mut Vec<Span>) {
-    if frame.is_opaque {
-        let content_end = content_span
-            .start()
-            .saturating_sub(TagDelimiter::LENGTH_U32);
-        spans.push(Span::saturating_from_bounds_usize(
-            frame.segment_start as usize,
-            content_end as usize,
-        ));
-    }
-}
-
-struct OpaqueFrame<'a> {
-    opener_name: &'a str,
-    segment_start: u32,
-    is_opaque: bool,
 }

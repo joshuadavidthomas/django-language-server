@@ -4,14 +4,6 @@ use rustc_hash::FxHashMap;
 use crate::db::Db;
 use crate::tags::TagSpecs;
 
-/// Role a tag plays in Django's block structure.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TagGrammarRole {
-    Opener(EndMeta),
-    Closer { opener: String },
-    Intermediate { possible_openers: Vec<String> },
-}
-
 /// Compute the tag grammar index from tag specifications.
 #[salsa::tracked(returns(ref))]
 pub fn compute_tag_index(db: &dyn Db) -> TagIndex {
@@ -19,40 +11,66 @@ pub fn compute_tag_index(db: &dyn Db) -> TagIndex {
 }
 
 /// Index for tag grammar lookups.
-///
-/// Uses a single unified map from tag name to [`TagGrammarRole`], so every
-/// lookup (`classify`, `validate_close`, `is_end_required`) is a single
-/// hash probe instead of checking up to three separate maps.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TagIndex {
-    roles: FxHashMap<String, TagGrammarRole>,
+    openers: FxHashMap<String, OpenerMeta>,
+    closers: FxHashMap<String, Vec<String>>,
+    intermediates: FxHashMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EndMeta {
+pub(crate) struct OpenerMeta {
     required: bool,
+    opaque: bool,
+    closer: String,
 }
 
 impl TagIndex {
     #[must_use]
     pub fn classify(&self, tag_name: &str) -> TagClass<'_> {
-        match self.roles.get(tag_name) {
-            Some(TagGrammarRole::Opener(_)) => TagClass::Opener,
-            Some(TagGrammarRole::Closer { opener }) => TagClass::Closer {
-                opener_name: opener.as_str(),
-            },
-            Some(TagGrammarRole::Intermediate { possible_openers }) => TagClass::Intermediate {
+        if self.openers.contains_key(tag_name) {
+            TagClass::Opener
+        } else if let Some(possible_openers) = self.closers.get(tag_name) {
+            TagClass::Closer {
                 possible_openers: possible_openers.as_slice(),
-            },
-            None => TagClass::Unknown,
+            }
+        } else if let Some(possible_openers) = self.intermediates.get(tag_name) {
+            TagClass::Intermediate {
+                possible_openers: possible_openers.as_slice(),
+            }
+        } else {
+            TagClass::Unknown
         }
+    }
+
+    pub fn closer_openers(&self, closer_name: &str) -> Option<&[String]> {
+        self.closers.get(closer_name).map(Vec::as_slice)
+    }
+
+    pub(crate) fn intermediate_openers(&self, intermediate_name: &str) -> Option<&[String]> {
+        self.intermediates.get(intermediate_name).map(Vec::as_slice)
     }
 
     pub(crate) fn is_end_required(&self, opener_name: &str) -> bool {
         matches!(
-            self.roles.get(opener_name),
-            Some(TagGrammarRole::Opener(EndMeta { required: true }))
+            self.openers.get(opener_name),
+            Some(OpenerMeta { required: true, .. })
         )
+    }
+
+    #[must_use]
+    pub fn is_opaque(&self, opener_name: &str) -> bool {
+        matches!(
+            self.openers.get(opener_name),
+            Some(OpenerMeta { opaque: true, .. })
+        )
+    }
+
+    #[must_use]
+    pub fn closer_name(&self, opener_name: &str) -> Option<&str> {
+        self.openers
+            .get(opener_name)
+            .map(|OpenerMeta { closer, .. }| closer.as_str())
     }
 
     pub(crate) fn validate_close(
@@ -61,7 +79,7 @@ impl TagIndex {
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
-        if !matches!(self.roles.get(opener_name), Some(TagGrammarRole::Opener(_))) {
+        if !self.openers.contains_key(opener_name) {
             return CloseValidation::NotABlock;
         }
 
@@ -83,38 +101,41 @@ impl TagIndex {
     /// Build a `TagIndex` from an explicit `TagSpecs` value.
     #[must_use]
     fn from_tag_specs(specs: &TagSpecs) -> Self {
-        let mut roles: FxHashMap<String, TagGrammarRole> = FxHashMap::default();
+        let mut openers: FxHashMap<String, OpenerMeta> = FxHashMap::default();
+        let mut closers: FxHashMap<String, Vec<String>> = FxHashMap::default();
+        let mut intermediates: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
         for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
-                let meta = EndMeta {
+                let closer = end_tag.name.as_ref().to_owned();
+                let meta = OpenerMeta {
                     required: end_tag.required,
+                    opaque: spec.opaque,
+                    closer: closer.clone(),
                 };
 
-                roles.insert(name.clone(), TagGrammarRole::Opener(meta));
-                roles.insert(
-                    end_tag.name.as_ref().to_owned(),
-                    TagGrammarRole::Closer {
-                        opener: name.clone(),
-                    },
-                );
+                openers.insert(name.clone(), meta);
+                closers
+                    .entry(closer)
+                    .and_modify(|possible_openers| possible_openers.push(name.clone()))
+                    .or_insert_with(|| vec![name.clone()]);
 
-                for inter in spec.intermediate_tags.iter() {
-                    roles
-                        .entry(inter.name.as_ref().to_owned())
-                        .and_modify(|role| {
-                            if let TagGrammarRole::Intermediate { possible_openers } = role {
-                                possible_openers.push(name.clone());
-                            }
-                        })
-                        .or_insert_with(|| TagGrammarRole::Intermediate {
-                            possible_openers: vec![name.clone()],
-                        });
+                if !spec.opaque {
+                    for inter in spec.intermediate_tags.iter() {
+                        intermediates
+                            .entry(inter.name.as_ref().to_owned())
+                            .and_modify(|possible_openers| possible_openers.push(name.clone()))
+                            .or_insert_with(|| vec![name.clone()]);
+                    }
                 }
             }
         }
 
-        Self { roles }
+        Self {
+            openers,
+            closers,
+            intermediates,
+        }
     }
 }
 
@@ -126,8 +147,8 @@ impl TagIndex {
 pub enum TagClass<'a> {
     /// This tag opens a block
     Opener,
-    /// This tag closes a block
-    Closer { opener_name: &'a str },
+    /// This tag closes one or more blocks
+    Closer { possible_openers: &'a [String] },
     /// This tag is an intermediate (elif, else, etc.)
     Intermediate { possible_openers: &'a [String] },
     /// Unknown tag - treat as leaf
@@ -210,20 +231,18 @@ mod tests {
         let specs = create_test_specs();
         let index = TagIndex::from_tag_specs(&specs);
 
-        assert_eq!(
-            index.classify("endif"),
-            TagClass::Closer { opener_name: "if" }
-        );
-        assert_eq!(
-            index.classify("endfor"),
-            TagClass::Closer { opener_name: "for" }
-        );
-        assert_eq!(
-            index.classify("endblock"),
-            TagClass::Closer {
-                opener_name: "block"
-            }
-        );
+        match index.classify("endif") {
+            TagClass::Closer { possible_openers } => assert_eq!(possible_openers, ["if"]),
+            tag_class => panic!("expected endif to classify as closer, got {tag_class:?}"),
+        }
+        match index.classify("endfor") {
+            TagClass::Closer { possible_openers } => assert_eq!(possible_openers, ["for"]),
+            tag_class => panic!("expected endfor to classify as closer, got {tag_class:?}"),
+        }
+        match index.classify("endblock") {
+            TagClass::Closer { possible_openers } => assert_eq!(possible_openers, ["block"]),
+            tag_class => panic!("expected endblock to classify as closer, got {tag_class:?}"),
+        }
         assert_eq!(index.classify("endnonexistent"), TagClass::Unknown);
     }
 
@@ -271,5 +290,77 @@ mod tests {
         assert!(index.is_end_required("block"));
         assert!(!index.is_end_required("csrf_token"));
         assert!(!index.is_end_required("nonexistent"));
+    }
+
+    #[test]
+    fn tracks_opaque_openers() {
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "opaque_if".to_string(),
+            TagSpec::new(
+                "test".into(),
+                Some(EndTag {
+                    name: "endopaque_if".into(),
+                    required: true,
+                }),
+                vec![IntermediateTag {
+                    name: "opaque_else".into(),
+                }]
+                .into(),
+                true,
+            ),
+        );
+
+        let index = TagIndex::from_tag_specs(&TagSpecs::new(specs));
+
+        assert_eq!(index.classify("opaque_if"), TagClass::Opener);
+        assert_eq!(index.classify("opaque_else"), TagClass::Unknown);
+        assert!(index.is_opaque("opaque_if"));
+    }
+
+    #[test]
+    fn opaque_openers_do_not_contribute_shared_intermediates() {
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "opaque_if".to_string(),
+            TagSpec::new(
+                "test".into(),
+                Some(EndTag {
+                    name: "endopaque_if".into(),
+                    required: true,
+                }),
+                vec![IntermediateTag {
+                    name: "shared_else".into(),
+                }]
+                .into(),
+                true,
+            ),
+        );
+        specs.insert(
+            "plain_if".to_string(),
+            TagSpec::new(
+                "test".into(),
+                Some(EndTag {
+                    name: "endplain_if".into(),
+                    required: true,
+                }),
+                vec![IntermediateTag {
+                    name: "shared_else".into(),
+                }]
+                .into(),
+                false,
+            ),
+        );
+
+        let index = TagIndex::from_tag_specs(&TagSpecs::new(specs));
+
+        match index.classify("shared_else") {
+            TagClass::Intermediate { possible_openers } => {
+                assert_eq!(possible_openers, ["plain_if"]);
+            }
+            tag_class => {
+                panic!("expected shared_else to classify as intermediate, got {tag_class:?}")
+            }
+        }
     }
 }

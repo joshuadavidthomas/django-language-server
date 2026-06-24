@@ -258,8 +258,9 @@ fn outline_items_for_node(
                 })
                 .collect(),
         }],
-        TemplateNode::Comment { .. } | TemplateNode::Text { .. } | TemplateNode::Error { .. } => {
-            Vec::new()
-        }
+        TemplateNode::Opaque { .. }
+        | TemplateNode::Comment { .. }
+        | TemplateNode::Text { .. }
+        | TemplateNode::Error { .. } => Vec::new(),
     }
 }

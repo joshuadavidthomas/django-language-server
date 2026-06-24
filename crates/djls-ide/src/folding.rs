@@ -30,6 +30,13 @@ pub fn collect_folding_ranges(
 #[derive(Default)]
 struct FoldSpans(Vec<FoldSpan>);
 
+struct FoldFrame {
+    opener_name: String,
+    opener_span: Span,
+    closer_name: Option<String>,
+    opaque: bool,
+}
+
 impl FoldSpans {
     fn collect(nodes: &[Node], source: &str, tag_index: &TagIndex) -> Self {
         let mut folds = Self::default();
@@ -39,33 +46,56 @@ impl FoldSpans {
     }
 
     fn collect_semantic(&mut self, nodes: &[Node], tag_index: &TagIndex) {
-        let mut stack = Vec::new();
+        let mut stack: Vec<FoldFrame> = Vec::new();
 
         for node in nodes {
             let Node::Tag { name, .. } = node else {
                 continue;
             };
 
+            if let Some(frame) = stack
+                .pop_if(|frame| frame.opaque && frame.closer_name.as_deref() == Some(name.as_str()))
+            {
+                self.push_bounds(
+                    frame.opener_span.start(),
+                    node.full_span().end(),
+                    FoldKind::from_semantic_tag_name(&frame.opener_name),
+                );
+                continue;
+            }
+            if stack.last().is_some_and(|frame| frame.opaque) {
+                continue;
+            }
+
+            if let Some(possible_openers) = tag_index.closer_openers(name)
+                && let Some(open_idx) = stack.iter().rposition(|frame| {
+                    possible_openers
+                        .iter()
+                        .any(|opener| opener == &frame.opener_name)
+                })
+            {
+                while stack.len() > open_idx + 1 {
+                    stack.pop();
+                }
+                let frame = stack.pop().expect("matched opener should remain on stack");
+                self.push_bounds(
+                    frame.opener_span.start(),
+                    node.full_span().end(),
+                    FoldKind::from_semantic_tag_name(&frame.opener_name),
+                );
+                continue;
+            }
+
             match tag_index.classify(name) {
                 TagClass::Opener => {
-                    stack.push((name.as_str(), node.full_span()));
+                    stack.push(FoldFrame {
+                        opener_name: name.clone(),
+                        opener_span: node.full_span(),
+                        closer_name: tag_index.closer_name(name).map(str::to_string),
+                        opaque: tag_index.is_opaque(name),
+                    });
                 }
-                TagClass::Closer { opener_name } => {
-                    let Some(open_idx) = stack
-                        .iter()
-                        .rposition(|(stacked_opener_name, _)| *stacked_opener_name == opener_name)
-                    else {
-                        continue;
-                    };
-
-                    let (matched_opener_name, opener_span) = stack.remove(open_idx);
-                    self.push_bounds(
-                        opener_span.start(),
-                        node.full_span().end(),
-                        FoldKind::from_semantic_tag_name(matched_opener_name),
-                    );
-                }
-                TagClass::Intermediate { .. } | TagClass::Unknown => {}
+                TagClass::Closer { .. } | TagClass::Intermediate { .. } | TagClass::Unknown => {}
             }
         }
     }

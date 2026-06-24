@@ -17,11 +17,6 @@ error[S116]: Filter 'lower' does not accept an argument
   |
 3 | {{ text|lower:"arg" }}
   |         ^^^^^^^^^^^
-error[S100]: Unclosed 'if' tag
- --> test.html:4:14
-  |
-4 | {% comment %}{% if and %}{% endcomment %}
-  |              ^^^^^^^^^^^^
 error[S115]: Filter 'truncatewords' requires an argument
  --> test.html:5:11
   |
