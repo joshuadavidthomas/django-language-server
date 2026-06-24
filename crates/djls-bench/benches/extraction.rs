@@ -3,13 +3,9 @@ use djls_bench::Db;
 use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::python_fixtures;
-use djls_project::BlockSpecs;
-use djls_project::FilterArityMap;
 use djls_project::ModulePath;
-use djls_project::TagRuleMap;
 use djls_source::File;
-
-const BENCH_MODULE: &str = "bench.module";
+use djls_testing::extract_bundle;
 
 struct ExtractionFile {
     file: File,
@@ -19,12 +15,6 @@ struct ExtractionFile {
 struct ExtractionInput {
     db: Db,
     files: Vec<ExtractionFile>,
-}
-
-struct ExtractionBundle {
-    tag_rules: TagRuleMap,
-    filter_arities: FilterArityMap,
-    block_specs: BlockSpecs,
 }
 
 fn main() {
@@ -37,24 +27,11 @@ fn extraction_input(fixtures: &[Fixture]) -> ExtractionInput {
         .iter()
         .map(|fixture| ExtractionFile {
             file: db.file_with_contents(fixture.path.clone(), &fixture.source),
-            module: ModulePath::new(BENCH_MODULE),
+            module: ModulePath::new("bench.module"),
         })
         .collect();
 
     ExtractionInput { db, files }
-}
-
-fn extract_bundle(db: &Db, file: File, registration_module: ModulePath) -> ExtractionBundle {
-    let tag_rules = djls_project::extract_tag_rules(db, file, registration_module.clone()).clone();
-    let filter_arities =
-        djls_project::extract_filter_arities(db, file, registration_module.clone()).clone();
-    let block_specs = djls_project::extract_block_specs(db, file, registration_module).clone();
-
-    ExtractionBundle {
-        tag_rules,
-        filter_arities,
-        block_specs,
-    }
 }
 
 #[divan::bench]

@@ -1,6 +1,5 @@
 use std::sync::OnceLock;
 
-use djls_project::BlockSpecs;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::LibraryName;
@@ -8,7 +7,6 @@ use djls_project::ModulePath;
 use djls_project::PyModuleName;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
-use djls_project::TagRuleMap;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbol;
@@ -16,7 +14,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
-use djls_source::File;
+use djls_testing::extract_bundle;
 
 use crate::Db;
 
@@ -69,26 +67,6 @@ struct RealisticSpecs {
     tag_specs: TagSpecs,
     template_libraries: TemplateLibraries,
     filter_arity_specs: FilterAritySpecs,
-}
-
-struct ExtractionBundle {
-    tag_rules: TagRuleMap,
-    filter_arities: FilterArityMap,
-    block_specs: BlockSpecs,
-}
-
-fn extract_bundle(db: &Db, file: File, registration_module: &str) -> ExtractionBundle {
-    let registration_module = ModulePath::new(registration_module);
-    let tag_rules = djls_project::extract_tag_rules(db, file, registration_module.clone()).clone();
-    let filter_arities =
-        djls_project::extract_filter_arities(db, file, registration_module.clone()).clone();
-    let block_specs = djls_project::extract_block_specs(db, file, registration_module).clone();
-
-    ExtractionBundle {
-        tag_rules,
-        filter_arities,
-        block_specs,
-    }
 }
 
 fn build_template_symbols() -> Vec<BenchSymbol> {
@@ -243,12 +221,16 @@ fn build_realistic_specs() -> RealisticSpecs {
     let defaulttags_file = extraction_db.file_with_contents(defaulttags_path, &defaulttags_source);
     let i18n_file = extraction_db.file_with_contents(i18n_path, &i18n_source);
 
-    let defaulttags = extract_bundle(&extraction_db, defaulttags_file, DEFAULTTAGS);
+    let defaulttags = extract_bundle(
+        &extraction_db,
+        defaulttags_file,
+        ModulePath::new(DEFAULTTAGS),
+    );
     tag_specs
         .merge_block_specs(&defaulttags.block_specs)
         .merge_tag_rules(&defaulttags.tag_rules);
 
-    let i18n = extract_bundle(&extraction_db, i18n_file, I18N);
+    let i18n = extract_bundle(&extraction_db, i18n_file, ModulePath::new(I18N));
     tag_specs
         .merge_block_specs(&i18n.block_specs)
         .merge_tag_rules(&i18n.tag_rules);
