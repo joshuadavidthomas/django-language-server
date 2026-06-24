@@ -15,7 +15,7 @@ use serde::ser::SerializeMap;
 pub struct SymbolKey {
     pub registration_module: String,
     pub name: String,
-    pub kind: SymbolKind,
+    pub kind: TemplateSymbolKind,
 }
 
 impl SymbolKey {
@@ -24,7 +24,7 @@ impl SymbolKey {
         Self {
             registration_module: registration_module.into(),
             name: name.into(),
-            kind: SymbolKind::Tag,
+            kind: TemplateSymbolKind::Tag,
         }
     }
 
@@ -33,14 +33,15 @@ impl SymbolKey {
         Self {
             registration_module: registration_module.into(),
             name: name.into(),
-            kind: SymbolKind::Filter,
+            kind: TemplateSymbolKind::Filter,
         }
     }
 }
 
 /// Whether a symbol is a template tag or a template filter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SymbolKind {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TemplateSymbolKind {
     Tag,
     Filter,
 }
@@ -60,8 +61,8 @@ impl Serialize for BlockSpecs {
         let mut sorted = BTreeMap::new();
         for (key, value) in &self.0 {
             let kind = match key.kind {
-                SymbolKind::Tag => "tag",
-                SymbolKind::Filter => "filter",
+                TemplateSymbolKind::Tag => "tag",
+                TemplateSymbolKind::Filter => "filter",
             };
             sorted.insert(
                 format!("{}::{kind}::{}", key.registration_module, key.name),
@@ -153,7 +154,7 @@ pub struct TagRule {
     pub known_options: Option<KnownOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
-    pub extracted_args: Vec<ExtractedArg>,
+    pub extracted_args: Vec<TagArgument>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
     /// When supported, the evaluator strips trailing `as <varname>` from the
@@ -348,21 +349,21 @@ pub struct BlockSpec {
 /// Represents a single positional or keyword argument that a template tag
 /// accepts, derived from the Python function signature (for simple/inclusion
 /// tags) or from AST analysis of the compile function (for manual tags).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExtractedArg {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagArgument {
     /// Argument name (from parameter name or AST analysis, or generic `arg1`/`arg2`)
     pub name: String,
     /// Whether this argument is required (no default value)
     pub required: bool,
     /// The kind of argument
-    pub kind: ExtractedArgKind,
+    pub kind: TagArgumentKind,
     /// Zero-based position index in the argument list (excluding tag name)
     pub position: usize,
 }
 
 /// The kind of an extracted argument.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ExtractedArgKind {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TagArgumentKind {
     /// A template variable or expression
     Variable,
     /// A literal keyword that must appear exactly as specified
@@ -396,7 +397,7 @@ mod tests {
         let key = SymbolKey::tag("django.template.defaulttags", "for");
         assert_eq!(key.registration_module, "django.template.defaulttags");
         assert_eq!(key.name, "for");
-        assert_eq!(key.kind, SymbolKind::Tag);
+        assert_eq!(key.kind, TemplateSymbolKind::Tag);
     }
 
     #[test]
@@ -404,7 +405,7 @@ mod tests {
         let key = SymbolKey::filter("django.template.defaultfilters", "title");
         assert_eq!(key.registration_module, "django.template.defaultfilters");
         assert_eq!(key.name, "title");
-        assert_eq!(key.kind, SymbolKind::Filter);
+        assert_eq!(key.kind, TemplateSymbolKind::Filter);
     }
 
     #[test]

@@ -8,8 +8,6 @@ use djls_project::templatetag_modules;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
-pub use specs::TagArgument;
-pub use specs::TagArgumentKind;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
 pub use specs::builtin_tag_specs;

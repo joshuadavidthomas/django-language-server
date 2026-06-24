@@ -14,7 +14,6 @@ use ruff_python_ast::StmtAssign;
 
 use crate::db::Db as ProjectDb;
 use crate::extraction::DjangoSettings;
-use crate::extraction::RegistrationKind;
 use crate::extraction::SettingsSource;
 use crate::extraction::SettingsSourceResolver;
 use crate::extraction::SettingsStarImport;
@@ -32,7 +31,6 @@ use crate::symbols::SymbolDefinition;
 use crate::symbols::TemplateLibraries;
 use crate::symbols::TemplateLibrary;
 use crate::symbols::TemplateSymbol;
-use crate::symbols::TemplateSymbolKind;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -328,13 +326,7 @@ impl TemplateLibraryAnalysis {
             let Ok(name) = TemplateSymbolName::parse(&registration.name) else {
                 continue;
             };
-            let kind = match registration.kind {
-                RegistrationKind::Tag
-                | RegistrationKind::SimpleTag
-                | RegistrationKind::InclusionTag
-                | RegistrationKind::SimpleBlockTag => TemplateSymbolKind::Tag,
-                RegistrationKind::Filter => TemplateSymbolKind::Filter,
-            };
+            let kind = registration.kind.symbol_kind();
             symbols.push(TemplateSymbol {
                 kind,
                 name,

@@ -12,8 +12,7 @@ use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::scoping::symbols::AvailableSymbols;
-use crate::scoping::symbols::FilterAvailability;
-use crate::scoping::symbols::TagAvailability;
+use crate::scoping::symbols::SymbolAvailability;
 use crate::tags::TagSpecs;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
@@ -31,10 +30,10 @@ pub(crate) fn check_tag_scoping_rule(
 
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
-    match symbols.check(name) {
-        TagAvailability::Available => {}
-        TagAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
-        TagAvailability::Unknown => {
+    match symbols.check_tag(name) {
+        SymbolAvailability::Available => {}
+        SymbolAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
+        SymbolAvailability::Unknown => {
             if let Some(candidate) = inactive_libraries.tag_candidates(name).first() {
                 ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
                     tag: name.to_string(),
@@ -51,7 +50,7 @@ pub(crate) fn check_tag_scoping_rule(
                 .accumulate(db);
             }
         }
-        TagAvailability::Unloaded { library } => {
+        SymbolAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedTag {
                 tag: name.to_string(),
                 library,
@@ -59,7 +58,7 @@ pub(crate) fn check_tag_scoping_rule(
             })
             .accumulate(db);
         }
-        TagAvailability::AmbiguousUnloaded { libraries } => {
+        SymbolAvailability::AmbiguousUnloaded { libraries } => {
             ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedTag {
                 tag: name.to_string(),
                 libraries,
@@ -83,9 +82,9 @@ pub(crate) fn check_filter_scoping_rule(
     }
 
     match symbols.check_filter(&filter.name) {
-        FilterAvailability::Available => {}
-        FilterAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
-        FilterAvailability::Unknown => {
+        SymbolAvailability::Available => {}
+        SymbolAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
+        SymbolAvailability::Unknown => {
             if let Some(candidate) = inactive_libraries.filter_candidates(&filter.name).first() {
                 ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
                     filter: filter.name.clone(),
@@ -102,7 +101,7 @@ pub(crate) fn check_filter_scoping_rule(
                 .accumulate(db);
             }
         }
-        FilterAvailability::Unloaded { library } => {
+        SymbolAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedFilter {
                 filter: filter.name.clone(),
                 library,
@@ -110,7 +109,7 @@ pub(crate) fn check_filter_scoping_rule(
             })
             .accumulate(db);
         }
-        FilterAvailability::AmbiguousUnloaded { libraries } => {
+        SymbolAvailability::AmbiguousUnloaded { libraries } => {
             ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedFilter {
                 filter: filter.name.clone(),
                 libraries,

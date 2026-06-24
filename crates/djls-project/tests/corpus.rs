@@ -25,6 +25,7 @@ use djls_project::ExtractionResult;
 use djls_project::FilterArity;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
+use djls_project::TemplateSymbolKind;
 use djls_project::extract_rules;
 use djls_testing::Corpus;
 use djls_testing::module_path_from_file;
@@ -41,8 +42,8 @@ impl From<ExtractionResult> for SortedExtractionResult {
     fn from(result: ExtractionResult) -> Self {
         let key_str = |k: &SymbolKey| {
             let kind = match k.kind {
-                djls_project::SymbolKind::Tag => "tag",
-                djls_project::SymbolKind::Filter => "filter",
+                TemplateSymbolKind::Tag => "tag",
+                TemplateSymbolKind::Filter => "filter",
             };
             format!("{}::{kind}::{}", k.registration_module, k.name)
         };
