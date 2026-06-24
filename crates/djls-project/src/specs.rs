@@ -163,15 +163,13 @@ pub fn extract_tag_rules(
 
 fn extract_tag_rules_from_body(body: &[Stmt], registration_module: ModulePath) -> TagRuleMap {
     let registration_module = registration_module.into_string();
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
     let mut tag_rules = TagRuleMap::default();
 
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
+    for_each_registration(body, &registration_module, |reg, func, key| {
         if let Some(rule) = reg.kind.extract_tag_rule(func) {
             tag_rules.insert(key, rule.into());
         }
-    }
+    });
 
     tag_rules
 }
@@ -198,15 +196,13 @@ fn extract_filter_arities_from_body(
     registration_module: ModulePath,
 ) -> FilterArityMap {
     let registration_module = registration_module.into_string();
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
     let mut filter_arities = FilterArityMap::default();
 
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
+    for_each_registration(body, &registration_module, |reg, func, key| {
         if let Some(arity) = reg.kind.extract_filter_arity(func) {
             filter_arities.insert(key, arity);
         }
-    }
+    });
 
     filter_arities
 }
@@ -230,16 +226,14 @@ pub fn extract_block_specs(
 
 fn extract_block_specs_from_body(body: &[Stmt], registration_module: ModulePath) -> BlockSpecs {
     let registration_module = registration_module.into_string();
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
     let mut block_specs = BlockSpecs::default();
 
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, &registration_module) {
+    for_each_registration(body, &registration_module, |reg, func, key| {
         if let Some(block_spec) = normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
         {
             block_specs.insert(key, block_spec);
         }
-    }
+    });
 
     block_specs
 }
@@ -263,12 +257,9 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
         return ExtractionResult::default();
     };
     let module = parsed.into_syntax();
-    let registrations = collect_registrations_from_body(&module.body);
-    let func_defs = collect_func_defs(&module.body);
-
     let mut result = ExtractionResult::default();
 
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
+    for_each_registration(&module.body, module_path, |reg, func, key| {
         match reg.kind.extract(func) {
             ExtractionOutput::Filter(arity) => {
                 result.filter_arities.insert(key, arity);
@@ -282,9 +273,22 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
                 }
             }
         }
-    }
+    });
 
     result
+}
+
+fn for_each_registration(
+    body: &[Stmt],
+    module_path: &str,
+    mut f: impl FnMut(&RegistrationInfo, &StmtFunctionDef, SymbolKey),
+) {
+    let registrations = collect_registrations_from_body(body);
+    let func_defs = collect_func_defs(body);
+
+    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
+        f(reg, func, key);
+    }
 }
 
 fn registered_functions<'a>(
