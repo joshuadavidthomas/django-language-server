@@ -1,7 +1,9 @@
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprStringLiteral;
+use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Number;
+use ruff_python_ast::UnaryOp;
 
 pub trait ExprExt {
     /// Extract the full string value from a string literal expression.
@@ -17,12 +19,14 @@ pub trait ExprExt {
     /// Extract the identifier from a name expression.
     fn name_target(&self) -> Option<&str>;
 
+    /// Extract a boolean literal.
+    fn bool_literal(&self) -> Option<bool>;
+
     /// Extract a non-negative integer literal as `usize`.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn non_negative_integer(&self) -> Option<usize>;
 
-    /// Check if the expression is a boolean `True` literal.
-    fn is_true_literal(&self) -> bool;
+    /// Extract the magnitude from a negative integer literal.
+    fn negative_integer(&self) -> Option<usize>;
 
     /// Map elements of a collection expression (tuple, list, or set) through
     /// a fallible function. Returns `None` if the expression is not a
@@ -57,21 +61,33 @@ impl ExprExt for Expr {
         None
     }
 
-    fn non_negative_integer(&self) -> Option<usize> {
-        if let Expr::NumberLiteral(ExprNumberLiteral {
-            value: Number::Int(int_val),
-            ..
-        }) = self
-            && let Some(n) = int_val.as_i64()
-            && n >= 0
-        {
-            return usize::try_from(n).ok();
+    fn bool_literal(&self) -> Option<bool> {
+        match self {
+            Expr::BooleanLiteral(literal) => Some(literal.value),
+            _ => None,
         }
-        None
     }
 
-    fn is_true_literal(&self) -> bool {
-        matches!(self, Expr::BooleanLiteral(lit) if lit.value)
+    fn non_negative_integer(&self) -> Option<usize> {
+        let Expr::NumberLiteral(ExprNumberLiteral { value, .. }) = self else {
+            return None;
+        };
+        let Number::Int(value) = value else {
+            return None;
+        };
+        usize::try_from(value.as_i64()?).ok()
+    }
+
+    fn negative_integer(&self) -> Option<usize> {
+        let Expr::UnaryOp(ExprUnaryOp {
+            op: UnaryOp::USub,
+            operand,
+            ..
+        }) = self
+        else {
+            return None;
+        };
+        operand.non_negative_integer()
     }
 
     fn collection_map<T>(&self, f: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {
@@ -147,5 +163,63 @@ mod tests {
     #[test]
     fn rejects_name_target_for_non_name() {
         assert_eq!(parse_expr("object.attr").name_target(), None);
+    }
+
+    #[test]
+    fn bool_literal_extracts_true_and_false() {
+        assert_eq!(parse_expr("True").bool_literal(), Some(true));
+        assert_eq!(parse_expr("False").bool_literal(), Some(false));
+    }
+
+    #[test]
+    fn bool_literal_rejects_non_bool() {
+        assert_eq!(parse_expr("1").bool_literal(), None);
+    }
+
+    #[test]
+    fn non_negative_integer_extracts_zero_and_positive_ints() {
+        assert_eq!(parse_expr("0").non_negative_integer(), Some(0));
+        assert_eq!(parse_expr("42").non_negative_integer(), Some(42));
+    }
+
+    #[test]
+    fn non_negative_integer_rejects_float_and_negative_ints() {
+        assert_eq!(parse_expr("3.0").non_negative_integer(), None);
+        assert_eq!(parse_expr("-3").non_negative_integer(), None);
+    }
+
+    #[test]
+    fn negative_integer_extracts_magnitude() {
+        assert_eq!(parse_expr("-3").negative_integer(), Some(3));
+        assert_eq!(parse_expr("-0").negative_integer(), Some(0));
+    }
+
+    #[test]
+    fn negative_integer_rejects_non_unary_expression() {
+        assert_eq!(parse_expr("3").negative_integer(), None);
+    }
+
+    #[test]
+    fn collection_map_maps_set_elements() {
+        assert_eq!(
+            parse_expr("{1, 2}").collection_map(super::ExprExt::non_negative_integer),
+            Some(vec![1, 2])
+        );
+    }
+
+    #[test]
+    fn collection_map_accepts_empty_collections() {
+        assert_eq!(
+            parse_expr("()").collection_map(super::ExprExt::non_negative_integer),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn collection_map_rejects_mixed_collections() {
+        assert_eq!(
+            parse_expr("(1, 'two')").collection_map(super::ExprExt::non_negative_integer),
+            None
+        );
     }
 }

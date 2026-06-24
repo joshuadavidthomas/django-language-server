@@ -436,7 +436,7 @@ impl SettingsBindingsCollector<'_> {
     }
 
     fn assign_aux(&mut self, name: &str, value: &ast::Expr) {
-        match bool_literal(value) {
+        match value.bool_literal() {
             Some(value) => self.bindings.locals.set_bool(name, value),
             None => self.bindings.locals.remove_bool(name),
         }
@@ -498,7 +498,7 @@ impl SettingsBindingsCollector<'_> {
                 self.extend_installed_apps(&arguments.args[0]);
             }
             "insert" if arguments.args.len() == 2 && arguments.keywords.is_empty() => {
-                let index = non_negative_integer(&arguments.args[0]);
+                let index = arguments.args[0].non_negative_integer();
                 let value = arguments.args[1].string_literal();
                 match (index, value) {
                     (Some(index), Some(value)) => {
@@ -625,7 +625,7 @@ impl SettingsBindingsCollector<'_> {
                     None => backend.make_partial(Reason::UnsupportedValue),
                 },
                 "DIRS" => self.extract_template_dirs(&item.value, &mut backend),
-                "APP_DIRS" => match bool_literal(&item.value) {
+                "APP_DIRS" => match item.value.bool_literal() {
                     Some(value) => backend.app_dirs = Some(value),
                     None => backend.make_partial(Reason::UnsupportedValue),
                 },
@@ -1059,7 +1059,7 @@ fn templates_dirs_target(expr: &ast::Expr) -> Option<usize> {
     if inner.value.name_target() != Some(TEMPLATES) {
         return None;
     }
-    non_negative_integer(&inner.slice)
+    inner.slice.non_negative_integer()
 }
 
 fn target_touches_name(target: &ast::Expr, expected: &str) -> bool {
@@ -1100,23 +1100,6 @@ fn expr_touches_name(expr: &ast::Expr, expected: &str) -> bool {
         ast::Expr::Starred(starred) => expr_touches_name(&starred.value, expected),
         _ => false,
     }
-}
-
-fn bool_literal(expr: &ast::Expr) -> Option<bool> {
-    match expr {
-        ast::Expr::BooleanLiteral(literal) => Some(literal.value),
-        _ => None,
-    }
-}
-
-fn non_negative_integer(expr: &ast::Expr) -> Option<usize> {
-    let ast::Expr::NumberLiteral(literal) = expr else {
-        return None;
-    };
-    let ast::Number::Int(value) = &literal.value else {
-        return None;
-    };
-    usize::try_from(value.as_i64()?).ok()
 }
 
 fn first_import_segment(name: &str) -> &str {

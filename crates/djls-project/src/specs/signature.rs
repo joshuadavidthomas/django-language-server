@@ -104,7 +104,7 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
             for kw in &arguments.keywords {
                 if let Some(arg) = &kw.arg
                     && arg.as_str() == "takes_context"
-                    && kw.value.is_true_literal()
+                    && kw.value.bool_literal() == Some(true)
                 {
                     return true;
                 }

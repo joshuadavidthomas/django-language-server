@@ -16,11 +16,9 @@ use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprSlice;
 use ruff_python_ast::ExprSubscript;
-use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
-use ruff_python_ast::UnaryOp;
 
 use crate::ast::ExprExt;
 use crate::specs::analysis::constraints::ExtractedTagConstraints;
@@ -212,7 +210,7 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         else {
             return None;
         };
-        (negative_integer(upper) == Some(2)).then(|| target_name.to_string())
+        (upper.negative_integer() == Some(2)).then(|| target_name.to_string())
     })
 }
 
@@ -247,19 +245,7 @@ fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {
     let Expr::Subscript(ExprSubscript { value, slice, .. }) = expr else {
         return false;
     };
-    value.name_target() == Some(name) && negative_integer(slice) == Some(index)
-}
-
-fn negative_integer(expr: &Expr) -> Option<usize> {
-    let Expr::UnaryOp(ExprUnaryOp {
-        op: UnaryOp::USub,
-        operand,
-        ..
-    }) = expr
-    else {
-        return None;
-    };
-    operand.non_negative_integer()
+    value.name_target() == Some(name) && slice.negative_integer() == Some(index)
 }
 
 /// Extract argument names from the environment after analysis.
