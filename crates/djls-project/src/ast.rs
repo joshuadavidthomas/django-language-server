@@ -1,9 +1,104 @@
+use std::marker::PhantomData;
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Number;
+use ruff_python_ast::Stmt;
 use ruff_python_ast::UnaryOp;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::statement_visitor::walk_body;
+use ruff_python_ast::statement_visitor::walk_stmt;
+
+#[expect(
+    dead_code,
+    reason = "later migration phases construct the remaining policies"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Recurse {
+    /// Control-flow bodies only: If/For/While/Try/With/Match. Stops at nested fn/class scopes.
+    ControlFlow,
+    /// Everything except nested fn/class scopes.
+    WithinScope,
+    /// Only `ClassDef` bodies.
+    IntoClasses,
+    /// No recursion; scan the given body's direct statements only.
+    Flat,
+}
+
+/// Run `matcher` on every statement in `body` pre-order, recursing per `policy`.
+///
+/// `matcher` returns `ControlFlow::Break(())` to stop the entire walk.
+pub(crate) fn walk_stmts<'a>(
+    body: &'a [Stmt],
+    policy: Recurse,
+    matcher: impl FnMut(&'a Stmt) -> ControlFlow<()>,
+) {
+    let mut walker = Walker {
+        matcher,
+        policy,
+        stopped: false,
+        _pd: PhantomData,
+    };
+    walker.visit_body(body);
+}
+
+struct Walker<'a, F> {
+    matcher: F,
+    policy: Recurse,
+    stopped: bool,
+    _pd: PhantomData<&'a ()>,
+}
+
+impl<'a, F> StatementVisitor<'a> for Walker<'a, F>
+where
+    F: FnMut(&'a Stmt) -> ControlFlow<()>,
+{
+    fn visit_body(&mut self, body: &'a [Stmt]) {
+        if self.stopped {
+            return;
+        }
+        walk_body(self, body);
+    }
+
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        if self.stopped {
+            return;
+        }
+
+        match (self.matcher)(stmt) {
+            ControlFlow::Continue(()) => {}
+            ControlFlow::Break(()) => {
+                self.stopped = true;
+                return;
+            }
+        }
+
+        match self.policy {
+            Recurse::ControlFlow => match stmt {
+                Stmt::If(_)
+                | Stmt::For(_)
+                | Stmt::While(_)
+                | Stmt::Try(_)
+                | Stmt::With(_)
+                | Stmt::Match(_) => walk_stmt(self, stmt),
+                _ => {}
+            },
+            Recurse::WithinScope => match stmt {
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+                _ => walk_stmt(self, stmt),
+            },
+            Recurse::IntoClasses => {
+                if let Stmt::ClassDef(_) = stmt {
+                    walk_stmt(self, stmt);
+                }
+            }
+            Recurse::Flat => {}
+        }
+    }
+}
 
 pub trait ExprExt {
     /// Extract the full string value from a string literal expression.

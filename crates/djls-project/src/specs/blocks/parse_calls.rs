@@ -1,14 +1,15 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtIf;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_body;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::blocks::extract_string_sequence;
 use crate::specs::blocks::is_parser_receiver;
 use crate::specs::blocks::is_token_contents_expr;
@@ -36,49 +37,25 @@ struct ParseCallInfo {
 }
 
 /// Collect all `parser.parse((...))` calls in a statement body.
-///
-/// Uses Ruff's statement visitor to avoid hand-written recursion across
-/// statement variants.
 fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
-    let mut visitor = ParseCallCollector::new(parser_var);
-    visitor.visit_body(body);
-    visitor.calls
-}
-
-struct ParseCallCollector<'a> {
-    parser_var: &'a str,
-    calls: Vec<ParseCallInfo>,
-}
-
-impl<'a> ParseCallCollector<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            calls: Vec::new(),
-        }
-    }
-}
-
-impl StatementVisitor<'_> for ParseCallCollector<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
+    let mut calls = Vec::new();
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if let Some(info) = extract_parse_call_info(&expr_stmt.value, self.parser_var) {
-                    self.calls.push(info);
+                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
+                    calls.push(info);
                 }
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(info) = extract_parse_call_info(value, self.parser_var) {
-                    self.calls.push(info);
+                if let Some(info) = extract_parse_call_info(value, parser_var) {
+                    calls.push(info);
                 }
-            }
-            // Recurse into control flow to find all possible parse calls.
-            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) => {
-                walk_stmt(self, stmt);
             }
             _ => {}
         }
-    }
+        ControlFlow::Continue(())
+    });
+    calls
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
@@ -460,50 +437,23 @@ fn extract_startswith_check(
 
 /// Check if a statement body contains a `parser.parse(...)` call.
 fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
-    let mut visitor = ParseCallFinder::new(parser_var);
-    visitor.visit_body(body);
-    visitor.found
-}
-
-struct ParseCallFinder<'a> {
-    parser_var: &'a str,
-    found: bool,
-}
-
-impl<'a> ParseCallFinder<'a> {
-    fn new(parser_var: &'a str) -> Self {
-        Self {
-            parser_var,
-            found: false,
-        }
-    }
-}
-
-impl StatementVisitor<'_> for ParseCallFinder<'_> {
-    fn visit_body(&mut self, body: &[Stmt]) {
-        if self.found {
-            return;
-        }
-        walk_body(self, body);
-    }
-
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
-        }
-
-        match stmt {
+    let mut found = false;
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
+        let has_parse_call = match stmt {
             Stmt::Expr(expr_stmt) => {
-                self.found = extract_parse_call_info(&expr_stmt.value, self.parser_var).is_some();
+                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                self.found = extract_parse_call_info(value, self.parser_var).is_some();
+                extract_parse_call_info(value, parser_var).is_some()
             }
-            // Recurse into control flow to find all possible parse calls.
-            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) => {
-                walk_stmt(self, stmt);
-            }
-            _ => {}
+            _ => false,
+        };
+        if has_parse_call {
+            found = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
+    });
+    found
 }
