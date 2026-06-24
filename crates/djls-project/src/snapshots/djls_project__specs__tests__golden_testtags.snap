@@ -1,7 +1,0 @@
----
-source: crates/djls-project/src/specs.rs
-expression: "snapshot(extract_rules(&source, \"tests.template_tests.templatetags.testtags\"))"
----
-tag_rules: {}
-filter_arities: {}
-block_specs: {}

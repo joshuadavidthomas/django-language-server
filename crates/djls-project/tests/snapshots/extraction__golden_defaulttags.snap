@@ -1,6 +1,6 @@
 ---
-source: crates/djls-project/src/specs.rs
-expression: "snapshot(extract_rules(&source, \"django.template.defaulttags\"))"
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
 ---
 tag_rules:
   "django.template.defaulttags::tag::autoescape":

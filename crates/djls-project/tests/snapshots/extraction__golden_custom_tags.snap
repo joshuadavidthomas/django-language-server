@@ -1,6 +1,6 @@
 ---
-source: crates/djls-project/src/specs.rs
-expression: "snapshot(extract_rules(&source, \"tests.template_tests.templatetags.custom\"))"
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
 ---
 tag_rules:
   "tests.template_tests.templatetags.custom::tag::no_params":

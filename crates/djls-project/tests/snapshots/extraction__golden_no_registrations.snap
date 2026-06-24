@@ -1,0 +1,7 @@
+---
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}
