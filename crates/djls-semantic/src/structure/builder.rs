@@ -38,7 +38,7 @@ enum TreeOp {
 
 pub(crate) struct TemplateTreeBuilder<'db> {
     db: &'db dyn Db,
-    index: TagIndex<'db>,
+    index: &'db TagIndex,
     root: RegionId,
     stack: Vec<TreeFrame>,
     region_allocs: Vec<(Span, Option<RegionId>)>,
@@ -46,7 +46,7 @@ pub(crate) struct TemplateTreeBuilder<'db> {
 }
 
 impl<'db> TemplateTreeBuilder<'db> {
-    pub(crate) fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
+    pub(crate) fn new(db: &'db dyn Db, index: &'db TagIndex) -> Self {
         let mut builder = Self {
             db,
             index,
@@ -118,7 +118,7 @@ impl<'db> TemplateTreeBuilder<'db> {
 
     fn handle_tag(&mut self, name: &str, name_span: Span, bits: &[TagBit], span: Span) {
         let full_span = span.expand_template_tag_marker();
-        match self.index.classify(self.db, name) {
+        match self.index.classify(name) {
             TagClass::Opener => {
                 let parent = self.active_region();
 
@@ -217,7 +217,7 @@ impl<'db> TemplateTreeBuilder<'db> {
         let frame = self.stack.pop().unwrap();
         match self
             .index
-            .validate_close(self.db, opener_name, &frame.opener_bits, closer_bits)
+            .validate_close(opener_name, &frame.opener_bits, closer_bits)
         {
             CloseValidation::Valid => {
                 let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
@@ -332,7 +332,7 @@ impl<'db> TemplateTreeBuilder<'db> {
 
     fn finish(&mut self) {
         while let Some(frame) = self.stack.pop() {
-            if self.index.is_end_required(self.db, &frame.opener_name) {
+            if self.index.is_end_required(&frame.opener_name) {
                 self.ops
                     .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
                         tag: frame.opener_name,

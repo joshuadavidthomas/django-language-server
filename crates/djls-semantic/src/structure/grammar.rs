@@ -12,15 +12,19 @@ pub(crate) enum TagGrammarRole {
     Intermediate { possible_openers: Vec<String> },
 }
 
+/// Compute the tag grammar index from tag specifications.
+#[salsa::tracked(returns(ref))]
+pub(crate) fn compute_tag_index(db: &dyn Db) -> TagIndex {
+    TagIndex::from_tag_specs(db.tag_specs())
+}
+
 /// Index for tag grammar lookups.
 ///
 /// Uses a single unified map from tag name to [`TagGrammarRole`], so every
 /// lookup (`classify`, `validate_close`, `is_end_required`) is a single
 /// hash probe instead of checking up to three separate maps.
-#[salsa::tracked(debug)]
-pub(crate) struct TagIndex<'db> {
-    #[tracked]
-    #[returns(ref)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TagIndex {
     roles: FxHashMap<String, TagGrammarRole>,
 }
 
@@ -29,36 +33,35 @@ pub(crate) struct EndMeta {
     required: bool,
 }
 
-impl<'db> TagIndex<'db> {
-    pub(crate) fn classify(self, db: &'db dyn Db, tag_name: &str) -> TagClass<'db> {
-        match self.roles(db).get(tag_name) {
+impl TagIndex {
+    pub(crate) fn classify(&self, tag_name: &str) -> TagClass<'_> {
+        match self.roles.get(tag_name) {
             Some(TagGrammarRole::Opener(_)) => TagClass::Opener,
             Some(TagGrammarRole::Closer { opener }) => TagClass::Closer {
-                opener_name: opener,
+                opener_name: opener.as_str(),
             },
-            Some(TagGrammarRole::Intermediate { possible_openers }) => {
-                TagClass::Intermediate { possible_openers }
-            }
+            Some(TagGrammarRole::Intermediate { possible_openers }) => TagClass::Intermediate {
+                possible_openers: possible_openers.as_slice(),
+            },
             None => TagClass::Unknown,
         }
     }
 
-    pub(crate) fn is_end_required(self, db: &'db dyn Db, opener_name: &str) -> bool {
+    pub(crate) fn is_end_required(&self, opener_name: &str) -> bool {
         matches!(
-            self.roles(db).get(opener_name),
+            self.roles.get(opener_name),
             Some(TagGrammarRole::Opener(EndMeta { required: true }))
         )
     }
 
     pub(crate) fn validate_close(
-        self,
-        db: &'db dyn Db,
+        &self,
         opener_name: &str,
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
         if !matches!(
-            self.roles(db).get(opener_name),
+            self.roles.get(opener_name),
             Some(TagGrammarRole::Opener(_))
         ) {
             return CloseValidation::NotABlock;
@@ -79,17 +82,9 @@ impl<'db> TagIndex<'db> {
         CloseValidation::Valid
     }
 
-    #[must_use]
-    pub(crate) fn from_specs(db: &'db dyn Db) -> Self {
-        Self::from_tag_specs(db, db.tag_specs())
-    }
-
     /// Build a `TagIndex` from an explicit `TagSpecs` value.
-    ///
-    /// This is used by tracked queries that compute `TagSpecs` first and then
-    /// need to build the index without going through `db.tag_specs()`.
     #[must_use]
-    fn from_tag_specs(db: &'db dyn Db, specs: &TagSpecs) -> Self {
+    fn from_tag_specs(specs: &TagSpecs) -> Self {
         let mut roles: FxHashMap<String, TagGrammarRole> = FxHashMap::default();
 
         for (name, spec) in specs {
@@ -121,7 +116,7 @@ impl<'db> TagIndex<'db> {
             }
         }
 
-        TagIndex::new(db, roles)
+        Self { roles }
     }
 }
 
