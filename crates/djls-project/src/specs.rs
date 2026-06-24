@@ -154,24 +154,18 @@ pub fn extract_tag_rules(
     file: File,
     registration_module: ModulePath,
 ) -> TagRuleMap {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return TagRuleMap::default();
-    };
+    with_parsed_body(db, file, |body| {
+        let registration_module = registration_module.into_string();
+        let mut tag_rules = TagRuleMap::default();
 
-    extract_tag_rules_from_body(parsed.body(db), registration_module)
-}
+        for_each_registration(body, &registration_module, |reg, func, key| {
+            if let Some(rule) = reg.kind.extract_tag_rule(func) {
+                tag_rules.insert(key, rule.into());
+            }
+        });
 
-fn extract_tag_rules_from_body(body: &[Stmt], registration_module: ModulePath) -> TagRuleMap {
-    let registration_module = registration_module.into_string();
-    let mut tag_rules = TagRuleMap::default();
-
-    for_each_registration(body, &registration_module, |reg, func, key| {
-        if let Some(rule) = reg.kind.extract_tag_rule(func) {
-            tag_rules.insert(key, rule.into());
-        }
-    });
-
-    tag_rules
+        tag_rules
+    })
 }
 
 /// Extract filter arities from a Python file, cached by Salsa.
@@ -184,27 +178,18 @@ pub fn extract_filter_arities(
     file: File,
     registration_module: ModulePath,
 ) -> FilterArityMap {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return FilterArityMap::default();
-    };
+    with_parsed_body(db, file, |body| {
+        let registration_module = registration_module.into_string();
+        let mut filter_arities = FilterArityMap::default();
 
-    extract_filter_arities_from_body(parsed.body(db), registration_module)
-}
+        for_each_registration(body, &registration_module, |reg, func, key| {
+            if let Some(arity) = reg.kind.extract_filter_arity(func) {
+                filter_arities.insert(key, arity);
+            }
+        });
 
-fn extract_filter_arities_from_body(
-    body: &[Stmt],
-    registration_module: ModulePath,
-) -> FilterArityMap {
-    let registration_module = registration_module.into_string();
-    let mut filter_arities = FilterArityMap::default();
-
-    for_each_registration(body, &registration_module, |reg, func, key| {
-        if let Some(arity) = reg.kind.extract_filter_arity(func) {
-            filter_arities.insert(key, arity);
-        }
-    });
-
-    filter_arities
+        filter_arities
+    })
 }
 
 /// Extract block specs from a Python file, cached by Salsa.
@@ -217,25 +202,20 @@ pub fn extract_block_specs(
     file: File,
     registration_module: ModulePath,
 ) -> BlockSpecs {
-    let Some(parsed) = parse_python_module(db, file) else {
-        return BlockSpecs::default();
-    };
+    with_parsed_body(db, file, |body| {
+        let registration_module = registration_module.into_string();
+        let mut block_specs = BlockSpecs::default();
 
-    extract_block_specs_from_body(parsed.body(db), registration_module)
-}
+        for_each_registration(body, &registration_module, |reg, func, key| {
+            if let Some(block_spec) =
+                normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
+            {
+                block_specs.insert(key, block_spec);
+            }
+        });
 
-fn extract_block_specs_from_body(body: &[Stmt], registration_module: ModulePath) -> BlockSpecs {
-    let registration_module = registration_module.into_string();
-    let mut block_specs = BlockSpecs::default();
-
-    for_each_registration(body, &registration_module, |reg, func, key| {
-        if let Some(block_spec) = normalize_block_spec(reg.kind.extract_block_spec(func), &key.name)
-        {
-            block_specs.insert(key, block_spec);
-        }
-    });
-
-    block_specs
+        block_specs
+    })
 }
 
 /// Extract validation rules from a Python registration module source.
@@ -276,6 +256,18 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     });
 
     result
+}
+
+fn with_parsed_body<M: Default>(
+    db: &dyn djls_source::Db,
+    file: File,
+    f: impl FnOnce(&[Stmt]) -> M,
+) -> M {
+    let Some(parsed) = parse_python_module(db, file) else {
+        return M::default();
+    };
+
+    f(parsed.body(db))
 }
 
 fn for_each_registration(
