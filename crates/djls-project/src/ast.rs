@@ -14,6 +14,9 @@ pub trait ExprExt {
     /// stop-token string matters.
     fn string_literal_first_word(&self) -> Option<&str>;
 
+    /// Extract the identifier from a name expression.
+    fn name_target(&self) -> Option<&str>;
+
     /// Extract a non-negative integer literal as `usize`.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn non_negative_integer(&self) -> Option<usize>;
@@ -43,6 +46,13 @@ impl ExprExt for Expr {
                 return None;
             }
             return Some(cmd);
+        }
+        None
+    }
+
+    fn name_target(&self) -> Option<&str> {
+        if let Expr::Name(name) = self {
+            return Some(name.id.as_str());
         }
         None
     }
@@ -127,5 +137,15 @@ mod tests {
     #[test]
     fn string_literal_first_word_rejects_empty_string() {
         assert_eq!(parse_expr("''").string_literal_first_word(), None);
+    }
+
+    #[test]
+    fn extracts_name_target() {
+        assert_eq!(parse_expr("name").name_target(), Some("name"));
+    }
+
+    #[test]
+    fn rejects_name_target_for_non_name() {
+        assert_eq!(parse_expr("object.attr").name_target(), None);
     }
 }

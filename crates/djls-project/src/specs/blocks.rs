@@ -6,7 +6,6 @@ mod parse_calls;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
@@ -57,17 +56,16 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
 
 /// Check if an expression is the parser variable (or `self.parser`).
 pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
-    if let Expr::Name(ExprName { id, .. }) = expr
-        && id.as_str() == parser_var
-    {
+    if expr.name_target() == Some(parser_var) {
         return true;
     }
     if let Expr::Attribute(ExprAttribute {
         attr, value: obj, ..
     }) = expr
         && attr.as_str() == "parser"
-        && let Expr::Name(ExprName { id, .. }) = obj.as_ref()
-        && (id.as_str() == parser_var || id.as_str() == "self")
+        && obj
+            .name_target()
+            .is_some_and(|id| id == parser_var || id == "self")
     {
         return true;
     }
@@ -108,13 +106,11 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
 pub(super) fn is_token_contents_expr(expr: &Expr, token_var: Option<&str>) -> bool {
     match expr {
         Expr::Attribute(ExprAttribute { attr, value, .. }) => {
-            if attr.as_str() == "contents"
-                && let Expr::Name(ExprName { id, .. }) = value.as_ref()
-            {
+            if attr.as_str() == "contents" {
                 if let Some(tv) = token_var {
-                    return id.as_str() == tv;
+                    return value.name_target() == Some(tv);
                 }
-                return true;
+                return value.name_target().is_some();
             }
             false
         }

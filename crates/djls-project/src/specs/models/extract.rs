@@ -4,6 +4,7 @@ use ruff_python_ast::StmtClassDef;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 use rustc_hash::FxHashSet;
 
+use crate::ast::ExprExt;
 use crate::specs::models::graph::FieldName;
 use crate::specs::models::graph::ModelDef;
 use crate::specs::models::graph::ModelGraph;
@@ -209,8 +210,11 @@ fn resolve_children(
 /// Handles both bare names (`Parent`) and qualified names (`mod.Parent`),
 /// returning the rightmost identifier.
 fn base_class_name(expr: &Expr) -> Option<&str> {
+    if let Some(name) = expr.name_target() {
+        return Some(name);
+    }
+
     match expr {
-        Expr::Name(n) => Some(n.id.as_str()),
         Expr::Attribute(attr) => Some(attr.attr.as_str()),
         _ => None,
     }
@@ -265,20 +269,23 @@ impl ImportAliases {
 
 fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAliases) -> bool {
     for base in bases {
-        match base {
-            // models.Model / m.Model (where m aliases django.db.models)
-            Expr::Attribute(attr) if attr.attr.as_str() == "Model" => {
-                if let Expr::Name(name) = attr.value.as_ref()
-                    && aliases.module_aliases.contains(name.id.as_str())
-                {
-                    return true;
-                }
-            }
-            // Model / M (where M aliases django.db.models.Model)
-            Expr::Name(name) if aliases.class_aliases.contains(name.id.as_str()) => {
-                return true;
-            }
-            _ => {}
+        // Model / M (where M aliases django.db.models.Model)
+        if base
+            .name_target()
+            .is_some_and(|name| aliases.class_aliases.contains(name))
+        {
+            return true;
+        }
+
+        // models.Model / m.Model (where m aliases django.db.models)
+        if let Expr::Attribute(attr) = base
+            && attr.attr.as_str() == "Model"
+            && attr
+                .value
+                .name_target()
+                .is_some_and(|name| aliases.module_aliases.contains(name))
+        {
+            return true;
         }
     }
     false
@@ -313,10 +320,10 @@ fn is_abstract_assignment(stmt: &Stmt) -> bool {
     let Stmt::Assign(assign) = stmt else {
         return false;
     };
-    let Some(Expr::Name(name)) = assign.targets.first() else {
+    let Some(target) = assign.targets.first() else {
         return false;
     };
-    if name.id.as_str() != "abstract" {
+    if target.name_target() != Some("abstract") {
         return false;
     }
     matches!(assign.value.as_ref(), Expr::BooleanLiteral(b) if b.value)
@@ -327,9 +334,7 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
         return None;
     };
 
-    let Some(Expr::Name(target)) = assign.targets.first() else {
-        return None;
-    };
+    let target_name = assign.targets.first()?.name_target()?;
 
     let Expr::Call(call) = assign.value.as_ref() else {
         return None;
@@ -337,8 +342,7 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
 
     let field_class_name = match call.func.as_ref() {
         Expr::Attribute(attr) => attr.attr.as_str(),
-        Expr::Name(name) => name.id.as_str(),
-        _ => return None,
+        expr => expr.name_target()?,
     };
 
     let target_model = extract_target_model(call)?;
@@ -348,13 +352,18 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
         RelationType::from_field_class(field_class_name, target_model, related_name)?;
 
     Some(Relation {
-        field_name: FieldName::new(target.id.as_str()),
+        field_name: FieldName::new(target_name),
         relation_type,
     })
 }
 
 fn extract_target_model(call: &ruff_python_ast::ExprCall) -> Option<ModelName> {
     let first_arg = call.arguments.args.first()?;
+
+    // Direct reference: ForeignKey(User)
+    if let Some(name) = first_arg.name_target() {
+        return Some(ModelName::new(name));
+    }
 
     match first_arg {
         // String reference: ForeignKey("User") or ForeignKey("app.User")
@@ -363,8 +372,6 @@ fn extract_target_model(call: &ruff_python_ast::ExprCall) -> Option<ModelName> {
             let name = value.split('.').next_back().unwrap_or(&value);
             Some(ModelName::new(name))
         }
-        // Direct reference: ForeignKey(User)
-        Expr::Name(name) => Some(ModelName::new(name.id.as_str())),
         // Attribute: ForeignKey(auth.User)
         Expr::Attribute(attr) => Some(ModelName::new(attr.attr.as_str())),
         _ => None,
@@ -391,9 +398,7 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
         return None;
     };
 
-    let Some(Expr::Name(target)) = assign.targets.first() else {
-        return None;
-    };
+    let target_name = assign.targets.first()?.name_target()?;
 
     let Expr::Call(call) = assign.value.as_ref() else {
         return None;
@@ -401,8 +406,7 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
 
     let is_gfk = match call.func.as_ref() {
         Expr::Attribute(attr) => attr.attr.as_str() == "GenericForeignKey",
-        Expr::Name(name) => name.id.as_str() == "GenericForeignKey",
-        _ => false,
+        expr => expr.name_target() == Some("GenericForeignKey"),
     };
 
     if !is_gfk {
@@ -414,7 +418,7 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
     let fk_field = extract_gfk_arg(call, 1, "fk_field").unwrap_or_else(|| "object_id".to_string());
 
     Some(Relation {
-        field_name: FieldName::new(target.id.as_str()),
+        field_name: FieldName::new(target_name),
         relation_type: RelationType::GenericForeignKey {
             ct_field: FieldName::new(ct_field),
             fk_field: FieldName::new(fk_field),

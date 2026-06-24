@@ -1,7 +1,6 @@
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
@@ -326,9 +325,9 @@ fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String
     for kw in keywords {
         let Some(arg) = &kw.arg else { continue };
         if kwarg_names.contains(&arg.as_str())
-            && let Expr::Name(ExprName { id, .. }) = &kw.value
+            && let Some(name) = kw.value.name_target()
         {
-            return Some(id.to_string());
+            return Some(name.to_string());
         }
     }
     None
@@ -343,8 +342,11 @@ fn first_string_arg(args: &[Expr]) -> Option<String> {
 
 /// Best-effort callable name extraction for debugging / registration mapping.
 fn callable_name(expr: &Expr) -> Option<String> {
+    if let Some(name) = expr.name_target() {
+        return Some(name.to_string());
+    }
+
     match expr {
-        Expr::Name(ExprName { id, .. }) => Some(id.to_string()),
         Expr::Attribute(ExprAttribute { value, attr, .. }) => {
             let base = callable_name(value)?;
             Some(format!("{base}.{}", attr.as_str()))

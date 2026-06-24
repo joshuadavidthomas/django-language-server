@@ -2,7 +2,6 @@ use ruff_python_ast::Arguments;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprSlice;
 use ruff_python_ast::ExprStringLiteral;
@@ -32,9 +31,11 @@ pub(super) fn eval_expr_with_ctx(
     env: &mut Env,
     ctx: Option<&mut CallContext<'_>>,
 ) -> AbstractValue {
-    match expr {
-        Expr::Name(ExprName { id, .. }) => env.get(id.as_str()).clone(),
+    if let Some(name) = expr.name_target() {
+        return env.get(name).clone();
+    }
 
+    match expr {
         Expr::NumberLiteral(ExprNumberLiteral {
             value: Number::Int(int_val),
             ..
@@ -128,9 +129,7 @@ fn eval_call_with_ctx(
     }
 
     // Builtin calls: len(), list()
-    if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
-        let name = id.as_str();
-
+    if let Some(name) = call.func.name_target() {
         // len() and list() with single argument
         if let Some(arg) = call.arguments.args.first() {
             let val = eval_expr_with_ctx(arg, env, ctx.as_deref_mut());
@@ -152,7 +151,7 @@ fn eval_call_with_ctx(
         // Hardcoded external summary: token_kwargs(bits, parser)
         // Mutates bits → mark it Unknown, return Unknown
         if name == "token_kwargs" {
-            if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
+            if let Some(arg_name) = call.arguments.args.first().and_then(ExprExt::name_target) {
                 env.set(arg_name.to_string(), AbstractValue::Unknown);
             }
             return AbstractValue::Unknown;
@@ -296,7 +295,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> Abstract
         }
 
         // bits[variable]
-        Expr::Name(_) => {
+        expr if expr.name_target().is_some() => {
             let idx = eval_expr(slice, env);
             if let AbstractValue::Int(n) = idx {
                 i64_to_index_element(n, split)

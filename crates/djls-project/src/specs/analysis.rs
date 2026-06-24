@@ -14,7 +14,6 @@ use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCompare;
-use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprSlice;
 use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprUnaryOp;
@@ -194,17 +193,13 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         let [target] = targets.as_slice() else {
             return None;
         };
-        let Expr::Name(ExprName { id: target, .. }) = target else {
-            return None;
-        };
+        let target_name = target.name_target()?;
 
         let Expr::Subscript(ExprSubscript { value, slice, .. }) = value.as_ref() else {
             return None;
         };
-        let Expr::Name(ExprName { id: source, .. }) = value.as_ref() else {
-            return None;
-        };
-        if target.as_str() != source.as_str() {
+        let source_name = value.name_target()?;
+        if target_name != source_name {
             return None;
         }
 
@@ -217,7 +212,7 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         else {
             return None;
         };
-        (negative_integer(upper) == Some(2)).then(|| target.to_string())
+        (negative_integer(upper) == Some(2)).then(|| target_name.to_string())
     })
 }
 
@@ -252,10 +247,7 @@ fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {
     let Expr::Subscript(ExprSubscript { value, slice, .. }) = expr else {
         return false;
     };
-    let Expr::Name(ExprName { id, .. }) = value.as_ref() else {
-        return false;
-    };
-    id == name && negative_integer(slice) == Some(index)
+    value.name_target() == Some(name) && negative_integer(slice) == Some(index)
 }
 
 fn negative_integer(expr: &Expr) -> Option<usize> {
