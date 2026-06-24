@@ -28,12 +28,12 @@ use crate::specs::analysis::constraints::ExtractedTagConstraints;
 use crate::specs::analysis::guards::ExtractedRuleFragment;
 use crate::specs::types::ArgumentCountConstraint;
 use crate::specs::types::AsVar;
-use crate::specs::types::ExtractedArg;
-use crate::specs::types::ExtractedArgKind;
 use crate::specs::types::ExtractedDiagnosticMessage;
 use crate::specs::types::KnownOptions;
 use crate::specs::types::RequiredKeyword;
 use crate::specs::types::SplitPosition;
+use crate::specs::types::TagArgument;
+use crate::specs::types::TagArgumentKind;
 use crate::specs::types::TagRule;
 
 /// Call-resolution context for the analysis.
@@ -289,7 +289,7 @@ fn extract_arg_names(
     required_keywords: &[RequiredKeyword],
     arg_constraints: &[ArgumentCountConstraint],
     ignored_names: &[String],
-) -> Vec<ExtractedArg> {
+) -> Vec<TagArgument> {
     // Collect named positions from env: variable name → split_contents position
     let mut named_positions: Vec<(usize, String)> = Vec::new();
 
@@ -342,10 +342,10 @@ fn extract_arg_names(
 
         // Check if there's a required keyword at this position
         if let Some(rk) = required_keywords.iter().find(|rk| rk.position == pos_split) {
-            args.push(ExtractedArg {
+            args.push(TagArgument {
                 name: rk.value.clone(),
                 required: true,
-                kind: ExtractedArgKind::Literal(rk.value.clone()),
+                kind: TagArgumentKind::Literal(rk.value.clone()),
                 position: arg_index,
             });
             continue;
@@ -353,20 +353,20 @@ fn extract_arg_names(
 
         // Check if env has a named variable at this position
         if let Some((_, name)) = named_positions.iter().find(|(p, _)| *p == pos) {
-            args.push(ExtractedArg {
+            args.push(TagArgument {
                 name: name.clone(),
                 required: true,
-                kind: ExtractedArgKind::Variable,
+                kind: TagArgumentKind::Variable,
                 position: arg_index,
             });
             continue;
         }
 
         // Fallback: generic name
-        args.push(ExtractedArg {
+        args.push(TagArgument {
             name: format!("arg{pos}"),
             required: true,
-            kind: ExtractedArgKind::Variable,
+            kind: TagArgumentKind::Variable,
             position: arg_index,
         });
     }
@@ -497,14 +497,14 @@ def do_tag(parser, token):
         );
         assert_eq!(rule.extracted_args.len(), 3);
         assert_eq!(rule.extracted_args[0].name, "value");
-        assert_eq!(rule.extracted_args[0].kind, ExtractedArgKind::Variable);
+        assert_eq!(rule.extracted_args[0].kind, TagArgumentKind::Variable);
         assert_eq!(rule.extracted_args[1].name, "as");
         assert_eq!(
             rule.extracted_args[1].kind,
-            ExtractedArgKind::Literal("as".to_string())
+            TagArgumentKind::Literal("as".to_string())
         );
         assert_eq!(rule.extracted_args[2].name, "varname");
-        assert_eq!(rule.extracted_args[2].kind, ExtractedArgKind::Variable);
+        assert_eq!(rule.extracted_args[2].kind, TagArgumentKind::Variable);
     }
 
     #[test]

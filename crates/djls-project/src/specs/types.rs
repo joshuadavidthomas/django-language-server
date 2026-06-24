@@ -154,7 +154,7 @@ pub struct TagRule {
     pub known_options: Option<KnownOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_messages: Option<Vec<ExtractedDiagnosticMessage>>,
-    pub extracted_args: Vec<ExtractedArg>,
+    pub extracted_args: Vec<TagArgument>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
     /// When supported, the evaluator strips trailing `as <varname>` from the
@@ -349,21 +349,21 @@ pub struct BlockSpec {
 /// Represents a single positional or keyword argument that a template tag
 /// accepts, derived from the Python function signature (for simple/inclusion
 /// tags) or from AST analysis of the compile function (for manual tags).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExtractedArg {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagArgument {
     /// Argument name (from parameter name or AST analysis, or generic `arg1`/`arg2`)
     pub name: String,
     /// Whether this argument is required (no default value)
     pub required: bool,
     /// The kind of argument
-    pub kind: ExtractedArgKind,
+    pub kind: TagArgumentKind,
     /// Zero-based position index in the argument list (excluding tag name)
     pub position: usize,
 }
 
 /// The kind of an extracted argument.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ExtractedArgKind {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TagArgumentKind {
     /// A template variable or expression
     Variable,
     /// A literal keyword that must appear exactly as specified

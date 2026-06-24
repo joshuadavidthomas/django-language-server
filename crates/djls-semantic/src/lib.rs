@@ -10,6 +10,8 @@ mod validation;
 
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
+pub use djls_project::TagArgument;
+pub use djls_project::TagArgumentKind;
 pub use errors::ValidationError;
 pub use filters::FilterAritySpecs;
 pub use filters::compute_filter_arity_specs;
@@ -32,8 +34,6 @@ pub use structure::build_template_tree;
 pub use structure::compute_opaque_regions;
 pub use tags::EndTag;
 pub use tags::IntermediateTag;
-pub use tags::TagArgument;
-pub use tags::TagArgumentKind;
 pub use tags::TagRole;
 pub use tags::TagSpec;
 pub use tags::TagSpecs;

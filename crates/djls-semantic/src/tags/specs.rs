@@ -6,9 +6,9 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use djls_project::BlockSpecs;
-use djls_project::ExtractedArg;
-use djls_project::ExtractedArgKind;
 use djls_project::ExtractionResult;
+use djls_project::TagArgument;
+use djls_project::TagArgumentKind;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
 use djls_project::TemplateSymbolKind;
@@ -306,7 +306,7 @@ impl TagSpecs {
                             djls_conf::ArgKindDef::Syntax
                             | djls_conf::ArgKindDef::Literal
                             | djls_conf::ArgKindDef::Modifier => {
-                                ExtractedArgKind::Literal(arg.name.clone())
+                                TagArgumentKind::Literal(arg.name.clone())
                             }
                             djls_conf::ArgKindDef::Choice => {
                                 let choices: Vec<String> = arg
@@ -322,20 +322,20 @@ impl TagSpecs {
                                     })
                                     .unwrap_or_default();
 
-                                ExtractedArgKind::Choice(choices)
+                                TagArgumentKind::Choice(choices)
                             }
                             djls_conf::ArgKindDef::Variable
                             | djls_conf::ArgKindDef::Any
-                            | djls_conf::ArgKindDef::Assignment => ExtractedArgKind::Variable,
+                            | djls_conf::ArgKindDef::Assignment => TagArgumentKind::Variable,
                         };
 
                         if matches!(arg.arg_type, djls_conf::ArgTypeDef::Keyword)
-                            && matches!(kind, ExtractedArgKind::Variable)
+                            && matches!(kind, TagArgumentKind::Variable)
                         {
-                            kind = ExtractedArgKind::Keyword;
+                            kind = TagArgumentKind::Keyword;
                         }
 
-                        extracted_args.push(ExtractedArg {
+                        extracted_args.push(TagArgument {
                             name: arg.name.clone(),
                             required: arg.required,
                             kind: kind.clone(),
@@ -344,13 +344,13 @@ impl TagSpecs {
 
                         if arg.required {
                             match kind {
-                                ExtractedArgKind::Literal(value) => {
+                                TagArgumentKind::Literal(value) => {
                                     rule.required_keywords.push(RequiredKeyword {
                                         position: SplitPosition::Forward(pos + 1),
                                         value,
                                     });
                                 }
-                                ExtractedArgKind::Choice(values) if !values.is_empty() => {
+                                TagArgumentKind::Choice(values) if !values.is_empty() => {
                                     rule.choice_at_constraints.push(ChoiceAt {
                                         position: SplitPosition::Forward(pos + 1),
                                         values,
@@ -436,59 +436,6 @@ pub struct TagSpec {
     extracted_rules: Option<Arc<TagRule>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TagArgumentKind {
-    Literal(String),
-    Choice(Vec<String>),
-    Variable,
-    Keyword,
-    VarArgs,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TagArgument {
-    pub name: String,
-    pub required: bool,
-    pub kind: TagArgumentKind,
-    pub position: usize,
-}
-
-impl TagArgument {
-    fn from_extracted(arg: &ExtractedArg) -> Self {
-        let kind = match &arg.kind {
-            ExtractedArgKind::Literal(value) => TagArgumentKind::Literal(value.clone()),
-            ExtractedArgKind::Choice(values) => TagArgumentKind::Choice(values.clone()),
-            ExtractedArgKind::Variable => TagArgumentKind::Variable,
-            ExtractedArgKind::Keyword => TagArgumentKind::Keyword,
-            ExtractedArgKind::VarArgs => TagArgumentKind::VarArgs,
-        };
-
-        Self {
-            name: arg.name.clone(),
-            required: arg.required,
-            kind,
-            position: arg.position,
-        }
-    }
-
-    fn into_extracted(self) -> ExtractedArg {
-        let kind = match self.kind {
-            TagArgumentKind::Literal(value) => ExtractedArgKind::Literal(value),
-            TagArgumentKind::Choice(values) => ExtractedArgKind::Choice(values),
-            TagArgumentKind::Variable => ExtractedArgKind::Variable,
-            TagArgumentKind::Keyword => ExtractedArgKind::Keyword,
-            TagArgumentKind::VarArgs => ExtractedArgKind::VarArgs,
-        };
-
-        ExtractedArg {
-            name: self.name,
-            required: self.required,
-            kind,
-            position: self.position,
-        }
-    }
-}
-
 impl TagSpec {
     #[must_use]
     pub fn new(
@@ -537,19 +484,13 @@ impl TagSpec {
     pub fn arguments(&self) -> Vec<TagArgument> {
         self.extracted_rules
             .as_ref()
-            .map_or_else(Vec::new, |rules| {
-                rules
-                    .extracted_args
-                    .iter()
-                    .map(TagArgument::from_extracted)
-                    .collect()
-            })
+            .map_or_else(Vec::new, |rules| rules.extracted_args.clone())
     }
 
     #[must_use]
     pub fn with_arguments(mut self, args: Vec<TagArgument>) -> Self {
         let mut rules = self.extracted_rules.as_deref().cloned().unwrap_or_default();
-        rules.extracted_args = args.into_iter().map(TagArgument::into_extracted).collect();
+        rules.extracted_args = args;
         self.extracted_rules = Some(rules.into());
         self
     }
@@ -1135,22 +1076,22 @@ mod tests {
             djls_project::TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
-                    ExtractedArg {
+                    TagArgument {
                         name: "item".to_string(),
                         required: true,
-                        kind: ExtractedArgKind::Variable,
+                        kind: TagArgumentKind::Variable,
                         position: 0,
                     },
-                    ExtractedArg {
+                    TagArgument {
                         name: "in".to_string(),
                         required: true,
-                        kind: ExtractedArgKind::Literal("in".to_string()),
+                        kind: TagArgumentKind::Literal("in".to_string()),
                         position: 1,
                     },
-                    ExtractedArg {
+                    TagArgument {
                         name: "iterable".to_string(),
                         required: true,
-                        kind: ExtractedArgKind::Variable,
+                        kind: TagArgumentKind::Variable,
                         position: 2,
                     },
                 ],

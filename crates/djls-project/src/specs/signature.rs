@@ -5,8 +5,8 @@ use ruff_python_ast::StmtFunctionDef;
 use crate::extraction::ext::ExprExt;
 use crate::specs::types::ArgumentCountConstraint;
 use crate::specs::types::AsVar;
-use crate::specs::types::ExtractedArg;
-use crate::specs::types::ExtractedArgKind;
+use crate::specs::types::TagArgument;
+use crate::specs::types::TagArgumentKind;
 use crate::specs::types::TagRule;
 
 /// Extract rules from a `simple_tag` or `inclusion_tag` function signature.
@@ -58,19 +58,19 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
     for (i, param) in effective_params.iter().enumerate() {
         let name = param.parameter.name.to_string();
         let required = param.default.is_none();
-        extracted_args.push(ExtractedArg {
+        extracted_args.push(TagArgument {
             name,
             required,
-            kind: ExtractedArgKind::Variable,
+            kind: TagArgumentKind::Variable,
             position: i,
         });
     }
 
     if has_varargs && let Some(vararg) = &params.vararg {
-        extracted_args.push(ExtractedArg {
+        extracted_args.push(TagArgument {
             name: vararg.name.to_string(),
             required: false,
-            kind: ExtractedArgKind::VarArgs,
+            kind: TagArgumentKind::VarArgs,
             position: effective_params.len(),
         });
     }
@@ -78,10 +78,10 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
     for (i, kwonly) in params.kwonlyargs.iter().enumerate() {
         let name = kwonly.parameter.name.to_string();
         let required = kwonly.default.is_none();
-        extracted_args.push(ExtractedArg {
+        extracted_args.push(TagArgument {
             name,
             required,
-            kind: ExtractedArgKind::Keyword,
+            kind: TagArgumentKind::Keyword,
             position: effective_params.len() + usize::from(has_varargs) + i,
         });
     }
