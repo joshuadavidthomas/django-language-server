@@ -6,7 +6,6 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use djls_project::BlockSpecs;
-use djls_project::ExtractionResult;
 use djls_project::TagArgument;
 use djls_project::TagArgumentKind;
 use djls_project::TagRule;
@@ -40,7 +39,7 @@ impl TagSpecs {
     /// Block specs from extraction override existing end-tag/intermediate info.
     /// This enriches the handcoded `builtins.rs` defaults with information
     /// extracted from actual Python source code.
-    pub(crate) fn merge_block_specs(&mut self, block_specs: &BlockSpecs) -> &mut Self {
+    pub fn merge_block_specs(&mut self, block_specs: &BlockSpecs) -> &mut Self {
         for (key, block_spec) in block_specs.as_map() {
             if key.kind != TemplateSymbolKind::Tag {
                 continue;
@@ -99,7 +98,7 @@ impl TagSpecs {
     }
 
     /// Merge tag rules into tag specs.
-    pub(crate) fn merge_tag_rules(&mut self, tag_rules: &TagRuleMap) -> &mut Self {
+    pub fn merge_tag_rules(&mut self, tag_rules: &TagRuleMap) -> &mut Self {
         for (key, tag_rule) in tag_rules {
             if key.kind != TemplateSymbolKind::Tag {
                 continue;
@@ -122,15 +121,6 @@ impl TagSpecs {
             }
         }
         self
-    }
-
-    /// Merge all tag-related extraction results into tag specs.
-    ///
-    /// Salsa query code should merge only the extraction domains it reads so
-    /// unrelated extraction changes do not invalidate cached tag specs.
-    pub fn merge_extraction_results(&mut self, extraction: &ExtractionResult) -> &mut Self {
-        self.merge_block_specs(&extraction.block_specs)
-            .merge_tag_rules(&extraction.tag_rules)
     }
 
     /// Merge fallback specs into this one without overriding extraction-derived data.
@@ -804,14 +794,14 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_extraction_results_overrides_existing() {
+    fn test_merge_block_specs_overrides_existing() {
         let mut specs = create_test_specs();
 
         assert!(specs.get("if").unwrap().end_tag.is_some());
         assert_eq!(specs.get("if").unwrap().intermediate_tags.len(), 2);
 
-        let mut extraction = djls_project::ExtractionResult::default();
-        extraction.block_specs.insert(
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
             djls_project::SymbolKey::tag("django.template.defaulttags", "if"),
             BlockSpec {
                 end_tag: Some("endif".to_string()),
@@ -820,7 +810,7 @@ mod tests {
             },
         );
 
-        specs.merge_extraction_results(&extraction);
+        specs.merge_block_specs(&block_specs);
 
         let if_spec = specs.get("if").unwrap();
         assert_eq!(if_spec.end_tag.as_ref().unwrap().name.as_ref(), "endif");
@@ -834,12 +824,12 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_extraction_results_adds_new_tag() {
+    fn test_merge_block_specs_adds_new_tag() {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = djls_project::ExtractionResult::default();
-        extraction.block_specs.insert(
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
             djls_project::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
             BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
@@ -848,7 +838,7 @@ mod tests {
             },
         );
 
-        specs.merge_extraction_results(&extraction);
+        specs.merge_block_specs(&block_specs);
 
         assert_eq!(specs.len(), original_count + 1);
         let myblock = specs.get("myblock").unwrap();
@@ -863,12 +853,12 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_extraction_results_skips_filters() {
+    fn test_merge_block_specs_skips_filters() {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = djls_project::ExtractionResult::default();
-        extraction.block_specs.insert(
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
             djls_project::SymbolKey::filter("module", "lower"),
             BlockSpec {
                 end_tag: Some("endlower".to_string()),
@@ -877,29 +867,31 @@ mod tests {
             },
         );
 
-        specs.merge_extraction_results(&extraction);
+        specs.merge_block_specs(&block_specs);
         assert_eq!(specs.len(), original_count);
         assert!(specs.get("lower").is_none());
     }
 
     #[test]
-    fn test_merge_extraction_results_empty() {
+    fn test_merge_extraction_maps_empty() {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let extraction = djls_project::ExtractionResult::default();
-        specs.merge_extraction_results(&extraction);
+        specs
+            .merge_block_specs(&BlockSpecs::default())
+            .merge_tag_rules(&TagRuleMap::default());
+
         assert_eq!(specs.len(), original_count);
     }
 
     #[test]
-    fn test_merge_extraction_results_stores_rules() {
+    fn test_merge_tag_rules_stores_rules() {
         let mut specs = create_test_specs();
 
-        let mut extraction = djls_project::ExtractionResult::default();
-        extraction.tag_rules.insert(
+        let mut tag_rules = TagRuleMap::default();
+        tag_rules.insert(
             djls_project::SymbolKey::tag("django.template.defaulttags", "for"),
-            djls_project::TagRule {
+            TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
                     TagArgument {
@@ -926,7 +918,7 @@ mod tests {
             .into(),
         );
 
-        specs.merge_extraction_results(&extraction);
+        specs.merge_tag_rules(&tag_rules);
 
         let for_spec = specs.get("for").unwrap();
         let rules = for_spec.extracted_rules.as_ref().unwrap();

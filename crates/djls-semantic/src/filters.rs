@@ -64,14 +64,6 @@ impl FilterAritySpecs {
             self.insert(key.clone(), arity.clone());
         }
     }
-
-    /// Merge extraction results' filter arities into this map.
-    ///
-    /// Prefer [`Self::merge_filter_arities`] in Salsa query code so callers
-    /// depend only on the extraction domain they read.
-    pub fn merge_extraction_result(&mut self, result: &djls_project::ExtractionResult) {
-        self.merge_filter_arities(&result.filter_arities);
-    }
 }
 
 /// Compute `FilterAritySpecs` from a project's extraction results.

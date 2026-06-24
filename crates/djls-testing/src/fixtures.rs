@@ -13,6 +13,7 @@ use djls_project::ExtractedMessageTemplate;
 use djls_project::FilterArity;
 use djls_project::Interpreter;
 use djls_project::LibraryName;
+use djls_project::ModulePath;
 use djls_project::Project;
 use djls_project::PyModuleName;
 use djls_project::RequiredKeyword;
@@ -41,6 +42,7 @@ use djls_templates::parse_template;
 
 use crate::Corpus;
 use crate::TestDatabase;
+use crate::extract_bundle;
 use crate::module_path_from_file;
 
 #[must_use]
@@ -379,15 +381,22 @@ pub fn extract_and_merge(
     specs: &mut TagSpecs,
     arities: &mut FilterAritySpecs,
 ) {
+    let db = TestDatabase::new();
+
     for file_path in &corpus.extraction_targets_in(dir) {
         let Ok(source) = std::fs::read_to_string(file_path.as_std_path()) else {
             continue;
         };
 
         let module_path = module_path_from_file(file_path);
-        let result = djls_project::extract_rules(&source, &module_path);
-        arities.merge_extraction_result(&result);
-        specs.merge_extraction_results(&result);
+        db.add_file(file_path.as_str(), &source);
+        let file = db.get_or_create_file(file_path);
+        let bundle = extract_bundle(&db, file, ModulePath::new(module_path));
+
+        arities.merge_filter_arities(&bundle.filter_arities);
+        specs
+            .merge_block_specs(&bundle.block_specs)
+            .merge_tag_rules(&bundle.tag_rules);
     }
 }
 
