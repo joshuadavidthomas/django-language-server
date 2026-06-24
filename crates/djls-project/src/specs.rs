@@ -16,7 +16,6 @@ use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::statement_visitor::walk_stmt;
 
 use crate::extraction::registry::RegistrationInfo;
-use crate::extraction::registry::RegistrationKind;
 use crate::extraction::registry::collect_registrations_from_body;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
@@ -278,35 +277,25 @@ fn for_each_registration(
     let registrations = collect_registrations_from_body(body);
     let func_defs = collect_func_defs(body);
 
-    for (reg, func, key) in registered_functions(&registrations, &func_defs, module_path) {
-        f(reg, func, key);
-    }
-}
+    for reg in &registrations {
+        let Some(func) = reg.func_name.as_deref().and_then(|name| {
+            func_defs
+                .iter()
+                .find(|func| func.name.as_str() == name)
+                .copied()
+        }) else {
+            continue;
+        };
 
-fn registered_functions<'a>(
-    registrations: &'a [RegistrationInfo],
-    func_defs: &'a [&'a ruff_python_ast::StmtFunctionDef],
-    module_path: &'a str,
-) -> impl Iterator<
-    Item = (
-        &'a RegistrationInfo,
-        &'a ruff_python_ast::StmtFunctionDef,
-        SymbolKey,
-    ),
-> + 'a {
-    registrations.iter().filter_map(move |reg| {
-        let func = reg
-            .func_name
-            .as_deref()
-            .and_then(|name| func_defs.iter().find(|f| f.name.as_str() == name).copied())?;
-        let kind: RegistrationKind = reg.kind;
+        let kind = reg.kind;
         let key = SymbolKey {
             registration_module: module_path.to_string(),
             name: reg.name.clone(),
             kind: kind.symbol_kind(),
         };
-        Some((reg, func, key))
-    })
+
+        f(reg, func, key);
+    }
 }
 
 fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option<BlockSpec> {
@@ -352,6 +341,7 @@ mod tests {
     use serde::Serialize;
 
     use super::*;
+    use crate::extraction::registry::RegistrationKind;
     use crate::specs::testing::CUSTOM_SOURCE;
     use crate::specs::testing::DEFAULTFILTERS_SOURCE;
     use crate::specs::testing::DEFAULTTAGS_SOURCE;
