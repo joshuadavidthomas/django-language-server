@@ -14,7 +14,7 @@ pub(crate) enum TagGrammarRole {
 
 /// Compute the tag grammar index from tag specifications.
 #[salsa::tracked(returns(ref))]
-pub(crate) fn compute_tag_index(db: &dyn Db) -> TagIndex {
+pub fn compute_tag_index(db: &dyn Db) -> TagIndex {
     TagIndex::from_tag_specs(db.tag_specs())
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn compute_tag_index(db: &dyn Db) -> TagIndex {
 /// lookup (`classify`, `validate_close`, `is_end_required`) is a single
 /// hash probe instead of checking up to three separate maps.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TagIndex {
+pub struct TagIndex {
     roles: FxHashMap<String, TagGrammarRole>,
 }
 
@@ -34,7 +34,8 @@ pub(crate) struct EndMeta {
 }
 
 impl TagIndex {
-    pub(crate) fn classify(&self, tag_name: &str) -> TagClass<'_> {
+    #[must_use]
+    pub fn classify(&self, tag_name: &str) -> TagClass<'_> {
         match self.roles.get(tag_name) {
             Some(TagGrammarRole::Opener(_)) => TagClass::Opener,
             Some(TagGrammarRole::Closer { opener }) => TagClass::Closer {
@@ -125,7 +126,7 @@ impl TagIndex {
 /// Borrows data from the [`TagIndex`]'s Salsa-tracked storage, avoiding
 /// clones of opener names and possible-opener lists.
 #[derive(Clone, Debug)]
-pub(crate) enum TagClass<'a> {
+pub enum TagClass<'a> {
     /// This tag opens a block
     Opener,
     /// This tag closes a block

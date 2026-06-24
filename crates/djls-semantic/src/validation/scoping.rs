@@ -174,4 +174,3 @@ pub(crate) fn check_load_libraries_rule(
         }
     }
 }
-
