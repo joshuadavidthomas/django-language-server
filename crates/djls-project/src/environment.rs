@@ -17,7 +17,7 @@ use crate::names::PyModuleName;
 use crate::project::Project;
 use crate::settings::TemplateLibraryAnalysis;
 use crate::settings::template_libraries;
-use crate::symbols::TemplateSymbolKind;
+use crate::specs::TemplateSymbolKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InactiveLibrary {

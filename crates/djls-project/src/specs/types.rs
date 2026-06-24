@@ -15,7 +15,7 @@ use serde::ser::SerializeMap;
 pub struct SymbolKey {
     pub registration_module: String,
     pub name: String,
-    pub kind: SymbolKind,
+    pub kind: TemplateSymbolKind,
 }
 
 impl SymbolKey {
@@ -24,7 +24,7 @@ impl SymbolKey {
         Self {
             registration_module: registration_module.into(),
             name: name.into(),
-            kind: SymbolKind::Tag,
+            kind: TemplateSymbolKind::Tag,
         }
     }
 
@@ -33,14 +33,15 @@ impl SymbolKey {
         Self {
             registration_module: registration_module.into(),
             name: name.into(),
-            kind: SymbolKind::Filter,
+            kind: TemplateSymbolKind::Filter,
         }
     }
 }
 
 /// Whether a symbol is a template tag or a template filter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SymbolKind {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TemplateSymbolKind {
     Tag,
     Filter,
 }
@@ -60,8 +61,8 @@ impl Serialize for BlockSpecs {
         let mut sorted = BTreeMap::new();
         for (key, value) in &self.0 {
             let kind = match key.kind {
-                SymbolKind::Tag => "tag",
-                SymbolKind::Filter => "filter",
+                TemplateSymbolKind::Tag => "tag",
+                TemplateSymbolKind::Filter => "filter",
             };
             sorted.insert(
                 format!("{}::{kind}::{}", key.registration_module, key.name),
@@ -396,7 +397,7 @@ mod tests {
         let key = SymbolKey::tag("django.template.defaulttags", "for");
         assert_eq!(key.registration_module, "django.template.defaulttags");
         assert_eq!(key.name, "for");
-        assert_eq!(key.kind, SymbolKind::Tag);
+        assert_eq!(key.kind, TemplateSymbolKind::Tag);
     }
 
     #[test]
@@ -404,7 +405,7 @@ mod tests {
         let key = SymbolKey::filter("django.template.defaultfilters", "title");
         assert_eq!(key.registration_module, "django.template.defaultfilters");
         assert_eq!(key.name, "title");
-        assert_eq!(key.kind, SymbolKind::Filter);
+        assert_eq!(key.kind, TemplateSymbolKind::Filter);
     }
 
     #[test]

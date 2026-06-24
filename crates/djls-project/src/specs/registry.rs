@@ -1,7 +1,7 @@
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::extraction::registry::RegistrationKind;
-use crate::specs::SymbolKind;
+use crate::specs::TemplateSymbolKind;
 use crate::specs::analysis;
 use crate::specs::blocks;
 use crate::specs::filters;
@@ -21,12 +21,12 @@ pub(crate) enum ExtractionOutput {
 }
 
 impl RegistrationKind {
-    pub(crate) fn symbol_kind(self) -> SymbolKind {
+    pub(crate) fn symbol_kind(self) -> TemplateSymbolKind {
         match self {
             Self::Tag | Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {
-                SymbolKind::Tag
+                TemplateSymbolKind::Tag
             }
-            Self::Filter => SymbolKind::Filter,
+            Self::Filter => TemplateSymbolKind::Filter,
         }
     }
 

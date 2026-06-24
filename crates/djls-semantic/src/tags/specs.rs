@@ -9,9 +9,9 @@ use djls_project::BlockSpecs;
 use djls_project::ExtractedArg;
 use djls_project::ExtractedArgKind;
 use djls_project::ExtractionResult;
-use djls_project::SymbolKind;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
+use djls_project::TemplateSymbolKind;
 use rustc_hash::FxHashMap;
 
 use super::TagRole;
@@ -120,7 +120,7 @@ impl TagSpecs {
     /// extracted from actual Python source code.
     pub(crate) fn merge_block_specs(&mut self, block_specs: &BlockSpecs) -> &mut Self {
         for (key, block_spec) in block_specs.as_map() {
-            if key.kind != SymbolKind::Tag {
+            if key.kind != TemplateSymbolKind::Tag {
                 continue;
             }
             if let Some(spec) = self.0.get_mut(&key.name) {
@@ -179,7 +179,7 @@ impl TagSpecs {
     /// Merge tag rules into tag specs.
     pub(crate) fn merge_tag_rules(&mut self, tag_rules: &TagRuleMap) -> &mut Self {
         for (key, tag_rule) in tag_rules {
-            if key.kind != SymbolKind::Tag {
+            if key.kind != TemplateSymbolKind::Tag {
                 continue;
             }
 

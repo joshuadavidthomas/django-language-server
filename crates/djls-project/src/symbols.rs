@@ -1,20 +1,12 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8PathBuf;
-use serde::Deserialize;
-use serde::Serialize;
 
 use crate::extraction::StaticKnowledge;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
 use crate::names::TemplateSymbolName;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TemplateSymbolKind {
-    Tag,
-    Filter,
-}
+use crate::specs::TemplateSymbolKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolDefinition {

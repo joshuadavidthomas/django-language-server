@@ -48,9 +48,9 @@ pub use crate::specs::types::KnownOptions;
 pub use crate::specs::types::RequiredKeyword;
 pub use crate::specs::types::SplitPosition;
 pub use crate::specs::types::SymbolKey;
-pub use crate::specs::types::SymbolKind;
 pub use crate::specs::types::TagRule;
 pub use crate::specs::types::TagRuleMap;
+pub use crate::specs::types::TemplateSymbolKind;
 
 /// Interned key for a helper function call.
 ///
@@ -379,8 +379,8 @@ mod tests {
         fn from(result: ExtractionResult) -> Self {
             let key_str = |k: &SymbolKey| {
                 let kind = match k.kind {
-                    SymbolKind::Tag => "tag",
-                    SymbolKind::Filter => "filter",
+                    TemplateSymbolKind::Tag => "tag",
+                    TemplateSymbolKind::Filter => "filter",
                 };
                 format!("{}::{kind}::{}", k.registration_module, k.name)
             };
