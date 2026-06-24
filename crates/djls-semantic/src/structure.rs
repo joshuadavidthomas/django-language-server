@@ -17,7 +17,9 @@ pub(crate) mod tree;
 
 use crate::db::Db;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
-pub(crate) use crate::structure::grammar::TagIndex;
+pub use crate::structure::grammar::TagClass;
+pub use crate::structure::grammar::TagIndex;
+pub use crate::structure::grammar::compute_tag_index;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
 pub use crate::structure::outline::OutlineItem;
@@ -35,6 +37,6 @@ pub fn build_template_tree<'db>(
     db: &'db dyn Db,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(db, TagIndex::from_specs(db));
+    let builder = TemplateTreeBuilder::new(db, compute_tag_index(db));
     builder.model(db, nodelist)
 }

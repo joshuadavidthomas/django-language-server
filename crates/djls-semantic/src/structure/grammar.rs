@@ -12,15 +12,19 @@ pub(crate) enum TagGrammarRole {
     Intermediate { possible_openers: Vec<String> },
 }
 
+/// Compute the tag grammar index from tag specifications.
+#[salsa::tracked(returns(ref))]
+pub fn compute_tag_index(db: &dyn Db) -> TagIndex {
+    TagIndex::from_tag_specs(db.tag_specs())
+}
+
 /// Index for tag grammar lookups.
 ///
 /// Uses a single unified map from tag name to [`TagGrammarRole`], so every
 /// lookup (`classify`, `validate_close`, `is_end_required`) is a single
 /// hash probe instead of checking up to three separate maps.
-#[salsa::tracked(debug)]
-pub(crate) struct TagIndex<'db> {
-    #[tracked]
-    #[returns(ref)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagIndex {
     roles: FxHashMap<String, TagGrammarRole>,
 }
 
@@ -29,38 +33,35 @@ pub(crate) struct EndMeta {
     required: bool,
 }
 
-impl<'db> TagIndex<'db> {
-    pub(crate) fn classify(self, db: &'db dyn Db, tag_name: &str) -> TagClass<'db> {
-        match self.roles(db).get(tag_name) {
+impl TagIndex {
+    #[must_use]
+    pub fn classify(&self, tag_name: &str) -> TagClass<'_> {
+        match self.roles.get(tag_name) {
             Some(TagGrammarRole::Opener(_)) => TagClass::Opener,
             Some(TagGrammarRole::Closer { opener }) => TagClass::Closer {
-                opener_name: opener,
+                opener_name: opener.as_str(),
             },
-            Some(TagGrammarRole::Intermediate { possible_openers }) => {
-                TagClass::Intermediate { possible_openers }
-            }
+            Some(TagGrammarRole::Intermediate { possible_openers }) => TagClass::Intermediate {
+                possible_openers: possible_openers.as_slice(),
+            },
             None => TagClass::Unknown,
         }
     }
 
-    pub(crate) fn is_end_required(self, db: &'db dyn Db, opener_name: &str) -> bool {
+    pub(crate) fn is_end_required(&self, opener_name: &str) -> bool {
         matches!(
-            self.roles(db).get(opener_name),
+            self.roles.get(opener_name),
             Some(TagGrammarRole::Opener(EndMeta { required: true }))
         )
     }
 
     pub(crate) fn validate_close(
-        self,
-        db: &'db dyn Db,
+        &self,
         opener_name: &str,
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
-        if !matches!(
-            self.roles(db).get(opener_name),
-            Some(TagGrammarRole::Opener(_))
-        ) {
+        if !matches!(self.roles.get(opener_name), Some(TagGrammarRole::Opener(_))) {
             return CloseValidation::NotABlock;
         }
 
@@ -79,17 +80,9 @@ impl<'db> TagIndex<'db> {
         CloseValidation::Valid
     }
 
-    #[must_use]
-    pub(crate) fn from_specs(db: &'db dyn Db) -> Self {
-        Self::from_tag_specs(db, db.tag_specs())
-    }
-
     /// Build a `TagIndex` from an explicit `TagSpecs` value.
-    ///
-    /// This is used by tracked queries that compute `TagSpecs` first and then
-    /// need to build the index without going through `db.tag_specs()`.
     #[must_use]
-    fn from_tag_specs(db: &'db dyn Db, specs: &TagSpecs) -> Self {
+    fn from_tag_specs(specs: &TagSpecs) -> Self {
         let mut roles: FxHashMap<String, TagGrammarRole> = FxHashMap::default();
 
         for (name, spec) in specs {
@@ -121,7 +114,7 @@ impl<'db> TagIndex<'db> {
             }
         }
 
-        TagIndex::new(db, roles)
+        Self { roles }
     }
 }
 
@@ -129,8 +122,8 @@ impl<'db> TagIndex<'db> {
 ///
 /// Borrows data from the [`TagIndex`]'s Salsa-tracked storage, avoiding
 /// clones of opener names and possible-opener lists.
-#[derive(Clone, Debug)]
-pub(crate) enum TagClass<'a> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TagClass<'a> {
     /// This tag opens a block
     Opener,
     /// This tag closes a block
@@ -146,4 +139,137 @@ pub(crate) enum CloseValidation {
     Valid,
     NotABlock,
     ArgumentMismatch { expected: String, got: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use rustc_hash::FxHashMap;
+
+    use super::*;
+    use crate::tags::EndTag;
+    use crate::tags::IntermediateTag;
+    use crate::tags::TagSpec;
+    use crate::tags::TagSpecs;
+
+    fn create_test_specs() -> TagSpecs {
+        let mut specs = FxHashMap::default();
+
+        let block = |end_tag: &'static str, intermediates: Vec<&'static str>| {
+            let intermediate_tags: Cow<'static, [IntermediateTag]> = if intermediates.is_empty() {
+                Cow::Borrowed(&[])
+            } else {
+                Cow::Owned(
+                    intermediates
+                        .into_iter()
+                        .map(|name| IntermediateTag { name: name.into() })
+                        .collect(),
+                )
+            };
+
+            TagSpec::new(
+                "django.template.defaulttags".into(),
+                Some(EndTag {
+                    name: end_tag.into(),
+                    required: true,
+                }),
+                intermediate_tags,
+                false,
+            )
+        };
+
+        specs.insert(
+            "csrf_token".to_string(),
+            TagSpec::new(
+                "django.template.defaulttags".into(),
+                None,
+                Cow::Borrowed(&[]),
+                false,
+            ),
+        );
+        specs.insert("if".to_string(), block("endif", vec!["elif", "else"]));
+        specs.insert("for".to_string(), block("endfor", vec!["empty", "else"]));
+        specs.insert("block".to_string(), block("endblock", vec![]));
+
+        TagSpecs::new(specs)
+    }
+
+    #[test]
+    fn classifies_opening_tags() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert_eq!(index.classify("if"), TagClass::Opener);
+        assert_eq!(index.classify("for"), TagClass::Opener);
+        assert_eq!(index.classify("block"), TagClass::Opener);
+    }
+
+    #[test]
+    fn classifies_closing_tags_with_their_openers() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert_eq!(
+            index.classify("endif"),
+            TagClass::Closer { opener_name: "if" }
+        );
+        assert_eq!(
+            index.classify("endfor"),
+            TagClass::Closer { opener_name: "for" }
+        );
+        assert_eq!(
+            index.classify("endblock"),
+            TagClass::Closer {
+                opener_name: "block"
+            }
+        );
+        assert_eq!(index.classify("endnonexistent"), TagClass::Unknown);
+    }
+
+    #[test]
+    fn classifies_intermediate_tags_with_possible_openers() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        match index.classify("elif") {
+            TagClass::Intermediate { possible_openers } => assert_eq!(possible_openers, ["if"]),
+            tag_class => panic!("expected elif to classify as intermediate, got {tag_class:?}"),
+        }
+
+        match index.classify("else") {
+            TagClass::Intermediate { possible_openers } => {
+                let mut possible_openers = possible_openers.to_vec();
+                possible_openers.sort();
+                assert_eq!(possible_openers, ["for", "if"]);
+            }
+            tag_class => panic!("expected else to classify as intermediate, got {tag_class:?}"),
+        }
+
+        match index.classify("empty") {
+            TagClass::Intermediate { possible_openers } => assert_eq!(possible_openers, ["for"]),
+            tag_class => panic!("expected empty to classify as intermediate, got {tag_class:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_standalone_and_unknown_tags_as_unknown() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert_eq!(index.classify("csrf_token"), TagClass::Unknown);
+        assert_eq!(index.classify("nonexistent"), TagClass::Unknown);
+    }
+
+    #[test]
+    fn tracks_required_end_tags() {
+        let specs = create_test_specs();
+        let index = TagIndex::from_tag_specs(&specs);
+
+        assert!(index.is_end_required("if"));
+        assert!(index.is_end_required("for"));
+        assert!(index.is_end_required("block"));
+        assert!(!index.is_end_required("csrf_token"));
+        assert!(!index.is_end_required("nonexistent"));
+    }
 }

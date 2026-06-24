@@ -4,6 +4,8 @@ use djls_templates::NodeList;
 use djls_templates::TagDelimiter;
 
 use crate::db::Db;
+use crate::structure::grammar::TagClass;
+use crate::structure::grammar::compute_tag_index;
 
 /// Sorted, non-overlapping byte-offset spans where validation should be skipped.
 ///
@@ -49,6 +51,7 @@ impl OpaqueRegions {
 /// `TemplateTree`.
 pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegions {
     let tag_specs = db.tag_specs();
+    let index = compute_tag_index(db);
     let mut spans = Vec::new();
     let mut stack = Vec::new();
 
@@ -57,40 +60,43 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
             continue;
         };
 
-        if tag_specs.is_opener(name) {
-            let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-            stack.push(OpaqueFrame {
-                opener_name: name,
-                segment_start: body_start,
-                is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
-            });
-        } else if let Some(opener_name) = tag_specs.find_opener_for_closer(name) {
-            let Some(frame_idx) = stack
-                .iter()
-                .rposition(|frame| frame.opener_name == opener_name)
-            else {
-                continue;
-            };
-
-            while stack.len() > frame_idx + 1 {
-                stack.pop();
+        match index.classify(name) {
+            TagClass::Opener => {
+                let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+                stack.push(OpaqueFrame {
+                    opener_name: name,
+                    segment_start: body_start,
+                    is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
+                });
             }
+            TagClass::Closer { opener_name } => {
+                let Some(frame_idx) = stack
+                    .iter()
+                    .rposition(|frame| frame.opener_name == opener_name)
+                else {
+                    continue;
+                };
 
-            let Some(frame) = stack.pop() else {
-                continue;
-            };
-            push_opaque_segment(&frame, *span, &mut spans);
-        } else if tag_specs.is_intermediate(name)
-            && let Some(frame) = stack.last_mut()
-        {
-            let possible_openers = tag_specs.get_parent_tags_for_intermediate(name);
-            if possible_openers
-                .iter()
-                .any(|opener| opener == frame.opener_name)
-            {
-                push_opaque_segment(frame, *span, &mut spans);
-                frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+                while stack.len() > frame_idx + 1 {
+                    stack.pop();
+                }
+
+                let Some(frame) = stack.pop() else {
+                    continue;
+                };
+                push_opaque_segment(&frame, *span, &mut spans);
             }
+            TagClass::Intermediate { possible_openers } => {
+                if let Some(frame) = stack.last_mut()
+                    && possible_openers
+                        .iter()
+                        .any(|opener| opener == frame.opener_name)
+                {
+                    push_opaque_segment(frame, *span, &mut spans);
+                    frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+                }
+            }
+            TagClass::Unknown => {}
         }
     }
 
