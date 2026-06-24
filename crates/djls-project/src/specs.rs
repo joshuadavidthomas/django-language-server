@@ -28,7 +28,6 @@ use crate::specs::analysis::statements::process_statements;
 pub use crate::specs::models::compute_model_graph;
 pub use crate::specs::models::extract::extract_model_graph;
 pub use crate::specs::models::graph::ModelGraph;
-use crate::specs::registry::ExtractionOutput;
 pub use crate::specs::types::ArgumentCountConstraint;
 pub use crate::specs::types::AsVar;
 pub use crate::specs::types::BlockSpec;
@@ -38,7 +37,6 @@ pub use crate::specs::types::ExtractedDiagnosticConstraint;
 pub use crate::specs::types::ExtractedDiagnosticMessage;
 pub use crate::specs::types::ExtractedMessageArg;
 pub use crate::specs::types::ExtractedMessageTemplate;
-pub use crate::specs::types::ExtractionResult;
 pub use crate::specs::types::FilterArity;
 pub use crate::specs::types::FilterArityMap;
 pub use crate::specs::types::KnownOptions;
@@ -215,46 +213,6 @@ pub fn extract_block_specs(
 
         block_specs
     })
-}
-
-/// Extract validation rules from a Python registration module source.
-///
-/// Parses the source with Ruff's Python parser, walks the AST to find
-/// `@register.tag` / `@register.filter` decorators, and extracts validation
-/// semantics (argument counts, block structure, option constraints) from the
-/// associated compile functions.
-///
-/// The `module_path` parameter is the dotted Python module path (e.g.,
-/// `"django.template.defaulttags"`) used as the `registration_module` field
-/// in `SymbolKey`s. Pass an empty string if unknown.
-///
-/// Returns an `ExtractionResult` mapping each discovered `SymbolKey` to its
-/// extracted rules.
-#[must_use]
-pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
-    let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-        return ExtractionResult::default();
-    };
-    let module = parsed.into_syntax();
-    let mut result = ExtractionResult::default();
-
-    for_each_registration(&module.body, module_path, |reg, func, key| {
-        match reg.kind.extract(func) {
-            ExtractionOutput::Filter(arity) => {
-                result.filter_arities.insert(key, arity);
-            }
-            ExtractionOutput::Tag { rule, block_spec } => {
-                if let Some(rule) = rule {
-                    result.tag_rules.insert(key.clone(), rule.into());
-                }
-                if let Some(block_spec) = normalize_block_spec(block_spec, &key.name) {
-                    result.block_specs.insert(key, block_spec);
-                }
-            }
-        }
-    });
-
-    result
 }
 
 fn with_parsed_body<M: Default>(
