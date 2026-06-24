@@ -22,6 +22,7 @@ pub use crate::structure::grammar::TagIndex;
 pub use crate::structure::grammar::compute_tag_index;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
+pub(crate) use crate::structure::opaque::opaque_regions_from_tree;
 pub use crate::structure::outline::OutlineItem;
 pub use crate::structure::outline::OutlineKind;
 pub use crate::structure::outline::build_template_outline;

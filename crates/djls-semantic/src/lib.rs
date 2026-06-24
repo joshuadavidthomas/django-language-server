@@ -43,6 +43,7 @@ pub use tags::TagSpecs;
 pub use tags::builtin_tag_specs;
 pub use tags::compute_tag_specs;
 
+use crate::structure::opaque_regions_from_tree;
 use crate::validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -76,10 +77,10 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     }
 
     // 1. Structural analysis accumulates block-structure diagnostics.
-    let _template_tree = build_template_tree(db, nodelist);
+    let template_tree = build_template_tree(db, nodelist);
 
     // 2. Perform all other validations in a single walk.
-    let opaque_regions = compute_opaque_regions(db, nodelist);
+    let opaque_regions = opaque_regions_from_tree(template_tree.regions(db));
     let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
     validator.validate(nodes);
 }
