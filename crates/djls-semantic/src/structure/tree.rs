@@ -166,6 +166,14 @@ pub enum TemplateNode {
         body: RegionId,
         role: BlockRole,
     },
+    /// A paired opaque tag whose body is raw bytes with no internal structure.
+    Opaque {
+        tag: String,
+        name_span: Span,
+        bits: Vec<TagBit>,
+        full_span: Span,
+        body_span: Span,
+    },
     StandaloneTag {
         tag: String,
         name_span: Span,
@@ -194,6 +202,7 @@ impl TemplateNode {
     fn span(&self) -> Span {
         match self {
             TemplateNode::Block { full_span, .. }
+            | TemplateNode::Opaque { full_span, .. }
             | TemplateNode::StandaloneTag { full_span, .. }
             | TemplateNode::Error { full_span, .. } => *full_span,
             TemplateNode::Variable { span, .. }

@@ -127,6 +127,18 @@ fn test_non_opaque_block_no_region() {
 }
 
 #[test]
+fn outer_closer_inside_opaque_content_does_not_end_outer_block() {
+    let db = TestDatabase::new();
+    let source = "{% if outer %}{% verbatim %}{% endif %}body{% endverbatim %}{% endif %}";
+    let regions = compute_regions(&db, source);
+    let raw_closer = u32::try_from(source.find("{% endif %}").unwrap()).unwrap();
+    let body = u32::try_from(source.find("body").unwrap()).unwrap();
+
+    assert!(regions.is_opaque(raw_closer));
+    assert!(regions.is_opaque(body));
+}
+
+#[test]
 fn test_content_after_verbatim_not_opaque() {
     let db = TestDatabase::new();
     let source = "{% verbatim %}opaque{% endverbatim %}after";

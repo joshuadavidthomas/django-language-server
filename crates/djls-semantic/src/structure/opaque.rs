@@ -53,50 +53,69 @@ pub fn compute_opaque_regions(db: &dyn Db, nodelist: NodeList<'_>) -> OpaqueRegi
     let tag_specs = db.tag_specs();
     let index = compute_tag_index(db);
     let mut spans = Vec::new();
-    let mut stack = Vec::new();
+    let mut stack: Vec<OpaqueFrame<'_>> = Vec::new();
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
             continue;
         };
 
-        match index.classify(name) {
-            TagClass::Opener => {
-                let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                stack.push(OpaqueFrame {
-                    opener_name: name,
-                    segment_start: body_start,
-                    is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
-                });
-            }
-            TagClass::Closer { opener_name } => {
-                let Some(frame_idx) = stack
-                    .iter()
-                    .rposition(|frame| frame.opener_name == opener_name)
-                else {
-                    continue;
-                };
-
-                while stack.len() > frame_idx + 1 {
-                    stack.pop();
-                }
-
+        if stack.last().is_some_and(|frame| frame.is_opaque) {
+            if stack
+                .last()
+                .is_some_and(|frame| frame.closer_name == name.as_str())
+            {
                 let Some(frame) = stack.pop() else {
                     continue;
                 };
                 push_opaque_segment(&frame, *span, &mut spans);
             }
-            TagClass::Intermediate { possible_openers } => {
-                if let Some(frame) = stack.last_mut()
-                    && possible_openers
-                        .iter()
-                        .any(|opener| opener == frame.opener_name)
-                {
-                    push_opaque_segment(frame, *span, &mut spans);
-                    frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                }
+            continue;
+        }
+
+        if let Some(possible_openers) = index.closer_openers(name)
+            && let Some(frame_idx) = stack.iter().rposition(|frame| {
+                possible_openers
+                    .iter()
+                    .any(|opener| opener == frame.opener_name)
+            })
+        {
+            while stack.len() > frame_idx + 1 {
+                stack.pop();
             }
-            TagClass::Unknown => {}
+
+            let Some(frame) = stack.pop() else {
+                continue;
+            };
+            push_opaque_segment(&frame, *span, &mut spans);
+            continue;
+        }
+
+        if let Some(possible_openers) = index.intermediate_openers(name)
+            && let Some(frame) = stack.last_mut()
+            && possible_openers
+                .iter()
+                .any(|opener| opener == frame.opener_name)
+        {
+            push_opaque_segment(frame, *span, &mut spans);
+            frame.segment_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+            continue;
+        }
+
+        match index.classify(name) {
+            TagClass::Opener => {
+                let Some(closer_name) = index.closer_name(name) else {
+                    continue;
+                };
+                let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
+                stack.push(OpaqueFrame {
+                    opener_name: name,
+                    closer_name,
+                    segment_start: body_start,
+                    is_opaque: tag_specs.get(name).is_some_and(|spec| spec.opaque),
+                });
+            }
+            TagClass::Closer { .. } | TagClass::Intermediate { .. } | TagClass::Unknown => {}
         }
     }
 
@@ -117,6 +136,7 @@ fn push_opaque_segment(frame: &OpaqueFrame<'_>, content_span: Span, spans: &mut 
 
 struct OpaqueFrame<'a> {
     opener_name: &'a str,
+    closer_name: &'a str,
     segment_start: u32,
     is_opaque: bool,
 }
