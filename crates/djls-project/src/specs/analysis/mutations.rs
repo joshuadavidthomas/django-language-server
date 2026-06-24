@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -9,6 +11,8 @@ use ruff_python_ast::StmtWhile;
 use ruff_python_ast::statement_visitor::StatementVisitor;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::analysis::exceptions::direct_raise_exception;
 use crate::specs::analysis::state::AbstractValue;
 use crate::specs::analysis::state::Env;
@@ -117,43 +121,22 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
 
 /// Find the variable assigned from `loop_var.pop(0)` in a while-loop body.
 fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
-    let mut visitor = OptionPopFinder::new(loop_var);
-    visitor.visit_body(body);
-    visitor.option_var
-}
-
-struct OptionPopFinder<'a> {
-    loop_var: &'a str,
-    option_var: Option<String>,
-}
-
-impl<'a> OptionPopFinder<'a> {
-    fn new(loop_var: &'a str) -> Self {
-        Self {
-            loop_var,
-            option_var: None,
-        }
-    }
-}
-
-impl StatementVisitor<'_> for OptionPopFinder<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.option_var.is_some() {
-            return;
-        }
-
+    let mut option_var = None;
+    walk_stmts(body, Recurse::Flat, |stmt| {
         if let Stmt::Assign(assign) = stmt
             && assign.targets.len() == 1
             && let Some(name) = assign.targets[0].name_target()
         {
             let is_pop_zero = try_extract_pop_call(&assign.value)
-                .is_some_and(|info| info.var_name == self.loop_var && info.from_front);
+                .is_some_and(|info| info.var_name == loop_var && info.from_front);
             if is_pop_zero {
-                self.option_var = Some(name.to_string());
+                option_var = Some(name.to_string());
+                return ControlFlow::Break(());
             }
         }
-        // Do not recurse into nested statements.
-    }
+        ControlFlow::Continue(())
+    });
+    option_var
 }
 
 /// Extract option names from if/elif/else chains checking the option variable.

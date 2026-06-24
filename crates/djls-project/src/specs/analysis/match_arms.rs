@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::MatchCase;
@@ -7,9 +9,9 @@ use ruff_python_ast::PatternMatchSequence;
 use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
 
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::analysis::constraints::ExtractedTagConstraints;
 use crate::specs::analysis::expressions::eval_expr;
 use crate::specs::analysis::state::AbstractValue;
@@ -227,40 +229,21 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
 /// where any raise in any branch means the case can error. Any exception type
 /// counts — `TemplateSyntaxError`, `ValueError`, etc.
 fn any_path_raises_exception(body: &[Stmt]) -> bool {
-    let mut visitor = RaiseFinder::default();
-    visitor.visit_body(body);
-    visitor.found
-}
-
-#[derive(Default)]
-struct RaiseFinder {
-    found: bool,
-}
-
-impl StatementVisitor<'_> for RaiseFinder {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        if self.found {
-            return;
+    let mut found = false;
+    // Recurse into control flow to check all possible execution paths.
+    // NOTE: Recursing into Stmt::Try means a raise caught by an except
+    // handler is still treated as "this case can error." This is a known
+    // false positive — no corpus projects exhibit this pattern, but it's
+    // possible in the wild.
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
+        if matches!(
+            stmt,
+            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. })
+        ) {
+            found = true;
+            return ControlFlow::Break(());
         }
-
-        match stmt {
-            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(_), .. }) => {
-                self.found = true;
-            }
-            // Recurse into control flow to check all possible execution paths.
-            // NOTE: Recursing into Stmt::Try means a raise caught by an except
-            // handler is still treated as "this case can error." This is a known
-            // false positive — no corpus projects exhibit this pattern, but it's
-            // possible in the wild.
-            Stmt::If(_)
-            | Stmt::For(_)
-            | Stmt::While(_)
-            | Stmt::Try(_)
-            | Stmt::With(_)
-            | Stmt::Match(_) => {
-                walk_stmt(self, stmt);
-            }
-            _ => {}
-        }
-    }
+        ControlFlow::Continue(())
+    });
+    found
 }

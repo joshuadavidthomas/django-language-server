@@ -1,9 +1,11 @@
 //! Intra-module function call resolution via Salsa tracked functions.
 
-use ruff_python_ast::Stmt;
-use ruff_python_ast::statement_visitor::StatementVisitor;
-use ruff_python_ast::statement_visitor::walk_stmt;
+use std::ops::ControlFlow;
 
+use ruff_python_ast::Stmt;
+
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::HelperCall;
 use crate::specs::analysis::CallContext;
 use crate::specs::analysis::state::AbstractValue;
@@ -93,22 +95,29 @@ pub(crate) fn resolve_call(
 /// Scans for `return expr` statements. If exactly one return path yields
 /// a non-Unknown value, returns that. If multiple yields differ, returns Unknown.
 pub(crate) fn extract_return_value(body: &[Stmt], env: &mut Env) -> AbstractValue {
-    let mut visitor = ReturnVisitor::new(env);
-    visitor.visit_body(body);
+    let mut returns = Vec::new();
+    walk_stmts(body, Recurse::WithinScope, |stmt| {
+        if let Stmt::Return(ret) = stmt {
+            let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
+                crate::specs::analysis::expressions::eval_expr(expr, env)
+            });
+            returns.push(value);
+        }
+        ControlFlow::Continue(())
+    });
 
-    if visitor.returns.is_empty() {
+    if returns.is_empty() {
         return AbstractValue::Unknown;
     }
 
     // If all returns are the same, use that value
-    let first = &visitor.returns[0];
-    if visitor.returns.iter().all(|r| r == first) {
+    let first = &returns[0];
+    if returns.iter().all(|r| r == first) {
         return first.clone();
     }
 
     // Filter out Unknown values — if a single non-Unknown value remains, use it
-    let non_unknown: Vec<_> = visitor
-        .returns
+    let non_unknown: Vec<_> = returns
         .iter()
         .filter(|r| !matches!(r, AbstractValue::Unknown))
         .collect();
@@ -121,36 +130,6 @@ pub(crate) fn extract_return_value(body: &[Stmt], env: &mut Env) -> AbstractValu
     }
 
     AbstractValue::Unknown
-}
-
-struct ReturnVisitor<'a> {
-    env: &'a mut Env,
-    returns: Vec<AbstractValue>,
-}
-
-impl<'a> ReturnVisitor<'a> {
-    fn new(env: &'a mut Env) -> Self {
-        Self {
-            env,
-            returns: Vec::new(),
-        }
-    }
-}
-
-impl StatementVisitor<'_> for ReturnVisitor<'_> {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Return(ret) => {
-                let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
-                    crate::specs::analysis::expressions::eval_expr(expr, self.env)
-                });
-                self.returns.push(value);
-            }
-            // Only collect returns from the current function scope.
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-            _ => walk_stmt(self, stmt),
-        }
-    }
 }
 
 #[cfg(test)]
