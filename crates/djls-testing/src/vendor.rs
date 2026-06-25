@@ -43,7 +43,7 @@ pub fn vendor_spec_fixtures(options: VendorSpecFixturesOptions) -> anyhow::Resul
 }
 
 fn default_spec_fixture_dir() -> Utf8PathBuf {
-    Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("../djls-project/src/specs/testdata")
+    Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("../djls-project/src/templates/tags/testdata")
 }
 
 fn write_fixture(path: &Utf8Path, content: &str) -> anyhow::Result<()> {
