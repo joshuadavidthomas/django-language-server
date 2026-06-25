@@ -25,15 +25,15 @@ const FILTER_DECORATORS: &[&str] = &["filter"];
 
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegistrationInfo {
-    pub name: String,
-    pub kind: RegistrationKind,
-    pub func_name: Option<String>,
+pub(crate) struct RegistrationInfo {
+    pub(crate) name: String,
+    pub(crate) kind: RegistrationKind,
+    pub(crate) func_name: Option<String>,
 }
 
 /// The style of registration, distinguishing decorator helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegistrationKind {
+pub(crate) enum RegistrationKind {
     Tag,
     SimpleTag,
     InclusionTag,
@@ -45,7 +45,7 @@ pub enum RegistrationKind {
 ///
 /// This avoids re-parsing the source when the caller already has the AST.
 #[must_use]
-pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
+pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
     let mut registrations = Vec::new();
     walk_stmts(body, Recurse::IntoClasses, |stmt| {
         match stmt {

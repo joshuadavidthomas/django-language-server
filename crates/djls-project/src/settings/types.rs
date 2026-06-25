@@ -68,9 +68,9 @@ impl fmt::Display for Reason {
 
 /// A best-effort string list setting such as `INSTALLED_APPS`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstalledAppsSetting {
-    pub values: Vec<String>,
-    pub knowledge: StaticKnowledge,
+pub(crate) struct InstalledAppsSetting {
+    pub(crate) values: Vec<String>,
+    pub(crate) knowledge: StaticKnowledge,
     pub(crate) reasons: Vec<Reason>,
 }
 
@@ -109,9 +109,9 @@ impl InstalledAppsSetting {
 
 /// The statically extracted subset of Django's `TEMPLATES` setting.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateSettings {
-    pub backends: Vec<TemplateBackend>,
-    pub knowledge: StaticKnowledge,
+pub(crate) struct TemplateSettings {
+    pub(crate) backends: Vec<TemplateBackend>,
+    pub(crate) knowledge: StaticKnowledge,
 }
 
 impl Default for TemplateSettings {
@@ -152,13 +152,13 @@ impl TemplateSettings {
 
 /// One entry in Django's `TEMPLATES` setting.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TemplateBackend {
-    pub backend: Option<String>,
-    pub dirs: Vec<TemplateDirPath>,
-    pub app_dirs: Option<bool>,
-    pub libraries: Vec<(String, String)>,
-    pub builtins: Vec<String>,
-    pub knowledge: StaticKnowledge,
+pub(crate) struct TemplateBackend {
+    pub(crate) backend: Option<String>,
+    pub(crate) dirs: Vec<TemplateDirPath>,
+    pub(crate) app_dirs: Option<bool>,
+    pub(crate) libraries: Vec<(String, String)>,
+    pub(crate) builtins: Vec<String>,
+    pub(crate) knowledge: StaticKnowledge,
     pub(crate) reasons: Vec<Reason>,
 }
 
@@ -178,7 +178,7 @@ impl Default for TemplateBackend {
 
 impl TemplateBackend {
     #[must_use]
-    pub fn is_django_templates_backend(&self, backend_count: usize) -> bool {
+    pub(crate) fn is_django_templates_backend(&self, backend_count: usize) -> bool {
         match self.backend.as_deref() {
             Some(DJANGO_TEMPLATES_BACKEND) => true,
             None if backend_count == 1 => true,
@@ -196,34 +196,34 @@ impl TemplateBackend {
 
 /// The statically extracted subset of a Django settings module.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DjangoSettings {
-    pub installed_apps: InstalledAppsSetting,
-    pub templates: TemplateSettings,
+pub(crate) struct DjangoSettings {
+    pub(crate) installed_apps: InstalledAppsSetting,
+    pub(crate) templates: TemplateSettings,
 }
 
 /// A path expression evaluated against the settings file's own location.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TemplateDirPath {
+pub(crate) enum TemplateDirPath {
     Resolved(Utf8PathBuf),
     Unknown,
 }
 
 /// `from X import *`; the caller resolves the imported source.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SettingsStarImport {
-    pub level: u32,
-    pub module: Option<String>,
+pub(crate) struct SettingsStarImport {
+    pub(crate) level: u32,
+    pub(crate) module: Option<String>,
 }
 
 /// Resolved source for a `from X import *` import.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingsSource {
-    pub source: String,
-    pub path: Utf8PathBuf,
+pub(crate) struct SettingsSource {
+    pub(crate) source: String,
+    pub(crate) path: Utf8PathBuf,
 }
 
 /// Caller-supplied source lookup for star imports.
-pub trait SettingsSourceResolver {
+pub(crate) trait SettingsSourceResolver {
     /// Return the source for the referenced module, or `None` if it cannot be resolved.
     fn resolve_star_import(
         &mut self,
