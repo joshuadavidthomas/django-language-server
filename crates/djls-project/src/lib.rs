@@ -7,7 +7,6 @@ mod python;
 mod resolve;
 mod settings;
 mod sync;
-mod system;
 mod templates;
 
 pub use ast::ExprExt;
