@@ -2,6 +2,11 @@ mod extraction;
 mod paths;
 mod types;
 
+use std::collections::BTreeSet;
+
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use djls_source::File;
 pub use extraction::extract_settings;
 pub use types::DjangoSettings;
 pub use types::InstalledAppsSetting;
@@ -12,12 +17,6 @@ pub use types::StaticKnowledge;
 pub use types::TemplateBackend;
 pub use types::TemplateDirPath;
 pub use types::TemplateSettings;
-
-use std::collections::BTreeSet;
-
-use camino::Utf8Path;
-use camino::Utf8PathBuf;
-use djls_source::File;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
@@ -179,7 +178,11 @@ pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_path: &st
     None
 }
 
-pub(crate) fn package_dir(db: &dyn ProjectDb, project: Project, package_module: &str) -> Option<Utf8PathBuf> {
+pub(crate) fn package_dir(
+    db: &dyn ProjectDb,
+    project: Project,
+    package_module: &str,
+) -> Option<Utf8PathBuf> {
     if package_module.is_empty() {
         return None;
     }

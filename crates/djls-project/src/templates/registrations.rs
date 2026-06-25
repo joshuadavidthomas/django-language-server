@@ -10,15 +10,14 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
+use super::symbols::SymbolDefinition;
+use super::symbols::TemplateSymbol;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
 use crate::names::TemplateSymbolName;
 use crate::parse::parse_python_module;
-
-use super::symbols::SymbolDefinition;
-use super::symbols::TemplateSymbol;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];

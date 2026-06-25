@@ -353,5 +353,4 @@ mod tests {
         assert!(!spec.opaque);
         assert_eq!(spec.intermediates.len(), 2);
     }
-
 }

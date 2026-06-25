@@ -15,10 +15,6 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::templates::FilterArityMap;
-use crate::templates::RegistrationInfo;
-use crate::templates::SymbolKey;
-use crate::templates::collect_registrations_from_body;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
 use crate::specs::analysis::CallContext;
@@ -43,6 +39,10 @@ pub use crate::specs::types::TagArgument;
 pub use crate::specs::types::TagArgumentKind;
 pub use crate::specs::types::TagRule;
 pub use crate::specs::types::TagRuleMap;
+use crate::templates::FilterArityMap;
+use crate::templates::RegistrationInfo;
+use crate::templates::SymbolKey;
+use crate::templates::collect_registrations_from_body;
 
 /// Interned key for a helper function call.
 ///

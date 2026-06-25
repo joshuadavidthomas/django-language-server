@@ -1,16 +1,15 @@
 mod extract;
 mod graph;
 
+use djls_source::File;
 pub use extract::extract_model_graph;
 pub use graph::ModelGraph;
 
-use djls_source::File;
-
 use crate::db::Db;
+use crate::models::extract::extract_model_graph_from_body;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
 use crate::project::Project;
-use crate::models::extract::extract_model_graph_from_body;
 use crate::resolve::model_modules;
 
 /// Compute a merged `ModelGraph` from discovered model sources.

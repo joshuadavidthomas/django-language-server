@@ -8,12 +8,12 @@ use camino::Utf8PathBuf;
 use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
-use crate::templates::templatetag_candidate_paths;
 use crate::project::Project;
 use crate::resolve::SearchPaths;
 use crate::resolve::model_modules;
 use crate::resolve::templatetag_modules;
 use crate::settings::settings_source_files;
+use crate::templates::templatetag_candidate_paths;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefreshData {

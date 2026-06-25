@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
+use super::registrations::TemplateLibraryAnalysis;
+use super::symbols::TemplateSymbol;
 use crate::db::Db as ProjectDb;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
@@ -14,9 +16,6 @@ use crate::settings::module_file;
 use crate::settings::package_dir;
 use crate::settings::settings_module_file;
 use crate::templates::TemplateSymbolKind;
-
-use super::registrations::TemplateLibraryAnalysis;
-use super::symbols::TemplateSymbol;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
