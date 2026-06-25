@@ -1,8 +1,48 @@
 use camino::Utf8PathBuf;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::names::PyModuleName;
 use crate::names::TemplateSymbolName;
-use crate::specs::TemplateSymbolKind;
+
+/// Whether a symbol is a template tag or a template filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TemplateSymbolKind {
+    Tag,
+    Filter,
+}
+
+/// Identifies a specific tag or filter registration within a module.
+///
+/// Keyed by both the registration module path and the symbol name to avoid
+/// collisions when different libraries register identically-named symbols.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SymbolKey {
+    pub registration_module: String,
+    pub name: String,
+    pub kind: TemplateSymbolKind,
+}
+
+impl SymbolKey {
+    #[must_use]
+    pub fn tag(registration_module: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            registration_module: registration_module.into(),
+            name: name.into(),
+            kind: TemplateSymbolKind::Tag,
+        }
+    }
+
+    #[must_use]
+    pub fn filter(registration_module: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            registration_module: registration_module.into(),
+            name: name.into(),
+            kind: TemplateSymbolKind::Filter,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolDefinition {

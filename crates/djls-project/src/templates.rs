@@ -29,4 +29,6 @@ pub use registrations::RegistrationKind;
 pub(crate) use registrations::TemplateLibraryAnalysis;
 pub use registrations::collect_registrations_from_body;
 pub use symbols::SymbolDefinition;
+pub use symbols::SymbolKey;
 pub use symbols::TemplateSymbol;
+pub use symbols::TemplateSymbolKind;

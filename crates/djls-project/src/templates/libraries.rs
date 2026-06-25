@@ -13,7 +13,7 @@ use crate::settings::installed_app_package_module;
 use crate::settings::module_file;
 use crate::settings::package_dir;
 use crate::settings::settings_module_file;
-use crate::specs::TemplateSymbolKind;
+use crate::templates::TemplateSymbolKind;
 
 use super::registrations::TemplateLibraryAnalysis;
 use super::symbols::TemplateSymbol;
