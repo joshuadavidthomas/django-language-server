@@ -1,4 +1,5 @@
 mod modules;
+mod system;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -8,8 +9,6 @@ use djls_source::WalkOptions;
 pub use modules::InvalidModulePath;
 pub use modules::PythonModule;
 pub use modules::PythonModulePath;
-
-use crate::system;
 
 /// Interpreter specification for Python environment discovery.
 ///
