@@ -1,6 +1,5 @@
 mod analysis;
 mod blocks;
-mod filters;
 mod models;
 mod registry;
 mod signature;
@@ -17,6 +16,7 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::templates::FilterArityMap;
 use crate::templates::RegistrationInfo;
 use crate::templates::SymbolKey;
 use crate::templates::collect_registrations_from_body;
@@ -40,8 +40,6 @@ pub use crate::specs::types::ExtractedDiagnosticConstraint;
 pub use crate::specs::types::ExtractedDiagnosticMessage;
 pub use crate::specs::types::ExtractedMessageArg;
 pub use crate::specs::types::ExtractedMessageTemplate;
-pub use crate::specs::types::FilterArity;
-pub use crate::specs::types::FilterArityMap;
 pub use crate::specs::types::KnownOptions;
 pub use crate::specs::types::RequiredKeyword;
 pub use crate::specs::types::SplitPosition;

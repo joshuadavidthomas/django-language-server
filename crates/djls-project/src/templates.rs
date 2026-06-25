@@ -1,3 +1,4 @@
+pub(crate) mod filters;
 mod inactive;
 mod libraries;
 mod origins;
@@ -7,6 +8,8 @@ mod symbols;
 pub use inactive::InactiveLibraries;
 pub use inactive::InactiveLibrary;
 pub use inactive::inactive_template_libraries;
+pub use filters::FilterArity;
+pub use filters::FilterArityMap;
 pub(crate) use inactive::templatetag_candidate_paths;
 pub use libraries::InstalledSymbolCandidate;
 pub use libraries::InstalledSymbolOrigin;

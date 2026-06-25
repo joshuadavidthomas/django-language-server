@@ -11,7 +11,6 @@ use crate::templates::SymbolKey;
 use crate::templates::TemplateSymbolKind;
 
 pub type TagRuleMap = FxHashMap<SymbolKey, Arc<TagRule>>;
-pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
 pub type BlockSpecMap = FxHashMap<SymbolKey, BlockSpec>;
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -313,18 +312,6 @@ pub enum TagArgumentKind {
     Keyword,
 }
 
-/// Filter argument arity extracted from the filter function's signature.
-///
-/// Django filters receive the value being filtered as their first argument.
-/// Some filters accept an additional argument (e.g., `{{ value|default:"nothing" }}`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FilterArity {
-    /// Whether the filter expects an argument after the colon.
-    pub expects_arg: bool,
-    /// Whether the argument is optional (has a default value).
-    pub arg_optional: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,32 +354,4 @@ mod tests {
         assert_eq!(spec.intermediates.len(), 2);
     }
 
-    #[test]
-    fn filter_arity_no_arg() {
-        let arity = FilterArity {
-            expects_arg: false,
-            arg_optional: false,
-        };
-        assert!(!arity.expects_arg);
-    }
-
-    #[test]
-    fn filter_arity_required_arg() {
-        let arity = FilterArity {
-            expects_arg: true,
-            arg_optional: false,
-        };
-        assert!(arity.expects_arg);
-        assert!(!arity.arg_optional);
-    }
-
-    #[test]
-    fn filter_arity_optional_arg() {
-        let arity = FilterArity {
-            expects_arg: true,
-            arg_optional: true,
-        };
-        assert!(arity.expects_arg);
-        assert!(arity.arg_optional);
-    }
 }
