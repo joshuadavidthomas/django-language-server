@@ -208,9 +208,9 @@ fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option
 mod tests {
     use ruff_python_parser::parse_module;
 
-    use crate::templates::RegistrationInfo;
-    use crate::templates::RegistrationKind;
-    use crate::templates::collect_registrations_from_body;
+    use crate::templates::registrations::RegistrationInfo;
+    use crate::templates::registrations::RegistrationKind;
+    use crate::templates::registrations::collect_registrations_from_body;
 
     #[test]
     fn registry_collection_is_reachable_from_python_module() {

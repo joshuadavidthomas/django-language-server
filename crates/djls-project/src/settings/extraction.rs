@@ -33,7 +33,7 @@ const TEMPLATES: &str = "TEMPLATES";
 
 /// Extract Django settings from Python source.
 #[must_use]
-pub fn extract_settings(
+pub(crate) fn extract_settings(
     source: &str,
     module_path: &Utf8Path,
     resolver: &mut dyn SettingsSourceResolver,
