@@ -5,9 +5,14 @@ use divan::Bencher;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::model_fixtures;
 use djls_project::ModelGraph;
+use djls_project::PythonModulePath;
 
 fn main() {
     divan::main();
+}
+
+fn module_path(path: &str) -> PythonModulePath {
+    PythonModulePath::parse(path).unwrap()
 }
 
 // Batch extraction: all fixtures in one iteration
@@ -19,7 +24,7 @@ fn extract(bencher: Bencher) {
         for fixture in fixtures {
             divan::black_box(djls_project::extract_model_graph(
                 &fixture.source,
-                "bench.models",
+                module_path("bench.models"),
             ));
         }
     });
@@ -32,7 +37,7 @@ fn merge(bencher: Bencher) {
     let fixtures = model_fixtures();
     let graphs: Vec<ModelGraph> = fixtures
         .iter()
-        .map(|f| djls_project::extract_model_graph(&f.source, "bench.models"))
+        .map(|f| djls_project::extract_model_graph(&f.source, module_path("bench.models")))
         .collect();
 
     bencher.bench_local(move || {
@@ -58,7 +63,7 @@ fn auth_graph() -> &'static ModelGraph {
             .iter()
             .find(|f| f.label == "medium_auth.py")
             .expect("medium_auth fixture missing");
-        djls_project::extract_model_graph(&auth.source, "django.contrib.auth.models")
+        djls_project::extract_model_graph(&auth.source, module_path("django.contrib.auth.models"))
     })
 }
 
@@ -97,7 +102,7 @@ fn resolve_relations(bencher: Bencher) {
 // Corpus-scale: extract all models.py from Django, then from the full corpus
 
 struct CorpusModels {
-    files: Vec<(String, String)>, // (source, module_path)
+    files: Vec<(String, PythonModulePath)>,
 }
 
 fn load_corpus_models_inner(
@@ -111,11 +116,12 @@ fn load_corpus_models_inner(
     let mut paths = get_paths(&corpus)?;
     paths.sort();
 
-    let files: Vec<(String, String)> = paths
+    let files: Vec<(String, PythonModulePath)> = paths
         .into_iter()
         .filter_map(|path| {
             let source = std::fs::read_to_string(path.as_std_path()).ok()?;
             let module_path = djls_testing::module_path_from_file(&path);
+            let module_path = PythonModulePath::parse(&module_path).ok()?;
             Some((source, module_path))
         })
         .collect();
@@ -165,7 +171,7 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
         .bench_local(move || {
             let mut merged = ModelGraph::new();
             for (source, module_path) in &corpus.files {
-                let graph = djls_project::extract_model_graph(source, module_path);
+                let graph = djls_project::extract_model_graph(source, module_path.clone());
                 merged.merge(graph);
             }
             divan::black_box(merged);

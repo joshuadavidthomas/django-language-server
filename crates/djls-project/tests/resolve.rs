@@ -10,7 +10,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
 struct TestModel {
-    module_path: ModulePath,
+    module_path: PythonModulePath,
 }
 
 #[derive(Default)]
@@ -883,19 +883,15 @@ fn discover_workspace_models_package() {
 #[test]
 fn module_path_from_init_file() {
     let path = Utf8Path::new("myapp/models/__init__.py");
-    assert_eq!(
-        ModulePath::from_relative_path(path).as_str(),
-        "myapp.models"
-    );
+    let module_path = PythonModulePath::from_relative_python_module(path).unwrap();
+    assert_eq!(module_path.as_str(), "myapp.models");
 }
 
 #[test]
 fn module_path_from_submodule() {
     let path = Utf8Path::new("myapp/models/user.py");
-    assert_eq!(
-        ModulePath::from_relative_path(path).as_str(),
-        "myapp.models.user"
-    );
+    let module_path = PythonModulePath::from_relative_python_module(path).unwrap();
+    assert_eq!(module_path.as_str(), "myapp.models.user");
 }
 
 #[test]

@@ -15,6 +15,7 @@ use crate::models::graph::ModelKind;
 use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
 use crate::models::graph::RelationType;
+use crate::python::PythonModulePath;
 
 /// Extract a model graph from Python source text.
 ///
@@ -26,7 +27,7 @@ use crate::models::graph::RelationType;
 /// The `module_path` parameter is the dotted Python module path (e.g.,
 /// `"myapp.models"`) recorded on each extracted `ModelDef`.
 #[must_use]
-pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
+pub fn extract_model_graph(source: &str, module_path: PythonModulePath) -> ModelGraph {
     let Ok(parsed) = ruff_python_parser::parse_module(source) else {
         return ModelGraph::default();
     };
@@ -38,7 +39,7 @@ pub fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
 pub(crate) fn extract_model_graph_from_body(
     body: &[Stmt],
     source: &str,
-    module_path: &str,
+    module_path: PythonModulePath,
 ) -> ModelGraph {
     let mut collector = ModelCollector::new(module_path, source);
     walk_stmts(body, Recurse::Flat, |stmt| {
@@ -49,7 +50,7 @@ pub(crate) fn extract_model_graph_from_body(
 }
 
 struct ModelCollector<'a> {
-    module_path: &'a str,
+    module_path: PythonModulePath,
     source: &'a str,
     aliases: ImportAliases,
     graph: ModelGraph,
@@ -57,7 +58,7 @@ struct ModelCollector<'a> {
 }
 
 impl<'a> ModelCollector<'a> {
-    fn new(module_path: &'a str, source: &'a str) -> Self {
+    fn new(module_path: PythonModulePath, source: &'a str) -> Self {
         Self {
             module_path,
             source,
@@ -71,7 +72,7 @@ impl<'a> ModelCollector<'a> {
         resolve_children(
             &mut self.graph,
             &self.children,
-            self.module_path,
+            &self.module_path,
             self.source,
         );
         self.graph
@@ -122,7 +123,8 @@ impl<'a> ModelCollector<'a> {
 
                 if is_django_model(args.args.iter(), &self.aliases) {
                     let line = line_number(self.source, class.range.start().to_usize());
-                    let mut model = ModelDef::new(class.name.to_string(), self.module_path, line);
+                    let mut model =
+                        ModelDef::new(class.name.to_string(), self.module_path.clone(), line);
 
                     for body_stmt in &class.body {
                         process_class_body(body_stmt, &mut model);
@@ -141,7 +143,7 @@ impl<'a> ModelCollector<'a> {
 fn resolve_children(
     graph: &mut ModelGraph,
     children: &[&StmtClassDef],
-    module_path: &str,
+    module_path: &PythonModulePath,
     source: &str,
 ) {
     let mut remaining: Vec<&StmtClassDef> = children.to_vec();
@@ -180,7 +182,7 @@ fn resolve_children(
             }
 
             let line = line_number(source, class.range.start().to_usize());
-            let mut model = ModelDef::new(class.name.to_string(), module_path, line);
+            let mut model = ModelDef::new(class.name.to_string(), module_path.clone(), line);
 
             // Copy relations from ALL abstract parents
             for arg in &args.args {
@@ -462,6 +464,10 @@ fn line_number(source: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
+        super::extract_model_graph(source, PythonModulePath::parse(module_path).unwrap())
+    }
 
     #[test]
     fn empty_source() {

@@ -10,6 +10,7 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
+use super::names::TemplateSymbolName;
 use super::symbols::SymbolDefinition;
 use super::symbols::SymbolKey;
 use super::symbols::TemplateSymbol;
@@ -17,7 +18,6 @@ use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
-use crate::names::TemplateSymbolName;
 use crate::parse::parse_python_module;
 
 /// Decorator helper names on `django.template.Library` that register filters.

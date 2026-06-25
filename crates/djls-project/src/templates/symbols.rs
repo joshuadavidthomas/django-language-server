@@ -2,8 +2,8 @@ use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::names::PyModuleName;
-use crate::names::TemplateSymbolName;
+use super::names::TemplateSymbolName;
+use crate::python::PythonModulePath;
 
 /// Whether a symbol is a template tag or a template filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -47,7 +47,7 @@ impl SymbolKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolDefinition {
     Exact { file: Utf8PathBuf },
-    Module(PyModuleName),
+    Module(PythonModulePath),
     LibraryFile(Utf8PathBuf),
     Unknown,
 }

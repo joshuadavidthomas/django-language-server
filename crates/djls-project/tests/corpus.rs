@@ -19,7 +19,7 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus
 //! ```
 
-use djls_project::ModulePath;
+use djls_project::PythonModulePath;
 use djls_testing::Corpus;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
@@ -46,7 +46,7 @@ fn extraction_snapshots() {
         let module_path = module_path_from_file(&path);
         db.add_file(path.as_str(), &source);
         let file = db.get_or_create_file(&path);
-        let bundle = extract_bundle(&db, file, ModulePath::new(module_path));
+        let bundle = extract_bundle(&db, file, PythonModulePath::parse(&module_path).unwrap());
 
         let relative = path.strip_prefix(corpus.root()).unwrap_or(&path);
         let snapshot_name = relative.as_str().replace('/', "__");

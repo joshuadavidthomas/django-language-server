@@ -306,7 +306,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
     assert_eq!(
         libraries
             .builtin_modules()
-            .map(PyModuleName::as_str)
+            .map(PythonModulePath::as_str)
             .collect::<Vec<_>>(),
         vec![
             "django.template.defaulttags",

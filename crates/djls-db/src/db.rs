@@ -779,7 +779,7 @@ env_file = ".env.local"
         let _result1 = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::ModulePath::new("test.project.tags"),
+            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
         );
         let events = event_log.take();
         assert!(
@@ -791,7 +791,7 @@ env_file = ".env.local"
         let _result2 = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::ModulePath::new("test.project.tags"),
+            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
         );
         let events = event_log.take();
         assert!(
@@ -812,7 +812,7 @@ env_file = ".env.local"
         let _result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::ModulePath::new("test.project.tags"),
+            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
         );
         event_log.take();
 
@@ -824,7 +824,7 @@ env_file = ".env.local"
         let _result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::ModulePath::new("test.project.tags"),
+            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
         );
         let events = event_log.take();
         assert!(
@@ -876,7 +876,7 @@ def my_filter(value, arg):
         let result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::ModulePath::new("test.project.tags"),
+            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
         );
 
         // Should extract the filter
@@ -890,7 +890,7 @@ def my_filter(value, arg):
         let other_module_result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::ModulePath::new("other.project.tags"),
+            djls_project::PythonModulePath::parse("other.project.tags").unwrap(),
         );
         let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
         assert!(other_module_result.contains_key(&other_key));

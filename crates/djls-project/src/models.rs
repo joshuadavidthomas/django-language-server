@@ -7,9 +7,9 @@ pub use graph::ModelGraph;
 
 use crate::db::Db;
 use crate::models::extract::extract_model_graph_from_body;
-use crate::names::ModulePath;
 use crate::parse::parse_python_module;
 use crate::project::Project;
+use crate::python::PythonModulePath;
 use crate::resolve::model_modules;
 
 /// Compute a merged `ModelGraph` from discovered model sources.
@@ -31,12 +31,15 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
 }
 
 #[salsa::tracked(returns(ref))]
-fn extract_model_graph_from_file(db: &dyn Db, file: File, module_path: ModulePath) -> ModelGraph {
+fn extract_model_graph_from_file(
+    db: &dyn Db,
+    file: File,
+    module_path: PythonModulePath,
+) -> ModelGraph {
     let source = file.source(db);
     let Some(parsed) = parse_python_module(db, file) else {
         return ModelGraph::default();
     };
 
-    let module_path = module_path.into_string();
-    extract_model_graph_from_body(parsed.body(db), source.as_ref(), &module_path)
+    extract_model_graph_from_body(parsed.body(db), source.as_ref(), module_path)
 }

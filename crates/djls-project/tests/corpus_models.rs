@@ -18,6 +18,7 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus_models
 //! ```
 
+use djls_project::PythonModulePath;
 use djls_project::extract_model_graph;
 use djls_testing::Corpus;
 use djls_testing::module_path_from_file;
@@ -42,7 +43,10 @@ fn model_extraction_snapshots() {
     for path in targets {
         let source = std::fs::read_to_string(path.as_std_path()).unwrap();
         let module_path = module_path_from_file(&path);
-        let graph = extract_model_graph(&source, &module_path);
+        let Ok(module_path) = PythonModulePath::parse(&module_path) else {
+            continue;
+        };
+        let graph = extract_model_graph(&source, module_path);
 
         // Skip files that produce no models — they're likely just
         // re-exports or empty __init__-style modules

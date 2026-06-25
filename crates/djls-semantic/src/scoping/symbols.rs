@@ -219,7 +219,7 @@ impl SymbolIndex {
 #[cfg(test)]
 mod tests {
     use djls_project::LibraryName;
-    use djls_project::PyModuleName;
+    use djls_project::PythonModulePath;
     use djls_project::StaticKnowledge;
     use djls_project::SymbolDefinition;
     use djls_project::TemplateLibrary;
@@ -300,7 +300,7 @@ mod tests {
         };
 
         for module_name in builtins {
-            let Ok(module) = PyModuleName::parse(module_name) else {
+            let Ok(module) = PythonModulePath::parse(module_name) else {
                 continue;
             };
             if !result
@@ -316,7 +316,7 @@ mod tests {
             let Ok(load_name) = LibraryName::parse(load_name) else {
                 continue;
             };
-            let Ok(module) = PyModuleName::parse(module_name) else {
+            let Ok(module) = PythonModulePath::parse(module_name) else {
                 continue;
             };
             result
@@ -333,7 +333,7 @@ mod tests {
             let Ok(name) = TemplateSymbolName::parse(&fixture.name) else {
                 continue;
             };
-            let definition = PyModuleName::parse(&fixture.module)
+            let definition = PythonModulePath::parse(&fixture.module)
                 .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
             let symbol = TemplateSymbol {
                 kind: fixture.kind,
@@ -344,7 +344,7 @@ mod tests {
 
             match fixture.load_name {
                 None => {
-                    let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                    let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
                         continue;
                     };
                     if let Some(library) = result
@@ -359,7 +359,7 @@ mod tests {
                     let Ok(load_name) = LibraryName::parse(&load_name) else {
                         continue;
                     };
-                    let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                    let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
                         continue;
                     };
                     let library = result

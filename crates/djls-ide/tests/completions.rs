@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use camino::Utf8Path;
 use djls_ide::completion;
 use djls_project::LibraryName;
-use djls_project::PyModuleName;
+use djls_project::PythonModulePath;
 use djls_project::StaticKnowledge;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateLibraries;
@@ -19,7 +19,11 @@ use djls_source::PositionEncoding;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
-fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &PyModuleName) -> TemplateSymbol {
+fn template_symbol(
+    kind: TemplateSymbolKind,
+    name: &str,
+    module: &PythonModulePath,
+) -> TemplateSymbol {
     TemplateSymbol {
         kind,
         name: TemplateSymbolName::parse(name).unwrap(),
@@ -29,7 +33,7 @@ fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &PyModuleName) 
 }
 
 fn tag_libraries() -> TemplateLibraries {
-    let builtin_module = PyModuleName::parse("django.template.defaulttags").unwrap();
+    let builtin_module = PythonModulePath::parse("django.template.defaulttags").unwrap();
     let mut builtin = TemplateLibrary::new(builtin_module.clone());
     builtin.symbols.push(template_symbol(
         TemplateSymbolKind::Tag,
@@ -38,7 +42,7 @@ fn tag_libraries() -> TemplateLibraries {
     ));
 
     let i18n_name = LibraryName::parse("i18n").unwrap();
-    let i18n_module = PyModuleName::parse("django.templatetags.i18n").unwrap();
+    let i18n_module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
     let mut i18n = TemplateLibrary::new(i18n_module.clone());
     i18n.symbols.push(template_symbol(
         TemplateSymbolKind::Tag,
@@ -60,7 +64,7 @@ fn tag_libraries() -> TemplateLibraries {
 
 fn filter_libraries() -> TemplateLibraries {
     let library_name = LibraryName::parse("i18n").unwrap();
-    let module = PyModuleName::parse("django.templatetags.i18n").unwrap();
+    let module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
     let mut library = TemplateLibrary::new(module.clone());
     library.symbols.push(template_symbol(
         TemplateSymbolKind::Filter,
