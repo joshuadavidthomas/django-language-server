@@ -1,6 +1,6 @@
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::extraction::registry::RegistrationKind;
+use crate::templates::RegistrationKind;
 use crate::specs::TemplateSymbolKind;
 use crate::specs::analysis;
 use crate::specs::blocks;

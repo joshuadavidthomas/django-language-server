@@ -1,3 +1,18 @@
+mod extraction;
+mod paths;
+mod types;
+
+pub use extraction::extract_settings;
+pub use types::DjangoSettings;
+pub use types::InstalledAppsSetting;
+pub use types::SettingsSource;
+pub use types::SettingsSourceResolver;
+pub use types::SettingsStarImport;
+pub use types::StaticKnowledge;
+pub use types::TemplateBackend;
+pub use types::TemplateDirPath;
+pub use types::TemplateSettings;
+
 use std::collections::BTreeSet;
 
 use camino::Utf8Path;
@@ -13,14 +28,7 @@ use ruff_python_ast::StmtAssign;
 
 use crate::ast::ExprExt;
 use crate::db::Db as ProjectDb;
-use crate::extraction::DjangoSettings;
-use crate::extraction::SettingsSource;
-use crate::extraction::SettingsSourceResolver;
-use crate::extraction::SettingsStarImport;
-use crate::extraction::StaticKnowledge;
-use crate::extraction::TemplateDirPath;
-use crate::extraction::collect_registrations_from_body;
-use crate::extraction::extract_settings;
+use crate::templates::collect_registrations_from_body;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
 use crate::names::TemplateSymbolName;

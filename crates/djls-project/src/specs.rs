@@ -17,8 +17,8 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::extraction::registry::RegistrationInfo;
-use crate::extraction::registry::collect_registrations_from_body;
+use crate::templates::RegistrationInfo;
+use crate::templates::collect_registrations_from_body;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
 use crate::specs::analysis::CallContext;
@@ -284,7 +284,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::extraction::registry::RegistrationKind;
+    use crate::templates::RegistrationKind;
 
     #[test]
     fn registry_collection_is_reachable_from_python_module() {

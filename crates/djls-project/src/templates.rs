@@ -1,5 +1,6 @@
 mod inactive;
 mod origins;
+mod registrations;
 
 pub use inactive::InactiveLibraries;
 pub use inactive::InactiveLibrary;
@@ -16,3 +17,6 @@ pub use origins::TriedTemplateSource;
 pub use origins::find_template;
 pub use origins::project_template_files;
 pub use origins::template_origins;
+pub use registrations::RegistrationInfo;
+pub use registrations::RegistrationKind;
+pub use registrations::collect_registrations_from_body;

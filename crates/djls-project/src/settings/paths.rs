@@ -3,8 +3,8 @@ use camino::Utf8PathBuf;
 use ruff_python_ast as ast;
 
 use crate::ast::ExprExt;
-use crate::extraction::settings::LocalBindings;
-use crate::extraction::settings::TemplateDirPath;
+use crate::settings::types::LocalBindings;
+use crate::settings::types::TemplateDirPath;
 
 pub(crate) fn evaluate_path_expr(
     expr: &ast::Expr,

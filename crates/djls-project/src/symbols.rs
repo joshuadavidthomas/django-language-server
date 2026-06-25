@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use camino::Utf8PathBuf;
 
-use crate::extraction::StaticKnowledge;
+use crate::settings::StaticKnowledge;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
 use crate::names::TemplateSymbolName;
