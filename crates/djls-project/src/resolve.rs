@@ -9,10 +9,10 @@ use djls_source::WalkOptions;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
-use crate::names::ModulePath;
 use crate::project::Project;
-use crate::project::PythonModule;
 use crate::python::Interpreter;
+use crate::python::PythonModule;
+use crate::python::PythonModulePath;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchPath {
@@ -264,7 +264,7 @@ pub fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonMo
             modules.push((
                 module_index,
                 PythonModule::new(
-                    ModulePath::new(module_path.as_str().to_string()),
+                    module_path.clone(),
                     file_path.clone(),
                     db.get_or_create_file(&file_path),
                 ),
@@ -292,7 +292,7 @@ pub fn discover_model_files(
     fs: &dyn FileSystem,
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
-) -> Vec<(ModulePath, Utf8PathBuf)> {
+) -> Vec<(PythonModulePath, Utf8PathBuf)> {
     discover_model_files_excluding(fs, base_dir, root_kind, &[])
 }
 
@@ -301,7 +301,7 @@ fn discover_model_files_excluding(
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
-) -> Vec<(ModulePath, Utf8PathBuf)> {
+) -> Vec<(PythonModulePath, Utf8PathBuf)> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
@@ -355,7 +355,11 @@ fn discover_model_files_excluding(
             continue;
         };
 
-        results.push((ModulePath::from_relative_path(rel), path));
+        let Ok(module_path) = PythonModulePath::from_relative_python_module(rel) else {
+            continue;
+        };
+
+        results.push((module_path, path));
     }
 
     results.sort_by(|(a, _), (b, _)| a.cmp(b));

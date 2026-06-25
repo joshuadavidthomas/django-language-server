@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
-use djls_project::ModulePath;
+use djls_project::PythonModulePath;
 use djls_project::SymbolKey;
 use djls_testing::ExtractionBundle;
 use djls_testing::TestDatabase;
@@ -23,7 +23,7 @@ fn extract_source(source: &str, module_path: &str) -> ExtractionBundle {
     let path = Utf8Path::new("/test/extraction.py");
     db.add_file(path.as_str(), source);
     let file = db.get_or_create_file(path);
-    extract_bundle(&db, file, ModulePath::new(module_path))
+    extract_bundle(&db, file, PythonModulePath::parse(module_path).unwrap())
 }
 
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —

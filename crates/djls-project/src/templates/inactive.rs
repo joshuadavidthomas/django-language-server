@@ -11,10 +11,10 @@ use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use rustc_hash::FxHashMap;
 
+use super::names::LibraryName;
 use crate::db::Db as ProjectDb;
-use crate::names::LibraryName;
-use crate::names::PyModuleName;
 use crate::project::Project;
+use crate::python::PythonModulePath;
 use crate::templates::TemplateLibraryAnalysis;
 use crate::templates::TemplateSymbolKind;
 use crate::templates::template_libraries;
@@ -22,8 +22,8 @@ use crate::templates::template_libraries;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InactiveLibrary {
     pub name: LibraryName,
-    pub app: PyModuleName,
-    pub module: PyModuleName,
+    pub app: PythonModulePath,
+    pub module: PythonModulePath,
     pub tags: Vec<String>,
     pub filters: Vec<String>,
 }
@@ -32,7 +32,7 @@ impl InactiveLibrary {
     fn from_candidate(
         db: &dyn ProjectDb,
         candidate: TemplateTagCandidate,
-        active_modules: &BTreeSet<PyModuleName>,
+        active_modules: &BTreeSet<PythonModulePath>,
     ) -> Option<Self> {
         if active_modules.contains(&candidate.module) {
             return None;
@@ -132,16 +132,16 @@ impl InactiveLibraries {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TemplateTagCandidate {
-    app: PyModuleName,
+    app: PythonModulePath,
     name: LibraryName,
-    module: PyModuleName,
+    module: PythonModulePath,
     path: Utf8PathBuf,
 }
 
 impl TemplateTagCandidate {
-    fn new(app: PyModuleName, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
+    fn new(app: PythonModulePath, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
         let module =
-            PyModuleName::parse(&format!("{}.templatetags.{}", app.as_str(), name.as_str()))
+            PythonModulePath::parse(&format!("{}.templatetags.{}", app.as_str(), name.as_str()))
                 .ok()?;
 
         Some(Self {
@@ -309,7 +309,7 @@ fn discover_templatetag_candidates(
         let Some(app_rel) = app_dir.strip_prefix(base_dir).ok() else {
             continue;
         };
-        let Ok(app) = PyModuleName::from_relative_package(app_rel) else {
+        let Ok(app) = PythonModulePath::from_relative_package(app_rel) else {
             continue;
         };
         let Ok(name) = LibraryName::parse(stem) else {

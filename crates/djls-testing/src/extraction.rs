@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use djls_project::BlockSpecs;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::ModulePath;
+use djls_project::PythonModulePath;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
@@ -29,7 +29,7 @@ impl ExtractionBundle {
 pub fn extract_bundle(
     db: &dyn djls_source::Db,
     file: File,
-    registration_module: ModulePath,
+    registration_module: PythonModulePath,
 ) -> ExtractionBundle {
     let tag_rules =
         djls_project::extract_tag_rules(db, file, registration_module.clone()).to_owned();

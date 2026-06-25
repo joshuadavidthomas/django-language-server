@@ -3,12 +3,12 @@ use std::collections::BTreeMap;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
+use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
 use super::symbols::TemplateSymbol;
 use crate::db::Db as ProjectDb;
-use crate::names::LibraryName;
-use crate::names::PyModuleName;
 use crate::project::Project;
+use crate::python::PythonModulePath;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::installed_app_package_module;
@@ -114,7 +114,7 @@ fn templatetag_package_libraries(
         return (knowledge.demoted_to_partial(), libraries);
     }
 
-    if PyModuleName::parse(package_module).is_err() {
+    if PythonModulePath::parse(package_module).is_err() {
         return (knowledge.demoted_to_partial(), libraries);
     }
 
@@ -152,7 +152,7 @@ fn templatetag_package_libraries(
             continue;
         };
         let module_path = format!("{package_module}.templatetags.{stem}");
-        let Ok(module) = PyModuleName::parse(&module_path) else {
+        let Ok(module) = PythonModulePath::parse(&module_path) else {
             knowledge = knowledge.demoted_to_partial();
             continue;
         };
@@ -176,7 +176,7 @@ fn library_from_module_path(
     project: Project,
     module_path: &str,
 ) -> (StaticKnowledge, Option<TemplateLibrary>) {
-    let Ok(module) = PyModuleName::parse(module_path) else {
+    let Ok(module) = PythonModulePath::parse(module_path) else {
         return (StaticKnowledge::Partial, None);
     };
 
@@ -191,13 +191,13 @@ fn library_from_module_path(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
-    pub module: PyModuleName,
+    pub module: PythonModulePath,
     pub symbols: Vec<TemplateSymbol>,
 }
 
 impl TemplateLibrary {
     #[must_use]
-    pub fn new(module: PyModuleName) -> Self {
+    pub fn new(module: PythonModulePath) -> Self {
         Self {
             module,
             symbols: Vec::new(),
@@ -205,7 +205,7 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn module(&self) -> &PyModuleName {
+    pub fn module(&self) -> &PythonModulePath {
         &self.module
     }
 
@@ -242,7 +242,7 @@ impl TemplateLibrary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstalledSymbolOrigin {
-    Builtin { module: PyModuleName },
+    Builtin { module: PythonModulePath },
     Loadable { load_name: LibraryName },
 }
 
@@ -278,7 +278,7 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn registration_modules(&self) -> Vec<PyModuleName> {
+    pub fn registration_modules(&self) -> Vec<PythonModulePath> {
         if self.knowledge == StaticKnowledge::Unknown {
             return Vec::new();
         }
@@ -296,7 +296,7 @@ impl TemplateLibraries {
         modules
     }
 
-    pub fn builtin_modules(&self) -> impl Iterator<Item = &PyModuleName> + '_ {
+    pub fn builtin_modules(&self) -> impl Iterator<Item = &PythonModulePath> + '_ {
         self.builtins.iter().map(TemplateLibrary::module)
     }
 
@@ -306,7 +306,7 @@ impl TemplateLibraries {
 
     pub fn builtin_libraries_by_module(
         &self,
-    ) -> impl Iterator<Item = (&PyModuleName, &TemplateLibrary)> + '_ {
+    ) -> impl Iterator<Item = (&PythonModulePath, &TemplateLibrary)> + '_ {
         self.builtins
             .iter()
             .map(|library| (library.module(), library))
@@ -402,12 +402,12 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn loadable_library_module(&self, name: &LibraryName) -> Option<&PyModuleName> {
+    pub fn loadable_library_module(&self, name: &LibraryName) -> Option<&PythonModulePath> {
         self.loadable_library(name).map(TemplateLibrary::module)
     }
 
     #[must_use]
-    pub fn loadable_library_module_str(&self, name: &str) -> Option<&PyModuleName> {
+    pub fn loadable_library_module_str(&self, name: &str) -> Option<&PythonModulePath> {
         let name = LibraryName::parse(name).ok()?;
         self.loadable_library_module(&name)
     }
@@ -423,7 +423,7 @@ impl TemplateLibraries {
     }
 }
 
-fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
+fn push_unique_module(modules: &mut Vec<PythonModulePath>, module: PythonModulePath) {
     if !modules.contains(&module) {
         modules.push(module);
     }
@@ -432,11 +432,11 @@ fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::names::TemplateSymbolName;
     use crate::templates::SymbolDefinition;
+    use crate::templates::names::TemplateSymbolName;
 
-    fn module(name: &str) -> PyModuleName {
-        PyModuleName::parse(name).unwrap()
+    fn module(name: &str) -> PythonModulePath {
+        PythonModulePath::parse(name).unwrap()
     }
 
     fn library_name(name: &str) -> LibraryName {

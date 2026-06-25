@@ -5,6 +5,8 @@ use std::fmt;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::python::PythonModulePath;
+
 macro_rules! string_newtype {
     ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
         $(#[doc = $doc])*
@@ -225,7 +227,7 @@ fn app_label_from_module_path(module_path: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
     pub(crate) name: ModelName,
-    pub(crate) module_path: crate::names::ModulePath,
+    pub(crate) module_path: PythonModulePath,
     pub(crate) line: usize,
     pub(crate) relations: Vec<Relation>,
     pub(crate) kind: ModelKind,
@@ -233,10 +235,10 @@ pub struct ModelDef {
 
 impl ModelDef {
     #[must_use]
-    pub fn new(name: impl Into<String>, module_path: impl Into<String>, line: usize) -> Self {
+    pub fn new(name: impl Into<String>, module_path: PythonModulePath, line: usize) -> Self {
         Self {
             name: ModelName::new(name),
-            module_path: crate::names::ModulePath::new(module_path),
+            module_path,
             line,
             relations: Vec::new(),
             kind: ModelKind::Concrete,
@@ -358,12 +360,16 @@ impl ModelGraph {
 mod tests {
     use super::*;
 
+    fn module_path(path: &str) -> PythonModulePath {
+        PythonModulePath::parse(path).unwrap()
+    }
+
     fn user_order_graph() -> ModelGraph {
         let mut graph = ModelGraph::new();
 
-        let user = ModelDef::new("User", "auth.models", 1);
+        let user = ModelDef::new("User", module_path("auth.models"), 1);
 
-        let mut order = ModelDef::new("Order", "shop.models", 1);
+        let mut order = ModelDef::new("Order", module_path("shop.models"), 1);
         order.relations.push(Relation {
             field_name: "user".into(),
             relation_type: RelationType::ForeignKey {
@@ -372,7 +378,7 @@ mod tests {
             },
         });
 
-        let mut profile = ModelDef::new("Profile", "accounts.models", 1);
+        let mut profile = ModelDef::new("Profile", module_path("accounts.models"), 1);
         profile.relations.push(Relation {
             field_name: "user".into(),
             relation_type: RelationType::OneToOne {
@@ -544,7 +550,7 @@ mod tests {
     #[test]
     fn generic_foreign_key_skipped_in_forward_lookup() {
         let mut graph = ModelGraph::new();
-        let mut model = ModelDef::new("TaggedItem", "tagging.models", 1);
+        let mut model = ModelDef::new("TaggedItem", module_path("tagging.models"), 1);
         model.relations.push(Relation {
             field_name: "content_object".into(),
             relation_type: RelationType::GenericForeignKey {
@@ -560,10 +566,10 @@ mod tests {
     #[test]
     fn merge_graphs() {
         let mut g1 = ModelGraph::new();
-        g1.add_model(ModelDef::new("User", "auth.models", 1));
+        g1.add_model(ModelDef::new("User", module_path("auth.models"), 1));
 
         let mut g2 = ModelGraph::new();
-        g2.add_model(ModelDef::new("Order", "shop.models", 1));
+        g2.add_model(ModelDef::new("Order", module_path("shop.models"), 1));
 
         g1.merge(g2);
         assert_eq!(g1.len(), 2);

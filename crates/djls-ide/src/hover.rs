@@ -241,7 +241,7 @@ mod tests {
             InstalledSymbolOrigin::Builtin { .. } => djls_project::SymbolDefinition::Unknown,
             InstalledSymbolOrigin::Loadable { load_name } => {
                 djls_project::SymbolDefinition::Module(
-                    djls_project::PyModuleName::parse(&format!(
+                    djls_project::PythonModulePath::parse(&format!(
                         "django.contrib.{0}.templatetags.{0}",
                         load_name.as_str()
                     ))
@@ -268,7 +268,8 @@ mod tests {
             "if",
             Some("Evaluate a condition."),
             InstalledSymbolOrigin::Builtin {
-                module: djls_project::PyModuleName::parse("django.template.defaulttags").unwrap(),
+                module: djls_project::PythonModulePath::parse("django.template.defaulttags")
+                    .unwrap(),
             },
         )];
 

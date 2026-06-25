@@ -3,8 +3,7 @@ use std::sync::OnceLock;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::LibraryName;
-use djls_project::ModulePath;
-use djls_project::PyModuleName;
+use djls_project::PythonModulePath;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TemplateLibraries;
@@ -33,7 +32,7 @@ fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> Templa
     TemplateSymbol {
         kind,
         name: TemplateSymbolName::parse(name).unwrap(),
-        definition: PyModuleName::parse(module)
+        definition: PythonModulePath::parse(module)
             .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module),
         doc: None,
     }
@@ -165,13 +164,13 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     };
 
     for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
-        let module = PyModuleName::parse(module_name).unwrap();
+        let module = PythonModulePath::parse(module_name).unwrap();
         libraries.builtins.push(TemplateLibrary::new(module));
     }
 
     for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
         let load_name = LibraryName::parse(load_name).unwrap();
-        let module = PyModuleName::parse(module_name).unwrap();
+        let module = PythonModulePath::parse(module_name).unwrap();
         libraries
             .loadable
             .insert(load_name, TemplateLibrary::new(module));
@@ -180,7 +179,7 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     for bench_symbol in symbols {
         match bench_symbol.load_name {
             None => {
-                let module = PyModuleName::parse(bench_symbol.module).unwrap();
+                let module = PythonModulePath::parse(bench_symbol.module).unwrap();
                 if let Some(library) = libraries
                     .builtins
                     .iter_mut()
@@ -191,7 +190,7 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
             }
             Some(load_name) => {
                 let load_name = LibraryName::parse(load_name).unwrap();
-                let module = PyModuleName::parse(bench_symbol.module).unwrap();
+                let module = PythonModulePath::parse(bench_symbol.module).unwrap();
                 if let Some(library) = libraries.loadable.get_mut(&load_name)
                     && library.module() == &module
                 {
@@ -224,13 +223,17 @@ fn build_realistic_specs() -> RealisticSpecs {
     let defaulttags = extract_bundle(
         &extraction_db,
         defaulttags_file,
-        ModulePath::new(DEFAULTTAGS),
+        PythonModulePath::parse(DEFAULTTAGS).unwrap(),
     );
     tag_specs
         .merge_block_specs(&defaulttags.block_specs)
         .merge_tag_rules(&defaulttags.tag_rules);
 
-    let i18n = extract_bundle(&extraction_db, i18n_file, ModulePath::new(I18N));
+    let i18n = extract_bundle(
+        &extraction_db,
+        i18n_file,
+        PythonModulePath::parse(I18N).unwrap(),
+    );
     tag_specs
         .merge_block_specs(&i18n.block_specs)
         .merge_tag_rules(&i18n.tag_rules);

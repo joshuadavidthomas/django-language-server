@@ -1,56 +1,14 @@
-use std::fmt;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
-use djls_source::File;
 use djls_source::FileSystem;
 use salsa::Durability;
 use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
-use crate::names::ModulePath;
 use crate::python::Interpreter;
 use crate::resolve::SearchPaths;
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct PythonModule {
-    module_path: ModulePath,
-    path: Utf8PathBuf,
-    file: File,
-}
-
-impl PythonModule {
-    pub(crate) fn new(module_path: ModulePath, path: Utf8PathBuf, file: File) -> Self {
-        Self {
-            module_path,
-            path,
-            file,
-        }
-    }
-
-    pub fn module_path(&self) -> &ModulePath {
-        &self.module_path
-    }
-
-    pub fn path(&self) -> &Utf8Path {
-        &self.path
-    }
-
-    pub fn file(&self) -> File {
-        self.file
-    }
-}
-
-impl fmt::Debug for PythonModule {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PythonModule")
-            .field("module_path", &self.module_path)
-            .field("path", &self.path)
-            .finish_non_exhaustive()
-    }
-}
 
 /// Complete project configuration as a Salsa input.
 ///

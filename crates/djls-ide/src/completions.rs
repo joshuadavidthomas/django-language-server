@@ -755,7 +755,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use djls_project::LibraryName;
-    use djls_project::PyModuleName;
+    use djls_project::PythonModulePath;
     use djls_project::SymbolDefinition;
     use djls_project::TemplateLibrary;
     use djls_project::TemplateSymbol;
@@ -792,7 +792,7 @@ mod tests {
         let mut loadable = BTreeMap::new();
         for (name, module) in libraries {
             let name = LibraryName::parse(name).unwrap();
-            let module = PyModuleName::parse(module).unwrap();
+            let module = PythonModulePath::parse(module).unwrap();
             loadable.insert(name, TemplateLibrary::new(module));
         }
 
@@ -806,7 +806,7 @@ mod tests {
     fn template_symbol(
         kind: TemplateSymbolKind,
         name: &str,
-        module: &PyModuleName,
+        module: &PythonModulePath,
         doc: Option<&str>,
     ) -> TemplateSymbol {
         TemplateSymbol {
@@ -819,7 +819,7 @@ mod tests {
 
     fn filter_libraries() -> TemplateLibraries {
         let library_name = LibraryName::parse("i18n").unwrap();
-        let module = PyModuleName::parse("django.templatetags.i18n").unwrap();
+        let module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
         let mut library = TemplateLibrary::new(module.clone());
         library.symbols.push(template_symbol(
             TemplateSymbolKind::Filter,
@@ -836,7 +836,7 @@ mod tests {
     }
 
     fn tag_libraries() -> TemplateLibraries {
-        let builtin_module = PyModuleName::parse("django.template.defaulttags").unwrap();
+        let builtin_module = PythonModulePath::parse("django.template.defaulttags").unwrap();
         let mut builtin = TemplateLibrary::new(builtin_module.clone());
         builtin.symbols.push(template_symbol(
             TemplateSymbolKind::Tag,
@@ -846,7 +846,7 @@ mod tests {
         ));
 
         let i18n_name = LibraryName::parse("i18n").unwrap();
-        let i18n_module = PyModuleName::parse("django.templatetags.i18n").unwrap();
+        let i18n_module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
         let mut i18n = TemplateLibrary::new(i18n_module.clone());
         i18n.symbols.push(template_symbol(
             TemplateSymbolKind::Tag,
@@ -870,7 +870,7 @@ mod tests {
 
     fn builtin_origin() -> InstalledSymbolOrigin {
         InstalledSymbolOrigin::Builtin {
-            module: PyModuleName::parse("django.template.defaulttags").unwrap(),
+            module: PythonModulePath::parse("django.template.defaulttags").unwrap(),
         }
     }
 
@@ -881,7 +881,7 @@ mod tests {
     }
 
     fn test_tag_symbol(name: &str) -> TemplateSymbol {
-        let module = PyModuleName::parse("django.template.defaulttags").unwrap();
+        let module = PythonModulePath::parse("django.template.defaulttags").unwrap();
         template_symbol(TemplateSymbolKind::Tag, name, &module, None)
     }
 

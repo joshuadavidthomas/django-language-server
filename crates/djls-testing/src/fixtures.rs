@@ -13,9 +13,8 @@ use djls_project::ExtractedMessageTemplate;
 use djls_project::FilterArity;
 use djls_project::Interpreter;
 use djls_project::LibraryName;
-use djls_project::ModulePath;
 use djls_project::Project;
-use djls_project::PyModuleName;
+use djls_project::PythonModulePath;
 use djls_project::RequiredKeyword;
 use djls_project::SearchPaths;
 use djls_project::SplitPosition;
@@ -122,7 +121,7 @@ pub fn make_template_libraries(
     };
 
     for module_name in builtins {
-        let Ok(module) = PyModuleName::parse(module_name) else {
+        let Ok(module) = PythonModulePath::parse(module_name) else {
             continue;
         };
         if !result
@@ -138,7 +137,7 @@ pub fn make_template_libraries(
         let Ok(load_name) = LibraryName::parse(load_name) else {
             continue;
         };
-        let Ok(module) = PyModuleName::parse(module_name) else {
+        let Ok(module) = PythonModulePath::parse(module_name) else {
             continue;
         };
         result
@@ -155,7 +154,7 @@ pub fn make_template_libraries(
         let Ok(name) = TemplateSymbolName::parse(&fixture.name) else {
             continue;
         };
-        let definition = PyModuleName::parse(&fixture.module)
+        let definition = PythonModulePath::parse(&fixture.module)
             .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
         let symbol = TemplateSymbol {
             kind: fixture.kind,
@@ -166,7 +165,7 @@ pub fn make_template_libraries(
 
         match fixture.load_name {
             None => {
-                let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
                     continue;
                 };
                 if let Some(library) = result
@@ -181,7 +180,7 @@ pub fn make_template_libraries(
                 let Ok(load_name) = LibraryName::parse(&load_name) else {
                     continue;
                 };
-                let Ok(module) = PyModuleName::parse(&fixture.library_module) else {
+                let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
                     continue;
                 };
                 let library = result
@@ -389,9 +388,12 @@ pub fn extract_and_merge(
         };
 
         let module_path = module_path_from_file(file_path);
+        let Ok(module_path) = PythonModulePath::parse(&module_path) else {
+            continue;
+        };
         db.add_file(file_path.as_str(), &source);
         let file = db.get_or_create_file(file_path);
-        let bundle = extract_bundle(&db, file, ModulePath::new(module_path));
+        let bundle = extract_bundle(&db, file, module_path);
 
         arities.merge_filter_arities(&bundle.filter_arities);
         specs

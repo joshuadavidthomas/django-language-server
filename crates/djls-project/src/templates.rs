@@ -1,6 +1,7 @@
 pub(crate) mod filters;
 mod inactive;
 mod libraries;
+mod names;
 mod origins;
 mod registrations;
 mod settings;
@@ -19,6 +20,9 @@ pub use libraries::InstalledSymbolOrigin;
 pub use libraries::TemplateLibraries;
 pub use libraries::TemplateLibrary;
 pub use libraries::template_libraries;
+pub use names::InvalidTemplateIdentifier;
+pub use names::LibraryName;
+pub use names::TemplateSymbolName;
 pub use origins::FindTemplateResult;
 pub use origins::ProjectTemplateFile;
 pub use origins::ProjectTemplateFiles;
