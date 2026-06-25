@@ -1,9 +1,13 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::models::graph::FieldName;
 use crate::models::graph::ModelDef;
 use crate::models::graph::ModelGraph;
@@ -90,9 +94,10 @@ impl<'a> ModelCollector<'a> {
                     let mut model =
                         ModelDef::new(class.name.to_string(), self.module_path.clone(), line);
 
-                    for body_stmt in &class.body {
-                        process_class_body(body_stmt, &mut model);
-                    }
+                    walk_stmts(&class.body, Recurse::Flat, |stmt| {
+                        process_class_body(stmt, &mut model);
+                        ControlFlow::Continue(())
+                    });
 
                     self.graph.add_model(model);
                 } else if !args.args.is_empty() {
@@ -161,9 +166,10 @@ fn resolve_children(
                 }
             }
 
-            for body_stmt in &class.body {
-                process_class_body(body_stmt, &mut model);
-            }
+            walk_stmts(&class.body, Recurse::Flat, |stmt| {
+                process_class_body(stmt, &mut model);
+                ControlFlow::Continue(())
+            });
 
             graph.add_model(model);
         }
