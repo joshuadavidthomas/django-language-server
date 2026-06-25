@@ -1,15 +1,15 @@
 use ruff_python_ast::StmtFunctionDef;
 
+use crate::templates::FilterArity;
+use crate::templates::RegistrationKind;
+use crate::templates::TemplateSymbolKind;
+use crate::templates::filters;
 use crate::templates::tags::analysis;
 use crate::templates::tags::blocks;
 use crate::templates::tags::signature;
 use crate::templates::tags::types::AsVar;
 use crate::templates::tags::types::BlockSpec;
 use crate::templates::tags::types::TagRule;
-use crate::templates::FilterArity;
-use crate::templates::RegistrationKind;
-use crate::templates::TemplateSymbolKind;
-use crate::templates::filters;
 
 impl RegistrationKind {
     pub(crate) fn symbol_kind(self) -> TemplateSymbolKind {

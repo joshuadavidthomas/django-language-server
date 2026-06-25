@@ -17,6 +17,7 @@ use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
+use crate::templates::for_each_registration;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::calls::AbstractValueKey;
 use crate::templates::tags::analysis::calls::extract_return_value;
@@ -39,7 +40,6 @@ pub use crate::templates::tags::types::TagArgument;
 pub use crate::templates::tags::types::TagArgumentKind;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
-use crate::templates::for_each_registration;
 
 /// Interned key for a helper function call.
 ///

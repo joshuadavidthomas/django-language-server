@@ -59,7 +59,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
 
         Stmt::If(stmt_if) => {
             result.extend(
-                crate::templates::tags::analysis::guards::extract_from_if_inline(stmt_if, env).into(),
+                crate::templates::tags::analysis::guards::extract_from_if_inline(stmt_if, env)
+                    .into(),
             );
 
             // Collect body results separately so we can discard conditional
@@ -941,10 +942,9 @@ def do_tag(parser, token):
         let func = django_function("django/template/defaulttags.py", "partialdef_func").unwrap();
         let rule = analyze_func(&func);
         assert!(
-            rule.arg_constraints
-                .contains(&crate::templates::tags::types::ArgumentCountConstraint::OneOf(vec![
-                    2, 3
-                ])),
+            rule.arg_constraints.contains(
+                &crate::templates::tags::types::ArgumentCountConstraint::OneOf(vec![2, 3])
+            ),
             "expected OneOf([2, 3]), got {:?}",
             rule.arg_constraints
         );
@@ -1025,10 +1025,9 @@ def do_tag(parser, token):
 "#,
         );
         assert!(
-            rule.arg_constraints
-                .contains(&crate::templates::tags::types::ArgumentCountConstraint::OneOf(vec![
-                    2, 4
-                ])),
+            rule.arg_constraints.contains(
+                &crate::templates::tags::types::ArgumentCountConstraint::OneOf(vec![2, 4])
+            ),
             "expected OneOf([2, 4]), got {:?}",
             rule.arg_constraints
         );
@@ -1073,10 +1072,10 @@ def do_tag(parser, token):
         // Wildcard `case _:` is a valid (non-error) arm that matches anything,
         // so there should be no Min constraint at all (min is effectively 0).
         assert!(
-            !rule
-                .arg_constraints
-                .iter()
-                .any(|c| matches!(c, crate::templates::tags::types::ArgumentCountConstraint::Min(_))),
+            !rule.arg_constraints.iter().any(|c| matches!(
+                c,
+                crate::templates::tags::types::ArgumentCountConstraint::Min(_)
+            )),
             "wildcard should override variable min to 0 (no Min constraint), got {:?}",
             rule.arg_constraints
         );

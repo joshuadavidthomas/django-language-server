@@ -8,11 +8,14 @@ use djls_testing::extract_bundle;
 use djls_testing::sorted_snapshot;
 
 const CUSTOM_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_custom.py");
-const DEFAULTFILTERS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_defaultfilters.py");
-const DEFAULTTAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_defaulttags.py");
+const DEFAULTFILTERS_SOURCE: &str =
+    include_str!("../src/templates/tags/testdata/django_defaultfilters.py");
+const DEFAULTTAGS_SOURCE: &str =
+    include_str!("../src/templates/tags/testdata/django_defaulttags.py");
 const I18N_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_i18n.py");
 const INCLUSION_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_inclusion.py");
-const LOADER_TAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_loader_tags.py");
+const LOADER_TAGS_SOURCE: &str =
+    include_str!("../src/templates/tags/testdata/django_loader_tags.py");
 const TESTTAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_testtags.py");
 
 fn extract_source(source: &str, module_path: &str) -> ExtractionBundle {

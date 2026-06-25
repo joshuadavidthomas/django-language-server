@@ -35,7 +35,8 @@ pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>,
         if backend.app_dirs == Some(true) {
             knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
             for app in &settings.installed_apps.values {
-                let Some(app_dir) = package_dir(db, project, installed_app_package_module(app)) else {
+                let Some(app_dir) = package_dir(db, project, installed_app_package_module(app))
+                else {
                     knowledge = knowledge.demoted_to_partial();
                     continue;
                 };

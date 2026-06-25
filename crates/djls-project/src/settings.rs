@@ -5,6 +5,10 @@ mod types;
 
 use djls_source::File;
 pub use extraction::extract_settings;
+pub(crate) use sources::installed_app_package_module;
+pub(crate) use sources::module_file;
+pub(crate) use sources::package_dir;
+pub(crate) use sources::settings_source_files;
 pub use types::DjangoSettings;
 pub use types::InstalledAppsSetting;
 pub use types::SettingsSource;
@@ -17,11 +21,6 @@ pub use types::TemplateSettings;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-
-pub(crate) use sources::installed_app_package_module;
-pub(crate) use sources::module_file;
-pub(crate) use sources::package_dir;
-pub(crate) use sources::settings_source_files;
 
 #[salsa::tracked]
 pub fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Option<File> {
@@ -37,4 +36,3 @@ pub fn django_settings(db: &dyn ProjectDb, project: Project) -> DjangoSettings {
 
     sources::django_settings_from_file(db, project, file)
 }
-
