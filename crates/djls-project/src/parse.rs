@@ -7,10 +7,10 @@ use ruff_python_ast::Stmt;
 /// Wraps Ruff's statement list in a tracked struct. The parsed AST is
 /// invalidated when the source file changes.
 #[salsa::tracked]
-pub struct ParsedPythonModule<'db> {
+pub(crate) struct ParsedPythonModule<'db> {
     #[tracked]
     #[returns(ref)]
-    pub body: Vec<Stmt>,
+    pub(crate) body: Vec<Stmt>,
 }
 
 /// Parse a Python source file into a cached AST.
@@ -19,7 +19,10 @@ pub struct ParsedPythonModule<'db> {
 /// The parsed AST is cached by Salsa and invalidated when
 /// `file.source(db)` changes.
 #[salsa::tracked]
-pub fn parse_python_module(db: &dyn djls_source::Db, file: File) -> Option<ParsedPythonModule<'_>> {
+pub(crate) fn parse_python_module(
+    db: &dyn djls_source::Db,
+    file: File,
+) -> Option<ParsedPythonModule<'_>> {
     let source = file.source(db);
     if *source.kind() != FileKind::Python {
         return None;
