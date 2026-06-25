@@ -48,7 +48,7 @@ enum Command {
         #[arg(long)]
         check: bool,
 
-        /// Fixture output directory (defaults to crates/djls-project/src/specs/testdata)
+        /// Fixture output directory (defaults to crates/djls-project/src/templates/tags/testdata)
         #[arg(long)]
         output_dir: Option<Utf8PathBuf>,
     },

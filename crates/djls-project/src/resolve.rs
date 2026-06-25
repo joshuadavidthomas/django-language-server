@@ -247,7 +247,7 @@ pub fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonMo
 
     let mut modules = Vec::new();
 
-    for (module_index, module_path) in crate::settings::template_libraries(db, project)
+    for (module_index, module_path) in crate::templates::template_libraries(db, project)
         .registration_modules()
         .into_iter()
         .enumerate()
