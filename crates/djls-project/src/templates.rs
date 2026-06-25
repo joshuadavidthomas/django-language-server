@@ -62,3 +62,15 @@ pub use tags::TagRule;
 pub use tags::TagRuleMap;
 pub use tags::extract_block_specs;
 pub use tags::extract_tag_rules;
+
+fn guess_django_app_package_module_from_installed_apps_entry_until_apps_are_modeled(
+    entry: &str,
+) -> &str {
+    if let Some((module, _)) = entry.split_once(".apps.") {
+        module
+    } else if entry.ends_with("Config") {
+        entry.rsplit_once('.').map_or(entry, |(module, _)| module)
+    } else {
+        entry
+    }
+}

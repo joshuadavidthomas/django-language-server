@@ -6,7 +6,7 @@ use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
 use crate::settings::TemplateDirPath;
 use crate::settings::django_settings;
-use crate::settings::installed_app_package_module;
+use crate::templates::guess_django_app_package_module_from_installed_apps_entry_until_apps_are_modeled;
 
 #[salsa::tracked(returns(ref))]
 pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>, StaticKnowledge) {
@@ -35,8 +35,13 @@ pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>,
         if backend.app_dirs == Some(true) {
             knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
             for app in &settings.installed_apps.values {
-                let Some(app_dir) = package_dir(db, project, installed_app_package_module(app))
-                else {
+                let Some(app_dir) = package_dir(
+                    db,
+                    project,
+                    guess_django_app_package_module_from_installed_apps_entry_until_apps_are_modeled(
+                        app,
+                    ),
+                ) else {
                     knowledge = knowledge.demoted_to_partial();
                     continue;
                 };

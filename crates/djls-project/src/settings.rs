@@ -5,7 +5,6 @@ mod types;
 
 use djls_source::File;
 pub use extraction::extract_settings;
-pub(crate) use sources::installed_app_package_module;
 pub(crate) use sources::settings_source_files;
 pub use types::DjangoSettings;
 pub use types::InstalledAppsSetting;

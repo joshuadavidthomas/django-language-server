@@ -107,15 +107,3 @@ impl SettingsSourceResolver for DiskSettingsResolver<'_> {
         Some(SettingsSource { source, path })
     }
 }
-
-pub(crate) fn installed_app_package_module(installed_app: &str) -> &str {
-    if let Some((module, _)) = installed_app.split_once(".apps.") {
-        module
-    } else if installed_app.ends_with("Config") {
-        installed_app
-            .rsplit_once('.')
-            .map_or(installed_app, |(module, _)| module)
-    } else {
-        installed_app
-    }
-}
