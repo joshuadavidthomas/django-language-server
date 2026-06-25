@@ -128,18 +128,18 @@ fn analyze_helper_cycle_recover(
 }
 
 fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctionDef> {
-    for stmt in body {
-        match stmt {
-            Stmt::FunctionDef(func) if func.name.as_str() == name => return Some(func),
-            Stmt::ClassDef(class) => {
-                if let Some(found) = find_function_def(&class.body, name) {
-                    return Some(found);
-                }
-            }
-            _ => {}
+    let mut found = None;
+    walk_stmts(body, Recurse::IntoClasses, |stmt| {
+        if let Stmt::FunctionDef(func) = stmt
+            && func.name.as_str() == name
+        {
+            found = Some(func);
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
-    None
+    });
+    found
 }
 
 /// Extract tag validation rules from a Python file, cached by Salsa.
