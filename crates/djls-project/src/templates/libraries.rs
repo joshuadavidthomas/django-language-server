@@ -1,49 +1,192 @@
 use std::collections::BTreeMap;
 
-use camino::Utf8PathBuf;
+use djls_source::WalkEntryKind;
+use djls_source::WalkOptions;
 
-use crate::settings::StaticKnowledge;
+use crate::db::Db as ProjectDb;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
-use crate::names::TemplateSymbolName;
+use crate::project::Project;
+use crate::settings::StaticKnowledge;
+use crate::settings::django_settings;
+use crate::settings::installed_app_package_module;
+use crate::settings::module_file;
+use crate::settings::package_dir;
+use crate::settings::settings_module_file;
 use crate::specs::TemplateSymbolKind;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SymbolDefinition {
-    Exact { file: Utf8PathBuf },
-    Module(PyModuleName),
-    LibraryFile(Utf8PathBuf),
-    Unknown,
-}
+use super::registrations::TemplateLibraryAnalysis;
+use super::symbols::TemplateSymbol;
 
-impl SymbolDefinition {
-    fn rank(&self) -> u8 {
-        match self {
-            Self::Exact { .. } => 3,
-            Self::Module(_) => 2,
-            Self::LibraryFile(_) => 1,
-            Self::Unknown => 0,
+const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
+    "django.template.defaulttags",
+    "django.template.defaultfilters",
+    "django.template.loader_tags",
+];
+
+#[salsa::tracked(returns(ref))]
+pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibraries {
+    project.touch_search_path_roots(db);
+
+    if settings_module_file(db, project).is_none() {
+        return TemplateLibraries::default();
+    }
+
+    let settings = django_settings(db, project);
+
+    let mut libraries = TemplateLibraries {
+        knowledge: match settings.installed_apps.knowledge {
+            StaticKnowledge::Known => StaticKnowledge::Known,
+            StaticKnowledge::Partial | StaticKnowledge::Unknown => StaticKnowledge::Partial,
+        },
+        ..TemplateLibraries::default()
+    };
+
+    if settings.templates.knowledge != StaticKnowledge::Known {
+        libraries.knowledge = libraries.knowledge.demoted_to_partial();
+    }
+
+    let (knowledge, discovered_libraries) = templatetag_package_libraries(db, project, "django");
+    libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+    for (load_name, library) in discovered_libraries {
+        libraries.insert_loadable(load_name, library);
+    }
+
+    if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
+        for installed_app in &settings.installed_apps.values {
+            let (knowledge, discovered_libraries) = templatetag_package_libraries(
+                db,
+                project,
+                installed_app_package_module(installed_app),
+            );
+            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+            for (load_name, library) in discovered_libraries {
+                libraries.insert_loadable(load_name, library);
+            }
         }
     }
-}
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateSymbol {
-    pub kind: TemplateSymbolKind,
-    pub name: TemplateSymbolName,
-    pub definition: SymbolDefinition,
-    pub doc: Option<String>,
-}
+    let backend_count = settings.templates.backends.len();
+    for backend in settings
+        .templates
+        .backends
+        .iter()
+        .filter(|backend| backend.is_django_templates_backend(backend_count))
+    {
+        libraries.knowledge = libraries.knowledge.weakened_by(backend.knowledge);
 
-impl TemplateSymbol {
-    #[must_use]
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+        for (load_name, module_path) in &backend.libraries {
+            let Ok(load_name) = LibraryName::parse(load_name) else {
+                libraries.knowledge = libraries.knowledge.demoted_to_partial();
+                continue;
+            };
+            let (knowledge, library) = library_from_module_path(db, project, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+            if let Some(library) = library {
+                libraries.insert_loadable(load_name, library);
+            }
+        }
+
+        for module_path in DEFAULT_TEMPLATE_BUILTINS
+            .iter()
+            .copied()
+            .chain(backend.builtins.iter().map(String::as_str))
+        {
+            let (knowledge, library) = library_from_module_path(db, project, module_path);
+            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
+            if let Some(library) = library {
+                libraries.push_builtin(library);
+            }
+        }
     }
 
-    #[must_use]
-    pub fn doc(&self) -> Option<&str> {
-        self.doc.as_deref()
+    libraries
+}
+
+fn templatetag_package_libraries(
+    db: &dyn ProjectDb,
+    project: Project,
+    package_module: &str,
+) -> (StaticKnowledge, Vec<(LibraryName, TemplateLibrary)>) {
+    let mut knowledge = StaticKnowledge::Known;
+    let mut libraries = Vec::new();
+
+    if package_module.is_empty() {
+        return (knowledge.demoted_to_partial(), libraries);
+    }
+
+    if PyModuleName::parse(package_module).is_err() {
+        return (knowledge.demoted_to_partial(), libraries);
+    }
+
+    let Some(package_dir) = package_dir(db, project, package_module) else {
+        return (knowledge.demoted_to_partial(), libraries);
+    };
+
+    let templatetags_dir = package_dir.join("templatetags");
+    if !db.path_is_file(&templatetags_dir.join("__init__.py")) {
+        return (knowledge, libraries);
+    }
+
+    let entries = match db.walk_entries(&templatetags_dir, &WalkOptions::shallow()) {
+        Ok(entries) => entries,
+        Err(err) => {
+            tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
+            return (knowledge.demoted_to_partial(), libraries);
+        }
+    };
+
+    for entry in entries {
+        if entry.kind != WalkEntryKind::File || entry.path.extension() != Some("py") {
+            continue;
+        }
+
+        let Some(stem) = entry.path.file_stem() else {
+            continue;
+        };
+        if stem.starts_with('_') {
+            continue;
+        }
+
+        let Ok(load_name) = LibraryName::parse(stem) else {
+            knowledge = knowledge.demoted_to_partial();
+            continue;
+        };
+        let module_path = format!("{package_module}.templatetags.{stem}");
+        let Ok(module) = PyModuleName::parse(&module_path) else {
+            knowledge = knowledge.demoted_to_partial();
+            continue;
+        };
+
+        let file = db.get_or_create_file(&entry.path);
+        let analysis = TemplateLibraryAnalysis::from_file(db, file);
+        if !analysis.defines_library && analysis.symbols.is_empty() {
+            continue;
+        }
+
+        let mut library = TemplateLibrary::new(module);
+        library.merge_symbols(analysis.symbols);
+        libraries.push((load_name, library));
+    }
+
+    (knowledge, libraries)
+}
+
+fn library_from_module_path(
+    db: &dyn ProjectDb,
+    project: Project,
+    module_path: &str,
+) -> (StaticKnowledge, Option<TemplateLibrary>) {
+    let Ok(module) = PyModuleName::parse(module_path) else {
+        return (StaticKnowledge::Partial, None);
+    };
+
+    let mut library = TemplateLibrary::new(module);
+    if let Some(file) = module_file(db, project, library.module().as_str()) {
+        library.merge_symbols(TemplateLibraryAnalysis::from_file(db, file).symbols);
+        (StaticKnowledge::Known, Some(library))
+    } else {
+        (StaticKnowledge::Partial, Some(library))
     }
 }
 
@@ -290,6 +433,8 @@ fn push_unique_module(modules: &mut Vec<PyModuleName>, module: PyModuleName) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::names::TemplateSymbolName;
+    use crate::templates::SymbolDefinition;
 
     fn module(name: &str) -> PyModuleName {
         PyModuleName::parse(name).unwrap()

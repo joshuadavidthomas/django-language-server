@@ -1,11 +1,18 @@
 mod inactive;
+mod libraries;
 mod origins;
 mod registrations;
+mod symbols;
 
 pub use inactive::InactiveLibraries;
 pub use inactive::InactiveLibrary;
 pub use inactive::inactive_template_libraries;
 pub(crate) use inactive::templatetag_candidate_paths;
+pub use libraries::InstalledSymbolCandidate;
+pub use libraries::InstalledSymbolOrigin;
+pub use libraries::TemplateLibraries;
+pub use libraries::TemplateLibrary;
+pub use libraries::template_libraries;
 pub use origins::FindTemplateResult;
 pub use origins::ProjectTemplateFile;
 pub use origins::ProjectTemplateFiles;
@@ -19,4 +26,7 @@ pub use origins::project_template_files;
 pub use origins::template_origins;
 pub use registrations::RegistrationInfo;
 pub use registrations::RegistrationKind;
+pub(crate) use registrations::TemplateLibraryAnalysis;
 pub use registrations::collect_registrations_from_body;
+pub use symbols::SymbolDefinition;
+pub use symbols::TemplateSymbol;

@@ -1,16 +1,24 @@
 use std::ops::ControlFlow;
 
+use djls_source::File;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::db::Db as ProjectDb;
+use crate::names::TemplateSymbolName;
+use crate::parse::parse_python_module;
+
+use super::symbols::SymbolDefinition;
+use super::symbols::TemplateSymbol;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];
@@ -343,6 +351,65 @@ fn callable_name(expr: &Expr) -> Option<String> {
             Some(format!("{base}.{}", attr.as_str()))
         }
         _ => None,
+    }
+}
+
+pub(crate) struct TemplateLibraryAnalysis {
+    pub(crate) defines_library: bool,
+    pub(crate) symbols: Vec<TemplateSymbol>,
+}
+
+impl TemplateLibraryAnalysis {
+    pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
+        let Some(parsed) = parse_python_module(db, file) else {
+            return Self {
+                defines_library: false,
+                symbols: Vec::new(),
+            };
+        };
+
+        let mut symbols = Vec::new();
+        for registration in collect_registrations_from_body(parsed.body(db)) {
+            let Ok(name) = TemplateSymbolName::parse(&registration.name) else {
+                continue;
+            };
+            let kind = registration.kind.symbol_kind();
+            symbols.push(TemplateSymbol {
+                kind,
+                name,
+                definition: SymbolDefinition::Exact {
+                    file: file.path(db).to_path_buf(),
+                },
+                doc: None,
+            });
+        }
+
+        Self {
+            defines_library: parsed.body(db).iter().any(Self::stmt_defines_library),
+            symbols,
+        }
+    }
+
+    fn stmt_defines_library(stmt: &Stmt) -> bool {
+        let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
+            return false;
+        };
+        if !targets
+            .iter()
+            .any(|target| target.name_target() == Some("register"))
+        {
+            return false;
+        }
+
+        let Expr::Call(ExprCall { func, .. }) = value.as_ref() else {
+            return false;
+        };
+        match func.as_ref() {
+            Expr::Attribute(ExprAttribute { value, attr, .. }) => {
+                attr.as_str() == "Library" && value.name_target() == Some("template")
+            }
+            expr => expr.name_target() == Some("Library"),
+        }
     }
 }
 

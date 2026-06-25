@@ -15,8 +15,8 @@ use crate::db::Db as ProjectDb;
 use crate::names::LibraryName;
 use crate::names::PyModuleName;
 use crate::project::Project;
-use crate::settings::TemplateLibraryAnalysis;
-use crate::settings::template_libraries;
+use crate::templates::TemplateLibraryAnalysis;
+use crate::templates::template_libraries;
 use crate::specs::TemplateSymbolKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

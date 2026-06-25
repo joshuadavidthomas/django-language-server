@@ -18,33 +18,10 @@ use std::collections::BTreeSet;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
-use djls_source::WalkEntryKind;
-use djls_source::WalkOptions;
-use ruff_python_ast::Expr;
-use ruff_python_ast::ExprAttribute;
-use ruff_python_ast::ExprCall;
-use ruff_python_ast::Stmt;
-use ruff_python_ast::StmtAssign;
 
-use crate::ast::ExprExt;
 use crate::db::Db as ProjectDb;
-use crate::templates::collect_registrations_from_body;
-use crate::names::LibraryName;
-use crate::names::PyModuleName;
-use crate::names::TemplateSymbolName;
-use crate::parse::parse_python_module;
 use crate::project::Project;
 use crate::resolve::module_file_in_search_path;
-use crate::symbols::SymbolDefinition;
-use crate::symbols::TemplateLibraries;
-use crate::symbols::TemplateLibrary;
-use crate::symbols::TemplateSymbol;
-
-const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
-    "django.template.defaulttags",
-    "django.template.defaultfilters",
-    "django.template.loader_tags",
-];
 
 #[salsa::tracked]
 pub fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Option<File> {
@@ -145,235 +122,6 @@ pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>,
     (dirs, knowledge)
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibraries {
-    let resolver = SalsaSettingsResolver { db, project };
-    project.touch_search_path_roots(db);
-
-    if settings_module_file(db, project).is_none() {
-        return TemplateLibraries::default();
-    }
-
-    let settings = django_settings(db, project);
-
-    let mut libraries = TemplateLibraries {
-        knowledge: match settings.installed_apps.knowledge {
-            StaticKnowledge::Known => StaticKnowledge::Known,
-            StaticKnowledge::Partial | StaticKnowledge::Unknown => StaticKnowledge::Partial,
-        },
-        ..TemplateLibraries::default()
-    };
-
-    if settings.templates.knowledge != StaticKnowledge::Known {
-        libraries.knowledge = libraries.knowledge.demoted_to_partial();
-    }
-
-    let (knowledge, discovered_libraries) = templatetag_package_libraries(&resolver, "django");
-    libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
-    for (load_name, library) in discovered_libraries {
-        libraries.insert_loadable(load_name, library);
-    }
-
-    if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
-        for installed_app in &settings.installed_apps.values {
-            let (knowledge, discovered_libraries) = templatetag_package_libraries(
-                &resolver,
-                installed_app_package_module(installed_app),
-            );
-            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
-            for (load_name, library) in discovered_libraries {
-                libraries.insert_loadable(load_name, library);
-            }
-        }
-    }
-
-    let backend_count = settings.templates.backends.len();
-    for backend in settings
-        .templates
-        .backends
-        .iter()
-        .filter(|backend| backend.is_django_templates_backend(backend_count))
-    {
-        libraries.knowledge = libraries.knowledge.weakened_by(backend.knowledge);
-
-        for (load_name, module_path) in &backend.libraries {
-            let Ok(load_name) = LibraryName::parse(load_name) else {
-                libraries.knowledge = libraries.knowledge.demoted_to_partial();
-                continue;
-            };
-            let (knowledge, library) = library_from_module_path(&resolver, module_path);
-            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
-            if let Some(library) = library {
-                libraries.insert_loadable(load_name, library);
-            }
-        }
-
-        for module_path in DEFAULT_TEMPLATE_BUILTINS
-            .iter()
-            .copied()
-            .chain(backend.builtins.iter().map(String::as_str))
-        {
-            let (knowledge, library) = library_from_module_path(&resolver, module_path);
-            libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
-            if let Some(library) = library {
-                libraries.push_builtin(library);
-            }
-        }
-    }
-
-    libraries
-}
-
-fn templatetag_package_libraries(
-    resolver: &SalsaSettingsResolver<'_>,
-    package_module: &str,
-) -> (StaticKnowledge, Vec<(LibraryName, TemplateLibrary)>) {
-    let mut knowledge = StaticKnowledge::Known;
-    let mut libraries = Vec::new();
-
-    if package_module.is_empty() {
-        return (knowledge.demoted_to_partial(), libraries);
-    }
-
-    if PyModuleName::parse(package_module).is_err() {
-        return (knowledge.demoted_to_partial(), libraries);
-    }
-
-    let Some(package_dir) = package_dir(resolver.db, resolver.project, package_module) else {
-        return (knowledge.demoted_to_partial(), libraries);
-    };
-
-    let templatetags_dir = package_dir.join("templatetags");
-    if !resolver
-        .db
-        .path_is_file(&templatetags_dir.join("__init__.py"))
-    {
-        return (knowledge, libraries);
-    }
-
-    let entries = match resolver
-        .db
-        .walk_entries(&templatetags_dir, &WalkOptions::shallow())
-    {
-        Ok(entries) => entries,
-        Err(err) => {
-            tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            return (knowledge.demoted_to_partial(), libraries);
-        }
-    };
-
-    for entry in entries {
-        if entry.kind != WalkEntryKind::File || entry.path.extension() != Some("py") {
-            continue;
-        }
-
-        let Some(stem) = entry.path.file_stem() else {
-            continue;
-        };
-        if stem.starts_with('_') {
-            continue;
-        }
-
-        let Ok(load_name) = LibraryName::parse(stem) else {
-            knowledge = knowledge.demoted_to_partial();
-            continue;
-        };
-        let module_path = format!("{package_module}.templatetags.{stem}");
-        let Ok(module) = PyModuleName::parse(&module_path) else {
-            knowledge = knowledge.demoted_to_partial();
-            continue;
-        };
-
-        let file = resolver.db.get_or_create_file(&entry.path);
-        let analysis = TemplateLibraryAnalysis::from_file(resolver.db, file);
-        if !analysis.defines_library && analysis.symbols.is_empty() {
-            continue;
-        }
-
-        let mut library = TemplateLibrary::new(module);
-        library.merge_symbols(analysis.symbols);
-        libraries.push((load_name, library));
-    }
-
-    (knowledge, libraries)
-}
-
-fn library_from_module_path(
-    resolver: &SalsaSettingsResolver<'_>,
-    module_path: &str,
-) -> (StaticKnowledge, Option<TemplateLibrary>) {
-    let Ok(module) = PyModuleName::parse(module_path) else {
-        return (StaticKnowledge::Partial, None);
-    };
-
-    let mut library = TemplateLibrary::new(module);
-    if let Some(file) = module_file(resolver.db, resolver.project, library.module().as_str()) {
-        library.merge_symbols(TemplateLibraryAnalysis::from_file(resolver.db, file).symbols);
-        (StaticKnowledge::Known, Some(library))
-    } else {
-        (StaticKnowledge::Partial, Some(library))
-    }
-}
-
-pub(crate) struct TemplateLibraryAnalysis {
-    pub(crate) defines_library: bool,
-    pub(crate) symbols: Vec<TemplateSymbol>,
-}
-
-impl TemplateLibraryAnalysis {
-    pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
-        let Some(parsed) = parse_python_module(db, file) else {
-            return Self {
-                defines_library: false,
-                symbols: Vec::new(),
-            };
-        };
-
-        let mut symbols = Vec::new();
-        for registration in collect_registrations_from_body(parsed.body(db)) {
-            let Ok(name) = TemplateSymbolName::parse(&registration.name) else {
-                continue;
-            };
-            let kind = registration.kind.symbol_kind();
-            symbols.push(TemplateSymbol {
-                kind,
-                name,
-                definition: SymbolDefinition::Exact {
-                    file: file.path(db).to_path_buf(),
-                },
-                doc: None,
-            });
-        }
-
-        Self {
-            defines_library: parsed.body(db).iter().any(Self::stmt_defines_library),
-            symbols,
-        }
-    }
-
-    fn stmt_defines_library(stmt: &Stmt) -> bool {
-        let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
-            return false;
-        };
-        if !targets
-            .iter()
-            .any(|target| target.name_target() == Some("register"))
-        {
-            return false;
-        }
-
-        let Expr::Call(ExprCall { func, .. }) = value.as_ref() else {
-            return false;
-        };
-        match func.as_ref() {
-            Expr::Attribute(ExprAttribute { value, attr, .. }) => {
-                attr.as_str() == "Library" && value.name_target() == Some("template")
-            }
-            expr => expr.name_target() == Some("Library"),
-        }
-    }
-}
-
 struct SalsaSettingsResolver<'db> {
     db: &'db dyn ProjectDb,
     project: Project,
@@ -416,7 +164,7 @@ impl SettingsSourceResolver for DiskSettingsResolver<'_> {
     }
 }
 
-fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
+pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
     project.touch_search_path_roots(db);
 
     for search_path in project.search_paths(db).iter() {
@@ -431,7 +179,7 @@ fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Optio
     None
 }
 
-fn package_dir(db: &dyn ProjectDb, project: Project, package_module: &str) -> Option<Utf8PathBuf> {
+pub(crate) fn package_dir(db: &dyn ProjectDb, project: Project, package_module: &str) -> Option<Utf8PathBuf> {
     if package_module.is_empty() {
         return None;
     }
@@ -519,7 +267,7 @@ impl ModuleFileParts {
     }
 }
 
-fn installed_app_package_module(installed_app: &str) -> &str {
+pub(crate) fn installed_app_package_module(installed_app: &str) -> &str {
     if let Some((module, _)) = installed_app.split_once(".apps.") {
         module
     } else if installed_app.ends_with("Config") {
