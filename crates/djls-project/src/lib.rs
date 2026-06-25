@@ -42,7 +42,7 @@ pub use settings::TemplateSettings;
 pub use settings::django_settings;
 pub use settings::extract_settings;
 pub use settings::settings_module_file;
-pub use settings::template_dirs;
+pub use templates::template_dirs;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
 pub use templates::BlockSpec;

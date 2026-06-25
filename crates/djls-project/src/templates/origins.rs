@@ -102,7 +102,7 @@ pub fn template_origins(db: &dyn ProjectDb, project: Project) -> TemplateOrigins
         db,
         ordered,
         first_by_template_name,
-        crate::settings::template_dirs(db, project).0.clone(),
+        crate::templates::template_dirs(db, project).0.clone(),
     )
 }
 
@@ -232,7 +232,7 @@ pub fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTe
         }
     }
 
-    let (search_dirs, _knowledge) = crate::settings::template_dirs(db, project);
+    let (search_dirs, _knowledge) = crate::templates::template_dirs(db, project);
     let mut templates = Vec::new();
     let walk_options = WalkOptions::unrestricted();
 

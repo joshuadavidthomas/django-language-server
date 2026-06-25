@@ -3,6 +3,7 @@ mod inactive;
 mod libraries;
 mod origins;
 mod registrations;
+mod settings;
 mod symbols;
 mod tags;
 
@@ -34,6 +35,7 @@ pub use registrations::RegistrationKind;
 pub(crate) use registrations::TemplateLibraryAnalysis;
 pub use registrations::collect_registrations_from_body;
 pub(crate) use registrations::for_each_registration;
+pub use settings::template_dirs;
 pub use symbols::SymbolDefinition;
 pub use symbols::SymbolKey;
 pub use symbols::TemplateSymbol;
