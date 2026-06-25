@@ -1,6 +1,5 @@
 mod analysis;
 mod blocks;
-mod models;
 mod registry;
 mod signature;
 mod types;
@@ -28,9 +27,6 @@ use crate::specs::analysis::calls::extract_return_value;
 use crate::specs::analysis::state::AbstractValue;
 use crate::specs::analysis::state::Env;
 use crate::specs::analysis::statements::process_statements;
-pub use crate::specs::models::compute_model_graph;
-pub use crate::specs::models::extract::extract_model_graph;
-pub use crate::specs::models::graph::ModelGraph;
 pub use crate::specs::types::ArgumentCountConstraint;
 pub use crate::specs::types::AsVar;
 pub use crate::specs::types::BlockSpec;

@@ -8,13 +8,13 @@ use rustc_hash::FxHashSet;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::models::graph::FieldName;
-use crate::specs::models::graph::ModelDef;
-use crate::specs::models::graph::ModelGraph;
-use crate::specs::models::graph::ModelKind;
-use crate::specs::models::graph::ModelName;
-use crate::specs::models::graph::Relation;
-use crate::specs::models::graph::RelationType;
+use crate::models::graph::FieldName;
+use crate::models::graph::ModelDef;
+use crate::models::graph::ModelGraph;
+use crate::models::graph::ModelKind;
+use crate::models::graph::ModelName;
+use crate::models::graph::Relation;
+use crate::models::graph::RelationType;
 
 /// Extract a model graph from Python source text.
 ///
