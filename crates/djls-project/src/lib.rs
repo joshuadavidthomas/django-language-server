@@ -25,7 +25,6 @@ pub use python::PythonModule;
 pub use python::PythonModulePath;
 pub use resolve::SearchPath;
 pub use resolve::SearchPaths;
-pub use resolve::discover_model_files;
 pub use resolve::model_modules;
 pub use resolve::templatetag_modules;
 pub use settings::DjangoSettings;

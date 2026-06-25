@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use divan::Bencher;
+use djls_bench::Db;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::model_fixtures;
 use djls_project::ModelGraph;
@@ -15,14 +16,27 @@ fn module_path(path: &str) -> PythonModulePath {
     PythonModulePath::parse(path).unwrap()
 }
 
+fn model_graph_from_source(
+    db: &mut Db,
+    path: impl Into<Utf8PathBuf>,
+    source: &str,
+    module_path: PythonModulePath,
+) -> ModelGraph {
+    let file = db.file_with_contents(path, source);
+    djls_project::extract_model_graph(db, file, module_path).clone()
+}
+
 // Batch extraction: all fixtures in one iteration
 
 #[divan::bench]
 fn extract(bencher: Bencher) {
     let fixtures = model_fixtures();
     bencher.bench_local(move || {
-        for fixture in fixtures {
-            divan::black_box(djls_project::extract_model_graph(
+        let mut db = Db::new();
+        for (index, fixture) in fixtures.iter().enumerate() {
+            divan::black_box(model_graph_from_source(
+                &mut db,
+                format!("/bench/models/extract/{index}.py"),
                 &fixture.source,
                 module_path("bench.models"),
             ));
@@ -35,9 +49,18 @@ fn extract(bencher: Bencher) {
 #[divan::bench]
 fn merge(bencher: Bencher) {
     let fixtures = model_fixtures();
+    let mut db = Db::new();
     let graphs: Vec<ModelGraph> = fixtures
         .iter()
-        .map(|f| djls_project::extract_model_graph(&f.source, module_path("bench.models")))
+        .enumerate()
+        .map(|(index, fixture)| {
+            model_graph_from_source(
+                &mut db,
+                format!("/bench/models/merge/{index}.py"),
+                &fixture.source,
+                module_path("bench.models"),
+            )
+        })
         .collect();
 
     bencher.bench_local(move || {
@@ -63,7 +86,13 @@ fn auth_graph() -> &'static ModelGraph {
             .iter()
             .find(|f| f.label == "medium_auth.py")
             .expect("medium_auth fixture missing");
-        djls_project::extract_model_graph(&auth.source, module_path("django.contrib.auth.models"))
+        let mut db = Db::new();
+        model_graph_from_source(
+            &mut db,
+            "/bench/models/auth.py",
+            &auth.source,
+            module_path("django.contrib.auth.models"),
+        )
     })
 }
 
@@ -169,9 +198,15 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
     bencher
         .counter(divan::counter::ItemsCount::new(file_count))
         .bench_local(move || {
+            let mut db = Db::new();
             let mut merged = ModelGraph::new();
-            for (source, module_path) in &corpus.files {
-                let graph = djls_project::extract_model_graph(source, module_path.clone());
+            for (index, (source, module_path)) in corpus.files.iter().enumerate() {
+                let graph = model_graph_from_source(
+                    &mut db,
+                    format!("/bench/models/corpus/{index}.py"),
+                    source,
+                    module_path.clone(),
+                );
                 merged.merge(graph);
             }
             divan::black_box(merged);

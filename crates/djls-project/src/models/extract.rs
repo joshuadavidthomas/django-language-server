@@ -1,13 +1,9 @@
-use std::ops::ControlFlow;
-
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
-use crate::ast::Recurse;
-use crate::ast::walk_stmts;
 use crate::models::graph::FieldName;
 use crate::models::graph::ModelDef;
 use crate::models::graph::ModelGraph;
@@ -17,39 +13,7 @@ use crate::models::graph::Relation;
 use crate::models::graph::RelationType;
 use crate::python::PythonModulePath;
 
-/// Extract a model graph from Python source text.
-///
-/// Parses the source with Ruff's Python parser, walks the AST to find
-/// `class Foo(models.Model):` definitions, extracts field declarations
-/// and relation metadata, and builds a graph of models and their
-/// relationships.
-///
-/// The `module_path` parameter is the dotted Python module path (e.g.,
-/// `"myapp.models"`) recorded on each extracted `ModelDef`.
-#[must_use]
-pub fn extract_model_graph(source: &str, module_path: PythonModulePath) -> ModelGraph {
-    let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-        return ModelGraph::default();
-    };
-    let module = parsed.into_syntax();
-    extract_model_graph_from_body(&module.body, source, module_path)
-}
-
-/// Extract a model graph from an already-parsed Python module body.
-pub(crate) fn extract_model_graph_from_body(
-    body: &[Stmt],
-    source: &str,
-    module_path: PythonModulePath,
-) -> ModelGraph {
-    let mut collector = ModelCollector::new(module_path, source);
-    walk_stmts(body, Recurse::Flat, |stmt| {
-        collector.scan_stmt(stmt);
-        ControlFlow::Continue(())
-    });
-    collector.finish()
-}
-
-struct ModelCollector<'a> {
+pub(super) struct ModelCollector<'a> {
     module_path: PythonModulePath,
     source: &'a str,
     aliases: ImportAliases,
@@ -58,7 +22,7 @@ struct ModelCollector<'a> {
 }
 
 impl<'a> ModelCollector<'a> {
-    fn new(module_path: PythonModulePath, source: &'a str) -> Self {
+    pub(super) fn new(module_path: PythonModulePath, source: &'a str) -> Self {
         Self {
             module_path,
             source,
@@ -68,7 +32,7 @@ impl<'a> ModelCollector<'a> {
         }
     }
 
-    fn finish(mut self) -> ModelGraph {
+    pub(super) fn finish(mut self) -> ModelGraph {
         resolve_children(
             &mut self.graph,
             &self.children,
@@ -78,7 +42,7 @@ impl<'a> ModelCollector<'a> {
         self.graph
     }
 
-    fn scan_stmt(&mut self, stmt: &'a Stmt) {
+    pub(super) fn scan_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::ImportFrom(import) => {
                 let Some(module) = import
@@ -466,7 +430,10 @@ mod tests {
     use super::*;
 
     fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
-        super::extract_model_graph(source, PythonModulePath::parse(module_path).unwrap())
+        super::super::extract_model_graph_impl(
+            source,
+            PythonModulePath::parse(module_path).unwrap(),
+        )
     }
 
     #[test]

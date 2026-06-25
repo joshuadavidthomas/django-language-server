@@ -182,7 +182,7 @@ pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> 
         };
 
         let search_path_len = search_path.path().as_str().len();
-        for (module_path, file_path) in discover_model_files_excluding(
+        for (module_path, file_path) in discover_model_files_in_root(
             db.file_system(),
             search_path.path(),
             search_path.root_kind(),
@@ -283,20 +283,11 @@ pub fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonMo
     modules.into_iter().map(|(_index, module)| module).collect()
 }
 
-/// Discover Django model source files and return their resolved module paths.
+/// Discover Django model source files under one Python search root.
 ///
 /// Finds `models.py` files and `.py` files inside `models/` packages
 /// (directories with `__init__.py`) without reading file contents.
-#[must_use]
-pub fn discover_model_files(
-    fs: &dyn FileSystem,
-    base_dir: &Utf8Path,
-    root_kind: FileRootKind,
-) -> Vec<(PythonModulePath, Utf8PathBuf)> {
-    discover_model_files_excluding(fs, base_dir, root_kind, &[])
-}
-
-fn discover_model_files_excluding(
+fn discover_model_files_in_root(
     fs: &dyn FileSystem,
     base_dir: &Utf8Path,
     root_kind: FileRootKind,

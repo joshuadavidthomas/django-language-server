@@ -1,13 +1,16 @@
 mod extract;
 mod graph;
 
+use std::ops::ControlFlow;
+
 use djls_source::File;
-pub use extract::extract_model_graph;
+use djls_source::FileKind;
 pub use graph::ModelGraph;
 
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::db::Db;
-use crate::models::extract::extract_model_graph_from_body;
-use crate::parse::parse_python_module;
+use crate::models::extract::ModelCollector;
 use crate::project::Project;
 use crate::python::PythonModulePath;
 use crate::resolve::model_modules;
@@ -20,8 +23,7 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
     // `ModelGraph::merge` is last-wins. Iterate search paths in reverse so
     // earlier Python search paths keep normal import precedence.
     for module in model_modules(db, project).iter().rev() {
-        let model_graph =
-            extract_model_graph_from_file(db, module.file(), module.module_path().clone());
+        let model_graph = extract_model_graph(db, module.file(), module.module_path().clone());
         if !model_graph.is_empty() {
             graph.merge(model_graph.clone());
         }
@@ -30,16 +32,34 @@ pub fn compute_model_graph(db: &dyn Db, project: Project) -> ModelGraph {
     graph
 }
 
+/// Extract a model graph from one Python file, cached by Salsa.
+///
+/// This is a separate query from `compute_model_graph` so project-wide graph
+/// recomputation can reuse unchanged per-file graphs.
 #[salsa::tracked(returns(ref))]
-fn extract_model_graph_from_file(
-    db: &dyn Db,
+pub fn extract_model_graph(
+    db: &dyn djls_source::Db,
     file: File,
     module_path: PythonModulePath,
 ) -> ModelGraph {
     let source = file.source(db);
-    let Some(parsed) = parse_python_module(db, file) else {
+    if *source.kind() != FileKind::Python {
+        return ModelGraph::default();
+    }
+
+    extract_model_graph_impl(source.as_ref(), module_path)
+}
+
+fn extract_model_graph_impl(source: &str, module_path: PythonModulePath) -> ModelGraph {
+    let Ok(parsed) = ruff_python_parser::parse_module(source) else {
         return ModelGraph::default();
     };
 
-    extract_model_graph_from_body(parsed.body(db), source.as_ref(), module_path)
+    let module = parsed.into_syntax();
+    let mut collector = ModelCollector::new(module_path, source);
+    walk_stmts(&module.body, Recurse::Flat, |stmt| {
+        collector.scan_stmt(stmt);
+        ControlFlow::Continue(())
+    });
+    collector.finish()
 }
