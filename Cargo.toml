@@ -20,7 +20,7 @@ djls-templates = { path = "crates/djls-templates" }
 djls-testing = { path = "crates/djls-testing" }
 
 # core deps, pin exact versions
-salsa = "0.26.1"
+salsa = "0.27.0"
 tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
 
 annotate-snippets = "0.12"
