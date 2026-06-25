@@ -1,10 +1,13 @@
+use std::ops::ControlFlow;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
-use ruff_python_ast::statement_visitor::StatementVisitor;
 use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
+use crate::ast::Recurse;
+use crate::ast::walk_stmts;
 use crate::specs::models::graph::FieldName;
 use crate::specs::models::graph::ModelDef;
 use crate::specs::models::graph::ModelGraph;
@@ -38,7 +41,10 @@ pub(crate) fn extract_model_graph_from_body(
     module_path: &str,
 ) -> ModelGraph {
     let mut collector = ModelCollector::new(module_path, source);
-    collector.visit_body(body);
+    walk_stmts(body, Recurse::Flat, |stmt| {
+        collector.scan_stmt(stmt);
+        ControlFlow::Continue(())
+    });
     collector.finish()
 }
 
@@ -70,10 +76,8 @@ impl<'a> ModelCollector<'a> {
         );
         self.graph
     }
-}
 
-impl<'a> StatementVisitor<'a> for ModelCollector<'a> {
-    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+    fn scan_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::ImportFrom(import) => {
                 let Some(module) = import
