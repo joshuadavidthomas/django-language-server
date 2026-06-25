@@ -1,6 +1,6 @@
-use crate::specs::types::ArgumentCountConstraint;
-use crate::specs::types::ChoiceAt;
-use crate::specs::types::RequiredKeyword;
+use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::ChoiceAt;
+use crate::templates::tags::types::RequiredKeyword;
 
 /// Constraints on a template tag call inferred from Python parser code.
 ///

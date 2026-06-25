@@ -6,11 +6,11 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtRaise;
 
 use crate::ast::ExprExt;
-use crate::specs::analysis::expressions::eval_expr;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::types::ExtractedMessageArg;
-use crate::specs::types::ExtractedMessageTemplate;
+use crate::templates::tags::analysis::expressions::eval_expr;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::types::ExtractedMessageArg;
+use crate::templates::tags::types::ExtractedMessageTemplate;
 
 /// Return the exception expression from the first direct `raise` in a statement body.
 ///

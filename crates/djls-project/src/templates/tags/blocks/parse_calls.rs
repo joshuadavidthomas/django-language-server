@@ -10,10 +10,10 @@ use ruff_python_ast::StmtIf;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::blocks::extract_string_sequence;
-use crate::specs::blocks::is_parser_receiver;
-use crate::specs::blocks::is_token_contents_expr;
-use crate::specs::types::BlockSpec;
+use crate::templates::tags::blocks::extract_string_sequence;
+use crate::templates::tags::blocks::is_parser_receiver;
+use crate::templates::tags::blocks::is_token_contents_expr;
+use crate::templates::tags::types::BlockSpec;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.
 ///

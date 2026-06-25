@@ -9,7 +9,7 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
-use crate::specs::types::BlockSpec;
+use crate::templates::tags::types::BlockSpec;
 
 /// Extract a block spec from a tag's compile function.
 ///
@@ -131,7 +131,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::specs::testing::django_function;
+    use crate::templates::tags::testing::django_function;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");

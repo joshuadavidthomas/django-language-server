@@ -1,9 +1,13 @@
+use djls_source::File;
 use ruff_python_ast::StmtFunctionDef;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::names::ModulePath;
+use crate::parse::parse_python_module;
 use crate::templates::SymbolKey;
+use crate::templates::for_each_registration;
 
 pub type FilterArityMap = FxHashMap<SymbolKey, FilterArity>;
 
@@ -17,6 +21,32 @@ pub struct FilterArity {
     pub expects_arg: bool,
     /// Whether the argument is optional (has a default value).
     pub arg_optional: bool,
+}
+
+/// Extract filter arities from a Python file, cached by Salsa.
+///
+/// This domain-specific query lets filter argument validation depend only on
+/// filter signature extraction.
+#[salsa::tracked(returns(ref))]
+pub fn extract_filter_arities(
+    db: &dyn djls_source::Db,
+    file: File,
+    registration_module: ModulePath,
+) -> FilterArityMap {
+    let Some(parsed) = parse_python_module(db, file) else {
+        return FilterArityMap::default();
+    };
+
+    let registration_module = registration_module.into_string();
+    let mut filter_arities = FilterArityMap::default();
+
+    for_each_registration(parsed.body(db), &registration_module, |reg, func, key| {
+        if let Some(arity) = reg.kind.extract_filter_arity(func) {
+            filter_arities.insert(key, arity);
+        }
+    });
+
+    filter_arities
 }
 
 /// Extract filter argument arity from a filter function's signature.
@@ -83,8 +113,8 @@ pub(crate) fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::specs::testing::django_function;
-    use crate::specs::testing::find_function_in_source;
+    use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::testing::find_function_in_source;
 
     #[test]
     fn filter_arity_no_arg() {

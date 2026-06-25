@@ -5,17 +5,17 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 
 use crate::ast::ExprExt;
-use crate::specs::analysis::AnalysisResult;
-use crate::specs::analysis::CallContext;
-use crate::specs::analysis::expressions::eval_expr;
-use crate::specs::analysis::expressions::eval_expr_with_ctx;
-use crate::specs::analysis::match_arms::extract_match_constraints;
-use crate::specs::analysis::mutations::apply_pop_mutation;
-use crate::specs::analysis::mutations::try_extract_option_loop;
-use crate::specs::analysis::mutations::try_extract_pop_call;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::types::SplitPosition;
+use crate::templates::tags::analysis::AnalysisResult;
+use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::expressions::eval_expr;
+use crate::templates::tags::analysis::expressions::eval_expr_with_ctx;
+use crate::templates::tags::analysis::match_arms::extract_match_constraints;
+use crate::templates::tags::analysis::mutations::apply_pop_mutation;
+use crate::templates::tags::analysis::mutations::try_extract_option_loop;
+use crate::templates::tags::analysis::mutations::try_extract_pop_call;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::types::SplitPosition;
 
 /// Process a list of statements, updating the environment and returning
 /// accumulated analysis results.
@@ -59,7 +59,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
 
         Stmt::If(stmt_if) => {
             result.extend(
-                crate::specs::analysis::guards::extract_from_if_inline(stmt_if, env).into(),
+                crate::templates::tags::analysis::guards::extract_from_if_inline(stmt_if, env).into(),
             );
 
             // Collect body results separately so we can discard conditional
@@ -293,11 +293,11 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::specs::analysis::state::AbstractValue;
-    use crate::specs::analysis::state::Env;
-    use crate::specs::analysis::state::TokenSplit;
-    use crate::specs::testing::django_function;
-    use crate::specs::types::SplitPosition;
+    use crate::templates::tags::analysis::state::AbstractValue;
+    use crate::templates::tags::analysis::state::Env;
+    use crate::templates::tags::analysis::state::TokenSplit;
+    use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::types::SplitPosition;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");
@@ -817,7 +817,7 @@ def do_tag(parser, token):
         );
     }
 
-    fn analyze(source: &str) -> crate::specs::types::TagRule {
+    fn analyze(source: &str) -> crate::templates::tags::types::TagRule {
         let parsed = parse_module(source).expect("valid Python");
         let module = parsed.into_syntax();
         let func = module
@@ -831,11 +831,11 @@ def do_tag(parser, token):
                 }
             })
             .expect("no function found");
-        crate::specs::analysis::analyze_compile_function(&func)
+        crate::templates::tags::analysis::analyze_compile_function(&func)
     }
 
-    fn analyze_func(func: &StmtFunctionDef) -> crate::specs::types::TagRule {
-        crate::specs::analysis::analyze_compile_function(func)
+    fn analyze_func(func: &StmtFunctionDef) -> crate::templates::tags::types::TagRule {
+        crate::templates::tags::analysis::analyze_compile_function(func)
     }
 
     // Fabricated: simple option loop without duplicate check. No corpus
@@ -942,7 +942,7 @@ def do_tag(parser, token):
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints
-                .contains(&crate::specs::types::ArgumentCountConstraint::OneOf(vec![
+                .contains(&crate::templates::tags::types::ArgumentCountConstraint::OneOf(vec![
                     2, 3
                 ])),
             "expected OneOf([2, 3]), got {:?}",
@@ -959,7 +959,7 @@ def do_tag(parser, token):
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints
-                .contains(&crate::specs::types::ArgumentCountConstraint::Exact(2)),
+                .contains(&crate::templates::tags::types::ArgumentCountConstraint::Exact(2)),
             "expected Exact(2), got {:?}",
             rule.arg_constraints
         );
@@ -1001,7 +1001,7 @@ def do_tag(parser, token):
         );
         assert!(
             rule.arg_constraints
-                .contains(&crate::specs::types::ArgumentCountConstraint::Min(1)),
+                .contains(&crate::templates::tags::types::ArgumentCountConstraint::Min(1)),
             "expected Min(1), got {:?}",
             rule.arg_constraints
         );
@@ -1026,7 +1026,7 @@ def do_tag(parser, token):
         );
         assert!(
             rule.arg_constraints
-                .contains(&crate::specs::types::ArgumentCountConstraint::OneOf(vec![
+                .contains(&crate::templates::tags::types::ArgumentCountConstraint::OneOf(vec![
                     2, 4
                 ])),
             "expected OneOf([2, 4]), got {:?}",
@@ -1076,7 +1076,7 @@ def do_tag(parser, token):
             !rule
                 .arg_constraints
                 .iter()
-                .any(|c| matches!(c, crate::specs::types::ArgumentCountConstraint::Min(_))),
+                .any(|c| matches!(c, crate::templates::tags::types::ArgumentCountConstraint::Min(_))),
             "wildcard should override variable min to 0 (no Min constraint), got {:?}",
             rule.arg_constraints
         );
@@ -1102,7 +1102,7 @@ def do_tag(parser, token):
         // With min=0, no Min constraint should be emitted.
         assert!(
             !rule.arg_constraints.iter().any(
-                |c| matches!(c, crate::specs::types::ArgumentCountConstraint::Min(m) if *m > 0)
+                |c| matches!(c, crate::templates::tags::types::ArgumentCountConstraint::Min(m) if *m > 0)
             ),
             "non-error wildcard should prevent Min constraint > 0, got {:?}",
             rule.arg_constraints

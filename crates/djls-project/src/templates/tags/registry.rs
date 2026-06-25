@@ -1,11 +1,11 @@
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::specs::analysis;
-use crate::specs::blocks;
-use crate::specs::signature;
-use crate::specs::types::AsVar;
-use crate::specs::types::BlockSpec;
-use crate::specs::types::TagRule;
+use crate::templates::tags::analysis;
+use crate::templates::tags::blocks;
+use crate::templates::tags::signature;
+use crate::templates::tags::types::AsVar;
+use crate::templates::tags::types::BlockSpec;
+use crate::templates::tags::types::TagRule;
 use crate::templates::FilterArity;
 use crate::templates::RegistrationKind;
 use crate::templates::TemplateSymbolKind;

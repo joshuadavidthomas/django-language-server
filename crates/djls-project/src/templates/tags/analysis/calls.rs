@@ -6,12 +6,12 @@ use ruff_python_ast::Stmt;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::HelperCall;
-use crate::specs::analysis::CallContext;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::analysis::state::TokenSplit;
-use crate::specs::analyze_helper;
+use crate::templates::tags::HelperCall;
+use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::analysis::state::TokenSplit;
+use crate::templates::tags::analyze_helper;
 
 /// A hashable representation of `AbstractValue` for Salsa interned keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,7 +20,7 @@ pub(crate) enum AbstractValueKey {
     Token,
     Parser,
     SplitResult(TokenSplit),
-    SplitElement(crate::specs::types::SplitPosition),
+    SplitElement(crate::templates::tags::types::SplitPosition),
     SplitLength(TokenSplit),
     Int(i64),
     Str(String),
@@ -99,7 +99,7 @@ pub(crate) fn extract_return_value(body: &[Stmt], env: &mut Env) -> AbstractValu
     walk_stmts(body, Recurse::WithinScope, |stmt| {
         if let Stmt::Return(ret) = stmt {
             let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
-                crate::specs::analysis::expressions::eval_expr(expr, env)
+                crate::templates::tags::analysis::expressions::eval_expr(expr, env)
             });
             returns.push(value);
         }
@@ -145,10 +145,10 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::specs::analysis::CallContext;
-    use crate::specs::analysis::statements::process_statements;
-    use crate::specs::testing::ALLAUTH_SOURCE;
-    use crate::specs::types::SplitPosition;
+    use crate::templates::tags::analysis::CallContext;
+    use crate::templates::tags::analysis::statements::process_statements;
+    use crate::templates::tags::testing::ALLAUTH_SOURCE;
+    use crate::templates::tags::types::SplitPosition;
 
     #[salsa::db]
     #[derive(Clone)]

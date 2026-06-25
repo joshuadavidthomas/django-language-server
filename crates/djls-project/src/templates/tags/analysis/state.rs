@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::specs::types::SplitPosition;
+use crate::templates::tags::types::SplitPosition;
 
 /// Tracks how a `token.split_contents()` result has been mutated.
 ///

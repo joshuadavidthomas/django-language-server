@@ -21,17 +21,17 @@ use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
-use crate::specs::analysis::constraints::ExtractedTagConstraints;
-use crate::specs::analysis::guards::ExtractedRuleFragment;
-use crate::specs::types::ArgumentCountConstraint;
-use crate::specs::types::AsVar;
-use crate::specs::types::ExtractedDiagnosticMessage;
-use crate::specs::types::KnownOptions;
-use crate::specs::types::RequiredKeyword;
-use crate::specs::types::SplitPosition;
-use crate::specs::types::TagArgument;
-use crate::specs::types::TagArgumentKind;
-use crate::specs::types::TagRule;
+use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
+use crate::templates::tags::analysis::guards::ExtractedRuleFragment;
+use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::AsVar;
+use crate::templates::tags::types::ExtractedDiagnosticMessage;
+use crate::templates::tags::types::KnownOptions;
+use crate::templates::tags::types::RequiredKeyword;
+use crate::templates::tags::types::SplitPosition;
+use crate::templates::tags::types::TagArgument;
+use crate::templates::tags::types::TagArgumentKind;
+use crate::templates::tags::types::TagRule;
 
 /// Call-resolution context for the analysis.
 ///
@@ -272,7 +272,7 @@ fn extract_arg_names(
 
     for (name, value) in env.iter() {
         if let state::AbstractValue::SplitElement {
-            index: crate::specs::types::SplitPosition::Forward(pos),
+            index: crate::templates::tags::types::SplitPosition::Forward(pos),
         } = value
         {
             // Skip position 0 (tag name) and skip parser/token params

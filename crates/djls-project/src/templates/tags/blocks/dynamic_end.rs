@@ -15,8 +15,8 @@ use ruff_python_ast::StmtReturn;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::blocks::is_parser_receiver;
-use crate::specs::types::BlockSpec;
+use crate::templates::tags::blocks::is_parser_receiver;
+use crate::templates::tags::types::BlockSpec;
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.
 ///

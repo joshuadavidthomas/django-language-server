@@ -3,11 +3,11 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
-use crate::specs::types::ArgumentCountConstraint;
-use crate::specs::types::AsVar;
-use crate::specs::types::TagArgument;
-use crate::specs::types::TagArgumentKind;
-use crate::specs::types::TagRule;
+use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::AsVar;
+use crate::templates::tags::types::TagArgument;
+use crate::templates::tags::types::TagArgumentKind;
+use crate::templates::tags::types::TagRule;
 
 /// Extract rules from a `simple_tag` or `inclusion_tag` function signature.
 ///
@@ -117,8 +117,8 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::specs::testing::django_function;
-    use crate::specs::testing::find_function_in_source;
+    use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::testing::find_function_in_source;
 
     // Corpus: `no_params` in custom.py — `def no_params():`
     // No params → only Max constraint

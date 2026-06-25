@@ -9,9 +9,9 @@ use ruff_python_ast::StmtAssign;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::blocks::dynamic_end;
-use crate::specs::blocks::is_token_contents_expr;
-use crate::specs::types::BlockSpec;
+use crate::templates::tags::blocks::dynamic_end;
+use crate::templates::tags::blocks::is_token_contents_expr;
+use crate::templates::tags::types::BlockSpec;
 
 /// Detect block structure from `parser.next_token()` loop patterns.
 ///

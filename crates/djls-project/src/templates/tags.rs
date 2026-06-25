@@ -17,32 +17,29 @@ use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::names::ModulePath;
 use crate::parse::parse_python_module;
-use crate::specs::analysis::CallContext;
-use crate::specs::analysis::calls::AbstractValueKey;
-use crate::specs::analysis::calls::extract_return_value;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::analysis::statements::process_statements;
-pub use crate::specs::types::ArgumentCountConstraint;
-pub use crate::specs::types::AsVar;
-pub use crate::specs::types::BlockSpec;
-pub use crate::specs::types::BlockSpecs;
-pub use crate::specs::types::ChoiceAt;
-pub use crate::specs::types::ExtractedDiagnosticConstraint;
-pub use crate::specs::types::ExtractedDiagnosticMessage;
-pub use crate::specs::types::ExtractedMessageArg;
-pub use crate::specs::types::ExtractedMessageTemplate;
-pub use crate::specs::types::KnownOptions;
-pub use crate::specs::types::RequiredKeyword;
-pub use crate::specs::types::SplitPosition;
-pub use crate::specs::types::TagArgument;
-pub use crate::specs::types::TagArgumentKind;
-pub use crate::specs::types::TagRule;
-pub use crate::specs::types::TagRuleMap;
-use crate::templates::FilterArityMap;
-use crate::templates::RegistrationInfo;
-use crate::templates::SymbolKey;
-use crate::templates::collect_registrations_from_body;
+use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::calls::AbstractValueKey;
+use crate::templates::tags::analysis::calls::extract_return_value;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::analysis::statements::process_statements;
+pub use crate::templates::tags::types::ArgumentCountConstraint;
+pub use crate::templates::tags::types::AsVar;
+pub use crate::templates::tags::types::BlockSpec;
+pub use crate::templates::tags::types::BlockSpecs;
+pub use crate::templates::tags::types::ChoiceAt;
+pub use crate::templates::tags::types::ExtractedDiagnosticConstraint;
+pub use crate::templates::tags::types::ExtractedDiagnosticMessage;
+pub use crate::templates::tags::types::ExtractedMessageArg;
+pub use crate::templates::tags::types::ExtractedMessageTemplate;
+pub use crate::templates::tags::types::KnownOptions;
+pub use crate::templates::tags::types::RequiredKeyword;
+pub use crate::templates::tags::types::SplitPosition;
+pub use crate::templates::tags::types::TagArgument;
+pub use crate::templates::tags::types::TagArgumentKind;
+pub use crate::templates::tags::types::TagRule;
+pub use crate::templates::tags::types::TagRuleMap;
+use crate::templates::for_each_registration;
 
 /// Interned key for a helper function call.
 ///
@@ -160,30 +157,6 @@ pub fn extract_tag_rules(
     })
 }
 
-/// Extract filter arities from a Python file, cached by Salsa.
-///
-/// This domain-specific query lets filter argument validation depend only on
-/// filter signature extraction.
-#[salsa::tracked(returns(ref))]
-pub fn extract_filter_arities(
-    db: &dyn djls_source::Db,
-    file: File,
-    registration_module: ModulePath,
-) -> FilterArityMap {
-    with_parsed_body(db, file, |body| {
-        let registration_module = registration_module.into_string();
-        let mut filter_arities = FilterArityMap::default();
-
-        for_each_registration(body, &registration_module, |reg, func, key| {
-            if let Some(arity) = reg.kind.extract_filter_arity(func) {
-                filter_arities.insert(key, arity);
-            }
-        });
-
-        filter_arities
-    })
-}
-
 /// Extract block specs from a Python file, cached by Salsa.
 ///
 /// This domain-specific query lets structural tag validation depend on block
@@ -222,35 +195,6 @@ fn with_parsed_body<M: Default>(
     f(parsed.body(db))
 }
 
-fn for_each_registration(
-    body: &[Stmt],
-    module_path: &str,
-    mut f: impl FnMut(&RegistrationInfo, &StmtFunctionDef, SymbolKey),
-) {
-    let registrations = collect_registrations_from_body(body);
-    let func_defs = collect_func_defs(body);
-
-    for reg in &registrations {
-        let Some(func) = reg.func_name.as_deref().and_then(|name| {
-            func_defs
-                .iter()
-                .find(|func| func.name.as_str() == name)
-                .copied()
-        }) else {
-            continue;
-        };
-
-        let kind = reg.kind;
-        let key = SymbolKey {
-            registration_module: module_path.to_string(),
-            name: reg.name.clone(),
-            kind: kind.symbol_kind(),
-        };
-
-        f(reg, func, key);
-    }
-}
-
 fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option<BlockSpec> {
     block_spec.map(|mut block_spec| {
         if block_spec.end_tag.is_none() {
@@ -260,24 +204,13 @@ fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option
     })
 }
 
-/// Recursively collect all function definitions from a module body.
-fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
-    let mut defs = Vec::new();
-    walk_stmts(body, Recurse::IntoClasses, |stmt| {
-        if let Stmt::FunctionDef(func) = stmt {
-            defs.push(func);
-        }
-        ControlFlow::Continue(())
-    });
-    defs
-}
-
 #[cfg(test)]
 mod tests {
     use ruff_python_parser::parse_module;
 
-    use super::*;
+    use crate::templates::RegistrationInfo;
     use crate::templates::RegistrationKind;
+    use crate::templates::collect_registrations_from_body;
 
     #[test]
     fn registry_collection_is_reachable_from_python_module() {

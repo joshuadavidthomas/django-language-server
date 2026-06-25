@@ -12,10 +12,10 @@ use ruff_python_ast::StmtWhile;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::analysis::exceptions::direct_raise_exception;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::types::KnownOptions;
+use crate::templates::tags::analysis::exceptions::direct_raise_exception;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::types::KnownOptions;
 
 /// Info about a `bits.pop(...)` call for mutation tracking.
 pub(super) struct PopInfo {

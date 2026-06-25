@@ -10,12 +10,12 @@ use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Number;
 
 use crate::ast::ExprExt;
-use crate::specs::analysis::CallContext;
-use crate::specs::analysis::calls::resolve_call;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::analysis::state::TokenSplit;
-use crate::specs::types::SplitPosition;
+use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::calls::resolve_call;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::analysis::state::TokenSplit;
+use crate::templates::tags::types::SplitPosition;
 
 /// Evaluate a Python expression against the abstract environment.
 ///

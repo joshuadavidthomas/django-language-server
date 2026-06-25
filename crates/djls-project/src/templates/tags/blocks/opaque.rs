@@ -9,8 +9,8 @@ use ruff_python_ast::StmtAssign;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::blocks::is_parser_receiver;
-use crate::specs::types::BlockSpec;
+use crate::templates::tags::blocks::is_parser_receiver;
+use crate::templates::tags::types::BlockSpec;
 
 /// Detect opaque block patterns: `parser.skip_past("endtag")`.
 pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {

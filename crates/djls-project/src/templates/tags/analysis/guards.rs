@@ -16,17 +16,17 @@ use ruff_python_ast::StmtIf;
 use ruff_python_ast::UnaryOp;
 
 use crate::ast::ExprExt;
-use crate::specs::analysis::constraints::ExtractedTagConstraints;
-use crate::specs::analysis::exceptions::direct_raise_exception;
-use crate::specs::analysis::exceptions::extract_exception_message;
-use crate::specs::analysis::expressions::eval_expr;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::types::ArgumentCountConstraint;
-use crate::specs::types::ChoiceAt;
-use crate::specs::types::ExtractedDiagnosticConstraint;
-use crate::specs::types::ExtractedDiagnosticMessage;
-use crate::specs::types::RequiredKeyword;
+use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
+use crate::templates::tags::analysis::exceptions::direct_raise_exception;
+use crate::templates::tags::analysis::exceptions::extract_exception_message;
+use crate::templates::tags::analysis::expressions::eval_expr;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::ChoiceAt;
+use crate::templates::tags::types::ExtractedDiagnosticConstraint;
+use crate::templates::tags::types::ExtractedDiagnosticMessage;
+use crate::templates::tags::types::RequiredKeyword;
 
 /// Rule fragments contributed by one or more raising guards.
 #[derive(Debug, Clone, Default)]
@@ -381,14 +381,14 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::specs::analysis::AnalysisResult;
-    use crate::specs::analysis::CallContext;
-    use crate::specs::analysis::state::Env;
-    use crate::specs::analysis::statements::process_statements;
-    use crate::specs::testing::django_function;
-    use crate::specs::types::ExtractedMessageArg;
-    use crate::specs::types::ExtractedMessageTemplate;
-    use crate::specs::types::SplitPosition;
+    use crate::templates::tags::analysis::AnalysisResult;
+    use crate::templates::tags::analysis::CallContext;
+    use crate::templates::tags::analysis::state::Env;
+    use crate::templates::tags::analysis::statements::process_statements;
+    use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::types::ExtractedMessageArg;
+    use crate::templates::tags::types::ExtractedMessageTemplate;
+    use crate::templates::tags::types::SplitPosition;
 
     fn extract_from_source(source: &str) -> ExtractedTagConstraints {
         extract_result_from_source(source).constraints

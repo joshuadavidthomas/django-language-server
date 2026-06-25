@@ -11,6 +11,7 @@ use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
 use super::symbols::SymbolDefinition;
+use super::symbols::SymbolKey;
 use super::symbols::TemplateSymbol;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
@@ -61,6 +62,47 @@ pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
         ControlFlow::Continue(())
     });
     registrations
+}
+
+pub(crate) fn for_each_registration(
+    body: &[Stmt],
+    module_path: &str,
+    mut f: impl FnMut(&RegistrationInfo, &StmtFunctionDef, SymbolKey),
+) {
+    let registrations = collect_registrations_from_body(body);
+    let func_defs = collect_func_defs(body);
+
+    for reg in &registrations {
+        let Some(func) = reg.func_name.as_deref().and_then(|name| {
+            func_defs
+                .iter()
+                .find(|func| func.name.as_str() == name)
+                .copied()
+        }) else {
+            continue;
+        };
+
+        let kind = reg.kind;
+        let key = SymbolKey {
+            registration_module: module_path.to_string(),
+            name: reg.name.clone(),
+            kind: kind.symbol_kind(),
+        };
+
+        f(reg, func, key);
+    }
+}
+
+/// Recursively collect all function definitions from a module body.
+fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
+    let mut defs = Vec::new();
+    walk_stmts(body, Recurse::IntoClasses, |stmt| {
+        if let Stmt::FunctionDef(func) = stmt {
+            defs.push(func);
+        }
+        ControlFlow::Continue(())
+    });
+    defs
 }
 
 /// Extract registrations from a decorated function definition.
@@ -415,12 +457,12 @@ impl TemplateLibraryAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::specs::testing::CUSTOM_SOURCE;
-    use crate::specs::testing::DEFAULTFILTERS_SOURCE;
-    use crate::specs::testing::DEFAULTTAGS_SOURCE;
-    use crate::specs::testing::INCLUSION_SOURCE;
-    use crate::specs::testing::TESTTAGS_SOURCE;
-    use crate::specs::testing::WAGTAILADMIN_TAGS_SOURCE;
+    use crate::templates::tags::testing::CUSTOM_SOURCE;
+    use crate::templates::tags::testing::DEFAULTFILTERS_SOURCE;
+    use crate::templates::tags::testing::DEFAULTTAGS_SOURCE;
+    use crate::templates::tags::testing::INCLUSION_SOURCE;
+    use crate::templates::tags::testing::TESTTAGS_SOURCE;
+    use crate::templates::tags::testing::WAGTAILADMIN_TAGS_SOURCE;
 
     fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
         let parsed = ruff_python_parser::parse_module(source).expect("valid Python");

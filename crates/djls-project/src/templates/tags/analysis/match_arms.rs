@@ -12,13 +12,13 @@ use ruff_python_ast::StmtMatch;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::specs::analysis::constraints::ExtractedTagConstraints;
-use crate::specs::analysis::expressions::eval_expr;
-use crate::specs::analysis::state::AbstractValue;
-use crate::specs::analysis::state::Env;
-use crate::specs::types::ArgumentCountConstraint;
-use crate::specs::types::RequiredKeyword;
-use crate::specs::types::SplitPosition;
+use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
+use crate::templates::tags::analysis::expressions::eval_expr;
+use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::RequiredKeyword;
+use crate::templates::tags::types::SplitPosition;
 
 /// Extract argument constraints from a match statement whose subject is a `SplitResult`.
 ///
