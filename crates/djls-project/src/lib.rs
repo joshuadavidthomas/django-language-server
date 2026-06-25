@@ -1,6 +1,5 @@
 mod ast;
 mod db;
-mod environment;
 mod extraction;
 mod names;
 mod parse;
@@ -16,9 +15,9 @@ mod templates;
 
 pub use ast::ExprExt;
 pub use db::Db;
-pub use environment::InactiveLibraries;
-pub use environment::InactiveLibrary;
-pub use environment::inactive_template_libraries;
+pub use templates::InactiveLibraries;
+pub use templates::InactiveLibrary;
+pub use templates::inactive_template_libraries;
 pub use extraction::DjangoSettings;
 pub use extraction::InstalledAppsSetting;
 pub use extraction::RegistrationInfo;
