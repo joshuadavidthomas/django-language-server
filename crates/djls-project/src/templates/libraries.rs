@@ -15,7 +15,7 @@ use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::templates::TemplateSymbolKind;
-use crate::templates::guess_django_app_package_module_from_installed_apps_entry_until_apps_are_modeled;
+use crate::templates::guess_package_module_from_installed_app_entry;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -56,9 +56,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             let (knowledge, discovered_libraries) = templatetag_package_libraries(
                 db,
                 project,
-                guess_django_app_package_module_from_installed_apps_entry_until_apps_are_modeled(
-                    installed_app,
-                ),
+                guess_package_module_from_installed_app_entry(installed_app),
             );
             libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
             for (load_name, library) in discovered_libraries {
