@@ -1,13 +1,14 @@
+mod dirs;
 pub(crate) mod filters;
 mod inactive;
 mod libraries;
 mod names;
 mod origins;
 mod registrations;
-mod settings;
 mod symbols;
 mod tags;
 
+pub use dirs::template_dirs;
 pub use filters::FilterArity;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;
@@ -39,7 +40,6 @@ pub use registrations::RegistrationKind;
 pub(crate) use registrations::TemplateLibraryAnalysis;
 pub use registrations::collect_registrations_from_body;
 pub(crate) use registrations::for_each_registration;
-pub use settings::template_dirs;
 pub use symbols::SymbolDefinition;
 pub use symbols::SymbolKey;
 pub use symbols::TemplateSymbol;
@@ -63,9 +63,7 @@ pub use tags::TagRuleMap;
 pub use tags::extract_block_specs;
 pub use tags::extract_tag_rules;
 
-fn guess_django_app_package_module_from_installed_apps_entry_until_apps_are_modeled(
-    entry: &str,
-) -> &str {
+fn guess_package_module_from_installed_app_entry(entry: &str) -> &str {
     if let Some((module, _)) = entry.split_once(".apps.") {
         module
     } else if entry.ends_with("Config") {
