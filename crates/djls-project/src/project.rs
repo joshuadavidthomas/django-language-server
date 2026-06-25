@@ -155,7 +155,7 @@ impl Project {
     }
 }
 
-pub fn load_env_file(
+pub(crate) fn load_env_file(
     fs: &dyn FileSystem,
     root: &Utf8Path,
     settings: &Settings,
