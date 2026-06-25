@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileRootKind;
@@ -739,145 +738,69 @@ fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
 }
 
 #[test]
-fn discover_external_model_files_finds_models() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+fn model_modules_finds_models_py_without_inspecting_contents() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/emptyapp/models.py", "# no models here\n")
+        .build(&db);
 
-    let app_dir = root.join("myapp");
-    std::fs::create_dir_all(&app_dir).unwrap();
-    std::fs::write(
-        app_dir.join("models.py"),
-        r"
-from django.db import models
-
-class Article(models.Model):
-title = models.CharField(max_length=200)
-author = models.ForeignKey('auth.User', on_delete=models.CASCADE)
-",
-    )
-    .unwrap();
-
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0.as_str(), "myapp.models");
-    assert!(results[0].1.ends_with("models.py"));
+    let modules = model_modules(&db, project);
+    assert_eq!(modules.len(), 1);
+    assert_eq!(modules[0].module_path().as_str(), "emptyapp.models");
+    assert!(modules[0].path().ends_with("models.py"));
 }
 
 #[test]
-fn discover_external_model_files_finds_files_without_inspecting_contents() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-    let app_dir = root.join("emptyapp");
-    std::fs::create_dir_all(&app_dir).unwrap();
-    std::fs::write(app_dir.join("models.py"), "# no models here\n").unwrap();
-
-    // Discovery finds the file (it doesn't inspect contents)
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0.as_str(), "emptyapp.models");
-}
-
-#[test]
-fn discover_external_model_files_nested_apps() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-    for app in &["blog", "accounts"] {
-        let app_dir = root.join(app);
-        std::fs::create_dir_all(&app_dir).unwrap();
-        std::fs::write(
-            app_dir.join("models.py"),
-            format!(
-                "from django.db import models\nclass {name}Model(models.Model):\n    pass\n",
-                name = app.chars().next().unwrap().to_uppercase().to_string() + &app[1..]
-            ),
+fn model_modules_finds_nested_apps() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/blog/models.py",
+            "from django.db import models\nclass BlogModel(models.Model):\n    pass\n",
         )
-        .unwrap();
-    }
+        .file(
+            "/project/accounts/models.py",
+            "from django.db import models\nclass AccountsModel(models.Model):\n    pass\n",
+        )
+        .build(&db);
 
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
-    assert_eq!(results.len(), 2);
-    let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+    let modules = model_modules(&db, project);
+    assert_eq!(modules.len(), 2);
+    let module_paths: Vec<&str> = modules
+        .iter()
+        .map(|module| module.module_path().as_str())
+        .collect();
     assert!(module_paths.contains(&"blog.models"));
     assert!(module_paths.contains(&"accounts.models"));
 }
 
 #[test]
-fn discover_model_files_workspace_finds_models() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+fn model_modules_finds_models_package_files() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/myapp/models/__init__.py",
+            "from .user import User\nfrom .order import Order\n",
+        )
+        .file(
+            "/project/myapp/models/user.py",
+            "from django.db import models\nclass User(models.Model):\n    pass\n",
+        )
+        .file(
+            "/project/myapp/models/order.py",
+            "from django.db import models\nclass Order(models.Model):\n    user = models.ForeignKey(User, on_delete=models.CASCADE)\n",
+        )
+        .build(&db);
 
-    let app_dir = root.join("myapp");
-    std::fs::create_dir_all(&app_dir).unwrap();
-    std::fs::write(
-        app_dir.join("models.py"),
-        "from django.db import models\nclass Foo(models.Model): pass\n",
-    )
-    .unwrap();
-
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0.as_str(), "myapp.models");
-    assert!(results[0].1.ends_with("models.py"));
-}
-
-#[test]
-fn discover_external_model_files_package() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-    let models_dir = root.join("myapp/models");
-    std::fs::create_dir_all(&models_dir).unwrap();
-    std::fs::write(
-        models_dir.join("__init__.py"),
-        "from .user import User\nfrom .order import Order\n",
-    )
-    .unwrap();
-    std::fs::write(
-        models_dir.join("user.py"),
-        "from django.db import models\nclass User(models.Model):\n    pass\n",
-    )
-    .unwrap();
-    std::fs::write(
-        models_dir.join("order.py"),
-        "from django.db import models\nclass Order(models.Model):\n    user = models.ForeignKey(User, on_delete=models.CASCADE)\n",
-    )
-    .unwrap();
-
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
-    // Discovers all three files (including __init__.py)
-    assert_eq!(results.len(), 3);
-    let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+    let modules = model_modules(&db, project);
+    assert_eq!(modules.len(), 3);
+    let module_paths: Vec<&str> = modules
+        .iter()
+        .map(|module| module.module_path().as_str())
+        .collect();
     assert!(module_paths.contains(&"myapp.models"));
     assert!(module_paths.contains(&"myapp.models.user"));
     assert!(module_paths.contains(&"myapp.models.order"));
-}
-
-#[test]
-fn discover_workspace_models_package() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-    let models_dir = root.join("myapp/models");
-    std::fs::create_dir_all(&models_dir).unwrap();
-    std::fs::write(models_dir.join("__init__.py"), "").unwrap();
-    std::fs::write(
-        models_dir.join("user.py"),
-        "from django.db import models\nclass User(models.Model): pass\n",
-    )
-    .unwrap();
-
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
-    let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
-    assert!(
-        module_paths.contains(&"myapp.models"),
-        "should discover __init__.py as myapp.models"
-    );
-    assert!(
-        module_paths.contains(&"myapp.models.user"),
-        "should discover user.py as myapp.models.user"
-    );
 }
 
 #[test]
@@ -895,45 +818,22 @@ fn module_path_from_submodule() {
 }
 
 #[test]
-fn discover_workspace_models_nested_package() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+fn model_modules_finds_nested_models_package_files() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/myapp/models/__init__.py", "")
+        .file("/project/myapp/models/base/__init__.py", "")
+        .file(
+            "/project/myapp/models/base/abstract.py",
+            "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
+        )
+        .build(&db);
 
-    let base_dir = root.join("myapp/models/base");
-    std::fs::create_dir_all(&base_dir).unwrap();
-    std::fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
-    std::fs::write(base_dir.join("__init__.py"), "").unwrap();
-    std::fs::write(
-        base_dir.join("abstract.py"),
-        "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
-    )
-    .unwrap();
-
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::Project);
-    let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
-    assert!(
-        module_paths.contains(&"myapp.models.base.abstract"),
-        "should discover nested model files: got {module_paths:?}"
-    );
-}
-
-#[test]
-fn discover_external_model_files_nested_package() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-    let base_dir = root.join("myapp/models/base");
-    std::fs::create_dir_all(&base_dir).unwrap();
-    std::fs::write(root.join("myapp/models/__init__.py"), "").unwrap();
-    std::fs::write(base_dir.join("__init__.py"), "").unwrap();
-    std::fs::write(
-        base_dir.join("abstract.py"),
-        "from django.db import models\nclass BaseModel(models.Model):\n    class Meta:\n        abstract = True\n",
-    )
-    .unwrap();
-
-    let results = discover_model_files(&djls_source::OsFileSystem, &root, FileRootKind::SearchPath);
-    let module_paths: Vec<&str> = results.iter().map(|(m, _)| m.as_str()).collect();
+    let modules = model_modules(&db, project);
+    let module_paths: Vec<&str> = modules
+        .iter()
+        .map(|module| module.module_path().as_str())
+        .collect();
     assert!(
         module_paths.contains(&"myapp.models.base.abstract"),
         "should discover nested model files: got {module_paths:?}"

@@ -1301,4 +1301,92 @@ def my_filter(value, arg):
             "compute_model_graph should NOT re-execute on second call (cached)"
         );
     }
+
+    #[test]
+    fn model_graph_reuses_unchanged_file_graphs_after_one_model_changes() {
+        let event_log = EventLog::default();
+        let settings = Settings::default();
+        let root = Utf8PathBuf::from("/test/project");
+        let first_model_path = root.join("app1/models.py");
+        let second_model_path = root.join("app2/models.py");
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(
+                first_model_path.clone(),
+                "from django.db import models\nclass First(models.Model):\n    pass\n".to_string(),
+            );
+            fs.add_file(
+                second_model_path,
+                "from django.db import models\nclass Second(models.Model):\n    pass\n".to_string(),
+            );
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, &root, &settings);
+        db.project = Some(project);
+
+        let graph = db.model_graph();
+        assert!(graph.get("First").is_some());
+        assert!(graph.get("Second").is_some());
+        let events = event_log.take();
+        let extracted_graph_count = events
+            .iter()
+            .filter(|event| match &event.kind {
+                salsa::EventKind::WillExecute { database_key } => {
+                    let name = db.ingredient_debug_name(database_key.ingredient_index());
+                    name.contains("extract_model_graph")
+                }
+                _ => false,
+            })
+            .count();
+        assert_eq!(
+            extracted_graph_count, 2,
+            "both model files should be extracted on first model graph computation"
+        );
+
+        let first_model = db.get_or_create_file(&first_model_path);
+        fs.lock().unwrap().add_file(
+            first_model_path,
+            "from django.db import models\nclass FirstRenamed(models.Model):\n    pass\n"
+                .to_string(),
+        );
+        db.bump_file_revision(first_model);
+
+        let graph = db.model_graph();
+        assert!(graph.get("First").is_none());
+        assert!(graph.get("FirstRenamed").is_some());
+        assert!(graph.get("Second").is_some());
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_model_graph"),
+            "the aggregate model graph should re-run after one model file changes"
+        );
+        let extracted_graph_count = events
+            .iter()
+            .filter(|event| match &event.kind {
+                salsa::EventKind::WillExecute { database_key } => {
+                    let name = db.ingredient_debug_name(database_key.ingredient_index());
+                    name.contains("extract_model_graph")
+                }
+                _ => false,
+            })
+            .count();
+        assert_eq!(
+            extracted_graph_count, 1,
+            "only the changed model file should re-run extraction"
+        );
+    }
 }

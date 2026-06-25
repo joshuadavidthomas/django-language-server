@@ -1,7 +1,7 @@
 //! Corpus model extraction snapshot tests.
 //!
-//! Runs `extract_model_graph` against every `models.py` in the corpus
-//! and snapshots the result. Each file gets its own snapshot.
+//! Runs the model graph extraction query against every `models.py` in the
+//! corpus and snapshots the result. Each file gets its own snapshot.
 //!
 //! # Running
 //!
@@ -21,6 +21,7 @@
 use djls_project::PythonModulePath;
 use djls_project::extract_model_graph;
 use djls_testing::Corpus;
+use djls_testing::TestDatabase;
 use djls_testing::module_path_from_file;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
@@ -39,14 +40,17 @@ fn model_extraction_snapshots() {
     assert!(!targets.is_empty(), "No model files in corpus.");
 
     let _guard = snapshot_dir();
+    let db = TestDatabase::new();
 
     for path in targets {
         let source = std::fs::read_to_string(path.as_std_path()).unwrap();
+        db.add_file(path.as_str(), &source);
+        let file = db.get_or_create_file(&path);
         let module_path = module_path_from_file(&path);
         let Ok(module_path) = PythonModulePath::parse(&module_path) else {
             continue;
         };
-        let graph = extract_model_graph(&source, module_path);
+        let graph = extract_model_graph(&db, file, module_path);
 
         // Skip files that produce no models — they're likely just
         // re-exports or empty __init__-style modules
