@@ -2,11 +2,11 @@ use camino::Utf8PathBuf;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
 use crate::settings::TemplateDirPath;
 use crate::settings::django_settings;
 use crate::settings::installed_app_package_module;
-use crate::settings::package_dir;
 
 #[salsa::tracked(returns(ref))]
 pub fn template_dirs(db: &dyn ProjectDb, project: Project) -> (Vec<Utf8PathBuf>, StaticKnowledge) {

@@ -9,11 +9,11 @@ use super::symbols::TemplateSymbol;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModulePath;
+use crate::resolve::module_file;
+use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::installed_app_package_module;
-use crate::settings::module_file;
-use crate::settings::package_dir;
 use crate::settings::settings_module_file;
 use crate::templates::TemplateSymbolKind;
 

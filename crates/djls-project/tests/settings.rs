@@ -151,6 +151,33 @@ fn django_settings_resolves_relative_star_imports() {
 }
 
 #[test]
+fn django_settings_resolves_relative_star_imports_from_package_module() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings/base.py",
+                "INSTALLED_APPS = ['django.contrib.auth']\n",
+            ),
+            (
+                "/proj/myproject/settings/__init__.py",
+                "from .base import *\nINSTALLED_APPS += ['blog']\n",
+            ),
+        ],
+    );
+
+    let settings = django_settings(&db, project);
+
+    assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
+    assert_eq!(
+        settings.installed_apps.values,
+        vec!["django.contrib.auth".to_string(), "blog".to_string()]
+    );
+}
+
+#[test]
 fn django_settings_recovers_from_star_import_cycle() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
