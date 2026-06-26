@@ -56,15 +56,6 @@ impl<'a> TemplateString<'a> {
         })
     }
 
-    #[cfg(test)]
-    #[must_use]
-    fn raw(self) -> &'a str {
-        match self {
-            Self::Quoted(value) => value.raw,
-            Self::Unquoted(raw) => raw,
-        }
-    }
-
     #[must_use]
     pub fn value(self) -> &'a str {
         match self {
@@ -77,15 +68,6 @@ impl<'a> TemplateString<'a> {
     pub fn quoted_value(self) -> Option<&'a str> {
         match self {
             Self::Quoted(value) => Some(value.value),
-            Self::Unquoted(_) => None,
-        }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    fn quote(self) -> Option<Quote> {
-        match self {
-            Self::Quoted(value) => Some(value.quote),
             Self::Unquoted(_) => None,
         }
     }
@@ -210,46 +192,53 @@ pub(crate) fn split_on_whitespace_with_offsets(s: &str) -> Vec<SplitPiece<'_>> {
     pieces
 }
 
-/// Split `s` on whitespace while respecting quoted regions (with escape handling).
-///
-/// Returns owned strings for each whitespace-delimited token.
-#[cfg(test)]
-fn split_on_whitespace(s: &str) -> Vec<String> {
-    split_on_whitespace_with_offsets(s)
-        .into_iter()
-        .map(|piece| piece.text.to_owned())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn split_on_whitespace(s: &str) -> Vec<String> {
+        split_on_whitespace_with_offsets(s)
+            .into_iter()
+            .map(|piece| piece.text.to_owned())
+            .collect()
+    }
 
     #[test]
     fn template_string_recognizes_single_quoted_values() {
         let value = TemplateString::parse("'images/logo.png'");
 
-        assert_eq!(value.raw(), "'images/logo.png'");
+        assert_eq!(
+            value,
+            TemplateString::Quoted(QuotedTemplateString {
+                raw: "'images/logo.png'",
+                value: "images/logo.png",
+                quote: Quote::Single,
+            })
+        );
         assert_eq!(value.value(), "images/logo.png");
-        assert_eq!(value.quote(), Some(Quote::Single));
     }
 
     #[test]
     fn template_string_recognizes_double_quoted_values() {
         let value = TemplateString::parse(r#""base.html""#);
 
-        assert_eq!(value.raw(), r#""base.html""#);
+        assert_eq!(
+            value,
+            TemplateString::Quoted(QuotedTemplateString {
+                raw: r#""base.html""#,
+                value: "base.html",
+                quote: Quote::Double,
+            })
+        );
         assert_eq!(value.value(), "base.html");
-        assert_eq!(value.quote(), Some(Quote::Double));
     }
 
     #[test]
     fn template_string_leaves_bare_values_unquoted() {
         let value = TemplateString::parse("user.name");
 
-        assert_eq!(value.raw(), "user.name");
+        assert_eq!(value, TemplateString::Unquoted("user.name"));
         assert_eq!(value.value(), "user.name");
-        assert_eq!(value.quote(), None);
     }
 
     #[test]
