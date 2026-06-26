@@ -34,7 +34,7 @@ pub use crate::tagspecs::TagSpecDef;
 pub use crate::tagspecs::TagTypeDef;
 
 #[must_use]
-pub fn project_dirs() -> Option<ProjectDirs> {
+fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "djls")
 }
 
@@ -166,11 +166,6 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn debug(&self) -> bool {
-        self.debug
-    }
-
-    #[must_use]
     pub fn venv_path(&self) -> Option<&str> {
         self.venv_path.as_deref()
     }
@@ -180,8 +175,9 @@ impl Settings {
         self.django_settings_module.as_deref()
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
+    fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
         &self.django_environments
     }
 

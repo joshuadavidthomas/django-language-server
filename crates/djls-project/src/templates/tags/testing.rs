@@ -9,15 +9,15 @@ use ruff_python_ast::StmtFunctionDef;
 use ruff_python_parser::parse_module;
 
 pub(crate) const ALLAUTH_SOURCE: &str = include_str!("testdata/allauth_tags.py");
-pub(crate) const ADMIN_URLS_SOURCE: &str = include_str!("testdata/django_admin_urls.py");
+const ADMIN_URLS_SOURCE: &str = include_str!("testdata/django_admin_urls.py");
 pub(crate) const CUSTOM_SOURCE: &str = include_str!("testdata/django_custom.py");
 pub(crate) const DEFAULTFILTERS_SOURCE: &str = include_str!("testdata/django_defaultfilters.py");
 pub(crate) const DEFAULTTAGS_SOURCE: &str = include_str!("testdata/django_defaulttags.py");
-pub(crate) const I18N_SOURCE: &str = include_str!("testdata/django_i18n.py");
+const I18N_SOURCE: &str = include_str!("testdata/django_i18n.py");
 pub(crate) const INCLUSION_SOURCE: &str = include_str!("testdata/django_inclusion.py");
-pub(crate) const LOADER_TAGS_SOURCE: &str = include_str!("testdata/django_loader_tags.py");
+const LOADER_TAGS_SOURCE: &str = include_str!("testdata/django_loader_tags.py");
 pub(crate) const TESTTAGS_SOURCE: &str = include_str!("testdata/django_testtags.py");
-pub(crate) const TZ_SOURCE: &str = include_str!("testdata/django_tz.py");
+const TZ_SOURCE: &str = include_str!("testdata/django_tz.py");
 pub(crate) const WAGTAILADMIN_TAGS_SOURCE: &str = include_str!("testdata/wagtailadmin_tags.py");
 
 /// Find a function definition by name in Python source.

@@ -63,7 +63,7 @@ impl LoadKind {
     ///
     /// Returns `None` for non-`load` tags or malformed load bits.
     #[must_use]
-    pub fn from_tag(name: &str, bits: &[TagBit]) -> Option<Self> {
+    pub(crate) fn from_tag(name: &str, bits: &[TagBit]) -> Option<Self> {
         if name != "load" {
             return None;
         }
@@ -154,7 +154,7 @@ pub(crate) struct LoadState<'a> {
 impl LoadState<'_> {
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn is_fully_loaded(&self, library: &str) -> bool {
+    fn is_fully_loaded(&self, library: &str) -> bool {
         self.fully_loaded.contains(library)
     }
 
@@ -169,13 +169,13 @@ impl LoadState<'_> {
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn fully_loaded_libraries(&self) -> &HashSet<&str> {
+    fn fully_loaded_libraries(&self) -> &HashSet<&str> {
         &self.fully_loaded
     }
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn selective_imports(&self) -> &HashMap<&str, HashSet<&str>> {
+    fn selective_imports(&self) -> &HashMap<&str, HashSet<&str>> {
         &self.selective
     }
 }

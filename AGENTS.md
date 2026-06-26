@@ -39,7 +39,7 @@ Keep db/Salsa-backed tests in `crates/*/tests/`. Inline `src/` `#[cfg(test)]` mo
 - `djls-source`: files, filesystem access/discovery, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
 
-Run `just hawk` when changing public APIs, moving code across crates, or cleaning up visibility. Review findings against crate responsibilities before using `--fix`.
+Run `just hawk` when changing public APIs, moving code across crates, or cleaning up visibility. It is compile-intensive and may run multiple Cargo analysis passes. Review visibility findings against crate responsibilities before using `--fix`; run normal lint/test checks afterward for dead-code cleanup.
 
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.

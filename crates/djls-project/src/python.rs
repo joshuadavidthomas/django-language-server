@@ -126,6 +126,7 @@ impl Interpreter {
             .map(|dir| project_root.join(dir))
     }
 
+    #[cfg(test)]
     fn python_executable_in_venv(venv: &Utf8Path) -> Utf8PathBuf {
         #[cfg(unix)]
         {
@@ -138,8 +139,9 @@ impl Interpreter {
     }
 
     /// Resolve to the actual Python executable path
+    #[cfg(test)]
     #[must_use]
-    pub fn python_path(&self, fs: &dyn FileSystem, project_root: &Utf8Path) -> Option<Utf8PathBuf> {
+    fn python_path(&self, fs: &dyn FileSystem, project_root: &Utf8Path) -> Option<Utf8PathBuf> {
         match self {
             Self::InterpreterPath(path) => {
                 let path_buf = Utf8PathBuf::from(path);

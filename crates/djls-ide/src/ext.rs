@@ -35,7 +35,7 @@ impl OutlineKindExt for djls_semantic::OutlineKind {
     }
 }
 
-pub(crate) trait OffsetExt {
+trait OffsetExt {
     fn to_lsp_position(&self, line_index: &LineIndex) -> ls_types::Position;
 
     fn to_lsp_position_with_encoding(
@@ -157,7 +157,7 @@ impl CompletionCandidateExt for CompletionCandidate {
     }
 }
 
-pub(crate) trait CompletionCandidateKindExt {
+trait CompletionCandidateKindExt {
     fn to_lsp_completion_kind(self) -> ls_types::CompletionItemKind;
 }
 
@@ -180,7 +180,7 @@ impl CompletionCandidateKindExt for CompletionCandidateKind {
     }
 }
 
-pub(crate) trait CompletionEditExt {
+trait CompletionEditExt {
     fn to_lsp_completion_text_edit(
         &self,
         source: &str,
@@ -204,7 +204,7 @@ impl CompletionEditExt for CompletionEdit {
     }
 }
 
-pub(crate) trait CompletionInsertFormatExt {
+trait CompletionInsertFormatExt {
     fn to_lsp_insert_text_format(self) -> ls_types::InsertTextFormat;
 }
 
@@ -233,7 +233,7 @@ impl Utf8PathExt for Utf8PathBuf {
     }
 }
 
-pub(crate) trait FoldingRangeKindExt {
+trait FoldingRangeKindExt {
     fn to_lsp_kind(self) -> ls_types::FoldingRangeKind;
 }
 

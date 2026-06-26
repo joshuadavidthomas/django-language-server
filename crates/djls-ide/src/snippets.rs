@@ -4,7 +4,7 @@ use djls_semantic::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of tag arguments.
 #[must_use]
-pub(crate) fn generate_snippet_from_args(args: &[TagArgument]) -> String {
+fn generate_snippet_from_args(args: &[TagArgument]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
 
@@ -46,7 +46,7 @@ pub(crate) fn generate_snippet_from_args(args: &[TagArgument]) -> String {
 
 /// Generate a complete LSP snippet for a tag including the tag name
 #[must_use]
-pub(crate) fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
+fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
     let args = spec.arguments();
 
     let args_snippet = generate_snippet_from_args(&args);

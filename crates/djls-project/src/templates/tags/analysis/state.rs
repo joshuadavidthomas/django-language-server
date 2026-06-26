@@ -74,7 +74,7 @@ impl TokenSplit {
     /// The number of elements removed from the front.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn front_offset(&self) -> usize {
+    fn front_offset(&self) -> usize {
         self.front_offset
     }
 
@@ -87,7 +87,7 @@ impl TokenSplit {
     /// Total offset (front + back) for length adjustment.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn total_offset(&self) -> usize {
+    fn total_offset(&self) -> usize {
         self.front_offset + self.back_offset
     }
 }

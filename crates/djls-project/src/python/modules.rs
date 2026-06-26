@@ -46,7 +46,7 @@ impl PythonModulePath {
         Ok(Self(trimmed.to_string()))
     }
 
-    pub fn from_relative_package(path: &Utf8Path) -> Result<Self, InvalidModulePath> {
+    pub(crate) fn from_relative_package(path: &Utf8Path) -> Result<Self, InvalidModulePath> {
         if path.is_absolute() {
             return Err(InvalidModulePath::IsAbsolute(path.to_string()));
         }
@@ -77,7 +77,7 @@ impl PythonModulePath {
     }
 
     #[must_use]
-    pub fn into_string(self) -> String {
+    pub(crate) fn into_string(self) -> String {
         self.0
     }
 }

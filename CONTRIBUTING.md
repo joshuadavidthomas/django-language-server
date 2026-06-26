@@ -67,7 +67,11 @@ Run Hawk through `just` rather than `cargo hawk` directly:
 just hawk
 ```
 
-The recipe pins `+1.95.0` and isolates Hawk's target cache to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+The recipe pins `+1.95.0` and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+
+A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
+
+The `just hawk` recipe keeps rustc dead-code and unused-import warnings quiet so the output stays focused on visibility. After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
 
 ### Profiling
 

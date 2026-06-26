@@ -141,7 +141,7 @@ impl AvailableSymbols {
 
     /// Check whether a tag name is available at this position.
     #[must_use]
-    pub fn check_tag(&self, tag_name: &str) -> SymbolAvailability {
+    pub(crate) fn check_tag(&self, tag_name: &str) -> SymbolAvailability {
         self.tags.check(tag_name)
     }
 
@@ -156,7 +156,7 @@ impl AvailableSymbols {
 
     /// Check whether a filter name is available at this position.
     #[must_use]
-    pub fn check_filter(&self, filter_name: &str) -> SymbolAvailability {
+    pub(crate) fn check_filter(&self, filter_name: &str) -> SymbolAvailability {
         self.filters.check(filter_name)
     }
 }

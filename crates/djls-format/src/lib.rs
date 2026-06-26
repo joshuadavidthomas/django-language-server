@@ -59,7 +59,7 @@ impl IndentWidth {
     const MAX: u8 = 16;
 
     #[must_use]
-    pub(crate) const fn value(self) -> u8 {
+    const fn value(self) -> u8 {
         self.0.get()
     }
 }

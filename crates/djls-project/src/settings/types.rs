@@ -16,7 +16,7 @@ pub enum StaticKnowledge {
 
 impl StaticKnowledge {
     #[must_use]
-    pub fn weakened_by(self, other: Self) -> Self {
+    pub(crate) fn weakened_by(self, other: Self) -> Self {
         match (self, other) {
             (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
             (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
@@ -25,7 +25,7 @@ impl StaticKnowledge {
     }
 
     #[must_use]
-    pub fn demoted_to_partial(self) -> Self {
+    pub(crate) fn demoted_to_partial(self) -> Self {
         match self {
             Self::Known | Self::Partial => Self::Partial,
             Self::Unknown => Self::Unknown,
@@ -159,7 +159,7 @@ pub(crate) struct TemplateBackend {
     pub(crate) libraries: Vec<(String, String)>,
     pub(crate) builtins: Vec<String>,
     pub(crate) knowledge: StaticKnowledge,
-    pub(crate) reasons: Vec<Reason>,
+    reasons: Vec<Reason>,
 }
 
 impl Default for TemplateBackend {

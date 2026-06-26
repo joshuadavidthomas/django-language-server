@@ -35,10 +35,10 @@ use djls_source::SourceFiles;
 #[derive(Clone)]
 pub struct DjangoDatabase {
     /// File system for reading file content (checks buffers first, then disk).
-    pub(crate) fs: Arc<dyn FileSystem>,
+    fs: Arc<dyn FileSystem>,
 
     /// Registry of tracked files used by the workspace layer.
-    pub(crate) files: SourceFiles,
+    files: SourceFiles,
 
     /// The single project for this database instance.
     ///
@@ -49,17 +49,17 @@ pub struct DjangoDatabase {
     /// construction; reloads mutate fields via Salsa setters through
     /// `Project::reload_from_settings`. Same invariant as ty's
     /// `ProjectDatabase` (`ty_project/src/db.rs`).
-    pub(crate) project: Option<Project>,
+    project: Option<Project>,
 
     /// Configuration settings for the language server
     pub(crate) settings: Arc<Mutex<Settings>>,
 
-    pub(crate) storage: salsa::Storage<Self>,
+    storage: salsa::Storage<Self>,
 
     // The logs are only used for testing and demonstrating reuse:
     #[cfg(test)]
     #[allow(dead_code)]
-    pub(crate) logs: Arc<Mutex<Option<Vec<String>>>>,
+    logs: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 #[cfg(test)]

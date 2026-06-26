@@ -24,9 +24,9 @@ pub enum Severity {
 /// underline treatment.
 #[derive(Debug, Clone)]
 pub struct DiagnosticAnnotation<'a> {
-    pub span: Span,
-    pub label: &'a str,
-    pub primary: bool,
+    span: Span,
+    label: &'a str,
+    primary: bool,
 }
 
 /// A diagnostic ready for rendering.
@@ -36,13 +36,13 @@ pub struct DiagnosticAnnotation<'a> {
 /// span/code/message from their error types and build this struct.
 #[derive(Debug)]
 pub struct Diagnostic<'a> {
-    pub source: &'a str,
-    pub path: &'a str,
-    pub code: &'a str,
-    pub message: &'a str,
-    pub severity: Severity,
-    pub annotations: Vec<DiagnosticAnnotation<'a>>,
-    pub notes: Vec<&'a str>,
+    source: &'a str,
+    path: &'a str,
+    code: &'a str,
+    message: &'a str,
+    severity: Severity,
+    annotations: Vec<DiagnosticAnnotation<'a>>,
+    notes: Vec<&'a str>,
 }
 
 impl<'a> Diagnostic<'a> {
@@ -86,8 +86,9 @@ impl<'a> Diagnostic<'a> {
     }
 
     /// Add a note to this diagnostic.
+    #[cfg(test)]
     #[must_use]
-    pub fn note(mut self, note: &'a str) -> Self {
+    fn note(mut self, note: &'a str) -> Self {
         self.notes.push(note);
         self
     }

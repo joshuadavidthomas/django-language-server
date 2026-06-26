@@ -35,7 +35,7 @@ pub enum TemplateString<'a> {
 
 impl<'a> TemplateString<'a> {
     #[must_use]
-    pub fn parse(raw: &'a str) -> Self {
+    pub(crate) fn parse(raw: &'a str) -> Self {
         let raw = raw.trim();
         let Some(first) = raw.chars().next() else {
             return Self::Unquoted(raw);
@@ -56,8 +56,9 @@ impl<'a> TemplateString<'a> {
         })
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn raw(self) -> &'a str {
+    fn raw(self) -> &'a str {
         match self {
             Self::Quoted(value) => value.raw,
             Self::Unquoted(raw) => raw,
@@ -80,17 +81,13 @@ impl<'a> TemplateString<'a> {
         }
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn quote(self) -> Option<Quote> {
+    fn quote(self) -> Option<Quote> {
         match self {
             Self::Quoted(value) => Some(value.quote),
             Self::Unquoted(_) => None,
         }
-    }
-
-    #[must_use]
-    pub fn is_quoted(self) -> bool {
-        matches!(self, Self::Quoted(_))
     }
 }
 
@@ -99,23 +96,6 @@ pub struct QuotedTemplateString<'a> {
     raw: &'a str,
     value: &'a str,
     quote: Quote,
-}
-
-impl<'a> QuotedTemplateString<'a> {
-    #[must_use]
-    pub fn raw(self) -> &'a str {
-        self.raw
-    }
-
-    #[must_use]
-    pub fn value(self) -> &'a str {
-        self.value
-    }
-
-    #[must_use]
-    pub fn quote(self) -> Quote {
-        self.quote
-    }
 }
 
 /// Find positions of a delimiter character in `s`, skipping occurrences inside
@@ -234,7 +214,7 @@ pub(crate) fn split_on_whitespace_with_offsets(s: &str) -> Vec<SplitPiece<'_>> {
 ///
 /// Returns owned strings for each whitespace-delimited token.
 #[cfg(test)]
-pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
+fn split_on_whitespace(s: &str) -> Vec<String> {
     split_on_whitespace_with_offsets(s)
         .into_iter()
         .map(|piece| piece.text.to_owned())

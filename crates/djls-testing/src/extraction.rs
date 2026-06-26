@@ -46,9 +46,9 @@ pub fn extract_bundle(
 
 #[derive(Debug, Serialize)]
 pub struct SortedExtractionResult {
-    pub tag_rules: BTreeMap<String, TagRule>,
-    pub filter_arities: BTreeMap<String, FilterArity>,
-    pub block_specs: BTreeMap<String, serde_json::Value>,
+    tag_rules: BTreeMap<String, TagRule>,
+    filter_arities: BTreeMap<String, FilterArity>,
+    block_specs: BTreeMap<String, serde_json::Value>,
 }
 
 /// Convert an extraction bundle into deterministic snapshot data.

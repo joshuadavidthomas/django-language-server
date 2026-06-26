@@ -38,7 +38,7 @@ impl DjangoLanguageServer {
         }
     }
 
-    pub(crate) async fn with_session<F, R>(&self, f: F) -> R
+    async fn with_session<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Session) -> R,
     {
@@ -46,7 +46,7 @@ impl DjangoLanguageServer {
         f(&session)
     }
 
-    pub(crate) async fn with_session_mut<F, R>(&self, f: F) -> R
+    async fn with_session_mut<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut Session) -> R,
     {
@@ -56,7 +56,7 @@ impl DjangoLanguageServer {
 
     /// Capture a snapshot under a brief lock, then compute on the blocking
     /// pool so the single-threaded event loop stays responsive.
-    pub(crate) async fn with_snapshot<F, R>(&self, f: F) -> R
+    async fn with_snapshot<F, R>(&self, f: F) -> R
     where
         F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
         R: Default + Send + 'static,

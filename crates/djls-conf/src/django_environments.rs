@@ -6,14 +6,15 @@ pub struct DjangoEnvironmentConfig {
     django_settings_module: Option<String>,
 }
 
+#[cfg(test)]
 impl DjangoEnvironmentConfig {
     #[must_use]
-    pub fn root(&self) -> &str {
+    pub(crate) fn root(&self) -> &str {
         self.root.trim()
     }
 
     #[must_use]
-    pub fn django_settings_module(&self) -> Option<&str> {
+    pub(crate) fn django_settings_module(&self) -> Option<&str> {
         self.django_settings_module
             .as_deref()
             .map(str::trim)

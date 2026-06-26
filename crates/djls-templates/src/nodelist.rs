@@ -53,17 +53,6 @@ pub enum Node {
 
 impl Node {
     #[must_use]
-    pub fn span(&self) -> Span {
-        match self {
-            Node::Tag { span, .. }
-            | Node::Variable { span, .. }
-            | Node::Comment { span, .. }
-            | Node::Text { span, .. }
-            | Node::Error { span, .. } => *span,
-        }
-    }
-
-    #[must_use]
     pub fn full_span(&self) -> Span {
         match self {
             Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
@@ -71,15 +60,6 @@ impl Node {
             }
             Node::Text { span, .. } => *span,
             Node::Error { full_span, .. } => *full_span,
-        }
-    }
-
-    #[must_use]
-    pub fn identifier_span(&self) -> Option<Span> {
-        match self {
-            Node::Tag { name_span, .. } => Some(*name_span),
-            Node::Variable { var_span, .. } => Some(*var_span),
-            Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }
 }

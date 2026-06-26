@@ -320,7 +320,7 @@ pub enum ParseError {
 }
 
 impl ParseError {
-    pub fn stream_error(kind: impl Into<StreamError>) -> Self {
+    fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
 }

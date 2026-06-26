@@ -81,8 +81,9 @@ impl DiagnosticsConfig {
     }
 
     /// Check if a diagnostic should be shown (severity is not Off).
+    #[cfg(test)]
     #[must_use]
-    pub fn is_enabled(&self, code: &str) -> bool {
+    fn is_enabled(&self, code: &str) -> bool {
         self.get_severity(code) != DiagnosticSeverity::Off
     }
 }

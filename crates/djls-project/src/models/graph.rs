@@ -269,7 +269,7 @@ impl ModelGraph {
         Self::default()
     }
 
-    pub fn add_model(&mut self, model: ModelDef) {
+    pub(crate) fn add_model(&mut self, model: ModelDef) {
         self.models.insert(model.name.clone(), model);
     }
 
@@ -278,7 +278,7 @@ impl ModelGraph {
         self.models.get(name)
     }
 
-    pub fn models(&self) -> impl Iterator<Item = &ModelDef> {
+    pub(crate) fn models(&self) -> impl Iterator<Item = &ModelDef> {
         self.models.values()
     }
 

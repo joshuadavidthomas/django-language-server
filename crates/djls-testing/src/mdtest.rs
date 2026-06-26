@@ -13,8 +13,8 @@ use pulldown_cmark::Parser as MarkdownParser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 
-use crate::snapshot_validate;
-use crate::snapshot_validate_file;
+use crate::fixtures::snapshot_validate;
+use crate::fixtures::snapshot_validate_file;
 
 const UPDATE_ENV: &str = "DJLS_UPDATE_MDTEST_SNAPSHOTS";
 const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";

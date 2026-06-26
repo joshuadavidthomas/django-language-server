@@ -2,18 +2,19 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use serde::Deserialize;
 
-use crate::corpus::Corpus;
-
+#[cfg(test)]
 const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml");
+#[cfg(test)]
 const CRATE_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
-    pub corpus: CorpusConfig,
+    corpus: CorpusConfig,
     #[serde(default, rename = "repo")]
-    pub repos: Vec<Repo>,
+    pub(crate) repos: Vec<Repo>,
+    #[cfg(test)]
     #[serde(default, rename = "fixture")]
-    pub fixtures: Vec<Fixture>,
+    fixtures: Vec<Fixture>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,30 +24,37 @@ pub struct CorpusConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct Repo {
-    pub name: String,
-    pub url: String,
+    pub(crate) name: String,
+    pub(crate) url: String,
     /// Optional ref to track: a branch (`main`), tag (`v1.0.0`), or SHA.
     /// When omitted, `lock` resolves to the latest tag.
     #[serde(rename = "ref")]
-    pub git_ref: Option<String>,
+    pub(crate) git_ref: Option<String>,
+    #[cfg(test)]
     #[serde(default)]
-    pub django_settings_module: Option<String>,
+    django_settings_module: Option<String>,
+    #[cfg(test)]
     #[serde(default)]
-    pub django_settings_modules: Vec<String>,
+    django_settings_modules: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Fixture {
-    pub name: String,
-    pub path: String,
+    #[cfg(test)]
+    name: String,
+    #[cfg(test)]
+    path: String,
+    #[cfg(test)]
     #[serde(default)]
-    pub django_settings_module: Option<String>,
+    django_settings_module: Option<String>,
+    #[cfg(test)]
     #[serde(default)]
-    pub django_settings_modules: Vec<String>,
+    django_settings_modules: Vec<String>,
 }
 
 impl Manifest {
-    pub fn load_default() -> anyhow::Result<Self> {
+    #[cfg(test)]
+    fn load_default() -> anyhow::Result<Self> {
         Self::load(Utf8Path::new(MANIFEST_PATH))
     }
 
@@ -62,21 +70,18 @@ impl Manifest {
 }
 
 impl Repo {
-    pub fn django_settings_modules(&self) -> impl Iterator<Item = &str> {
+    #[cfg(test)]
+    fn django_settings_modules(&self) -> impl Iterator<Item = &str> {
         self.django_settings_module
             .iter()
             .map(String::as_str)
             .chain(self.django_settings_modules.iter().map(String::as_str))
-    }
-
-    #[must_use]
-    pub fn corpus_path(&self, corpus: &Corpus) -> Utf8PathBuf {
-        corpus.root().join("repos").join(&self.name)
     }
 }
 
+#[cfg(test)]
 impl Fixture {
-    pub fn django_settings_modules(&self) -> impl Iterator<Item = &str> {
+    fn django_settings_modules(&self) -> impl Iterator<Item = &str> {
         self.django_settings_module
             .iter()
             .map(String::as_str)
@@ -84,7 +89,7 @@ impl Fixture {
     }
 
     #[must_use]
-    pub fn root_path(&self) -> Utf8PathBuf {
+    fn root_path(&self) -> Utf8PathBuf {
         Utf8Path::new(CRATE_DIR).join(&self.path)
     }
 }

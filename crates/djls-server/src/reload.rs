@@ -179,11 +179,7 @@ const DISCOVER_PROJECT_FACTS_TITLE: &str = "Discovering Django project facts";
 const WARM_CACHES_TITLE: &str = "Warming Django caches";
 const PUBLISH_DIAGNOSTICS_TITLE: &str = "Publishing diagnostics";
 
-pub(crate) async fn reload_project(
-    session: Arc<Mutex<Session>>,
-    client: Client,
-    client_info: ClientInfo,
-) {
+async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_info: ClientInfo) {
     let start = std::time::Instant::now();
     let progress = ProgressReporter::new(client.clone(), client_info);
 

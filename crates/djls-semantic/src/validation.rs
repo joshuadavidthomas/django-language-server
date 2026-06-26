@@ -1,7 +1,7 @@
-pub(crate) mod arguments;
-pub(crate) mod filters;
-pub(crate) mod if_expressions;
-pub(crate) mod scoping;
+mod arguments;
+mod filters;
+mod if_expressions;
+mod scoping;
 
 use djls_project::InactiveLibraries;
 use djls_project::StaticKnowledge;

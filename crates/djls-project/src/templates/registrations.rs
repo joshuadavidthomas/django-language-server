@@ -26,9 +26,9 @@ const FILTER_DECORATORS: &[&str] = &["filter"];
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RegistrationInfo {
-    pub(crate) name: String,
+    name: String,
     pub(crate) kind: RegistrationKind,
-    pub(crate) func_name: Option<String>,
+    func_name: Option<String>,
 }
 
 /// The style of registration, distinguishing decorator helpers.

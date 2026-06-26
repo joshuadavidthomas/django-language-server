@@ -76,7 +76,7 @@ impl AnalysisResult {
     /// Constraints are combined additively. For `known_options`, the other
     /// result's value wins if present (last write wins — matches the sequential
     /// processing order of statements).
-    pub(crate) fn extend(&mut self, other: AnalysisResult) {
+    fn extend(&mut self, other: AnalysisResult) {
         self.constraints.extend(other.constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
         if other.known_options.is_some() {

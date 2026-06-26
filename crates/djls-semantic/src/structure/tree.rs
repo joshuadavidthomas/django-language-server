@@ -15,7 +15,7 @@ pub struct RegionId(u32);
 
 impl RegionId {
     #[must_use]
-    pub fn new(id: u32) -> Self {
+    pub(crate) fn new(id: u32) -> Self {
         Self(id)
     }
 
@@ -25,7 +25,7 @@ impl RegionId {
     }
 
     #[must_use]
-    pub fn index(self) -> usize {
+    fn index(self) -> usize {
         self.0 as usize
     }
 }
@@ -128,7 +128,7 @@ impl TemplateRegion {
         self.parent
     }
 
-    pub(crate) fn set_span(&mut self, span: Span) {
+    fn set_span(&mut self, span: Span) {
         self.span = span;
     }
 

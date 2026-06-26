@@ -8,12 +8,12 @@ pub enum TagDelimiter {
 }
 
 impl TagDelimiter {
-    pub const CHAR_OPEN: char = '{';
-    pub const LENGTH: usize = 2;
+    pub(crate) const CHAR_OPEN: char = '{';
+    pub(crate) const LENGTH: usize = 2;
     pub const LENGTH_U32: u32 = 2;
 
     #[must_use]
-    pub fn from_input(input: &str) -> Option<Self> {
+    pub(crate) fn from_input(input: &str) -> Option<Self> {
         let bytes = input.as_bytes();
 
         if bytes.len() < Self::LENGTH {
@@ -33,7 +33,7 @@ impl TagDelimiter {
     }
 
     #[must_use]
-    pub fn opener(self) -> &'static str {
+    pub(crate) fn opener(self) -> &'static str {
         match self {
             Self::Block => "{%",
             Self::Variable => "{{",
@@ -42,7 +42,7 @@ impl TagDelimiter {
     }
 
     #[must_use]
-    pub fn closer(self) -> &'static str {
+    pub(crate) fn closer(self) -> &'static str {
         match self {
             Self::Block => "%}",
             Self::Variable => "}}",
@@ -106,7 +106,7 @@ impl Token {
     }
 
     #[must_use]
-    pub(crate) fn offset(&self) -> Option<u32> {
+    fn offset(&self) -> Option<u32> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -123,7 +123,7 @@ impl Token {
 
     /// Get the length of the token content
     #[must_use]
-    pub(crate) fn length(&self) -> u32 {
+    fn length(&self) -> u32 {
         let len = match self {
             Token::Block { content, .. }
             | Token::Comment { content, .. }
@@ -153,7 +153,7 @@ impl Token {
     }
 
     #[must_use]
-    pub(crate) fn content_span(&self) -> Option<Span> {
+    fn content_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -230,7 +230,7 @@ impl Token {
     /// This may panic on the `full_span` calls, but it's only used in testing,
     /// so it's all good.
     #[must_use]
-    pub(crate) fn to_snapshot(&self) -> TokenSnapshot {
+    fn to_snapshot(&self) -> TokenSnapshot {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
                 content: self.content(),
@@ -265,7 +265,7 @@ impl Token {
 }
 
 #[cfg(test)]
-pub(crate) struct TokenSnapshotVec(pub Vec<Token>);
+pub(crate) struct TokenSnapshotVec(pub(crate) Vec<Token>);
 
 #[cfg(test)]
 impl TokenSnapshotVec {

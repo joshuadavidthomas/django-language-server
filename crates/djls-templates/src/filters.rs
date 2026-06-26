@@ -18,7 +18,7 @@ pub struct Filter {
 
 impl Filter {
     #[must_use]
-    pub fn new(name: String, arg: Option<FilterArgument>, span: Span) -> Self {
+    fn new(name: String, arg: Option<FilterArgument>, span: Span) -> Self {
         Self { name, arg, span }
     }
 

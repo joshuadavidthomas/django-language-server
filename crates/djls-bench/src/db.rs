@@ -135,19 +135,19 @@ impl Db {
     }
 
     #[must_use]
-    pub fn with_tag_specs(mut self, specs: TagSpecs) -> Self {
+    pub(crate) fn with_tag_specs(mut self, specs: TagSpecs) -> Self {
         self.tag_specs = Arc::new(specs);
         self
     }
 
     #[must_use]
-    pub fn with_template_libraries(mut self, libs: TemplateLibraries) -> Self {
+    pub(crate) fn with_template_libraries(mut self, libs: TemplateLibraries) -> Self {
         self.template_libraries = Arc::new(libs);
         self
     }
 
     #[must_use]
-    pub fn with_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
+    pub(crate) fn with_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
         self.filter_arity_specs = Arc::new(specs);
         self
     }

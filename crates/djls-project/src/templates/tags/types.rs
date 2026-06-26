@@ -55,10 +55,6 @@ impl BlockSpecs {
     pub fn insert(&mut self, key: SymbolKey, value: BlockSpec) {
         self.0.insert(key, value);
     }
-
-    pub fn extend(&mut self, other: Self) {
-        self.0.extend(other.0);
-    }
 }
 
 /// How to treat trailing `as <varname>` in tag arguments.
@@ -103,7 +99,7 @@ pub struct TagRule {
 impl TagRule {
     /// Returns `true` if this rule contains any meaningful constraints or arguments.
     #[must_use]
-    pub fn has_content(&self) -> bool {
+    pub(crate) fn has_content(&self) -> bool {
         !self.arg_constraints.is_empty()
             || !self.required_keywords.is_empty()
             || !self.choice_at_constraints.is_empty()
@@ -191,7 +187,7 @@ impl SplitPosition {
     /// Returns `None` for the tag name position (`Forward(0)`) and for backward
     /// positions (which require knowing the total length to resolve).
     #[must_use]
-    pub fn arg_index(&self) -> Option<usize> {
+    pub(crate) fn arg_index(&self) -> Option<usize> {
         match self {
             Self::Forward(0) | Self::Backward(_) => None,
             Self::Forward(n) => Some(n - 1),

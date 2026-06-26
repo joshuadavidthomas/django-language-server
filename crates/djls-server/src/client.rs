@@ -106,7 +106,7 @@ pub(crate) struct ClientCapabilities {
 
 impl ClientCapabilities {
     #[must_use]
-    pub(crate) fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
+    fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
         let pull_diagnostics = capabilities
             .text_document
             .as_ref()

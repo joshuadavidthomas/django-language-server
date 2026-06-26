@@ -120,21 +120,6 @@ pub enum FindTemplateResult<'db> {
     DoesNotExist(TemplateDoesNotExist<'db>),
 }
 
-impl<'db> FindTemplateResult<'db> {
-    #[must_use]
-    pub fn ok(self) -> Option<TemplateOrigin<'db>> {
-        match self {
-            Self::Found(origin) => Some(origin),
-            Self::DoesNotExist(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub fn is_found(&self) -> bool {
-        matches!(self, Self::Found(_))
-    }
-}
-
 #[derive(Clone, PartialEq)]
 pub struct TemplateDoesNotExist<'db> {
     pub template_name: TemplateName<'db>,
@@ -154,10 +139,7 @@ pub struct TriedTemplateSource {
 pub struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
 
 impl ProjectTemplateFiles {
-    pub(crate) fn from_ordered_paths(
-        db: &dyn ProjectDb,
-        templates: Vec<(String, Utf8PathBuf)>,
-    ) -> Self {
+    fn from_ordered_paths(db: &dyn ProjectDb, templates: Vec<(String, Utf8PathBuf)>) -> Self {
         Self(
             templates
                 .into_iter()
@@ -190,17 +172,17 @@ pub struct ProjectTemplateFile {
 }
 
 impl ProjectTemplateFile {
-    pub(crate) fn new(name: String, path: Utf8PathBuf, file: File) -> Self {
+    fn new(name: String, path: Utf8PathBuf, file: File) -> Self {
         Self { name, path, file }
     }
 
     #[must_use]
-    pub fn name(&self) -> &str {
+    fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub fn file(&self) -> File {
+    fn file(&self) -> File {
         self.file
     }
 }

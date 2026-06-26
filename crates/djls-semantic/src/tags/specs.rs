@@ -127,7 +127,7 @@ impl TagSpecs {
     ///
     /// This is used for manual `TagSpecs` configuration: extraction wins, fallback
     /// only fills missing end tags, intermediates, and argument rules.
-    pub fn merge_fallback(&mut self, fallback: TagSpecs) -> &mut Self {
+    pub(crate) fn merge_fallback(&mut self, fallback: TagSpecs) -> &mut Self {
         let TagSpecs(fallback) = fallback;
 
         for (name, fallback_spec) in fallback {
@@ -160,7 +160,7 @@ impl TagSpecs {
 
     #[must_use]
     #[allow(clippy::too_many_lines)]
-    pub fn from_tagspec_def(doc: &djls_conf::TagSpecDef) -> TagSpecs {
+    pub(crate) fn from_tagspec_def(doc: &djls_conf::TagSpecDef) -> TagSpecs {
         let mut specs = FxHashMap::default();
 
         for library in &doc.libraries {
@@ -336,10 +336,10 @@ impl IntoIterator for TagSpecs {
 /// that downstream features can use without matching on tag names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
-    pub module: S,
+    module: S,
     pub end_tag: Option<EndTag>,
-    pub intermediate_tags: L<IntermediateTag>,
-    pub opaque: bool,
+    pub(crate) intermediate_tags: L<IntermediateTag>,
+    pub(crate) opaque: bool,
     role: Option<TagRole>,
     /// Extraction-derived validation rules from Python AST analysis.
     ///
@@ -367,7 +367,7 @@ impl TagSpec {
     }
 
     #[must_use]
-    pub fn role(&self) -> Option<TagRole> {
+    pub(crate) fn role(&self) -> Option<TagRole> {
         self.role
     }
 

@@ -1,9 +1,12 @@
 #[cfg(test)]
 use std::env::VarError;
 
+#[cfg(test)]
 use camino::Utf8PathBuf;
+#[cfg(test)]
 use which::Error as WhichError;
 
+#[cfg(test)]
 pub(super) fn find_executable(name: &str) -> Result<Utf8PathBuf, WhichError> {
     #[cfg(not(test))]
     {

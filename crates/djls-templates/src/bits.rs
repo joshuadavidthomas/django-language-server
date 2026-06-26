@@ -5,7 +5,7 @@ use crate::quotes::TemplateString;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct TagBit {
-    pub text: String,
+    pub(crate) text: String,
     pub span: Span,
 }
 
@@ -34,24 +34,19 @@ impl AsRef<str> for TagBit {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct FilterArgument {
-    pub text: String,
-    pub span: Span,
+    pub(crate) text: String,
+    pub(crate) span: Span,
 }
 
 impl FilterArgument {
     #[must_use]
-    pub fn new(text: String, span: Span) -> Self {
+    pub(crate) fn new(text: String, span: Span) -> Self {
         Self { text, span }
     }
 
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.text
-    }
-
-    #[must_use]
-    pub fn template_string(&self) -> TemplateString<'_> {
-        TemplateString::parse(&self.text)
     }
 }
 
