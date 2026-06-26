@@ -95,12 +95,14 @@ impl Settings {
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
 
         if let Some(overrides) = overrides {
+            let has_django_environments = !overrides.django_environments.is_empty();
+
             settings.debug = overrides.debug || settings.debug;
             settings.venv_path = overrides.venv_path.or(settings.venv_path);
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
-            if !overrides.django_environments.is_empty() {
+            if has_django_environments {
                 settings.django_environments = overrides.django_environments;
             }
             if !overrides.pythonpath.is_empty() {
