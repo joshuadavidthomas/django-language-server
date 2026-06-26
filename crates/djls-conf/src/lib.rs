@@ -377,13 +377,14 @@ django_settings_module = "project.settings"
             )
             .unwrap();
 
-            let override_settings = Settings {
-                django_environments: vec![DjangoEnvironmentConfig::new(
-                    "override",
-                    Some("override.settings".to_string()),
-                )],
-                ..Default::default()
-            };
+            let override_settings: Settings = toml::from_str(
+                r#"
+[[django_environments]]
+root = "override"
+django_settings_module = "override.settings"
+"#,
+            )
+            .unwrap();
             let settings = Settings::new(
                 Utf8Path::from_path(dir.path()).unwrap(),
                 Some(override_settings),

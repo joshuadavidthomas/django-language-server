@@ -21,13 +21,3 @@ impl DjangoEnvironmentConfig {
             .filter(|module| !module.is_empty())
     }
 }
-
-#[cfg(test)]
-impl DjangoEnvironmentConfig {
-    pub(crate) fn new(root: impl Into<String>, django_settings_module: Option<String>) -> Self {
-        Self {
-            root: root.into(),
-            django_settings_module,
-        }
-    }
-}
