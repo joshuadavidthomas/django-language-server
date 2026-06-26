@@ -9,13 +9,13 @@ use super::symbols::TemplateSymbol;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModulePath;
+use crate::resolve::module_file;
+use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
-use crate::settings::installed_app_package_module;
-use crate::settings::module_file;
-use crate::settings::package_dir;
 use crate::settings::settings_module_file;
 use crate::templates::TemplateSymbolKind;
+use crate::templates::guess_package_module_from_installed_app_entry;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -56,7 +56,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             let (knowledge, discovered_libraries) = templatetag_package_libraries(
                 db,
                 project,
-                installed_app_package_module(installed_app),
+                guess_package_module_from_installed_app_entry(installed_app),
             );
             libraries.knowledge = libraries.knowledge.weakened_by(knowledge);
             for (load_name, library) in discovered_libraries {

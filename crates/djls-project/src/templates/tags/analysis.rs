@@ -20,6 +20,11 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
 
+pub(crate) use self::calls::AbstractValueKey;
+pub(crate) use self::calls::extract_return_value;
+pub(crate) use self::state::AbstractValue;
+pub(crate) use self::state::Env;
+pub(crate) use self::statements::process_statements;
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
 use crate::templates::tags::analysis::guards::ExtractedRuleFragment;

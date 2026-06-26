@@ -102,70 +102,128 @@ fn apply_project_refresh(db: &mut TestDatabase) {
 }
 
 #[test]
-fn settings_module_file_resolves_python_module() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[("/proj/myproject/settings.py", "INSTALLED_APPS = []\n")],
-    );
-
-    let file = settings_module_file(&db, project).expect("settings module should resolve");
-
-    assert_eq!(file.path(&db), Utf8Path::new("/proj/myproject/settings.py"));
-}
-
-#[test]
-fn settings_module_file_returns_none_for_missing_module() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(&mut db, "myproject.settings", &[]);
-
-    assert!(settings_module_file(&db, project).is_none());
-}
-
-#[test]
-fn django_settings_resolves_relative_star_imports() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.prod",
-        &[
-            (
-                "/proj/myproject/base.py",
-                "INSTALLED_APPS = ['django.contrib.auth']\n",
-            ),
-            (
-                "/proj/myproject/prod.py",
-                "from .base import *\nINSTALLED_APPS += ['blog']\n",
-            ),
-        ],
-    );
-
-    let settings = django_settings(&db, project);
-
-    assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
-    assert_eq!(
-        settings.installed_apps.values,
-        vec!["django.contrib.auth".to_string(), "blog".to_string()]
-    );
-}
-
-#[test]
-fn django_settings_recovers_from_star_import_cycle() {
+fn template_dirs_resolve_settings_module_file() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
         "myproject.settings",
         &[(
             "/proj/myproject/settings.py",
-            "from .settings import *\nINSTALLED_APPS = ['blog']\n",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n",
         )],
     );
 
-    let settings = django_settings(&db, project);
+    let (dirs, knowledge) = template_dirs(&db, project).clone();
 
-    assert_eq!(settings.installed_apps.knowledge, StaticKnowledge::Known);
-    assert_eq!(settings.installed_apps.values, vec!["blog".to_string()]);
+    assert_eq!(knowledge, StaticKnowledge::Known);
+    assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/templates")]);
+}
+
+#[test]
+fn template_dirs_return_unknown_for_missing_settings_module() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(&mut db, "myproject.settings", &[]);
+
+    let (dirs, knowledge) = template_dirs(&db, project).clone();
+
+    assert!(dirs.is_empty());
+    assert_eq!(knowledge, StaticKnowledge::Unknown);
+}
+
+#[test]
+fn template_dirs_resolve_relative_star_imports() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.prod",
+        &[
+            ("/proj/django/contrib/auth/__init__.py", ""),
+            (
+                "/proj/django/contrib/auth/templates/auth/index.html",
+                "auth",
+            ),
+            ("/proj/blog/__init__.py", ""),
+            ("/proj/blog/templates/blog/detail.html", "detail"),
+            (
+                "/proj/myproject/base.py",
+                "INSTALLED_APPS = ['django.contrib.auth']\n",
+            ),
+            (
+                "/proj/myproject/prod.py",
+                "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let (dirs, knowledge) = template_dirs(&db, project).clone();
+
+    assert_eq!(knowledge, StaticKnowledge::Known);
+    assert_eq!(
+        dirs,
+        vec![
+            Utf8PathBuf::from("/proj/django/contrib/auth/templates"),
+            Utf8PathBuf::from("/proj/blog/templates"),
+        ]
+    );
+}
+
+#[test]
+fn template_dirs_resolve_relative_star_imports_from_package_module() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/contrib/auth/__init__.py", ""),
+            (
+                "/proj/django/contrib/auth/templates/auth/index.html",
+                "auth",
+            ),
+            ("/proj/blog/__init__.py", ""),
+            ("/proj/blog/templates/blog/detail.html", "detail"),
+            (
+                "/proj/myproject/settings/base.py",
+                "INSTALLED_APPS = ['django.contrib.auth']\n",
+            ),
+            (
+                "/proj/myproject/settings/__init__.py",
+                "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let (dirs, knowledge) = template_dirs(&db, project).clone();
+
+    assert_eq!(knowledge, StaticKnowledge::Known);
+    assert_eq!(
+        dirs,
+        vec![
+            Utf8PathBuf::from("/proj/django/contrib/auth/templates"),
+            Utf8PathBuf::from("/proj/blog/templates"),
+        ]
+    );
+}
+
+#[test]
+fn template_dirs_recover_from_star_import_cycle() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/blog/__init__.py", ""),
+            ("/proj/blog/templates/blog/detail.html", "detail"),
+            (
+                "/proj/myproject/settings.py",
+                "from .settings import *\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let (dirs, knowledge) = template_dirs(&db, project).clone();
+
+    assert_eq!(knowledge, StaticKnowledge::Known);
+    assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/blog/templates")]);
 }
 
 #[test]

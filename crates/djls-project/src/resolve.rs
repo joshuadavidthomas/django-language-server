@@ -2,6 +2,7 @@
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::File;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
 use djls_source::WalkEntryKind;
@@ -210,6 +211,90 @@ pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> 
         .into_iter()
         .map(|(_search_path_len, module)| module)
         .collect()
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ImportParts<'a> {
+    pub level: u32,
+    pub module: Option<&'a str>,
+    pub importer: &'a Utf8Path,
+}
+
+pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
+    project.touch_search_path_roots(db);
+
+    for search_path in project.search_paths(db).iter() {
+        let Some(path) =
+            module_file_in_search_path(db.file_system(), module_path, search_path.path())
+        else {
+            continue;
+        };
+        return Some(db.get_or_create_file(&path));
+    }
+
+    None
+}
+
+pub(crate) fn package_dir(
+    db: &dyn ProjectDb,
+    project: Project,
+    package_module: &str,
+) -> Option<Utf8PathBuf> {
+    if package_module.is_empty() {
+        return None;
+    }
+
+    let relative = package_module.replace('.', "/");
+    for search_path in project.search_paths(db).iter() {
+        let candidate = search_path.path().join(&relative);
+        if db.path_is_dir(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+pub(crate) fn resolve_import(
+    db: &dyn ProjectDb,
+    project: Project,
+    parts: ImportParts<'_>,
+) -> Option<String> {
+    if parts.level == 0 {
+        return parts.module.map(str::to_string);
+    }
+
+    let root = project
+        .search_paths(db)
+        .iter()
+        .filter(|search_path| parts.importer.starts_with(search_path.path()))
+        .max_by_key(|search_path| search_path.path().as_str().len())?
+        .path();
+    let relative = parts.importer.strip_prefix(root).ok()?;
+    if relative.extension() != Some("py") {
+        return None;
+    }
+
+    let mut module_parts: Vec<String> = relative
+        .parent()?
+        .components()
+        .map(|component| component.as_str().to_string())
+        .collect();
+
+    for _ in 1..parts.level {
+        module_parts.pop()?;
+    }
+
+    if let Some(module) = parts.module {
+        module_parts.extend(
+            module
+                .split('.')
+                .filter(|part| !part.is_empty())
+                .map(str::to_string),
+        );
+    }
+
+    (!module_parts.is_empty()).then(|| module_parts.join("."))
 }
 
 pub(crate) fn module_file_in_search_path(

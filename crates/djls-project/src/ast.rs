@@ -96,7 +96,7 @@ where
     }
 }
 
-pub trait ExprExt {
+pub(crate) trait ExprExt {
     /// Extract the full string value from a string literal expression.
     fn string_literal(&self) -> Option<&str>;
 

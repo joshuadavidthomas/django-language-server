@@ -18,12 +18,12 @@ use crate::ast::walk_stmts;
 use crate::parse::parse_python_module;
 use crate::python::PythonModulePath;
 use crate::templates::for_each_registration;
+use crate::templates::tags::analysis::AbstractValue;
+use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
-use crate::templates::tags::analysis::calls::AbstractValueKey;
-use crate::templates::tags::analysis::calls::extract_return_value;
-use crate::templates::tags::analysis::state::AbstractValue;
-use crate::templates::tags::analysis::state::Env;
-use crate::templates::tags::analysis::statements::process_statements;
+use crate::templates::tags::analysis::Env;
+use crate::templates::tags::analysis::extract_return_value;
+use crate::templates::tags::analysis::process_statements;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::AsVar;
 pub use crate::templates::tags::types::BlockSpec;
@@ -208,9 +208,9 @@ fn normalize_block_spec(block_spec: Option<BlockSpec>, tag_name: &str) -> Option
 mod tests {
     use ruff_python_parser::parse_module;
 
-    use crate::templates::RegistrationInfo;
-    use crate::templates::RegistrationKind;
-    use crate::templates::collect_registrations_from_body;
+    use crate::templates::registrations::RegistrationInfo;
+    use crate::templates::registrations::RegistrationKind;
+    use crate::templates::registrations::collect_registrations_from_body;
 
     #[test]
     fn registry_collection_is_reachable_from_python_module() {
