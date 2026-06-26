@@ -147,7 +147,7 @@ mod tests {
     use super::*;
     use crate::templates::tags::analysis::CallContext;
     use crate::templates::tags::analysis::statements::process_statements;
-    use crate::templates::tags::testing::ALLAUTH_SOURCE;
+    use crate::templates::tags::testing::fixture_source;
     use crate::templates::tags::types::SplitPosition;
 
     #[salsa::db]
@@ -320,7 +320,7 @@ def do_tag(parser, token):
 
     #[test]
     fn allauth_parse_tag_pattern() {
-        let source = ALLAUTH_SOURCE;
+        let source = fixture_source("allauth/templatetags/allauth.py").expect("allauth fixture");
         let env = analyze_function_with_helpers(source, "do_element");
         assert_eq!(
             env.get("tag_name"),

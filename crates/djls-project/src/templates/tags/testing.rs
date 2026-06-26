@@ -8,17 +8,36 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_parser::parse_module;
 
-pub(crate) const ALLAUTH_SOURCE: &str = include_str!("testdata/allauth_tags.py");
+const ALLAUTH_SOURCE: &str = include_str!("testdata/allauth_tags.py");
 const ADMIN_URLS_SOURCE: &str = include_str!("testdata/django_admin_urls.py");
-pub(crate) const CUSTOM_SOURCE: &str = include_str!("testdata/django_custom.py");
-pub(crate) const DEFAULTFILTERS_SOURCE: &str = include_str!("testdata/django_defaultfilters.py");
-pub(crate) const DEFAULTTAGS_SOURCE: &str = include_str!("testdata/django_defaulttags.py");
+const CUSTOM_SOURCE: &str = include_str!("testdata/django_custom.py");
+const DEFAULTFILTERS_SOURCE: &str = include_str!("testdata/django_defaultfilters.py");
+const DEFAULTTAGS_SOURCE: &str = include_str!("testdata/django_defaulttags.py");
 const I18N_SOURCE: &str = include_str!("testdata/django_i18n.py");
-pub(crate) const INCLUSION_SOURCE: &str = include_str!("testdata/django_inclusion.py");
+const INCLUSION_SOURCE: &str = include_str!("testdata/django_inclusion.py");
 const LOADER_TAGS_SOURCE: &str = include_str!("testdata/django_loader_tags.py");
-pub(crate) const TESTTAGS_SOURCE: &str = include_str!("testdata/django_testtags.py");
+const TESTTAGS_SOURCE: &str = include_str!("testdata/django_testtags.py");
 const TZ_SOURCE: &str = include_str!("testdata/django_tz.py");
-pub(crate) const WAGTAILADMIN_TAGS_SOURCE: &str = include_str!("testdata/wagtailadmin_tags.py");
+const WAGTAILADMIN_TAGS_SOURCE: &str = include_str!("testdata/wagtailadmin_tags.py");
+
+/// Load vendored fixture source by corpus-relative path.
+#[must_use]
+pub(crate) fn fixture_source(relative_path: &str) -> Option<&'static str> {
+    match relative_path {
+        "allauth/templatetags/allauth.py" => Some(ALLAUTH_SOURCE),
+        "django/contrib/admin/templatetags/admin_urls.py" => Some(ADMIN_URLS_SOURCE),
+        "django/template/defaultfilters.py" => Some(DEFAULTFILTERS_SOURCE),
+        "django/template/defaulttags.py" => Some(DEFAULTTAGS_SOURCE),
+        "django/template/loader_tags.py" => Some(LOADER_TAGS_SOURCE),
+        "django/templatetags/i18n.py" => Some(I18N_SOURCE),
+        "django/templatetags/tz.py" => Some(TZ_SOURCE),
+        "tests/template_tests/templatetags/custom.py" => Some(CUSTOM_SOURCE),
+        "tests/template_tests/templatetags/inclusion.py" => Some(INCLUSION_SOURCE),
+        "tests/template_tests/templatetags/testtags.py" => Some(TESTTAGS_SOURCE),
+        "wagtail/admin/templatetags/wagtailadmin_tags.py" => Some(WAGTAILADMIN_TAGS_SOURCE),
+        _ => None,
+    }
+}
 
 /// Find a function definition by name in Python source.
 #[must_use]
@@ -41,17 +60,6 @@ pub(crate) fn django_function(
     relative_to_django: &str,
     func_name: &str,
 ) -> Option<StmtFunctionDef> {
-    let source = match relative_to_django {
-        "django/contrib/admin/templatetags/admin_urls.py" => ADMIN_URLS_SOURCE,
-        "django/template/defaultfilters.py" => DEFAULTFILTERS_SOURCE,
-        "django/template/defaulttags.py" => DEFAULTTAGS_SOURCE,
-        "django/template/loader_tags.py" => LOADER_TAGS_SOURCE,
-        "django/templatetags/i18n.py" => I18N_SOURCE,
-        "django/templatetags/tz.py" => TZ_SOURCE,
-        "tests/template_tests/templatetags/custom.py" => CUSTOM_SOURCE,
-        "tests/template_tests/templatetags/inclusion.py" => INCLUSION_SOURCE,
-        "tests/template_tests/templatetags/testtags.py" => TESTTAGS_SOURCE,
-        _ => return None,
-    };
+    let source = fixture_source(relative_to_django)?;
     find_function_in_source(source, func_name)
 }
