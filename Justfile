@@ -32,6 +32,11 @@ corpus *ARGS:
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix {{ ARGS }} -- -D warnings
 
+hawk *ARGS:
+    @# Work around astral-sh/hawk#74: Hawk's rustc probe can poison Cargo's
+    @# target/.rustc_info.json cache, so isolate Hawk's Cargo target/cache.
+    CARGO_TARGET_DIR=target/hawk cargo +1.95.0 hawk {{ ARGS }}
+
 e2e *ARGS:
     uv run nox -s e2e -- "{{ ARGS }}"
 

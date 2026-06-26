@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
+- **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
 
 ### Changed
 

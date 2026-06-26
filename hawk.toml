@@ -1,0 +1,9 @@
+[[production]]
+package = "djls"
+bin = "djls"
+reason = "released language server CLI"
+
+[[production]]
+package = "djls-testing"
+bin = "corpus"
+reason = "maintained corpus sync tool"
