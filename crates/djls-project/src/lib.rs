@@ -20,7 +20,7 @@ pub use python::PythonModule;
 pub use python::PythonModulePath;
 pub use resolve::SearchPath;
 pub use resolve::SearchPaths;
-pub use resolve::model_modules; // Public only for djls-project integration tests.
+pub use resolve::model_modules;
 pub use resolve::templatetag_modules;
 pub use settings::StaticKnowledge;
 pub use sync::RefreshData;
