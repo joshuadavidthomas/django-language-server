@@ -2,7 +2,7 @@ use djls_source::Span;
 use serde::Serialize;
 
 use crate::bits::FilterArgument;
-use crate::quotes::Delimiters;
+use crate::quotes::DelimiterIndices;
 use crate::quotes::split_on_unquoted_delimiter_with_offsets;
 
 /// A parsed filter expression within a Django variable node.
@@ -57,7 +57,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    let colon_pos = Delimiters::new(trimmed, ':').next();
+    let colon_pos = DelimiterIndices::new(trimmed, ':').next();
 
     let (name, arg) = match colon_pos {
         Some(pos) => {

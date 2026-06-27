@@ -70,13 +70,14 @@ impl State {
     }
 }
 
-pub(crate) struct Delimiters<'a> {
+/// Byte indices of delimiter characters outside quoted regions.
+pub(crate) struct DelimiterIndices<'a> {
     chars: std::str::CharIndices<'a>,
     delimiter: char,
     state: State,
 }
 
-impl<'a> Delimiters<'a> {
+impl<'a> DelimiterIndices<'a> {
     pub(crate) fn new(input: &'a str, delimiter: char) -> Self {
         Self {
             chars: input.char_indices(),
@@ -86,7 +87,7 @@ impl<'a> Delimiters<'a> {
     }
 }
 
-impl Iterator for Delimiters<'_> {
+impl Iterator for DelimiterIndices<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -116,7 +117,7 @@ pub(crate) fn split_on_unquoted_delimiter_with_offsets(
     let mut segments = Vec::with_capacity((input.len() / 8).clamp(2, 8));
     let mut start_byte = 0;
 
-    for delimiter_byte in Delimiters::new(input, delimiter) {
+    for delimiter_byte in DelimiterIndices::new(input, delimiter) {
         segments.push(Segment {
             text: &input[start_byte..delimiter_byte],
             start_byte,
@@ -224,8 +225,8 @@ mod tests {
     }
 
     #[test]
-    fn delimiters_returns_first_delimiter() {
-        assert_eq!(Delimiters::new("a|b|c", '|').next(), Some(1));
+    fn delimiter_indices_returns_first_delimiter() {
+        assert_eq!(DelimiterIndices::new("a|b|c", '|').next(), Some(1));
     }
 
     #[test]
