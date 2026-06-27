@@ -2,7 +2,8 @@ use djls_source::Span;
 use serde::Serialize;
 
 use crate::bits::FilterArgument;
-use crate::quotes::for_each_unquoted;
+use crate::quotes::find_unquoted;
+use crate::quotes::split_on_unquoted_with_offsets;
 
 /// A parsed filter expression within a Django variable node.
 ///
@@ -41,22 +42,9 @@ fn usize_to_u32(val: usize) -> u32 {
 ///
 /// Returns an iterator of `(segment_str, byte_offset_within_content)` pairs.
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
-    let mut segments = Vec::new();
-    let mut start = 0;
-
-    for_each_unquoted(
-        content,
-        |ch| ch == '|',
-        false,
-        |idx| {
-            segments.push((&content[start..idx], usize_to_u32(start)));
-            start = idx + 1;
-            false
-        },
-    );
-
-    segments.push((&content[start..], usize_to_u32(start)));
-    segments.into_iter()
+    split_on_unquoted_with_offsets(content, '|', false)
+        .into_iter()
+        .map(|piece| (piece.text, usize_to_u32(piece.start)))
 }
 
 /// Parse a single raw filter string (e.g. `default:'nothing'` or `title`) into a
@@ -69,17 +57,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    let mut colon_pos = None;
-
-    for_each_unquoted(
-        trimmed,
-        |ch| ch == ':',
-        false,
-        |idx| {
-            colon_pos = Some(idx);
-            true
-        },
-    );
+    let colon_pos = find_unquoted(trimmed, ':', false);
 
     let (name, arg) = match colon_pos {
         Some(pos) => {

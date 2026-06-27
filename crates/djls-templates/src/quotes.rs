@@ -38,51 +38,95 @@ impl<'a> TemplateString<'a> {
     }
 }
 
-/// Find positions of a delimiter character in `s`, skipping occurrences inside
-/// single- or double-quoted regions.
+struct UnquotedDelimiterIndices<'a> {
+    chars: std::str::CharIndices<'a>,
+    delimiter: char,
+    handle_escapes: bool,
+    quote: Option<char>,
+    escape: bool,
+}
+
+impl Iterator for UnquotedDelimiterIndices<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (idx, ch) in self.chars.by_ref() {
+            if self.escape {
+                self.escape = false;
+                continue;
+            }
+            match ch {
+                '\\' if self.handle_escapes && self.quote.is_some() => {
+                    self.escape = true;
+                }
+                '"' | '\'' if self.quote == Some(ch) => {
+                    self.quote = None;
+                }
+                '"' | '\'' if self.quote.is_none() => {
+                    self.quote = Some(ch);
+                }
+                _ if self.quote.is_some() => {}
+                _ if ch == self.delimiter => return Some(idx),
+                _ => {}
+            }
+        }
+        None
+    }
+}
+
+fn unquoted_delimiter_indices(
+    s: &str,
+    delimiter: char,
+    handle_escapes: bool,
+) -> UnquotedDelimiterIndices<'_> {
+    UnquotedDelimiterIndices {
+        chars: s.char_indices(),
+        delimiter,
+        handle_escapes,
+        quote: None,
+        escape: false,
+    }
+}
+
+/// Find the first delimiter in `s`, skipping delimiters inside quoted regions.
 ///
 /// When `handle_escapes` is true, `\` inside a quoted region escapes the next
 /// character (so `\"` does not close the quote).
-///
-/// The callback receives the byte index of each unquoted delimiter found.
-/// Return `true` from the callback to stop early.
-pub(crate) fn for_each_unquoted(
-    s: &str,
-    delimiter: impl Fn(char) -> bool,
-    handle_escapes: bool,
-    mut cb: impl FnMut(usize) -> bool,
-) {
-    let mut quote: Option<char> = None;
-    let mut escape = false;
-
-    for (idx, ch) in s.char_indices() {
-        if escape {
-            escape = false;
-            continue;
-        }
-        match ch {
-            '\\' if handle_escapes && quote.is_some() => {
-                escape = true;
-            }
-            '"' | '\'' if quote == Some(ch) => {
-                quote = None;
-            }
-            '"' | '\'' if quote.is_none() => {
-                quote = Some(ch);
-            }
-            _ if quote.is_some() => {}
-            _ if delimiter(ch) && cb(idx) => {
-                return;
-            }
-            _ => {}
-        }
-    }
+#[must_use]
+pub(crate) fn find_unquoted(s: &str, delimiter: char, handle_escapes: bool) -> Option<usize> {
+    unquoted_delimiter_indices(s, delimiter, handle_escapes).next()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SplitPiece<'a> {
     pub text: &'a str,
     pub start: usize,
+}
+
+/// Split `s` on a delimiter while respecting quoted regions.
+///
+/// Returns borrowed pieces with byte offsets relative to `s`.
+pub(crate) fn split_on_unquoted_with_offsets(
+    s: &str,
+    delimiter: char,
+    handle_escapes: bool,
+) -> Vec<SplitPiece<'_>> {
+    let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
+    let mut start = 0;
+
+    for idx in unquoted_delimiter_indices(s, delimiter, handle_escapes) {
+        pieces.push(SplitPiece {
+            text: &s[start..idx],
+            start,
+        });
+        start = idx + delimiter.len_utf8();
+    }
+
+    pieces.push(SplitPiece {
+        text: &s[start..],
+        start,
+    });
+    pieces
 }
 
 /// Split `s` on whitespace while respecting quoted regions (with escape handling).
@@ -189,97 +233,108 @@ mod tests {
     }
 
     #[test]
-    fn unquoted_delimiters_found() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            "a|b|c",
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
+    fn find_unquoted_returns_first_delimiter() {
+        assert_eq!(find_unquoted("a|b|c", '|', false), Some(1));
+    }
+
+    #[test]
+    fn split_unquoted_delimiters() {
+        let pieces = split_on_unquoted_with_offsets("a|b|c", '|', false);
+        assert_eq!(
+            pieces,
+            vec![
+                SplitPiece {
+                    text: "a",
+                    start: 0,
+                },
+                SplitPiece {
+                    text: "b",
+                    start: 2,
+                },
+                SplitPiece {
+                    text: "c",
+                    start: 4,
+                },
+            ]
         );
-        assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
     fn quoted_delimiters_skipped() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            "a|'b|c'|d",
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
+        let pieces = split_on_unquoted_with_offsets("a|'b|c'|d", '|', false);
+        assert_eq!(
+            pieces,
+            vec![
+                SplitPiece {
+                    text: "a",
+                    start: 0,
+                },
+                SplitPiece {
+                    text: "'b|c'",
+                    start: 2,
+                },
+                SplitPiece {
+                    text: "d",
+                    start: 8,
+                },
+            ]
         );
-        assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
     fn double_quotes() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            r#"a|"b|c"|d"#,
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
+        let pieces = split_on_unquoted_with_offsets(r#"a|"b|c"|d"#, '|', false);
+        assert_eq!(
+            pieces,
+            vec![
+                SplitPiece {
+                    text: "a",
+                    start: 0,
+                },
+                SplitPiece {
+                    text: r#""b|c""#,
+                    start: 2,
+                },
+                SplitPiece {
+                    text: "d",
+                    start: 8,
+                },
+            ]
         );
-        assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
     fn escape_handling() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            r#""a\"b"|c"#,
-            |ch| ch == '|',
-            true,
-            |idx| {
-                positions.push(idx);
-                false
-            },
-        );
+        let pieces = split_on_unquoted_with_offsets(r#""a\"b"|c"#, '|', true);
+
         // The \" is escaped, so the quote doesn't close until the real "
-        assert_eq!(positions, vec![6]);
+        assert_eq!(
+            pieces,
+            vec![
+                SplitPiece {
+                    text: r#""a\"b""#,
+                    start: 0,
+                },
+                SplitPiece {
+                    text: "c",
+                    start: 7,
+                },
+            ]
+        );
     }
 
     #[test]
     fn escape_ignored_without_flag() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            r#""a\"b"|c"#,
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
-        );
-        // Without escape handling, \" closes the quote, then b" opens a new one
-        // "a\" -> quote closed at \", then b" opens, |c is outside... actually:
-        // char-by-char: " opens, a inside, \ inside, " closes, b outside, " opens, | inside, c inside
-        assert!(positions.is_empty());
-    }
+        let pieces = split_on_unquoted_with_offsets(r#""a\"b"|c"#, '|', false);
 
-    #[test]
-    fn early_stop() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            "a|b|c|d",
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                positions.len() >= 2
-            },
+        // Without escape handling, \" closes the quote, then b" opens a new one.
+        assert_eq!(
+            pieces,
+            vec![SplitPiece {
+                text: r#""a\"b"|c"#,
+                start: 0,
+            }]
         );
-        assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
