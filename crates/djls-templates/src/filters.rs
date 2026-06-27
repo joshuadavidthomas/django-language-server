@@ -44,7 +44,7 @@ fn usize_to_u32(val: usize) -> u32 {
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
     split_on_unquoted_delimiter_with_offsets(content, '|')
         .into_iter()
-        .map(|piece| (piece.text, usize_to_u32(piece.start)))
+        .map(|segment| (segment.text, usize_to_u32(segment.start_byte)))
 }
 
 /// Parse a single raw filter string (e.g. `default:'nothing'` or `title`) into a
