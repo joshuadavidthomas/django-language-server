@@ -199,7 +199,9 @@ impl SemanticDb for Db {
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        None
+        self.project().and_then(|project| {
+            djls_project::template_resolution(self, project).known_template_dirs(self)
+        })
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {

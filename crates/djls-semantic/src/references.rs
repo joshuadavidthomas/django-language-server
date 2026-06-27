@@ -1,7 +1,7 @@
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
-use djls_project::template_origins;
+use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
@@ -90,10 +90,10 @@ impl<'db> TemplateReferences<'db> {
 #[salsa::tracked]
 pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> TemplateReferences<'_> {
     let mut by_template_name = FxHashMap::default();
-    let origins = template_origins(db, project);
+    let resolution = template_resolution(db, project);
     let tag_specs = compute_tag_specs(db, project);
 
-    for source in origins.iter(db) {
+    for source in resolution.origins(db) {
         for tag in template_origin_tags(db, source) {
             let Some(reference) =
                 LiteralTemplateReference::from_tag(tag_specs, tag.name(), tag.bits())

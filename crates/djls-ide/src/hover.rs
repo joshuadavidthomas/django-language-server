@@ -3,7 +3,7 @@ use djls_project::InstalledSymbolCandidate;
 use djls_project::InstalledSymbolOrigin;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
-use djls_project::find_template;
+use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
 use djls_source::File;
 use djls_source::Offset;
@@ -22,7 +22,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
 
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
 
-            match find_template(db, project, template_name) {
+            match template_resolution(db, project).resolve(db, template_name) {
                 FindTemplateResult::Found(origin) => {
                     let path = origin.path_buf(db);
                     sections.push(format!("Resolved to `{path}`"));

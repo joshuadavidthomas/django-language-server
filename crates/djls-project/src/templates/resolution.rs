@@ -10,6 +10,61 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::resolve::package_dir;
+use crate::settings::StaticKnowledge;
+use crate::settings::TemplateDirPath;
+use crate::settings::django_settings;
+use crate::templates::guess_package_module_from_installed_app_entry;
+
+#[salsa::tracked(returns(ref))]
+pub(crate) fn template_dirs(
+    db: &dyn ProjectDb,
+    project: Project,
+) -> (Vec<Utf8PathBuf>, StaticKnowledge) {
+    project.touch_search_path_roots(db);
+
+    let settings = django_settings(db, project);
+    let mut dirs = Vec::new();
+    let mut knowledge = settings.templates.knowledge;
+    let backend_count = settings.templates.backends.len();
+
+    for backend in settings
+        .templates
+        .backends
+        .iter()
+        .filter(|backend| backend.is_django_templates_backend(backend_count))
+    {
+        knowledge = knowledge.weakened_by(backend.knowledge);
+
+        for dir in &backend.dirs {
+            match dir {
+                TemplateDirPath::Resolved(path) => dirs.push(path.clone()),
+                TemplateDirPath::Unknown => knowledge = knowledge.demoted_to_partial(),
+            }
+        }
+
+        if backend.app_dirs == Some(true) {
+            knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
+            for app in &settings.installed_apps.values {
+                let Some(app_dir) = package_dir(
+                    db,
+                    project,
+                    guess_package_module_from_installed_app_entry(app),
+                ) else {
+                    knowledge = knowledge.demoted_to_partial();
+                    continue;
+                };
+
+                let templates_dir = app_dir.join("templates");
+                if db.path_is_dir(&templates_dir) {
+                    dirs.push(templates_dir);
+                }
+            }
+        }
+    }
+
+    (dirs, knowledge)
+}
 
 #[salsa::interned]
 #[derive(Debug)]
@@ -39,30 +94,39 @@ impl<'db> TemplateOrigin<'db> {
 }
 
 #[salsa::tracked]
-pub struct TemplateOrigins<'db> {
-    #[tracked]
-    #[returns(ref)]
-    ordered: Vec<TemplateOrigin<'db>>,
-    #[tracked]
-    #[returns(ref)]
-    first_by_template_name: FxHashMap<TemplateName<'db>, TemplateOrigin<'db>>,
+pub struct TemplateResolution<'db> {
+    project: Project,
     #[tracked]
     #[returns(ref)]
     template_dirs: Vec<Utf8PathBuf>,
+    #[tracked]
+    knowledge: StaticKnowledge,
 }
 
-impl<'db> TemplateOrigins<'db> {
-    pub fn iter(self, db: &'db dyn ProjectDb) -> impl Iterator<Item = TemplateOrigin<'db>> + 'db {
-        self.ordered(db).iter().copied()
+impl<'db> TemplateResolution<'db> {
+    pub fn origins(
+        self,
+        db: &'db dyn ProjectDb,
+    ) -> impl Iterator<Item = TemplateOrigin<'db>> + 'db {
+        template_resolution_index(db, self)
+            .ordered(db)
+            .iter()
+            .copied()
     }
 
     #[must_use]
-    pub fn find_template(
+    pub fn known_template_dirs(self, db: &'db dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
+        (self.knowledge(db) == StaticKnowledge::Known).then(|| self.template_dirs(db).clone())
+    }
+
+    #[must_use]
+    pub fn resolve(
         self,
         db: &'db dyn ProjectDb,
         template_name: TemplateName<'db>,
     ) -> FindTemplateResult<'db> {
-        if let Some(origin) = self.first_by_template_name(db).get(&template_name) {
+        let index = template_resolution_index(db, self);
+        if let Some(origin) = index.first_by_template_name(db).get(&template_name) {
             return FindTemplateResult::Found(*origin);
         }
 
@@ -82,7 +146,27 @@ impl<'db> TemplateOrigins<'db> {
 }
 
 #[salsa::tracked]
-pub fn template_origins(db: &dyn ProjectDb, project: Project) -> TemplateOrigins<'_> {
+pub fn template_resolution(db: &dyn ProjectDb, project: Project) -> TemplateResolution<'_> {
+    let (template_dirs, knowledge) = template_dirs(db, project);
+    TemplateResolution::new(db, project, template_dirs.clone(), *knowledge)
+}
+
+#[salsa::tracked]
+struct TemplateResolutionIndex<'db> {
+    #[tracked]
+    #[returns(ref)]
+    ordered: Vec<TemplateOrigin<'db>>,
+    #[tracked]
+    #[returns(ref)]
+    first_by_template_name: FxHashMap<TemplateName<'db>, TemplateOrigin<'db>>,
+}
+
+#[salsa::tracked]
+fn template_resolution_index<'db>(
+    db: &'db dyn ProjectDb,
+    resolution: TemplateResolution<'db>,
+) -> TemplateResolutionIndex<'db> {
+    let project = resolution.project(db);
     let mut ordered = Vec::new();
     let mut first_by_template_name = FxHashMap::default();
 
@@ -98,20 +182,7 @@ pub fn template_origins(db: &dyn ProjectDb, project: Project) -> TemplateOrigins
 
     tracing::debug!("Discovered {} total template origins", ordered.len());
 
-    TemplateOrigins::new(
-        db,
-        ordered,
-        first_by_template_name,
-        crate::templates::template_dirs(db, project).0.clone(),
-    )
-}
-
-pub fn find_template<'db>(
-    db: &'db dyn ProjectDb,
-    project: Project,
-    template_name: TemplateName<'db>,
-) -> FindTemplateResult<'db> {
-    template_origins(db, project).find_template(db, template_name)
+    TemplateResolutionIndex::new(db, ordered, first_by_template_name)
 }
 
 #[derive(Clone, PartialEq)]
@@ -136,7 +207,7 @@ pub struct TriedTemplateSource {
 /// Duplicate template names are kept because shadowed templates can still be
 /// opened, inspected, and used as reference sources.
 #[derive(Clone, Default, PartialEq, Eq)]
-pub struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
+struct ProjectTemplateFiles(Vec<ProjectTemplateFile>);
 
 impl ProjectTemplateFiles {
     fn from_ordered_paths(db: &dyn ProjectDb, templates: Vec<(String, Utf8PathBuf)>) -> Self {
@@ -151,7 +222,7 @@ impl ProjectTemplateFiles {
         )
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
+    fn iter(&self) -> impl Iterator<Item = &ProjectTemplateFile> {
         self.0.iter()
     }
 }
@@ -165,7 +236,7 @@ impl fmt::Debug for ProjectTemplateFiles {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct ProjectTemplateFile {
+struct ProjectTemplateFile {
     name: String,
     path: Utf8PathBuf,
     file: File,
@@ -197,7 +268,7 @@ impl fmt::Debug for ProjectTemplateFile {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTemplateFiles {
+fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTemplateFiles {
     // Freshness boundary: template discovery re-runs when any search-path root
     // revision is bumped during project refresh, matching the previous
     // imperative refresh cadence. Template dirs that live outside
@@ -214,7 +285,7 @@ pub fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTe
         }
     }
 
-    let (search_dirs, _knowledge) = crate::templates::template_dirs(db, project);
+    let (search_dirs, _knowledge) = template_dirs(db, project);
     let mut templates = Vec::new();
     let walk_options = WalkOptions::unrestricted();
 

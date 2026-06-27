@@ -1,5 +1,5 @@
 use djls_project::FindTemplateResult;
-use djls_project::find_template;
+use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::references_to_template_name;
 use djls_source::File;
@@ -23,7 +23,7 @@ pub fn goto_definition(
 
             let project = db.project()?;
 
-            match find_template(db, project, template_name) {
+            match template_resolution(db, project).resolve(db, template_name) {
                 FindTemplateResult::Found(origin) => {
                     let path = origin.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);

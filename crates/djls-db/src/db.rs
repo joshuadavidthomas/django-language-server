@@ -12,11 +12,10 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
-use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
 use djls_project::compute_model_graph;
-use djls_project::template_dirs;
 use djls_project::template_libraries;
+use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_semantic::compute_filter_arity_specs;
@@ -155,10 +154,8 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-        self.project().and_then(|project| {
-            let (dirs, knowledge) = template_dirs(self, project);
-            (*knowledge == StaticKnowledge::Known).then(|| dirs.clone())
-        })
+        self.project()
+            .and_then(|project| template_resolution(self, project).known_template_dirs(self))
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
@@ -410,7 +407,7 @@ mod invalidation_tests {
             else {
                 panic!("expected extends argument to be a template reference");
             };
-            let _result = djls_project::find_template(&db, project, name);
+            let _result = djls_project::template_resolution(&db, project).resolve(&db, name);
         }
         event_log.take();
 
@@ -422,7 +419,7 @@ mod invalidation_tests {
         else {
             panic!("expected extends argument to be a template reference");
         };
-        let _result = djls_project::find_template(&db, project, name);
+        let _result = djls_project::template_resolution(&db, project).resolve(&db, name);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "project_template_files"),
@@ -455,6 +452,59 @@ mod invalidation_tests {
         db.project = Some(project);
 
         assert!(db.template_dirs().is_none());
+    }
+
+    #[test]
+    fn semantic_db_template_dirs_does_not_index_templates() {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let settings_path = root.join("settings.py");
+        let templates_dir = root.join("templates");
+
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(root.join("manage.py"), String::new());
+        fs.add_file(
+            settings_path,
+            format!(
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+            ),
+        );
+        fs.add_file(templates_dir.join("base.html"), "base".to_string());
+
+        let mut db = DjangoDatabase {
+            fs: Arc::new(fs),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+        event_log.take();
+
+        assert_eq!(db.template_dirs().unwrap(), vec![templates_dir]);
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "template_dirs"),
+            "template_dirs should derive the trusted directory list"
+        );
+        assert!(
+            !was_executed(&db, &events, "project_template_files"),
+            "template_dirs should not walk template files"
+        );
     }
 
     #[test]

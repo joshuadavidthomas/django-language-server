@@ -17,7 +17,7 @@ use djls_project::RefreshData;
 use djls_project::RefreshQuery;
 use djls_project::RefreshQueryResult;
 use djls_project::apply_refresh;
-use djls_project::project_template_files;
+use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
@@ -658,7 +658,7 @@ impl WarmStage {
                 let libraries = db.template_libraries();
                 Some(libraries.loadable_libraries().count() + libraries.builtin_libraries().count())
             }
-            Self::IndexTemplates => Some(project_template_files(db, project).iter().count()),
+            Self::IndexTemplates => Some(template_resolution(db, project).origins(db).count()),
         }
     }
 

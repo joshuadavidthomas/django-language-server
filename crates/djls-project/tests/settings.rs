@@ -253,9 +253,10 @@ fn template_dirs_resolve_settings_module_file() {
         )],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/templates")]);
 }
 
@@ -264,10 +265,9 @@ fn template_dirs_return_unknown_for_missing_settings_module() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(&mut db, "myproject.settings", &[]);
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project).known_template_dirs(&db);
 
-    assert!(dirs.is_empty());
-    assert_eq!(knowledge, StaticKnowledge::Unknown);
+    assert!(dirs.is_none());
 }
 
 #[test]
@@ -295,9 +295,10 @@ fn template_dirs_resolve_relative_star_imports() {
         ],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(
         dirs,
         vec![
@@ -332,9 +333,10 @@ fn template_dirs_resolve_relative_star_imports_from_package_module() {
         ],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(
         dirs,
         vec![
@@ -360,9 +362,10 @@ fn template_dirs_recover_from_star_import_cycle() {
         ],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/blog/templates")]);
 }
 
@@ -383,9 +386,10 @@ fn template_dirs_include_dirs_entries_before_app_dirs() {
         ],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(
         dirs,
         vec![
@@ -411,9 +415,10 @@ fn template_dirs_resolve_app_config_entries() {
         ],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/blog/templates")]);
 }
 
@@ -438,9 +443,10 @@ fn template_dirs_resolve_apps_from_site_packages_search_path() {
         .search_paths(search_paths)
         .install(&mut db);
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
 
-    assert_eq!(knowledge, StaticKnowledge::Known);
     assert_eq!(dirs, vec![Utf8PathBuf::from("/site/pkg/templates")]);
 }
 
@@ -456,10 +462,9 @@ fn template_dirs_demote_unresolved_app_to_partial() {
         )],
     );
 
-    let (dirs, knowledge) = template_dirs(&db, project).clone();
+    let dirs = template_resolution(&db, project).known_template_dirs(&db);
 
-    assert!(dirs.is_empty());
-    assert_eq!(knowledge, StaticKnowledge::Partial);
+    assert!(dirs.is_none());
 }
 
 #[test]
@@ -924,10 +929,11 @@ fn django_facts_golden_template_dirs_match() {
                 .replace("${SITE_PACKAGES}", site_packages.as_str())
         })
         .collect();
-    let actual: Vec<_> = template_dirs(&db, project)
-        .0
-        .iter()
-        .map(ToString::to_string)
+    let actual: Vec<_> = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known")
+        .into_iter()
+        .map(|path| path.to_string())
         .collect();
 
     assert_eq!(actual, expected);
