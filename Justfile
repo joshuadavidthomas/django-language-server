@@ -30,7 +30,7 @@ corpus *ARGS:
     cargo run -q -p djls-testing --bin corpus -- {{ ARGS }}
 
 clippy *ARGS:
-    cargo clippy --all-targets --all-features --benches --fix {{ ARGS }} -- -D warnings
+    cargo clippy --all-targets --all-features --benches --fix --allow-dirty {{ ARGS }} -- -D warnings
 
 hawk *ARGS:
     @# Avoid astral-sh/hawk#74 rustc-info cache poisoning.
