@@ -212,14 +212,88 @@ impl Lexer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tokens::TokenSnapshotVec;
+
+    #[derive(Debug, serde::Serialize)]
+    enum TokenSnapshot {
+        Block {
+            content: String,
+            span: (u32, u32),
+            full_span: (u32, u32),
+        },
+        Comment {
+            content: String,
+            span: (u32, u32),
+            full_span: (u32, u32),
+        },
+        Eof,
+        Error {
+            content: String,
+            span: (u32, u32),
+            full_span: (u32, u32),
+        },
+        Newline {
+            span: (u32, u32),
+        },
+        Text {
+            content: String,
+            span: (u32, u32),
+            full_span: (u32, u32),
+        },
+        Variable {
+            content: String,
+            span: (u32, u32),
+            full_span: (u32, u32),
+        },
+        Whitespace {
+            span: (u32, u32),
+        },
+    }
+
+    impl From<&Token> for TokenSnapshot {
+        fn from(token: &Token) -> Self {
+            match token {
+                Token::Block { span, .. } => Self::Block {
+                    content: token.content(),
+                    span: span.into(),
+                    full_span: token.full_span_or_fallback().into(),
+                },
+                Token::Comment { span, .. } => Self::Comment {
+                    content: token.content(),
+                    span: span.into(),
+                    full_span: token.full_span_or_fallback().into(),
+                },
+                Token::Eof => Self::Eof,
+                Token::Error { span, .. } => Self::Error {
+                    content: token.content(),
+                    span: span.into(),
+                    full_span: token.full_span_or_fallback().into(),
+                },
+                Token::Newline { span } => Self::Newline { span: span.into() },
+                Token::Text { span, .. } => Self::Text {
+                    content: token.content(),
+                    span: span.into(),
+                    full_span: span.into(),
+                },
+                Token::Variable { span, .. } => Self::Variable {
+                    content: token.content(),
+                    span: span.into(),
+                    full_span: token.full_span_or_fallback().into(),
+                },
+                Token::Whitespace { span } => Self::Whitespace { span: span.into() },
+            }
+        }
+    }
+
+    fn token_snapshot(tokens: &[Token]) -> Vec<TokenSnapshot> {
+        tokens.iter().map(TokenSnapshot::from).collect()
+    }
 
     #[test]
     fn test_tokenize_html() {
         let source = r#"<div class="container" id="main" disabled></div>"#;
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -228,7 +302,7 @@ mod tests {
         let source = "{{ user.name|default:\"Anonymous\"|title }}";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -237,7 +311,7 @@ mod tests {
         let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -255,7 +329,7 @@ mod tests {
 </style>";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -270,7 +344,7 @@ mod tests {
 </script>"#;
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -284,7 +358,7 @@ mod tests {
 </style>"#;
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -297,7 +371,7 @@ mod tests {
 <div>text</div>";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -335,7 +409,7 @@ mod tests {
 </html>"#;
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -344,7 +418,7 @@ mod tests {
         let source = "<style>body { color: blue; ";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = token_snapshot(&tokens);
         insta::assert_yaml_snapshot!(snapshot);
     }
 }
