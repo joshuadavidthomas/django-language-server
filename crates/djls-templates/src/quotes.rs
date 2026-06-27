@@ -70,14 +70,14 @@ impl State {
     }
 }
 
-struct Delimiters<'a> {
+pub(crate) struct Delimiters<'a> {
     chars: std::str::CharIndices<'a>,
     delimiter: char,
     state: State,
 }
 
 impl<'a> Delimiters<'a> {
-    fn new(input: &'a str, delimiter: char) -> Self {
+    pub(crate) fn new(input: &'a str, delimiter: char) -> Self {
         Self {
             chars: input.char_indices(),
             delimiter,
@@ -98,12 +98,6 @@ impl Iterator for Delimiters<'_> {
         }
         None
     }
-}
-
-/// Return the byte index of the first delimiter outside quoted regions.
-#[must_use]
-pub(crate) fn first_unquoted_delimiter_index(input: &str, delimiter: char) -> Option<usize> {
-    Delimiters::new(input, delimiter).next()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,8 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn first_unquoted_delimiter_index_returns_first_delimiter() {
-        assert_eq!(first_unquoted_delimiter_index("a|b|c", '|'), Some(1));
+    fn delimiters_returns_first_delimiter() {
+        assert_eq!(Delimiters::new("a|b|c", '|').next(), Some(1));
     }
 
     #[test]
