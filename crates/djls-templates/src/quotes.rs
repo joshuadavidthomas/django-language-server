@@ -39,33 +39,49 @@ impl<'a> TemplateString<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum QuoteEscapeMode {
-    LiteralBackslash,
-    BackslashEscapesNext,
+enum QuoteScanState {
+    Outside,
+    Inside(char),
+    AfterBackslash(char),
 }
 
-impl QuoteEscapeMode {
-    fn treats_backslash_as_escape(self) -> bool {
-        matches!(self, Self::BackslashEscapesNext)
+impl QuoteScanState {
+    fn is_outside_quote(self) -> bool {
+        matches!(self, Self::Outside)
+    }
+
+    fn after_literal_backslash(self, ch: char) -> Self {
+        match self {
+            Self::Outside if matches!(ch, '"' | '\'') => Self::Inside(ch),
+            Self::Outside => Self::Outside,
+            Self::Inside(quote) if ch == quote => Self::Outside,
+            Self::Inside(quote) | Self::AfterBackslash(quote) => Self::Inside(quote),
+        }
+    }
+
+    fn after_escaping_backslash(self, ch: char) -> Self {
+        match self {
+            Self::Outside if matches!(ch, '"' | '\'') => Self::Inside(ch),
+            Self::Outside => Self::Outside,
+            Self::Inside(quote) if ch == '\\' => Self::AfterBackslash(quote),
+            Self::Inside(quote) if ch == quote => Self::Outside,
+            Self::Inside(quote) | Self::AfterBackslash(quote) => Self::Inside(quote),
+        }
     }
 }
 
 struct UnquotedDelimiterIndices<'a> {
     chars: std::str::CharIndices<'a>,
     delimiter: char,
-    escape_mode: QuoteEscapeMode,
-    quote: Option<char>,
-    escape: bool,
+    state: QuoteScanState,
 }
 
 impl<'a> UnquotedDelimiterIndices<'a> {
-    fn new(s: &'a str, delimiter: char, escape_mode: QuoteEscapeMode) -> Self {
+    fn new(s: &'a str, delimiter: char) -> Self {
         Self {
             chars: s.char_indices(),
             delimiter,
-            escape_mode,
-            quote: None,
-            escape: false,
+            state: QuoteScanState::Outside,
         }
     }
 }
@@ -75,24 +91,10 @@ impl Iterator for UnquotedDelimiterIndices<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         for (idx, ch) in self.chars.by_ref() {
-            if self.escape {
-                self.escape = false;
-                continue;
+            if self.state.is_outside_quote() && ch == self.delimiter {
+                return Some(idx);
             }
-            match ch {
-                '\\' if self.escape_mode.treats_backslash_as_escape() && self.quote.is_some() => {
-                    self.escape = true;
-                }
-                '"' | '\'' if self.quote == Some(ch) => {
-                    self.quote = None;
-                }
-                '"' | '\'' if self.quote.is_none() => {
-                    self.quote = Some(ch);
-                }
-                _ if self.quote.is_some() => {}
-                _ if ch == self.delimiter => return Some(idx),
-                _ => {}
-            }
+            self.state = self.state.after_literal_backslash(ch);
         }
         None
     }
@@ -100,12 +102,8 @@ impl Iterator for UnquotedDelimiterIndices<'_> {
 
 /// Return the byte index of the first delimiter outside quoted regions.
 #[must_use]
-pub(crate) fn first_unquoted_delimiter_index(
-    s: &str,
-    delimiter: char,
-    escape_mode: QuoteEscapeMode,
-) -> Option<usize> {
-    UnquotedDelimiterIndices::new(s, delimiter, escape_mode).next()
+pub(crate) fn first_unquoted_delimiter_index(s: &str, delimiter: char) -> Option<usize> {
+    UnquotedDelimiterIndices::new(s, delimiter).next()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,12 +118,11 @@ pub(crate) struct SplitPiece<'a> {
 pub(crate) fn split_on_unquoted_delimiter_with_offsets(
     s: &str,
     delimiter: char,
-    escape_mode: QuoteEscapeMode,
 ) -> Vec<SplitPiece<'_>> {
     let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
     let mut start = 0;
 
-    for idx in UnquotedDelimiterIndices::new(s, delimiter, escape_mode) {
+    for idx in UnquotedDelimiterIndices::new(s, delimiter) {
         pieces.push(SplitPiece {
             text: &s[start..idx],
             start,
@@ -146,55 +143,43 @@ pub(crate) fn split_on_unquoted_delimiter_with_offsets(
 pub(crate) fn split_on_whitespace_with_offsets(s: &str) -> Vec<SplitPiece<'_>> {
     let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
     let mut start = None;
-    let mut quote: Option<char> = None;
-    let mut escape = false;
-    let escape_mode = QuoteEscapeMode::BackslashEscapesNext;
+    let mut state = QuoteScanState::Outside;
 
     for (idx, ch) in s.char_indices() {
-        if escape {
-            escape = false;
-            if start.is_none() {
-                start = Some(idx.saturating_sub(1));
+        match state {
+            QuoteScanState::AfterBackslash(quote) => {
+                state = QuoteScanState::Inside(quote);
+                if start.is_none() {
+                    start = Some(idx.saturating_sub(1));
+                }
             }
-            continue;
-        }
-        match ch {
-            '\\' if escape_mode.treats_backslash_as_escape() && quote.is_some() => {
-                escape = true;
+            QuoteScanState::Inside(_) => {
+                state = state.after_escaping_backslash(ch);
                 if start.is_none() {
                     start = Some(idx);
                 }
             }
-            '"' | '\'' if quote == Some(ch) => {
-                quote = None;
-                if start.is_none() {
-                    start = Some(idx);
+            QuoteScanState::Outside => match ch {
+                '"' | '\'' => {
+                    state = state.after_escaping_backslash(ch);
+                    if start.is_none() {
+                        start = Some(idx);
+                    }
                 }
-            }
-            '"' | '\'' if quote.is_none() => {
-                quote = Some(ch);
-                if start.is_none() {
-                    start = Some(idx);
+                _ if ch.is_whitespace() => {
+                    if let Some(s_start) = start.take() {
+                        pieces.push(SplitPiece {
+                            text: &s[s_start..idx],
+                            start: s_start,
+                        });
+                    }
                 }
-            }
-            _ if quote.is_some() => {
-                if start.is_none() {
-                    start = Some(idx);
+                _ => {
+                    if start.is_none() {
+                        start = Some(idx);
+                    }
                 }
-            }
-            _ if ch.is_whitespace() => {
-                if let Some(s_start) = start.take() {
-                    pieces.push(SplitPiece {
-                        text: &s[s_start..idx],
-                        start: s_start,
-                    });
-                }
-            }
-            _ => {
-                if start.is_none() {
-                    start = Some(idx);
-                }
-            }
+            },
         }
     }
     if let Some(s_start) = start {
@@ -246,19 +231,12 @@ mod tests {
 
     #[test]
     fn first_unquoted_delimiter_index_returns_first_delimiter() {
-        assert_eq!(
-            first_unquoted_delimiter_index("a|b|c", '|', QuoteEscapeMode::LiteralBackslash),
-            Some(1)
-        );
+        assert_eq!(first_unquoted_delimiter_index("a|b|c", '|'), Some(1));
     }
 
     #[test]
     fn split_unquoted_delimiters() {
-        let pieces = split_on_unquoted_delimiter_with_offsets(
-            "a|b|c",
-            '|',
-            QuoteEscapeMode::LiteralBackslash,
-        );
+        let pieces = split_on_unquoted_delimiter_with_offsets("a|b|c", '|');
         assert_eq!(
             pieces,
             vec![
@@ -280,11 +258,7 @@ mod tests {
 
     #[test]
     fn quoted_delimiters_skipped() {
-        let pieces = split_on_unquoted_delimiter_with_offsets(
-            "a|'b|c'|d",
-            '|',
-            QuoteEscapeMode::LiteralBackslash,
-        );
+        let pieces = split_on_unquoted_delimiter_with_offsets("a|'b|c'|d", '|');
         assert_eq!(
             pieces,
             vec![
@@ -306,11 +280,7 @@ mod tests {
 
     #[test]
     fn double_quotes() {
-        let pieces = split_on_unquoted_delimiter_with_offsets(
-            r#"a|"b|c"|d"#,
-            '|',
-            QuoteEscapeMode::LiteralBackslash,
-        );
+        let pieces = split_on_unquoted_delimiter_with_offsets(r#"a|"b|c"|d"#, '|');
         assert_eq!(
             pieces,
             vec![
@@ -331,36 +301,8 @@ mod tests {
     }
 
     #[test]
-    fn escape_handling() {
-        let pieces = split_on_unquoted_delimiter_with_offsets(
-            r#""a\"b"|c"#,
-            '|',
-            QuoteEscapeMode::BackslashEscapesNext,
-        );
-
-        // The \" is escaped, so the quote doesn't close until the real "
-        assert_eq!(
-            pieces,
-            vec![
-                SplitPiece {
-                    text: r#""a\"b""#,
-                    start: 0,
-                },
-                SplitPiece {
-                    text: "c",
-                    start: 7,
-                },
-            ]
-        );
-    }
-
-    #[test]
     fn escape_ignored_when_backslash_is_literal() {
-        let pieces = split_on_unquoted_delimiter_with_offsets(
-            r#""a\"b"|c"#,
-            '|',
-            QuoteEscapeMode::LiteralBackslash,
-        );
+        let pieces = split_on_unquoted_delimiter_with_offsets(r#""a\"b"|c"#, '|');
 
         // With literal backslashes, \" closes the quote, then b" opens a new one.
         assert_eq!(
