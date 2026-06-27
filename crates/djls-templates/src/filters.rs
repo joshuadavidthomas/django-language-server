@@ -2,6 +2,7 @@ use djls_source::Span;
 use serde::Serialize;
 
 use crate::bits::FilterArgument;
+use crate::quotes::QuoteEscapeMode;
 use crate::quotes::first_unquoted_delimiter_index;
 use crate::quotes::split_on_unquoted_delimiter_with_offsets;
 
@@ -42,7 +43,7 @@ fn usize_to_u32(val: usize) -> u32 {
 ///
 /// Returns an iterator of `(segment_str, byte_offset_within_content)` pairs.
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
-    split_on_unquoted_delimiter_with_offsets(content, '|', false)
+    split_on_unquoted_delimiter_with_offsets(content, '|', QuoteEscapeMode::LiteralBackslash)
         .into_iter()
         .map(|piece| (piece.text, usize_to_u32(piece.start)))
 }
@@ -57,7 +58,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    let colon_pos = first_unquoted_delimiter_index(trimmed, ':', false);
+    let colon_pos = first_unquoted_delimiter_index(trimmed, ':', QuoteEscapeMode::LiteralBackslash);
 
     let (name, arg) = match colon_pos {
         Some(pos) => {
