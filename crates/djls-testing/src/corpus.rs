@@ -40,9 +40,7 @@ mod sync;
 pub use lock::LockFilter;
 pub use lock::Lockfile;
 pub use lock::lock_corpus;
-pub use manifest::Fixture;
 pub use manifest::Manifest;
-pub use manifest::Repo;
 pub use sync::clean_entries;
 pub use sync::sync_corpus;
 
