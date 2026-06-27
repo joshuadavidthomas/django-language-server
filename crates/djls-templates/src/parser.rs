@@ -7,8 +7,7 @@ use crate::filters::Filter;
 use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::nodelist::Node;
-use crate::quotes::QuoteTracker;
-use crate::quotes::Segment;
+use crate::quotes::split_on_unquoted_whitespace;
 use crate::tokens::Token;
 
 pub(crate) struct Parser {
@@ -107,7 +106,7 @@ impl Parser {
         content: &str,
         position: usize,
     ) -> Result<(String, Span, Vec<TagBit>), ParseError> {
-        let segments = split_tag_content(content);
+        let segments = split_on_unquoted_whitespace(content);
         let mut iter = segments.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         let name_span =
@@ -292,38 +291,6 @@ impl Parser {
     }
 }
 
-fn split_tag_content(content: &str) -> Vec<Segment<'_>> {
-    let mut segments = Vec::with_capacity((content.len() / 8).clamp(2, 8));
-    let mut start_byte = None;
-    let mut quotes = QuoteTracker::new();
-
-    for (byte_index, ch) in content.char_indices() {
-        if quotes.is_outside() && ch.is_whitespace() {
-            if let Some(segment_start_byte) = start_byte.take() {
-                segments.push(Segment {
-                    text: &content[segment_start_byte..byte_index],
-                    start_byte: segment_start_byte,
-                });
-            }
-            continue;
-        }
-
-        if start_byte.is_none() {
-            start_byte = Some(byte_index);
-        }
-        quotes.feed_escaped(ch);
-    }
-
-    if let Some(segment_start_byte) = start_byte {
-        segments.push(Segment {
-            text: &content[segment_start_byte..],
-            start_byte: segment_start_byte,
-        });
-    }
-
-    segments
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum StreamError {
     AtBeginning,
@@ -386,70 +353,6 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let (nodes, _errors) = parser.parse();
         nodes
-    }
-
-    fn split_tag_text(content: &str) -> Vec<String> {
-        split_tag_content(content)
-            .into_iter()
-            .map(|segment| segment.text.to_owned())
-            .collect()
-    }
-
-    #[test]
-    fn split_tag_content_simple() {
-        assert_eq!(
-            split_tag_text("load i18n l10n"),
-            vec!["load", "i18n", "l10n"]
-        );
-    }
-
-    #[test]
-    fn split_tag_content_quoted() {
-        assert_eq!(
-            split_tag_text(r#"if x == "hello world""#),
-            vec!["if", "x", "==", r#""hello world""#]
-        );
-    }
-
-    #[test]
-    fn split_tag_content_escaped() {
-        assert_eq!(
-            split_tag_text(r#"blocktrans "it\"s fine""#),
-            vec!["blocktrans", r#""it\"s fine""#]
-        );
-    }
-
-    #[test]
-    fn split_tag_content_empty() {
-        assert!(split_tag_text("").is_empty());
-        assert!(split_tag_text("   ").is_empty());
-    }
-
-    #[test]
-    fn split_tag_content_offsets() {
-        let segments = split_tag_content(r#"  url "view name" as view"#);
-
-        assert_eq!(
-            segments,
-            vec![
-                Segment {
-                    text: "url",
-                    start_byte: 2,
-                },
-                Segment {
-                    text: r#""view name""#,
-                    start_byte: 6,
-                },
-                Segment {
-                    text: "as",
-                    start_byte: 18,
-                },
-                Segment {
-                    text: "view",
-                    start_byte: 21,
-                },
-            ]
-        );
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
