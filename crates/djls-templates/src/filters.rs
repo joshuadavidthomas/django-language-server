@@ -3,7 +3,6 @@ use serde::Serialize;
 
 use crate::bits::FilterArgument;
 use crate::quotes::DelimiterIndices;
-use crate::quotes::split_on_unquoted_delimiter_with_offsets;
 
 /// A parsed filter expression within a Django variable node.
 ///
@@ -42,7 +41,8 @@ fn usize_to_u32(val: usize) -> u32 {
 ///
 /// Returns an iterator of `(segment_str, byte_offset_within_content)` pairs.
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
-    split_on_unquoted_delimiter_with_offsets(content, '|')
+    DelimiterIndices::new(content, '|')
+        .segments()
         .into_iter()
         .map(|segment| (segment.text, usize_to_u32(segment.start_byte)))
 }

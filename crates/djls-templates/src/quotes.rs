@@ -72,7 +72,8 @@ impl State {
 
 /// Byte indices of delimiter characters outside quoted regions.
 pub(crate) struct DelimiterIndices<'a> {
-    chars: std::str::CharIndices<'a>,
+    input: &'a str,
+    cursor: usize,
     delimiter: char,
     state: State,
 }
@@ -80,10 +81,31 @@ pub(crate) struct DelimiterIndices<'a> {
 impl<'a> DelimiterIndices<'a> {
     pub(crate) fn new(input: &'a str, delimiter: char) -> Self {
         Self {
-            chars: input.char_indices(),
+            input,
+            cursor: 0,
             delimiter,
             state: State::Outside,
         }
+    }
+
+    pub(crate) fn segments(mut self) -> Vec<Segment<'a>> {
+        let mut segments = Vec::with_capacity((self.input.len() / 8).clamp(2, 8));
+        let mut start_byte = 0;
+        let delimiter_len = self.delimiter.len_utf8();
+
+        while let Some(delimiter_byte) = self.next() {
+            segments.push(Segment {
+                text: &self.input[start_byte..delimiter_byte],
+                start_byte,
+            });
+            start_byte = delimiter_byte + delimiter_len;
+        }
+
+        segments.push(Segment {
+            text: &self.input[start_byte..],
+            start_byte,
+        });
+        segments
     }
 }
 
@@ -91,7 +113,11 @@ impl Iterator for DelimiterIndices<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        for (byte_index, ch) in self.chars.by_ref() {
+        let cursor = self.cursor;
+        for (relative_byte, ch) in self.input[cursor..].char_indices() {
+            let byte_index = cursor + relative_byte;
+            self.cursor = byte_index + ch.len_utf8();
+
             if self.state.is_outside() && ch == self.delimiter {
                 return Some(byte_index);
             }
@@ -105,31 +131,6 @@ impl Iterator for DelimiterIndices<'_> {
 pub(crate) struct Segment<'a> {
     pub text: &'a str,
     pub start_byte: usize,
-}
-
-/// Split `input` on a delimiter while respecting quoted regions.
-///
-/// Returns borrowed segments with byte offsets relative to `input`.
-pub(crate) fn split_on_unquoted_delimiter_with_offsets(
-    input: &str,
-    delimiter: char,
-) -> Vec<Segment<'_>> {
-    let mut segments = Vec::with_capacity((input.len() / 8).clamp(2, 8));
-    let mut start_byte = 0;
-
-    for delimiter_byte in DelimiterIndices::new(input, delimiter) {
-        segments.push(Segment {
-            text: &input[start_byte..delimiter_byte],
-            start_byte,
-        });
-        start_byte = delimiter_byte + delimiter.len_utf8();
-    }
-
-    segments.push(Segment {
-        text: &input[start_byte..],
-        start_byte,
-    });
-    segments
 }
 
 /// Split `input` on whitespace while respecting quoted regions (with escape handling).
@@ -231,7 +232,7 @@ mod tests {
 
     #[test]
     fn split_unquoted_delimiters() {
-        let segments = split_on_unquoted_delimiter_with_offsets("a|b|c", '|');
+        let segments = DelimiterIndices::new("a|b|c", '|').segments();
         assert_eq!(
             segments,
             vec![
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn quoted_delimiters_skipped() {
-        let segments = split_on_unquoted_delimiter_with_offsets("a|'b|c'|d", '|');
+        let segments = DelimiterIndices::new("a|'b|c'|d", '|').segments();
         assert_eq!(
             segments,
             vec![
@@ -275,7 +276,7 @@ mod tests {
 
     #[test]
     fn double_quotes() {
-        let segments = split_on_unquoted_delimiter_with_offsets(r#"a|"b|c"|d"#, '|');
+        let segments = DelimiterIndices::new(r#"a|"b|c"|d"#, '|').segments();
         assert_eq!(
             segments,
             vec![
@@ -297,7 +298,7 @@ mod tests {
 
     #[test]
     fn escape_ignored_when_backslash_is_literal() {
-        let segments = split_on_unquoted_delimiter_with_offsets(r#""a\"b"|c"#, '|');
+        let segments = DelimiterIndices::new(r#""a\"b"|c"#, '|').segments();
 
         // With literal backslashes, \" closes the quote, then b" opens a new one.
         assert_eq!(
