@@ -36,7 +36,7 @@ pub(crate) struct ExtractedRuleFragment {
 }
 
 impl ExtractedRuleFragment {
-    pub(crate) fn extend(&mut self, other: Self) {
+    fn extend(&mut self, other: Self) {
         self.constraints.extend(other.constraints);
         self.diagnostic_messages.extend(other.diagnostic_messages);
     }

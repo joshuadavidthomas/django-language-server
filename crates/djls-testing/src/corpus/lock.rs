@@ -14,7 +14,7 @@ const HEADER: &str =
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Lockfile {
     #[serde(default, rename = "repo")]
-    pub repos: Vec<LockedRepo>,
+    pub(crate) repos: Vec<LockedRepo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -41,20 +41,8 @@ impl FilterAritySpecs {
 
     /// Look up the arity for a filter by name.
     #[must_use]
-    pub fn get(&self, filter_name: &str) -> Option<&FilterArity> {
+    pub(crate) fn get(&self, filter_name: &str) -> Option<&FilterArity> {
         self.specs.get(filter_name).map(|(_, arity)| arity)
-    }
-
-    /// Check if any specs are present.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.specs.is_empty()
-    }
-
-    /// Number of filter arity specs.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.specs.len()
     }
 
     /// Merge extracted filter arities into this map.

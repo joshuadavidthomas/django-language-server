@@ -132,12 +132,7 @@ impl DocumentChange {
 
     /// Apply this change to content, returning the updated text.
     #[must_use]
-    pub(crate) fn apply(
-        &self,
-        content: &str,
-        line_index: &LineIndex,
-        encoding: PositionEncoding,
-    ) -> String {
+    fn apply(&self, content: &str, line_index: &LineIndex, encoding: PositionEncoding) -> String {
         if let Some(range) = &self.range {
             let start_offset = line_index.offset(content, range.start(), encoding).get() as usize;
             let end_offset = line_index.offset(content, range.end(), encoding).get() as usize;

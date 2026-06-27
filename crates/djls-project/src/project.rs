@@ -155,7 +155,7 @@ impl Project {
     }
 }
 
-pub(crate) fn load_env_file(
+fn load_env_file(
     fs: &dyn FileSystem,
     root: &Utf8Path,
     settings: &Settings,
@@ -203,7 +203,7 @@ pub(crate) fn load_env_file(
     vars
 }
 
-pub(crate) fn resolve_django_settings(
+fn resolve_django_settings(
     fs: &dyn FileSystem,
     root: &Utf8Path,
     settings: &Settings,

@@ -212,14 +212,97 @@ impl Lexer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tokens::TokenSnapshotVec;
+
+    #[derive(serde::Serialize)]
+    struct ContentToken<'a> {
+        content: &'a str,
+        span: (u32, u32),
+        full_span: (u32, u32),
+    }
+
+    #[derive(serde::Serialize)]
+    struct SpanToken {
+        span: (u32, u32),
+    }
+
+    impl serde::Serialize for Token {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            match self {
+                Token::Block { content, span } => serializer.serialize_newtype_variant(
+                    "Token",
+                    0,
+                    "Block",
+                    &ContentToken {
+                        content,
+                        span: span.into(),
+                        full_span: self.full_span_or_fallback().into(),
+                    },
+                ),
+                Token::Comment { content, span } => serializer.serialize_newtype_variant(
+                    "Token",
+                    1,
+                    "Comment",
+                    &ContentToken {
+                        content,
+                        span: span.into(),
+                        full_span: self.full_span_or_fallback().into(),
+                    },
+                ),
+                Token::Eof => serializer.serialize_unit_variant("Token", 2, "Eof"),
+                Token::Error { content, span, .. } => serializer.serialize_newtype_variant(
+                    "Token",
+                    3,
+                    "Error",
+                    &ContentToken {
+                        content,
+                        span: span.into(),
+                        full_span: self.full_span_or_fallback().into(),
+                    },
+                ),
+                Token::Newline { span } => serializer.serialize_newtype_variant(
+                    "Token",
+                    4,
+                    "Newline",
+                    &SpanToken { span: span.into() },
+                ),
+                Token::Text { content, span } => serializer.serialize_newtype_variant(
+                    "Token",
+                    5,
+                    "Text",
+                    &ContentToken {
+                        content,
+                        span: span.into(),
+                        full_span: span.into(),
+                    },
+                ),
+                Token::Variable { content, span } => serializer.serialize_newtype_variant(
+                    "Token",
+                    6,
+                    "Variable",
+                    &ContentToken {
+                        content,
+                        span: span.into(),
+                        full_span: self.full_span_or_fallback().into(),
+                    },
+                ),
+                Token::Whitespace { span } => serializer.serialize_newtype_variant(
+                    "Token",
+                    7,
+                    "Whitespace",
+                    &SpanToken { span: span.into() },
+                ),
+            }
+        }
+    }
 
     #[test]
     fn test_tokenize_html() {
         let source = r#"<div class="container" id="main" disabled></div>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -227,8 +310,7 @@ mod tests {
     fn test_tokenize_django_variable() {
         let source = "{{ user.name|default:\"Anonymous\"|title }}";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -236,8 +318,7 @@ mod tests {
     fn test_tokenize_django_block() {
         let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -254,8 +335,7 @@ mod tests {
     /* CSS comment */
 </style>";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -269,8 +349,7 @@ mod tests {
     console.log(x);
 </script>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -283,8 +362,7 @@ mod tests {
     }
 </style>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -296,8 +374,7 @@ mod tests {
 <!-- html comment -->
 <div>text</div>";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -334,8 +411,7 @@ mod tests {
 </body>
 </html>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 
@@ -343,8 +419,7 @@ mod tests {
     fn test_tokenize_unclosed_style() {
         let source = "<style>body { color: blue; ";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize();
-        let snapshot = TokenSnapshotVec(tokens).to_snapshot();
+        let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
 }

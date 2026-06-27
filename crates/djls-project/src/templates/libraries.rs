@@ -191,7 +191,7 @@ fn library_from_module_path(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
-    pub module: PythonModulePath,
+    module: PythonModulePath,
     pub symbols: Vec<TemplateSymbol>,
 }
 
@@ -233,7 +233,7 @@ impl TemplateLibrary {
             .dedup_by(|a, b| a.kind == b.kind && a.name == b.name);
     }
 
-    pub(crate) fn merge_symbols(&mut self, symbols: impl IntoIterator<Item = TemplateSymbol>) {
+    fn merge_symbols(&mut self, symbols: impl IntoIterator<Item = TemplateSymbol>) {
         for symbol in symbols {
             self.merge_symbol(symbol);
         }
@@ -278,7 +278,7 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn registration_modules(&self) -> Vec<PythonModulePath> {
+    pub(crate) fn registration_modules(&self) -> Vec<PythonModulePath> {
         if self.knowledge == StaticKnowledge::Unknown {
             return Vec::new();
         }
@@ -304,7 +304,7 @@ impl TemplateLibraries {
         self.builtins.iter()
     }
 
-    pub fn builtin_libraries_by_module(
+    fn builtin_libraries_by_module(
         &self,
     ) -> impl Iterator<Item = (&PythonModulePath, &TemplateLibrary)> + '_ {
         self.builtins
@@ -312,7 +312,7 @@ impl TemplateLibraries {
             .map(|library| (library.module(), library))
     }
 
-    pub fn loadable_library_names(&self) -> impl Iterator<Item = &LibraryName> + '_ {
+    fn loadable_library_names(&self) -> impl Iterator<Item = &LibraryName> + '_ {
         self.loadable.keys()
     }
 
@@ -331,11 +331,11 @@ impl TemplateLibraries {
         self.loadable.iter()
     }
 
-    pub(crate) fn insert_loadable(&mut self, name: LibraryName, library: TemplateLibrary) {
+    fn insert_loadable(&mut self, name: LibraryName, library: TemplateLibrary) {
         self.loadable.insert(name, library);
     }
 
-    pub(crate) fn push_builtin(&mut self, library: TemplateLibrary) {
+    fn push_builtin(&mut self, library: TemplateLibrary) {
         if !self
             .builtins
             .iter()
@@ -391,7 +391,7 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn loadable_library(&self, name: &LibraryName) -> Option<&TemplateLibrary> {
+    fn loadable_library(&self, name: &LibraryName) -> Option<&TemplateLibrary> {
         self.loadable.get(name)
     }
 
@@ -407,13 +407,7 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn loadable_library_module_str(&self, name: &str) -> Option<&PythonModulePath> {
-        let name = LibraryName::parse(name).ok()?;
-        self.loadable_library_module(&name)
-    }
-
-    #[must_use]
-    pub fn is_loadable(&self, name: &LibraryName) -> bool {
+    fn is_loadable(&self, name: &LibraryName) -> bool {
         self.loadable.contains_key(name)
     }
 

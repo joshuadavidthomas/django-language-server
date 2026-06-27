@@ -33,13 +33,13 @@ use tracing_subscriber::util::SubscriberInitExt;
 /// This layer intercepts tracing events and converts them to LSP log messages
 /// that are sent to the client. It filters events by level to avoid overwhelming
 /// the client with verbose trace logs.
-pub(crate) struct LspLayer {
+struct LspLayer {
     send_message: Arc<dyn Fn(ls_types::MessageType, String) + Send + Sync>,
     disabled: Arc<AtomicBool>,
 }
 
 impl LspLayer {
-    pub(crate) fn new<F>(send_message: F) -> Self
+    fn new<F>(send_message: F) -> Self
     where
         F: Fn(ls_types::MessageType, String) + Send + Sync + 'static,
     {

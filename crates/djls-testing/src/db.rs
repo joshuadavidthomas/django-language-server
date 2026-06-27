@@ -100,7 +100,7 @@ impl TestDatabase {
     }
 
     #[must_use]
-    pub fn create_file_with_revision(&self, path: &Utf8Path, revision: u64) -> File {
+    pub(crate) fn create_file_with_revision(&self, path: &Utf8Path, revision: u64) -> File {
         File::builder(path.to_owned(), revision)
             .durability(salsa::Durability::LOW)
             .path_durability(salsa::Durability::HIGH)

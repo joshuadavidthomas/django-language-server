@@ -197,14 +197,6 @@ pub fn make_template_libraries(
     result
 }
 
-pub fn make_template_libraries_tags_only(
-    tags: &[serde_json::Value],
-    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-    builtins: &[String],
-) -> TemplateLibraries {
-    make_template_libraries(tags, &[], libraries, builtins)
-}
-
 pub struct ProjectFixture {
     root: Utf8PathBuf,
     files: Vec<(Utf8PathBuf, String)>,
@@ -243,12 +235,6 @@ impl ProjectFixture {
     #[must_use]
     pub fn django_settings_module(mut self, module: impl Into<String>) -> Self {
         self.django_settings_module = Some(module.into());
-        self
-    }
-
-    #[must_use]
-    pub fn pythonpath(mut self, path: impl Into<String>) -> Self {
-        self.pythonpath.push(path.into());
         self
     }
 
@@ -375,14 +361,14 @@ pub fn collect_argument_validation_errors_with_revision(
 }
 
 pub fn extract_and_merge(
-    corpus: &Corpus,
+    _corpus: &Corpus,
     dir: &Utf8Path,
     specs: &mut TagSpecs,
     arities: &mut FilterAritySpecs,
 ) {
     let db = TestDatabase::new();
 
-    for file_path in &corpus.extraction_targets_in(dir) {
+    for file_path in &Corpus::extraction_targets_in(dir) {
         let Ok(source) = std::fs::read_to_string(file_path.as_std_path()) else {
             continue;
         };
@@ -418,7 +404,7 @@ pub fn build_entry_specs(corpus: &Corpus, entry_dir: &Utf8Path) -> (TagSpecs, Fi
     let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
 
-    if !corpus.is_django_entry(entry_dir)
+    if !Corpus::is_django_entry(entry_dir)
         && let Some(django_dir) = corpus.latest_package("django")
     {
         extract_and_merge(corpus, &django_dir, &mut specs, &mut arities);

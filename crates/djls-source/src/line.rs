@@ -90,11 +90,6 @@ impl<'text> SourceLine<'text> {
     }
 
     #[must_use]
-    pub fn start(&self) -> Offset {
-        self.start
-    }
-
-    #[must_use]
     pub fn text(&self) -> &'text str {
         self.text
     }
@@ -113,12 +108,12 @@ impl<'text> SourceLine<'text> {
 
 impl LineIndex {
     #[must_use]
-    pub fn lines(&self) -> &[u32] {
+    fn lines(&self) -> &[u32] {
         &self.0
     }
 
     #[must_use]
-    pub fn line_start(&self, line: u32) -> Option<u32> {
+    fn line_start(&self, line: u32) -> Option<u32> {
         self.0.get(line as usize).copied()
     }
 
@@ -157,7 +152,7 @@ impl LineIndex {
     // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
     // The index is derived from that text, so public callers should usually go through `File`.
     #[must_use]
-    pub fn end_line_col(&self, text: &str, encoding: PositionEncoding) -> LineCol {
+    pub(crate) fn end_line_col(&self, text: &str, encoding: PositionEncoding) -> LineCol {
         let line = u32::try_from(self.lines().len().saturating_sub(1)).unwrap_or_default();
         let line_start = self.lines().last().copied().unwrap_or_default() as usize;
         let line_text = &text[line_start.min(text.len())..];

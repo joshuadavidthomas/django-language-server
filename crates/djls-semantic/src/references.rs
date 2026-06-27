@@ -40,7 +40,7 @@ fn template_origin_tags(db: &dyn SemanticDb, origin: TemplateOrigin<'_>) -> Vec<
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct Tag {
+struct Tag {
     name: String,
     bits: Vec<TagBit>,
     span: Span,
@@ -48,22 +48,22 @@ pub(crate) struct Tag {
 
 impl Tag {
     #[must_use]
-    pub(crate) fn new(name: String, bits: Vec<TagBit>, span: Span) -> Self {
+    fn new(name: String, bits: Vec<TagBit>, span: Span) -> Self {
         Self { name, bits, span }
     }
 
     #[must_use]
-    pub(crate) fn name(&self) -> &str {
+    fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub(crate) fn bits(&self) -> &[TagBit] {
+    fn bits(&self) -> &[TagBit] {
         &self.bits
     }
 
     #[must_use]
-    pub(crate) fn span(&self) -> Span {
+    fn span(&self) -> Span {
         self.span
     }
 }
@@ -160,7 +160,7 @@ impl<'db> TemplateReference<'db> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LiteralTemplateReference<'bits> {
-    pub(crate) kind: TemplateReferenceKind,
+    kind: TemplateReferenceKind,
     pub(crate) template_name: &'bits str,
     pub(crate) span: Span,
 }

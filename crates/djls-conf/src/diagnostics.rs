@@ -79,17 +79,15 @@ impl DiagnosticsConfig {
     pub fn set_severity(&mut self, code: &str, severity: DiagnosticSeverity) {
         self.severity.insert(code.to_string(), severity);
     }
-
-    /// Check if a diagnostic should be shown (severity is not Off).
-    #[must_use]
-    pub fn is_enabled(&self, code: &str) -> bool {
-        self.get_severity(code) != DiagnosticSeverity::Off
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn is_enabled(config: &DiagnosticsConfig, code: &str) -> bool {
+        config.get_severity(code) != DiagnosticSeverity::Off
+    }
 
     #[test]
     fn test_get_severity_default() {
@@ -164,8 +162,8 @@ mod tests {
     #[test]
     fn test_is_enabled_default() {
         let config = DiagnosticsConfig::default();
-        assert!(config.is_enabled("S100"));
-        assert!(config.is_enabled("T100"));
+        assert!(is_enabled(&config, "S100"));
+        assert!(is_enabled(&config, "T100"));
     }
 
     #[test]
@@ -175,8 +173,8 @@ mod tests {
 
         let config = DiagnosticsConfig { severity };
 
-        assert!(!config.is_enabled("S100"));
-        assert!(config.is_enabled("S101"));
+        assert!(!is_enabled(&config, "S100"));
+        assert!(is_enabled(&config, "S101"));
     }
 
     #[test]
@@ -186,9 +184,9 @@ mod tests {
 
         let config = DiagnosticsConfig { severity };
 
-        assert!(!config.is_enabled("T100"));
-        assert!(!config.is_enabled("T900"));
-        assert!(config.is_enabled("S100"));
+        assert!(!is_enabled(&config, "T100"));
+        assert!(!is_enabled(&config, "T900"));
+        assert!(is_enabled(&config, "S100"));
     }
 
     #[test]
@@ -200,10 +198,10 @@ mod tests {
         let config = DiagnosticsConfig { severity };
 
         // T100 has specific override, so it's enabled
-        assert!(config.is_enabled("T100"));
+        assert!(is_enabled(&config, "T100"));
         // Other T codes are off
-        assert!(!config.is_enabled("T900"));
-        assert!(!config.is_enabled("T901"));
+        assert!(!is_enabled(&config, "T900"));
+        assert!(!is_enabled(&config, "T901"));
     }
 
     #[test]
@@ -245,22 +243,22 @@ mod tests {
 
         // S100 is exact match - off
         assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Off);
-        assert!(!config.is_enabled("S100"));
+        assert!(!is_enabled(&config, "S100"));
 
         // S101 matches S10 prefix - info
         assert_eq!(config.get_severity("S101"), DiagnosticSeverity::Info);
-        assert!(config.is_enabled("S101"));
+        assert!(is_enabled(&config, "S101"));
 
         // S200 matches S prefix - warning
         assert_eq!(config.get_severity("S200"), DiagnosticSeverity::Warning);
-        assert!(config.is_enabled("S200"));
+        assert!(is_enabled(&config, "S200"));
 
         // T100 has exact match - hint
         assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Hint);
-        assert!(config.is_enabled("T100"));
+        assert!(is_enabled(&config, "T100"));
 
         // T900 matches T prefix - off
         assert_eq!(config.get_severity("T900"), DiagnosticSeverity::Off);
-        assert!(!config.is_enabled("T900"));
+        assert!(!is_enabled(&config, "T900"));
     }
 }

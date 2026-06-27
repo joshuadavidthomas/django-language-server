@@ -12,13 +12,13 @@ use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 
 pub struct CheckResult {
-    pub template_errors: Vec<TemplateError>,
+    template_errors: Vec<TemplateError>,
     pub validation_errors: Vec<ValidationError>,
 }
 
 impl CheckResult {
     #[must_use]
-    pub fn has_diagnostics(&self) -> bool {
+    fn has_diagnostics(&self) -> bool {
         !self.template_errors.is_empty() || !self.validation_errors.is_empty()
     }
 }
@@ -36,7 +36,7 @@ impl FileCheckResult {
     }
 
     #[must_use]
-    pub fn renderable_diagnostic_count(&self, config: &DiagnosticsConfig) -> usize {
+    fn renderable_diagnostic_count(&self, config: &DiagnosticsConfig) -> usize {
         self.check
             .template_errors
             .iter()

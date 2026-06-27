@@ -20,9 +20,9 @@ use crate::templates::tags::types::KnownOptions;
 /// Info about a `bits.pop(...)` call for mutation tracking.
 pub(super) struct PopInfo {
     /// The variable name being popped from (e.g., "bits")
-    pub(super) var_name: String,
+    var_name: String,
     /// Whether this is `pop(0)` (from front) or `pop()` (from end)
-    pub(super) from_front: bool,
+    from_front: bool,
 }
 
 /// Try to extract pop call info from an expression, without evaluating it.

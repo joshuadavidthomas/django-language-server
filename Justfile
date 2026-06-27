@@ -32,6 +32,11 @@ corpus *ARGS:
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix {{ ARGS }} -- -D warnings
 
+hawk *ARGS:
+    @# Avoid astral-sh/hawk#74 rustc-info cache poisoning.
+    @# Keep Hawk focused on visibility; clippy owns dead-code and unused checks.
+    RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo +1.95.0 hawk --target-dir target/hawk {{ ARGS }}
+
 e2e *ARGS:
     uv run nox -s e2e -- "{{ ARGS }}"
 

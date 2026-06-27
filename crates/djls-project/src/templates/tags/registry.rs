@@ -21,7 +21,7 @@ impl RegistrationKind {
         }
     }
 
-    pub(crate) fn var_assignment(self) -> AsVar {
+    fn var_assignment(self) -> AsVar {
         match self {
             Self::SimpleTag | Self::SimpleBlockTag => AsVar::Strip,
             Self::Tag | Self::InclusionTag | Self::Filter => AsVar::Keep,

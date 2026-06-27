@@ -7,7 +7,7 @@ use crate::filters::Filter;
 use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::nodelist::Node;
-use crate::quotes::split_on_whitespace_with_offsets;
+use crate::quotes::split_on_unquoted_whitespace;
 use crate::tokens::Token;
 
 pub(crate) struct Parser {
@@ -106,15 +106,19 @@ impl Parser {
         content: &str,
         position: usize,
     ) -> Result<(String, Span, Vec<TagBit>), ParseError> {
-        let pieces = split_on_whitespace_with_offsets(content);
-        let mut iter = pieces.into_iter();
+        let segments = split_on_unquoted_whitespace(content);
+        let mut iter = segments.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
-        let name_span = Span::saturating_from_parts_usize(position + name.start, name.text.len());
+        let name_span =
+            Span::saturating_from_parts_usize(position + name.start_byte, name.text.len());
         let bits = iter
-            .map(|piece| {
+            .map(|segment| {
                 TagBit::new(
-                    piece.text.to_string(),
-                    Span::saturating_from_parts_usize(position + piece.start, piece.text.len()),
+                    segment.text.to_string(),
+                    Span::saturating_from_parts_usize(
+                        position + segment.start_byte,
+                        segment.text.len(),
+                    ),
                 )
             })
             .collect();
@@ -320,7 +324,7 @@ pub enum ParseError {
 }
 
 impl ParseError {
-    pub fn stream_error(kind: impl Into<StreamError>) -> Self {
+    fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
 }

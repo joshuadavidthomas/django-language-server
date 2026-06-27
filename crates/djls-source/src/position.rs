@@ -75,12 +75,12 @@ impl LineCol {
     }
 
     #[must_use]
-    pub fn line(&self) -> u32 {
+    pub(crate) fn line(self) -> u32 {
         self.line
     }
 
     #[must_use]
-    pub fn column(&self) -> u32 {
+    pub(crate) fn column(self) -> u32 {
         self.column
     }
 }
@@ -216,18 +216,6 @@ impl Span {
     pub fn before_offset(offset: Offset, length: usize) -> Self {
         let end = offset.get() as usize;
         Self::saturating_from_bounds_usize(end.saturating_sub(length), end)
-    }
-
-    pub fn try_from_bounds_usize(start: usize, end: usize) -> Result<Self, SpanConversionError> {
-        if end < start {
-            return Err(SpanConversionError::EndBeforeStart);
-        }
-        let start_u32 = u32::try_from(start).map_err(|_| SpanConversionError::Overflow)?;
-        let end_u32 = u32::try_from(end).map_err(|_| SpanConversionError::Overflow)?;
-        Ok(Self {
-            start: start_u32,
-            length: end_u32 - start_u32,
-        })
     }
 
     #[must_use]

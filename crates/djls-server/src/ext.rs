@@ -57,7 +57,7 @@ impl PositionEncodingKindExt for ls_types::PositionEncodingKind {
     }
 }
 
-pub(crate) trait RangeExt {
+trait RangeExt {
     fn to_source_range(&self) -> Range;
 }
 

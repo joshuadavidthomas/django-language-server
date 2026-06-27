@@ -40,9 +40,7 @@ mod sync;
 pub use lock::LockFilter;
 pub use lock::Lockfile;
 pub use lock::lock_corpus;
-pub use manifest::Fixture;
 pub use manifest::Manifest;
-pub use manifest::Repo;
 pub use sync::clean_entries;
 pub use sync::sync_corpus;
 
@@ -118,7 +116,7 @@ impl Corpus {
     /// - `repos/django`
     /// - `repos/django-<version>`
     #[must_use]
-    pub fn is_django_entry(&self, entry_dir: &Utf8Path) -> bool {
+    pub(crate) fn is_django_entry(entry_dir: &Utf8Path) -> bool {
         let Some(entry_name) = entry_dir.file_name() else {
             return false;
         };
@@ -207,63 +205,10 @@ impl Corpus {
         best.map(|(_, path)| path)
     }
 
-    /// All synced directories for a package (handles both single and multi-version).
-    ///
-    /// Returns a sorted list of directories. For multi-version packages like
-    /// django, returns `[repos/django-4.2, repos/django-5.2, repos/django-6.0]`.
-    /// For single-version packages, returns a single-element list.
-    #[must_use]
-    pub fn package_dirs(&self, name: &str) -> Vec<Utf8PathBuf> {
-        let repos_dir = self.root().join("repos");
-
-        // Single-version: repos/{name}/
-        let exact = repos_dir.join(name);
-        if exact.join(".complete.json").as_std_path().exists() {
-            return vec![exact];
-        }
-
-        // Multi-version: repos/{name}-{version}/
-        let prefix = format!("{name}-");
-        let Ok(entries) = std::fs::read_dir(repos_dir.as_std_path()) else {
-            return Vec::new();
-        };
-
-        let mut dirs: Vec<Utf8PathBuf> = entries
-            .filter_map(Result::ok)
-            .filter_map(|e| {
-                let dir_name = e.file_name().to_str()?.to_string();
-                if !dir_name.starts_with(&prefix) {
-                    return None;
-                }
-                let suffix = &dir_name[prefix.len()..];
-                if !suffix.starts_with(|c: char| c.is_ascii_digit()) {
-                    return None;
-                }
-                let path = Utf8PathBuf::from_path_buf(e.path()).ok()?;
-                if path.join(".complete.json").as_std_path().exists() {
-                    Some(path)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        dirs.sort();
-        dirs
-    }
-
-    /// Synced subdirectories under a path relative to the corpus root.
-    ///
-    /// Only returns directories containing a `.complete.json` marker.
-    #[must_use]
-    pub fn synced_dirs(&self, relative: &str) -> Vec<Utf8PathBuf> {
-        synced_children(&self.root().join(relative))
-    }
-
     /// All extraction target files in the entire corpus.
     #[must_use]
     pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        self.extraction_targets_in(self.root())
+        Self::extraction_targets_in(self.root())
     }
 
     /// Extraction target files under a specific directory.
@@ -271,7 +216,7 @@ impl Corpus {
     /// Matches `**/templatetags/**/*.py` (excluding `__init__.py`)
     /// and `**/template/{defaulttags,defaultfilters,loader_tags}.py`.
     #[must_use]
-    pub fn extraction_targets_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
+    pub(crate) fn extraction_targets_in(dir: &Utf8Path) -> Vec<Utf8PathBuf> {
         let mut files = Vec::new();
 
         for entry in WalkBuilder::new(dir.as_std_path())
@@ -380,25 +325,6 @@ impl Corpus {
         files.sort();
         files
     }
-}
-
-/// Collect subdirectories that have been fully synced (contain a `.complete.json` marker).
-///
-/// Returns sorted paths for deterministic iteration.
-fn synced_children(parent: &Utf8Path) -> Vec<Utf8PathBuf> {
-    let Ok(entries) = std::fs::read_dir(parent.as_std_path()) else {
-        return Vec::new();
-    };
-
-    let mut dirs: Vec<Utf8PathBuf> = entries
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
-        .filter(|p| p.join(".complete.json").as_std_path().exists())
-        .collect();
-
-    dirs.sort();
-    dirs
 }
 
 /// Derive a dotted Python module path from a file path within the corpus.

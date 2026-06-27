@@ -76,7 +76,7 @@ impl InactiveLibrary {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InactiveLibraries {
-    pub by_name: BTreeMap<LibraryName, Vec<InactiveLibrary>>,
+    by_name: BTreeMap<LibraryName, Vec<InactiveLibrary>>,
 }
 
 impl InactiveLibraries {

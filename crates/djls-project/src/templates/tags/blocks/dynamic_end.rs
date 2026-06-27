@@ -95,7 +95,7 @@ fn is_dynamic_end_parse_call(expr: &Expr, parser_var: &str) -> bool {
 }
 
 /// Check if an expression is an f-string starting with "end".
-pub(super) fn is_end_fstring(expr: &Expr) -> bool {
+fn is_end_fstring(expr: &Expr) -> bool {
     let Expr::FString(ExprFString { value, .. }) = expr else {
         return false;
     };

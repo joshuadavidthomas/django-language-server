@@ -62,7 +62,7 @@ pub struct SourceText(Arc<SourceTextInner>);
 
 impl SourceText {
     #[must_use]
-    pub fn new(path: &Utf8Path, source: String) -> Self {
+    fn new(path: &Utf8Path, source: String) -> Self {
         let encoding = FileEncoding::from(source.as_str());
         let kind = FileKind::from(path);
         Self(Arc::new(SourceTextInner {

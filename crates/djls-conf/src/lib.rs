@@ -34,7 +34,7 @@ pub use crate::tagspecs::TagSpecDef;
 pub use crate::tagspecs::TagTypeDef;
 
 #[must_use]
-pub fn project_dirs() -> Option<ProjectDirs> {
+fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "djls")
 }
 
@@ -95,12 +95,14 @@ impl Settings {
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
 
         if let Some(overrides) = overrides {
+            let has_django_environments = !overrides.django_environments.is_empty();
+
             settings.debug = overrides.debug || settings.debug;
             settings.venv_path = overrides.venv_path.or(settings.venv_path);
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
-            if !overrides.django_environments.is_empty() {
+            if has_django_environments {
                 settings.django_environments = overrides.django_environments;
             }
             if !overrides.pythonpath.is_empty() {
@@ -166,11 +168,6 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn debug(&self) -> bool {
-        self.debug
-    }
-
-    #[must_use]
     pub fn venv_path(&self) -> Option<&str> {
         self.venv_path.as_deref()
     }
@@ -180,8 +177,9 @@ impl Settings {
         self.django_settings_module.as_deref()
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
+    fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
         &self.django_environments
     }
 
@@ -381,13 +379,14 @@ django_settings_module = "project.settings"
             )
             .unwrap();
 
-            let override_settings = Settings {
-                django_environments: vec![DjangoEnvironmentConfig::new(
-                    "override",
-                    Some("override.settings".to_string()),
-                )],
-                ..Default::default()
-            };
+            let override_settings: Settings = toml::from_str(
+                r#"
+[[django_environments]]
+root = "override"
+django_settings_module = "override.settings"
+"#,
+            )
+            .unwrap();
             let settings = Settings::new(
                 Utf8Path::from_path(dir.path()).unwrap(),
                 Some(override_settings),

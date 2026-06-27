@@ -19,7 +19,6 @@ pub use offset::SemanticOffsetContext;
 pub use references::TemplateReferenceKind;
 pub use references::references_to_template_name;
 pub use scoping::AvailableSymbols;
-pub use scoping::LoadKind;
 pub use scoping::available_symbols_at;
 pub use structure::BlockRole;
 pub use structure::OpaqueRegions;

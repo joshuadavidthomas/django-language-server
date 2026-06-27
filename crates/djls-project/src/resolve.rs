@@ -85,7 +85,7 @@ pub struct SearchPaths {
 
 impl SearchPaths {
     #[must_use]
-    pub fn root_only(root: &Utf8Path) -> Self {
+    pub(crate) fn root_only(root: &Utf8Path) -> Self {
         let mut search_paths = Self::default();
         search_paths.push(SearchPath::first_party(root.to_path_buf()));
         search_paths
@@ -297,7 +297,7 @@ pub(crate) fn resolve_import(
     (!module_parts.is_empty()).then(|| module_parts.join("."))
 }
 
-pub(crate) fn module_file_in_search_path(
+fn module_file_in_search_path(
     fs: &dyn FileSystem,
     module_path: &str,
     search_path: &Utf8Path,
