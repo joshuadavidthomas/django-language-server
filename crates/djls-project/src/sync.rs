@@ -14,7 +14,7 @@ use crate::resolve::model_modules;
 use crate::resolve::templatetag_modules;
 use crate::settings::DjangoSettingsSources;
 use crate::settings::settings_sources;
-use crate::templates::templatetag_candidate_paths;
+use crate::templates::refresh_templatetag_candidate_paths;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefreshData {
@@ -100,7 +100,7 @@ impl RefreshQuery {
                     .collect(),
             ),
             Self::TemplateTagCandidates => {
-                RefreshDataPart::FilePaths(templatetag_candidate_paths(db, project))
+                RefreshDataPart::FilePaths(refresh_templatetag_candidate_paths(db, project))
             }
         };
 
