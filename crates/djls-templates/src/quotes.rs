@@ -88,12 +88,16 @@ fn unquoted_delimiter_indices(
     }
 }
 
-/// Find the first delimiter in `s`, skipping delimiters inside quoted regions.
+/// Return the byte index of the first delimiter outside quoted regions.
 ///
 /// When `handle_escapes` is true, `\` inside a quoted region escapes the next
 /// character (so `\"` does not close the quote).
 #[must_use]
-pub(crate) fn find_unquoted(s: &str, delimiter: char, handle_escapes: bool) -> Option<usize> {
+pub(crate) fn first_unquoted_delimiter_index(
+    s: &str,
+    delimiter: char,
+    handle_escapes: bool,
+) -> Option<usize> {
     unquoted_delimiter_indices(s, delimiter, handle_escapes).next()
 }
 
@@ -106,7 +110,7 @@ pub(crate) struct SplitPiece<'a> {
 /// Split `s` on a delimiter while respecting quoted regions.
 ///
 /// Returns borrowed pieces with byte offsets relative to `s`.
-pub(crate) fn split_on_unquoted_with_offsets(
+pub(crate) fn split_on_unquoted_delimiter_with_offsets(
     s: &str,
     delimiter: char,
     handle_escapes: bool,
@@ -233,13 +237,13 @@ mod tests {
     }
 
     #[test]
-    fn find_unquoted_returns_first_delimiter() {
-        assert_eq!(find_unquoted("a|b|c", '|', false), Some(1));
+    fn first_unquoted_delimiter_index_returns_first_delimiter() {
+        assert_eq!(first_unquoted_delimiter_index("a|b|c", '|', false), Some(1));
     }
 
     #[test]
     fn split_unquoted_delimiters() {
-        let pieces = split_on_unquoted_with_offsets("a|b|c", '|', false);
+        let pieces = split_on_unquoted_delimiter_with_offsets("a|b|c", '|', false);
         assert_eq!(
             pieces,
             vec![
@@ -261,7 +265,7 @@ mod tests {
 
     #[test]
     fn quoted_delimiters_skipped() {
-        let pieces = split_on_unquoted_with_offsets("a|'b|c'|d", '|', false);
+        let pieces = split_on_unquoted_delimiter_with_offsets("a|'b|c'|d", '|', false);
         assert_eq!(
             pieces,
             vec![
@@ -283,7 +287,7 @@ mod tests {
 
     #[test]
     fn double_quotes() {
-        let pieces = split_on_unquoted_with_offsets(r#"a|"b|c"|d"#, '|', false);
+        let pieces = split_on_unquoted_delimiter_with_offsets(r#"a|"b|c"|d"#, '|', false);
         assert_eq!(
             pieces,
             vec![
@@ -305,7 +309,7 @@ mod tests {
 
     #[test]
     fn escape_handling() {
-        let pieces = split_on_unquoted_with_offsets(r#""a\"b"|c"#, '|', true);
+        let pieces = split_on_unquoted_delimiter_with_offsets(r#""a\"b"|c"#, '|', true);
 
         // The \" is escaped, so the quote doesn't close until the real "
         assert_eq!(
@@ -325,7 +329,7 @@ mod tests {
 
     #[test]
     fn escape_ignored_without_flag() {
-        let pieces = split_on_unquoted_with_offsets(r#""a\"b"|c"#, '|', false);
+        let pieces = split_on_unquoted_delimiter_with_offsets(r#""a\"b"|c"#, '|', false);
 
         // Without escape handling, \" closes the quote, then b" opens a new one.
         assert_eq!(
