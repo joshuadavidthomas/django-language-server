@@ -5,7 +5,8 @@ mod types;
 
 use djls_source::File;
 pub(crate) use extraction::extract_settings;
-pub(crate) use sources::settings_source_files;
+pub(crate) use sources::DjangoSettingsSources;
+pub(crate) use sources::settings_sources;
 pub(crate) use types::DjangoSettings;
 pub(crate) use types::SettingsSource;
 pub(crate) use types::SettingsSourceResolver;

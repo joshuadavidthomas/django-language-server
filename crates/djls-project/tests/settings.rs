@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,8 +9,11 @@ use djls_project::Db as ProjectDb;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
+use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_source::SourceFiles;
+use djls_source::WalkEntry;
+use djls_source::WalkOptions;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use serde::Deserialize;
@@ -40,16 +44,20 @@ struct GoldenTemplateSymbol {
 #[derive(Clone)]
 struct OsTestDatabase {
     storage: salsa::Storage<Self>,
-    fs: Arc<OsFileSystem>,
+    fs: Arc<dyn FileSystem>,
     files: SourceFiles,
     project: Option<Project>,
 }
 
 impl OsTestDatabase {
     fn new() -> Self {
+        Self::with_file_system(Arc::new(OsFileSystem))
+    }
+
+    fn with_file_system(fs: Arc<dyn FileSystem>) -> Self {
         Self {
             storage: salsa::Storage::default(),
-            fs: Arc::new(OsFileSystem),
+            fs,
             files: SourceFiles::default(),
             project: None,
         }
@@ -77,6 +85,40 @@ impl ProjectDb for OsTestDatabase {
     }
 }
 
+struct FailingReadFileSystem {
+    inner: InMemoryFileSystem,
+    unreadable: Utf8PathBuf,
+}
+
+impl FileSystem for FailingReadFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        if path == self.unreadable.as_path() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "test file is unreadable",
+            ));
+        }
+
+        self.inner.read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.inner.exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.inner.is_dir(path)
+    }
+
+    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+        self.inner.walk_entries(root, options)
+    }
+}
+
 fn project_with_settings(
     db: &mut TestDatabase,
     settings_module: &str,
@@ -99,6 +141,104 @@ fn apply_project_refresh(db: &mut TestDatabase) {
     );
 
     apply_refresh(db, refresh);
+}
+
+#[test]
+fn project_refresh_enumerates_settings_star_import_chain() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/myproject/settings.py",
+                "from .base import *\nfrom .feature import *\n",
+            ),
+            (
+                "/proj/myproject/base.py",
+                "from .common import *\nINSTALLED_APPS = []\n",
+            ),
+            ("/proj/myproject/feature.py", "from .common import *\n"),
+            (
+                "/proj/myproject/common.py",
+                "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False}]\n",
+            ),
+        ],
+    );
+
+    let refresh = RefreshData::from_query_results(
+        RefreshQuery::ALL
+            .iter()
+            .copied()
+            .map(|query| query.compute(&db, project)),
+    );
+
+    let expected = [
+        Utf8PathBuf::from("/proj/myproject/base.py"),
+        Utf8PathBuf::from("/proj/myproject/common.py"),
+        Utf8PathBuf::from("/proj/myproject/feature.py"),
+        Utf8PathBuf::from("/proj/myproject/settings.py"),
+    ];
+    assert_eq!(refresh.file_paths(), expected.as_slice());
+}
+
+#[test]
+fn project_refresh_includes_deduped_unreadable_settings_source() {
+    let unreadable = Utf8PathBuf::from("/proj/myproject/unreadable.py");
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file(
+        Utf8PathBuf::from("/proj/myproject/settings.py"),
+        "from .base import *\nfrom .unreadable import *\nfrom .base import *\n".to_string(),
+    );
+    fs.add_file(
+        Utf8PathBuf::from("/proj/myproject/base.py"),
+        "INSTALLED_APPS = []\n".to_string(),
+    );
+    fs.add_file(unreadable.clone(), "TEMPLATES = []\n".to_string());
+
+    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingReadFileSystem {
+        inner: fs,
+        unreadable: unreadable.clone(),
+    }));
+    let root = Utf8PathBuf::from("/proj");
+    let interpreter = Interpreter::Auto;
+    let pythonpath = Vec::new();
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        root.as_path(),
+        &interpreter,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let tag_specs = djls_conf::Settings::default().tagspecs().clone();
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        interpreter,
+        Some("myproject.settings".to_string()),
+        pythonpath,
+        Vec::new(),
+        tag_specs,
+    );
+    db.project = Some(project);
+
+    let settings_sources = RefreshQuery::SettingsSources.compute(&db, project);
+    assert_eq!(settings_sources.item_count(), 3);
+
+    let refresh = RefreshData::from_query_results(
+        RefreshQuery::ALL
+            .iter()
+            .copied()
+            .map(|query| query.compute(&db, project)),
+    );
+
+    let expected = [
+        Utf8PathBuf::from("/proj/myproject/base.py"),
+        Utf8PathBuf::from("/proj/myproject/settings.py"),
+        unreadable,
+    ];
+    assert_eq!(refresh.file_paths(), expected.as_slice());
 }
 
 #[test]
