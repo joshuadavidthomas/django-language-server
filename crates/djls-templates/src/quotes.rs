@@ -1,35 +1,6 @@
-use serde::Serialize;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
-pub enum Quote {
-    Single,
-    Double,
-}
-
-impl TryFrom<char> for Quote {
-    type Error = ();
-
-    fn try_from(ch: char) -> Result<Self, Self::Error> {
-        match ch {
-            '\'' => Ok(Self::Single),
-            '"' => Ok(Self::Double),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<Quote> for char {
-    fn from(quote: Quote) -> Self {
-        match quote {
-            Quote::Single => '\'',
-            Quote::Double => '"',
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemplateString<'a> {
-    Quoted(QuotedTemplateString<'a>),
+    Quoted(&'a str),
     Unquoted(&'a str),
 }
 
@@ -40,44 +11,31 @@ impl<'a> TemplateString<'a> {
         let Some(first) = raw.chars().next() else {
             return Self::Unquoted(raw);
         };
-        let Ok(quote) = Quote::try_from(first) else {
-            return Self::Unquoted(raw);
-        };
-
-        let quote_char: char = quote.into();
-        if raw.len() < 2 || !raw.ends_with(quote_char) {
+        if first != '\'' && first != '"' {
             return Self::Unquoted(raw);
         }
 
-        Self::Quoted(QuotedTemplateString {
-            raw,
-            value: &raw[1..raw.len() - 1],
-            quote,
-        })
+        if raw.len() < 2 || !raw.ends_with(first) {
+            return Self::Unquoted(raw);
+        }
+
+        Self::Quoted(&raw[1..raw.len() - 1])
     }
 
     #[must_use]
     pub fn value(self) -> &'a str {
         match self {
-            Self::Quoted(value) => value.value,
-            Self::Unquoted(raw) => raw,
+            Self::Quoted(value) | Self::Unquoted(value) => value,
         }
     }
 
     #[must_use]
     pub fn quoted_value(self) -> Option<&'a str> {
         match self {
-            Self::Quoted(value) => Some(value.value),
+            Self::Quoted(value) => Some(value),
             Self::Unquoted(_) => None,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct QuotedTemplateString<'a> {
-    raw: &'a str,
-    value: &'a str,
-    quote: Quote,
 }
 
 /// Find positions of a delimiter character in `s`, skipping occurrences inside
@@ -207,30 +165,18 @@ mod tests {
     fn template_string_recognizes_single_quoted_values() {
         let value = TemplateString::parse("'images/logo.png'");
 
-        assert_eq!(
-            value,
-            TemplateString::Quoted(QuotedTemplateString {
-                raw: "'images/logo.png'",
-                value: "images/logo.png",
-                quote: Quote::Single,
-            })
-        );
+        assert_eq!(value, TemplateString::Quoted("images/logo.png"));
         assert_eq!(value.value(), "images/logo.png");
+        assert_eq!(value.quoted_value(), Some("images/logo.png"));
     }
 
     #[test]
     fn template_string_recognizes_double_quoted_values() {
         let value = TemplateString::parse(r#""base.html""#);
 
-        assert_eq!(
-            value,
-            TemplateString::Quoted(QuotedTemplateString {
-                raw: r#""base.html""#,
-                value: "base.html",
-                quote: Quote::Double,
-            })
-        );
+        assert_eq!(value, TemplateString::Quoted("base.html"));
         assert_eq!(value.value(), "base.html");
+        assert_eq!(value.quoted_value(), Some("base.html"));
     }
 
     #[test]
@@ -239,6 +185,7 @@ mod tests {
 
         assert_eq!(value, TemplateString::Unquoted("user.name"));
         assert_eq!(value.value(), "user.name");
+        assert_eq!(value.quoted_value(), None);
     }
 
     #[test]
