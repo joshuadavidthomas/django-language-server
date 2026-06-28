@@ -3,149 +3,181 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseModel:
+  blog.models.BaseModel:
     name: BaseModel
     module_path: blog.models
     line: 220
     relations:
       - field_name: tags
         relation_type: ManyToMany
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
       - field_name: series
         relation_type: ForeignKey
-        target_model: Series
+        target:
+          kind: Bare
+          name: Series
         related_name: ~
     kind: abstract
-  Blogmark:
+  blog.models.Blogmark:
     name: Blogmark
     module_path: blog.models
     line: 379
     relations:
       - field_name: tags
         relation_type: ManyToMany
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
       - field_name: series
         relation_type: ForeignKey
-        target_model: Series
+        target:
+          kind: Bare
+          name: Series
         related_name: ~
     kind: concrete
-  Comment:
+  blog.models.Comment:
     name: Comment
     module_path: blog.models
     line: 532
     relations:
       - field_name: content_type
         relation_type: ForeignKey
-        target_model: ContentType
+        target:
+          kind: Bare
+          name: ContentType
         related_name: ~
       - field_name: item
         relation_type: GenericForeignKey
         ct_field: content_type
         fk_field: object_id
     kind: concrete
-  Entry:
+  blog.models.Entry:
     name: Entry
     module_path: blog.models
     line: 254
     relations:
       - field_name: tags
         relation_type: ManyToMany
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
       - field_name: series
         relation_type: ForeignKey
-        target_model: Series
+        target:
+          kind: Bare
+          name: Series
         related_name: ~
     kind: concrete
-  LiveUpdate:
+  blog.models.LiveUpdate:
     name: LiveUpdate
     module_path: blog.models
     line: 328
     relations:
       - field_name: entry
         relation_type: ForeignKey
-        target_model: Entry
+        target:
+          kind: Bare
+          name: Entry
         related_name: updates
     kind: concrete
-  Note:
+  blog.models.Note:
     name: Note
     module_path: blog.models
     line: 425
     relations:
       - field_name: tags
         relation_type: ManyToMany
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
       - field_name: series
         relation_type: ForeignKey
-        target_model: Series
+        target:
+          kind: Bare
+          name: Series
         related_name: ~
     kind: concrete
-  Photo:
+  blog.models.Photo:
     name: Photo
     module_path: blog.models
     line: 452
     relations: []
     kind: concrete
-  Photoset:
+  blog.models.Photoset:
     name: Photoset
     module_path: blog.models
     line: 481
     relations:
       - field_name: photos
         relation_type: ManyToMany
-        target_model: Photo
+        target:
+          kind: Bare
+          name: Photo
         related_name: in_photoset
       - field_name: primary
         relation_type: ForeignKey
-        target_model: Photo
+        target:
+          kind: Bare
+          name: Photo
         related_name: ~
     kind: concrete
-  PreviousTagName:
+  blog.models.PreviousTagName:
     name: PreviousTagName
     module_path: blog.models
     line: 157
     relations:
       - field_name: tag
         relation_type: ForeignKey
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
     kind: concrete
-  Quotation:
+  blog.models.Quotation:
     name: Quotation
     module_path: blog.models
     line: 337
     relations:
       - field_name: tags
         relation_type: ManyToMany
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
       - field_name: series
         relation_type: ForeignKey
-        target_model: Series
+        target:
+          kind: Bare
+          name: Series
         related_name: ~
     kind: concrete
-  Series:
+  blog.models.Series:
     name: Series
     module_path: blog.models
     line: 195
     relations: []
     kind: concrete
-  Tag:
+  blog.models.Tag:
     name: Tag
     module_path: blog.models
     line: 22
     relations: []
     kind: concrete
-  TagMerge:
+  blog.models.TagMerge:
     name: TagMerge
     module_path: blog.models
     line: 165
     relations:
       - field_name: destination_tag
         relation_type: ForeignKey
-        target_model: Tag
+        target:
+          kind: Bare
+          name: Tag
         related_name: ~
     kind: concrete

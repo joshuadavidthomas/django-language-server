@@ -3,39 +3,45 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  AbstractImage:
+  wagtail.images.models.AbstractImage:
     name: AbstractImage
     module_path: wagtail.images.models
     line: 257
     relations:
       - field_name: uploaded_by_user
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: ~
     kind: abstract
-  AbstractRendition:
+  wagtail.images.models.AbstractRendition:
     name: AbstractRendition
     module_path: wagtail.images.models
     line: 1267
     relations: []
     kind: abstract
-  Image:
+  wagtail.images.models.Image:
     name: Image
     module_path: wagtail.images.models
     line: 884
     relations:
       - field_name: uploaded_by_user
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: ~
     kind: concrete
-  Rendition:
+  wagtail.images.models.Rendition:
     name: Rendition
     module_path: wagtail.images.models
     line: 1445
     relations:
       - field_name: image
         relation_type: ForeignKey
-        target_model: Image
+        target:
+          kind: Bare
+          name: Image
         related_name: renditions
     kind: concrete

@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Post:
+  example_project.posts.models.Post:
     name: Post
     module_path: example_project.posts.models
     line: 5

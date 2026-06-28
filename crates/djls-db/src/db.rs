@@ -1389,8 +1389,8 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let graph = db.model_graph();
-        assert!(graph.get("First").is_some());
-        assert!(graph.get("Second").is_some());
+        assert!(graph.models_named("First").next().is_some());
+        assert!(graph.models_named("Second").next().is_some());
         let events = event_log.take();
         let extracted_graph_count = events
             .iter()
@@ -1416,9 +1416,9 @@ def my_filter(value, arg):
         db.bump_file_revision(first_model);
 
         let graph = db.model_graph();
-        assert!(graph.get("First").is_none());
-        assert!(graph.get("FirstRenamed").is_some());
-        assert!(graph.get("Second").is_some());
+        assert!(graph.models_named("First").next().is_none());
+        assert!(graph.models_named("FirstRenamed").next().is_some());
+        assert!(graph.models_named("Second").next().is_some());
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "compute_model_graph"),

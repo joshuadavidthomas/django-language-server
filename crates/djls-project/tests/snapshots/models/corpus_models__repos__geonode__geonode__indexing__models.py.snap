@@ -3,13 +3,15 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ResourceIndex:
+  geonode.indexing.models.ResourceIndex:
     name: ResourceIndex
     module_path: geonode.indexing.models
     line: 8
     relations:
       - field_name: resource
         relation_type: ForeignKey
-        target_model: ResourceBase
+        target:
+          kind: Bare
+          name: ResourceBase
         related_name: ~
     kind: concrete

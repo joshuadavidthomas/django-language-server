@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseRemoteSubscription:
+  src.sentry.remote_subscriptions.models.BaseRemoteSubscription:
     name: BaseRemoteSubscription
     module_path: src.sentry.remote_subscriptions.models
     line: 8

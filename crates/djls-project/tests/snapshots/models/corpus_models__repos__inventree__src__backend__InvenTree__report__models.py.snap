@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ReportAsset:
+  src.backend.InvenTree.report.models.ReportAsset:
     name: ReportAsset
     module_path: src.backend.InvenTree.report.models
     line: 820
     relations: []
     kind: concrete
-  ReportSnippet:
+  src.backend.InvenTree.report.models.ReportSnippet:
     name: ReportSnippet
     module_path: src.backend.InvenTree.report.models
     line: 797

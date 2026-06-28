@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseModelWithStateMachine:
+  archivebox.workers.models.BaseModelWithStateMachine:
     name: BaseModelWithStateMachine
     module_path: archivebox.workers.models
     line: 28
     relations: []
     kind: abstract
-  ModelWithStateMachine:
+  archivebox.workers.models.ModelWithStateMachine:
     name: ModelWithStateMachine
     module_path: archivebox.workers.models
     line: 311

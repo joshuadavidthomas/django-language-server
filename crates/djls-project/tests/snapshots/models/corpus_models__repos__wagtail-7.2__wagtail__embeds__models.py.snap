@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Embed:
+  wagtail.embeds.models.Embed:
     name: Embed
     module_path: wagtail.embeds.models
     line: 13

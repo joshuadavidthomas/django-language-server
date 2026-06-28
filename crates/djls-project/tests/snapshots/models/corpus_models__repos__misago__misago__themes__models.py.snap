@@ -3,23 +3,27 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Css:
+  misago.themes.models.Css:
     name: Css
     module_path: misago.themes.models
     line: 48
     relations:
       - field_name: theme
         relation_type: ForeignKey
-        target_model: Theme
+        target:
+          kind: Bare
+          name: Theme
         related_name: css
     kind: concrete
-  Media:
+  misago.themes.models.Media:
     name: Media
     module_path: misago.themes.models
     line: 82
     relations:
       - field_name: theme
         relation_type: ForeignKey
-        target_model: Theme
+        target:
+          kind: Bare
+          name: Theme
         related_name: media
     kind: concrete

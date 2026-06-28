@@ -3,121 +3,145 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ActionItem:
+  foundation.models.ActionItem:
     name: ActionItem
     module_path: foundation.models
     line: 227
     relations:
       - field_name: meeting
         relation_type: ForeignKey
-        target_model: Meeting
+        target:
+          kind: Bare
+          name: Meeting
         related_name: action_items
     kind: concrete
-  ApprovedCorporateMember:
+  foundation.models.ApprovedCorporateMember:
     name: ApprovedCorporateMember
     module_path: foundation.models
     line: 174
     relations:
       - field_name: approved_at
         relation_type: ForeignKey
-        target_model: Meeting
+        target:
+          kind: Bare
+          name: Meeting
         related_name: corporate_members_approved
     kind: concrete
-  ApprovedGrant:
+  foundation.models.ApprovedGrant:
     name: ApprovedGrant
     module_path: foundation.models
     line: 124
     relations:
       - field_name: approved_at
         relation_type: ForeignKey
-        target_model: Meeting
+        target:
+          kind: Bare
+          name: Meeting
         related_name: grants_approved
     kind: concrete
-  ApprovedIndividualMember:
+  foundation.models.ApprovedIndividualMember:
     name: ApprovedIndividualMember
     module_path: foundation.models
     line: 159
     relations:
       - field_name: approved_at
         relation_type: ForeignKey
-        target_model: Meeting
+        target:
+          kind: Bare
+          name: Meeting
         related_name: individual_members_approved
     kind: concrete
-  BoardMember:
+  foundation.models.BoardMember:
     name: BoardMember
     module_path: foundation.models
     line: 39
     relations:
       - field_name: account
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: ~
       - field_name: office
         relation_type: ForeignKey
-        target_model: Office
+        target:
+          kind: Bare
+          name: Office
         related_name: holders
       - field_name: term
         relation_type: ForeignKey
-        target_model: Term
+        target:
+          kind: Bare
+          name: Term
         related_name: board_members
     kind: concrete
-  Business:
+  foundation.models.Business:
     name: Business
     module_path: foundation.models
     line: 189
     relations:
       - field_name: meeting
         relation_type: ForeignKey
-        target_model: Meeting
+        target:
+          kind: Bare
+          name: Meeting
         related_name: business
     kind: concrete
-  CoreAward:
+  foundation.models.CoreAward:
     name: CoreAward
     module_path: foundation.models
     line: 263
     relations:
       - field_name: cohort
         relation_type: ForeignKey
-        target_model: CoreAwardCohort
+        target:
+          kind: Bare
+          name: CoreAwardCohort
         related_name: recipients
     kind: concrete
-  CoreAwardCohort:
+  foundation.models.CoreAwardCohort:
     name: CoreAwardCohort
     module_path: foundation.models
     line: 243
     relations: []
     kind: concrete
-  Meeting:
+  foundation.models.Meeting:
     name: Meeting
     module_path: foundation.models
     line: 72
     relations:
       - field_name: leader
         relation_type: ForeignKey
-        target_model: BoardMember
+        target:
+          kind: Bare
+          name: BoardMember
         related_name: meetings_led
       - field_name: board_attendees
         relation_type: ManyToMany
-        target_model: BoardMember
+        target:
+          kind: Bare
+          name: BoardMember
         related_name: meetings_attended
       - field_name: non_board_attendees
         relation_type: ManyToMany
-        target_model: NonBoardAttendee
+        target:
+          kind: Bare
+          name: NonBoardAttendee
         related_name: meetings_attended
     kind: concrete
-  NonBoardAttendee:
+  foundation.models.NonBoardAttendee:
     name: NonBoardAttendee
     module_path: foundation.models
     line: 55
     relations: []
     kind: concrete
-  Office:
+  foundation.models.Office:
     name: Office
     module_path: foundation.models
     line: 15
     relations: []
     kind: concrete
-  Term:
+  foundation.models.Term:
     name: Term
     module_path: foundation.models
     line: 27

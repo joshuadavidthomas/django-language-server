@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  TestDirectModel:
+  benchmarks.models.TestDirectModel:
     name: TestDirectModel
     module_path: benchmarks.models
     line: 18
     relations: []
     kind: concrete
-  TestModel:
+  benchmarks.models.TestModel:
     name: TestModel
     module_path: benchmarks.models
     line: 6

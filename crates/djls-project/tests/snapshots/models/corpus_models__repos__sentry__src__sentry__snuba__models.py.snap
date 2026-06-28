@@ -3,19 +3,19 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  QuerySubscription:
+  src.sentry.snuba.models.QuerySubscription:
     name: QuerySubscription
     module_path: src.sentry.snuba.models
     line: 139
     relations: []
     kind: concrete
-  SnubaQuery:
+  src.sentry.snuba.models.SnubaQuery:
     name: SnubaQuery
     module_path: src.sentry.snuba.models
     line: 54
     relations: []
     kind: concrete
-  SnubaQueryEventType:
+  src.sentry.snuba.models.SnubaQueryEventType:
     name: SnubaQueryEventType
     module_path: src.sentry.snuba.models
     line: 114

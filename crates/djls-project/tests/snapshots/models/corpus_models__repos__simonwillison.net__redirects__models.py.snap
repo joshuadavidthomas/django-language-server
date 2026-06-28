@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Redirect:
+  redirects.models.Redirect:
     name: Redirect
     module_path: redirects.models
     line: 4

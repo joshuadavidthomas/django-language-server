@@ -3,13 +3,15 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  APIToken:
+  archivebox.api.models.APIToken:
     name: APIToken
     module_path: archivebox.api.models
     line: 20
     relations:
       - field_name: created_by
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: ~
     kind: concrete

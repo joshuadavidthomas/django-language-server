@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ContentType:
+  django.contrib.contenttypes.models.ContentType:
     name: ContentType
     module_path: django.contrib.contenttypes.models
     line: 134

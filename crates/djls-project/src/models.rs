@@ -6,6 +6,7 @@ use std::ops::ControlFlow;
 use djls_source::File;
 use djls_source::FileKind;
 pub use graph::ModelGraph;
+pub use graph::ModelId;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;

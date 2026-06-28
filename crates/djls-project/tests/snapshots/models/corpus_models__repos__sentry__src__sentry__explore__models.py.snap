@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ExploreSavedQueryProject:
+  src.sentry.explore.models.ExploreSavedQueryProject:
     name: ExploreSavedQueryProject
     module_path: src.sentry.explore.models
     line: 38

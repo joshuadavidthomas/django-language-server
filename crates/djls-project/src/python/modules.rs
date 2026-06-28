@@ -1,5 +1,6 @@
 use std::borrow::Borrow;
 use std::fmt;
+use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -31,7 +32,7 @@ pub enum InvalidModulePath {
 /// A dotted Python module path, e.g. `"myapp.models"`.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
-pub struct PythonModulePath(String);
+pub struct PythonModulePath(Arc<str>);
 
 impl PythonModulePath {
     pub fn parse(path: &str) -> Result<Self, InvalidModulePath> {
@@ -43,7 +44,7 @@ impl PythonModulePath {
             return Err(InvalidModulePath::ContainsWhitespace);
         }
         validate_python_module_path(trimmed)?;
-        Ok(Self(trimmed.to_string()))
+        Ok(Self(Arc::from(trimmed)))
     }
 
     pub(crate) fn from_relative_package(path: &Utf8Path) -> Result<Self, InvalidModulePath> {
@@ -78,7 +79,7 @@ impl PythonModulePath {
 
     #[must_use]
     pub(crate) fn into_string(self) -> String {
-        self.0
+        self.0.to_string()
     }
 }
 
@@ -144,13 +145,13 @@ impl TryFrom<String> for PythonModulePath {
 
 impl From<PythonModulePath> for String {
     fn from(value: PythonModulePath) -> Self {
-        value.0
+        value.0.to_string()
     }
 }
 
 impl fmt::Display for PythonModulePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        self.as_str().fmt(f)
     }
 }
 

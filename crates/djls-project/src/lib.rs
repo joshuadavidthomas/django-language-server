@@ -11,6 +11,7 @@ mod templates;
 
 pub use db::Db;
 pub use models::ModelGraph;
+pub use models::ModelId;
 pub use models::compute_model_graph;
 pub use models::extract_model_graph;
 pub use project::Project;

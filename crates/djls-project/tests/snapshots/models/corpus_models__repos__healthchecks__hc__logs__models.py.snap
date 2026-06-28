@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Record:
+  hc.logs.models.Record:
     name: Record
     module_path: hc.logs.models
     line: 18

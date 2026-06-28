@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Setting:
+  misago.conf.models.Setting:
     name: Setting
     module_path: misago.conf.models
     line: 23

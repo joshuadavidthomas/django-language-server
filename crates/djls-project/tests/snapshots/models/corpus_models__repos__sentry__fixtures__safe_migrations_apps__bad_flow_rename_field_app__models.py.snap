@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  TestTable:
+  fixtures.safe_migrations_apps.bad_flow_rename_field_app.models.TestTable:
     name: TestTable
     module_path: fixtures.safe_migrations_apps.bad_flow_rename_field_app.models
     line: 4

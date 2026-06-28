@@ -3,19 +3,19 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseIndexer:
+  src.sentry.sentry_metrics.indexer.postgres.models.BaseIndexer:
     name: BaseIndexer
     module_path: src.sentry.sentry_metrics.indexer.postgres.models
     line: 17
     relations: []
     kind: abstract
-  PerfStringIndexer:
+  src.sentry.sentry_metrics.indexer.postgres.models.PerfStringIndexer:
     name: PerfStringIndexer
     module_path: src.sentry.sentry_metrics.indexer.postgres.models
     line: 44
     relations: []
     kind: concrete
-  StringIndexer:
+  src.sentry.sentry_metrics.indexer.postgres.models.StringIndexer:
     name: StringIndexer
     module_path: src.sentry.sentry_metrics.indexer.postgres.models
     line: 32

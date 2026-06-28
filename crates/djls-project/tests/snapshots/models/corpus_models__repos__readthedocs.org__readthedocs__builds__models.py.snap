@@ -3,31 +3,39 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Build:
+  readthedocs.builds.models.Build:
     name: Build
     module_path: readthedocs.builds.models
     line: 645
     relations:
       - field_name: project
         relation_type: ForeignKey
-        target_model: Project
+        target:
+          kind: Bare
+          name: Project
         related_name: builds
       - field_name: version
         relation_type: ForeignKey
-        target_model: Version
+        target:
+          kind: Bare
+          name: Version
         related_name: builds
       - field_name: readthedocs_yaml_config
         relation_type: ForeignKey
-        target_model: BuildConfig
+        target:
+          kind: Bare
+          name: BuildConfig
         related_name: builds
     kind: concrete
-  BuildCommandResult:
+  readthedocs.builds.models.BuildCommandResult:
     name: BuildCommandResult
     module_path: readthedocs.builds.models
     line: 1082
     relations:
       - field_name: build
         relation_type: ForeignKey
-        target_model: Build
+        target:
+          kind: Bare
+          name: Build
         related_name: commands
     kind: concrete

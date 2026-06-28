@@ -14,6 +14,7 @@ use crate::models::graph::ModelGraph;
 use crate::models::graph::ModelKind;
 use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
+use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
 use crate::python::PythonModulePath;
 
@@ -321,11 +322,10 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
         expr => expr.name_target()?,
     };
 
-    let target_model = extract_target_model(call)?;
+    let target = extract_target_model(call)?;
     let related_name = extract_related_name(call);
 
-    let relation_type =
-        RelationType::from_field_class(field_class_name, target_model, related_name)?;
+    let relation_type = RelationType::from_field_class(field_class_name, target, related_name)?;
 
     Some(Relation {
         field_name: FieldName::new(target_name),
@@ -333,24 +333,44 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
     })
 }
 
-fn extract_target_model(call: &ruff_python_ast::ExprCall) -> Option<ModelName> {
+fn extract_target_model(call: &ruff_python_ast::ExprCall) -> Option<RelationTarget> {
     let first_arg = call.arguments.args.first()?;
 
     // Direct reference: ForeignKey(User)
     if let Some(name) = first_arg.name_target() {
-        return Some(ModelName::new(name));
+        return Some(RelationTarget::Bare {
+            name: ModelName::new(name),
+        });
     }
 
     match first_arg {
-        // String reference: ForeignKey("User") or ForeignKey("app.User")
+        // String reference: ForeignKey("self"), ForeignKey("User"), or ForeignKey("app.User")
         Expr::StringLiteral(s) => {
             let value = s.value.to_string();
-            let name = value.split('.').next_back().unwrap_or(&value);
-            Some(ModelName::new(name))
+            Some(relation_target_from_string(&value))
         }
-        // Attribute: ForeignKey(auth.User)
-        Expr::Attribute(attr) => Some(ModelName::new(attr.attr.as_str())),
+        // Attribute: ForeignKey(auth.User). Keep today's behavior and drop the qualifier.
+        Expr::Attribute(attr) => Some(RelationTarget::Bare {
+            name: ModelName::new(attr.attr.as_str()),
+        }),
         _ => None,
+    }
+}
+
+fn relation_target_from_string(value: &str) -> RelationTarget {
+    if value == "self" {
+        return RelationTarget::SelfRef;
+    }
+
+    if let Some((app_label, name)) = value.rsplit_once('.') {
+        return RelationTarget::Qualified {
+            app_label: app_label.to_string(),
+            name: ModelName::new(name),
+        };
+    }
+
+    RelationTarget::Bare {
+        name: ModelName::new(value),
     }
 }
 
@@ -434,12 +454,44 @@ fn line_number(source: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::graph::ModelId;
 
     fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
         super::super::extract_model_graph_impl(
             source,
             PythonModulePath::parse(module_path).unwrap(),
         )
+    }
+
+    fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {
+        graph
+            .models_named(name)
+            .next()
+            .map(|(_id, model)| model)
+            .expect("model should exist")
+    }
+
+    fn model_id<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelId {
+        graph
+            .models_named(name)
+            .next()
+            .map(|(id, _model)| id)
+            .expect("model should exist")
+    }
+
+    fn has_model(graph: &ModelGraph, name: &str) -> bool {
+        graph.models_named(name).next().is_some()
+    }
+
+    fn bare_target_name(relation: &Relation) -> Option<&str> {
+        match relation.target_model()? {
+            RelationTarget::Bare { name } => Some(name.as_str()),
+            RelationTarget::SelfRef | RelationTarget::Qualified { .. } => None,
+        }
+    }
+
+    fn resolved_model_name(model: Option<&ModelDef>) -> Option<&str> {
+        model.map(|model| model.name.as_str())
     }
 
     #[test]
@@ -469,7 +521,7 @@ class User(models.Model):
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
 
-        let user = graph.get("User").unwrap();
+        let user = model(&graph, "User");
         assert_eq!(user.module_path.as_str(), "auth.models");
         assert_eq!(user.line, 2);
         assert!(user.relations.is_empty());
@@ -486,7 +538,7 @@ class User(Model):
 ";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("User").is_some());
+        assert!(has_model(&graph, "User"));
     }
 
     #[test]
@@ -499,7 +551,7 @@ class User(m.Model):
 ";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("User").is_some());
+        assert!(has_model(&graph, "User"));
     }
 
     #[test]
@@ -512,7 +564,7 @@ class User(db_models.Model):
 ";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("User").is_some());
+        assert!(has_model(&graph, "User"));
     }
 
     #[test]
@@ -525,7 +577,7 @@ class User(BaseModel):
 ";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("User").is_some());
+        assert!(has_model(&graph, "User"));
     }
 
     #[test]
@@ -538,7 +590,7 @@ class Location(models.Model):
 ";
         let graph = extract_model_graph(source, "geo.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("Location").is_some());
+        assert!(has_model(&graph, "Location"));
     }
 
     #[test]
@@ -551,7 +603,7 @@ class Location(gis.Model):
 ";
         let graph = extract_model_graph(source, "geo.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("Location").is_some());
+        assert!(has_model(&graph, "Location"));
     }
 
     #[test]
@@ -564,7 +616,7 @@ class Location(GeoModel):
 ";
         let graph = extract_model_graph(source, "geo.models");
         assert_eq!(graph.len(), 1);
-        assert!(graph.get("Location").is_some());
+        assert!(has_model(&graph, "Location"));
     }
 
     #[test]
@@ -604,12 +656,12 @@ class Order(models.Model):
 ";
         let graph = extract_model_graph(source, "shop.models");
 
-        let order = graph.get("Order").unwrap();
+        let order = model(&graph, "Order");
         assert_eq!(order.relations.len(), 1);
 
         let rel = &order.relations[0];
         assert_eq!(rel.field_name.as_str(), "user");
-        assert_eq!(rel.target_model().unwrap().as_str(), "User");
+        assert_eq!(bare_target_name(rel), Some("User"));
         assert!(matches!(
             rel.relation_type,
             RelationType::ForeignKey { ref related_name, .. } if related_name.is_none()
@@ -624,7 +676,7 @@ class Order(models.Model):
 "#;
         let graph = extract_model_graph(source, "shop.models");
 
-        let rel = &graph.get("Order").unwrap().relations[0];
+        let rel = &model(&graph, "Order").relations[0];
         assert!(matches!(
             rel.relation_type,
             RelationType::ForeignKey { ref related_name, .. } if related_name.as_deref() == Some("orders")
@@ -636,19 +688,30 @@ class Order(models.Model):
     }
 
     #[test]
-    fn string_ref_with_app_label() {
+    fn string_ref_with_app_label_preserves_qualified_target() {
         let source = r#"
 class Order(models.Model):
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE)
 "#;
         let graph = extract_model_graph(source, "shop.models");
-        assert_eq!(
-            graph.get("Order").unwrap().relations[0]
-                .target_model()
-                .unwrap()
-                .as_str(),
-            "User"
-        );
+        assert!(matches!(
+            model(&graph, "Order").relations[0].target_model(),
+            Some(RelationTarget::Qualified { app_label, name })
+                if app_label == "accounts" && name.as_str() == "User"
+        ));
+    }
+
+    #[test]
+    fn string_ref_self_preserves_self_target() {
+        let source = r#"
+class Category(models.Model):
+    parent = models.ForeignKey("self", on_delete=models.CASCADE)
+"#;
+        let graph = extract_model_graph(source, "catalog.models");
+        assert!(matches!(
+            model(&graph, "Category").relations[0].target_model(),
+            Some(RelationTarget::SelfRef)
+        ));
     }
 
     #[test]
@@ -663,13 +726,13 @@ class Article(models.Model):
 ";
         let graph = extract_model_graph(source, "app.models");
 
-        let profile = graph.get("Profile").unwrap();
+        let profile = model(&graph, "Profile");
         assert!(matches!(
             profile.relations[0].relation_type,
             RelationType::OneToOne { .. }
         ));
 
-        let article = graph.get("Article").unwrap();
+        let article = model(&graph, "Article");
         assert_eq!(article.relations.len(), 2);
         assert!(matches!(
             article.relations[0].relation_type,
@@ -689,7 +752,7 @@ class BaseModel(models.Model):
         abstract = True
 ";
         let graph = extract_model_graph(source, "app.models");
-        assert_eq!(graph.get("BaseModel").unwrap().kind, ModelKind::Abstract);
+        assert_eq!(model(&graph, "BaseModel").kind, ModelKind::Abstract);
     }
 
     #[test]
@@ -712,15 +775,14 @@ class ConcreteOrder(BaseOrder):
 ";
         let graph = extract_model_graph(source, "shop.models");
 
-        let concrete = graph.get("ConcreteOrder").unwrap();
+        let concrete = model(&graph, "ConcreteOrder");
         assert_eq!(concrete.kind, ModelKind::Concrete);
         assert_eq!(concrete.relations.len(), 2);
 
         let targets: Vec<&str> = concrete
             .relations
             .iter()
-            .filter_map(|r| r.target_model())
-            .map(super::super::graph::ModelName::as_str)
+            .filter_map(bare_target_name)
             .collect();
         assert!(targets.contains(&"User"));
         assert!(targets.contains(&"Seller"));
@@ -743,7 +805,7 @@ class SpecialOrder(BaseOrder):
 "#;
         let graph = extract_model_graph(source, "shop.models");
 
-        let special = graph.get("SpecialOrder").unwrap();
+        let special = model(&graph, "SpecialOrder");
         let rel = &special.relations[0];
         assert_eq!(
             rel.effective_related_name("SpecialOrder", "shop.models"),
@@ -763,13 +825,22 @@ class Order(models.Model):
         let graph = extract_model_graph(source, "shop.models");
 
         // Forward
-        assert_eq!(graph.resolve_forward("Order", "user"), Some("User"));
+        assert_eq!(
+            resolved_model_name(graph.resolve_forward(model_id(&graph, "Order"), "user")),
+            Some("User")
+        );
 
         // Reverse
-        assert_eq!(graph.resolve_relation("User", "orders"), Some("Order"));
+        assert_eq!(
+            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "orders")),
+            Some("Order")
+        );
 
         // Non-existent
-        assert_eq!(graph.resolve_relation("User", "nope"), None);
+        assert_eq!(
+            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "nope")),
+            None
+        );
     }
 
     #[test]
@@ -784,7 +855,10 @@ class Order(models.Model):
         let graph = extract_model_graph(source, "shop.models");
 
         // Default FK reverse name is <model>_set
-        assert_eq!(graph.resolve_relation("User", "order_set"), Some("Order"));
+        assert_eq!(
+            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "order_set")),
+            Some("Order")
+        );
     }
 
     #[test]
@@ -808,9 +882,18 @@ class Comment(models.Model):
         assert_eq!(graph.len(), 4);
 
         // Chain: User -> posts -> comments
-        assert_eq!(graph.resolve_relation("User", "posts"), Some("Post"));
-        assert_eq!(graph.resolve_relation("Post", "comments"), Some("Comment"));
-        assert_eq!(graph.resolve_relation("Comment", "author"), Some("User"));
+        assert_eq!(
+            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "posts")),
+            Some("Post")
+        );
+        assert_eq!(
+            resolved_model_name(graph.resolve_relation(model_id(&graph, "Post"), "comments")),
+            Some("Comment")
+        );
+        assert_eq!(
+            resolved_model_name(graph.resolve_relation(model_id(&graph, "Comment"), "author")),
+            Some("User")
+        );
     }
 
     #[test]
@@ -839,15 +922,10 @@ class Document(TimestampMixin, AuditMixin):
 ";
         let graph = extract_model_graph(source, "app.models");
 
-        let doc = graph.get("Document").unwrap();
+        let doc = model(&graph, "Document");
         assert_eq!(doc.relations.len(), 2);
 
-        let targets: Vec<&str> = doc
-            .relations
-            .iter()
-            .filter_map(|r| r.target_model())
-            .map(super::super::graph::ModelName::as_str)
-            .collect();
+        let targets: Vec<&str> = doc.relations.iter().filter_map(bare_target_name).collect();
         assert!(targets.contains(&"User"));
         assert!(targets.contains(&"Approver"));
     }
@@ -866,13 +944,10 @@ class Restaurant(Place):
 ";
         let graph = extract_model_graph(source, "app.models");
 
-        let restaurant = graph.get("Restaurant").unwrap();
+        let restaurant = model(&graph, "Restaurant");
         assert_eq!(restaurant.relations.len(), 1);
         assert_eq!(restaurant.relations[0].field_name.as_str(), "owner");
-        assert_eq!(
-            restaurant.relations[0].target_model().unwrap().as_str(),
-            "User"
-        );
+        assert_eq!(bare_target_name(&restaurant.relations[0]), Some("User"));
     }
 
     #[test]
@@ -892,12 +967,9 @@ class ConcreteOrder(some_module.BaseOrder):
 ";
         let graph = extract_model_graph(source, "shop.models");
 
-        let concrete = graph.get("ConcreteOrder").unwrap();
+        let concrete = model(&graph, "ConcreteOrder");
         assert_eq!(concrete.relations.len(), 1);
-        assert_eq!(
-            concrete.relations[0].target_model().unwrap().as_str(),
-            "User"
-        );
+        assert_eq!(bare_target_name(&concrete.relations[0]), Some("User"));
     }
 
     #[test]
@@ -922,19 +994,16 @@ class Concrete(MiddleMixin):
         let graph = extract_model_graph(source, "app.models");
 
         // MiddleMixin inherits BaseMixin's FK to User
-        let middle = graph.get("MiddleMixin").unwrap();
+        let middle = model(&graph, "MiddleMixin");
         assert_eq!(middle.kind, ModelKind::Abstract);
         assert_eq!(middle.relations.len(), 1);
-        assert_eq!(middle.relations[0].target_model().unwrap().as_str(), "User");
+        assert_eq!(bare_target_name(&middle.relations[0]), Some("User"));
 
         // Concrete inherits through MiddleMixin
-        let concrete = graph.get("Concrete").unwrap();
+        let concrete = model(&graph, "Concrete");
         assert_eq!(concrete.kind, ModelKind::Concrete);
         assert_eq!(concrete.relations.len(), 1);
-        assert_eq!(
-            concrete.relations[0].target_model().unwrap().as_str(),
-            "User"
-        );
+        assert_eq!(bare_target_name(&concrete.relations[0]), Some("User"));
     }
 
     #[test]
@@ -947,7 +1016,7 @@ class TaggedItem(models.Model):
 "#;
         let graph = extract_model_graph(source, "tagging.models");
 
-        let tagged = graph.get("TaggedItem").unwrap();
+        let tagged = model(&graph, "TaggedItem");
         // Both FK and GFK are in the same relations list
         assert_eq!(tagged.relations.len(), 2);
 
@@ -977,7 +1046,7 @@ class TaggedItem(models.Model):
 ";
         let graph = extract_model_graph(source, "tagging.models");
 
-        let rel = &graph.get("TaggedItem").unwrap().relations[0];
+        let rel = &model(&graph, "TaggedItem").relations[0];
         assert_eq!(rel.field_name.as_str(), "content_object");
         assert!(matches!(
             rel.relation_type,
@@ -996,7 +1065,7 @@ class ObjectLog(models.Model):
 ";
         let graph = extract_model_graph(source, "logs.models");
 
-        let rel = &graph.get("ObjectLog").unwrap().relations[0];
+        let rel = &model(&graph, "ObjectLog").relations[0];
         assert_eq!(rel.field_name.as_str(), "parent");
         assert!(matches!(
             rel.relation_type,
@@ -1017,9 +1086,9 @@ class TaggedItem(models.Model):
 "#;
         let graph = extract_model_graph(source, "tagging.models");
 
-        assert_eq!(graph.get("TaggedItem").unwrap().relations.len(), 1);
+        assert_eq!(model(&graph, "TaggedItem").relations.len(), 1);
         assert!(matches!(
-            graph.get("TaggedItem").unwrap().relations[0].relation_type,
+            model(&graph, "TaggedItem").relations[0].relation_type,
             RelationType::GenericForeignKey { .. }
         ));
     }
@@ -1038,7 +1107,7 @@ class TaggedItem(GenericMixin):
 "#;
         let graph = extract_model_graph(source, "tagging.models");
 
-        let tagged = graph.get("TaggedItem").unwrap();
+        let tagged = model(&graph, "TaggedItem");
         assert_eq!(tagged.relations.len(), 1);
         assert_eq!(tagged.relations[0].field_name.as_str(), "content_object");
         assert!(matches!(
@@ -1056,7 +1125,7 @@ class Action(models.Model):
 ";
         let graph = extract_model_graph(source, "activity.models");
 
-        let action = graph.get("Action").unwrap();
+        let action = model(&graph, "Action");
         assert_eq!(action.relations.len(), 2);
         assert_eq!(action.relations[0].field_name.as_str(), "actor");
         assert!(matches!(

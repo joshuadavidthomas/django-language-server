@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  SubscriberCount:
+  feedstats.models.SubscriberCount:
     name: SubscriberCount
     module_path: feedstats.models
     line: 4

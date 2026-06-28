@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  MenuItem:
+  misago.menus.models.MenuItem:
     name: MenuItem
     module_path: misago.menus.models
     line: 5

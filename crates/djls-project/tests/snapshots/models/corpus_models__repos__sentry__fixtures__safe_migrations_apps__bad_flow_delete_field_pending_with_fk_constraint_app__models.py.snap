@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  FkTable:
+  fixtures.safe_migrations_apps.bad_flow_delete_field_pending_with_fk_constraint_app.models.FkTable:
     name: FkTable
     module_path: fixtures.safe_migrations_apps.bad_flow_delete_field_pending_with_fk_constraint_app.models
     line: 6
     relations: []
     kind: concrete
-  TestTable:
+  fixtures.safe_migrations_apps.bad_flow_delete_field_pending_with_fk_constraint_app.models.TestTable:
     name: TestTable
     module_path: fixtures.safe_migrations_apps.bad_flow_delete_field_pending_with_fk_constraint_app.models
     line: 10

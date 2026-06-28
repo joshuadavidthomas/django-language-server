@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ExportedData:
+  src.sentry.data_export.models.ExportedData:
     name: ExportedData
     module_path: src.sentry.data_export.models
     line: 39
     relations: []
     kind: concrete
-  ExportedDataBlob:
+  src.sentry.data_export.models.ExportedDataBlob:
     name: ExportedDataBlob
     module_path: src.sentry.data_export.models
     line: 213

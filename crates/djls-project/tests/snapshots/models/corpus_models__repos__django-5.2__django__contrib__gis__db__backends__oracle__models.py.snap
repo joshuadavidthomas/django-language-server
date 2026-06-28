@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  OracleGeometryColumns:
+  django.contrib.gis.db.backends.oracle.models.OracleGeometryColumns:
     name: OracleGeometryColumns
     module_path: django.contrib.gis.db.backends.oracle.models
     line: 15
     relations: []
     kind: concrete
-  OracleSpatialRefSys:
+  django.contrib.gis.db.backends.oracle.models.OracleSpatialRefSys:
     name: OracleSpatialRefSys
     module_path: django.contrib.gis.db.backends.oracle.models
     line: 48

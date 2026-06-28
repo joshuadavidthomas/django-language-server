@@ -3,41 +3,48 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseExtension:
+  cms.extensions.models.BaseExtension:
     name: BaseExtension
     module_path: cms.extensions.models
     line: 7
     relations:
       - field_name: public_extension
         relation_type: OneToOne
-        target_model: self
+        target:
+          kind: SelfRef
         related_name: draft_extension
     kind: abstract
-  PageContentExtension:
+  cms.extensions.models.PageContentExtension:
     name: PageContentExtension
     module_path: cms.extensions.models
     line: 84
     relations:
       - field_name: public_extension
         relation_type: OneToOne
-        target_model: self
+        target:
+          kind: SelfRef
         related_name: draft_extension
       - field_name: extended_object
         relation_type: OneToOne
-        target_model: PageContent
+        target:
+          kind: Bare
+          name: PageContent
         related_name: ~
     kind: abstract
-  PageExtension:
+  cms.extensions.models.PageExtension:
     name: PageExtension
     module_path: cms.extensions.models
     line: 74
     relations:
       - field_name: public_extension
         relation_type: OneToOne
-        target_model: self
+        target:
+          kind: SelfRef
         related_name: draft_extension
       - field_name: extended_object
         relation_type: OneToOne
-        target_model: Page
+        target:
+          kind: Bare
+          name: Page
         related_name: ~
     kind: abstract

@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  HistoryEntry:
+  debug_toolbar.models.HistoryEntry:
     name: HistoryEntry
     module_path: debug_toolbar.models
     line: 5

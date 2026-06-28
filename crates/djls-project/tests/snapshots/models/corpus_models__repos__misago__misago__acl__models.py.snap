@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseRole:
+  misago.acl.models.BaseRole:
     name: BaseRole
     module_path: misago.acl.models
     line: 11
     relations: []
     kind: abstract
-  Role:
+  misago.acl.models.Role:
     name: Role
     module_path: misago.acl.models
     line: 32

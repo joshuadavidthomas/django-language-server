@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Icon:
+  misago.icons.models.Icon:
     name: Icon
     module_path: misago.icons.models
     line: 4
