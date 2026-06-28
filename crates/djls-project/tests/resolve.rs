@@ -73,18 +73,9 @@ fn project_with_template_settings(
         .build(db)
 }
 
-fn build_refresh_data(db: &TestDatabase) -> RefreshData {
-    let project = db.project().expect("project should be configured");
-    RefreshData::from_query_results(
-        RefreshQuery::ALL
-            .iter()
-            .copied()
-            .map(|query| query.compute(db, project)),
-    )
-}
-
 fn apply_project_refresh(db: &mut TestDatabase) {
-    let refresh = build_refresh_data(db);
+    let project = db.project().expect("project should be configured");
+    let refresh = compute_refresh(db, project);
     apply_refresh(db, refresh);
 }
 
@@ -752,21 +743,23 @@ fn project_refresh_enumerates_new_empty_templatetag_candidate_before_root_bump()
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    assert_eq!(
-        RefreshQuery::TemplateTagCandidates
-            .compute(&db, project)
-            .item_count(),
-        0
-    );
+    let candidates = refresh_tasks()
+        .iter()
+        .copied()
+        .find(|task| task.descriptor().message == "Discovering template tag candidates")
+        .expect("template tag candidate refresh task should exist")
+        .run(&db, project);
+    assert_eq!(candidates.count(), 0);
 
     db.add_file("/project/blog/templatetags/future.py", "");
 
-    assert_eq!(
-        RefreshQuery::TemplateTagCandidates
-            .compute(&db, project)
-            .item_count(),
-        1
-    );
+    let candidates = refresh_tasks()
+        .iter()
+        .copied()
+        .find(|task| task.descriptor().message == "Discovering template tag candidates")
+        .expect("template tag candidate refresh task should exist")
+        .run(&db, project);
+    assert_eq!(candidates.count(), 1);
 }
 
 #[test]

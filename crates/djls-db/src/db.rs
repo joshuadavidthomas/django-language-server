@@ -1104,18 +1104,9 @@ def my_filter(value, arg):
         assert_custom_library_module(&db, "new_tags");
     }
 
-    fn build_refresh_data(db: &DjangoDatabase) -> djls_project::RefreshData {
-        let project = db.project().expect("project refresh data");
-        djls_project::RefreshData::from_query_results(
-            djls_project::RefreshQuery::ALL
-                .iter()
-                .copied()
-                .map(|query| query.compute(db, project)),
-        )
-    }
-
     fn apply_project_refresh(db: &mut DjangoDatabase) {
-        let refresh = build_refresh_data(db);
+        let project = db.project().expect("project refresh data");
+        let refresh = djls_project::compute_refresh(db, project);
         djls_project::apply_refresh(db, refresh);
     }
 
@@ -1154,7 +1145,7 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let refresh = build_refresh_data(&db);
+        let refresh = djls_project::compute_refresh(&db, project);
         let file_paths: Vec<_> = refresh.file_paths().to_vec();
         assert!(!file_paths.is_empty());
         djls_project::apply_refresh(&mut db, refresh);
@@ -1177,7 +1168,7 @@ def my_filter(value, arg):
             .collect();
         assert!(!root_revisions.is_empty());
 
-        let refresh = build_refresh_data(&db);
+        let refresh = djls_project::compute_refresh(&db, project);
         djls_project::apply_refresh(&mut db, refresh);
 
         let unchanged_file_revisions: Vec<_> = file_paths

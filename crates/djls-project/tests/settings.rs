@@ -133,13 +133,7 @@ fn project_with_settings(
 
 fn apply_project_refresh(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
-    let refresh = RefreshData::from_query_results(
-        RefreshQuery::ALL
-            .iter()
-            .copied()
-            .map(|query| query.compute(db, project)),
-    );
-
+    let refresh = compute_refresh(db, project);
     apply_refresh(db, refresh);
 }
 
@@ -166,12 +160,7 @@ fn project_refresh_enumerates_settings_star_import_chain() {
         ],
     );
 
-    let refresh = RefreshData::from_query_results(
-        RefreshQuery::ALL
-            .iter()
-            .copied()
-            .map(|query| query.compute(&db, project)),
-    );
+    let refresh = compute_refresh(&db, project);
 
     let expected = [
         Utf8PathBuf::from("/proj/myproject/base.py"),
@@ -223,15 +212,15 @@ fn project_refresh_includes_deduped_unreadable_settings_source() {
     );
     db.project = Some(project);
 
-    let settings_sources = RefreshQuery::SettingsSources.compute(&db, project);
-    assert_eq!(settings_sources.item_count(), 3);
+    let settings_sources = refresh_tasks()
+        .iter()
+        .copied()
+        .find(|task| task.descriptor().message == "Scanning settings")
+        .expect("settings sources refresh task should exist")
+        .run(&db, project);
+    assert_eq!(settings_sources.count(), 3);
 
-    let refresh = RefreshData::from_query_results(
-        RefreshQuery::ALL
-            .iter()
-            .copied()
-            .map(|query| query.compute(&db, project)),
-    );
+    let refresh = compute_refresh(&db, project);
 
     let expected = [
         Utf8PathBuf::from("/proj/myproject/base.py"),

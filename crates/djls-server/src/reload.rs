@@ -13,10 +13,14 @@ use djls_conf::Settings;
 use djls_db::DjangoDatabase;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
+use djls_project::RefreshCountUnits;
 use djls_project::RefreshData;
-use djls_project::RefreshQuery;
-use djls_project::RefreshQueryResult;
+use djls_project::RefreshPart;
+use djls_project::RefreshTask;
+use djls_project::RefreshTaskDescriptor;
+use djls_project::RefreshTaskGroup;
 use djls_project::apply_refresh;
+use djls_project::refresh_tasks;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
 use tokio::sync::Mutex;
@@ -101,77 +105,22 @@ impl ProgressEnd {
     }
 }
 
-#[derive(Clone, Copy)]
-struct CountUnits {
-    singular: &'static str,
-    plural: &'static str,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RefreshProgressGroup {
-    Environment,
-    Facts,
-}
-
-fn refresh_queries(group: RefreshProgressGroup) -> impl Iterator<Item = RefreshQuery> {
-    RefreshQuery::ALL
-        .iter()
-        .copied()
-        .filter(move |query| refresh_query_progress_group(*query) == group)
-}
-
-fn refresh_query_progress_total(group: RefreshProgressGroup) -> usize {
-    refresh_queries(group).count()
-}
-
-const fn refresh_query_progress_group(query: RefreshQuery) -> RefreshProgressGroup {
-    match query {
-        RefreshQuery::SearchPaths | RefreshQuery::SettingsSources => {
-            RefreshProgressGroup::Environment
-        }
-        RefreshQuery::ModelModules
-        | RefreshQuery::TemplateLibraryModules
-        | RefreshQuery::TemplateTagCandidates => RefreshProgressGroup::Facts,
-    }
-}
-const DISCOVERED_FILES_UNITS: CountUnits = CountUnits {
+const DISCOVERED_FILES_UNITS: RefreshCountUnits = RefreshCountUnits {
     singular: "discovered file",
     plural: "discovered files",
 };
 
-fn refresh_query_message(query: RefreshQuery) -> &'static str {
-    match query {
-        RefreshQuery::SearchPaths => "Resolving environment",
-        RefreshQuery::SettingsSources => "Scanning settings",
-        RefreshQuery::ModelModules => "Discovering model modules",
-        RefreshQuery::TemplateLibraryModules => "Discovering template libraries",
-        RefreshQuery::TemplateTagCandidates => "Discovering template tag candidates",
-    }
+struct RefreshJobCount {
+    group: RefreshTaskGroup,
+    units: RefreshCountUnits,
+    count: usize,
 }
 
-const fn refresh_query_count_units(query: RefreshQuery) -> CountUnits {
-    match query {
-        RefreshQuery::SearchPaths => CountUnits {
-            singular: "search path",
-            plural: "search paths",
-        },
-        RefreshQuery::SettingsSources => CountUnits {
-            singular: "settings file",
-            plural: "settings files",
-        },
-        RefreshQuery::ModelModules => CountUnits {
-            singular: "model module",
-            plural: "model modules",
-        },
-        RefreshQuery::TemplateLibraryModules => CountUnits {
-            singular: "template library module",
-            plural: "template library modules",
-        },
-        RefreshQuery::TemplateTagCandidates => CountUnits {
-            singular: "template tag candidate",
-            plural: "template tag candidates",
-        },
-    }
+fn refresh_task_progress_total(group: RefreshTaskGroup) -> usize {
+    refresh_tasks()
+        .iter()
+        .filter(|task| task.descriptor().group == group)
+        .count()
 }
 
 const RESOLVE_ENVIRONMENT_TITLE: &str = "Resolving Django environment";
@@ -245,7 +194,7 @@ async fn publish_refresh_diagnostics(
     diagnostics_progress
         .report(&count_message(
             documents.len(),
-            CountUnits {
+            RefreshCountUnits {
                 singular: "diagnostics document",
                 plural: "diagnostics documents",
             },
@@ -334,7 +283,7 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> Option<Settings
     }
 }
 
-type RefreshJobResult = Result<RefreshQueryResult, salsa::Cancelled>;
+type RefreshJobResult = Result<RefreshPart, salsa::Cancelled>;
 type RefreshJobSet = JoinSet<RefreshJobResult>;
 
 async fn compute_project_refresh(
@@ -413,15 +362,15 @@ async fn spawn_refresh_jobs(
     facts_progress: &mut Option<ProgressItem>,
 ) -> RefreshJobSet {
     let mut jobs = JoinSet::new();
-    for query in RefreshQuery::ALL.iter().copied() {
+    for task in refresh_tasks().iter().copied() {
         let db = compute_db.clone();
         jobs.spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| query.compute(&db, project)))
+            salsa::Cancelled::catch(AssertUnwindSafe(|| task.run(&db, project)))
         });
     }
 
-    for query in RefreshQuery::ALL.iter().copied() {
-        report_refresh_query(query, reporter, environment_progress, facts_progress).await;
+    for task in refresh_tasks().iter().copied() {
+        report_refresh_task(task, reporter, environment_progress, facts_progress).await;
     }
 
     jobs
@@ -438,9 +387,14 @@ async fn collect_refresh_jobs(
 
     while let Some(joined) = jobs.join_next().await {
         match joined.expect("project refresh task must not panic") {
-            Ok(result) => {
-                counts.push((result.query(), result.item_count()));
-                parts.push(result);
+            Ok(part) => {
+                let descriptor = part.descriptor();
+                counts.push(RefreshJobCount {
+                    group: descriptor.group,
+                    units: descriptor.units,
+                    count: part.count(),
+                });
+                parts.push(part);
             }
             Err(cancelled) => remember_cancellation(&mut cancellation, cancelled),
         }
@@ -450,10 +404,10 @@ async fn collect_refresh_jobs(
         return Err(cancelled);
     }
 
-    let refresh = RefreshData::from_query_results(parts);
+    let refresh = RefreshData::assemble(parts);
     report_refresh_job_counts(
         counts,
-        refresh.file_paths().len(),
+        refresh.discovered_file_count(),
         environment_progress.as_ref(),
         facts_progress.as_ref(),
     )
@@ -463,33 +417,41 @@ async fn collect_refresh_jobs(
 }
 
 async fn report_refresh_job_counts(
-    counts: Vec<(RefreshQuery, usize)>,
+    counts: Vec<RefreshJobCount>,
     discovered_file_count: usize,
     environment_progress: Option<&ProgressItem>,
     facts_progress: Option<&ProgressItem>,
 ) {
-    let environment_total = refresh_query_progress_total(RefreshProgressGroup::Environment);
-    for (index, query) in refresh_queries(RefreshProgressGroup::Environment).enumerate() {
-        report_count(
-            environment_progress,
-            index + 1,
-            environment_total,
-            refresh_query_count(&counts, query),
-            refresh_query_count_units(query),
-        )
-        .await;
-    }
+    let environment_total = refresh_task_progress_total(RefreshTaskGroup::Environment);
+    let facts_total = refresh_task_progress_total(RefreshTaskGroup::Facts) + 1;
+    let mut environment_done = 0;
+    let mut facts_done = 0;
 
-    let facts_total = refresh_query_progress_total(RefreshProgressGroup::Facts) + 1;
-    for (index, query) in refresh_queries(RefreshProgressGroup::Facts).enumerate() {
-        report_count(
-            facts_progress,
-            index + 1,
-            facts_total,
-            refresh_query_count(&counts, query),
-            refresh_query_count_units(query),
-        )
-        .await;
+    for summary in counts {
+        match summary.group {
+            RefreshTaskGroup::Environment => {
+                environment_done += 1;
+                report_count(
+                    environment_progress,
+                    environment_done,
+                    environment_total,
+                    summary.count,
+                    summary.units,
+                )
+                .await;
+            }
+            RefreshTaskGroup::Facts => {
+                facts_done += 1;
+                report_count(
+                    facts_progress,
+                    facts_done,
+                    facts_total,
+                    summary.count,
+                    summary.units,
+                )
+                .await;
+            }
+        }
     }
 
     report_count(
@@ -502,19 +464,12 @@ async fn report_refresh_job_counts(
     .await;
 }
 
-fn refresh_query_count(counts: &[(RefreshQuery, usize)], query: RefreshQuery) -> usize {
-    counts
-        .iter()
-        .find_map(|(count_query, count)| (*count_query == query).then_some(*count))
-        .expect("completed refresh query must have a count")
-}
-
 async fn report_count(
     progress: Option<&ProgressItem>,
     done: usize,
     total: usize,
     count: usize,
-    units: CountUnits,
+    units: RefreshCountUnits,
 ) {
     let message = count_message(count, units);
 
@@ -523,7 +478,7 @@ async fn report_count(
     }
 }
 
-fn count_message(count: usize, units: CountUnits) -> String {
+fn count_message(count: usize, units: RefreshCountUnits) -> String {
     let unit = if count == 1 {
         units.singular
     } else {
@@ -538,22 +493,31 @@ fn remember_cancellation(cancellation: &mut Option<salsa::Cancelled>, cancelled:
     }
 }
 
-async fn report_refresh_query(
-    query: RefreshQuery,
+async fn report_refresh_task(
+    task: RefreshTask,
     reporter: &ProgressReporter,
     environment_progress: &mut Option<ProgressItem>,
     facts_progress: &mut Option<ProgressItem>,
 ) {
-    let (progress, title) = match refresh_query_progress_group(query) {
-        RefreshProgressGroup::Environment => (environment_progress, RESOLVE_ENVIRONMENT_TITLE),
-        RefreshProgressGroup::Facts => (facts_progress, DISCOVER_PROJECT_FACTS_TITLE),
-    };
+    let descriptor = task.descriptor();
+    let (progress, title) = refresh_task_progress(descriptor, environment_progress, facts_progress);
 
     if progress.is_none() {
         *progress = Some(reporter.begin(title).await);
     }
     if let Some(progress) = progress.as_ref() {
-        progress.report(refresh_query_message(query)).await;
+        progress.report(descriptor.message).await;
+    }
+}
+
+fn refresh_task_progress<'a>(
+    descriptor: RefreshTaskDescriptor,
+    environment_progress: &'a mut Option<ProgressItem>,
+    facts_progress: &'a mut Option<ProgressItem>,
+) -> (&'a mut Option<ProgressItem>, &'static str) {
+    match descriptor.group {
+        RefreshTaskGroup::Environment => (environment_progress, RESOLVE_ENVIRONMENT_TITLE),
+        RefreshTaskGroup::Facts => (facts_progress, DISCOVER_PROJECT_FACTS_TITLE),
     }
 }
 
@@ -612,18 +576,18 @@ impl WarmStage {
         }
     }
 
-    const fn count_units(self) -> Option<CountUnits> {
+    const fn count_units(self) -> Option<RefreshCountUnits> {
         match self {
             Self::BuildTagSpecs | Self::BuildFilterAritySpecs | Self::BuildModelGraph => None,
-            Self::ResolveTemplateDirs => Some(CountUnits {
+            Self::ResolveTemplateDirs => Some(RefreshCountUnits {
                 singular: "template directory",
                 plural: "template directories",
             }),
-            Self::IndexTemplateLibraries => Some(CountUnits {
+            Self::IndexTemplateLibraries => Some(RefreshCountUnits {
                 singular: "template library",
                 plural: "template libraries",
             }),
-            Self::IndexTemplates => Some(CountUnits {
+            Self::IndexTemplates => Some(RefreshCountUnits {
                 singular: "template",
                 plural: "templates",
             }),
