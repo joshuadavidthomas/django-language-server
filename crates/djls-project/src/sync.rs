@@ -12,7 +12,8 @@ use crate::project::Project;
 use crate::resolve::SearchPaths;
 use crate::resolve::model_modules;
 use crate::resolve::templatetag_modules;
-use crate::settings::settings_source_files;
+use crate::settings::DjangoSettingsSources;
+use crate::settings::settings_sources;
 use crate::templates::templatetag_candidate_paths;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,12 +76,17 @@ impl RefreshQuery {
                 project.interpreter(db),
                 project.pythonpath(db),
             )),
-            Self::SettingsSources => RefreshDataPart::FilePaths(
-                settings_source_files(db, project)
-                    .into_iter()
-                    .map(|file| file.path(db).to_path_buf())
-                    .collect(),
-            ),
+            Self::SettingsSources => {
+                let sources: DjangoSettingsSources = settings_sources(db, project);
+                RefreshDataPart::FilePaths(
+                    sources
+                        .root()
+                        .into_iter()
+                        .chain(sources.files().iter().copied().skip(1))
+                        .map(|file| file.path(db).to_path_buf())
+                        .collect(),
+                )
+            }
             Self::ModelModules => RefreshDataPart::FilePaths(
                 model_modules(db, project)
                     .iter()
