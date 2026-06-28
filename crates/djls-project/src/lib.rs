@@ -13,7 +13,6 @@ pub use db::Db;
 pub use models::ModelGraph;
 pub use models::ModelId;
 pub use models::compute_model_graph;
-pub use models::extract_model_graph;
 pub use project::Project;
 pub use python::Interpreter;
 pub use python::InvalidModulePath;
@@ -26,11 +25,9 @@ pub use refresh::RefreshTask;
 pub use refresh::RefreshTaskDescriptor;
 pub use refresh::RefreshTaskGroup;
 pub use refresh::apply_refresh;
-pub use refresh::compute_refresh;
 pub use refresh::refresh_tasks;
 pub use resolve::SearchPath;
 pub use resolve::SearchPaths;
-pub use resolve::model_modules;
 pub use resolve::templatetag_modules;
 pub use settings::StaticKnowledge;
 pub use templates::ArgumentCountConstraint;
@@ -76,3 +73,11 @@ pub use templates::extract_tag_rules;
 pub use templates::inactive_template_libraries;
 pub use templates::template_libraries;
 pub use templates::template_resolution;
+
+// Test and benchmark support only; not part of the stable Project Facts façade.
+#[doc(hidden)]
+pub mod testing {
+    pub use crate::models::extract_model_graph;
+    pub use crate::refresh::compute_refresh;
+    pub use crate::resolve::model_modules;
+}

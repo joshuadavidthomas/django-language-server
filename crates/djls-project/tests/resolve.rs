@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
+use djls_project::testing::compute_refresh;
+use djls_project::testing::model_modules;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileRootKind;

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
+use djls_project::testing::compute_refresh;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
