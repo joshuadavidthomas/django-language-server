@@ -19,7 +19,7 @@
 //! ```
 
 use djls_project::PythonModulePath;
-use djls_project::extract_model_graph;
+use djls_project::testing::extract_model_graph;
 use djls_testing::Corpus;
 use djls_testing::TestDatabase;
 use djls_testing::module_path_from_file;

@@ -8,6 +8,7 @@ use djls_bench::model_fixtures;
 use djls_project::ModelGraph;
 use djls_project::ModelId;
 use djls_project::PythonModulePath;
+use djls_project::testing::extract_model_graph;
 
 fn main() {
     divan::main();
@@ -24,7 +25,7 @@ fn model_graph_from_source(
     module_path: PythonModulePath,
 ) -> ModelGraph {
     let file = db.file_with_contents(path, source);
-    djls_project::extract_model_graph(db, file, module_path).clone()
+    extract_model_graph(db, file, module_path).clone()
 }
 
 // Batch extraction: all fixtures in one iteration
