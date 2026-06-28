@@ -60,7 +60,7 @@ _Avoid_: parsed template, template object, HTML file
 
 **Template Directory**:
 A filesystem directory Django searches for **Templates** by template name.
-_Avoid_: template folder, template library, static directory
+_Avoid_: template folder, template collection, static directory
 
 **Template Name**:
 The path-like name Django uses to resolve a **Template** within template directories.
@@ -82,13 +82,13 @@ _Avoid_: path resolution, file lookup, import resolution
 A relationship where one **Template** extends another **Template** and overrides **Inheritance Blocks**.
 _Avoid_: subclassing, inclusion, template import
 
-**Template Tag Library**:
-A Django template library loadable with `{% load %}` that provides template tags, filters, or both.
-_Avoid_: Template Library, templatetag module, tag set, installed library
+**Template Library**:
+A Django template library loadable with `{% load %}` that provides template tags, filters, or both. This means Django's tag/filter library concept, not a directory or collection of template files.
+_Avoid_: Template Tag Library, templatetag module, tag set, installed library
 
 **Template Tag**:
 A Django template source construct written inside `{% ... %}`.
-_Avoid_: Tag Definition, block token, Template Tag Library
+_Avoid_: Tag Definition, block token, Template Library
 
 **Template Variable**:
 A Django template source expression written inside `{{ ... }}`.
@@ -197,7 +197,7 @@ A **Reference Tag** that points to another **Template**.
 _Avoid_: template loader tag, include tag category, file reference tag
 
 **Library Reference Tag**:
-A **Reference Tag** that points to a **Template Tag Library**.
+A **Reference Tag** that points to a **Template Library**.
 _Avoid_: Loader Tag, load tag category, import tag
 
 **Static Asset Reference Tag**:
@@ -268,7 +268,7 @@ _Avoid_: Template Tree, document symbol, syntax tree
 
 - **Project Facts** describe what the language server understands about a **Project**.
 - A **Workspace** may contain files from one **Project**, multiple **Projects**, or no recognized **Project**.
-- A **Project** contains one or more **Templates**, **Template Directories**, **Django Environments**, and **Template Tag Libraries**.
+- A **Project** contains one or more **Templates**, **Template Directories**, **Django Environments**, and **Template Libraries**.
 - A **Django Environment** is rooted at a directory and configured by a **Django Settings Module**.
 - **Django Discovery** builds **Project Facts**.
 - **Static Extraction** contributes source-derived **Project Facts** without executing project code.
@@ -278,14 +278,14 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - **Template Resolution** maps a **Template Name** to at most one **Template** within the active template search order.
 - A **Template Reference** is resolved through **Template Resolution**.
 - **Template Inheritance** uses **Block Template Tags** to define **Inheritance Blocks**.
-- A **Template Tag Library** provides Django template tags and filters.
+- A **Template Library** provides Django template tags and filters.
 - DJLS represents known template tags as **Tag Definitions** and known template filters as **Filter Definitions**.
 - A **Tag Definition** or **Filter Definition** may have a **Definition Source**, such as a Python implementation, Django builtin, configuration entry, or unknown location.
 - A **Tag Definition** has a **Tag Spec** and may have a **Tag Role**.
 - A **Filter Definition** has validation facts such as arity, but no role vocabulary yet.
 - **Tag and Filter Availability** may be available, unloaded, ambiguously unloaded, or unknown.
 - Available definitions are usable at the position under Django's builtin and `{% load %}` rules.
-- Unloaded definitions are known but require a **Template Tag Library** that is not loaded at the position.
+- Unloaded definitions are known but require a **Template Library** that is not loaded at the position.
 - Ambiguously unloaded definitions are known from multiple inactive libraries, so DJLS cannot choose one `{% load %}` suggestion.
 - Unknown tags or filters have no known **Tag Definition** or **Filter Definition** under current **Project Facts**.
 - A **Tag Spec** classifies a **Tag Definition** as a **Block Tag** or **Standalone Tag**.
@@ -311,7 +311,7 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - **Tag Role** is independent of whether a **Tag Definition** is a **Block Tag** or **Standalone Tag**.
 - A **Reference Tag** creates a template-domain relationship from the current **Template** to something outside the local template body.
 - A **Template Reference Tag** creates a **Template Reference**.
-- A **Library Reference Tag** references a **Template Tag Library**.
+- A **Library Reference Tag** references a **Template Library**.
 - A **Static Asset Reference Tag** references a static asset.
 - A **Route Reference Tag** references a route or view name.
 - A **Definition Tag** defines a named Django template concept.
@@ -329,8 +329,8 @@ _Avoid_: Template Tree, document symbol, syntax tree
 - "Project" could mean the editor workspace, Cargo workspace, repository, or analyzed Django application; resolved: **Project** means the Django codebase being analyzed by the language server.
 - "Project model", "project context", "project knowledge", and "project state" are not canonical terms; resolved: use **Project Facts**.
 - "Django Environment" is a path-scoped Django analysis context, not a Python environment, virtual environment, or OS environment.
-- "Template Library" can mean a collection of templates; resolved: use **Template Tag Library** for Django tag/filter libraries.
-- "Installed Template Tag Library" is ambiguous between pip-installed packages and Django `INSTALLED_APPS`; resolved: describe a **Template Tag Library** as loadable (requires `{% load %}`) or builtin (preloaded). "Active" and "discovered" are not library availability states.
+- "Template Library" can mean a collection of templates, but Django also uses template library for tag/filter libraries; resolved: use **Template Library** for Django tag/filter libraries, and use **Template Directory** or **Templates** when discussing template files.
+- "Installed Template Library" is ambiguous between pip-installed packages and Django `INSTALLED_APPS`; resolved: describe a **Template Library** as loadable (requires `{% load %}`) or builtin (preloaded). "Active" and "discovered" are not library availability states.
 - "Tag" can mean source syntax, a known definition, structural behavior, or semantic role; resolved: use **Template Tag**, **Tag Definition**, **Tag Spec**, and **Tag Role** for those different contexts.
 - "Definition" can mean the Python source that implements a tag or DJLS's model of a known tag; resolved: use **Definition Source** for provenance or navigation targets and **Tag Definition** or **Filter Definition** for the language server model.
 - "Block" is overloaded by Django syntax, Django inheritance, parser internals, and tree structure; resolved: use **Block Tag** for the structural definition category, **Block Template Tag** for the named `block` tag, **Inheritance Block** for the thing it defines, and **Template Branch** for the tree structure.
