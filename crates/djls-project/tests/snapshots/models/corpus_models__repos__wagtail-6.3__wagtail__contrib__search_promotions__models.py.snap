@@ -3,33 +3,40 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Query:
+  wagtail.contrib.search_promotions.models.Query:
     name: Query
     module_path: wagtail.contrib.search_promotions.models
     line: 11
     relations: []
     kind: concrete
-  QueryDailyHits:
+  wagtail.contrib.search_promotions.models.QueryDailyHits:
     name: QueryDailyHits
     module_path: wagtail.contrib.search_promotions.models
     line: 71
     relations:
       - field_name: query
         relation_type: ForeignKey
-        target_model: Query
+        target:
+          kind: Bare
+          name: Query
         related_name: daily_hits
     kind: concrete
-  SearchPromotion:
+  wagtail.contrib.search_promotions.models.SearchPromotion:
     name: SearchPromotion
     module_path: wagtail.contrib.search_promotions.models
     line: 96
     relations:
       - field_name: query
         relation_type: ForeignKey
-        target_model: Query
+        target:
+          kind: Bare
+          name: Query
         related_name: editors_picks
       - field_name: page
         relation_type: ForeignKey
-        target_model: Page
+        target:
+          kind: Qualified
+          app_label: wagtailcore
+          name: Page
         related_name: ~
     kind: concrete

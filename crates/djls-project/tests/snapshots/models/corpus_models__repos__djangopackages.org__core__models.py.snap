@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  BaseModel:
+  core.models.BaseModel:
     name: BaseModel
     module_path: core.models
     line: 7

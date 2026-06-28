@@ -3,27 +3,36 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  SSODomain:
+  readthedocs.sso.models.SSODomain:
     name: SSODomain
     module_path: readthedocs.sso.models
     line: 68
     relations: []
     kind: concrete
-  SSOIntegration:
+  readthedocs.sso.models.SSOIntegration:
     name: SSOIntegration
     module_path: readthedocs.sso.models
     line: 10
     relations:
       - field_name: organization
         relation_type: OneToOne
-        target_model: Organization
+        target:
+          kind: Qualified
+          app_label: organizations
+          name: Organization
         related_name: ~
       - field_name: saml_app
         relation_type: OneToOne
-        target_model: SocialApp
+        target:
+          kind: Qualified
+          app_label: socialaccount
+          name: SocialApp
         related_name: sso_integration
       - field_name: domains
         relation_type: ManyToMany
-        target_model: SSODomain
+        target:
+          kind: Qualified
+          app_label: sso
+          name: SSODomain
         related_name: ssointegrations
     kind: concrete

@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  PluginDataModel:
+  misago.plugins.models.PluginDataModel:
     name: PluginDataModel
     module_path: misago.plugins.models
     line: 5

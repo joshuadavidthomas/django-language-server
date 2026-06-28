@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  KVStore:
+  sorl.thumbnail.models.KVStore:
     name: KVStore
     module_path: sorl.thumbnail.models
     line: 6

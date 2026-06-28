@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Avatar:
+  avatar.models.Avatar:
     name: Avatar
     module_path: avatar.models
     line: 91

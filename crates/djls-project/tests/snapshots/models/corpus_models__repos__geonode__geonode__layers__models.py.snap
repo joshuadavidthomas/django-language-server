@@ -3,17 +3,19 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Attribute:
+  geonode.layers.models.Attribute:
     name: Attribute
     module_path: geonode.layers.models
     line: 448
     relations:
       - field_name: dataset
         relation_type: ForeignKey
-        target_model: Dataset
+        target:
+          kind: Bare
+          name: Dataset
         related_name: attribute_set
     kind: concrete
-  Style:
+  geonode.layers.models.Style:
     name: Style
     module_path: geonode.layers.models
     line: 63

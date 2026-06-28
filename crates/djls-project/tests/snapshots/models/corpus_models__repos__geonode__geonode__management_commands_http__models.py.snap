@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  ManagementCommandJob:
+  geonode.management_commands_http.models.ManagementCommandJob:
     name: ManagementCommandJob
     module_path: geonode.management_commands_http.models
     line: 28

@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  MachineConfig:
+  src.backend.InvenTree.machine.models.MachineConfig:
     name: MachineConfig
     module_path: src.backend.InvenTree.machine.models
     line: 17

@@ -3,47 +3,68 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Notification:
+  misago.notifications.models.Notification:
     name: Notification
     module_path: misago.notifications.models
     line: 15
     relations:
       - field_name: user
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: ~
       - field_name: actor
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: +
       - field_name: category
         relation_type: ForeignKey
-        target_model: Category
+        target:
+          kind: Qualified
+          app_label: misago_categories
+          name: Category
         related_name: ~
       - field_name: thread
         relation_type: ForeignKey
-        target_model: Thread
+        target:
+          kind: Qualified
+          app_label: misago_threads
+          name: Thread
         related_name: ~
       - field_name: post
         relation_type: ForeignKey
-        target_model: Post
+        target:
+          kind: Qualified
+          app_label: misago_threads
+          name: Post
         related_name: ~
     kind: concrete
-  WatchedThread:
+  misago.notifications.models.WatchedThread:
     name: WatchedThread
     module_path: misago.notifications.models
     line: 59
     relations:
       - field_name: user
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: ~
       - field_name: category
         relation_type: ForeignKey
-        target_model: Category
+        target:
+          kind: Qualified
+          app_label: misago_categories
+          name: Category
         related_name: ~
       - field_name: thread
         relation_type: ForeignKey
-        target_model: Thread
+        target:
+          kind: Qualified
+          app_label: misago_threads
+          name: Thread
         related_name: ~
     kind: concrete

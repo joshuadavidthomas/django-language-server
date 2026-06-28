@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  RestoredBackup:
+  geonode.br.models.RestoredBackup:
     name: RestoredBackup
     module_path: geonode.br.models
     line: 28

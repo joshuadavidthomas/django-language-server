@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Release:
+  releases.models.Release:
     name: Release
     module_path: releases.models
     line: 164

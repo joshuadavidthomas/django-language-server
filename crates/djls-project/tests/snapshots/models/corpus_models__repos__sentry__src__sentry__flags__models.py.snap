@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  FlagAuditLogModel:
+  src.sentry.flags.models.FlagAuditLogModel:
     name: FlagAuditLogModel
     module_path: src.sentry.flags.models
     line: 93
     relations: []
     kind: concrete
-  FlagWebHookSigningSecretModel:
+  src.sentry.flags.models.FlagWebHookSigningSecretModel:
     name: FlagWebHookSigningSecretModel
     module_path: src.sentry.flags.models
     line: 131

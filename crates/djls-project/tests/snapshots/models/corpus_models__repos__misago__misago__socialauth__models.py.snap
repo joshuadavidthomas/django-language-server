@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  SocialAuthProvider:
+  misago.socialauth.models.SocialAuthProvider:
     name: SocialAuthProvider
     module_path: misago.socialauth.models
     line: 6

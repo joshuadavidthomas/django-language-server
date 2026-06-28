@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  OpenIDNonce:
+  allauth.socialaccount.providers.openid.models.OpenIDNonce:
     name: OpenIDNonce
     module_path: allauth.socialaccount.providers.openid.models
     line: 16
     relations: []
     kind: concrete
-  OpenIDStore:
+  allauth.socialaccount.providers.openid.models.OpenIDStore:
     name: OpenIDStore
     module_path: allauth.socialaccount.providers.openid.models
     line: 4

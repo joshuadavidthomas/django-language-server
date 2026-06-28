@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  StockLocationType:
+  src.backend.InvenTree.stock.models.StockLocationType:
     name: StockLocationType
     module_path: src.backend.InvenTree.stock.models
     line: 59

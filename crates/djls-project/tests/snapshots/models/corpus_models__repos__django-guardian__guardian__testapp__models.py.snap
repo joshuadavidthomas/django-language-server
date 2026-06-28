@@ -3,65 +3,69 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  CharPKModel:
+  guardian.testapp.models.CharPKModel:
     name: CharPKModel
     module_path: guardian.testapp.models
     line: 109
     relations: []
     kind: concrete
-  ChildTestModel:
+  guardian.testapp.models.ChildTestModel:
     name: ChildTestModel
     module_path: guardian.testapp.models
     line: 150
     relations:
       - field_name: parent_id
         relation_type: OneToOne
-        target_model: ParentTestModel
+        target:
+          kind: Bare
+          name: ParentTestModel
         related_name: ~
     kind: concrete
-  Mixed:
+  guardian.testapp.models.Mixed:
     name: Mixed
     module_path: guardian.testapp.models
     line: 75
     relations: []
     kind: concrete
-  ParentTestModel:
+  guardian.testapp.models.ParentTestModel:
     name: ParentTestModel
     module_path: guardian.testapp.models
     line: 146
     relations: []
     kind: concrete
-  Post:
+  guardian.testapp.models.Post:
     name: Post
     module_path: guardian.testapp.models
     line: 13
     relations: []
     kind: concrete
-  Project:
+  guardian.testapp.models.Project:
     name: Project
     module_path: guardian.testapp.models
     line: 41
     relations: []
     kind: concrete
-  ReverseMixed:
+  guardian.testapp.models.ReverseMixed:
     name: ReverseMixed
     module_path: guardian.testapp.models
     line: 91
     relations: []
     kind: concrete
-  UUIDPKModel:
+  guardian.testapp.models.UUIDPKModel:
     name: UUIDPKModel
     module_path: guardian.testapp.models
     line: 118
     relations: []
     kind: concrete
-  UserProfile:
+  guardian.testapp.models.UserProfile:
     name: UserProfile
     module_path: guardian.testapp.models
     line: 56
     relations:
       - field_name: user
         relation_type: OneToOne
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: profile
     kind: concrete

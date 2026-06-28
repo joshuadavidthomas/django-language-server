@@ -3,13 +3,15 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  SparseField:
+  geonode.metadata.models.SparseField:
     name: SparseField
     module_path: geonode.metadata.models
     line: 26
     relations:
       - field_name: resource
         relation_type: ForeignKey
-        target_model: ResourceBase
+        target:
+          kind: Bare
+          name: ResourceBase
         related_name: ~
     kind: concrete

@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  SpatialiteGeometryColumns:
+  django.contrib.gis.db.backends.spatialite.models.SpatialiteGeometryColumns:
     name: SpatialiteGeometryColumns
     module_path: django.contrib.gis.db.backends.spatialite.models
     line: 9
     relations: []
     kind: concrete
-  SpatialiteSpatialRefSys:
+  django.contrib.gis.db.backends.spatialite.models.SpatialiteSpatialRefSys:
     name: SpatialiteSpatialRefSys
     module_path: django.contrib.gis.db.backends.spatialite.models
     line: 52

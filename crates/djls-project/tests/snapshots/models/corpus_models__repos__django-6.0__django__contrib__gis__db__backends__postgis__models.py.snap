@@ -3,13 +3,13 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  PostGISGeometryColumns:
+  django.contrib.gis.db.backends.postgis.models.PostGISGeometryColumns:
     name: PostGISGeometryColumns
     module_path: django.contrib.gis.db.backends.postgis.models
     line: 9
     relations: []
     kind: concrete
-  PostGISSpatialRefSys:
+  django.contrib.gis.db.backends.postgis.models.PostGISSpatialRefSys:
     name: PostGISSpatialRefSys
     module_path: django.contrib.gis.db.backends.postgis.models
     line: 54

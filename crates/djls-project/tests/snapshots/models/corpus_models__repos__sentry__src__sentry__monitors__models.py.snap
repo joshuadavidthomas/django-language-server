@@ -3,31 +3,31 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Monitor:
+  src.sentry.monitors.models.Monitor:
     name: Monitor
     module_path: src.sentry.monitors.models
     line: 213
     relations: []
     kind: concrete
-  MonitorCheckIn:
+  src.sentry.monitors.models.MonitorCheckIn:
     name: MonitorCheckIn
     module_path: src.sentry.monitors.models
     line: 474
     relations: []
     kind: concrete
-  MonitorEnvBrokenDetection:
+  src.sentry.monitors.models.MonitorEnvBrokenDetection:
     name: MonitorEnvBrokenDetection
     module_path: src.sentry.monitors.models
     line: 808
     relations: []
     kind: concrete
-  MonitorEnvironment:
+  src.sentry.monitors.models.MonitorEnvironment:
     name: MonitorEnvironment
     module_path: src.sentry.monitors.models
     line: 650
     relations: []
     kind: concrete
-  MonitorIncident:
+  src.sentry.monitors.models.MonitorIncident:
     name: MonitorIncident
     module_path: src.sentry.monitors.models
     line: 756

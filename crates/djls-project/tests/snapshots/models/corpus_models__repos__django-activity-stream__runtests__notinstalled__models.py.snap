@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  NotInstalledModel:
+  runtests.notinstalled.models.NotInstalledModel:
     name: NotInstalledModel
     module_path: runtests.notinstalled.models
     line: 4

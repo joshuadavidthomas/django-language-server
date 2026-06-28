@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  CacheKey:
+  menus.models.CacheKey:
     name: CacheKey
     module_path: menus.models
     line: 29

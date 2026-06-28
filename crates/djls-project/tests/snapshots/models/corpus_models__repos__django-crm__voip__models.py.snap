@@ -3,13 +3,15 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Connection:
+  voip.models.Connection:
     name: Connection
     module_path: voip.models
     line: 6
     relations:
       - field_name: owner
         relation_type: ForeignKey
-        target_model: AUTH_USER_MODEL
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
         related_name: "%(app_label)s_%(class)s_owner_related"
     kind: concrete

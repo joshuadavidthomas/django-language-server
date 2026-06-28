@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Site:
+  django.contrib.sites.models.Site:
     name: Site
     module_path: django.contrib.sites.models
     line: 79

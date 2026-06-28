@@ -3,39 +3,51 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  Rule:
+  src.pretix.plugins.sendmail.models.Rule:
     name: Rule
     module_path: src.pretix.plugins.sendmail.models
     line: 220
     relations:
       - field_name: event
         relation_type: ForeignKey
-        target_model: Event
+        target:
+          kind: Bare
+          name: Event
         related_name: sendmail_rules
       - field_name: subevent
         relation_type: ForeignKey
-        target_model: SubEvent
+        target:
+          kind: Bare
+          name: SubEvent
         related_name: ~
       - field_name: limit_products
         relation_type: ManyToMany
-        target_model: Item
+        target:
+          kind: Bare
+          name: Item
         related_name: ~
     kind: concrete
-  ScheduledMail:
+  src.pretix.plugins.sendmail.models.ScheduledMail:
     name: ScheduledMail
     module_path: src.pretix.plugins.sendmail.models
     line: 43
     relations:
       - field_name: rule
         relation_type: ForeignKey
-        target_model: Rule
+        target:
+          kind: Bare
+          name: Rule
         related_name: ~
       - field_name: subevent
         relation_type: ForeignKey
-        target_model: SubEvent
+        target:
+          kind: Bare
+          name: SubEvent
         related_name: ~
       - field_name: event
         relation_type: ForeignKey
-        target_model: Event
+        target:
+          kind: Bare
+          name: Event
         related_name: ~
     kind: concrete

@@ -6,6 +6,7 @@ use djls_bench::Db;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::model_fixtures;
 use djls_project::ModelGraph;
+use djls_project::ModelId;
 use djls_project::PythonModulePath;
 
 fn main() {
@@ -76,7 +77,7 @@ fn merge(bencher: Bencher) {
     });
 }
 
-// Resolution: forward, reverse, and combined lookups on a populated graph
+// Resolution: forward and field-based relation lookups on a populated graph
 
 fn auth_graph() -> &'static ModelGraph {
     static GRAPH: OnceLock<ModelGraph> = OnceLock::new();
@@ -96,29 +97,41 @@ fn auth_graph() -> &'static ModelGraph {
     })
 }
 
+fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_path: &str) -> &'a ModelId {
+    let (id, _model) = graph.models_named(name).next().expect("model should exist");
+    assert_eq!(id.name(), name);
+    assert_eq!(id.module_path().as_str(), module_path);
+    assert!(graph.get_by_id(id).is_some());
+    id
+}
+
 #[divan::bench]
 fn resolve_relations(bencher: Bencher) {
     let graph = auth_graph();
+    let permission = model_id(graph, "Permission", "django.contrib.auth.models");
+    let group = model_id(graph, "Group", "django.contrib.auth.models");
+    let user = model_id(graph, "User", "django.contrib.auth.models");
+
+    let lookup_queries = [("auth", "Permission"), ("auth", "Group"), ("auth", "User")];
     let forward_queries = [
-        ("Permission", "content_type"),
-        ("Group", "permissions"),
-        ("User", "groups"),
+        (permission, "content_type"),
+        (group, "permissions"),
+        (user, "groups"),
     ];
-    let reverse_queries = ["Group", "Permission", "ContentType"];
     let relation_queries = [
-        ("Group", "user_set"),
-        ("Permission", "group_set"),
-        ("Permission", "user_set"),
+        (group, "user_set"),
+        (permission, "group_set"),
+        (permission, "user_set"),
     ];
 
     bencher.bench_local(|| {
         let mut resolved = 0;
         for _ in 0..REPEATED_INNER_ITERS {
+            for (app_label, name) in lookup_queries {
+                resolved += usize::from(graph.lookup(app_label, name).is_some());
+            }
             for (model, field) in forward_queries {
                 resolved += usize::from(graph.resolve_forward(model, field).is_some());
-            }
-            for model in reverse_queries {
-                resolved += graph.resolve_reverse(model).count();
             }
             for (model, relation) in relation_queries {
                 resolved += usize::from(graph.resolve_relation(model, relation).is_some());

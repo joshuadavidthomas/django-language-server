@@ -3,7 +3,7 @@ source: crates/djls-project/tests/corpus_models.rs
 expression: graph
 ---
 models:
-  CacheVersion:
+  misago.cache.models.CacheVersion:
     name: CacheVersion
     module_path: misago.cache.models
     line: 6
