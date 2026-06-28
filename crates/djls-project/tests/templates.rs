@@ -51,8 +51,8 @@ fn template_origins_preserve_django_search_order() {
         ],
     );
 
-    let names: Vec<_> = template_origins(&db, project)
-        .iter(&db)
+    let names: Vec<_> = template_resolution(&db, project)
+        .origins(&db)
         .map(|origin| origin.template_name(&db).name(&db).clone())
         .collect();
 
@@ -79,8 +79,8 @@ fn derived_template_origins_keep_shadowed_names_in_template_dir_order() {
         ],
     );
 
-    let paths: Vec<_> = template_origins(&db, project)
-        .iter(&db)
+    let paths: Vec<_> = template_resolution(&db, project)
+        .origins(&db)
         .map(|origin| origin.file(&db).path(&db).as_str())
         .collect();
 
@@ -114,7 +114,7 @@ fn find_template_returns_first_origin_for_duplicate_template_names() {
     );
 
     let name = TemplateName::new(&db, "base.html".to_string());
-    let result = template_origins(&db, project).find_template(&db, name);
+    let result = template_resolution(&db, project).resolve(&db, name);
     let FindTemplateResult::Found(origin) = result else {
         panic!("expected base.html to resolve");
     };
@@ -135,7 +135,7 @@ fn find_template_reports_tried_sources_for_missing_template() {
     );
 
     let name = TemplateName::new(&db, "missing.html".to_string());
-    let result = template_origins(&db, project).find_template(&db, name);
+    let result = template_resolution(&db, project).resolve(&db, name);
     let FindTemplateResult::DoesNotExist(error) = result else {
         panic!("expected missing.html to be missing");
     };

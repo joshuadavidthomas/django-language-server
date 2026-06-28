@@ -137,8 +137,7 @@ impl SemanticDb for TestDatabase {
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
         self.project.and_then(|project| {
-            let (dirs, knowledge) = djls_project::template_dirs(self, project);
-            (*knowledge == djls_project::StaticKnowledge::Known).then(|| dirs.clone())
+            djls_project::template_resolution(self, project).known_template_dirs(self)
         })
     }
 
