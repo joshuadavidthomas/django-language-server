@@ -1,3 +1,7 @@
+use std::borrow::Borrow;
+use std::fmt;
+use std::sync::Arc;
+
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
@@ -26,16 +30,22 @@ macro_rules! template_identifier {
         $(#[doc = $doc])*
         #[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
         #[serde(try_from = "String", into = "String")]
-        pub struct $Name(String);
+        pub struct $Name(Arc<str>);
 
         impl $Name {
             pub fn parse(name: &str) -> Result<Self, InvalidTemplateIdentifier> {
                 let trimmed = validate_template_identifier(name)?;
-                Ok(Self(trimmed.to_string()))
+                Ok(Self(Arc::from(trimmed)))
             }
 
             #[must_use]
             pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl Borrow<str> for $Name {
+            fn borrow(&self) -> &str {
                 &self.0
             }
         }
@@ -50,7 +60,13 @@ macro_rules! template_identifier {
 
         impl From<$Name> for String {
             fn from(value: $Name) -> Self {
-                value.0
+                value.0.to_string()
+            }
+        }
+
+        impl fmt::Display for $Name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.as_str().fmt(f)
             }
         }
     };
