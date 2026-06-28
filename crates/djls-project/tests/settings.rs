@@ -515,6 +515,34 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 }
 
 #[test]
+fn template_libraries_discover_namespace_package_templatetags() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/nsapp/templatetags/__init__.py", ""),
+            (
+                "/proj/nsapp/templatetags/custom.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello():\n    pass\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+
+    let custom = libraries
+        .loadable_library_str("custom")
+        .expect("namespace package templatetag should be discovered");
+    assert_eq!(custom.module().as_str(), "nsapp.templatetags.custom");
+    assert!(custom.symbols.iter().any(|symbol| symbol.name() == "hello"));
+}
+
+#[test]
 fn template_libraries_include_empty_registered_modules() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(

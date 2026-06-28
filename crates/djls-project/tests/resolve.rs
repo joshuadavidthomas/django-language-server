@@ -738,6 +738,38 @@ fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
 }
 
 #[test]
+fn project_refresh_enumerates_new_empty_templatetag_candidate_before_root_bump() {
+    let mut db = TestDatabase::new();
+    db.add_file("/project/blog/__init__.py", "");
+    db.add_file("/project/blog/templatetags/__init__.py", "");
+
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = project_for_search_paths(&mut db, "/project", search_paths);
+
+    assert_eq!(
+        RefreshQuery::TemplateTagCandidates
+            .compute(&db, project)
+            .item_count(),
+        0
+    );
+
+    db.add_file("/project/blog/templatetags/future.py", "");
+
+    assert_eq!(
+        RefreshQuery::TemplateTagCandidates
+            .compute(&db, project)
+            .item_count(),
+        1
+    );
+}
+
+#[test]
 fn model_modules_finds_models_py_without_inspecting_contents() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")

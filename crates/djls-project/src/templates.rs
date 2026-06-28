@@ -1,3 +1,4 @@
+mod candidates;
 mod dirs;
 pub(crate) mod filters;
 mod inactive;
@@ -8,6 +9,10 @@ mod registrations;
 mod symbols;
 mod tags;
 
+pub(crate) use candidates::TemplateTagCandidate;
+pub(crate) use candidates::refresh_templatetag_candidate_paths;
+pub(crate) use candidates::templatetag_candidates;
+pub(crate) use candidates::templatetag_package_candidates;
 pub use dirs::template_dirs;
 pub use filters::FilterArity;
 pub use filters::FilterArityMap;
@@ -15,7 +20,6 @@ pub use filters::extract_filter_arities;
 pub use inactive::InactiveLibraries;
 pub use inactive::InactiveLibrary;
 pub use inactive::inactive_template_libraries;
-pub(crate) use inactive::templatetag_candidate_paths;
 pub use libraries::InstalledSymbolCandidate;
 pub use libraries::InstalledSymbolOrigin;
 pub use libraries::TemplateLibraries;

@@ -1,8 +1,5 @@
 use std::collections::BTreeMap;
 
-use djls_source::WalkEntryKind;
-use djls_source::WalkOptions;
-
 use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
 use super::symbols::TemplateSymbol;
@@ -10,12 +7,12 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModulePath;
 use crate::resolve::module_file;
-use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::templates::TemplateSymbolKind;
 use crate::templates::guess_package_module_from_installed_app_entry;
+use crate::templates::templatetag_package_candidates;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",
@@ -107,65 +104,19 @@ fn templatetag_package_libraries(
     project: Project,
     package_module: &str,
 ) -> (StaticKnowledge, Vec<(LibraryName, TemplateLibrary)>) {
-    let mut knowledge = StaticKnowledge::Known;
+    let (knowledge, candidates) =
+        templatetag_package_candidates(db, project, package_module).into_parts();
     let mut libraries = Vec::new();
 
-    if package_module.is_empty() {
-        return (knowledge.demoted_to_partial(), libraries);
-    }
-
-    if PythonModulePath::parse(package_module).is_err() {
-        return (knowledge.demoted_to_partial(), libraries);
-    }
-
-    let Some(package_dir) = package_dir(db, project, package_module) else {
-        return (knowledge.demoted_to_partial(), libraries);
-    };
-
-    let templatetags_dir = package_dir.join("templatetags");
-    if !db.path_is_file(&templatetags_dir.join("__init__.py")) {
-        return (knowledge, libraries);
-    }
-
-    let entries = match db.walk_entries(&templatetags_dir, &WalkOptions::shallow()) {
-        Ok(entries) => entries,
-        Err(err) => {
-            tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            return (knowledge.demoted_to_partial(), libraries);
-        }
-    };
-
-    for entry in entries {
-        if entry.kind != WalkEntryKind::File || entry.path.extension() != Some("py") {
-            continue;
-        }
-
-        let Some(stem) = entry.path.file_stem() else {
-            continue;
-        };
-        if stem.starts_with('_') {
-            continue;
-        }
-
-        let Ok(load_name) = LibraryName::parse(stem) else {
-            knowledge = knowledge.demoted_to_partial();
-            continue;
-        };
-        let module_path = format!("{package_module}.templatetags.{stem}");
-        let Ok(module) = PythonModulePath::parse(&module_path) else {
-            knowledge = knowledge.demoted_to_partial();
-            continue;
-        };
-
-        let file = db.get_or_create_file(&entry.path);
-        let analysis = TemplateLibraryAnalysis::from_file(db, file);
+    for candidate in candidates {
+        let analysis = TemplateLibraryAnalysis::from_file(db, candidate.file);
         if !analysis.defines_library && analysis.symbols.is_empty() {
             continue;
         }
 
-        let mut library = TemplateLibrary::new(module);
+        let mut library = TemplateLibrary::new(candidate.module);
         library.merge_symbols(analysis.symbols);
-        libraries.push((load_name, library));
+        libraries.push((candidate.name, library));
     }
 
     (knowledge, libraries)
