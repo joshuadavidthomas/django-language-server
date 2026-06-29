@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -16,6 +17,7 @@ use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 use crate::templates::TemplateSymbolKind;
 use crate::templates::guess_package_module_from_installed_app_entry;
+use crate::templates::templatetag_candidates;
 use crate::templates::templatetag_package_candidates;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
@@ -44,9 +46,12 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         libraries.demote_knowledge_to_partial();
     }
 
+    let mut installed_template_library_modules = BTreeSet::new();
+
     let (knowledge, discovered_libraries) = templatetag_package_libraries(db, project, "django");
     libraries.weaken_knowledge(knowledge);
     for (load_name, source, library) in discovered_libraries {
+        installed_template_library_modules.insert(library.module_path.clone());
         libraries.insert_loadable(load_name, source, library);
     }
 
@@ -59,6 +64,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             );
             libraries.weaken_knowledge(knowledge);
             for (load_name, source, library) in discovered_libraries {
+                installed_template_library_modules.insert(library.module_path.clone());
                 libraries.insert_loadable(load_name, source, library);
             }
         }
@@ -104,6 +110,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         }
     }
 
+    libraries.insert_inactive_candidates(db, project, &installed_template_library_modules);
     libraries
 }
 
@@ -616,17 +623,62 @@ impl TemplateLibraries {
         self.builtin_order.push(id);
     }
 
+    fn insert_inactive_candidates(
+        &mut self,
+        db: &dyn ProjectDb,
+        project: Project,
+        installed_template_library_modules: &BTreeSet<PythonModulePath>,
+    ) {
+        let mut excluded_modules = self.active_modules();
+        excluded_modules.extend(installed_template_library_modules.iter().cloned());
+
+        for candidate in templatetag_candidates(db, project).iter().cloned() {
+            if excluded_modules.contains(&candidate.module) {
+                continue;
+            }
+
+            let analysis = TemplateLibraryAnalysis::from_file(db, candidate.file);
+            if !analysis.defines_library && analysis.symbols.is_empty() {
+                continue;
+            }
+
+            self.insert_inactive(
+                candidate.name,
+                candidate.app,
+                AnalyzedTemplateLibrary::resolved(candidate.module, candidate.file, analysis),
+            );
+        }
+
+        self.sort_and_dedup_inactive();
+    }
+
+    fn active_modules(&self) -> BTreeSet<PythonModulePath> {
+        self.loadable_libraries()
+            .map(|(_name, library)| library.module_path().clone())
+            .chain(self.builtin_modules().cloned())
+            .collect()
+    }
+
     fn insert_inactive(
         &mut self,
         name: LibraryName,
         app: PythonModulePath,
         analyzed: AnalyzedTemplateLibrary,
     ) {
-        let id = self.next_id(TemplateLibraryIdKind::Inactive {
+        let kind = TemplateLibraryIdKind::Inactive {
             name: name.clone(),
             app: app.clone(),
             module_path: analyzed.module_path.clone(),
-        });
+        };
+        if let Some(existing_id) = self.records.keys().find(|id| id.kind == kind).cloned() {
+            let ids = self.inactive_by_name.entry(name).or_default();
+            if !ids.contains(&existing_id) {
+                ids.push(existing_id);
+            }
+            return;
+        }
+
+        let id = self.next_id(kind);
         let library = TemplateLibrary::new(
             id.clone(),
             Some(name.clone()),
@@ -638,6 +690,14 @@ impl TemplateLibraries {
         );
         self.records.insert(id.clone(), library);
         self.inactive_by_name.entry(name).or_default().push(id);
+    }
+
+    fn sort_and_dedup_inactive(&mut self) {
+        let records = &self.records;
+        for ids in self.inactive_by_name.values_mut() {
+            ids.sort_by(|left, right| cmp_inactive_ids(records, left, right));
+            ids.dedup_by(|left, right| same_inactive_ids(records, left, right));
+        }
     }
 
     fn next_id(&self, kind: TemplateLibraryIdKind) -> TemplateLibraryId {
@@ -752,16 +812,20 @@ impl TemplateLibraries {
         symbol_name: &str,
         kind: TemplateSymbolKind,
     ) -> Vec<&TemplateLibrary> {
-        self.records
+        let mut candidates: Vec<_> = self
+            .inactive_by_name
             .values()
-            .filter(|library| matches!(library.status(), TemplateLibraryStatus::Inactive(_)))
+            .flatten()
+            .filter_map(|id| self.records.get(id))
             .filter(|library| {
                 library
                     .symbols()
                     .iter()
                     .any(|symbol| symbol.kind == kind && symbol.name.as_str() == symbol_name)
             })
-            .collect()
+            .collect();
+        candidates.sort_by(|left, right| cmp_inactive_libraries(left, right));
+        candidates
     }
 
     pub fn resolved_active_libraries(
@@ -925,9 +989,70 @@ impl TemplateLibrariesBuilder {
     }
 
     #[must_use]
-    pub fn build(self) -> TemplateLibraries {
+    pub fn inactive_untracked(
+        mut self,
+        name: LibraryName,
+        app: PythonModulePath,
+        module_path: PythonModulePath,
+        defines_library: bool,
+        symbols: Vec<TemplateSymbol>,
+    ) -> Self {
+        self.libraries.insert_inactive(
+            name,
+            app,
+            AnalyzedTemplateLibrary::untracked(module_path, defines_library, symbols),
+        );
+        self
+    }
+
+    #[must_use]
+    pub fn build(mut self) -> TemplateLibraries {
+        self.libraries.sort_and_dedup_inactive();
         self.libraries
     }
+}
+
+fn cmp_inactive_ids(
+    records: &BTreeMap<TemplateLibraryId, TemplateLibrary>,
+    left: &TemplateLibraryId,
+    right: &TemplateLibraryId,
+) -> Ordering {
+    let Some(left) = records.get(left) else {
+        return Ordering::Equal;
+    };
+    let Some(right) = records.get(right) else {
+        return Ordering::Equal;
+    };
+    cmp_inactive_libraries(left, right)
+}
+
+fn same_inactive_ids(
+    records: &BTreeMap<TemplateLibraryId, TemplateLibrary>,
+    left: &TemplateLibraryId,
+    right: &TemplateLibraryId,
+) -> bool {
+    let Some(left) = records.get(left) else {
+        return false;
+    };
+    let Some(right) = records.get(right) else {
+        return false;
+    };
+    same_inactive_library(left, right)
+}
+
+fn cmp_inactive_libraries(left: &TemplateLibrary, right: &TemplateLibrary) -> Ordering {
+    left.inactive_app()
+        .cmp(&right.inactive_app())
+        .then_with(|| left.load_name().cmp(&right.load_name()))
+        .then_with(|| left.module_path().cmp(right.module_path()))
+}
+
+fn same_inactive_library(left: &TemplateLibrary, right: &TemplateLibrary) -> bool {
+    let (Some(left_app), Some(right_app)) = (left.inactive_app(), right.inactive_app()) else {
+        return false;
+    };
+
+    left_app == right_app && left.module_path() == right.module_path()
 }
 
 fn merge_symbols(symbols: Vec<TemplateSymbol>) -> Vec<TemplateSymbol> {

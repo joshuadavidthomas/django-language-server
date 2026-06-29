@@ -1,4 +1,3 @@
-use djls_project::InactiveLibraries;
 use djls_project::LibraryName;
 use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
@@ -20,9 +19,9 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    inactive_libraries: &InactiveLibraries,
-    knowledge: StaticKnowledge,
+    template_libraries: &TemplateLibraries,
 ) {
+    let knowledge = template_libraries.knowledge();
     if knowledge == StaticKnowledge::Unknown {
         return;
     }
@@ -33,11 +32,19 @@ pub(crate) fn check_tag_scoping_rule(
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
         SymbolAvailability::Unknown => {
-            if let Some(candidate) = inactive_libraries.tag_candidates(name).first() {
+            if let Some(candidate) = template_libraries.inactive_tag_candidates(name).first() {
                 ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
                     tag: name.to_string(),
-                    app: candidate.app.as_str().to_string(),
-                    load_name: candidate.name.as_str().to_string(),
+                    app: candidate
+                        .inactive_app()
+                        .expect("inactive candidates should carry an app")
+                        .as_str()
+                        .to_string(),
+                    load_name: candidate
+                        .load_name()
+                        .expect("inactive candidates should carry a load name")
+                        .as_str()
+                        .to_string(),
                     span: full_span,
                 })
                 .accumulate(db);
@@ -73,9 +80,9 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    inactive_libraries: &InactiveLibraries,
-    knowledge: StaticKnowledge,
+    template_libraries: &TemplateLibraries,
 ) {
+    let knowledge = template_libraries.knowledge();
     if knowledge == StaticKnowledge::Unknown {
         return;
     }
@@ -84,11 +91,22 @@ pub(crate) fn check_filter_scoping_rule(
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
         SymbolAvailability::Unknown => {
-            if let Some(candidate) = inactive_libraries.filter_candidates(&filter.name).first() {
+            if let Some(candidate) = template_libraries
+                .inactive_filter_candidates(&filter.name)
+                .first()
+            {
                 ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
                     filter: filter.name.clone(),
-                    app: candidate.app.as_str().to_string(),
-                    load_name: candidate.name.as_str().to_string(),
+                    app: candidate
+                        .inactive_app()
+                        .expect("inactive candidates should carry an app")
+                        .as_str()
+                        .to_string(),
+                    load_name: candidate
+                        .load_name()
+                        .expect("inactive candidates should carry a load name")
+                        .as_str()
+                        .to_string(),
                     span: filter.span,
                 })
                 .accumulate(db);
@@ -125,7 +143,6 @@ pub(crate) fn check_load_libraries_rule(
     name: &str,
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
-    inactive_libraries: &InactiveLibraries,
 ) {
     if template_libraries.knowledge() == StaticKnowledge::Unknown {
         return;
@@ -150,16 +167,21 @@ pub(crate) fn check_load_libraries_rule(
         }
 
         if template_libraries.knowledge() == StaticKnowledge::Known {
-            let candidates = inactive_libraries.library_candidates(&load_name);
+            let candidates = template_libraries.inactive_library_candidates(&load_name);
             if let Some(first) = candidates.first() {
                 let mut apps: Vec<_> = candidates
                     .iter()
-                    .map(|candidate| candidate.app.as_str().to_string())
+                    .filter_map(|candidate| candidate.inactive_app())
+                    .map(|app| app.as_str().to_string())
                     .collect();
                 apps.dedup();
                 ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
                     name: lib.as_str().to_string(),
-                    app: first.app.as_str().to_string(),
+                    app: first
+                        .inactive_app()
+                        .expect("inactive candidates should carry an app")
+                        .as_str()
+                        .to_string(),
                     candidates: apps,
                     span: lib.span(),
                 })

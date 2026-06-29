@@ -9,13 +9,16 @@ use djls_project::SymbolKey;
 use djls_project::TemplateLibraries;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
-use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::builtin_filter;
 use djls_testing::builtin_tag;
 use djls_testing::collect_errors;
+use djls_testing::inactive_library_filter;
+use djls_testing::inactive_library_tag;
+use djls_testing::inactive_template_library;
 use djls_testing::library_tag;
 use djls_testing::make_template_libraries;
+use djls_testing::make_template_libraries_with_inactive;
 
 fn default_builtins_module() -> &'static str {
     "django.template.defaulttags"
@@ -26,7 +29,16 @@ fn default_filters_module() -> &'static str {
 }
 
 fn standard_inventory() -> TemplateLibraries {
-    let tags = vec![
+    standard_inventory_with_inactive(&[], &[], &[], StaticKnowledge::Known)
+}
+
+fn standard_inventory_with_inactive(
+    inactive_libraries: &[djls_testing::InactiveTemplateLibraryFixture],
+    inactive_tags: &[serde_json::Value],
+    inactive_filters: &[serde_json::Value],
+    knowledge: StaticKnowledge,
+) -> TemplateLibraries {
+    let mut tags = vec![
         builtin_tag("if", default_builtins_module()),
         builtin_tag("for", default_builtins_module()),
         builtin_tag("block", default_builtins_module()),
@@ -37,20 +49,31 @@ fn standard_inventory() -> TemplateLibraries {
         builtin_tag("with", default_builtins_module()),
         library_tag("trans", "i18n", "django.templatetags.i18n"),
     ];
-    let filters = vec![
+    tags.extend_from_slice(inactive_tags);
+
+    let mut filters = vec![
         builtin_filter("title", default_filters_module()),
         builtin_filter("lower", default_filters_module()),
         builtin_filter("default", default_filters_module()),
         builtin_filter("truncatewords", default_filters_module()),
         builtin_filter("date", default_filters_module()),
     ];
+    filters.extend_from_slice(inactive_filters);
+
     let mut libraries = HashMap::new();
     libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
     let builtins = vec![
         default_builtins_module().to_string(),
         default_filters_module().to_string(),
     ];
-    make_template_libraries(&tags, &filters, &libraries, &builtins)
+    make_template_libraries_with_inactive(
+        &tags,
+        &filters,
+        &libraries,
+        &builtins,
+        inactive_libraries,
+    )
+    .with_knowledge(knowledge)
 }
 
 fn standard_arities() -> FilterAritySpecs {
@@ -123,46 +146,62 @@ fn partial_ambiguous_db() -> TestDatabase {
     TestDatabase::new().with_template_libraries(libraries)
 }
 
-fn db_with_project_files(
-    template_libraries: TemplateLibraries,
-    files: &[(&str, &str)],
-) -> TestDatabase {
-    let mut db = TestDatabase::new()
+fn db_with_inventory(template_libraries: TemplateLibraries) -> TestDatabase {
+    TestDatabase::new()
         .with_template_libraries(template_libraries)
-        .with_arity_specs(standard_arities());
-    let mut fixture = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = ['myapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-        )
-        .file("/proj/myapp/__init__.py", "")
-        .file("/proj/myapp/templatetags/__init__.py", "");
-    for (path, source) in files {
-        fixture = fixture.file(*path, *source);
-    }
-    fixture.install(&mut db);
-    db
+        .with_arity_specs(standard_arities())
 }
 
-fn standard_db_with_inactive_files(files: &[(&str, &str)]) -> TestDatabase {
-    db_with_project_files(standard_inventory(), files)
+fn standard_db_with_inactive(
+    inactive_libraries: &[djls_testing::InactiveTemplateLibraryFixture],
+    inactive_tags: &[serde_json::Value],
+    inactive_filters: &[serde_json::Value],
+) -> TestDatabase {
+    db_with_inventory(standard_inventory_with_inactive(
+        inactive_libraries,
+        inactive_tags,
+        inactive_filters,
+        StaticKnowledge::Known,
+    ))
 }
 
-fn partial_db_with_inactive_files(files: &[(&str, &str)]) -> TestDatabase {
-    let libraries = standard_inventory().with_knowledge(StaticKnowledge::Partial);
-    db_with_project_files(libraries, files)
+fn partial_db_with_inactive(
+    inactive_libraries: &[djls_testing::InactiveTemplateLibraryFixture],
+    inactive_tags: &[serde_json::Value],
+    inactive_filters: &[serde_json::Value],
+) -> TestDatabase {
+    db_with_inventory(standard_inventory_with_inactive(
+        inactive_libraries,
+        inactive_tags,
+        inactive_filters,
+        StaticKnowledge::Partial,
+    ))
 }
 
-fn crispy_inactive_files() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("/proj/crispy/__init__.py", ""),
-        ("/proj/crispy/templatetags/__init__.py", ""),
-        (
-            "/proj/crispy/templatetags/crispy.py",
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef crispy_tag():\n    pass\n@register.filter\ndef crispy_filter(value):\n    return value\n",
-        ),
-    ]
+fn crispy_inactive_libraries() -> Vec<djls_testing::InactiveTemplateLibraryFixture> {
+    vec![inactive_template_library(
+        "crispy",
+        "crispy",
+        "crispy.templatetags.crispy",
+    )]
+}
+
+fn crispy_inactive_tags() -> Vec<serde_json::Value> {
+    vec![inactive_library_tag(
+        "crispy_tag",
+        "crispy",
+        "crispy",
+        "crispy.templatetags.crispy",
+    )]
+}
+
+fn crispy_inactive_filters() -> Vec<serde_json::Value> {
+    vec![inactive_library_filter(
+        "crispy_filter",
+        "crispy",
+        "crispy",
+        "crispy.templatetags.crispy",
+    )]
 }
 
 fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
@@ -288,8 +327,11 @@ fn partial_knowledge_keeps_filter_arity_after_unrelated_unknown_selective_load()
 
 #[test]
 fn unknown_load_name_with_inactive_candidate_reports_not_in_installed_apps() {
-    let files = crispy_inactive_files();
-    let db = standard_db_with_inactive_files(&files);
+    let db = standard_db_with_inactive(
+        &crispy_inactive_libraries(),
+        &crispy_inactive_tags(),
+        &crispy_inactive_filters(),
+    );
     let errors = collect_all_errors(&db, "{% load crispy %}\n");
 
     assert!(
@@ -326,8 +368,11 @@ fn unknown_load_name_without_inactive_candidate_stays_unknown_library() {
 
 #[test]
 fn unknown_tag_with_inactive_candidate_reports_not_in_installed_apps() {
-    let files = crispy_inactive_files();
-    let db = standard_db_with_inactive_files(&files);
+    let db = standard_db_with_inactive(
+        &crispy_inactive_libraries(),
+        &crispy_inactive_tags(),
+        &crispy_inactive_filters(),
+    );
     let errors = collect_all_errors(&db, "{% crispy_tag %}\n");
 
     assert!(
@@ -362,8 +407,11 @@ fn unknown_tag_without_inactive_candidate_stays_unknown_tag() {
 
 #[test]
 fn unknown_filter_with_inactive_candidate_reports_not_in_installed_apps() {
-    let files = crispy_inactive_files();
-    let db = standard_db_with_inactive_files(&files);
+    let db = standard_db_with_inactive(
+        &crispy_inactive_libraries(),
+        &crispy_inactive_tags(),
+        &crispy_inactive_filters(),
+    );
     let errors = collect_all_errors(&db, "{{ value|crispy_filter }}\n");
 
     assert!(
@@ -378,15 +426,20 @@ fn unknown_filter_with_inactive_candidate_reports_not_in_installed_apps() {
 
 #[test]
 fn active_unloaded_tag_wins_over_inactive_candidate() {
-    let files = [
-        ("/proj/otherapp/__init__.py", ""),
-        ("/proj/otherapp/templatetags/__init__.py", ""),
-        (
-            "/proj/otherapp/templatetags/other_tags.py",
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans():\n    pass\n",
-        ),
-    ];
-    let db = standard_db_with_inactive_files(&files);
+    let db = standard_db_with_inactive(
+        &[inactive_template_library(
+            "other_tags",
+            "otherapp",
+            "otherapp.templatetags.other_tags",
+        )],
+        &[inactive_library_tag(
+            "trans",
+            "other_tags",
+            "otherapp",
+            "otherapp.templatetags.other_tags",
+        )],
+        &[],
+    );
     let errors = collect_all_errors(&db, "{% trans \"hello\" %}\n");
 
     assert!(
@@ -407,8 +460,11 @@ fn active_unloaded_tag_wins_over_inactive_candidate() {
 
 #[test]
 fn partial_knowledge_suppresses_inactive_absence_claim() {
-    let files = crispy_inactive_files();
-    let db = partial_db_with_inactive_files(&files);
+    let db = partial_db_with_inactive(
+        &crispy_inactive_libraries(),
+        &crispy_inactive_tags(),
+        &crispy_inactive_filters(),
+    );
     let errors = collect_all_errors(&db, "{% load crispy %}\n");
 
     assert!(
@@ -424,21 +480,14 @@ fn partial_knowledge_suppresses_inactive_absence_claim() {
 
 #[test]
 fn inactive_library_candidates_are_sorted_for_deterministic_s121() {
-    let files = [
-        ("/proj/beta/__init__.py", ""),
-        ("/proj/beta/templatetags/__init__.py", ""),
-        (
-            "/proj/beta/templatetags/shared.py",
-            "from django import template\nregister = template.Library()\n",
-        ),
-        ("/proj/alpha/__init__.py", ""),
-        ("/proj/alpha/templatetags/__init__.py", ""),
-        (
-            "/proj/alpha/templatetags/shared.py",
-            "from django import template\nregister = template.Library()\n",
-        ),
-    ];
-    let db = standard_db_with_inactive_files(&files);
+    let db = standard_db_with_inactive(
+        &[
+            inactive_template_library("shared", "beta", "beta.templatetags.shared"),
+            inactive_template_library("shared", "alpha", "alpha.templatetags.shared"),
+        ],
+        &[],
+        &[],
+    );
     let errors = collect_all_errors(&db, "{% load shared %}\n");
 
     assert!(

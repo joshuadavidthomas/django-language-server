@@ -586,7 +586,7 @@ fn template_libraries_include_empty_registered_modules() {
 }
 
 #[test]
-fn inactive_template_libraries_collect_uninstalled_templatetags() {
+fn template_libraries_collect_inactive_uninstalled_templatetags() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -611,26 +611,42 @@ fn inactive_template_libraries_collect_uninstalled_templatetags() {
         ],
     );
 
-    let inactive = inactive_template_libraries(&db, project);
+    let libraries = template_libraries(&db, project);
 
     let crispy = LibraryName::parse("crispy").unwrap();
-    let candidates = inactive.library_candidates(&crispy);
+    let candidates = libraries.inactive_library_candidates(&crispy);
     assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0].name.as_str(), "crispy");
-    assert_eq!(candidates[0].app.as_str(), "crispy");
-    assert_eq!(candidates[0].module.as_str(), "crispy.templatetags.crispy");
-    assert_eq!(candidates[0].tags, vec!["crispy_tag"]);
-    assert_eq!(candidates[0].filters, vec!["crispy_filter"]);
+    let candidate = candidates[0];
+    assert_eq!(candidate.load_name().unwrap().as_str(), "crispy");
+    assert_eq!(candidate.inactive_app().unwrap().as_str(), "crispy");
+    assert_eq!(
+        candidate.module_path().as_str(),
+        "crispy.templatetags.crispy"
+    );
+    assert_eq!(
+        candidate
+            .tags()
+            .map(|symbol| symbol.name().to_string())
+            .collect::<Vec<_>>(),
+        vec!["crispy_tag"]
+    );
+    assert_eq!(
+        candidate
+            .filters()
+            .map(|symbol| symbol.name().to_string())
+            .collect::<Vec<_>>(),
+        vec!["crispy_filter"]
+    );
     assert!(
-        inactive
-            .library_candidates(&LibraryName::parse("myapp_tags").unwrap())
+        libraries
+            .inactive_library_candidates(&LibraryName::parse("myapp_tags").unwrap())
             .is_empty(),
         "installed app libraries must be subtracted from inactive candidates"
     );
 }
 
 #[test]
-fn inactive_template_libraries_rerun_after_search_root_revision_bump() {
+fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -650,8 +666,8 @@ fn inactive_template_libraries_rerun_after_search_root_revision_bump() {
     );
 
     assert!(
-        inactive_template_libraries(&db, project)
-            .library_candidates(&LibraryName::parse("crispy").unwrap())
+        template_libraries(&db, project)
+            .inactive_library_candidates(&LibraryName::parse("crispy").unwrap())
             .is_empty()
     );
 
@@ -666,11 +682,11 @@ fn inactive_template_libraries_rerun_after_search_root_revision_bump() {
         .expect_root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"));
     db.bump_file_root_revision(root);
 
-    let inactive = inactive_template_libraries(&db, project);
+    let libraries = template_libraries(&db, project);
 
     assert_eq!(
-        inactive
-            .library_candidates(&LibraryName::parse("crispy").unwrap())
+        libraries
+            .inactive_library_candidates(&LibraryName::parse("crispy").unwrap())
             .len(),
         1
     );
@@ -703,8 +719,8 @@ fn project_refresh_updates_inactive_template_library_symbols() {
     );
 
     assert!(
-        inactive_template_libraries(&db, project)
-            .tag_candidates("new_tag")
+        template_libraries(&db, project)
+            .inactive_tag_candidates("new_tag")
             .is_empty()
     );
 
@@ -715,8 +731,8 @@ fn project_refresh_updates_inactive_template_library_symbols() {
     apply_project_refresh(&mut db);
 
     assert_eq!(
-        inactive_template_libraries(&db, project)
-            .tag_candidates("new_tag")
+        template_libraries(&db, project)
+            .inactive_tag_candidates("new_tag")
             .len(),
         1
     );
@@ -885,6 +901,13 @@ fn template_libraries_options_override_app_library_load_name() {
             .iter()
             .any(|symbol| symbol.name() == "old_tag")
     );
+    assert!(
+        libraries
+            .inactive_library_candidates(&LibraryName::parse("custom").unwrap())
+            .is_empty(),
+        "a configured alias can shadow an installed app library without making that app inactive"
+    );
+    assert!(libraries.inactive_tag_candidates("old_tag").is_empty());
 }
 
 #[test]

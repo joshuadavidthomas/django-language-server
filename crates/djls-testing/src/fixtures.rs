@@ -94,12 +94,70 @@ pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::
     })
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InactiveTemplateLibraryFixture {
+    load_name: String,
+    app: String,
+    module: String,
+}
+
+#[must_use]
+pub fn inactive_template_library(
+    load_name: &str,
+    app: &str,
+    module: &str,
+) -> InactiveTemplateLibraryFixture {
+    InactiveTemplateLibraryFixture {
+        load_name: load_name.to_string(),
+        app: app.to_string(),
+        module: module.to_string(),
+    }
+}
+
+#[must_use]
+pub fn inactive_library_tag(
+    name: &str,
+    load_name: &str,
+    app: &str,
+    module: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "tag",
+        "name": name,
+        "load_name": load_name,
+        "inactive_app": app,
+        "library_module": module,
+        "module": module,
+        "doc": null,
+    })
+}
+
+#[must_use]
+pub fn inactive_library_filter(
+    name: &str,
+    load_name: &str,
+    app: &str,
+    module: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "filter",
+        "name": name,
+        "load_name": load_name,
+        "inactive_app": app,
+        "library_module": module,
+        "module": module,
+        "doc": null,
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct TemplateSymbolFixture {
     kind: TemplateSymbolKind,
     name: String,
     #[serde(default)]
     load_name: Option<String>,
+    #[serde(default)]
+    inactive_app: Option<String>,
     library_module: String,
     module: String,
     #[serde(default)]
@@ -117,68 +175,39 @@ pub fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    let mut builtin_symbols: BTreeMap<PythonModulePath, Vec<TemplateSymbol>> = BTreeMap::new();
-    for module_name in builtins {
-        let Ok(module) = PythonModulePath::parse(module_name) else {
-            continue;
-        };
-        builtin_symbols.entry(module).or_default();
-    }
+    make_template_libraries_with_inactive(tags, filters, libraries, builtins, &[])
+}
 
-    let mut loadable_symbols: BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)> =
-        BTreeMap::new();
-    for (load_name, module_name) in libraries {
-        let Ok(load_name) = LibraryName::parse(load_name) else {
-            continue;
-        };
-        let Ok(module) = PythonModulePath::parse(module_name) else {
-            continue;
-        };
-        loadable_symbols.insert(load_name, (module, Vec::new()));
-    }
+/// Build template-library facts from JSON fixture rows plus inactive libraries.
+///
+/// # Panics
+///
+/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
+pub fn make_template_libraries_with_inactive(
+    tags: &[serde_json::Value],
+    filters: &[serde_json::Value],
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
+    builtins: &[String],
+    inactive_libraries: &[InactiveTemplateLibraryFixture],
+) -> TemplateLibraries {
+    let mut builtin_symbols = builtin_symbol_buckets(builtins);
+    let mut loadable_symbols = loadable_symbol_buckets(libraries);
+    let mut inactive_symbols = inactive_symbol_buckets(inactive_libraries);
 
-    let symbols = tags.iter().chain(filters.iter()).cloned();
-    for fixture in symbols
+    for fixture in tags
+        .iter()
+        .chain(filters.iter())
+        .cloned()
         .map(serde_json::from_value)
         .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
         .unwrap()
     {
-        let Ok(name) = TemplateSymbolName::parse(&fixture.name) else {
-            continue;
-        };
-        let definition = PythonModulePath::parse(&fixture.module)
-            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
-        let symbol = TemplateSymbol {
-            kind: fixture.kind,
-            name,
-            definition,
-            doc: fixture.doc,
-        };
-
-        match fixture.load_name {
-            None => {
-                let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
-                    continue;
-                };
-                if let Some(symbols) = builtin_symbols.get_mut(&module) {
-                    symbols.push(symbol);
-                }
-            }
-            Some(load_name) => {
-                let Ok(load_name) = LibraryName::parse(&load_name) else {
-                    continue;
-                };
-                let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
-                    continue;
-                };
-                let entry = loadable_symbols
-                    .entry(load_name)
-                    .or_insert_with(|| (module.clone(), Vec::new()));
-                if entry.0 == module {
-                    entry.1.push(symbol);
-                }
-            }
-        }
+        add_fixture_symbol(
+            fixture,
+            &mut builtin_symbols,
+            &mut loadable_symbols,
+            &mut inactive_symbols,
+        );
     }
 
     let mut builder = TemplateLibraries::builder().knowledge(djls_project::StaticKnowledge::Known);
@@ -195,7 +224,154 @@ pub fn make_template_libraries(
             symbols,
         );
     }
+    for ((load_name, app, module), symbols) in inactive_symbols {
+        builder = builder.inactive_untracked(load_name, app, module, true, symbols);
+    }
     builder.build()
+}
+
+type BuiltinSymbolBuckets = BTreeMap<PythonModulePath, Vec<TemplateSymbol>>;
+type LoadableSymbolBuckets = BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)>;
+type InactiveSymbolBuckets =
+    BTreeMap<(LibraryName, PythonModulePath, PythonModulePath), Vec<TemplateSymbol>>;
+
+fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
+    let mut buckets = BTreeMap::new();
+    for module_name in builtins {
+        let Ok(module) = PythonModulePath::parse(module_name) else {
+            continue;
+        };
+        buckets.entry(module).or_default();
+    }
+    buckets
+}
+
+fn loadable_symbol_buckets(
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
+) -> LoadableSymbolBuckets {
+    let mut buckets = BTreeMap::new();
+    for (load_name, module_name) in libraries {
+        let Ok(load_name) = LibraryName::parse(load_name) else {
+            continue;
+        };
+        let Ok(module) = PythonModulePath::parse(module_name) else {
+            continue;
+        };
+        buckets.insert(load_name, (module, Vec::new()));
+    }
+    buckets
+}
+
+fn inactive_symbol_buckets(
+    inactive_libraries: &[InactiveTemplateLibraryFixture],
+) -> InactiveSymbolBuckets {
+    let mut buckets = BTreeMap::new();
+    for library in inactive_libraries {
+        let Ok(load_name) = LibraryName::parse(&library.load_name) else {
+            continue;
+        };
+        let Ok(app) = PythonModulePath::parse(&library.app) else {
+            continue;
+        };
+        let Ok(module) = PythonModulePath::parse(&library.module) else {
+            continue;
+        };
+        buckets.entry((load_name, app, module)).or_default();
+    }
+    buckets
+}
+
+fn add_fixture_symbol(
+    fixture: TemplateSymbolFixture,
+    builtin_symbols: &mut BuiltinSymbolBuckets,
+    loadable_symbols: &mut LoadableSymbolBuckets,
+    inactive_symbols: &mut InactiveSymbolBuckets,
+) {
+    let TemplateSymbolFixture {
+        kind,
+        name,
+        load_name,
+        inactive_app,
+        library_module,
+        module,
+        doc,
+    } = fixture;
+    let Ok(name) = TemplateSymbolName::parse(&name) else {
+        return;
+    };
+    let definition = PythonModulePath::parse(&module)
+        .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
+    let symbol = TemplateSymbol {
+        kind,
+        name,
+        definition,
+        doc,
+    };
+
+    match (load_name, inactive_app) {
+        (None, _) => add_builtin_symbol(builtin_symbols, &library_module, symbol),
+        (Some(load_name), Some(app)) => {
+            add_inactive_symbol(inactive_symbols, &load_name, &app, &library_module, symbol);
+        }
+        (Some(load_name), None) => {
+            add_loadable_symbol(loadable_symbols, &load_name, &library_module, symbol);
+        }
+    }
+}
+
+fn add_builtin_symbol(
+    buckets: &mut BuiltinSymbolBuckets,
+    module_name: &str,
+    symbol: TemplateSymbol,
+) {
+    let Ok(module) = PythonModulePath::parse(module_name) else {
+        return;
+    };
+    if let Some(symbols) = buckets.get_mut(&module) {
+        symbols.push(symbol);
+    }
+}
+
+fn add_loadable_symbol(
+    buckets: &mut LoadableSymbolBuckets,
+    load_name: &str,
+    module_name: &str,
+    symbol: TemplateSymbol,
+) {
+    let Ok(load_name) = LibraryName::parse(load_name) else {
+        return;
+    };
+    let Ok(module) = PythonModulePath::parse(module_name) else {
+        return;
+    };
+    let entry = buckets
+        .entry(load_name)
+        .or_insert_with(|| (module.clone(), Vec::new()));
+    if entry.0 == module {
+        entry.1.push(symbol);
+    }
+}
+
+fn add_inactive_symbol(
+    buckets: &mut InactiveSymbolBuckets,
+    load_name: &str,
+    app: &str,
+    module_name: &str,
+    symbol: TemplateSymbol,
+) {
+    let Ok(load_name) = LibraryName::parse(load_name) else {
+        return;
+    };
+    let Ok(app) = PythonModulePath::parse(app) else {
+        return;
+    };
+    let Ok(module) = PythonModulePath::parse(module_name) else {
+        return;
+    };
+    buckets
+        .entry((load_name, app, module))
+        .or_default()
+        .push(symbol);
 }
 
 pub struct ProjectFixture {
