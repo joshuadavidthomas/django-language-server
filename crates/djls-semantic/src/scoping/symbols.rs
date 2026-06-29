@@ -224,7 +224,6 @@ mod tests {
     use djls_project::LibraryName;
     use djls_project::LoadableLibrarySource;
     use djls_project::PythonModulePath;
-    use djls_project::StaticKnowledge;
     use djls_project::SymbolDefinition;
     use djls_project::TemplateSymbolName;
     use djls_source::Span;
@@ -361,7 +360,7 @@ mod tests {
             }
         }
 
-        let mut builder = TemplateLibraries::builder().knowledge(StaticKnowledge::Known);
+        let mut builder = TemplateLibraries::builder();
         for (module, symbols) in builtin_symbols {
             builder = builder.builtin_untracked(
                 BuiltinLibrarySource::DjangoDefault,

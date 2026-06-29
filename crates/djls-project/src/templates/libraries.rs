@@ -536,6 +536,16 @@ pub enum UnknownSymbolOutcome {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UnknownLibraryOutcome {
+    Suppressed,
+    InInactiveApps {
+        primary_app: PythonModulePath,
+        apps: Vec<PythonModulePath>,
+    },
+    TrulyUnknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibraries {
     knowledge: StaticKnowledge,
     records: BTreeMap<TemplateLibraryId, TemplateLibrary>,
@@ -599,6 +609,11 @@ impl TemplateLibraries {
     #[must_use]
     pub fn inventory_is_complete(&self) -> bool {
         self.knowledge == StaticKnowledge::Known
+    }
+
+    #[must_use]
+    pub fn inventory_may_omit_loaded_symbols(&self) -> bool {
+        self.knowledge == StaticKnowledge::Partial
     }
 
     #[must_use]
@@ -850,17 +865,17 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn is_loadable(&self, name: &LibraryName) -> bool {
+    pub(crate) fn is_loadable(&self, name: &LibraryName) -> bool {
         self.loadable_by_name.contains_key(name)
     }
 
     #[must_use]
-    pub fn is_loadable_str(&self, name: &str) -> bool {
+    pub(crate) fn is_loadable_str(&self, name: &str) -> bool {
         LibraryName::parse(name).is_ok_and(|name| self.is_loadable(&name))
     }
 
     #[must_use]
-    pub fn inactive_library_candidates(&self, name: &LibraryName) -> Vec<&TemplateLibrary> {
+    pub(crate) fn inactive_library_candidates(&self, name: &LibraryName) -> Vec<&TemplateLibrary> {
         self.inactive_by_name
             .get(name)
             .into_iter()
@@ -870,8 +885,13 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn inactive_tag_candidates(&self, tag: &str) -> Vec<&TemplateLibrary> {
+    pub(crate) fn inactive_tag_candidates(&self, tag: &str) -> Vec<&TemplateLibrary> {
         self.inactive_symbol_candidates(tag, TemplateSymbolKind::Tag)
+    }
+
+    #[must_use]
+    pub(crate) fn inactive_filter_candidates(&self, filter: &str) -> Vec<&TemplateLibrary> {
+        self.inactive_symbol_candidates(filter, TemplateSymbolKind::Filter)
     }
 
     #[must_use]
@@ -881,25 +901,45 @@ impl TemplateLibraries {
         }
 
         let candidates = self.inactive_tag_candidates(name);
-        if let Some(candidate) = candidates.first() {
-            return UnknownSymbolOutcome::InInactiveApp {
-                app: candidate
-                    .inactive_app()
-                    .expect("inactive candidates should carry an app")
-                    .clone(),
-                load_name: candidate
-                    .load_name()
-                    .expect("inactive candidates should carry a load name")
-                    .clone(),
-            };
-        }
-
-        UnknownSymbolOutcome::TrulyUnknown
+        unknown_symbol_candidate_outcome(&candidates)
     }
 
     #[must_use]
-    pub fn inactive_filter_candidates(&self, filter: &str) -> Vec<&TemplateLibrary> {
-        self.inactive_symbol_candidates(filter, TemplateSymbolKind::Filter)
+    pub fn unknown_filter_outcome(&self, name: &str) -> UnknownSymbolOutcome {
+        if !self.inventory_is_complete() {
+            return UnknownSymbolOutcome::Suppressed;
+        }
+
+        let candidates = self.inactive_filter_candidates(name);
+        unknown_symbol_candidate_outcome(&candidates)
+    }
+
+    #[must_use]
+    pub fn unknown_library_outcome(&self, name: &LibraryName) -> UnknownLibraryOutcome {
+        if !self.inventory_is_complete() || self.is_loadable_str(name.as_str()) {
+            return UnknownLibraryOutcome::Suppressed;
+        }
+
+        let candidates = self.inactive_library_candidates(name);
+        let Some(first) = candidates.first() else {
+            return UnknownLibraryOutcome::TrulyUnknown;
+        };
+        let primary_app = first
+            .inactive_app()
+            .expect("inactive candidates should carry an app")
+            .clone();
+        let mut apps: Vec<_> = candidates
+            .iter()
+            .map(|candidate| {
+                candidate
+                    .inactive_app()
+                    .expect("inactive candidates should carry an app")
+                    .clone()
+            })
+            .collect();
+        apps.dedup();
+
+        UnknownLibraryOutcome::InInactiveApps { primary_app, apps }
     }
 
     fn inactive_symbol_candidates(
@@ -946,6 +986,23 @@ impl TemplateLibraries {
             })
         })
     }
+}
+
+fn unknown_symbol_candidate_outcome(candidates: &[&TemplateLibrary]) -> UnknownSymbolOutcome {
+    if let Some(candidate) = candidates.first() {
+        return UnknownSymbolOutcome::InInactiveApp {
+            app: candidate
+                .inactive_app()
+                .expect("inactive candidates should carry an app")
+                .clone(),
+            load_name: candidate
+                .load_name()
+                .expect("inactive candidates should carry a load name")
+                .clone(),
+        };
+    }
+
+    UnknownSymbolOutcome::TrulyUnknown
 }
 
 pub struct TemplateLibrariesBuilder {
@@ -1234,6 +1291,114 @@ mod tests {
         assert_eq!(
             libraries.unknown_tag_outcome("missing"),
             UnknownSymbolOutcome::TrulyUnknown
+        );
+    }
+
+    #[test]
+    fn unknown_filter_outcome_suppresses_incomplete_inventory() {
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Partial)
+            .build();
+
+        assert_eq!(
+            libraries.unknown_filter_outcome("missing"),
+            UnknownSymbolOutcome::Suppressed
+        );
+    }
+
+    #[test]
+    fn unknown_filter_outcome_reports_inactive_app_candidate() {
+        let app = module("inactive_app");
+        let load_name = library_name("extra_filters");
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .inactive_untracked(
+                load_name.clone(),
+                app.clone(),
+                module("inactive_app.templatetags.extra_filters"),
+                true,
+                vec![symbol(TemplateSymbolKind::Filter, "extra", None)],
+            )
+            .build();
+
+        assert_eq!(
+            libraries.unknown_filter_outcome("extra"),
+            UnknownSymbolOutcome::InInactiveApp { app, load_name }
+        );
+    }
+
+    #[test]
+    fn unknown_filter_outcome_reports_truly_unknown() {
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .build();
+
+        assert_eq!(
+            libraries.unknown_filter_outcome("missing"),
+            UnknownSymbolOutcome::TrulyUnknown
+        );
+    }
+
+    #[test]
+    fn unknown_library_outcome_suppresses_incomplete_inventory() {
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Partial)
+            .build();
+
+        assert_eq!(
+            libraries.unknown_library_outcome(&library_name("missing")),
+            UnknownLibraryOutcome::Suppressed
+        );
+    }
+
+    #[test]
+    fn unknown_library_outcome_reports_inactive_app_candidates() {
+        let shared = library_name("shared");
+        let alpha = module("alpha");
+        let beta = module("beta");
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .inactive_untracked(
+                shared.clone(),
+                beta.clone(),
+                module("beta.templatetags.shared"),
+                true,
+                Vec::new(),
+            )
+            .inactive_untracked(
+                shared.clone(),
+                alpha.clone(),
+                module("alpha.templatetags.shared_extra"),
+                true,
+                Vec::new(),
+            )
+            .inactive_untracked(
+                shared.clone(),
+                alpha.clone(),
+                module("alpha.templatetags.shared"),
+                true,
+                Vec::new(),
+            )
+            .build();
+
+        assert_eq!(
+            libraries.unknown_library_outcome(&shared),
+            UnknownLibraryOutcome::InInactiveApps {
+                primary_app: alpha.clone(),
+                apps: vec![alpha, beta],
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_library_outcome_reports_truly_unknown() {
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .build();
+
+        assert_eq!(
+            libraries.unknown_library_outcome(&library_name("missing")),
+            UnknownLibraryOutcome::TrulyUnknown
         );
     }
 

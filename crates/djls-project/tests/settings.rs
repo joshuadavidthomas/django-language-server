@@ -41,6 +41,45 @@ struct GoldenTemplateSymbol {
     module: String,
 }
 
+fn inactive_library_candidates<'a>(
+    libraries: &'a TemplateLibraries,
+    load_name: &str,
+) -> Vec<&'a TemplateLibrary> {
+    libraries
+        .records()
+        .filter(|library| {
+            library.inactive_app().is_some()
+                && library
+                    .load_name()
+                    .is_some_and(|name| name.as_str() == load_name)
+        })
+        .collect()
+}
+
+fn inactive_tag_candidates<'a>(
+    libraries: &'a TemplateLibraries,
+    tag: &str,
+) -> Vec<&'a TemplateLibrary> {
+    inactive_symbol_candidates(libraries, tag, TemplateSymbolKind::Tag)
+}
+
+fn inactive_symbol_candidates<'a>(
+    libraries: &'a TemplateLibraries,
+    symbol_name: &str,
+    kind: TemplateSymbolKind,
+) -> Vec<&'a TemplateLibrary> {
+    libraries
+        .records()
+        .filter(|library| library.inactive_app().is_some())
+        .filter(|library| {
+            library
+                .symbols()
+                .iter()
+                .any(|symbol| symbol.kind == kind && symbol.name() == symbol_name)
+        })
+        .collect()
+}
+
 #[salsa::db]
 #[derive(Clone)]
 struct OsTestDatabase {
@@ -613,8 +652,7 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let crispy = LibraryName::parse("crispy").unwrap();
-    let candidates = libraries.inactive_library_candidates(&crispy);
+    let candidates = inactive_library_candidates(libraries, "crispy");
     assert_eq!(candidates.len(), 1);
     let candidate = candidates[0];
     assert_eq!(candidate.load_name().unwrap().as_str(), "crispy");
@@ -635,9 +673,7 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
         vec!["crispy_filter"]
     );
     assert!(
-        libraries
-            .inactive_library_candidates(&LibraryName::parse("myapp_tags").unwrap())
-            .is_empty(),
+        inactive_library_candidates(libraries, "myapp_tags").is_empty(),
         "installed app libraries must be subtracted from inactive candidates"
     );
 }
@@ -662,11 +698,7 @@ fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump(
         ],
     );
 
-    assert!(
-        template_libraries(&db, project)
-            .inactive_library_candidates(&LibraryName::parse("crispy").unwrap())
-            .is_empty()
-    );
+    assert!(inactive_library_candidates(template_libraries(&db, project), "crispy").is_empty());
 
     db.add_file("/proj/crispy/__init__.py", "");
     db.add_file("/proj/crispy/templatetags/__init__.py", "");
@@ -681,12 +713,7 @@ fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump(
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(
-        libraries
-            .inactive_library_candidates(&LibraryName::parse("crispy").unwrap())
-            .len(),
-        1
-    );
+    assert_eq!(inactive_library_candidates(libraries, "crispy").len(), 1);
 }
 
 #[test]
@@ -715,11 +742,7 @@ fn project_refresh_updates_inactive_template_library_symbols() {
         ],
     );
 
-    assert!(
-        template_libraries(&db, project)
-            .inactive_tag_candidates("new_tag")
-            .is_empty()
-    );
+    assert!(inactive_tag_candidates(template_libraries(&db, project), "new_tag").is_empty());
 
     db.add_file(
         "/proj/crispy/templatetags/crispy.py",
@@ -728,9 +751,7 @@ fn project_refresh_updates_inactive_template_library_symbols() {
     apply_project_refresh(&mut db);
 
     assert_eq!(
-        template_libraries(&db, project)
-            .inactive_tag_candidates("new_tag")
-            .len(),
+        inactive_tag_candidates(template_libraries(&db, project), "new_tag").len(),
         1
     );
 }
@@ -899,12 +920,10 @@ fn template_libraries_options_override_app_library_load_name() {
             .any(|symbol| symbol.name() == "old_tag")
     );
     assert!(
-        libraries
-            .inactive_library_candidates(&LibraryName::parse("custom").unwrap())
-            .is_empty(),
+        inactive_library_candidates(libraries, "custom").is_empty(),
         "a configured alias can shadow an installed app library without making that app inactive"
     );
-    assert!(libraries.inactive_tag_candidates("old_tag").is_empty());
+    assert!(inactive_tag_candidates(libraries, "old_tag").is_empty());
 }
 
 #[test]

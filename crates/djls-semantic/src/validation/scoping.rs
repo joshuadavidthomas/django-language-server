@@ -1,6 +1,6 @@
 use djls_project::LibraryName;
-use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
+use djls_project::UnknownLibraryOutcome;
 use djls_project::UnknownSymbolOutcome;
 use djls_source::Span;
 use djls_templates::Filter;
@@ -75,40 +75,31 @@ pub(crate) fn check_filter_scoping_rule(
     symbols: &AvailableSymbols,
     template_libraries: &TemplateLibraries,
 ) {
-    let knowledge = template_libraries.knowledge();
-    if knowledge == StaticKnowledge::Unknown {
+    if !template_libraries.has_symbol_inventory() {
         return;
     }
 
     match symbols.check_filter(&filter.name) {
         SymbolAvailability::Available => {}
-        SymbolAvailability::Unknown if !template_libraries.should_report_unknown_symbols() => {}
         SymbolAvailability::Unknown => {
-            if let Some(candidate) = template_libraries
-                .inactive_filter_candidates(&filter.name)
-                .first()
-            {
-                ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
-                    filter: filter.name.clone(),
-                    app: candidate
-                        .inactive_app()
-                        .expect("inactive candidates should carry an app")
-                        .as_str()
-                        .to_string(),
-                    load_name: candidate
-                        .load_name()
-                        .expect("inactive candidates should carry a load name")
-                        .as_str()
-                        .to_string(),
-                    span: filter.span,
-                })
-                .accumulate(db);
-            } else {
-                ValidationErrorAccumulator(ValidationError::UnknownFilter {
-                    filter: filter.name.clone(),
-                    span: filter.span,
-                })
-                .accumulate(db);
+            match template_libraries.unknown_filter_outcome(&filter.name) {
+                UnknownSymbolOutcome::Suppressed => {}
+                UnknownSymbolOutcome::InInactiveApp { app, load_name } => {
+                    ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
+                        filter: filter.name.clone(),
+                        app: app.as_str().to_string(),
+                        load_name: load_name.as_str().to_string(),
+                        span: filter.span,
+                    })
+                    .accumulate(db);
+                }
+                UnknownSymbolOutcome::TrulyUnknown => {
+                    ValidationErrorAccumulator(ValidationError::UnknownFilter {
+                        filter: filter.name.clone(),
+                        span: filter.span,
+                    })
+                    .accumulate(db);
+                }
             }
         }
         SymbolAvailability::Unloaded { library } => {
@@ -137,7 +128,7 @@ pub(crate) fn check_load_libraries_rule(
     bits: &[TagBit],
     template_libraries: &TemplateLibraries,
 ) {
-    if template_libraries.knowledge() == StaticKnowledge::Unknown {
+    if !template_libraries.has_symbol_inventory() {
         return;
     }
 
@@ -155,31 +146,23 @@ pub(crate) fn check_load_libraries_rule(
             // Invalid library name string (shouldn't happen given LoadKind parser, but safety first)
             continue;
         };
-        if template_libraries.is_loadable(&load_name) {
-            continue;
-        }
 
-        if template_libraries.should_report_unknown_symbols() {
-            let candidates = template_libraries.inactive_library_candidates(&load_name);
-            if let Some(first) = candidates.first() {
-                let mut apps: Vec<_> = candidates
-                    .iter()
-                    .filter_map(|candidate| candidate.inactive_app())
+        match template_libraries.unknown_library_outcome(&load_name) {
+            UnknownLibraryOutcome::Suppressed => {}
+            UnknownLibraryOutcome::InInactiveApps { primary_app, apps } => {
+                let candidates = apps
+                    .into_iter()
                     .map(|app| app.as_str().to_string())
                     .collect();
-                apps.dedup();
                 ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
                     name: lib.as_str().to_string(),
-                    app: first
-                        .inactive_app()
-                        .expect("inactive candidates should carry an app")
-                        .as_str()
-                        .to_string(),
-                    candidates: apps,
+                    app: primary_app.as_str().to_string(),
+                    candidates,
                     span: lib.span(),
                 })
                 .accumulate(db);
-            } else {
+            }
+            UnknownLibraryOutcome::TrulyUnknown => {
                 ValidationErrorAccumulator(ValidationError::UnknownLibrary {
                     name: lib.as_str().to_string(),
                     span: lib.span(),

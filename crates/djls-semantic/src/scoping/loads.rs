@@ -196,11 +196,15 @@ impl LoadedLibraries {
             }
 
             match &stmt.kind {
-                LoadKind::FullLoad { libraries } => libraries
-                    .iter()
-                    .any(|library| !template_libraries.is_loadable_str(library.as_str())),
+                LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
+                    template_libraries
+                        .loadable_library_str(library.as_str())
+                        .is_none()
+                }),
                 LoadKind::SelectiveImport { symbols, library } => {
-                    !template_libraries.is_loadable_str(library.as_str())
+                    template_libraries
+                        .loadable_library_str(library.as_str())
+                        .is_none()
                         && symbols.iter().any(|loaded| loaded.as_str() == symbol)
                 }
             }
