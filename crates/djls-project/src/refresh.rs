@@ -11,10 +11,10 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::resolve::SearchPaths;
 use crate::resolve::model_modules;
-use crate::resolve::templatetag_modules;
 use crate::settings::DjangoSettingsSources;
 use crate::settings::settings_sources;
 use crate::templates::refresh_templatetag_candidate_paths;
+use crate::templates::template_libraries;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefreshData {
@@ -33,7 +33,7 @@ enum RefreshPhase {
     SearchPaths,
     SettingsSources,
     ModelModules,
-    TemplateLibraryModules,
+    TemplateLibrarySources,
     TemplateTagCandidates,
 }
 
@@ -63,10 +63,10 @@ impl RefreshPhase {
                     .map(|module| module.path().to_path_buf())
                     .collect(),
             ),
-            Self::TemplateLibraryModules => RefreshDataPart::FilePaths(
-                templatetag_modules(db, project)
-                    .iter()
-                    .map(|module| module.path().to_path_buf())
+            Self::TemplateLibrarySources => RefreshDataPart::FilePaths(
+                template_libraries(db, project)
+                    .resolved_active_libraries()
+                    .map(|library| library.file().path(db).to_path_buf())
                     .collect(),
             ),
             Self::TemplateTagCandidates => {
@@ -101,12 +101,12 @@ impl RefreshPhase {
                     plural: "model modules",
                 },
             },
-            Self::TemplateLibraryModules => RefreshTaskDescriptor {
+            Self::TemplateLibrarySources => RefreshTaskDescriptor {
                 group: RefreshTaskGroup::Facts,
                 message: "Discovering template libraries",
                 units: RefreshCountUnits {
-                    singular: "template library module",
-                    plural: "template library modules",
+                    singular: "template library source",
+                    plural: "template library sources",
                 },
             },
             Self::TemplateTagCandidates => RefreshTaskDescriptor {
@@ -192,7 +192,7 @@ const REFRESH_TASKS: &[RefreshTask] = &[
         phase: RefreshPhase::ModelModules,
     },
     RefreshTask {
-        phase: RefreshPhase::TemplateLibraryModules,
+        phase: RefreshPhase::TemplateLibrarySources,
     },
     RefreshTask {
         phase: RefreshPhase::TemplateTagCandidates,
