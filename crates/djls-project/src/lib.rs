@@ -74,6 +74,7 @@ pub use templates::TemplateSymbol;
 pub use templates::TemplateSymbolKind;
 pub use templates::TemplateSymbolName;
 pub use templates::TriedTemplateSource;
+pub use templates::UnknownLibraryOutcome;
 pub use templates::UnknownSymbolOutcome;
 pub use templates::extract_block_specs;
 pub use templates::extract_filter_arities;
