@@ -819,9 +819,16 @@ fn template_libraries_include_options_libraries_and_builtins() {
     );
     assert!(
         libraries
-            .builtin_libraries()
-            .flat_map(djls_project::TemplateLibrary::symbols)
-            .any(|symbol| symbol.name() == "configured_filter")
+            .installed_symbol_candidates(TemplateSymbolKind::Filter)
+            .iter()
+            .any(|candidate| {
+                candidate.symbol.name() == "configured_filter"
+                    && matches!(
+                        &candidate.origin,
+                        InstalledSymbolOrigin::Builtin { module, .. }
+                            if module.as_str() == "custom_builtin"
+                    )
+            })
     );
 }
 
@@ -1068,12 +1075,14 @@ fn django_facts_golden_template_libraries_match() {
     assert_eq!(actual_builtins, golden.template_libraries.builtins);
 
     let actual_libraries: BTreeMap<_, _> = libraries
-        .loadable_libraries()
-        .map(|(name, library)| {
-            (
+        .completion_library_names()
+        .into_iter()
+        .filter_map(|name| {
+            let library = libraries.loadable_library(&name)?;
+            Some((
                 name.as_str().to_string(),
                 library.module_path_str().to_string(),
-            )
+            ))
         })
         .collect();
     assert_eq!(actual_libraries, golden.template_libraries.libraries);
@@ -1088,24 +1097,17 @@ fn django_facts_golden_template_libraries_match() {
 fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol> {
     let mut symbols = Vec::new();
 
-    for library in libraries.builtin_libraries() {
-        for symbol in library.symbols() {
-            symbols.push(GoldenTemplateSymbol {
-                kind: symbol.kind,
-                name: symbol.name().to_string(),
-                load_name: None,
-                library_module: library.module_path_str().to_string(),
-                module: library.module_path_str().to_string(),
-            });
-        }
-    }
+    for library in libraries
+        .records()
+        .filter(|library| library.inactive_app().is_none())
+    {
+        let load_name = library.load_name().map(|name| name.as_str().to_string());
 
-    for (load_name, library) in libraries.loadable_libraries() {
         for symbol in library.symbols() {
             symbols.push(GoldenTemplateSymbol {
                 kind: symbol.kind,
                 name: symbol.name().to_string(),
-                load_name: Some(load_name.as_str().to_string()),
+                load_name: load_name.clone(),
                 library_module: library.module_path_str().to_string(),
                 module: library.module_path_str().to_string(),
             });

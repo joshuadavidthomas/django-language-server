@@ -1,3 +1,4 @@
+use djls_project::InstalledSymbolOrigin;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
@@ -92,6 +93,23 @@ impl SymbolScope {
     }
 }
 
+fn insert_installed_symbol_candidates(
+    scope: &mut SymbolScope,
+    template_libraries: &TemplateLibraries,
+    kind: TemplateSymbolKind,
+) {
+    for candidate in template_libraries.installed_symbol_candidates(kind) {
+        match &candidate.origin {
+            InstalledSymbolOrigin::Builtin { .. } => {
+                scope.insert_available(candidate.symbol.name.as_str());
+            }
+            InstalledSymbolOrigin::Loadable { load_name, .. } => {
+                scope.insert_candidate(candidate.symbol.name.as_str(), load_name.as_str());
+            }
+        }
+    }
+}
+
 /// The set of tags and filters available at a given position in a template,
 /// plus a mapping of unavailable-but-known symbols to their required library/libraries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,31 +125,16 @@ impl AvailableSymbols {
         let mut tags = SymbolScope::default();
         let mut filters = SymbolScope::default();
 
-        // Builtins are always available.
-        for library in template_libraries.builtin_libraries() {
-            for symbol in library.symbols() {
-                match symbol.kind {
-                    TemplateSymbolKind::Tag => tags.insert_available(symbol.name.as_str()),
-                    TemplateSymbolKind::Filter => filters.insert_available(symbol.name.as_str()),
-                }
-            }
-        }
-
-        // Build reverse indices for loadable libraries.
-        for (name, library) in template_libraries.loadable_libraries() {
-            let load_name = name.as_str();
-
-            for symbol in library.symbols() {
-                match symbol.kind {
-                    TemplateSymbolKind::Tag => {
-                        tags.insert_candidate(symbol.name.as_str(), load_name);
-                    }
-                    TemplateSymbolKind::Filter => {
-                        filters.insert_candidate(symbol.name.as_str(), load_name);
-                    }
-                }
-            }
-        }
+        insert_installed_symbol_candidates(
+            &mut tags,
+            template_libraries,
+            TemplateSymbolKind::Tag,
+        );
+        insert_installed_symbol_candidates(
+            &mut filters,
+            template_libraries,
+            TemplateSymbolKind::Filter,
+        );
 
         tags.apply_load_state(load_state);
         filters.apply_load_state(load_state);
