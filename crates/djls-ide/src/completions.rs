@@ -435,9 +435,7 @@ pub fn completion(
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
 
-    let available_symbols = if !template_libraries.has_symbol_inventory() {
-        None
-    } else {
+    let available_symbols = if template_libraries.has_symbol_inventory() {
         match &context {
             CompletionOffsetContext::Template(
                 TemplateCompletionContext::TagName { .. }
@@ -452,6 +450,8 @@ pub fn completion(
             )
             | CompletionOffsetContext::None => None,
         }
+    } else {
+        None
     };
 
     let mut candidates = match &context {
@@ -810,12 +810,9 @@ mod tests {
     }
 
     fn filter_libraries() -> TemplateLibraries {
-        let libraries = HashMap::from([(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        )]);
-        let mut filter =
-            djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
+        let libraries =
+            HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
+        let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
         filter["doc"] = "Translate text.".into();
 
         djls_testing::make_template_libraries(&[], &[filter], &libraries, &[])
@@ -823,10 +820,8 @@ mod tests {
 
     fn tag_libraries() -> TemplateLibraries {
         let builtins = vec!["django.template.defaulttags".to_string()];
-        let libraries = HashMap::from([(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        )]);
+        let libraries =
+            HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
         let tags = vec![
             djls_testing::builtin_tag("if", "django.template.defaulttags"),
             djls_testing::library_tag("trans", "i18n", "django.templatetags.i18n"),

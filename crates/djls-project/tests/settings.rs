@@ -6,7 +6,10 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
+use djls_project::testing::TemplateLibraryResolution;
+use djls_project::testing::TemplateLibraryResolutionError;
 use djls_project::testing::compute_refresh;
+use djls_project::testing::library_resolution;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
@@ -41,41 +44,19 @@ struct GoldenTemplateSymbol {
     module: String,
 }
 
-fn inactive_library_candidates<'a>(
-    libraries: &'a TemplateLibraries,
-    load_name: &str,
-) -> Vec<&'a TemplateLibrary> {
-    libraries
-        .records()
-        .filter(|library| {
-            library.inactive_app().is_some()
-                && library
-                    .load_name()
-                    .is_some_and(|name| name.as_str() == load_name)
-        })
-        .collect()
+fn library_name(name: &str) -> LibraryName {
+    LibraryName::parse(name).unwrap()
 }
 
-fn inactive_tag_candidates<'a>(
-    libraries: &'a TemplateLibraries,
-    tag: &str,
-) -> Vec<&'a TemplateLibrary> {
-    inactive_symbol_candidates(libraries, tag, TemplateSymbolKind::Tag)
-}
-
-fn inactive_symbol_candidates<'a>(
-    libraries: &'a TemplateLibraries,
-    symbol_name: &str,
-    kind: TemplateSymbolKind,
-) -> Vec<&'a TemplateLibrary> {
+fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
     libraries
-        .records()
-        .filter(|library| library.inactive_app().is_some())
-        .filter(|library| {
+        .resolved_active_libraries()
+        .filter_map(|library| {
             library
-                .symbols()
-                .iter()
-                .any(|symbol| symbol.kind == kind && symbol.name() == symbol_name)
+                .library()
+                .load_name()
+                .is_none()
+                .then(|| library.module_path().as_str().to_string())
         })
         .collect()
 }
@@ -541,10 +522,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
             .any(|symbol| symbol.name() == "hello")
     );
     assert_eq!(
-        libraries
-            .builtin_modules()
-            .map(PythonModulePath::as_str)
-            .collect::<Vec<_>>(),
+        active_builtin_modules(libraries),
         vec![
             "django.template.defaulttags",
             "django.template.defaultfilters",
@@ -631,6 +609,18 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
         &mut db,
         "myproject.settings",
         &[
+            (
+                "/proj/django/template/defaulttags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef default_tag():\n    pass\n",
+            ),
+            (
+                "/proj/django/template/defaultfilters.py",
+                "from django import template\nregister = template.Library()\n@register.filter\ndef default_filter(value):\n    return value\n",
+            ),
+            (
+                "/proj/django/template/loader_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef loader_tag():\n    pass\n",
+            ),
             ("/proj/myapp/__init__.py", ""),
             ("/proj/myapp/templatetags/__init__.py", ""),
             (
@@ -652,28 +642,38 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let candidates = inactive_library_candidates(libraries, "crispy");
-    assert_eq!(candidates.len(), 1);
-    let candidate = candidates[0];
-    assert_eq!(candidate.load_name().unwrap().as_str(), "crispy");
-    assert_eq!(candidate.inactive_app().unwrap().as_str(), "crispy");
-    assert_eq!(candidate.module_path_str(), "crispy.templatetags.crispy");
+    let UnknownLibraryOutcome::InInactiveApps { primary_app, apps } =
+        libraries.unknown_library_outcome(&library_name("crispy"))
+    else {
+        panic!("crispy should be reported as an inactive-app library candidate");
+    };
+    assert_eq!(primary_app.as_str(), "crispy");
     assert_eq!(
-        candidate
-            .tags()
-            .map(|symbol| symbol.name().to_string())
+        apps.iter()
+            .map(PythonModulePath::as_str)
             .collect::<Vec<_>>(),
-        vec!["crispy_tag"]
+        vec!["crispy"]
     );
+
+    let UnknownSymbolOutcome::InInactiveApp { app, load_name } =
+        libraries.unknown_tag_outcome("crispy_tag")
+    else {
+        panic!("crispy_tag should be reported as an inactive-app tag candidate");
+    };
+    assert_eq!(app.as_str(), "crispy");
+    assert_eq!(load_name.as_str(), "crispy");
+
+    let UnknownSymbolOutcome::InInactiveApp { app, load_name } =
+        libraries.unknown_filter_outcome("crispy_filter")
+    else {
+        panic!("crispy_filter should be reported as an inactive-app filter candidate");
+    };
+    assert_eq!(app.as_str(), "crispy");
+    assert_eq!(load_name.as_str(), "crispy");
+
     assert_eq!(
-        candidate
-            .filters()
-            .map(|symbol| symbol.name().to_string())
-            .collect::<Vec<_>>(),
-        vec!["crispy_filter"]
-    );
-    assert!(
-        inactive_library_candidates(libraries, "myapp_tags").is_empty(),
+        libraries.unknown_library_outcome(&library_name("myapp_tags")),
+        UnknownLibraryOutcome::Suppressed,
         "installed app libraries must be subtracted from inactive candidates"
     );
 }
@@ -685,6 +685,18 @@ fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump(
         &mut db,
         "myproject.settings",
         &[
+            (
+                "/proj/django/template/defaulttags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef default_tag():\n    pass\n",
+            ),
+            (
+                "/proj/django/template/defaultfilters.py",
+                "from django import template\nregister = template.Library()\n@register.filter\ndef default_filter(value):\n    return value\n",
+            ),
+            (
+                "/proj/django/template/loader_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef loader_tag():\n    pass\n",
+            ),
             ("/proj/myapp/__init__.py", ""),
             ("/proj/myapp/templatetags/__init__.py", ""),
             (
@@ -698,7 +710,10 @@ fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump(
         ],
     );
 
-    assert!(inactive_library_candidates(template_libraries(&db, project), "crispy").is_empty());
+    assert_eq!(
+        template_libraries(&db, project).unknown_library_outcome(&library_name("crispy")),
+        UnknownLibraryOutcome::TrulyUnknown
+    );
 
     db.add_file("/proj/crispy/__init__.py", "");
     db.add_file("/proj/crispy/templatetags/__init__.py", "");
@@ -713,7 +728,10 @@ fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump(
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(inactive_library_candidates(libraries, "crispy").len(), 1);
+    assert!(matches!(
+        libraries.unknown_library_outcome(&library_name("crispy")),
+        UnknownLibraryOutcome::InInactiveApps { .. }
+    ));
 }
 
 #[test]
@@ -723,6 +741,18 @@ fn project_refresh_updates_inactive_template_library_symbols() {
         &mut db,
         "myproject.settings",
         &[
+            (
+                "/proj/django/template/defaulttags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef default_tag():\n    pass\n",
+            ),
+            (
+                "/proj/django/template/defaultfilters.py",
+                "from django import template\nregister = template.Library()\n@register.filter\ndef default_filter(value):\n    return value\n",
+            ),
+            (
+                "/proj/django/template/loader_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef loader_tag():\n    pass\n",
+            ),
             ("/proj/myapp/__init__.py", ""),
             ("/proj/myapp/templatetags/__init__.py", ""),
             (
@@ -742,7 +772,10 @@ fn project_refresh_updates_inactive_template_library_symbols() {
         ],
     );
 
-    assert!(inactive_tag_candidates(template_libraries(&db, project), "new_tag").is_empty());
+    assert_eq!(
+        template_libraries(&db, project).unknown_tag_outcome("new_tag"),
+        UnknownSymbolOutcome::TrulyUnknown
+    );
 
     db.add_file(
         "/proj/crispy/templatetags/crispy.py",
@@ -750,10 +783,10 @@ fn project_refresh_updates_inactive_template_library_symbols() {
     );
     apply_project_refresh(&mut db);
 
-    assert_eq!(
-        inactive_tag_candidates(template_libraries(&db, project), "new_tag").len(),
-        1
-    );
+    assert!(matches!(
+        template_libraries(&db, project).unknown_tag_outcome("new_tag"),
+        UnknownSymbolOutcome::InInactiveApp { .. }
+    ));
 }
 
 #[test]
@@ -926,11 +959,11 @@ fn template_libraries_options_override_app_library_load_name() {
             .iter()
             .any(|symbol| symbol.name() == "old_tag")
     );
-    assert!(
-        inactive_library_candidates(libraries, "custom").is_empty(),
+    assert_eq!(
+        libraries.unknown_tag_outcome("old_tag"),
+        UnknownSymbolOutcome::TrulyUnknown,
         "a configured alias can shadow an installed app library without making that app inactive"
     );
-    assert!(inactive_tag_candidates(libraries, "old_tag").is_empty());
 }
 
 #[test]
@@ -953,12 +986,11 @@ fn template_libraries_keep_invalid_configured_alias_as_unresolved_record() {
     assert_eq!(broken.module_path_str(), "bad-module");
     assert!(broken.module_path().is_none());
     assert!(matches!(
-        broken.resolution(),
+        library_resolution(broken),
         TemplateLibraryResolution::Unresolved(
             TemplateLibraryResolutionError::InvalidModulePath(path)
         ) if path == "bad-module"
     ));
-    assert!(!broken.defines_library());
     assert!(broken.symbols().is_empty());
 }
 
@@ -982,12 +1014,11 @@ fn template_libraries_keep_configured_non_library_module_as_unresolved_record() 
     let custom = libraries.loadable_library_str("custom").unwrap();
     assert_eq!(custom.module_path_str(), "not_a_library");
     assert!(matches!(
-        custom.resolution(),
+        library_resolution(custom),
         TemplateLibraryResolution::Unresolved(TemplateLibraryResolutionError::NotATemplateLibrary(
             _
         ))
     ));
-    assert!(!custom.defines_library());
     assert!(custom.symbols().is_empty());
 }
 
@@ -1068,10 +1099,7 @@ fn django_facts_golden_template_libraries_match() {
     db.project = Some(project);
 
     let libraries = template_libraries(&db, project);
-    let actual_builtins: Vec<_> = libraries
-        .builtin_modules()
-        .map(|module| module.as_str().to_string())
-        .collect();
+    let actual_builtins = active_builtin_modules(libraries);
     assert_eq!(actual_builtins, golden.template_libraries.builtins);
 
     let actual_libraries: BTreeMap<_, _> = libraries
@@ -1097,10 +1125,8 @@ fn django_facts_golden_template_libraries_match() {
 fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol> {
     let mut symbols = Vec::new();
 
-    for library in libraries
-        .records()
-        .filter(|library| library.inactive_app().is_none())
-    {
+    for resolved in libraries.resolved_active_libraries() {
+        let library = resolved.library();
         let load_name = library.load_name().map(|name| name.as_str().to_string());
 
         for symbol in library.symbols() {

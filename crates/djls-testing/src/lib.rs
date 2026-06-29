@@ -32,7 +32,6 @@ pub use fixtures::inactive_template_library;
 pub use fixtures::library_filter;
 pub use fixtures::library_tag;
 pub use fixtures::make_template_libraries;
-pub use fixtures::make_template_libraries_with_inactive;
 pub use fixtures::make_template_libraries_with_inactive_and_knowledge;
 pub use fixtures::make_template_libraries_with_knowledge;
 pub use fixtures::render_validate_snapshot;
