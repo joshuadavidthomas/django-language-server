@@ -630,10 +630,15 @@ impl TemplateLibraries {
             .filter_map(TemplateLibrary::module_path)
     }
 
-    pub fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+    pub(crate) fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
         self.builtin_order
             .iter()
             .filter_map(|id| self.records.get(id))
+    }
+
+    #[must_use]
+    pub fn installed_library_count(&self) -> usize {
+        self.builtin_libraries().count() + self.loadable_libraries().count()
     }
 
     fn loadable_library_names(&self) -> impl Iterator<Item = &LibraryName> + '_ {
@@ -649,7 +654,7 @@ impl TemplateLibraries {
         names
     }
 
-    pub fn loadable_libraries(
+    pub(crate) fn loadable_libraries(
         &self,
     ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.loadable_by_name
@@ -1395,6 +1400,41 @@ mod tests {
             libraries.unknown_library_outcome(&library_name("missing")),
             UnknownLibraryOutcome::TrulyUnknown
         );
+    }
+
+    #[test]
+    fn installed_library_count_counts_builtins_and_loadables() {
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .builtin_untracked(
+                BuiltinLibrarySource::DjangoDefault,
+                module("django.template.defaulttags"),
+                true,
+                Vec::new(),
+            )
+            .builtin_untracked(
+                BuiltinLibrarySource::Configured,
+                module("project.builtins"),
+                true,
+                Vec::new(),
+            )
+            .loadable_untracked(
+                library_name("custom"),
+                LoadableLibrarySource::ConfiguredAlias,
+                module("project.templatetags.custom"),
+                true,
+                Vec::new(),
+            )
+            .inactive_untracked(
+                library_name("inactive"),
+                module("inactive_app"),
+                module("inactive_app.templatetags.inactive"),
+                true,
+                Vec::new(),
+            )
+            .build();
+
+        assert_eq!(libraries.installed_library_count(), 3);
     }
 
     #[test]
