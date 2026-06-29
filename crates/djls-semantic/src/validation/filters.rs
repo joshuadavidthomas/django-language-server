@@ -1,4 +1,3 @@
-use djls_project::StaticKnowledge;
 use djls_templates::Filter;
 use salsa::Accumulator;
 
@@ -12,9 +11,9 @@ pub(crate) fn check_filter_arity_rule(
     db: &dyn Db,
     filter: &Filter,
     arity_specs: &FilterAritySpecs,
-    knowledge: StaticKnowledge,
+    has_symbol_inventory: bool,
 ) {
-    if knowledge == StaticKnowledge::Unknown {
+    if !has_symbol_inventory {
         return;
     }
 

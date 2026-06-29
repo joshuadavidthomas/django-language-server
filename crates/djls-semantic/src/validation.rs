@@ -3,7 +3,6 @@ mod filters;
 mod if_expressions;
 mod scoping;
 
-use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::Filter;
@@ -183,21 +182,21 @@ impl Visitor for TemplateValidator<'_> {
                 );
 
                 // 2. Filter Arity
-                let unknown_load_can_shadow_filter = self.template_libraries.knowledge()
-                    == StaticKnowledge::Partial
-                    && self
-                        .loaded_libraries
-                        .has_unknown_load_that_can_shadow_symbol_before(
-                            span.start(),
-                            &filter.name,
-                            self.template_libraries,
-                        );
+                let unknown_load_can_shadow_filter =
+                    self.template_libraries.inventory_may_omit_loaded_symbols()
+                        && self
+                            .loaded_libraries
+                            .has_unknown_load_that_can_shadow_symbol_before(
+                                span.start(),
+                                &filter.name,
+                                self.template_libraries,
+                            );
                 if !unknown_load_can_shadow_filter {
                     filters::check_filter_arity_rule(
                         self.db,
                         filter,
                         self.filter_arity_specs,
-                        self.template_libraries.knowledge(),
+                        self.template_libraries.has_symbol_inventory(),
                     );
                 }
             }
