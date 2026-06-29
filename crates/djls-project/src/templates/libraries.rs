@@ -554,6 +554,29 @@ pub struct TemplateLibraries {
     inactive_by_name: BTreeMap<LibraryName, Vec<TemplateLibraryId>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BuiltinLibraryPart {
+    pub(crate) module: PythonModulePath,
+    pub(crate) source: BuiltinLibrarySource,
+    pub(crate) symbols: Vec<TemplateSymbol>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LoadableLibraryPart {
+    pub(crate) load_name: LibraryName,
+    pub(crate) module: PythonModulePath,
+    pub(crate) source: LoadableLibrarySource,
+    pub(crate) symbols: Vec<TemplateSymbol>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InactiveLibraryPart {
+    pub(crate) load_name: LibraryName,
+    pub(crate) app: PythonModulePath,
+    pub(crate) module: PythonModulePath,
+    pub(crate) symbols: Vec<TemplateSymbol>,
+}
+
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
@@ -575,10 +598,37 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn builder() -> TemplateLibrariesBuilder {
-        TemplateLibrariesBuilder {
-            libraries: TemplateLibraries::default(),
+    pub(crate) fn from_parts(
+        knowledge: StaticKnowledge,
+        builtins: Vec<BuiltinLibraryPart>,
+        loadables: Vec<LoadableLibraryPart>,
+        inactives: Vec<InactiveLibraryPart>,
+    ) -> Self {
+        let mut libraries = Self::from_knowledge(knowledge);
+
+        for builtin in builtins {
+            libraries.push_builtin(
+                builtin.source,
+                AnalyzedTemplateLibrary::untracked(builtin.module, true, builtin.symbols),
+            );
         }
+        for loadable in loadables {
+            libraries.insert_loadable(
+                loadable.load_name,
+                loadable.source,
+                AnalyzedTemplateLibrary::untracked(loadable.module, true, loadable.symbols),
+            );
+        }
+        for inactive in inactives {
+            libraries.insert_inactive(
+                inactive.load_name,
+                inactive.app,
+                AnalyzedTemplateLibrary::untracked(inactive.module, true, inactive.symbols),
+            );
+        }
+
+        libraries.sort_and_dedup_inactive();
+        libraries
     }
 
     fn from_knowledge(knowledge: StaticKnowledge) -> Self {
@@ -1005,155 +1055,6 @@ fn unknown_symbol_candidate_outcome(candidates: &[&TemplateLibrary]) -> UnknownS
     UnknownSymbolOutcome::TrulyUnknown
 }
 
-pub struct TemplateLibrariesBuilder {
-    libraries: TemplateLibraries,
-}
-
-impl TemplateLibrariesBuilder {
-    #[must_use]
-    pub fn knowledge(mut self, knowledge: StaticKnowledge) -> Self {
-        self.libraries.knowledge = knowledge;
-        self
-    }
-
-    #[must_use]
-    pub fn loadable_resolved(
-        mut self,
-        name: LibraryName,
-        source: LoadableLibrarySource,
-        module_path: PythonModulePath,
-        file: File,
-        defines_library: bool,
-        symbols: Vec<TemplateSymbol>,
-    ) -> Self {
-        self.libraries.insert_loadable(
-            name,
-            source,
-            AnalyzedTemplateLibrary::resolved(module_path, file, defines_library, symbols),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn loadable_untracked(
-        mut self,
-        name: LibraryName,
-        source: LoadableLibrarySource,
-        module_path: PythonModulePath,
-        defines_library: bool,
-        symbols: Vec<TemplateSymbol>,
-    ) -> Self {
-        self.libraries.insert_loadable(
-            name,
-            source,
-            AnalyzedTemplateLibrary::untracked(module_path, defines_library, symbols),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn loadable_unresolved(
-        mut self,
-        name: LibraryName,
-        source: LoadableLibrarySource,
-        module_path: PythonModulePath,
-        error: TemplateLibraryResolutionError,
-    ) -> Self {
-        self.libraries.insert_loadable(
-            name,
-            source,
-            AnalyzedTemplateLibrary::unresolved(module_path, error),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn builtin_resolved(
-        mut self,
-        source: BuiltinLibrarySource,
-        module_path: PythonModulePath,
-        file: File,
-        defines_library: bool,
-        symbols: Vec<TemplateSymbol>,
-    ) -> Self {
-        self.libraries.push_builtin(
-            source,
-            AnalyzedTemplateLibrary::resolved(module_path, file, defines_library, symbols),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn builtin_untracked(
-        mut self,
-        source: BuiltinLibrarySource,
-        module_path: PythonModulePath,
-        defines_library: bool,
-        symbols: Vec<TemplateSymbol>,
-    ) -> Self {
-        self.libraries.push_builtin(
-            source,
-            AnalyzedTemplateLibrary::untracked(module_path, defines_library, symbols),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn builtin_unresolved(
-        mut self,
-        source: BuiltinLibrarySource,
-        module_path: PythonModulePath,
-        error: TemplateLibraryResolutionError,
-    ) -> Self {
-        self.libraries.push_builtin(
-            source,
-            AnalyzedTemplateLibrary::unresolved(module_path, error),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn inactive_resolved(
-        mut self,
-        name: LibraryName,
-        app: PythonModulePath,
-        module_path: PythonModulePath,
-        file: File,
-        defines_library: bool,
-        symbols: Vec<TemplateSymbol>,
-    ) -> Self {
-        self.libraries.insert_inactive(
-            name,
-            app,
-            AnalyzedTemplateLibrary::resolved(module_path, file, defines_library, symbols),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn inactive_untracked(
-        mut self,
-        name: LibraryName,
-        app: PythonModulePath,
-        module_path: PythonModulePath,
-        defines_library: bool,
-        symbols: Vec<TemplateSymbol>,
-    ) -> Self {
-        self.libraries.insert_inactive(
-            name,
-            app,
-            AnalyzedTemplateLibrary::untracked(module_path, defines_library, symbols),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn build(mut self) -> TemplateLibraries {
-        self.libraries.sort_and_dedup_inactive();
-        self.libraries
-    }
-}
-
 fn cmp_inactive_ids(
     records: &BTreeMap<TemplateLibraryId, TemplateLibrary>,
     left: &TemplateLibraryId,
@@ -1249,11 +1150,52 @@ mod tests {
         LibraryName::parse(name).unwrap()
     }
 
+    fn empty_libraries(knowledge: StaticKnowledge) -> TemplateLibraries {
+        TemplateLibraries::from_parts(knowledge, Vec::new(), Vec::new(), Vec::new())
+    }
+
+    fn builtin_part(
+        source: BuiltinLibrarySource,
+        module: PythonModulePath,
+        symbols: Vec<TemplateSymbol>,
+    ) -> BuiltinLibraryPart {
+        BuiltinLibraryPart {
+            module,
+            source,
+            symbols,
+        }
+    }
+
+    fn loadable_part(
+        load_name: LibraryName,
+        module: PythonModulePath,
+        symbols: Vec<TemplateSymbol>,
+    ) -> LoadableLibraryPart {
+        LoadableLibraryPart {
+            load_name,
+            module,
+            source: LoadableLibrarySource::ConfiguredAlias,
+            symbols,
+        }
+    }
+
+    fn inactive_part(
+        load_name: LibraryName,
+        app: PythonModulePath,
+        module: PythonModulePath,
+        symbols: Vec<TemplateSymbol>,
+    ) -> InactiveLibraryPart {
+        InactiveLibraryPart {
+            load_name,
+            app,
+            module,
+            symbols,
+        }
+    }
+
     #[test]
     fn unknown_tag_outcome_suppresses_incomplete_inventory() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Partial)
-            .build();
+        let libraries = empty_libraries(StaticKnowledge::Partial);
 
         assert_eq!(
             libraries.unknown_tag_outcome("missing"),
@@ -1265,16 +1207,17 @@ mod tests {
     fn unknown_tag_outcome_reports_inactive_app_candidate() {
         let app = module("inactive_app");
         let load_name = library_name("extra_tags");
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .inactive_untracked(
+        let libraries = TemplateLibraries::from_parts(
+            StaticKnowledge::Known,
+            Vec::new(),
+            Vec::new(),
+            vec![inactive_part(
                 load_name.clone(),
                 app.clone(),
                 module("inactive_app.templatetags.extra_tags"),
-                true,
                 vec![symbol(TemplateSymbolKind::Tag, "extra", None)],
-            )
-            .build();
+            )],
+        );
 
         assert_eq!(
             libraries.unknown_tag_outcome("extra"),
@@ -1284,9 +1227,7 @@ mod tests {
 
     #[test]
     fn unknown_tag_outcome_reports_truly_unknown() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .build();
+        let libraries = empty_libraries(StaticKnowledge::Known);
 
         assert_eq!(
             libraries.unknown_tag_outcome("missing"),
@@ -1296,9 +1237,7 @@ mod tests {
 
     #[test]
     fn unknown_filter_outcome_suppresses_incomplete_inventory() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Partial)
-            .build();
+        let libraries = empty_libraries(StaticKnowledge::Partial);
 
         assert_eq!(
             libraries.unknown_filter_outcome("missing"),
@@ -1310,16 +1249,17 @@ mod tests {
     fn unknown_filter_outcome_reports_inactive_app_candidate() {
         let app = module("inactive_app");
         let load_name = library_name("extra_filters");
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .inactive_untracked(
+        let libraries = TemplateLibraries::from_parts(
+            StaticKnowledge::Known,
+            Vec::new(),
+            Vec::new(),
+            vec![inactive_part(
                 load_name.clone(),
                 app.clone(),
                 module("inactive_app.templatetags.extra_filters"),
-                true,
                 vec![symbol(TemplateSymbolKind::Filter, "extra", None)],
-            )
-            .build();
+            )],
+        );
 
         assert_eq!(
             libraries.unknown_filter_outcome("extra"),
@@ -1329,9 +1269,7 @@ mod tests {
 
     #[test]
     fn unknown_filter_outcome_reports_truly_unknown() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .build();
+        let libraries = empty_libraries(StaticKnowledge::Known);
 
         assert_eq!(
             libraries.unknown_filter_outcome("missing"),
@@ -1341,9 +1279,7 @@ mod tests {
 
     #[test]
     fn unknown_library_outcome_suppresses_incomplete_inventory() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Partial)
-            .build();
+        let libraries = empty_libraries(StaticKnowledge::Partial);
 
         assert_eq!(
             libraries.unknown_library_outcome(&library_name("missing")),
@@ -1356,30 +1292,31 @@ mod tests {
         let shared = library_name("shared");
         let alpha = module("alpha");
         let beta = module("beta");
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .inactive_untracked(
-                shared.clone(),
-                beta.clone(),
-                module("beta.templatetags.shared"),
-                true,
-                Vec::new(),
-            )
-            .inactive_untracked(
-                shared.clone(),
-                alpha.clone(),
-                module("alpha.templatetags.shared_extra"),
-                true,
-                Vec::new(),
-            )
-            .inactive_untracked(
-                shared.clone(),
-                alpha.clone(),
-                module("alpha.templatetags.shared"),
-                true,
-                Vec::new(),
-            )
-            .build();
+        let libraries = TemplateLibraries::from_parts(
+            StaticKnowledge::Known,
+            Vec::new(),
+            Vec::new(),
+            vec![
+                inactive_part(
+                    shared.clone(),
+                    beta.clone(),
+                    module("beta.templatetags.shared"),
+                    Vec::new(),
+                ),
+                inactive_part(
+                    shared.clone(),
+                    alpha.clone(),
+                    module("alpha.templatetags.shared_extra"),
+                    Vec::new(),
+                ),
+                inactive_part(
+                    shared.clone(),
+                    alpha.clone(),
+                    module("alpha.templatetags.shared"),
+                    Vec::new(),
+                ),
+            ],
+        );
 
         assert_eq!(
             libraries.unknown_library_outcome(&shared),
@@ -1392,9 +1329,7 @@ mod tests {
 
     #[test]
     fn unknown_library_outcome_reports_truly_unknown() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .build();
+        let libraries = empty_libraries(StaticKnowledge::Known);
 
         assert_eq!(
             libraries.unknown_library_outcome(&library_name("missing")),
@@ -1404,35 +1339,32 @@ mod tests {
 
     #[test]
     fn installed_library_count_counts_builtins_and_loadables() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module("django.template.defaulttags"),
-                true,
-                Vec::new(),
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::Configured,
-                module("project.builtins"),
-                true,
-                Vec::new(),
-            )
-            .loadable_untracked(
+        let libraries = TemplateLibraries::from_parts(
+            StaticKnowledge::Known,
+            vec![
+                builtin_part(
+                    BuiltinLibrarySource::DjangoDefault,
+                    module("django.template.defaulttags"),
+                    Vec::new(),
+                ),
+                builtin_part(
+                    BuiltinLibrarySource::Configured,
+                    module("project.builtins"),
+                    Vec::new(),
+                ),
+            ],
+            vec![loadable_part(
                 library_name("custom"),
-                LoadableLibrarySource::ConfiguredAlias,
                 module("project.templatetags.custom"),
-                true,
                 Vec::new(),
-            )
-            .inactive_untracked(
+            )],
+            vec![inactive_part(
                 library_name("inactive"),
                 module("inactive_app"),
                 module("inactive_app.templatetags.inactive"),
-                true,
                 Vec::new(),
-            )
-            .build();
+            )],
+        );
 
         assert_eq!(libraries.installed_library_count(), 3);
     }
@@ -1440,29 +1372,31 @@ mod tests {
     #[test]
     fn installed_symbol_candidates_keep_last_builtin_symbol() {
         let a_second = module("a_second");
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module("z_first"),
-                true,
-                vec![symbol(
-                    TemplateSymbolKind::Filter,
-                    "duplicate",
-                    Some("first"),
-                )],
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                a_second.clone(),
-                true,
-                vec![symbol(
-                    TemplateSymbolKind::Filter,
-                    "duplicate",
-                    Some("second"),
-                )],
-            )
-            .build();
+        let libraries = TemplateLibraries::from_parts(
+            StaticKnowledge::Known,
+            vec![
+                builtin_part(
+                    BuiltinLibrarySource::DjangoDefault,
+                    module("z_first"),
+                    vec![symbol(
+                        TemplateSymbolKind::Filter,
+                        "duplicate",
+                        Some("first"),
+                    )],
+                ),
+                builtin_part(
+                    BuiltinLibrarySource::DjangoDefault,
+                    a_second.clone(),
+                    vec![symbol(
+                        TemplateSymbolKind::Filter,
+                        "duplicate",
+                        Some("second"),
+                    )],
+                ),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
 
         let candidates = libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
 
@@ -1476,27 +1410,28 @@ mod tests {
 
     #[test]
     fn builtin_libraries_retain_duplicate_modules_in_order() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module("django.template.defaulttags"),
-                true,
-                Vec::new(),
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::Configured,
-                module("project.builtins"),
-                true,
-                Vec::new(),
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::Configured,
-                module("django.template.defaulttags"),
-                true,
-                Vec::new(),
-            )
-            .build();
+        let libraries = TemplateLibraries::from_parts(
+            StaticKnowledge::Known,
+            vec![
+                builtin_part(
+                    BuiltinLibrarySource::DjangoDefault,
+                    module("django.template.defaulttags"),
+                    Vec::new(),
+                ),
+                builtin_part(
+                    BuiltinLibrarySource::Configured,
+                    module("project.builtins"),
+                    Vec::new(),
+                ),
+                builtin_part(
+                    BuiltinLibrarySource::Configured,
+                    module("django.template.defaulttags"),
+                    Vec::new(),
+                ),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
 
         let modules: Vec<_> = libraries
             .builtin_libraries()

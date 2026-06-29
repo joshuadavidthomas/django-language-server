@@ -7,7 +7,6 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::ArgumentCountConstraint;
-use djls_project::BuiltinLibrarySource;
 use djls_project::ChoiceAt;
 use djls_project::ExtractedDiagnosticConstraint;
 use djls_project::ExtractedDiagnosticMessage;
@@ -15,13 +14,11 @@ use djls_project::ExtractedMessageTemplate;
 use djls_project::FilterArity;
 use djls_project::Interpreter;
 use djls_project::LibraryName;
-use djls_project::LoadableLibrarySource;
 use djls_project::Project;
 use djls_project::PythonModulePath;
 use djls_project::RequiredKeyword;
 use djls_project::SearchPaths;
 use djls_project::SplitPosition;
-use djls_project::StaticKnowledge;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
@@ -29,6 +26,11 @@ use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
+use djls_project::testing;
+use djls_project::testing::BuiltinInput;
+use djls_project::testing::InactiveInput;
+use djls_project::testing::LoadableInput;
+use djls_project::testing::StaticKnowledge;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -262,24 +264,29 @@ pub fn make_template_libraries_with_inactive_and_knowledge(
         );
     }
 
-    let mut builder = TemplateLibraries::builder().knowledge(knowledge);
-    for (module, symbols) in builtin_symbols {
-        builder =
-            builder.builtin_untracked(BuiltinLibrarySource::DjangoDefault, module, true, symbols);
-    }
-    for (load_name, (module, symbols)) in loadable_symbols {
-        builder = builder.loadable_untracked(
+    let builtins = builtin_symbols
+        .into_iter()
+        .map(|(module, symbols)| BuiltinInput { module, symbols })
+        .collect();
+    let loadables = loadable_symbols
+        .into_iter()
+        .map(|(load_name, (module, symbols))| LoadableInput {
             load_name,
-            LoadableLibrarySource::ConfiguredAlias,
             module,
-            true,
             symbols,
-        );
-    }
-    for ((load_name, app, module), symbols) in inactive_symbols {
-        builder = builder.inactive_untracked(load_name, app, module, true, symbols);
-    }
-    builder.build()
+        })
+        .collect();
+    let inactives = inactive_symbols
+        .into_iter()
+        .map(|((load_name, app, module), symbols)| InactiveInput {
+            load_name,
+            app,
+            module,
+            symbols,
+        })
+        .collect();
+
+    testing::template_libraries(knowledge, builtins, loadables, inactives)
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModulePath, Vec<TemplateSymbol>)>;
