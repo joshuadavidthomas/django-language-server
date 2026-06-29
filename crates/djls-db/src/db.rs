@@ -300,7 +300,7 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn settings_source_change_validates_templatetag_module_projection() {
+    fn settings_source_change_invalidates_template_library_extraction() {
         let event_log = EventLog::default();
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
@@ -343,7 +343,11 @@ mod invalidation_tests {
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let _specs = db.tag_specs();
+        let specs = db.tag_specs();
+        assert!(
+            specs.get("project_tag").is_some(),
+            "configured builtin tag should be extracted before settings change"
+        );
         event_log.take();
 
         let settings_file = db.get_or_create_file(&settings_path);
@@ -353,15 +357,19 @@ mod invalidation_tests {
         );
         db.bump_file_revision(settings_file);
 
-        let _specs = db.tag_specs();
+        let specs = db.tag_specs();
+        assert!(
+            specs.get("project_tag").is_none(),
+            "removed configured builtin tag should no longer be extracted"
+        );
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "template_libraries"),
             "template_libraries should re-execute after the settings source changes"
         );
         assert!(
-            was_executed(&db, &events, "templatetag_modules"),
-            "templatetag_modules should re-execute after derived libraries change"
+            was_executed(&db, &events, "compute_tag_specs"),
+            "tag specs should re-execute after Template Library facts change"
         );
     }
 

@@ -3,7 +3,7 @@ use djls_project::FilterArityMap;
 use djls_project::Project;
 use djls_project::SymbolKey;
 use djls_project::extract_filter_arities;
-use djls_project::templatetag_modules;
+use djls_project::template_libraries;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db;
@@ -62,9 +62,9 @@ impl FilterAritySpecs {
 pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterAritySpecs {
     let mut specs = FilterAritySpecs::new();
 
-    for module in templatetag_modules(db, project) {
+    for library in template_libraries(db, project).resolved_active_libraries() {
         let filter_arities =
-            extract_filter_arities(db, module.file(), module.module_path().clone());
+            extract_filter_arities(db, library.file(), library.module_path().clone());
         if !filter_arities.is_empty() {
             specs.merge_filter_arities(filter_arities);
         }

@@ -316,58 +316,6 @@ fn module_file_in_search_path(
     fs.is_file(&init_file).then_some(init_file)
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn templatetag_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
-    let search_paths: Vec<_> = project.search_paths(db).iter().collect();
-    for search_path in &search_paths {
-        if let Some(root) = db.files().root(db, search_path.path()) {
-            let _ = root.revision(db);
-        } else {
-            tracing::warn!(
-                "Search path has no registered source root: {}",
-                search_path.path()
-            );
-        }
-    }
-
-    let mut modules = Vec::new();
-
-    for (module_index, module_path) in crate::templates::template_libraries(db, project)
-        .registration_modules()
-        .into_iter()
-        .enumerate()
-    {
-        for search_path in &search_paths {
-            let Some(file_path) = module_file_in_search_path(
-                db.file_system(),
-                module_path.as_str(),
-                search_path.path(),
-            ) else {
-                continue;
-            };
-
-            modules.push((
-                module_index,
-                PythonModule::new(
-                    module_path.clone(),
-                    file_path.clone(),
-                    db.get_or_create_file(&file_path),
-                ),
-            ));
-            break;
-        }
-    }
-
-    modules.sort_by(|(left_index, left), (right_index, right)| {
-        left_index
-            .cmp(right_index)
-            .then_with(|| left.module_path().cmp(right.module_path()))
-            .then_with(|| left.path().cmp(right.path()))
-    });
-
-    modules.into_iter().map(|(_index, module)| module).collect()
-}
-
 /// Discover Django model source files under one Python search root.
 ///
 /// Finds `models.py` files and `.py` files inside `models/` packages

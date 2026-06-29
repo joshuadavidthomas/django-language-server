@@ -257,7 +257,7 @@ fn model_modules_tolerate_unregistered_search_paths() {
 }
 
 #[test]
-fn templatetag_modules_tolerate_unregistered_search_paths() {
+fn template_libraries_tolerate_unregistered_search_paths() {
     let mut db = TestDatabase::new();
     db.add_file("/project/django/templatetags/__init__.py", "");
     db.add_file(
@@ -278,16 +278,18 @@ fn templatetag_modules_tolerate_unregistered_search_paths() {
         django_template_settings(&[], &[]),
     );
 
-    let modules = templatetag_modules(&db, project);
-    assert_eq!(modules.len(), 1);
+    let libraries = template_libraries(&db, project);
+    let resolved: Vec<_> = libraries.resolved_active_libraries().collect();
+
+    assert_eq!(resolved.len(), 1);
     assert_eq!(
-        modules[0].module_path().as_str(),
+        resolved[0].module_path().as_str(),
         "django.templatetags.i18n"
     );
 }
 
 #[test]
-fn templatetag_resolution_uses_project_venv_site_packages_root() {
+fn template_library_resolution_uses_project_venv_site_packages_root() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/django/templatetags/__init__.py",
@@ -312,18 +314,20 @@ fn templatetag_resolution_uses_project_venv_site_packages_root() {
         django_template_settings(&[], &[]),
     );
 
-    let modules = templatetag_modules(&db, project);
-    assert_eq!(modules.len(), 1);
+    let libraries = template_libraries(&db, project);
+    let resolved: Vec<_> = libraries.resolved_active_libraries().collect();
+
+    assert_eq!(resolved.len(), 1);
     assert_eq!(
-        modules[0].module_path().as_str(),
+        resolved[0].module_path().as_str(),
         "django.templatetags.i18n"
     );
-    let root = db.files().expect_root(&db, modules[0].path());
+    let root = db.files().expect_root(&db, resolved[0].file().path(&db));
     assert_eq!(root.kind(&db), FileRootKind::SearchPath);
 }
 
 #[test]
-fn templatetag_resolution_prefers_first_party_module_shadowing_dependency() {
+fn template_library_resolution_prefers_first_party_module_shadowing_dependency() {
     let mut db = TestDatabase::new();
     db.add_file("/project/django/templatetags/__init__.py", "");
     db.add_file(
@@ -353,16 +357,18 @@ fn templatetag_resolution_prefers_first_party_module_shadowing_dependency() {
         django_template_settings(&[], &[]),
     );
 
-    let modules = templatetag_modules(&db, project);
-    assert_eq!(modules.len(), 1);
+    let libraries = template_libraries(&db, project);
+    let resolved: Vec<_> = libraries.resolved_active_libraries().collect();
+
+    assert_eq!(resolved.len(), 1);
     assert_eq!(
-        modules[0].path(),
+        resolved[0].file().path(&db),
         Utf8Path::new("/project/django/templatetags/i18n.py")
     );
 }
 
 #[test]
-fn templatetag_modules_preserve_registration_order_across_roots() {
+fn resolved_active_template_libraries_preserve_builtin_order_across_roots() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/a/templatetags/tags.py",
@@ -387,10 +393,10 @@ fn templatetag_modules_preserve_registration_order_across_roots() {
         django_template_settings(&[], &["a.templatetags.tags", "z.templatetags.tags"]),
     );
 
-    let modules = templatetag_modules(&db, project);
-    let module_paths: Vec<_> = modules
-        .iter()
-        .map(|module| module.module_path().as_str())
+    let libraries = template_libraries(&db, project);
+    let module_paths: Vec<_> = libraries
+        .resolved_active_libraries()
+        .map(|library| library.module_path().as_str().to_string())
         .collect();
 
     assert_eq!(
@@ -400,7 +406,42 @@ fn templatetag_modules_preserve_registration_order_across_roots() {
 }
 
 #[test]
-fn builtin_registration_modules_preserve_order_across_roots() {
+fn resolved_active_template_libraries_yield_loadables_before_builtins() {
+    let mut db = TestDatabase::new();
+    db.add_file(
+        "/project/loadable_tags.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom():\n    pass\n",
+    );
+    db.add_file(
+        "/project/builtin_tags.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef builtin():\n    pass\n",
+    );
+
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/project"),
+        &Interpreter::Auto,
+        &[],
+    );
+    search_paths.register_roots(&db);
+    let project = project_with_template_settings(
+        &mut db,
+        "/project",
+        search_paths,
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'loadable_tags'}, 'builtins': ['builtin_tags']}}]\n",
+    );
+
+    let libraries = template_libraries(&db, project);
+    let module_paths: Vec<_> = libraries
+        .resolved_active_libraries()
+        .map(|library| library.module_path().as_str().to_string())
+        .collect();
+
+    assert_eq!(module_paths, vec!["loadable_tags", "builtin_tags"]);
+}
+
+#[test]
+fn builtin_template_libraries_preserve_order_across_roots() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/z_first.py",
@@ -410,7 +451,7 @@ register = template.Library()
 
 @register.filter
 def duplicate(value):
-return value
+    return value
 ",
     );
     db.add_file(
@@ -421,7 +462,7 @@ register = template.Library()
 
 @register.filter
 def duplicate(value, arg):
-return value
+    return value
 ",
     );
 
@@ -439,11 +480,12 @@ return value
         django_template_settings(&[], &["z_first", "a_second"]),
     );
 
-    let modules = templatetag_modules(&db, project);
-    let module_paths: Vec<_> = modules
-        .iter()
-        .map(|module| module.module_path().as_str())
+    let libraries = template_libraries(&db, project);
+    let module_paths: Vec<_> = libraries
+        .resolved_active_libraries()
+        .map(|library| library.module_path().as_str().to_string())
         .collect();
+
     assert_eq!(module_paths, vec!["z_first", "a_second"]);
 }
 

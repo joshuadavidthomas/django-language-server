@@ -601,27 +601,6 @@ impl TemplateLibraries {
         self.records.values()
     }
 
-    #[must_use]
-    pub(crate) fn registration_modules(&self) -> Vec<PythonModulePath> {
-        if self.knowledge == StaticKnowledge::Unknown {
-            return Vec::new();
-        }
-
-        let mut modules = Vec::new();
-
-        for (_name, library) in self.loadable_libraries() {
-            if let Some(module_path) = library.module_path() {
-                push_unique_module(&mut modules, module_path.clone());
-            }
-        }
-
-        for module in self.builtin_modules() {
-            push_unique_module(&mut modules, module.clone());
-        }
-
-        modules
-    }
-
     pub fn builtin_modules(&self) -> impl Iterator<Item = &PythonModulePath> + '_ {
         self.builtin_libraries()
             .filter_map(TemplateLibrary::module_path)
@@ -910,14 +889,14 @@ impl TemplateLibraries {
     pub fn resolved_active_libraries(
         &self,
     ) -> impl Iterator<Item = ResolvedTemplateLibrary<'_>> + '_ {
-        let mut ids = self.builtin_order.clone();
         let mut seen_loadable = BTreeSet::new();
-        ids.extend(
-            self.loadable_by_name
-                .values()
-                .filter(|id| seen_loadable.insert((*id).clone()))
-                .cloned(),
-        );
+        let mut ids: Vec<_> = self
+            .loadable_by_name
+            .values()
+            .filter(|id| seen_loadable.insert((*id).clone()))
+            .cloned()
+            .collect();
+        ids.extend(self.builtin_order.iter().cloned());
 
         ids.into_iter().filter_map(|id| {
             let library = self.records.get(&id)?;
@@ -1153,12 +1132,6 @@ fn merge_symbol(symbols: &mut Vec<TemplateSymbol>, new_symbol: TemplateSymbol) {
     symbols.dedup_by(|a, b| a.kind == b.kind && a.name == b.name);
 }
 
-fn push_unique_module(modules: &mut Vec<PythonModulePath>, module: PythonModulePath) {
-    if !modules.contains(&module) {
-        modules.push(module);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1167,10 +1140,6 @@ mod tests {
 
     fn module(name: &str) -> PythonModulePath {
         PythonModulePath::parse(name).unwrap()
-    }
-
-    fn library_name(name: &str) -> LibraryName {
-        LibraryName::parse(name).unwrap()
     }
 
     fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TemplateSymbol {
@@ -1256,74 +1225,5 @@ mod tests {
                 "django.template.defaulttags",
             ]
         );
-    }
-
-    #[test]
-    fn registration_modules_keep_deterministic_precedence_order() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .loadable_untracked(
-                library_name("project_tags"),
-                LoadableLibrarySource::ConfiguredAlias,
-                module("project.tags"),
-                true,
-                Vec::new(),
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module("z.templatetags.tags"),
-                true,
-                Vec::new(),
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module("django.template.defaulttags"),
-                true,
-                Vec::new(),
-            )
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module("z.templatetags.tags"),
-                true,
-                Vec::new(),
-            )
-            .build();
-
-        let modules: Vec<_> = libraries
-            .registration_modules()
-            .into_iter()
-            .map(|module| module.as_str().to_string())
-            .collect();
-
-        assert_eq!(
-            modules,
-            vec![
-                "project.tags",
-                "z.templatetags.tags",
-                "django.template.defaulttags",
-            ]
-        );
-    }
-
-    #[test]
-    fn registration_modules_keep_known_partial_modules() {
-        let libraries = TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Partial)
-            .loadable_untracked(
-                library_name("project_tags"),
-                LoadableLibrarySource::ConfiguredAlias,
-                module("project.tags"),
-                true,
-                Vec::new(),
-            )
-            .build();
-
-        let modules: Vec<_> = libraries
-            .registration_modules()
-            .into_iter()
-            .map(|module| module.as_str().to_string())
-            .collect();
-
-        assert_eq!(modules, vec!["project.tags"]);
     }
 }

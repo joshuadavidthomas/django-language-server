@@ -4,7 +4,7 @@ mod specs;
 use djls_project::Project;
 use djls_project::extract_block_specs;
 use djls_project::extract_tag_rules;
-use djls_project::templatetag_modules;
+use djls_project::template_libraries;
 pub(crate) use rules::evaluate_tag_rules;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -42,13 +42,13 @@ pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
 
     let mut specs = builtin_tag_specs();
 
-    for module in templatetag_modules(db, project) {
-        let block_specs = extract_block_specs(db, module.file(), module.module_path().clone());
+    for library in template_libraries(db, project).resolved_active_libraries() {
+        let block_specs = extract_block_specs(db, library.file(), library.module_path().clone());
         if !block_specs.is_empty() {
             specs.merge_block_specs(block_specs);
         }
 
-        let tag_rules = extract_tag_rules(db, module.file(), module.module_path().clone());
+        let tag_rules = extract_tag_rules(db, library.file(), library.module_path().clone());
         if !tag_rules.is_empty() {
             specs.merge_tag_rules(tag_rules);
         }

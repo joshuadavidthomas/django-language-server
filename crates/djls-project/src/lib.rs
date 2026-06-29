@@ -28,7 +28,7 @@ pub use refresh::apply_refresh;
 pub use refresh::refresh_tasks;
 pub use resolve::SearchPath;
 pub use resolve::SearchPaths;
-pub use resolve::templatetag_modules;
+pub use resolve::model_modules;
 pub use settings::StaticKnowledge;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
