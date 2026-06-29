@@ -16,11 +16,14 @@ use djls_testing::library_tag;
 use djls_testing::make_template_libraries_with_knowledge;
 use tower_lsp_server::ls_types;
 
-fn tag_libraries() -> TemplateLibraries {
-    tag_libraries_with_knowledge(StaticKnowledge::Known)
+fn tag_libraries(db: &TestDatabase) -> TemplateLibraries {
+    tag_libraries_with_knowledge(db, StaticKnowledge::Known)
 }
 
-fn tag_libraries_with_knowledge(knowledge: StaticKnowledge) -> TemplateLibraries {
+fn tag_libraries_with_knowledge(
+    db: &TestDatabase,
+    knowledge: StaticKnowledge,
+) -> TemplateLibraries {
     let tags = vec![
         builtin_tag("if", "django.template.defaulttags"),
         library_tag("trans", "i18n", "django.templatetags.i18n"),
@@ -29,14 +32,21 @@ fn tag_libraries_with_knowledge(knowledge: StaticKnowledge) -> TemplateLibraries
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
     let builtins = vec!["django.template.defaulttags".to_string()];
 
-    make_template_libraries_with_knowledge(&tags, &[], &libraries, &builtins, knowledge)
+    make_template_libraries_with_knowledge(db, &tags, &[], &libraries, &builtins, knowledge)
 }
 
-fn filter_libraries() -> TemplateLibraries {
+fn filter_libraries(db: &TestDatabase) -> TemplateLibraries {
     let filters = vec![library_filter("trans", "i18n", "django.templatetags.i18n")];
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
 
-    make_template_libraries_with_knowledge(&[], &filters, &libraries, &[], StaticKnowledge::Known)
+    make_template_libraries_with_knowledge(
+        db,
+        &[],
+        &filters,
+        &libraries,
+        &[],
+        StaticKnowledge::Known,
+    )
 }
 
 fn project_only_specs() -> TagSpecs {
@@ -64,13 +74,13 @@ fn source_and_offset(marked_source: &str) -> (String, Offset) {
 
 fn completion_labels(
     marked_source: &str,
-    template_libraries: TemplateLibraries,
+    template_libraries: impl FnOnce(&TestDatabase) -> TemplateLibraries,
     tag_specs: TagSpecs,
 ) -> Vec<String> {
     let (source, offset) = source_and_offset(marked_source);
-    let db = TestDatabase::new()
-        .with_template_libraries(template_libraries)
-        .with_specs(tag_specs);
+    let db = TestDatabase::new().with_specs(tag_specs);
+    let template_libraries = template_libraries(&db);
+    let db = db.with_template_libraries(template_libraries);
     db.add_file("template.html", &source);
     let file = db.get_or_create_file(Utf8Path::new("template.html"));
 
@@ -89,12 +99,12 @@ fn completion_labels(
 fn tag_completions_respect_load_position() {
     let before_load = completion_labels(
         "{% § %}\n{% load i18n %}",
-        tag_libraries(),
+        tag_libraries,
         TagSpecs::default(),
     );
     let mut after_load = completion_labels(
         "{% load i18n %}\n{% § %}",
-        tag_libraries(),
+        tag_libraries,
         TagSpecs::default(),
     );
     after_load.sort_unstable();
@@ -105,9 +115,11 @@ fn tag_completions_respect_load_position() {
 
 #[test]
 fn partial_tag_completions_use_known_libraries_not_raw_specs() {
-    let libraries = tag_libraries_with_knowledge(StaticKnowledge::Partial);
-
-    let labels = completion_labels("{% project§ %}", libraries, project_only_specs());
+    let labels = completion_labels(
+        "{% project§ %}",
+        |db| tag_libraries_with_knowledge(db, StaticKnowledge::Partial),
+        project_only_specs(),
+    );
 
     assert!(labels.is_empty());
 }
@@ -116,12 +128,12 @@ fn partial_tag_completions_use_known_libraries_not_raw_specs() {
 fn filter_completions_respect_load_position() {
     let before_load = completion_labels(
         "{{ value|tr§ }}\n{% load i18n %}",
-        filter_libraries(),
+        filter_libraries,
         TagSpecs::default(),
     );
     let after_load = completion_labels(
         "{% load i18n %}\n{{ value|tr§ }}",
-        filter_libraries(),
+        filter_libraries,
         TagSpecs::default(),
     );
 

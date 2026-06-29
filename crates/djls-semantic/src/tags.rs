@@ -42,7 +42,7 @@ pub fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
 
     let mut specs = builtin_tag_specs();
 
-    for library in template_libraries(db, project).resolved_active_libraries() {
+    for library in template_libraries(db, project).active_libraries() {
         let block_specs = extract_block_specs(db, library.file(), library.module_path().clone());
         if !block_specs.is_empty() {
             specs.merge_block_specs(block_specs);

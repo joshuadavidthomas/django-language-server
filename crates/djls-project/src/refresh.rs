@@ -65,7 +65,7 @@ impl RefreshPhase {
             ),
             Self::TemplateLibrarySources => RefreshDataPart::FilePaths(
                 template_libraries(db, project)
-                    .resolved_active_libraries()
+                    .active_libraries()
                     .map(|library| library.file().path(db).to_path_buf())
                     .collect(),
             ),

@@ -10,14 +10,14 @@ use djls_project::testing::StaticKnowledge;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
 use djls_testing::TestDatabase;
+use djls_testing::available_library_filter;
+use djls_testing::available_library_tag;
+use djls_testing::available_template_library;
 use djls_testing::builtin_filter;
 use djls_testing::builtin_tag;
 use djls_testing::collect_errors;
-use djls_testing::inactive_library_filter;
-use djls_testing::inactive_library_tag;
-use djls_testing::inactive_template_library;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_inactive_and_knowledge;
+use djls_testing::make_template_libraries_with_available_and_knowledge;
 use djls_testing::make_template_libraries_with_knowledge;
 
 fn default_builtins_module() -> &'static str {
@@ -28,14 +28,15 @@ fn default_filters_module() -> &'static str {
     "django.template.defaultfilters"
 }
 
-fn standard_inventory() -> TemplateLibraries {
-    standard_inventory_with_inactive(&[], &[], &[], StaticKnowledge::Known)
+fn standard_inventory(db: &TestDatabase) -> TemplateLibraries {
+    standard_inventory_with_available(db, &[], &[], &[], StaticKnowledge::Known)
 }
 
-fn standard_inventory_with_inactive(
-    inactive_libraries: &[djls_testing::InactiveTemplateLibraryFixture],
-    inactive_tags: &[serde_json::Value],
-    inactive_filters: &[serde_json::Value],
+fn standard_inventory_with_available(
+    db: &TestDatabase,
+    available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
+    available_tags: &[serde_json::Value],
+    available_filters: &[serde_json::Value],
     knowledge: StaticKnowledge,
 ) -> TemplateLibraries {
     let mut tags = vec![
@@ -49,7 +50,7 @@ fn standard_inventory_with_inactive(
         builtin_tag("with", default_builtins_module()),
         library_tag("trans", "i18n", "django.templatetags.i18n"),
     ];
-    tags.extend_from_slice(inactive_tags);
+    tags.extend_from_slice(available_tags);
 
     let mut filters = vec![
         builtin_filter("title", default_filters_module()),
@@ -58,7 +59,7 @@ fn standard_inventory_with_inactive(
         builtin_filter("truncatewords", default_filters_module()),
         builtin_filter("date", default_filters_module()),
     ];
-    filters.extend_from_slice(inactive_filters);
+    filters.extend_from_slice(available_filters);
 
     let mut libraries = HashMap::new();
     libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
@@ -66,12 +67,13 @@ fn standard_inventory_with_inactive(
         default_builtins_module().to_string(),
         default_filters_module().to_string(),
     ];
-    make_template_libraries_with_inactive_and_knowledge(
+    make_template_libraries_with_available_and_knowledge(
+        db,
         &tags,
         &filters,
         &libraries,
         &builtins,
-        inactive_libraries,
+        available_libraries,
         knowledge,
     )
 }
@@ -117,16 +119,15 @@ fn standard_arities() -> FilterAritySpecs {
 }
 
 fn standard_db() -> TestDatabase {
-    TestDatabase::new()
-        .with_template_libraries(standard_inventory())
-        .with_arity_specs(standard_arities())
+    let db = TestDatabase::new().with_arity_specs(standard_arities());
+    let libraries = standard_inventory(&db);
+    db.with_template_libraries(libraries)
 }
 
 fn partial_db() -> TestDatabase {
-    let libraries = standard_inventory_with_inactive(&[], &[], &[], StaticKnowledge::Partial);
-    TestDatabase::new()
-        .with_template_libraries(libraries)
-        .with_arity_specs(standard_arities())
+    let db = TestDatabase::new().with_arity_specs(standard_arities());
+    let libraries = standard_inventory_with_available(&db, &[], &[], &[], StaticKnowledge::Partial);
+    db.with_template_libraries(libraries)
 }
 
 fn partial_ambiguous_db() -> TestDatabase {
@@ -141,58 +142,68 @@ fn partial_ambiguous_db() -> TestDatabase {
         ("beta".to_string(), "project.beta_tags".to_string()),
     ]);
     let builtins = vec![default_builtins_module().to_string()];
+    let db = TestDatabase::new();
     let libraries = make_template_libraries_with_knowledge(
+        &db,
         &tags,
         &filters,
         &libraries,
         &builtins,
         StaticKnowledge::Partial,
     );
-    TestDatabase::new().with_template_libraries(libraries)
+    db.with_template_libraries(libraries)
 }
 
-fn db_with_inventory(template_libraries: TemplateLibraries) -> TestDatabase {
-    TestDatabase::new()
-        .with_template_libraries(template_libraries)
-        .with_arity_specs(standard_arities())
-}
-
-fn standard_db_with_inactive(
-    inactive_libraries: &[djls_testing::InactiveTemplateLibraryFixture],
-    inactive_tags: &[serde_json::Value],
-    inactive_filters: &[serde_json::Value],
+fn db_with_inventory(
+    build_inventory: impl FnOnce(&TestDatabase) -> TemplateLibraries,
 ) -> TestDatabase {
-    db_with_inventory(standard_inventory_with_inactive(
-        inactive_libraries,
-        inactive_tags,
-        inactive_filters,
-        StaticKnowledge::Known,
-    ))
+    let db = TestDatabase::new().with_arity_specs(standard_arities());
+    let template_libraries = build_inventory(&db);
+    db.with_template_libraries(template_libraries)
 }
 
-fn partial_db_with_inactive(
-    inactive_libraries: &[djls_testing::InactiveTemplateLibraryFixture],
-    inactive_tags: &[serde_json::Value],
-    inactive_filters: &[serde_json::Value],
+fn standard_db_with_available(
+    available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
+    available_tags: &[serde_json::Value],
+    available_filters: &[serde_json::Value],
 ) -> TestDatabase {
-    db_with_inventory(standard_inventory_with_inactive(
-        inactive_libraries,
-        inactive_tags,
-        inactive_filters,
-        StaticKnowledge::Partial,
-    ))
+    db_with_inventory(|db| {
+        standard_inventory_with_available(
+            db,
+            available_libraries,
+            available_tags,
+            available_filters,
+            StaticKnowledge::Known,
+        )
+    })
 }
 
-fn crispy_inactive_libraries() -> Vec<djls_testing::InactiveTemplateLibraryFixture> {
-    vec![inactive_template_library(
+fn partial_db_with_available(
+    available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
+    available_tags: &[serde_json::Value],
+    available_filters: &[serde_json::Value],
+) -> TestDatabase {
+    db_with_inventory(|db| {
+        standard_inventory_with_available(
+            db,
+            available_libraries,
+            available_tags,
+            available_filters,
+            StaticKnowledge::Partial,
+        )
+    })
+}
+
+fn crispy_available_libraries() -> Vec<djls_testing::AvailableTemplateLibraryFixture> {
+    vec![available_template_library(
         "crispy",
         "crispy",
         "crispy.templatetags.crispy",
     )]
 }
 
-fn crispy_inactive_tags() -> Vec<serde_json::Value> {
-    vec![inactive_library_tag(
+fn crispy_available_tags() -> Vec<serde_json::Value> {
+    vec![available_library_tag(
         "crispy_tag",
         "crispy",
         "crispy",
@@ -200,8 +211,8 @@ fn crispy_inactive_tags() -> Vec<serde_json::Value> {
     )]
 }
 
-fn crispy_inactive_filters() -> Vec<serde_json::Value> {
-    vec![inactive_library_filter(
+fn crispy_available_filters() -> Vec<serde_json::Value> {
+    vec![available_library_filter(
         "crispy_filter",
         "crispy",
         "crispy",
@@ -331,11 +342,11 @@ fn partial_knowledge_keeps_filter_arity_after_unrelated_unknown_selective_load()
 }
 
 #[test]
-fn unknown_load_name_with_inactive_candidate_reports_not_in_installed_apps() {
-    let db = standard_db_with_inactive(
-        &crispy_inactive_libraries(),
-        &crispy_inactive_tags(),
-        &crispy_inactive_filters(),
+fn unknown_load_name_with_available_candidate_reports_not_in_installed_apps() {
+    let db = standard_db_with_available(
+        &crispy_available_libraries(),
+        &crispy_available_tags(),
+        &crispy_available_filters(),
     );
     let errors = collect_all_errors(&db, "{% load crispy %}\n");
 
@@ -347,18 +358,18 @@ fn unknown_load_name_with_inactive_candidate_reports_not_in_installed_apps() {
                     && app == "crispy"
                     && candidates == &vec!["crispy".to_string()]
         )),
-        "inactive library should produce S121: {errors:?}"
+        "available library should produce S121: {errors:?}"
     );
     assert!(
         !errors
             .iter()
             .any(|error| matches!(error, ValidationError::UnknownLibrary { name, .. } if name == "crispy")),
-        "S121 should replace S120 when inactive evidence exists: {errors:?}"
+        "S121 should replace S120 when available evidence exists: {errors:?}"
     );
 }
 
 #[test]
-fn unknown_load_name_without_inactive_candidate_stays_unknown_library() {
+fn unknown_load_name_without_available_candidate_stays_unknown_library() {
     let db = standard_db();
     let errors = collect_all_errors(&db, "{% load missing_library %}\n");
 
@@ -372,11 +383,11 @@ fn unknown_load_name_without_inactive_candidate_stays_unknown_library() {
 }
 
 #[test]
-fn unknown_tag_with_inactive_candidate_reports_not_in_installed_apps() {
-    let db = standard_db_with_inactive(
-        &crispy_inactive_libraries(),
-        &crispy_inactive_tags(),
-        &crispy_inactive_filters(),
+fn unknown_tag_with_available_candidate_reports_not_in_installed_apps() {
+    let db = standard_db_with_available(
+        &crispy_available_libraries(),
+        &crispy_available_tags(),
+        &crispy_available_filters(),
     );
     let errors = collect_all_errors(&db, "{% crispy_tag %}\n");
 
@@ -386,18 +397,18 @@ fn unknown_tag_with_inactive_candidate_reports_not_in_installed_apps() {
             ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
                 if tag == "crispy_tag" && app == "crispy" && load_name == "crispy"
         )),
-        "inactive tag should produce S118 naming app and load name: {errors:?}"
+        "available tag should produce S118 naming app and load name: {errors:?}"
     );
     assert!(
         !errors.iter().any(
             |error| matches!(error, ValidationError::UnknownTag { tag, .. } if tag == "crispy_tag")
         ),
-        "S118 should replace S108 when inactive evidence exists: {errors:?}"
+        "S118 should replace S108 when available evidence exists: {errors:?}"
     );
 }
 
 #[test]
-fn unknown_tag_without_inactive_candidate_stays_unknown_tag() {
+fn unknown_tag_without_available_candidate_stays_unknown_tag() {
     let db = standard_db();
     let errors = collect_all_errors(&db, "{% definitely_unknown %}\n");
 
@@ -411,11 +422,11 @@ fn unknown_tag_without_inactive_candidate_stays_unknown_tag() {
 }
 
 #[test]
-fn unknown_filter_with_inactive_candidate_reports_not_in_installed_apps() {
-    let db = standard_db_with_inactive(
-        &crispy_inactive_libraries(),
-        &crispy_inactive_tags(),
-        &crispy_inactive_filters(),
+fn unknown_filter_with_available_candidate_reports_not_in_installed_apps() {
+    let db = standard_db_with_available(
+        &crispy_available_libraries(),
+        &crispy_available_tags(),
+        &crispy_available_filters(),
     );
     let errors = collect_all_errors(&db, "{{ value|crispy_filter }}\n");
 
@@ -425,19 +436,19 @@ fn unknown_filter_with_inactive_candidate_reports_not_in_installed_apps() {
             ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
                 if filter == "crispy_filter" && app == "crispy" && load_name == "crispy"
         )),
-        "inactive filter should produce S119: {errors:?}"
+        "available filter should produce S119: {errors:?}"
     );
 }
 
 #[test]
-fn active_unloaded_tag_wins_over_inactive_candidate() {
-    let db = standard_db_with_inactive(
-        &[inactive_template_library(
+fn active_unloaded_tag_wins_over_available_candidate() {
+    let db = standard_db_with_available(
+        &[available_template_library(
             "other_tags",
             "otherapp",
             "otherapp.templatetags.other_tags",
         )],
-        &[inactive_library_tag(
+        &[available_library_tag(
             "trans",
             "other_tags",
             "otherapp",
@@ -459,16 +470,16 @@ fn active_unloaded_tag_wins_over_inactive_candidate() {
         !errors
             .iter()
             .any(|error| matches!(error, ValidationError::TagNotInInstalledApps { tag, .. } if tag == "trans")),
-        "inactive candidates must not override active unloaded symbols: {errors:?}"
+        "available candidates must not override active unloaded symbols: {errors:?}"
     );
 }
 
 #[test]
-fn partial_knowledge_suppresses_inactive_absence_claim() {
-    let db = partial_db_with_inactive(
-        &crispy_inactive_libraries(),
-        &crispy_inactive_tags(),
-        &crispy_inactive_filters(),
+fn partial_knowledge_suppresses_available_absence_claim() {
+    let db = partial_db_with_available(
+        &crispy_available_libraries(),
+        &crispy_available_tags(),
+        &crispy_available_filters(),
     );
     let errors = collect_all_errors(&db, "{% load crispy %}\n");
 
@@ -484,11 +495,11 @@ fn partial_knowledge_suppresses_inactive_absence_claim() {
 }
 
 #[test]
-fn inactive_library_candidates_are_sorted_for_deterministic_s121() {
-    let db = standard_db_with_inactive(
+fn available_library_candidates_are_sorted_for_deterministic_s121() {
+    let db = standard_db_with_available(
         &[
-            inactive_template_library("shared", "beta", "beta.templatetags.shared"),
-            inactive_template_library("shared", "alpha", "alpha.templatetags.shared"),
+            available_template_library("shared", "beta", "beta.templatetags.shared"),
+            available_template_library("shared", "alpha", "alpha.templatetags.shared"),
         ],
         &[],
         &[],

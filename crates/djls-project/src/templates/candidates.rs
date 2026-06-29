@@ -11,6 +11,7 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::python::PythonModule;
 use crate::python::PythonModulePath;
 use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
@@ -19,7 +20,7 @@ use crate::templates::LibraryName;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TemplateTagDiscoveryMode {
     ActivePackage,
-    InactiveCandidate,
+    AvailableCandidate,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -45,6 +46,10 @@ impl TemplateTagCandidate {
 
     fn into_path(self) -> Utf8PathBuf {
         self.path
+    }
+
+    pub(crate) fn into_python_module(self) -> PythonModule {
+        PythonModule::new(self.module, self.path, self.file)
     }
 
     fn cmp_by_app_name_path(&self, other: &Self) -> Ordering {
@@ -103,14 +108,14 @@ pub(crate) fn templatetag_candidates(
     project: Project,
 ) -> Vec<TemplateTagCandidate> {
     project.touch_search_path_roots(db);
-    walk_candidates(db, project, TemplateTagDiscoveryMode::InactiveCandidate)
+    walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
 }
 
 pub(crate) fn refresh_templatetag_candidate_paths(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Vec<Utf8PathBuf> {
-    walk_candidates(db, project, TemplateTagDiscoveryMode::InactiveCandidate)
+    walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
         .into_iter()
         .map(TemplateTagCandidate::into_path)
         .collect()
@@ -336,7 +341,7 @@ fn recognize_candidate_source(
             };
             package_module.clone()
         }
-        TemplateTagDiscoveryMode::InactiveCandidate => {
+        TemplateTagDiscoveryMode::AvailableCandidate => {
             let Some(app_dir) = templatetags_dir.parent() else {
                 return CandidateSourceRecognition::NotCandidate;
             };
@@ -390,7 +395,7 @@ mod tests {
             Utf8Path::new("/root"),
             FileRootKind::Project,
             &[],
-            TemplateTagDiscoveryMode::InactiveCandidate,
+            TemplateTagDiscoveryMode::AvailableCandidate,
         );
 
         assert_eq!(discovered.len(), 1);
@@ -402,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn recognizer_modes_keep_active_and_inactive_package_shape_distinct() {
+    fn recognizer_modes_keep_active_and_available_package_shape_distinct() {
         let mut fs = InMemoryFileSystem::new();
         fs.add_file(
             "/root/namespace_app/templatetags/__init__.py".into(),
@@ -423,12 +428,12 @@ mod tests {
             TemplateTagDiscoveryMode::ActivePackage,
             Some(&package),
         );
-        let inactive = recognize_candidate_source(
+        let available = recognize_candidate_source(
             &fs,
             Utf8Path::new("/root"),
             path,
             &[],
-            TemplateTagDiscoveryMode::InactiveCandidate,
+            TemplateTagDiscoveryMode::AvailableCandidate,
             None,
         );
 
@@ -441,6 +446,9 @@ mod tests {
             candidate.module.as_str(),
             "namespace_app.templatetags.tools"
         );
-        assert!(matches!(inactive, CandidateSourceRecognition::NotCandidate));
+        assert!(matches!(
+            available,
+            CandidateSourceRecognition::NotCandidate
+        ));
     }
 }
