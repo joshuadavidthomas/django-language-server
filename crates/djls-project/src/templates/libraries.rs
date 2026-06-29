@@ -597,28 +597,23 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn knowledge(&self) -> StaticKnowledge {
+    pub(crate) fn knowledge(&self) -> StaticKnowledge {
         self.knowledge
     }
 
     #[must_use]
     pub fn has_symbol_inventory(&self) -> bool {
-        self.knowledge != StaticKnowledge::Unknown
+        self.knowledge() != StaticKnowledge::Unknown
     }
 
     #[must_use]
     pub fn inventory_is_complete(&self) -> bool {
-        self.knowledge == StaticKnowledge::Known
+        self.knowledge() == StaticKnowledge::Known
     }
 
     #[must_use]
     pub fn inventory_may_omit_loaded_symbols(&self) -> bool {
-        self.knowledge == StaticKnowledge::Partial
-    }
-
-    #[must_use]
-    pub fn should_report_unknown_symbols(&self) -> bool {
-        self.knowledge == StaticKnowledge::Known
+        self.knowledge() == StaticKnowledge::Partial
     }
 
     #[must_use]

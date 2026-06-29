@@ -7,7 +7,6 @@
 //! 6. Convert candidates into an LSP completion response using client/session facts.
 
 use djls_project::InstalledSymbolOrigin;
-use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolKind;
 use djls_semantic::AvailableSymbols;
@@ -436,7 +435,7 @@ pub fn completion(
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
 
-    let available_symbols = if template_libraries.knowledge() == StaticKnowledge::Unknown {
+    let available_symbols = if !template_libraries.has_symbol_inventory() {
         None
     } else {
         match &context {
@@ -549,7 +548,7 @@ fn generate_tag_name_candidates(
         }
     }
 
-    if template_libraries.knowledge() == StaticKnowledge::Unknown {
+    if !template_libraries.has_symbol_inventory() {
         for (name, spec) in tag_specs {
             if !name.starts_with(prefix.text) {
                 continue;
@@ -692,7 +691,7 @@ fn generate_load_symbol_candidates(
     needs_trailing_space: bool,
     template_libraries: &TemplateLibraries,
 ) -> Vec<CompletionCandidate> {
-    if !template_libraries.should_report_unknown_symbols() {
+    if !template_libraries.inventory_is_complete() {
         return Vec::new();
     }
 
@@ -722,7 +721,7 @@ fn generate_filter_candidates(
     template_libraries: &TemplateLibraries,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.should_report_unknown_symbols() {
+    if template_libraries.inventory_is_complete() {
         let mut candidates = Vec::new();
 
         for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter)
@@ -754,10 +753,8 @@ fn generate_filter_candidates(
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::collections::HashMap;
 
-    use djls_project::BuiltinLibrarySource;
-    use djls_project::LibraryName;
-    use djls_project::LoadableLibrarySource;
     use djls_project::PythonModulePath;
     use djls_project::SymbolDefinition;
     use djls_project::TemplateSymbol;
@@ -791,19 +788,11 @@ mod tests {
     }
 
     fn template_libraries(libraries: &[(&str, &str)]) -> TemplateLibraries {
-        let mut builder = TemplateLibraries::builder().knowledge(StaticKnowledge::Known);
-        for (name, module) in libraries {
-            let name = LibraryName::parse(name).unwrap();
-            let module = PythonModulePath::parse(module).unwrap();
-            builder = builder.loadable_untracked(
-                name,
-                LoadableLibrarySource::ConfiguredAlias,
-                module,
-                true,
-                Vec::new(),
-            );
-        }
-        builder.build()
+        let libraries = libraries
+            .iter()
+            .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
+            .collect::<HashMap<_, _>>();
+        djls_testing::make_template_libraries(&[], &[], &libraries, &[])
     }
 
     fn template_symbol(
@@ -821,53 +810,30 @@ mod tests {
     }
 
     fn filter_libraries() -> TemplateLibraries {
-        let library_name = LibraryName::parse("i18n").unwrap();
-        let module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
-        TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .loadable_untracked(
-                library_name,
-                LoadableLibrarySource::ConfiguredAlias,
-                module.clone(),
-                true,
-                vec![template_symbol(
-                    TemplateSymbolKind::Filter,
-                    "trans",
-                    &module,
-                    Some("Translate text."),
-                )],
-            )
-            .build()
+        let libraries = HashMap::from([(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        )]);
+        let mut filter =
+            djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
+        filter["doc"] = "Translate text.".into();
+
+        djls_testing::make_template_libraries(&[], &[filter], &libraries, &[])
     }
 
     fn tag_libraries() -> TemplateLibraries {
-        let builtin_module = PythonModulePath::parse("django.template.defaulttags").unwrap();
-        let i18n_name = LibraryName::parse("i18n").unwrap();
-        let i18n_module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
-        TemplateLibraries::builder()
-            .knowledge(StaticKnowledge::Known)
-            .builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                builtin_module.clone(),
-                true,
-                vec![template_symbol(
-                    TemplateSymbolKind::Tag,
-                    "if",
-                    &builtin_module,
-                    None,
-                )],
-            )
-            .loadable_untracked(
-                i18n_name,
-                LoadableLibrarySource::ConfiguredAlias,
-                i18n_module.clone(),
-                true,
-                vec![
-                    template_symbol(TemplateSymbolKind::Tag, "trans", &i18n_module, None),
-                    template_symbol(TemplateSymbolKind::Tag, "blocktrans", &i18n_module, None),
-                ],
-            )
-            .build()
+        let builtins = vec!["django.template.defaulttags".to_string()];
+        let libraries = HashMap::from([(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        )]);
+        let tags = vec![
+            djls_testing::builtin_tag("if", "django.template.defaulttags"),
+            djls_testing::library_tag("trans", "i18n", "django.templatetags.i18n"),
+            djls_testing::library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
+        ];
+
+        djls_testing::make_template_libraries(&tags, &[], &libraries, &builtins)
     }
 
     fn builtin_origin() -> InstalledSymbolOrigin {
