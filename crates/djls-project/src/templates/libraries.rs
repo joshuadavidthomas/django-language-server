@@ -51,7 +51,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     let (knowledge, discovered_libraries) = templatetag_package_libraries(db, project, "django");
     libraries.weaken_knowledge(knowledge);
     for (load_name, source, library) in discovered_libraries {
-        installed_template_library_modules.insert(library.module_path.clone());
+        if let Some(module_path) = library.module_path.as_python_module_path() {
+            installed_template_library_modules.insert(module_path.clone());
+        }
         libraries.insert_loadable(load_name, source, library);
     }
 
@@ -64,7 +66,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             );
             libraries.weaken_knowledge(knowledge);
             for (load_name, source, library) in discovered_libraries {
-                installed_template_library_modules.insert(library.module_path.clone());
+                if let Some(module_path) = library.module_path.as_python_module_path() {
+                    installed_template_library_modules.insert(module_path.clone());
+                }
                 libraries.insert_loadable(load_name, source, library);
             }
         }
@@ -86,27 +90,21 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             };
             let (knowledge, library) = library_from_module_path(db, project, module_path);
             libraries.weaken_knowledge(knowledge);
-            if let Some(library) = library {
-                let source = LoadableLibrarySource::ConfiguredAlias;
-                libraries.insert_loadable(load_name, source, library);
-            }
+            let source = LoadableLibrarySource::ConfiguredAlias;
+            libraries.insert_loadable(load_name, source, library);
         }
 
         for module_path in DEFAULT_TEMPLATE_BUILTINS.iter().copied() {
             let (knowledge, library) = library_from_module_path(db, project, module_path);
             libraries.weaken_knowledge(knowledge);
-            if let Some(library) = library {
-                libraries.push_builtin(BuiltinLibrarySource::DjangoDefault, library);
-            }
+            libraries.push_builtin(BuiltinLibrarySource::DjangoDefault, library);
         }
 
         for module_path in backend.builtins.iter().map(String::as_str) {
             let (knowledge, library) = library_from_module_path(db, project, module_path);
             libraries.weaken_knowledge(knowledge);
-            if let Some(library) = library {
-                let source = BuiltinLibrarySource::Configured;
-                libraries.push_builtin(source, library);
-            }
+            let source = BuiltinLibrarySource::Configured;
+            libraries.push_builtin(source, library);
         }
     }
 
@@ -139,7 +137,7 @@ fn templatetag_package_libraries(
         libraries.push((
             candidate.name,
             source.clone(),
-            AnalyzedTemplateLibrary::resolved(candidate.module, candidate.file, analysis),
+            AnalyzedTemplateLibrary::from_resolved_file(candidate.module, candidate.file, analysis),
         ));
     }
 
@@ -150,31 +148,34 @@ fn library_from_module_path(
     db: &dyn ProjectDb,
     project: Project,
     module_path: &str,
-) -> (StaticKnowledge, Option<AnalyzedTemplateLibrary>) {
+) -> (StaticKnowledge, AnalyzedTemplateLibrary) {
     let Ok(module) = PythonModulePath::parse(module_path) else {
-        return (StaticKnowledge::Partial, None);
+        return (
+            StaticKnowledge::Partial,
+            AnalyzedTemplateLibrary::invalid_module_path(module_path.to_string()),
+        );
     };
 
     if let Some(file) = module_file(db, project, module.as_str()) {
         let analysis = TemplateLibraryAnalysis::from_file(db, file);
         (
             StaticKnowledge::Known,
-            Some(AnalyzedTemplateLibrary::resolved(module, file, analysis)),
+            AnalyzedTemplateLibrary::from_resolved_file(module, file, analysis),
         )
     } else {
         (
             StaticKnowledge::Partial,
-            Some(AnalyzedTemplateLibrary::unresolved(
+            AnalyzedTemplateLibrary::unresolved(
                 module.clone(),
                 TemplateLibraryResolutionError::ModuleNotFound(module),
-            )),
+            ),
         )
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AnalyzedTemplateLibrary {
-    module_path: PythonModulePath,
+    module_path: TemplateLibraryModulePath,
     resolution: TemplateLibraryResolution,
     defines_library: bool,
     symbols: Vec<TemplateSymbol>,
@@ -184,20 +185,45 @@ impl AnalyzedTemplateLibrary {
     fn resolved(
         module_path: PythonModulePath,
         file: File,
-        analysis: TemplateLibraryAnalysis,
+        defines_library: bool,
+        symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self {
-            module_path,
-            resolution: TemplateLibraryResolution::Resolved(file),
-            defines_library: analysis.defines_library,
-            symbols: analysis.symbols,
+            module_path: TemplateLibraryModulePath::Valid(module_path),
+            resolution: resolved_template_library_resolution(file, defines_library, &symbols),
+            defines_library,
+            symbols,
         }
+    }
+
+    fn from_resolved_file(
+        module_path: PythonModulePath,
+        file: File,
+        analysis: TemplateLibraryAnalysis,
+    ) -> Self {
+        Self::resolved(
+            module_path,
+            file,
+            analysis.defines_library,
+            analysis.symbols,
+        )
     }
 
     fn unresolved(module_path: PythonModulePath, error: TemplateLibraryResolutionError) -> Self {
         Self {
-            module_path,
+            module_path: TemplateLibraryModulePath::Valid(module_path),
             resolution: TemplateLibraryResolution::Unresolved(error),
+            defines_library: false,
+            symbols: Vec::new(),
+        }
+    }
+
+    fn invalid_module_path(module_path: String) -> Self {
+        Self {
+            module_path: TemplateLibraryModulePath::Invalid(module_path.clone()),
+            resolution: TemplateLibraryResolution::Unresolved(
+                TemplateLibraryResolutionError::InvalidModulePath(module_path),
+            ),
             defines_library: false,
             symbols: Vec::new(),
         }
@@ -209,10 +235,46 @@ impl AnalyzedTemplateLibrary {
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
         Self {
-            module_path,
+            module_path: TemplateLibraryModulePath::Valid(module_path),
             resolution: TemplateLibraryResolution::Untracked,
             defines_library,
             symbols,
+        }
+    }
+}
+
+fn resolved_template_library_resolution(
+    file: File,
+    defines_library: bool,
+    symbols: &[TemplateSymbol],
+) -> TemplateLibraryResolution {
+    if defines_library || !symbols.is_empty() {
+        TemplateLibraryResolution::Resolved(file)
+    } else {
+        TemplateLibraryResolution::Unresolved(TemplateLibraryResolutionError::NotATemplateLibrary(
+            file,
+        ))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum TemplateLibraryModulePath {
+    Valid(PythonModulePath),
+    Invalid(String),
+}
+
+impl TemplateLibraryModulePath {
+    fn as_python_module_path(&self) -> Option<&PythonModulePath> {
+        match self {
+            Self::Valid(module_path) => Some(module_path),
+            Self::Invalid(_) => None,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Valid(module_path) => module_path.as_str(),
+            Self::Invalid(module_path) => module_path,
         }
     }
 }
@@ -225,15 +287,15 @@ pub struct TemplateLibraryId {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum TemplateLibraryIdKind {
-    Builtin(PythonModulePath),
+    Builtin(TemplateLibraryModulePath),
     Loadable {
         name: LibraryName,
-        module_path: PythonModulePath,
+        module_path: TemplateLibraryModulePath,
     },
     Inactive {
         name: LibraryName,
         app: PythonModulePath,
-        module_path: PythonModulePath,
+        module_path: TemplateLibraryModulePath,
     },
 }
 
@@ -315,7 +377,7 @@ impl fmt::Debug for TemplateLibraryResolutionError {
 pub struct TemplateLibrary {
     id: TemplateLibraryId,
     load_name: Option<LibraryName>,
-    module_path: PythonModulePath,
+    module_path: TemplateLibraryModulePath,
     status: TemplateLibraryStatus,
     resolution: TemplateLibraryResolution,
     defines_library: bool,
@@ -326,7 +388,7 @@ impl TemplateLibrary {
     fn new(
         id: TemplateLibraryId,
         load_name: Option<LibraryName>,
-        module_path: PythonModulePath,
+        module_path: TemplateLibraryModulePath,
         status: TemplateLibraryStatus,
         resolution: TemplateLibraryResolution,
         defines_library: bool,
@@ -354,8 +416,13 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn module_path(&self) -> &PythonModulePath {
-        &self.module_path
+    pub fn module_path(&self) -> Option<&PythonModulePath> {
+        self.module_path.as_python_module_path()
+    }
+
+    #[must_use]
+    pub fn module_path_str(&self) -> &str {
+        self.module_path.as_str()
     }
 
     #[must_use]
@@ -411,6 +478,7 @@ impl TemplateLibrary {
 pub struct ResolvedTemplateLibrary<'a> {
     library: &'a TemplateLibrary,
     file: File,
+    module_path: &'a PythonModulePath,
 }
 
 impl fmt::Debug for ResolvedTemplateLibrary<'_> {
@@ -435,7 +503,7 @@ impl<'a> ResolvedTemplateLibrary<'a> {
 
     #[must_use]
     pub fn module_path(&self) -> &PythonModulePath {
-        self.library.module_path()
+        self.module_path
     }
 }
 
@@ -542,7 +610,9 @@ impl TemplateLibraries {
         let mut modules = Vec::new();
 
         for (_name, library) in self.loadable_libraries() {
-            push_unique_module(&mut modules, library.module_path().clone());
+            if let Some(module_path) = library.module_path() {
+                push_unique_module(&mut modules, module_path.clone());
+            }
         }
 
         for module in self.builtin_modules() {
@@ -553,7 +623,8 @@ impl TemplateLibraries {
     }
 
     pub fn builtin_modules(&self) -> impl Iterator<Item = &PythonModulePath> + '_ {
-        self.builtin_libraries().map(TemplateLibrary::module_path)
+        self.builtin_libraries()
+            .filter_map(TemplateLibrary::module_path)
     }
 
     pub fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
@@ -645,7 +716,11 @@ impl TemplateLibraries {
             self.insert_inactive(
                 candidate.name,
                 candidate.app,
-                AnalyzedTemplateLibrary::resolved(candidate.module, candidate.file, analysis),
+                AnalyzedTemplateLibrary::from_resolved_file(
+                    candidate.module,
+                    candidate.file,
+                    analysis,
+                ),
             );
         }
 
@@ -654,7 +729,7 @@ impl TemplateLibraries {
 
     fn active_modules(&self) -> BTreeSet<PythonModulePath> {
         self.loadable_libraries()
-            .map(|(_name, library)| library.module_path().clone())
+            .filter_map(|(_name, library)| library.module_path().cloned())
             .chain(self.builtin_modules().cloned())
             .collect()
     }
@@ -725,13 +800,17 @@ impl TemplateLibraries {
                     continue;
                 }
 
+                let Some(module) = library.module_path() else {
+                    continue;
+                };
+
                 builtin_candidates.insert(
                     symbol.name.clone(),
                     InstalledSymbolCandidate {
                         symbol: symbol.clone(),
                         origin: InstalledSymbolOrigin::Builtin {
                             id: library.id().clone(),
-                            module: library.module_path().clone(),
+                            module: module.clone(),
                         },
                     },
                 );
@@ -774,7 +853,7 @@ impl TemplateLibraries {
     #[must_use]
     pub fn loadable_library_module(&self, name: &LibraryName) -> Option<&PythonModulePath> {
         self.loadable_library(name)
-            .map(TemplateLibrary::module_path)
+            .and_then(TemplateLibrary::module_path)
     }
 
     #[must_use]
@@ -843,7 +922,12 @@ impl TemplateLibraries {
         ids.into_iter().filter_map(|id| {
             let library = self.records.get(&id)?;
             let file = library.resolved_file()?;
-            Some(ResolvedTemplateLibrary { library, file })
+            let module_path = library.module_path()?;
+            Some(ResolvedTemplateLibrary {
+                library,
+                file,
+                module_path,
+            })
         })
     }
 }
@@ -872,12 +956,7 @@ impl TemplateLibrariesBuilder {
         self.libraries.insert_loadable(
             name,
             source,
-            AnalyzedTemplateLibrary {
-                module_path,
-                resolution: TemplateLibraryResolution::Resolved(file),
-                defines_library,
-                symbols,
-            },
+            AnalyzedTemplateLibrary::resolved(module_path, file, defines_library, symbols),
         );
         self
     }
@@ -926,12 +1005,7 @@ impl TemplateLibrariesBuilder {
     ) -> Self {
         self.libraries.push_builtin(
             source,
-            AnalyzedTemplateLibrary {
-                module_path,
-                resolution: TemplateLibraryResolution::Resolved(file),
-                defines_library,
-                symbols,
-            },
+            AnalyzedTemplateLibrary::resolved(module_path, file, defines_library, symbols),
         );
         self
     }
@@ -978,12 +1052,7 @@ impl TemplateLibrariesBuilder {
         self.libraries.insert_inactive(
             name,
             app,
-            AnalyzedTemplateLibrary {
-                module_path,
-                resolution: TemplateLibraryResolution::Resolved(file),
-                defines_library,
-                symbols,
-            },
+            AnalyzedTemplateLibrary::resolved(module_path, file, defines_library, symbols),
         );
         self
     }
@@ -1044,7 +1113,7 @@ fn cmp_inactive_libraries(left: &TemplateLibrary, right: &TemplateLibrary) -> Or
     left.inactive_app()
         .cmp(&right.inactive_app())
         .then_with(|| left.load_name().cmp(&right.load_name()))
-        .then_with(|| left.module_path().cmp(right.module_path()))
+        .then_with(|| left.module_path_str().cmp(right.module_path_str()))
 }
 
 fn same_inactive_library(left: &TemplateLibrary, right: &TemplateLibrary) -> bool {
@@ -1052,7 +1121,7 @@ fn same_inactive_library(left: &TemplateLibrary, right: &TemplateLibrary) -> boo
         return false;
     };
 
-    left_app == right_app && left.module_path() == right.module_path()
+    left_app == right_app && left.module_path_str() == right.module_path_str()
 }
 
 fn merge_symbols(symbols: Vec<TemplateSymbol>) -> Vec<TemplateSymbol> {
@@ -1114,7 +1183,7 @@ mod tests {
     }
 
     #[test]
-    fn builtin_candidates_keep_last_builtin_symbol() {
+    fn installed_symbol_candidates_keep_last_builtin_symbol() {
         let a_second = module("a_second");
         let libraries = TemplateLibraries::builder()
             .knowledge(StaticKnowledge::Known)
@@ -1148,6 +1217,45 @@ mod tests {
             &candidates[0].origin,
             InstalledSymbolOrigin::Builtin { module, .. } if module == &a_second
         ));
+    }
+
+    #[test]
+    fn builtin_libraries_retain_duplicate_modules_in_order() {
+        let libraries = TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .builtin_untracked(
+                BuiltinLibrarySource::DjangoDefault,
+                module("django.template.defaulttags"),
+                true,
+                Vec::new(),
+            )
+            .builtin_untracked(
+                BuiltinLibrarySource::Configured,
+                module("project.builtins"),
+                true,
+                Vec::new(),
+            )
+            .builtin_untracked(
+                BuiltinLibrarySource::Configured,
+                module("django.template.defaulttags"),
+                true,
+                Vec::new(),
+            )
+            .build();
+
+        let modules: Vec<_> = libraries
+            .builtin_libraries()
+            .map(TemplateLibrary::module_path_str)
+            .collect();
+
+        assert_eq!(
+            modules,
+            vec![
+                "django.template.defaulttags",
+                "project.builtins",
+                "django.template.defaulttags",
+            ]
+        );
     }
 
     #[test]
