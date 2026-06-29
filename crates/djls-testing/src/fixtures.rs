@@ -8,6 +8,7 @@ use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::ArgumentCountConstraint;
 use djls_project::ChoiceAt;
+use djls_project::Db as ProjectDb;
 use djls_project::ExtractedDiagnosticConstraint;
 use djls_project::ExtractedDiagnosticMessage;
 use djls_project::ExtractedMessageTemplate;
@@ -27,10 +28,8 @@ use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
 use djls_project::testing;
-use djls_project::testing::BuiltinInput;
-use djls_project::testing::InactiveInput;
-use djls_project::testing::LoadableInput;
 use djls_project::testing::StaticKnowledge;
+use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -98,19 +97,19 @@ pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InactiveTemplateLibraryFixture {
+pub struct AvailableTemplateLibraryFixture {
     load_name: String,
     app: String,
     module: String,
 }
 
 #[must_use]
-pub fn inactive_template_library(
+pub fn available_template_library(
     load_name: &str,
     app: &str,
     module: &str,
-) -> InactiveTemplateLibraryFixture {
-    InactiveTemplateLibraryFixture {
+) -> AvailableTemplateLibraryFixture {
+    AvailableTemplateLibraryFixture {
         load_name: load_name.to_string(),
         app: app.to_string(),
         module: module.to_string(),
@@ -118,7 +117,7 @@ pub fn inactive_template_library(
 }
 
 #[must_use]
-pub fn inactive_library_tag(
+pub fn available_library_tag(
     name: &str,
     load_name: &str,
     app: &str,
@@ -128,7 +127,7 @@ pub fn inactive_library_tag(
         "kind": "tag",
         "name": name,
         "load_name": load_name,
-        "inactive_app": app,
+        "available_app": app,
         "library_module": module,
         "module": module,
         "doc": null,
@@ -136,7 +135,7 @@ pub fn inactive_library_tag(
 }
 
 #[must_use]
-pub fn inactive_library_filter(
+pub fn available_library_filter(
     name: &str,
     load_name: &str,
     app: &str,
@@ -146,7 +145,7 @@ pub fn inactive_library_filter(
         "kind": "filter",
         "name": name,
         "load_name": load_name,
-        "inactive_app": app,
+        "available_app": app,
         "library_module": module,
         "module": module,
         "doc": null,
@@ -160,7 +159,7 @@ struct TemplateSymbolFixture {
     #[serde(default)]
     load_name: Option<String>,
     #[serde(default)]
-    inactive_app: Option<String>,
+    available_app: Option<String>,
     library_module: String,
     module: String,
     #[serde(default)]
@@ -173,12 +172,14 @@ struct TemplateSymbolFixture {
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
 pub fn make_template_libraries(
+    db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
     make_template_libraries_with_knowledge(
+        db,
         tags,
         filters,
         libraries,
@@ -193,13 +194,15 @@ pub fn make_template_libraries(
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
 pub fn make_template_libraries_with_knowledge(
+    db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
     knowledge: StaticKnowledge,
 ) -> TemplateLibraries {
-    make_template_libraries_with_inactive_and_knowledge(
+    make_template_libraries_with_available_and_knowledge(
+        db,
         tags,
         filters,
         libraries,
@@ -209,22 +212,23 @@ pub fn make_template_libraries_with_knowledge(
     )
 }
 
-/// Build Template Library facts from JSON fixture rows plus inactive libraries with explicit knowledge.
+/// Build Template Library facts from JSON fixture rows plus available libraries with explicit knowledge.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_inactive_and_knowledge(
+pub fn make_template_libraries_with_available_and_knowledge(
+    db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-    inactive_libraries: &[InactiveTemplateLibraryFixture],
+    available_libraries: &[AvailableTemplateLibraryFixture],
     knowledge: StaticKnowledge,
 ) -> TemplateLibraries {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
-    let mut loadable_symbols = loadable_symbol_buckets(libraries);
-    let mut inactive_symbols = inactive_symbol_buckets(inactive_libraries);
+    let mut installed_symbols = installed_symbol_buckets(libraries);
+    let mut available_symbols = available_symbol_buckets(available_libraries);
 
     for fixture in tags
         .iter()
@@ -237,39 +241,43 @@ pub fn make_template_libraries_with_inactive_and_knowledge(
         add_fixture_symbol(
             fixture,
             &mut builtin_symbols,
-            &mut loadable_symbols,
-            &mut inactive_symbols,
+            &mut installed_symbols,
+            &mut available_symbols,
         );
     }
 
-    let builtins = builtin_symbols
-        .into_iter()
-        .map(|(module, symbols)| BuiltinInput { module, symbols })
-        .collect();
-    let loadables = loadable_symbols
-        .into_iter()
-        .map(|(load_name, (module, symbols))| LoadableInput {
-            load_name,
-            module,
-            symbols,
-        })
-        .collect();
-    let inactives = inactive_symbols
-        .into_iter()
-        .map(|((load_name, app, module), symbols)| InactiveInput {
+    let mut library_inputs = Vec::new();
+    library_inputs.extend(
+        builtin_symbols
+            .into_iter()
+            .map(|(module, symbols)| TemplateLibraryInput::Builtin { module, symbols }),
+    );
+    library_inputs.extend(
+        installed_symbols
+            .into_iter()
+            .map(
+                |(load_name, (module, symbols))| TemplateLibraryInput::Installed {
+                    load_name,
+                    module,
+                    symbols,
+                },
+            ),
+    );
+    library_inputs.extend(available_symbols.into_iter().map(
+        |((load_name, app, module), symbols)| TemplateLibraryInput::Available {
             load_name,
             app,
             module,
             symbols,
-        })
-        .collect();
+        },
+    ));
 
-    testing::template_libraries(knowledge, builtins, loadables, inactives)
+    testing::template_libraries(db, knowledge, library_inputs)
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModulePath, Vec<TemplateSymbol>)>;
-type LoadableSymbolBuckets = BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)>;
-type InactiveSymbolBuckets =
+type InstalledLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)>;
+type AvailableSymbolBuckets =
     BTreeMap<(LibraryName, PythonModulePath, PythonModulePath), Vec<TemplateSymbol>>;
 
 fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
@@ -280,9 +288,9 @@ fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
         .collect()
 }
 
-fn loadable_symbol_buckets(
+fn installed_symbol_buckets(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-) -> LoadableSymbolBuckets {
+) -> InstalledLibrarySymbolBuckets {
     let mut buckets = BTreeMap::new();
     for (load_name, module_name) in libraries {
         let Ok(load_name) = LibraryName::parse(load_name) else {
@@ -296,11 +304,11 @@ fn loadable_symbol_buckets(
     buckets
 }
 
-fn inactive_symbol_buckets(
-    inactive_libraries: &[InactiveTemplateLibraryFixture],
-) -> InactiveSymbolBuckets {
+fn available_symbol_buckets(
+    available_libraries: &[AvailableTemplateLibraryFixture],
+) -> AvailableSymbolBuckets {
     let mut buckets = BTreeMap::new();
-    for library in inactive_libraries {
+    for library in available_libraries {
         let Ok(load_name) = LibraryName::parse(&library.load_name) else {
             continue;
         };
@@ -318,14 +326,14 @@ fn inactive_symbol_buckets(
 fn add_fixture_symbol(
     fixture: TemplateSymbolFixture,
     builtin_symbols: &mut BuiltinSymbolBuckets,
-    loadable_symbols: &mut LoadableSymbolBuckets,
-    inactive_symbols: &mut InactiveSymbolBuckets,
+    installed_symbols: &mut InstalledLibrarySymbolBuckets,
+    available_symbols: &mut AvailableSymbolBuckets,
 ) {
     let TemplateSymbolFixture {
         kind,
         name,
         load_name,
-        inactive_app,
+        available_app,
         library_module,
         module,
         doc,
@@ -342,13 +350,13 @@ fn add_fixture_symbol(
         doc,
     };
 
-    match (load_name, inactive_app) {
+    match (load_name, available_app) {
         (None, _) => add_builtin_symbol(builtin_symbols, &library_module, &symbol),
         (Some(load_name), Some(app)) => {
-            add_inactive_symbol(inactive_symbols, &load_name, &app, &library_module, symbol);
+            add_available_symbol(available_symbols, &load_name, &app, &library_module, symbol);
         }
         (Some(load_name), None) => {
-            add_loadable_symbol(loadable_symbols, &load_name, &library_module, symbol);
+            add_installed_symbol(installed_symbols, &load_name, &library_module, symbol);
         }
     }
 }
@@ -368,8 +376,8 @@ fn add_builtin_symbol(
     }
 }
 
-fn add_loadable_symbol(
-    buckets: &mut LoadableSymbolBuckets,
+fn add_installed_symbol(
+    buckets: &mut InstalledLibrarySymbolBuckets,
     load_name: &str,
     module_name: &str,
     symbol: TemplateSymbol,
@@ -388,8 +396,8 @@ fn add_loadable_symbol(
     }
 }
 
-fn add_inactive_symbol(
-    buckets: &mut InactiveSymbolBuckets,
+fn add_available_symbol(
+    buckets: &mut AvailableSymbolBuckets,
     load_name: &str,
     app: &str,
     module_name: &str,
@@ -678,10 +686,11 @@ pub fn snapshot_validate_file(path: &str, source: &str) -> String {
 /// here when a scenario needs them.
 #[must_use]
 pub fn standard_validation_db() -> TestDatabase {
-    TestDatabase::new()
+    let db = TestDatabase::new()
         .with_specs(standard_tag_specs())
-        .with_template_libraries(standard_template_libraries())
-        .with_arity_specs(standard_filter_arities())
+        .with_arity_specs(standard_filter_arities());
+    let template_libraries = standard_template_libraries(&db);
+    db.with_template_libraries(template_libraries)
 }
 
 fn standard_tag_specs() -> TagSpecs {
@@ -876,7 +885,7 @@ fn choice_message(
     }
 }
 
-fn standard_template_libraries() -> TemplateLibraries {
+fn standard_template_libraries(db: &dyn ProjectDb) -> TemplateLibraries {
     let tags = vec![
         builtin_tag("autoescape", default_builtins_module()),
         builtin_tag("block", default_loader_tags_module()),
@@ -962,7 +971,7 @@ fn standard_template_libraries() -> TemplateLibraries {
         "example.templatetags.custom".to_string(),
     ];
 
-    make_template_libraries(&tags, &filters, &libraries, &builtins)
+    make_template_libraries(db, &tags, &filters, &libraries, &builtins)
 }
 
 fn standard_filter_arities() -> FilterAritySpecs {

@@ -41,13 +41,10 @@ pub use templates::ExtractedMessageTemplate;
 pub use templates::FilterArity;
 pub use templates::FilterArityMap;
 pub use templates::FindTemplateResult;
-pub use templates::InstalledSymbolCandidate;
-pub use templates::InstalledSymbolOrigin;
 pub use templates::InvalidTemplateIdentifier;
 pub use templates::KnownOptions;
 pub use templates::LibraryName;
 pub use templates::RequiredKeyword;
-pub use templates::ResolvedTemplateLibrary;
 pub use templates::SplitPosition;
 pub use templates::SymbolDefinition;
 pub use templates::SymbolKey;
@@ -58,11 +55,12 @@ pub use templates::TagRuleMap;
 pub use templates::TemplateDoesNotExist;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
-pub use templates::TemplateLibraryId;
 pub use templates::TemplateName;
 pub use templates::TemplateOrigin;
 pub use templates::TemplateResolution;
 pub use templates::TemplateSymbol;
+pub use templates::TemplateSymbolAvailability;
+pub use templates::TemplateSymbolCandidate;
 pub use templates::TemplateSymbolKind;
 pub use templates::TemplateSymbolName;
 pub use templates::TriedTemplateSource;
@@ -77,78 +75,79 @@ pub use templates::template_resolution;
 // Test and benchmark support only; not part of the stable Project Facts façade.
 #[doc(hidden)]
 pub mod testing {
+    use camino::Utf8PathBuf;
+
     pub use crate::models::extract_model_graph;
     pub use crate::refresh::compute_refresh;
     pub use crate::resolve::model_modules;
     pub use crate::settings::types::StaticKnowledge;
-    use crate::templates::BuiltinLibraryPart;
-    use crate::templates::BuiltinLibrarySource;
-    use crate::templates::InactiveLibraryPart;
-    use crate::templates::LoadableLibraryPart;
-    use crate::templates::LoadableLibrarySource;
-    pub use crate::templates::libraries::TemplateLibraryResolution;
-    pub use crate::templates::libraries::TemplateLibraryResolutionError;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct BuiltinInput {
-        pub module: super::PythonModulePath,
-        pub symbols: Vec<super::TemplateSymbol>,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct LoadableInput {
-        pub load_name: super::LibraryName,
-        pub module: super::PythonModulePath,
-        pub symbols: Vec<super::TemplateSymbol>,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct InactiveInput {
-        pub load_name: super::LibraryName,
-        pub app: super::PythonModulePath,
-        pub module: super::PythonModulePath,
-        pub symbols: Vec<super::TemplateSymbol>,
-    }
-
-    #[must_use]
-    pub fn library_resolution(library: &super::TemplateLibrary) -> &TemplateLibraryResolution {
-        library.resolution()
+    pub enum TemplateLibraryInput {
+        Builtin {
+            module: super::PythonModulePath,
+            symbols: Vec<super::TemplateSymbol>,
+        },
+        Installed {
+            load_name: super::LibraryName,
+            module: super::PythonModulePath,
+            symbols: Vec<super::TemplateSymbol>,
+        },
+        Available {
+            load_name: super::LibraryName,
+            app: super::PythonModulePath,
+            module: super::PythonModulePath,
+            symbols: Vec<super::TemplateSymbol>,
+        },
     }
 
     #[must_use]
     pub fn template_libraries(
+        db: &dyn super::Db,
         knowledge: StaticKnowledge,
-        builtins: Vec<BuiltinInput>,
-        loadables: Vec<LoadableInput>,
-        inactives: Vec<InactiveInput>,
+        inputs: Vec<TemplateLibraryInput>,
     ) -> super::TemplateLibraries {
-        let builtins = builtins
+        let libraries = inputs
             .into_iter()
-            .map(|input| BuiltinLibraryPart {
-                module: input.module,
-                source: BuiltinLibrarySource::DjangoDefault,
-                symbols: input.symbols,
-            })
-            .collect();
-        let loadables = loadables
-            .into_iter()
-            .map(|input| LoadableLibraryPart {
-                load_name: input.load_name,
-                module: input.module,
-                source: LoadableLibrarySource::ConfiguredAlias,
-                symbols: input.symbols,
-            })
-            .collect();
-        let inactives = inactives
-            .into_iter()
-            .map(|input| InactiveLibraryPart {
-                load_name: input.load_name,
-                app: input.app,
-                module: input.module,
-                symbols: input.symbols,
+            .map(|input| match input {
+                TemplateLibraryInput::Builtin { module, symbols } => {
+                    super::TemplateLibrary::builtin(testing_module(db, module), symbols)
+                }
+                TemplateLibraryInput::Installed {
+                    load_name,
+                    module,
+                    symbols,
+                } => super::TemplateLibrary::installed(
+                    load_name,
+                    testing_module(db, module),
+                    symbols,
+                ),
+                TemplateLibraryInput::Available {
+                    load_name,
+                    app,
+                    module,
+                    symbols,
+                } => super::TemplateLibrary::available(
+                    load_name,
+                    app,
+                    testing_module(db, module),
+                    symbols,
+                ),
             })
             .collect();
 
-        super::TemplateLibraries::from_parts(knowledge, builtins, loadables, inactives)
+        super::TemplateLibraries::from_libraries(knowledge, libraries)
+    }
+
+    fn testing_module(
+        db: &dyn super::Db,
+        module_path: super::PythonModulePath,
+    ) -> super::PythonModule {
+        let path = Utf8PathBuf::from(format!(
+            "/__djls_testing__/{}.py",
+            module_path.as_str().replace('.', "/")
+        ));
+        let file = db.get_or_create_file(&path);
+        super::PythonModule::new(module_path, path, file)
     }
 }

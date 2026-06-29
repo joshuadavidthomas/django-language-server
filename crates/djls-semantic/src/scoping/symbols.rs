@@ -1,6 +1,6 @@
-use djls_project::InstalledSymbolOrigin;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -20,7 +20,7 @@ pub enum SymbolAvailability {
     /// all candidate library names, sorted alphabetically.
     AmbiguousUnloaded { libraries: Vec<String> },
     /// The symbol is completely unknown — not builtin and not in any known
-    /// loadable library.
+    /// installed library.
     Unknown,
 }
 
@@ -93,17 +93,17 @@ impl SymbolScope {
     }
 }
 
-fn insert_installed_symbol_candidates(
+fn insert_template_symbol_candidates(
     scope: &mut SymbolScope,
     template_libraries: &TemplateLibraries,
     kind: TemplateSymbolKind,
 ) {
-    for candidate in template_libraries.installed_symbol_candidates(kind) {
-        match &candidate.origin {
-            InstalledSymbolOrigin::Builtin { .. } => {
+    for candidate in template_libraries.template_symbol_candidates(kind) {
+        match &candidate.availability {
+            TemplateSymbolAvailability::Builtin { module: _ } => {
                 scope.insert_available(candidate.symbol.name.as_str());
             }
-            InstalledSymbolOrigin::Loadable { load_name, .. } => {
+            TemplateSymbolAvailability::RequiresLoad { load_name } => {
                 scope.insert_candidate(candidate.symbol.name.as_str(), load_name.as_str());
             }
         }
@@ -125,8 +125,8 @@ impl AvailableSymbols {
         let mut tags = SymbolScope::default();
         let mut filters = SymbolScope::default();
 
-        insert_installed_symbol_candidates(&mut tags, template_libraries, TemplateSymbolKind::Tag);
-        insert_installed_symbol_candidates(
+        insert_template_symbol_candidates(&mut tags, template_libraries, TemplateSymbolKind::Tag);
+        insert_template_symbol_candidates(
             &mut filters,
             template_libraries,
             TemplateSymbolKind::Filter,
@@ -282,7 +282,8 @@ mod tests {
             .map(|(load_name, module)| (load_name.clone(), module.clone()))
             .collect::<HashMap<_, _>>();
 
-        djls_testing::make_template_libraries(tags, filters, &libraries, builtins)
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, tags, filters, &libraries, builtins)
     }
 
     fn make_template_libraries_tags_only(

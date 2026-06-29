@@ -220,6 +220,26 @@ pub(crate) struct ImportParts<'a> {
     pub importer: &'a Utf8Path,
 }
 
+pub(crate) fn python_module(
+    db: &dyn ProjectDb,
+    project: Project,
+    module_path: PythonModulePath,
+) -> Option<PythonModule> {
+    project.touch_search_path_roots(db);
+
+    for search_path in project.search_paths(db).iter() {
+        let Some(path) =
+            module_file_in_search_path(db.file_system(), module_path.as_str(), search_path.path())
+        else {
+            continue;
+        };
+        let file = db.get_or_create_file(&path);
+        return Some(PythonModule::new(module_path, path, file));
+    }
+
+    None
+}
+
 pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
     project.touch_search_path_roots(db);
 

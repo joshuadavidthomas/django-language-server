@@ -279,13 +279,10 @@ fn template_libraries_tolerate_unregistered_search_paths() {
     );
 
     let libraries = template_libraries(&db, project);
-    let resolved: Vec<_> = libraries.resolved_active_libraries().collect();
+    let active: Vec<_> = libraries.active_libraries().collect();
 
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(
-        resolved[0].module_path().as_str(),
-        "django.templatetags.i18n"
-    );
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].module_path().as_str(), "django.templatetags.i18n");
 }
 
 #[test]
@@ -315,14 +312,11 @@ fn template_library_resolution_uses_project_venv_site_packages_root() {
     );
 
     let libraries = template_libraries(&db, project);
-    let resolved: Vec<_> = libraries.resolved_active_libraries().collect();
+    let active: Vec<_> = libraries.active_libraries().collect();
 
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(
-        resolved[0].module_path().as_str(),
-        "django.templatetags.i18n"
-    );
-    let root = db.files().expect_root(&db, resolved[0].file().path(&db));
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].module_path().as_str(), "django.templatetags.i18n");
+    let root = db.files().expect_root(&db, active[0].file().path(&db));
     assert_eq!(root.kind(&db), FileRootKind::SearchPath);
 }
 
@@ -358,17 +352,17 @@ fn template_library_resolution_prefers_first_party_module_shadowing_dependency()
     );
 
     let libraries = template_libraries(&db, project);
-    let resolved: Vec<_> = libraries.resolved_active_libraries().collect();
+    let active: Vec<_> = libraries.active_libraries().collect();
 
-    assert_eq!(resolved.len(), 1);
+    assert_eq!(active.len(), 1);
     assert_eq!(
-        resolved[0].file().path(&db),
+        active[0].file().path(&db),
         Utf8Path::new("/project/django/templatetags/i18n.py")
     );
 }
 
 #[test]
-fn resolved_active_template_libraries_preserve_builtin_order_across_roots() {
+fn active_template_libraries_preserve_builtin_order_across_roots() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/a/templatetags/tags.py",
@@ -395,7 +389,7 @@ fn resolved_active_template_libraries_preserve_builtin_order_across_roots() {
 
     let libraries = template_libraries(&db, project);
     let module_paths: Vec<_> = libraries
-        .resolved_active_libraries()
+        .active_libraries()
         .map(|library| library.module_path().as_str().to_string())
         .collect();
 
@@ -406,10 +400,10 @@ fn resolved_active_template_libraries_preserve_builtin_order_across_roots() {
 }
 
 #[test]
-fn resolved_active_template_libraries_yield_loadables_before_builtins() {
+fn active_template_libraries_yield_installed_before_builtins() {
     let mut db = TestDatabase::new();
     db.add_file(
-        "/project/loadable_tags.py",
+        "/project/installed_tags.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom():\n    pass\n",
     );
     db.add_file(
@@ -428,16 +422,16 @@ fn resolved_active_template_libraries_yield_loadables_before_builtins() {
         &mut db,
         "/project",
         search_paths,
-        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'loadable_tags'}, 'builtins': ['builtin_tags']}}]\n",
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'installed_tags'}, 'builtins': ['builtin_tags']}}]\n",
     );
 
     let libraries = template_libraries(&db, project);
     let module_paths: Vec<_> = libraries
-        .resolved_active_libraries()
+        .active_libraries()
         .map(|library| library.module_path().as_str().to_string())
         .collect();
 
-    assert_eq!(module_paths, vec!["loadable_tags", "builtin_tags"]);
+    assert_eq!(module_paths, vec!["installed_tags", "builtin_tags"]);
 }
 
 #[test]
@@ -482,7 +476,7 @@ def duplicate(value, arg):
 
     let libraries = template_libraries(&db, project);
     let module_paths: Vec<_> = libraries
-        .resolved_active_libraries()
+        .active_libraries()
         .map(|library| library.module_path().as_str().to_string())
         .collect();
 

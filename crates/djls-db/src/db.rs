@@ -969,7 +969,7 @@ def my_filter(value, arg):
     fn assert_custom_library_module(db: &DjangoDatabase, module_path: &str) {
         assert_eq!(
             db.template_libraries()
-                .loadable_library_str("custom")
+                .installed_library_str("custom")
                 .unwrap()
                 .module_path_str(),
             module_path
@@ -1092,7 +1092,7 @@ def my_filter(value, arg):
 
         assert!(
             db.template_libraries()
-                .loadable_library_str("custom")
+                .installed_library_str("custom")
                 .is_none()
         );
         let extra_file = djls_source::Db::get_or_create_file(&db, &extra_settings_path);
@@ -1236,7 +1236,7 @@ def my_filter(value, arg):
 
         let libraries = db.template_libraries();
         let custom = libraries
-            .loadable_library_str("custom")
+            .installed_library_str("custom")
             .expect("custom library should be derived");
         assert_eq!(custom.module_path_str(), "blog.templatetags.custom");
         assert!(
@@ -1292,7 +1292,7 @@ def my_filter(value, arg):
         db.project = Some(project);
 
         let libraries = db.template_libraries();
-        let custom = libraries.loadable_library_str("custom").unwrap();
+        let custom = libraries.installed_library_str("custom").unwrap();
         assert!(
             custom
                 .symbols()
@@ -1309,7 +1309,7 @@ def my_filter(value, arg):
         db.bump_file_revision(tag_file);
 
         let libraries = db.template_libraries();
-        let custom = libraries.loadable_library_str("custom").unwrap();
+        let custom = libraries.installed_library_str("custom").unwrap();
         assert!(
             custom
                 .symbols()
