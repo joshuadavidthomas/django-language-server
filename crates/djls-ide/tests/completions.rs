@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use camino::Utf8Path;
 use djls_ide::completion;
-use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
+use djls_project::testing::StaticKnowledge;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_source::Offset;
@@ -26,33 +26,17 @@ fn tag_libraries_with_knowledge(knowledge: StaticKnowledge) -> TemplateLibraries
         library_tag("trans", "i18n", "django.templatetags.i18n"),
         library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
     ];
-    let libraries = HashMap::from([(
-        "i18n".to_string(),
-        "django.templatetags.i18n".to_string(),
-    )]);
+    let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
     let builtins = vec!["django.template.defaulttags".to_string()];
 
     make_template_libraries_with_knowledge(&tags, &[], &libraries, &builtins, knowledge)
 }
 
 fn filter_libraries() -> TemplateLibraries {
-    let filters = vec![library_filter(
-        "trans",
-        "i18n",
-        "django.templatetags.i18n",
-    )];
-    let libraries = HashMap::from([(
-        "i18n".to_string(),
-        "django.templatetags.i18n".to_string(),
-    )]);
+    let filters = vec![library_filter("trans", "i18n", "django.templatetags.i18n")];
+    let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
 
-    make_template_libraries_with_knowledge(
-        &[],
-        &filters,
-        &libraries,
-        &[],
-        StaticKnowledge::Known,
-    )
+    make_template_libraries_with_knowledge(&[], &filters, &libraries, &[], StaticKnowledge::Known)
 }
 
 fn project_only_specs() -> TagSpecs {

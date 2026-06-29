@@ -125,11 +125,7 @@ impl AvailableSymbols {
         let mut tags = SymbolScope::default();
         let mut filters = SymbolScope::default();
 
-        insert_installed_symbol_candidates(
-            &mut tags,
-            template_libraries,
-            TemplateSymbolKind::Tag,
-        );
+        insert_installed_symbol_candidates(&mut tags, template_libraries, TemplateSymbolKind::Tag);
         insert_installed_symbol_candidates(
             &mut filters,
             template_libraries,

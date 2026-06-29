@@ -29,12 +29,10 @@ pub use refresh::refresh_tasks;
 pub use resolve::SearchPath;
 pub use resolve::SearchPaths;
 pub use resolve::model_modules;
-pub use settings::StaticKnowledge;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
 pub use templates::BlockSpec;
 pub use templates::BlockSpecs;
-pub use templates::BuiltinLibrarySource;
 pub use templates::ChoiceAt;
 pub use templates::ExtractedDiagnosticConstraint;
 pub use templates::ExtractedDiagnosticMessage;
@@ -43,13 +41,11 @@ pub use templates::ExtractedMessageTemplate;
 pub use templates::FilterArity;
 pub use templates::FilterArityMap;
 pub use templates::FindTemplateResult;
-pub use templates::InactiveTemplateLibrarySource;
 pub use templates::InstalledSymbolCandidate;
 pub use templates::InstalledSymbolOrigin;
 pub use templates::InvalidTemplateIdentifier;
 pub use templates::KnownOptions;
 pub use templates::LibraryName;
-pub use templates::LoadableLibrarySource;
 pub use templates::RequiredKeyword;
 pub use templates::ResolvedTemplateLibrary;
 pub use templates::SplitPosition;
@@ -63,9 +59,6 @@ pub use templates::TemplateDoesNotExist;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateLibraryId;
-pub use templates::TemplateLibraryResolution;
-pub use templates::TemplateLibraryResolutionError;
-pub use templates::TemplateLibraryStatus;
 pub use templates::TemplateName;
 pub use templates::TemplateOrigin;
 pub use templates::TemplateResolution;
@@ -87,13 +80,14 @@ pub mod testing {
     pub use crate::models::extract_model_graph;
     pub use crate::refresh::compute_refresh;
     pub use crate::resolve::model_modules;
-    pub use crate::settings::StaticKnowledge;
-
+    pub use crate::settings::types::StaticKnowledge;
     use crate::templates::BuiltinLibraryPart;
     use crate::templates::BuiltinLibrarySource;
     use crate::templates::InactiveLibraryPart;
     use crate::templates::LoadableLibraryPart;
     use crate::templates::LoadableLibrarySource;
+    pub use crate::templates::libraries::TemplateLibraryResolution;
+    pub use crate::templates::libraries::TemplateLibraryResolutionError;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct BuiltinInput {
@@ -114,6 +108,11 @@ pub mod testing {
         pub app: super::PythonModulePath,
         pub module: super::PythonModulePath,
         pub symbols: Vec<super::TemplateSymbol>,
+    }
+
+    #[must_use]
+    pub fn library_resolution(library: &super::TemplateLibrary) -> &TemplateLibraryResolution {
+        library.resolution()
     }
 
     #[must_use]

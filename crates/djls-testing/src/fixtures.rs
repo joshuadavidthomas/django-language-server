@@ -209,28 +209,6 @@ pub fn make_template_libraries_with_knowledge(
     )
 }
 
-/// Build Template Library facts from JSON fixture rows plus inactive libraries.
-///
-/// # Panics
-///
-/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_inactive(
-    tags: &[serde_json::Value],
-    filters: &[serde_json::Value],
-    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
-    builtins: &[String],
-    inactive_libraries: &[InactiveTemplateLibraryFixture],
-) -> TemplateLibraries {
-    make_template_libraries_with_inactive_and_knowledge(
-        tags,
-        filters,
-        libraries,
-        builtins,
-        inactive_libraries,
-        StaticKnowledge::Known,
-    )
-}
-
 /// Build Template Library facts from JSON fixture rows plus inactive libraries with explicit knowledge.
 ///
 /// # Panics

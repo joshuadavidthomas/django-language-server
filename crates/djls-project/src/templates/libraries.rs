@@ -300,26 +300,26 @@ enum TemplateLibraryIdKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TemplateLibraryStatus {
+pub(crate) enum TemplateLibraryStatus {
     Builtin(BuiltinLibrarySource),
     Loadable(LoadableLibrarySource),
     Inactive(InactiveTemplateLibrarySource),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BuiltinLibrarySource {
+pub(crate) enum BuiltinLibrarySource {
     DjangoDefault,
     Configured,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LoadableLibrarySource {
+pub(crate) enum LoadableLibrarySource {
     InstalledApp(PythonModulePath),
     ConfiguredAlias,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InactiveTemplateLibrarySource {
+pub(crate) struct InactiveTemplateLibrarySource {
     app: PythonModulePath,
 }
 
@@ -406,7 +406,7 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn id(&self) -> &TemplateLibraryId {
+    fn id(&self) -> &TemplateLibraryId {
         &self.id
     }
 
@@ -426,17 +426,12 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn status(&self) -> &TemplateLibraryStatus {
-        &self.status
-    }
-
-    #[must_use]
-    pub fn resolution(&self) -> &TemplateLibraryResolution {
+    pub(crate) fn resolution(&self) -> &TemplateLibraryResolution {
         &self.resolution
     }
 
     #[must_use]
-    pub fn resolved_file(&self) -> Option<File> {
+    fn resolved_file(&self) -> Option<File> {
         match self.resolution {
             TemplateLibraryResolution::Resolved(file) => Some(file),
             TemplateLibraryResolution::Untracked | TemplateLibraryResolution::Unresolved(_) => None,
@@ -444,29 +439,12 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn defines_library(&self) -> bool {
-        self.defines_library
-    }
-
-    #[must_use]
     pub fn symbols(&self) -> &[TemplateSymbol] {
         &self.symbols
     }
 
-    pub fn tags(&self) -> impl Iterator<Item = &TemplateSymbol> + '_ {
-        self.symbols
-            .iter()
-            .filter(|symbol| symbol.kind == TemplateSymbolKind::Tag)
-    }
-
-    pub fn filters(&self) -> impl Iterator<Item = &TemplateSymbol> + '_ {
-        self.symbols
-            .iter()
-            .filter(|symbol| symbol.kind == TemplateSymbolKind::Filter)
-    }
-
     #[must_use]
-    pub fn inactive_app(&self) -> Option<&PythonModulePath> {
+    fn inactive_app(&self) -> Option<&PythonModulePath> {
         match &self.status {
             TemplateLibraryStatus::Inactive(source) => Some(source.app()),
             TemplateLibraryStatus::Builtin(_) | TemplateLibraryStatus::Loadable(_) => None,
@@ -647,7 +625,7 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub(crate) fn knowledge(&self) -> StaticKnowledge {
+    fn knowledge(&self) -> StaticKnowledge {
         self.knowledge
     }
 
@@ -666,21 +644,12 @@ impl TemplateLibraries {
         self.knowledge() == StaticKnowledge::Partial
     }
 
-    #[must_use]
-    pub fn get(&self, id: &TemplateLibraryId) -> Option<&TemplateLibrary> {
-        self.records.get(id)
-    }
-
-    pub fn records(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
-        self.records.values()
-    }
-
-    pub fn builtin_modules(&self) -> impl Iterator<Item = &PythonModulePath> + '_ {
+    fn builtin_modules(&self) -> impl Iterator<Item = &PythonModulePath> + '_ {
         self.builtin_libraries()
             .filter_map(TemplateLibrary::module_path)
     }
 
-    pub(crate) fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+    fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
         self.builtin_order
             .iter()
             .filter_map(|id| self.records.get(id))
@@ -704,9 +673,7 @@ impl TemplateLibraries {
         names
     }
 
-    pub(crate) fn loadable_libraries(
-        &self,
-    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
+    fn loadable_libraries(&self) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.loadable_by_name
             .iter()
             .filter_map(|(name, id)| self.records.get(id).map(|library| (name, library)))
@@ -915,17 +882,17 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub(crate) fn is_loadable(&self, name: &LibraryName) -> bool {
+    fn is_loadable(&self, name: &LibraryName) -> bool {
         self.loadable_by_name.contains_key(name)
     }
 
     #[must_use]
-    pub(crate) fn is_loadable_str(&self, name: &str) -> bool {
+    fn is_loadable_str(&self, name: &str) -> bool {
         LibraryName::parse(name).is_ok_and(|name| self.is_loadable(&name))
     }
 
     #[must_use]
-    pub(crate) fn inactive_library_candidates(&self, name: &LibraryName) -> Vec<&TemplateLibrary> {
+    fn inactive_library_candidates(&self, name: &LibraryName) -> Vec<&TemplateLibrary> {
         self.inactive_by_name
             .get(name)
             .into_iter()
@@ -935,12 +902,12 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub(crate) fn inactive_tag_candidates(&self, tag: &str) -> Vec<&TemplateLibrary> {
+    fn inactive_tag_candidates(&self, tag: &str) -> Vec<&TemplateLibrary> {
         self.inactive_symbol_candidates(tag, TemplateSymbolKind::Tag)
     }
 
     #[must_use]
-    pub(crate) fn inactive_filter_candidates(&self, filter: &str) -> Vec<&TemplateLibrary> {
+    fn inactive_filter_candidates(&self, filter: &str) -> Vec<&TemplateLibrary> {
         self.inactive_symbol_candidates(filter, TemplateSymbolKind::Filter)
     }
 
@@ -974,18 +941,12 @@ impl TemplateLibraries {
         let Some(first) = candidates.first() else {
             return UnknownLibraryOutcome::TrulyUnknown;
         };
-        let primary_app = first
-            .inactive_app()
-            .expect("inactive candidates should carry an app")
-            .clone();
+        let Some(primary_app) = first.inactive_app().cloned() else {
+            return UnknownLibraryOutcome::TrulyUnknown;
+        };
         let mut apps: Vec<_> = candidates
             .iter()
-            .map(|candidate| {
-                candidate
-                    .inactive_app()
-                    .expect("inactive candidates should carry an app")
-                    .clone()
-            })
+            .filter_map(|candidate| candidate.inactive_app().cloned())
             .collect();
         apps.dedup();
 
