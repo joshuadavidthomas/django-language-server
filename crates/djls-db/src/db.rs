@@ -963,8 +963,7 @@ def my_filter(value, arg):
             db.template_libraries()
                 .loadable_library_str("custom")
                 .unwrap()
-                .module_path()
-                .as_str(),
+                .module_path_str(),
             module_path
         );
     }
@@ -1231,7 +1230,7 @@ def my_filter(value, arg):
         let custom = libraries
             .loadable_library_str("custom")
             .expect("custom library should be derived");
-        assert_eq!(custom.module_path().as_str(), "blog.templatetags.custom");
+        assert_eq!(custom.module_path_str(), "blog.templatetags.custom");
         assert!(
             custom
                 .symbols()

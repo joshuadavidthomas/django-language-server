@@ -50,7 +50,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",
-                    library.module_path().as_str()
+                    library.module_path_str()
                 ),
                 span,
             ))
