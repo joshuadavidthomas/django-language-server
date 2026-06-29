@@ -221,14 +221,8 @@ impl SymbolIndex {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::HashMap;
 
-    use djls_project::BuiltinLibrarySource;
-    use djls_project::LibraryName;
-    use djls_project::LoadableLibrarySource;
-    use djls_project::PythonModulePath;
-    use djls_project::SymbolDefinition;
-    use djls_project::TemplateSymbolName;
     use djls_source::Span;
 
     use super::super::LoadKind;
@@ -281,107 +275,18 @@ mod tests {
         })
     }
 
-    #[derive(serde::Deserialize)]
-    struct TemplateSymbolFixture {
-        kind: TemplateSymbolKind,
-        name: String,
-        #[serde(default)]
-        load_name: Option<String>,
-        library_module: String,
-        module: String,
-        #[serde(default)]
-        doc: Option<String>,
-    }
-
     fn make_template_libraries(
         tags: &[serde_json::Value],
         filters: &[serde_json::Value],
         libraries: &FxHashMap<String, String>,
         builtins: &[String],
     ) -> TemplateLibraries {
-        let mut builtin_symbols: BTreeMap<PythonModulePath, Vec<TemplateSymbol>> = BTreeMap::new();
-        for module_name in builtins {
-            let Ok(module) = PythonModulePath::parse(module_name) else {
-                continue;
-            };
-            builtin_symbols.entry(module).or_default();
-        }
+        let libraries = libraries
+            .iter()
+            .map(|(load_name, module)| (load_name.clone(), module.clone()))
+            .collect::<HashMap<_, _>>();
 
-        let mut loadable_symbols: BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)> =
-            BTreeMap::new();
-        for (load_name, module_name) in libraries {
-            let Ok(load_name) = LibraryName::parse(load_name) else {
-                continue;
-            };
-            let Ok(module) = PythonModulePath::parse(module_name) else {
-                continue;
-            };
-            loadable_symbols.insert(load_name, (module, Vec::new()));
-        }
-
-        let symbols = tags.iter().chain(filters.iter()).cloned();
-        for fixture in symbols
-            .map(serde_json::from_value)
-            .collect::<Result<Vec<TemplateSymbolFixture>, _>>()
-            .unwrap()
-        {
-            let Ok(name) = TemplateSymbolName::parse(&fixture.name) else {
-                continue;
-            };
-            let definition = PythonModulePath::parse(&fixture.module)
-                .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
-            let symbol = TemplateSymbol {
-                kind: fixture.kind,
-                name,
-                definition,
-                doc: fixture.doc,
-            };
-
-            match fixture.load_name {
-                None => {
-                    let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
-                        continue;
-                    };
-                    if let Some(symbols) = builtin_symbols.get_mut(&module) {
-                        symbols.push(symbol);
-                    }
-                }
-                Some(load_name) => {
-                    let Ok(load_name) = LibraryName::parse(&load_name) else {
-                        continue;
-                    };
-                    let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
-                        continue;
-                    };
-                    let entry = loadable_symbols
-                        .entry(load_name)
-                        .or_insert_with(|| (module.clone(), Vec::new()));
-                    if entry.0 == module {
-                        entry.1.push(symbol);
-                    }
-                }
-            }
-        }
-
-        let mut builder = TemplateLibraries::builder();
-        for (module, symbols) in builtin_symbols {
-            builder = builder.builtin_untracked(
-                BuiltinLibrarySource::DjangoDefault,
-                module,
-                true,
-                symbols,
-            );
-        }
-        for (load_name, (module, symbols)) in loadable_symbols {
-            builder = builder.loadable_untracked(
-                load_name,
-                LoadableLibrarySource::ConfiguredAlias,
-                module,
-                true,
-                symbols,
-            );
-        }
-        builder.build()
+        djls_testing::make_template_libraries(tags, filters, &libraries, builtins)
     }
 
     fn make_template_libraries_tags_only(

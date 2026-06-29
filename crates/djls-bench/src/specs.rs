@@ -1,11 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use djls_project::BuiltinLibrarySource;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::LibraryName;
-use djls_project::LoadableLibrarySource;
 use djls_project::PythonModulePath;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
@@ -160,57 +157,39 @@ fn build_filter_arities(
 }
 
 fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
-    let mut builtin_symbols: Vec<(PythonModulePath, Vec<TemplateSymbol>)> = Vec::new();
-    for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
-        let module = PythonModulePath::parse(module_name).unwrap();
-        builtin_symbols.push((module, Vec::new()));
-    }
-
-    let mut loadable_symbols: BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)> =
-        BTreeMap::new();
-    for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
-        let load_name = LibraryName::parse(load_name).unwrap();
-        let module = PythonModulePath::parse(module_name).unwrap();
-        loadable_symbols.insert(load_name, (module, Vec::new()));
-    }
+    let mut tags = Vec::new();
+    let mut filters = Vec::new();
 
     for bench_symbol in symbols {
-        match bench_symbol.load_name {
-            None => {
-                let module = PythonModulePath::parse(bench_symbol.module).unwrap();
-                for (builtin_module, symbols) in &mut builtin_symbols {
-                    if builtin_module == &module {
-                        symbols.push(bench_symbol.symbol.clone());
-                    }
-                }
+        let symbol_name = bench_symbol.symbol.name();
+        let value = match (bench_symbol.symbol.kind, bench_symbol.load_name) {
+            (TemplateSymbolKind::Tag, None) => {
+                djls_testing::builtin_tag(symbol_name, bench_symbol.module)
             }
-            Some(load_name) => {
-                let load_name = LibraryName::parse(load_name).unwrap();
-                let module = PythonModulePath::parse(bench_symbol.module).unwrap();
-                if let Some((library_module, symbols)) = loadable_symbols.get_mut(&load_name)
-                    && library_module == &module
-                {
-                    symbols.push(bench_symbol.symbol);
-                }
+            (TemplateSymbolKind::Tag, Some(load_name)) => {
+                djls_testing::library_tag(symbol_name, load_name, bench_symbol.module)
             }
+            (TemplateSymbolKind::Filter, None) => {
+                djls_testing::builtin_filter(symbol_name, bench_symbol.module)
+            }
+            (TemplateSymbolKind::Filter, Some(load_name)) => {
+                djls_testing::library_filter(symbol_name, load_name, bench_symbol.module)
+            }
+        };
+
+        match bench_symbol.symbol.kind {
+            TemplateSymbolKind::Tag => tags.push(value),
+            TemplateSymbolKind::Filter => filters.push(value),
         }
     }
 
-    let mut builder = TemplateLibraries::builder().knowledge(djls_project::StaticKnowledge::Known);
-    for (module, symbols) in builtin_symbols {
-        builder =
-            builder.builtin_untracked(BuiltinLibrarySource::DjangoDefault, module, true, symbols);
-    }
-    for (load_name, (module, symbols)) in loadable_symbols {
-        builder = builder.loadable_untracked(
-            load_name,
-            LoadableLibrarySource::ConfiguredAlias,
-            module,
-            true,
-            symbols,
-        );
-    }
-    builder.build()
+    let libraries = HashMap::from([
+        ("i18n".to_string(), I18N.to_string()),
+        ("static".to_string(), STATIC.to_string()),
+    ]);
+    let builtins = vec![DEFAULTTAGS.to_string(), DEFAULTFILTERS.to_string()];
+
+    djls_testing::make_template_libraries(&tags, &filters, &libraries, &builtins)
 }
 
 fn build_realistic_specs() -> RealisticSpecs {
