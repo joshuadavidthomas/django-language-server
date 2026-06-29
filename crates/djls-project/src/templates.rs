@@ -14,7 +14,7 @@ pub use filters::FilterArity;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;
 pub use libraries::BuiltinLibrarySource;
-pub use libraries::InactiveLibrarySource;
+pub use libraries::InactiveTemplateLibrarySource;
 pub use libraries::InstalledSymbolCandidate;
 pub use libraries::InstalledSymbolOrigin;
 pub use libraries::LoadableLibrarySource;
