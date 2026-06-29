@@ -4,9 +4,9 @@ use std::fmt::Write;
 
 use camino::Utf8PathBuf;
 use djls_project::FilterArity;
-use djls_project::StaticKnowledge;
 use djls_project::SymbolKey;
 use djls_project::TemplateLibraries;
+use djls_project::testing::StaticKnowledge;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
 use djls_testing::TestDatabase;
