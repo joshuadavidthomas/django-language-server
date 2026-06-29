@@ -6,10 +6,7 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
-use djls_project::testing::TemplateLibraryResolution;
-use djls_project::testing::TemplateLibraryResolutionError;
 use djls_project::testing::compute_refresh;
-use djls_project::testing::library_resolution;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
@@ -50,14 +47,9 @@ fn library_name(name: &str) -> LibraryName {
 
 fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
     libraries
-        .resolved_active_libraries()
-        .filter_map(|library| {
-            library
-                .library()
-                .load_name()
-                .is_none()
-                .then(|| library.module_path().as_str().to_string())
-        })
+        .active_libraries()
+        .filter(|&library| library.load_name().is_none())
+        .map(|library| library.module_path().as_str().to_string())
         .collect()
 }
 
@@ -512,7 +504,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 
     assert!(libraries.inventory_is_complete());
     let custom = libraries
-        .loadable_library_str("custom")
+        .installed_library_str("custom")
         .expect("custom library should be discovered");
     assert_eq!(custom.module_path_str(), "blog.templatetags.custom");
     assert!(
@@ -553,7 +545,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
     let libraries = template_libraries(&db, project);
 
     let custom = libraries
-        .loadable_library_str("custom")
+        .installed_library_str("custom")
         .expect("namespace package templatetag should be discovered");
     assert_eq!(custom.module_path_str(), "nsapp.templatetags.custom");
     assert!(
@@ -597,13 +589,13 @@ fn template_libraries_include_empty_registered_modules() {
 
     let libraries = template_libraries(&db, project);
 
-    let empty = libraries.loadable_library_str("empty").unwrap();
+    let empty = libraries.installed_library_str("empty").unwrap();
     assert_eq!(empty.module_path_str(), "blog.templatetags.empty");
     assert!(empty.symbols().is_empty());
 }
 
 #[test]
-fn template_libraries_collect_inactive_uninstalled_templatetags() {
+fn template_libraries_collect_available_uninstalled_templatetags() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -642,10 +634,10 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
 
     let libraries = template_libraries(&db, project);
 
-    let UnknownLibraryOutcome::InInactiveApps { primary_app, apps } =
+    let UnknownLibraryOutcome::AvailableInApps { primary_app, apps } =
         libraries.unknown_library_outcome(&library_name("crispy"))
     else {
-        panic!("crispy should be reported as an inactive-app library candidate");
+        panic!("crispy should be reported as an available-app library candidate");
     };
     assert_eq!(primary_app.as_str(), "crispy");
     assert_eq!(
@@ -655,18 +647,18 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
         vec!["crispy"]
     );
 
-    let UnknownSymbolOutcome::InInactiveApp { app, load_name } =
+    let UnknownSymbolOutcome::Available { app, load_name } =
         libraries.unknown_tag_outcome("crispy_tag")
     else {
-        panic!("crispy_tag should be reported as an inactive-app tag candidate");
+        panic!("crispy_tag should be reported as an available-app tag candidate");
     };
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
 
-    let UnknownSymbolOutcome::InInactiveApp { app, load_name } =
+    let UnknownSymbolOutcome::Available { app, load_name } =
         libraries.unknown_filter_outcome("crispy_filter")
     else {
-        panic!("crispy_filter should be reported as an inactive-app filter candidate");
+        panic!("crispy_filter should be reported as an available-app filter candidate");
     };
     assert_eq!(app.as_str(), "crispy");
     assert_eq!(load_name.as_str(), "crispy");
@@ -674,12 +666,12 @@ fn template_libraries_collect_inactive_uninstalled_templatetags() {
     assert_eq!(
         libraries.unknown_library_outcome(&library_name("myapp_tags")),
         UnknownLibraryOutcome::Suppressed,
-        "installed app libraries must be subtracted from inactive candidates"
+        "installed app libraries must be subtracted from available candidates"
     );
 }
 
 #[test]
-fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump() {
+fn template_libraries_available_candidates_rerun_after_search_root_revision_bump() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -730,12 +722,12 @@ fn template_libraries_inactive_candidates_rerun_after_search_root_revision_bump(
 
     assert!(matches!(
         libraries.unknown_library_outcome(&library_name("crispy")),
-        UnknownLibraryOutcome::InInactiveApps { .. }
+        UnknownLibraryOutcome::AvailableInApps { .. }
     ));
 }
 
 #[test]
-fn project_refresh_updates_inactive_template_library_symbols() {
+fn project_refresh_updates_available_template_library_symbols() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -785,7 +777,7 @@ fn project_refresh_updates_inactive_template_library_symbols() {
 
     assert!(matches!(
         template_libraries(&db, project).unknown_tag_outcome("new_tag"),
-        UnknownSymbolOutcome::InInactiveApp { .. }
+        UnknownSymbolOutcome::Available { .. }
     ));
 }
 
@@ -842,7 +834,7 @@ fn template_libraries_include_options_libraries_and_builtins() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").unwrap();
+    let custom = libraries.installed_library_str("custom").unwrap();
     assert_eq!(custom.module_path_str(), "custom_tags");
     assert!(
         custom
@@ -852,13 +844,13 @@ fn template_libraries_include_options_libraries_and_builtins() {
     );
     assert!(
         libraries
-            .installed_symbol_candidates(TemplateSymbolKind::Filter)
+            .template_symbol_candidates(TemplateSymbolKind::Filter)
             .iter()
             .any(|candidate| {
                 candidate.symbol.name() == "configured_filter"
                     && matches!(
-                        &candidate.origin,
-                        InstalledSymbolOrigin::Builtin { module, .. }
+                        &candidate.availability,
+                        TemplateSymbolAvailability::Builtin { module }
                             if module.as_str() == "custom_builtin"
                     )
             })
@@ -898,7 +890,7 @@ fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
     let libraries = template_libraries(&db, project);
 
     assert!(libraries.inventory_may_omit_loaded_symbols());
-    let custom = libraries.loadable_library_str("custom").unwrap();
+    let custom = libraries.installed_library_str("custom").unwrap();
     assert_eq!(custom.module_path_str(), "project_tags");
     assert!(
         custom
@@ -945,7 +937,7 @@ fn template_libraries_options_override_app_library_load_name() {
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").unwrap();
+    let custom = libraries.installed_library_str("custom").unwrap();
     assert_eq!(custom.module_path_str(), "project_tags");
     assert!(
         custom
@@ -962,12 +954,12 @@ fn template_libraries_options_override_app_library_load_name() {
     assert_eq!(
         libraries.unknown_tag_outcome("old_tag"),
         UnknownSymbolOutcome::TrulyUnknown,
-        "a configured alias can shadow an installed app library without making that app inactive"
+        "a configured alias can shadow an installed app library without making that app available"
     );
 }
 
 #[test]
-fn template_libraries_keep_invalid_configured_alias_as_unresolved_record() {
+fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -981,21 +973,29 @@ fn template_libraries_keep_invalid_configured_alias_as_unresolved_record() {
     let libraries = template_libraries(&db, project);
 
     assert!(libraries.inventory_may_omit_loaded_symbols());
-    let broken = libraries.loadable_library_str("broken").unwrap();
-    assert_eq!(broken.load_name().unwrap().as_str(), "broken");
-    assert_eq!(broken.module_path_str(), "bad-module");
-    assert!(broken.module_path().is_none());
-    assert!(matches!(
-        library_resolution(broken),
-        TemplateLibraryResolution::Unresolved(
-            TemplateLibraryResolutionError::InvalidModulePath(path)
-        ) if path == "bad-module"
-    ));
-    assert!(broken.symbols().is_empty());
+    assert!(libraries.installed_library_str("broken").is_none());
 }
 
 #[test]
-fn template_libraries_keep_configured_non_library_module_as_unresolved_record() {
+fn template_libraries_omit_missing_configured_alias_and_demote_knowledge() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[(
+            "/proj/myproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'missing': 'missing_tags'}}}]\n",
+        )],
+    );
+
+    let libraries = template_libraries(&db, project);
+
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+    assert!(libraries.installed_library_str("missing").is_none());
+}
+
+#[test]
+fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -1011,15 +1011,40 @@ fn template_libraries_keep_configured_non_library_module_as_unresolved_record() 
 
     let libraries = template_libraries(&db, project);
 
-    let custom = libraries.loadable_library_str("custom").unwrap();
-    assert_eq!(custom.module_path_str(), "not_a_library");
-    assert!(matches!(
-        library_resolution(custom),
-        TemplateLibraryResolution::Unresolved(TemplateLibraryResolutionError::NotATemplateLibrary(
-            _
-        ))
-    ));
-    assert!(custom.symbols().is_empty());
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+    assert!(libraries.installed_library_str("custom").is_none());
+}
+
+#[test]
+fn template_libraries_active_libraries_include_only_resolved_libraries() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/good_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef good():\n    pass\n",
+            ),
+            ("/proj/not_a_library.py", "VALUE = 1\n"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'good': 'good_tags', 'missing': 'missing_tags', 'invalid': 'bad-module'}, 'builtins': ['not_a_library']}}]\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+    let active_modules: Vec<_> = libraries
+        .active_libraries()
+        .map(|library| library.module_path_str().to_string())
+        .collect();
+
+    assert_eq!(active_modules, vec!["good_tags"]);
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+    assert!(libraries.installed_library_str("good").is_some());
+    assert!(libraries.installed_library_str("missing").is_none());
+    assert!(libraries.installed_library_str("invalid").is_none());
 }
 
 #[test]
@@ -1106,7 +1131,7 @@ fn django_facts_golden_template_libraries_match() {
         .completion_library_names()
         .into_iter()
         .filter_map(|name| {
-            let library = libraries.loadable_library(&name)?;
+            let library = libraries.installed_library(&name)?;
             Some((
                 name.as_str().to_string(),
                 library.module_path_str().to_string(),
@@ -1125,8 +1150,7 @@ fn django_facts_golden_template_libraries_match() {
 fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol> {
     let mut symbols = Vec::new();
 
-    for resolved in libraries.resolved_active_libraries() {
-        let library = resolved.library();
+    for library in libraries.active_libraries() {
         let load_name = library.load_name().map(|name| name.as_str().to_string());
 
         for symbol in library.symbols() {

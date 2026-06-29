@@ -32,7 +32,7 @@ pub(crate) fn check_tag_scoping_rule(
         SymbolAvailability::Available => {}
         SymbolAvailability::Unknown => match template_libraries.unknown_tag_outcome(name) {
             UnknownSymbolOutcome::Suppressed => {}
-            UnknownSymbolOutcome::InInactiveApp { app, load_name } => {
+            UnknownSymbolOutcome::Available { app, load_name } => {
                 ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
                     tag: name.to_string(),
                     app: app.as_str().to_string(),
@@ -84,7 +84,7 @@ pub(crate) fn check_filter_scoping_rule(
         SymbolAvailability::Unknown => {
             match template_libraries.unknown_filter_outcome(&filter.name) {
                 UnknownSymbolOutcome::Suppressed => {}
-                UnknownSymbolOutcome::InInactiveApp { app, load_name } => {
+                UnknownSymbolOutcome::Available { app, load_name } => {
                     ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
                         filter: filter.name.clone(),
                         app: app.as_str().to_string(),
@@ -149,7 +149,7 @@ pub(crate) fn check_load_libraries_rule(
 
         match template_libraries.unknown_library_outcome(&load_name) {
             UnknownLibraryOutcome::Suppressed => {}
-            UnknownLibraryOutcome::InInactiveApps { primary_app, apps } => {
+            UnknownLibraryOutcome::AvailableInApps { primary_app, apps } => {
                 let candidates = apps
                     .into_iter()
                     .map(|app| app.as_str().to_string())

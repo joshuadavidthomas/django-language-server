@@ -1,7 +1,7 @@
 use djls_project::FindTemplateResult;
-use djls_project::InstalledSymbolCandidate;
-use djls_project::InstalledSymbolOrigin;
 use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbolAvailability;
+use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
@@ -46,7 +46,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             Some((sections.join("\n---\n"), span))
         }
         SemanticOffsetContext::LoadLibrary { name, span } => {
-            let library = db.template_libraries().loadable_library_str(&name)?;
+            let library = db.template_libraries().installed_library_str(&name)?;
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",
@@ -100,18 +100,18 @@ fn render_symbol_hover(
 
     let candidates: Vec<_> = kinds
         .iter()
-        .flat_map(|kind| libraries.installed_symbol_candidates(*kind))
+        .flat_map(|kind| libraries.template_symbol_candidates(*kind))
         .filter(|candidate| candidate.symbol.name() == name)
         .collect();
 
     if !candidates.is_empty() {
-        return render_installed_symbol_hover(&candidates);
+        return render_template_symbol_hover(&candidates);
     }
 
     None
 }
 
-fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
+fn render_template_symbol_hover(candidates: &[TemplateSymbolCandidate]) -> Option<String> {
     let candidate = candidates
         .iter()
         .find(|candidate| {
@@ -141,9 +141,9 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
     sections.extend(
         candidates
             .iter()
-            .filter_map(|candidate| match &candidate.origin {
-                InstalledSymbolOrigin::Builtin { .. } => None,
-                InstalledSymbolOrigin::Loadable { load_name, .. } => {
+            .filter_map(|candidate| match &candidate.availability {
+                TemplateSymbolAvailability::Builtin { module: _ } => None,
+                TemplateSymbolAvailability::RequiresLoad { load_name } => {
                     Some(format!("Requires `{{% load {} %}}`.", load_name.as_str()))
                 }
             }),
@@ -234,7 +234,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum TestOrigin {
         Builtin(&'static str),
-        Loadable(&'static str),
+        Installed(&'static str),
     }
 
     fn candidate(
@@ -242,7 +242,7 @@ mod tests {
         name: &str,
         doc: Option<&str>,
         origin: TestOrigin,
-    ) -> InstalledSymbolCandidate {
+    ) -> TemplateSymbolCandidate {
         let mut libraries = HashMap::new();
         let mut builtins = Vec::new();
         let mut fixture = match (kind, origin) {
@@ -254,12 +254,12 @@ mod tests {
                 builtins.push(module.to_string());
                 djls_testing::builtin_filter(name, module)
             }
-            (TemplateSymbolKind::Tag, TestOrigin::Loadable(load_name)) => {
+            (TemplateSymbolKind::Tag, TestOrigin::Installed(load_name)) => {
                 let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
                 libraries.insert(load_name.to_string(), module.clone());
                 djls_testing::library_tag(name, load_name, &module)
             }
-            (TemplateSymbolKind::Filter, TestOrigin::Loadable(load_name)) => {
+            (TemplateSymbolKind::Filter, TestOrigin::Installed(load_name)) => {
                 let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
                 libraries.insert(load_name.to_string(), module.clone());
                 djls_testing::library_filter(name, load_name, &module)
@@ -273,11 +273,12 @@ mod tests {
             TemplateSymbolKind::Tag => (vec![fixture], Vec::new()),
             TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
         };
+        let db = djls_testing::TestDatabase::new();
         let libraries =
-            djls_testing::make_template_libraries(&tags, &filters, &libraries, &builtins);
+            djls_testing::make_template_libraries(&db, &tags, &filters, &libraries, &builtins);
 
         libraries
-            .installed_symbol_candidates(kind)
+            .template_symbol_candidates(kind)
             .into_iter()
             .find(|candidate| candidate.symbol.name() == name)
             .expect("candidate should exist")
@@ -292,7 +293,7 @@ mod tests {
             TestOrigin::Builtin("django.template.defaulttags"),
         )];
 
-        let markdown = render_installed_symbol_hover(&candidates);
+        let markdown = render_template_symbol_hover(&candidates);
 
         assert_eq!(
             markdown.as_deref(),
@@ -306,10 +307,10 @@ mod tests {
             TemplateSymbolKind::Filter,
             "intcomma",
             None,
-            TestOrigin::Loadable("humanize"),
+            TestOrigin::Installed("humanize"),
         )];
 
-        let markdown = render_installed_symbol_hover(&candidates);
+        let markdown = render_template_symbol_hover(&candidates);
 
         assert_eq!(
             markdown.as_deref(),

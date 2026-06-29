@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::PythonModulePath;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
-use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
@@ -63,7 +63,6 @@ fn builtin_filter(name: &str, module: &'static str) -> BenchSymbol {
 
 struct RealisticSpecs {
     tag_specs: TagSpecs,
-    template_libraries: TemplateLibraries,
     filter_arity_specs: FilterAritySpecs,
 }
 
@@ -156,7 +155,10 @@ fn build_filter_arities(
     specs
 }
 
-fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
+fn build_template_libraries(
+    db: &dyn ProjectDb,
+    symbols: Vec<BenchSymbol>,
+) -> djls_project::TemplateLibraries {
     let mut tags = Vec::new();
     let mut filters = Vec::new();
 
@@ -189,12 +191,10 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
     ]);
     let builtins = vec![DEFAULTTAGS.to_string(), DEFAULTFILTERS.to_string()];
 
-    djls_testing::make_template_libraries(&tags, &filters, &libraries, &builtins)
+    djls_testing::make_template_libraries(db, &tags, &filters, &libraries, &builtins)
 }
 
 fn build_realistic_specs() -> RealisticSpecs {
-    let template_libraries = build_template_libraries(build_template_symbols());
-
     let mut tag_specs = TagSpecs::default();
 
     let fixture_root = crate::fixtures::crate_root().join("fixtures/python");
@@ -234,7 +234,6 @@ fn build_realistic_specs() -> RealisticSpecs {
 
     RealisticSpecs {
         tag_specs,
-        template_libraries,
         filter_arity_specs,
     }
 }
@@ -246,8 +245,9 @@ pub fn realistic_db() -> Db {
     static SPECS: OnceLock<RealisticSpecs> = OnceLock::new();
     let specs = SPECS.get_or_init(build_realistic_specs);
 
-    Db::new()
+    let db = Db::new()
         .with_tag_specs(specs.tag_specs.clone())
-        .with_template_libraries(specs.template_libraries.clone())
-        .with_filter_arity_specs(specs.filter_arity_specs.clone())
+        .with_filter_arity_specs(specs.filter_arity_specs.clone());
+    let template_libraries = build_template_libraries(&db, build_template_symbols());
+    db.with_template_libraries(template_libraries)
 }

@@ -6,8 +6,8 @@
 //! 5. Rank candidates by relevance.
 //! 6. Convert candidates into an LSP completion response using client/session facts.
 
-use djls_project::InstalledSymbolOrigin;
 use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::TagArgumentKind;
@@ -230,7 +230,7 @@ impl CompletionCandidate {
         needs_leading_space: bool,
         close: TagClose,
         spec: Option<&djls_semantic::TagSpec>,
-        origin: &InstalledSymbolOrigin,
+        availability: &TemplateSymbolAvailability,
         supports_snippets: bool,
     ) -> Self {
         let name = symbol.name();
@@ -247,7 +247,7 @@ impl CompletionCandidate {
             label: name.to_string(),
             kind: CompletionCandidateKind::TagName,
             edit,
-            detail: Some(tag_completion_detail(origin)),
+            detail: Some(tag_completion_detail(availability)),
             documentation: symbol.doc().map(str::to_string),
         }
     }
@@ -385,34 +385,34 @@ impl CompletionCandidate {
     fn filter(
         name: &str,
         prefix: &OffsetPrefix<'_>,
-        origin: &InstalledSymbolOrigin,
+        availability: &TemplateSymbolAvailability,
         documentation: Option<&str>,
     ) -> Self {
         Self {
             label: name.to_string(),
             kind: CompletionCandidateKind::Filter,
             edit: CompletionEdit::plain(prefix.span, name),
-            detail: Some(filter_completion_detail(origin)),
+            detail: Some(filter_completion_detail(availability)),
             documentation: documentation.map(str::to_string),
         }
     }
 }
 
-fn tag_completion_detail(origin: &InstalledSymbolOrigin) -> String {
-    match origin {
-        InstalledSymbolOrigin::Builtin { module, .. } => {
+fn tag_completion_detail(availability: &TemplateSymbolAvailability) -> String {
+    match availability {
+        TemplateSymbolAvailability::Builtin { module } => {
             format!("builtin from {}", module.as_str())
         }
-        InstalledSymbolOrigin::Loadable { load_name, .. } => {
+        TemplateSymbolAvailability::RequiresLoad { load_name } => {
             format!("{{% load {} %}}", load_name.as_str())
         }
     }
 }
 
-fn filter_completion_detail(origin: &InstalledSymbolOrigin) -> String {
-    match origin {
-        InstalledSymbolOrigin::Builtin { .. } => "builtin filter".to_string(),
-        InstalledSymbolOrigin::Loadable { load_name, .. } => {
+fn filter_completion_detail(availability: &TemplateSymbolAvailability) -> String {
+    match availability {
+        TemplateSymbolAvailability::Builtin { module: _ } => "builtin filter".to_string(),
+        TemplateSymbolAvailability::RequiresLoad { load_name } => {
             format!("{{% load {} %}}", load_name.as_str())
         }
     }
@@ -569,7 +569,7 @@ fn generate_tag_name_candidates(
         return candidates;
     }
 
-    for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Tag) {
+    for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Tag) {
         let symbol = &candidate.symbol;
         if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
             continue;
@@ -586,7 +586,7 @@ fn generate_tag_name_candidates(
             needs_leading_space,
             close,
             tag_specs.get(name),
-            &candidate.origin,
+            &candidate.availability,
             supports_snippets,
         ));
     }
@@ -667,7 +667,7 @@ fn generate_library_name_candidates(
         }
 
         let detail = template_libraries
-            .loadable_library_module(&name)
+            .installed_library_module(&name)
             .map_or_else(
                 || "Django template library".to_string(),
                 |module| format!("Django template library ({})", module.as_str()),
@@ -695,7 +695,7 @@ fn generate_load_symbol_candidates(
         return Vec::new();
     }
 
-    let Some(library) = library.and_then(|name| template_libraries.loadable_library_str(name))
+    let Some(library) = library.and_then(|name| template_libraries.installed_library_str(name))
     else {
         return Vec::new();
     };
@@ -724,8 +724,7 @@ fn generate_filter_candidates(
     if template_libraries.inventory_is_complete() {
         let mut candidates = Vec::new();
 
-        for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter)
-        {
+        for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Filter) {
             let symbol = &candidate.symbol;
             if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
                 continue;
@@ -736,7 +735,7 @@ fn generate_filter_candidates(
                 candidates.push(CompletionCandidate::filter(
                     name,
                     prefix,
-                    &candidate.origin,
+                    &candidate.availability,
                     symbol.doc(),
                 ));
             }
@@ -792,7 +791,8 @@ mod tests {
             .iter()
             .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
             .collect::<HashMap<_, _>>();
-        djls_testing::make_template_libraries(&[], &[], &libraries, &[])
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, &[], &[], &libraries, &[])
     }
 
     fn template_symbol(
@@ -815,7 +815,8 @@ mod tests {
         let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
         filter["doc"] = "Translate text.".into();
 
-        djls_testing::make_template_libraries(&[], &[filter], &libraries, &[])
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, &[], &[filter], &libraries, &[])
     }
 
     fn tag_libraries() -> TemplateLibraries {
@@ -828,16 +829,17 @@ mod tests {
             djls_testing::library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
         ];
 
-        djls_testing::make_template_libraries(&tags, &[], &libraries, &builtins)
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, &tags, &[], &libraries, &builtins)
     }
 
-    fn builtin_origin() -> InstalledSymbolOrigin {
+    fn builtin_availability() -> TemplateSymbolAvailability {
         tag_libraries()
-            .installed_symbol_candidates(TemplateSymbolKind::Tag)
+            .template_symbol_candidates(TemplateSymbolKind::Tag)
             .into_iter()
             .find(|candidate| candidate.symbol.name() == "if")
             .expect("builtin if candidate should exist")
-            .origin
+            .availability
     }
 
     fn full_close() -> TagClose {
@@ -1013,7 +1015,7 @@ mod tests {
 
     #[test]
     fn tag_snippet_with_full_close_replaces_existing_close() {
-        let origin = builtin_origin();
+        let availability = builtin_availability();
         let spec = block_tag_spec();
         let candidate = CompletionCandidate::tag_name(
             &test_tag_symbol("block"),
@@ -1023,7 +1025,7 @@ mod tests {
                 replacement_suffix_len: 3,
             },
             Some(&spec),
-            &origin,
+            &availability,
             true,
         );
 
@@ -1079,7 +1081,7 @@ mod tests {
 
     #[test]
     fn partial_tag_close_extends_replacement_span() {
-        let origin = builtin_origin();
+        let availability = builtin_availability();
         let candidate = CompletionCandidate::tag_name(
             &test_tag_symbol("load"),
             &prefix("lo"),
@@ -1088,7 +1090,7 @@ mod tests {
                 replacement_suffix_len: 1,
             },
             None,
-            &origin,
+            &availability,
             false,
         );
 
@@ -1098,7 +1100,7 @@ mod tests {
 
     #[test]
     fn partial_tag_close_after_whitespace_extends_replacement_span_to_close() {
-        let origin = builtin_origin();
+        let availability = builtin_availability();
         let candidate = CompletionCandidate::tag_name(
             &test_tag_symbol("load"),
             &prefix("lo"),
@@ -1107,7 +1109,7 @@ mod tests {
                 replacement_suffix_len: 2,
             },
             None,
-            &origin,
+            &availability,
             false,
         );
 
@@ -1118,7 +1120,7 @@ mod tests {
     #[test]
     fn ranks_candidates_by_relevance_then_label() {
         let empty = prefix("");
-        let origin = builtin_origin();
+        let availability = builtin_availability();
         let mut candidates = vec![
             CompletionCandidate::tag_argument_placeholder("<arg>".to_string(), &empty),
             CompletionCandidate::tag_name(
@@ -1127,7 +1129,7 @@ mod tests {
                 false,
                 full_close(),
                 None,
-                &origin,
+                &availability,
                 false,
             ),
             CompletionCandidate::end_tag("if", "endif", &empty, false, full_close()),
@@ -1137,7 +1139,7 @@ mod tests {
                 false,
                 full_close(),
                 None,
-                &origin,
+                &availability,
                 false,
             ),
         ];
