@@ -1,89 +1,58 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 use camino::Utf8Path;
 use djls_ide::completion;
-use djls_project::BuiltinLibrarySource;
-use djls_project::LibraryName;
-use djls_project::LoadableLibrarySource;
-use djls_project::PythonModulePath;
 use djls_project::StaticKnowledge;
-use djls_project::SymbolDefinition;
 use djls_project::TemplateLibraries;
-use djls_project::TemplateSymbol;
-use djls_project::TemplateSymbolKind;
-use djls_project::TemplateSymbolName;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::TestDatabase;
+use djls_testing::builtin_tag;
+use djls_testing::library_filter;
+use djls_testing::library_tag;
+use djls_testing::make_template_libraries_with_knowledge;
 use tower_lsp_server::ls_types;
-
-fn template_symbol(
-    kind: TemplateSymbolKind,
-    name: &str,
-    module: &PythonModulePath,
-) -> TemplateSymbol {
-    TemplateSymbol {
-        kind,
-        name: TemplateSymbolName::parse(name).unwrap(),
-        definition: SymbolDefinition::Module(module.clone()),
-        doc: None,
-    }
-}
 
 fn tag_libraries() -> TemplateLibraries {
     tag_libraries_with_knowledge(StaticKnowledge::Known)
 }
 
 fn tag_libraries_with_knowledge(knowledge: StaticKnowledge) -> TemplateLibraries {
-    let builtin_module = PythonModulePath::parse("django.template.defaulttags").unwrap();
-    let i18n_name = LibraryName::parse("i18n").unwrap();
-    let i18n_module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
+    let tags = vec![
+        builtin_tag("if", "django.template.defaulttags"),
+        library_tag("trans", "i18n", "django.templatetags.i18n"),
+        library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
+    ];
+    let libraries = HashMap::from([(
+        "i18n".to_string(),
+        "django.templatetags.i18n".to_string(),
+    )]);
+    let builtins = vec!["django.template.defaulttags".to_string()];
 
-    TemplateLibraries::builder()
-        .knowledge(knowledge)
-        .builtin_untracked(
-            BuiltinLibrarySource::DjangoDefault,
-            builtin_module.clone(),
-            true,
-            vec![template_symbol(
-                TemplateSymbolKind::Tag,
-                "if",
-                &builtin_module,
-            )],
-        )
-        .loadable_untracked(
-            i18n_name,
-            LoadableLibrarySource::ConfiguredAlias,
-            i18n_module.clone(),
-            true,
-            vec![
-                template_symbol(TemplateSymbolKind::Tag, "trans", &i18n_module),
-                template_symbol(TemplateSymbolKind::Tag, "blocktrans", &i18n_module),
-            ],
-        )
-        .build()
+    make_template_libraries_with_knowledge(&tags, &[], &libraries, &builtins, knowledge)
 }
 
 fn filter_libraries() -> TemplateLibraries {
-    let library_name = LibraryName::parse("i18n").unwrap();
-    let module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
+    let filters = vec![library_filter(
+        "trans",
+        "i18n",
+        "django.templatetags.i18n",
+    )];
+    let libraries = HashMap::from([(
+        "i18n".to_string(),
+        "django.templatetags.i18n".to_string(),
+    )]);
 
-    TemplateLibraries::builder()
-        .knowledge(StaticKnowledge::Known)
-        .loadable_untracked(
-            library_name,
-            LoadableLibrarySource::ConfiguredAlias,
-            module.clone(),
-            true,
-            vec![template_symbol(
-                TemplateSymbolKind::Filter,
-                "trans",
-                &module,
-            )],
-        )
-        .build()
+    make_template_libraries_with_knowledge(
+        &[],
+        &filters,
+        &libraries,
+        &[],
+        StaticKnowledge::Known,
+    )
 }
 
 fn project_only_specs() -> TagSpecs {
