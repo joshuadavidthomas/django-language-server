@@ -61,6 +61,7 @@ pub use templates::TagRule;
 pub use templates::TagRuleMap;
 pub use templates::TemplateDoesNotExist;
 pub use templates::TemplateLibraries;
+pub use templates::TemplateLibrariesBuilder;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateLibraryId;
 pub use templates::TemplateLibraryResolution;

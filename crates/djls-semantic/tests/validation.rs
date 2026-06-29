@@ -17,8 +17,8 @@ use djls_testing::inactive_library_filter;
 use djls_testing::inactive_library_tag;
 use djls_testing::inactive_template_library;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries;
-use djls_testing::make_template_libraries_with_inactive;
+use djls_testing::make_template_libraries_with_inactive_and_knowledge;
+use djls_testing::make_template_libraries_with_knowledge;
 
 fn default_builtins_module() -> &'static str {
     "django.template.defaulttags"
@@ -66,14 +66,14 @@ fn standard_inventory_with_inactive(
         default_builtins_module().to_string(),
         default_filters_module().to_string(),
     ];
-    make_template_libraries_with_inactive(
+    make_template_libraries_with_inactive_and_knowledge(
         &tags,
         &filters,
         &libraries,
         &builtins,
         inactive_libraries,
+        knowledge,
     )
-    .with_knowledge(knowledge)
 }
 
 fn standard_arities() -> FilterAritySpecs {
@@ -123,7 +123,7 @@ fn standard_db() -> TestDatabase {
 }
 
 fn partial_db() -> TestDatabase {
-    let libraries = standard_inventory().with_knowledge(StaticKnowledge::Partial);
+    let libraries = standard_inventory_with_inactive(&[], &[], &[], StaticKnowledge::Partial);
     TestDatabase::new()
         .with_template_libraries(libraries)
         .with_arity_specs(standard_arities())
@@ -141,8 +141,13 @@ fn partial_ambiguous_db() -> TestDatabase {
         ("beta".to_string(), "project.beta_tags".to_string()),
     ]);
     let builtins = vec![default_builtins_module().to_string()];
-    let libraries = make_template_libraries(&tags, &filters, &libraries, &builtins)
-        .with_knowledge(StaticKnowledge::Partial);
+    let libraries = make_template_libraries_with_knowledge(
+        &tags,
+        &filters,
+        &libraries,
+        &builtins,
+        StaticKnowledge::Partial,
+    );
     TestDatabase::new().with_template_libraries(libraries)
 }
 

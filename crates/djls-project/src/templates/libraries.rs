@@ -325,12 +325,12 @@ pub struct InactiveLibrarySource {
 
 impl InactiveLibrarySource {
     #[must_use]
-    pub fn new(app: PythonModulePath) -> Self {
+    fn new(app: PythonModulePath) -> Self {
         Self { app }
     }
 
     #[must_use]
-    pub fn app(&self) -> &PythonModulePath {
+    fn app(&self) -> &PythonModulePath {
         &self.app
     }
 }
@@ -579,12 +579,6 @@ impl TemplateLibraries {
     #[must_use]
     pub fn knowledge(&self) -> StaticKnowledge {
         self.knowledge
-    }
-
-    #[must_use]
-    pub fn with_knowledge(mut self, knowledge: StaticKnowledge) -> Self {
-        self.knowledge = knowledge;
-        self
     }
 
     #[must_use]

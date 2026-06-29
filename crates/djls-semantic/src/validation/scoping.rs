@@ -30,7 +30,7 @@ pub(crate) fn check_tag_scoping_rule(
 
     match symbols.check_tag(name) {
         SymbolAvailability::Available => {}
-        SymbolAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
+        SymbolAvailability::Unknown if !template_libraries.should_report_unknown_symbols() => {}
         SymbolAvailability::Unknown => {
             if let Some(candidate) = template_libraries.inactive_tag_candidates(name).first() {
                 ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
@@ -89,7 +89,7 @@ pub(crate) fn check_filter_scoping_rule(
 
     match symbols.check_filter(&filter.name) {
         SymbolAvailability::Available => {}
-        SymbolAvailability::Unknown if knowledge == StaticKnowledge::Partial => {}
+        SymbolAvailability::Unknown if !template_libraries.should_report_unknown_symbols() => {}
         SymbolAvailability::Unknown => {
             if let Some(candidate) = template_libraries
                 .inactive_filter_candidates(&filter.name)
@@ -166,7 +166,7 @@ pub(crate) fn check_load_libraries_rule(
             continue;
         }
 
-        if template_libraries.knowledge() == StaticKnowledge::Known {
+        if template_libraries.should_report_unknown_symbols() {
             let candidates = template_libraries.inactive_library_candidates(&load_name);
             if let Some(first) = candidates.first() {
                 let mut apps: Vec<_> = candidates

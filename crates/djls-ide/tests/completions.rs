@@ -33,12 +33,16 @@ fn template_symbol(
 }
 
 fn tag_libraries() -> TemplateLibraries {
+    tag_libraries_with_knowledge(StaticKnowledge::Known)
+}
+
+fn tag_libraries_with_knowledge(knowledge: StaticKnowledge) -> TemplateLibraries {
     let builtin_module = PythonModulePath::parse("django.template.defaulttags").unwrap();
     let i18n_name = LibraryName::parse("i18n").unwrap();
     let i18n_module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
 
     TemplateLibraries::builder()
-        .knowledge(StaticKnowledge::Known)
+        .knowledge(knowledge)
         .builtin_untracked(
             BuiltinLibrarySource::DjangoDefault,
             builtin_module.clone(),
@@ -148,7 +152,7 @@ fn tag_completions_respect_load_position() {
 
 #[test]
 fn partial_tag_completions_use_known_libraries_not_raw_specs() {
-    let libraries = tag_libraries().with_knowledge(StaticKnowledge::Partial);
+    let libraries = tag_libraries_with_knowledge(StaticKnowledge::Partial);
 
     let labels = completion_labels("{% project§ %}", libraries, project_only_specs());
 
