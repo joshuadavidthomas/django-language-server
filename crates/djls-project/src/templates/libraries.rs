@@ -303,7 +303,7 @@ enum TemplateLibraryIdKind {
 pub enum TemplateLibraryStatus {
     Builtin(BuiltinLibrarySource),
     Loadable(LoadableLibrarySource),
-    Inactive(InactiveLibrarySource),
+    Inactive(InactiveTemplateLibrarySource),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -319,11 +319,11 @@ pub enum LoadableLibrarySource {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InactiveLibrarySource {
+pub struct InactiveTemplateLibrarySource {
     app: PythonModulePath,
 }
 
-impl InactiveLibrarySource {
+impl InactiveTemplateLibrarySource {
     #[must_use]
     fn new(app: PythonModulePath) -> Self {
         Self { app }
@@ -731,7 +731,7 @@ impl TemplateLibraries {
             id.clone(),
             Some(name.clone()),
             analyzed.module_path,
-            TemplateLibraryStatus::Inactive(InactiveLibrarySource::new(app)),
+            TemplateLibraryStatus::Inactive(InactiveTemplateLibrarySource::new(app)),
             analyzed.resolution,
             analyzed.defines_library,
             analyzed.symbols,

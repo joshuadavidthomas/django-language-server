@@ -43,7 +43,7 @@ pub use templates::ExtractedMessageTemplate;
 pub use templates::FilterArity;
 pub use templates::FilterArityMap;
 pub use templates::FindTemplateResult;
-pub use templates::InactiveLibrarySource;
+pub use templates::InactiveTemplateLibrarySource;
 pub use templates::InstalledSymbolCandidate;
 pub use templates::InstalledSymbolOrigin;
 pub use templates::InvalidTemplateIdentifier;
