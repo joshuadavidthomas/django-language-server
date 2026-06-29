@@ -227,15 +227,7 @@ fn format_docstring(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use djls_project::BuiltinLibrarySource;
-    use djls_project::LibraryName;
-    use djls_project::LoadableLibrarySource;
-    use djls_project::PythonModulePath;
-    use djls_project::StaticKnowledge;
-    use djls_project::SymbolDefinition;
-    use djls_project::TemplateLibraries;
-    use djls_project::TemplateSymbol;
-    use djls_project::TemplateSymbolName;
+    use std::collections::HashMap;
 
     use super::*;
 
@@ -251,45 +243,38 @@ mod tests {
         doc: Option<&str>,
         origin: TestOrigin,
     ) -> InstalledSymbolCandidate {
-        let symbol_name = TemplateSymbolName::parse(name).unwrap();
-        let symbol = TemplateSymbol {
-            kind,
-            name: symbol_name,
-            definition: SymbolDefinition::Unknown,
-            doc: doc.map(str::to_string),
-        };
-        let libraries = match origin {
-            TestOrigin::Builtin(module) => {
-                let module = PythonModulePath::parse(module).unwrap();
-                TemplateLibraries::builder()
-                    .knowledge(StaticKnowledge::Known)
-                    .builtin_untracked(
-                        BuiltinLibrarySource::DjangoDefault,
-                        module,
-                        true,
-                        vec![symbol],
-                    )
-                    .build()
+        let mut libraries = HashMap::new();
+        let mut builtins = Vec::new();
+        let mut fixture = match (kind, origin) {
+            (TemplateSymbolKind::Tag, TestOrigin::Builtin(module)) => {
+                builtins.push(module.to_string());
+                djls_testing::builtin_tag(name, module)
             }
-            TestOrigin::Loadable(load_name) => {
-                let load_name = LibraryName::parse(load_name).unwrap();
-                let module = PythonModulePath::parse(&format!(
-                    "django.contrib.{0}.templatetags.{0}",
-                    load_name.as_str()
-                ))
-                .unwrap();
-                TemplateLibraries::builder()
-                    .knowledge(StaticKnowledge::Known)
-                    .loadable_untracked(
-                        load_name,
-                        LoadableLibrarySource::ConfiguredAlias,
-                        module,
-                        true,
-                        vec![symbol],
-                    )
-                    .build()
+            (TemplateSymbolKind::Filter, TestOrigin::Builtin(module)) => {
+                builtins.push(module.to_string());
+                djls_testing::builtin_filter(name, module)
+            }
+            (TemplateSymbolKind::Tag, TestOrigin::Loadable(load_name)) => {
+                let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
+                libraries.insert(load_name.to_string(), module.clone());
+                djls_testing::library_tag(name, load_name, &module)
+            }
+            (TemplateSymbolKind::Filter, TestOrigin::Loadable(load_name)) => {
+                let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
+                libraries.insert(load_name.to_string(), module.clone());
+                djls_testing::library_filter(name, load_name, &module)
             }
         };
+        if let Some(doc) = doc {
+            fixture["doc"] = doc.into();
+        }
+
+        let (tags, filters) = match kind {
+            TemplateSymbolKind::Tag => (vec![fixture], Vec::new()),
+            TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
+        };
+        let libraries =
+            djls_testing::make_template_libraries(&tags, &filters, &libraries, &builtins);
 
         libraries
             .installed_symbol_candidates(kind)

@@ -529,7 +529,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge(), StaticKnowledge::Known);
+    assert!(libraries.inventory_is_complete());
     let custom = libraries
         .loadable_library_str("custom")
         .expect("custom library should be discovered");
@@ -770,7 +770,7 @@ fn template_libraries_demote_unresolved_app_to_partial() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge(), StaticKnowledge::Partial);
+    assert!(libraries.inventory_may_omit_loaded_symbols());
 }
 
 #[test]
@@ -857,7 +857,7 @@ fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge(), StaticKnowledge::Partial);
+    assert!(libraries.inventory_may_omit_loaded_symbols());
     let custom = libraries.loadable_library_str("custom").unwrap();
     assert_eq!(custom.module_path_str(), "project_tags");
     assert!(
@@ -940,7 +940,7 @@ fn template_libraries_keep_invalid_configured_alias_as_unresolved_record() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge(), StaticKnowledge::Partial);
+    assert!(libraries.inventory_may_omit_loaded_symbols());
     let broken = libraries.loadable_library_str("broken").unwrap();
     assert_eq!(broken.load_name().unwrap().as_str(), "broken");
     assert_eq!(broken.module_path_str(), "bad-module");

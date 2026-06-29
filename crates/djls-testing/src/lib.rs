@@ -29,6 +29,7 @@ pub use fixtures::collect_errors;
 pub use fixtures::inactive_library_filter;
 pub use fixtures::inactive_library_tag;
 pub use fixtures::inactive_template_library;
+pub use fixtures::library_filter;
 pub use fixtures::library_tag;
 pub use fixtures::make_template_libraries;
 pub use fixtures::make_template_libraries_with_inactive;
