@@ -692,7 +692,7 @@ fn generate_load_symbol_candidates(
     needs_trailing_space: bool,
     template_libraries: &TemplateLibraries,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.knowledge() != StaticKnowledge::Known {
+    if !template_libraries.should_report_unknown_symbols() {
         return Vec::new();
     }
 
@@ -722,7 +722,7 @@ fn generate_filter_candidates(
     template_libraries: &TemplateLibraries,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.knowledge() == StaticKnowledge::Known {
+    if template_libraries.should_report_unknown_symbols() {
         let mut candidates = Vec::new();
 
         for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter)

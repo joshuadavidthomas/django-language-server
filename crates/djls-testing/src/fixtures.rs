@@ -21,6 +21,7 @@ use djls_project::PythonModulePath;
 use djls_project::RequiredKeyword;
 use djls_project::SearchPaths;
 use djls_project::SplitPosition;
+use djls_project::StaticKnowledge;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
@@ -164,7 +165,7 @@ struct TemplateSymbolFixture {
     doc: Option<String>,
 }
 
-/// Build template-library facts from JSON fixture rows.
+/// Build Template Library facts from JSON fixture rows.
 ///
 /// # Panics
 ///
@@ -175,10 +176,38 @@ pub fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    make_template_libraries_with_inactive(tags, filters, libraries, builtins, &[])
+    make_template_libraries_with_knowledge(
+        tags,
+        filters,
+        libraries,
+        builtins,
+        StaticKnowledge::Known,
+    )
 }
 
-/// Build template-library facts from JSON fixture rows plus inactive libraries.
+/// Build Template Library facts from JSON fixture rows with explicit knowledge.
+///
+/// # Panics
+///
+/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
+pub fn make_template_libraries_with_knowledge(
+    tags: &[serde_json::Value],
+    filters: &[serde_json::Value],
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
+    builtins: &[String],
+    knowledge: StaticKnowledge,
+) -> TemplateLibraries {
+    make_template_libraries_with_inactive_and_knowledge(
+        tags,
+        filters,
+        libraries,
+        builtins,
+        &[],
+        knowledge,
+    )
+}
+
+/// Build Template Library facts from JSON fixture rows plus inactive libraries.
 ///
 /// # Panics
 ///
@@ -189,6 +218,29 @@ pub fn make_template_libraries_with_inactive(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
     inactive_libraries: &[InactiveTemplateLibraryFixture],
+) -> TemplateLibraries {
+    make_template_libraries_with_inactive_and_knowledge(
+        tags,
+        filters,
+        libraries,
+        builtins,
+        inactive_libraries,
+        StaticKnowledge::Known,
+    )
+}
+
+/// Build Template Library facts from JSON fixture rows plus inactive libraries with explicit knowledge.
+///
+/// # Panics
+///
+/// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
+pub fn make_template_libraries_with_inactive_and_knowledge(
+    tags: &[serde_json::Value],
+    filters: &[serde_json::Value],
+    libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
+    builtins: &[String],
+    inactive_libraries: &[InactiveTemplateLibraryFixture],
+    knowledge: StaticKnowledge,
 ) -> TemplateLibraries {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
     let mut loadable_symbols = loadable_symbol_buckets(libraries);
@@ -210,7 +262,7 @@ pub fn make_template_libraries_with_inactive(
         );
     }
 
-    let mut builder = TemplateLibraries::builder().knowledge(djls_project::StaticKnowledge::Known);
+    let mut builder = TemplateLibraries::builder().knowledge(knowledge);
     for (module, symbols) in builtin_symbols {
         builder =
             builder.builtin_untracked(BuiltinLibrarySource::DjangoDefault, module, true, symbols);
@@ -230,20 +282,17 @@ pub fn make_template_libraries_with_inactive(
     builder.build()
 }
 
-type BuiltinSymbolBuckets = BTreeMap<PythonModulePath, Vec<TemplateSymbol>>;
+type BuiltinSymbolBuckets = Vec<(PythonModulePath, Vec<TemplateSymbol>)>;
 type LoadableSymbolBuckets = BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)>;
 type InactiveSymbolBuckets =
     BTreeMap<(LibraryName, PythonModulePath, PythonModulePath), Vec<TemplateSymbol>>;
 
 fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
-    let mut buckets = BTreeMap::new();
-    for module_name in builtins {
-        let Ok(module) = PythonModulePath::parse(module_name) else {
-            continue;
-        };
-        buckets.entry(module).or_default();
-    }
-    buckets
+    builtins
+        .iter()
+        .filter_map(|module_name| PythonModulePath::parse(module_name).ok())
+        .map(|module| (module, Vec::new()))
+        .collect()
 }
 
 fn loadable_symbol_buckets(
@@ -309,7 +358,7 @@ fn add_fixture_symbol(
     };
 
     match (load_name, inactive_app) {
-        (None, _) => add_builtin_symbol(builtin_symbols, &library_module, symbol),
+        (None, _) => add_builtin_symbol(builtin_symbols, &library_module, &symbol),
         (Some(load_name), Some(app)) => {
             add_inactive_symbol(inactive_symbols, &load_name, &app, &library_module, symbol);
         }
@@ -322,13 +371,15 @@ fn add_fixture_symbol(
 fn add_builtin_symbol(
     buckets: &mut BuiltinSymbolBuckets,
     module_name: &str,
-    symbol: TemplateSymbol,
+    symbol: &TemplateSymbol,
 ) {
     let Ok(module) = PythonModulePath::parse(module_name) else {
         return;
     };
-    if let Some(symbols) = buckets.get_mut(&module) {
-        symbols.push(symbol);
+    for (builtin_module, symbols) in buckets.iter_mut() {
+        if builtin_module == &module {
+            symbols.push(symbol.clone());
+        }
     }
 }
 

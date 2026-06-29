@@ -160,10 +160,10 @@ fn build_filter_arities(
 }
 
 fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
-    let mut builtin_symbols: BTreeMap<PythonModulePath, Vec<TemplateSymbol>> = BTreeMap::new();
+    let mut builtin_symbols: Vec<(PythonModulePath, Vec<TemplateSymbol>)> = Vec::new();
     for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
         let module = PythonModulePath::parse(module_name).unwrap();
-        builtin_symbols.entry(module).or_default();
+        builtin_symbols.push((module, Vec::new()));
     }
 
     let mut loadable_symbols: BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)> =
@@ -178,8 +178,10 @@ fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
         match bench_symbol.load_name {
             None => {
                 let module = PythonModulePath::parse(bench_symbol.module).unwrap();
-                if let Some(symbols) = builtin_symbols.get_mut(&module) {
-                    symbols.push(bench_symbol.symbol);
+                for (builtin_module, symbols) in &mut builtin_symbols {
+                    if builtin_module == &module {
+                        symbols.push(bench_symbol.symbol.clone());
+                    }
                 }
             }
             Some(load_name) => {

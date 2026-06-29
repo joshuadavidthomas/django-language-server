@@ -20,6 +20,7 @@ pub use libraries::InstalledSymbolOrigin;
 pub use libraries::LoadableLibrarySource;
 pub use libraries::ResolvedTemplateLibrary;
 pub use libraries::TemplateLibraries;
+pub use libraries::TemplateLibrariesBuilder;
 pub use libraries::TemplateLibrary;
 pub use libraries::TemplateLibraryId;
 pub use libraries::TemplateLibraryResolution;
