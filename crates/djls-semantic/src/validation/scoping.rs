@@ -1,6 +1,7 @@
 use djls_project::LibraryName;
 use djls_project::StaticKnowledge;
 use djls_project::TemplateLibraries;
+use djls_project::UnknownSymbolOutcome;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagBit;
@@ -21,8 +22,7 @@ pub(crate) fn check_tag_scoping_rule(
     symbols: &AvailableSymbols,
     template_libraries: &TemplateLibraries,
 ) {
-    let knowledge = template_libraries.knowledge();
-    if knowledge == StaticKnowledge::Unknown {
+    if !template_libraries.has_symbol_inventory() {
         return;
     }
 
@@ -30,32 +30,25 @@ pub(crate) fn check_tag_scoping_rule(
 
     match symbols.check_tag(name) {
         SymbolAvailability::Available => {}
-        SymbolAvailability::Unknown if !template_libraries.should_report_unknown_symbols() => {}
-        SymbolAvailability::Unknown => {
-            if let Some(candidate) = template_libraries.inactive_tag_candidates(name).first() {
+        SymbolAvailability::Unknown => match template_libraries.unknown_tag_outcome(name) {
+            UnknownSymbolOutcome::Suppressed => {}
+            UnknownSymbolOutcome::InInactiveApp { app, load_name } => {
                 ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
                     tag: name.to_string(),
-                    app: candidate
-                        .inactive_app()
-                        .expect("inactive candidates should carry an app")
-                        .as_str()
-                        .to_string(),
-                    load_name: candidate
-                        .load_name()
-                        .expect("inactive candidates should carry a load name")
-                        .as_str()
-                        .to_string(),
+                    app: app.as_str().to_string(),
+                    load_name: load_name.as_str().to_string(),
                     span: full_span,
                 })
                 .accumulate(db);
-            } else {
+            }
+            UnknownSymbolOutcome::TrulyUnknown => {
                 ValidationErrorAccumulator(ValidationError::UnknownTag {
                     tag: name.to_string(),
                     span: full_span,
                 })
                 .accumulate(db);
             }
-        }
+        },
         SymbolAvailability::Unloaded { library } => {
             ValidationErrorAccumulator(ValidationError::UnloadedTag {
                 tag: name.to_string(),

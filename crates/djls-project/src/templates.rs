@@ -26,6 +26,7 @@ pub use libraries::TemplateLibraryId;
 pub use libraries::TemplateLibraryResolution;
 pub use libraries::TemplateLibraryResolutionError;
 pub use libraries::TemplateLibraryStatus;
+pub use libraries::UnknownSymbolOutcome;
 pub use libraries::template_libraries;
 pub use names::InvalidTemplateIdentifier;
 pub use names::LibraryName;
