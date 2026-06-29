@@ -1,13 +1,15 @@
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+use djls_project::BuiltinLibrarySource;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::LibraryName;
+use djls_project::LoadableLibrarySource;
 use djls_project::PythonModulePath;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TemplateLibraries;
-use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
@@ -158,49 +160,55 @@ fn build_filter_arities(
 }
 
 fn build_template_libraries(symbols: Vec<BenchSymbol>) -> TemplateLibraries {
-    let mut libraries = TemplateLibraries {
-        knowledge: djls_project::StaticKnowledge::Known,
-        ..TemplateLibraries::default()
-    };
-
+    let mut builtin_symbols: BTreeMap<PythonModulePath, Vec<TemplateSymbol>> = BTreeMap::new();
     for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
         let module = PythonModulePath::parse(module_name).unwrap();
-        libraries.builtins.push(TemplateLibrary::new(module));
+        builtin_symbols.entry(module).or_default();
     }
 
+    let mut loadable_symbols: BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)> =
+        BTreeMap::new();
     for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
         let load_name = LibraryName::parse(load_name).unwrap();
         let module = PythonModulePath::parse(module_name).unwrap();
-        libraries
-            .loadable
-            .insert(load_name, TemplateLibrary::new(module));
+        loadable_symbols.insert(load_name, (module, Vec::new()));
     }
 
     for bench_symbol in symbols {
         match bench_symbol.load_name {
             None => {
                 let module = PythonModulePath::parse(bench_symbol.module).unwrap();
-                if let Some(library) = libraries
-                    .builtins
-                    .iter_mut()
-                    .find(|library| library.module() == &module)
-                {
-                    library.merge_symbol(bench_symbol.symbol);
+                if let Some(symbols) = builtin_symbols.get_mut(&module) {
+                    symbols.push(bench_symbol.symbol);
                 }
             }
             Some(load_name) => {
                 let load_name = LibraryName::parse(load_name).unwrap();
                 let module = PythonModulePath::parse(bench_symbol.module).unwrap();
-                if let Some(library) = libraries.loadable.get_mut(&load_name)
-                    && library.module() == &module
+                if let Some((library_module, symbols)) = loadable_symbols.get_mut(&load_name)
+                    && library_module == &module
                 {
-                    library.merge_symbol(bench_symbol.symbol);
+                    symbols.push(bench_symbol.symbol);
                 }
             }
         }
     }
 
-    libraries
+    let mut builder = TemplateLibraries::builder().knowledge(djls_project::StaticKnowledge::Known);
+    for (module, symbols) in builtin_symbols {
+        builder =
+            builder.builtin_untracked(BuiltinLibrarySource::DjangoDefault, module, true, symbols);
+    }
+    for (load_name, (module, symbols)) in loadable_symbols {
+        builder = builder.loadable_untracked(
+            load_name,
+            LoadableLibrarySource::ConfiguredAlias,
+            module,
+            true,
+            symbols,
+        );
+    }
+    builder.build()
 }
 
 fn build_realistic_specs() -> RealisticSpecs {

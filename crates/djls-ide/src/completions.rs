@@ -401,8 +401,10 @@ impl CompletionCandidate {
 
 fn tag_completion_detail(origin: &InstalledSymbolOrigin) -> String {
     match origin {
-        InstalledSymbolOrigin::Builtin { module } => format!("builtin from {}", module.as_str()),
-        InstalledSymbolOrigin::Loadable { load_name } => {
+        InstalledSymbolOrigin::Builtin { module, .. } => {
+            format!("builtin from {}", module.as_str())
+        }
+        InstalledSymbolOrigin::Loadable { load_name, .. } => {
             format!("{{% load {} %}}", load_name.as_str())
         }
     }
@@ -411,7 +413,7 @@ fn tag_completion_detail(origin: &InstalledSymbolOrigin) -> String {
 fn filter_completion_detail(origin: &InstalledSymbolOrigin) -> String {
     match origin {
         InstalledSymbolOrigin::Builtin { .. } => "builtin filter".to_string(),
-        InstalledSymbolOrigin::Loadable { load_name } => {
+        InstalledSymbolOrigin::Loadable { load_name, .. } => {
             format!("{{% load {} %}}", load_name.as_str())
         }
     }
@@ -434,7 +436,7 @@ pub fn completion(
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
 
-    let available_symbols = if template_libraries.knowledge == StaticKnowledge::Unknown {
+    let available_symbols = if template_libraries.knowledge() == StaticKnowledge::Unknown {
         None
     } else {
         match &context {
@@ -547,7 +549,7 @@ fn generate_tag_name_candidates(
         }
     }
 
-    if template_libraries.knowledge == StaticKnowledge::Unknown {
+    if template_libraries.knowledge() == StaticKnowledge::Unknown {
         for (name, spec) in tag_specs {
             if !name.starts_with(prefix.text) {
                 continue;
@@ -690,7 +692,7 @@ fn generate_load_symbol_candidates(
     needs_trailing_space: bool,
     template_libraries: &TemplateLibraries,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.knowledge != StaticKnowledge::Known {
+    if template_libraries.knowledge() != StaticKnowledge::Known {
         return Vec::new();
     }
 
@@ -700,7 +702,7 @@ fn generate_load_symbol_candidates(
     };
 
     library
-        .symbols
+        .symbols()
         .iter()
         .filter(|symbol| symbol.name().starts_with(prefix.text))
         .map(|symbol| {
@@ -720,7 +722,7 @@ fn generate_filter_candidates(
     template_libraries: &TemplateLibraries,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<CompletionCandidate> {
-    if template_libraries.knowledge == StaticKnowledge::Known {
+    if template_libraries.knowledge() == StaticKnowledge::Known {
         let mut candidates = Vec::new();
 
         for candidate in template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter)
@@ -752,12 +754,12 @@ fn generate_filter_candidates(
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
-    use std::collections::BTreeMap;
 
+    use djls_project::BuiltinLibrarySource;
     use djls_project::LibraryName;
+    use djls_project::LoadableLibrarySource;
     use djls_project::PythonModulePath;
     use djls_project::SymbolDefinition;
-    use djls_project::TemplateLibrary;
     use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
     use djls_semantic::EndTag;
@@ -789,18 +791,19 @@ mod tests {
     }
 
     fn template_libraries(libraries: &[(&str, &str)]) -> TemplateLibraries {
-        let mut loadable = BTreeMap::new();
+        let mut builder = TemplateLibraries::builder().knowledge(StaticKnowledge::Known);
         for (name, module) in libraries {
             let name = LibraryName::parse(name).unwrap();
             let module = PythonModulePath::parse(module).unwrap();
-            loadable.insert(name, TemplateLibrary::new(module));
+            builder = builder.loadable_untracked(
+                name,
+                LoadableLibrarySource::ConfiguredAlias,
+                module,
+                true,
+                Vec::new(),
+            );
         }
-
-        TemplateLibraries {
-            knowledge: StaticKnowledge::Known,
-            loadable,
-            builtins: Vec::new(),
-        }
+        builder.build()
     }
 
     fn template_symbol(
@@ -820,58 +823,60 @@ mod tests {
     fn filter_libraries() -> TemplateLibraries {
         let library_name = LibraryName::parse("i18n").unwrap();
         let module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
-        let mut library = TemplateLibrary::new(module.clone());
-        library.symbols.push(template_symbol(
-            TemplateSymbolKind::Filter,
-            "trans",
-            &module,
-            Some("Translate text."),
-        ));
-
-        TemplateLibraries {
-            knowledge: StaticKnowledge::Known,
-            loadable: BTreeMap::from([(library_name, library)]),
-            builtins: Vec::new(),
-        }
+        TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .loadable_untracked(
+                library_name,
+                LoadableLibrarySource::ConfiguredAlias,
+                module.clone(),
+                true,
+                vec![template_symbol(
+                    TemplateSymbolKind::Filter,
+                    "trans",
+                    &module,
+                    Some("Translate text."),
+                )],
+            )
+            .build()
     }
 
     fn tag_libraries() -> TemplateLibraries {
         let builtin_module = PythonModulePath::parse("django.template.defaulttags").unwrap();
-        let mut builtin = TemplateLibrary::new(builtin_module.clone());
-        builtin.symbols.push(template_symbol(
-            TemplateSymbolKind::Tag,
-            "if",
-            &builtin_module,
-            None,
-        ));
-
         let i18n_name = LibraryName::parse("i18n").unwrap();
         let i18n_module = PythonModulePath::parse("django.templatetags.i18n").unwrap();
-        let mut i18n = TemplateLibrary::new(i18n_module.clone());
-        i18n.symbols.push(template_symbol(
-            TemplateSymbolKind::Tag,
-            "trans",
-            &i18n_module,
-            None,
-        ));
-        i18n.symbols.push(template_symbol(
-            TemplateSymbolKind::Tag,
-            "blocktrans",
-            &i18n_module,
-            None,
-        ));
-
-        TemplateLibraries {
-            knowledge: StaticKnowledge::Known,
-            loadable: BTreeMap::from([(i18n_name, i18n)]),
-            builtins: vec![builtin],
-        }
+        TemplateLibraries::builder()
+            .knowledge(StaticKnowledge::Known)
+            .builtin_untracked(
+                BuiltinLibrarySource::DjangoDefault,
+                builtin_module.clone(),
+                true,
+                vec![template_symbol(
+                    TemplateSymbolKind::Tag,
+                    "if",
+                    &builtin_module,
+                    None,
+                )],
+            )
+            .loadable_untracked(
+                i18n_name,
+                LoadableLibrarySource::ConfiguredAlias,
+                i18n_module.clone(),
+                true,
+                vec![
+                    template_symbol(TemplateSymbolKind::Tag, "trans", &i18n_module, None),
+                    template_symbol(TemplateSymbolKind::Tag, "blocktrans", &i18n_module, None),
+                ],
+            )
+            .build()
     }
 
     fn builtin_origin() -> InstalledSymbolOrigin {
-        InstalledSymbolOrigin::Builtin {
-            module: PythonModulePath::parse("django.template.defaulttags").unwrap(),
-        }
+        tag_libraries()
+            .installed_symbol_candidates(TemplateSymbolKind::Tag)
+            .into_iter()
+            .find(|candidate| candidate.symbol.name() == "if")
+            .expect("builtin if candidate should exist")
+            .origin
     }
 
     fn full_close() -> TagClose {

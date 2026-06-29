@@ -129,9 +129,8 @@ pub fn inactive_template_libraries(db: &dyn ProjectDb, project: Project) -> Inac
 
     let template_libraries = template_libraries(db, project);
     let active_modules: BTreeSet<_> = template_libraries
-        .loadable
-        .values()
-        .map(|library| library.module().clone())
+        .loadable_libraries()
+        .map(|(_name, library)| library.module_path().clone())
         .chain(template_libraries.builtin_modules().cloned())
         .collect();
 

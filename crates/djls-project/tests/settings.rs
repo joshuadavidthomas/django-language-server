@@ -490,12 +490,17 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge, StaticKnowledge::Known);
+    assert_eq!(libraries.knowledge(), StaticKnowledge::Known);
     let custom = libraries
         .loadable_library_str("custom")
         .expect("custom library should be discovered");
-    assert_eq!(custom.module().as_str(), "blog.templatetags.custom");
-    assert!(custom.symbols.iter().any(|symbol| symbol.name() == "hello"));
+    assert_eq!(custom.module_path().as_str(), "blog.templatetags.custom");
+    assert!(
+        custom
+            .symbols()
+            .iter()
+            .any(|symbol| symbol.name() == "hello")
+    );
     assert_eq!(
         libraries
             .builtin_modules()
@@ -533,8 +538,13 @@ fn template_libraries_discover_namespace_package_templatetags() {
     let custom = libraries
         .loadable_library_str("custom")
         .expect("namespace package templatetag should be discovered");
-    assert_eq!(custom.module().as_str(), "nsapp.templatetags.custom");
-    assert!(custom.symbols.iter().any(|symbol| symbol.name() == "hello"));
+    assert_eq!(custom.module_path().as_str(), "nsapp.templatetags.custom");
+    assert!(
+        custom
+            .symbols()
+            .iter()
+            .any(|symbol| symbol.name() == "hello")
+    );
 }
 
 #[test]
@@ -571,8 +581,8 @@ fn template_libraries_include_empty_registered_modules() {
     let libraries = template_libraries(&db, project);
 
     let empty = libraries.loadable_library_str("empty").unwrap();
-    assert_eq!(empty.module().as_str(), "blog.templatetags.empty");
-    assert!(empty.symbols.is_empty());
+    assert_eq!(empty.module_path().as_str(), "blog.templatetags.empty");
+    assert!(empty.symbols().is_empty());
 }
 
 #[test]
@@ -726,7 +736,7 @@ fn template_libraries_demote_unresolved_app_to_partial() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge, StaticKnowledge::Partial);
+    assert_eq!(libraries.knowledge(), StaticKnowledge::Partial);
 }
 
 #[test]
@@ -766,17 +776,17 @@ fn template_libraries_include_options_libraries_and_builtins() {
     let libraries = template_libraries(&db, project);
 
     let custom = libraries.loadable_library_str("custom").unwrap();
-    assert_eq!(custom.module().as_str(), "custom_tags");
+    assert_eq!(custom.module_path().as_str(), "custom_tags");
     assert!(
         custom
-            .symbols
+            .symbols()
             .iter()
             .any(|symbol| symbol.name() == "configured")
     );
     assert!(
         libraries
             .builtin_libraries()
-            .flat_map(|library| &library.symbols)
+            .flat_map(djls_project::TemplateLibrary::symbols)
             .any(|symbol| symbol.name() == "configured_filter")
     );
 }
@@ -813,12 +823,12 @@ fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
 
     let libraries = template_libraries(&db, project);
 
-    assert_eq!(libraries.knowledge, StaticKnowledge::Partial);
+    assert_eq!(libraries.knowledge(), StaticKnowledge::Partial);
     let custom = libraries.loadable_library_str("custom").unwrap();
-    assert_eq!(custom.module().as_str(), "project_tags");
+    assert_eq!(custom.module_path().as_str(), "project_tags");
     assert!(
         custom
-            .symbols
+            .symbols()
             .iter()
             .any(|symbol| symbol.name() == "configured")
     );
@@ -862,16 +872,16 @@ fn template_libraries_options_override_app_library_load_name() {
     let libraries = template_libraries(&db, project);
 
     let custom = libraries.loadable_library_str("custom").unwrap();
-    assert_eq!(custom.module().as_str(), "project_tags");
+    assert_eq!(custom.module_path().as_str(), "project_tags");
     assert!(
         custom
-            .symbols
+            .symbols()
             .iter()
             .any(|symbol| symbol.name() == "new_tag")
     );
     assert!(
         !custom
-            .symbols
+            .symbols()
             .iter()
             .any(|symbol| symbol.name() == "old_tag")
     );
@@ -965,7 +975,7 @@ fn django_facts_golden_template_libraries_match() {
         .map(|(name, library)| {
             (
                 name.as_str().to_string(),
-                library.module().as_str().to_string(),
+                library.module_path().as_str().to_string(),
             )
         })
         .collect();
@@ -982,25 +992,25 @@ fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol
     let mut symbols = Vec::new();
 
     for library in libraries.builtin_libraries() {
-        for symbol in &library.symbols {
+        for symbol in library.symbols() {
             symbols.push(GoldenTemplateSymbol {
                 kind: symbol.kind,
                 name: symbol.name().to_string(),
                 load_name: None,
-                library_module: library.module().as_str().to_string(),
-                module: library.module().as_str().to_string(),
+                library_module: library.module_path().as_str().to_string(),
+                module: library.module_path().as_str().to_string(),
             });
         }
     }
 
     for (load_name, library) in libraries.loadable_libraries() {
-        for symbol in &library.symbols {
+        for symbol in library.symbols() {
             symbols.push(GoldenTemplateSymbol {
                 kind: symbol.kind,
                 name: symbol.name().to_string(),
                 load_name: Some(load_name.as_str().to_string()),
-                library_module: library.module().as_str().to_string(),
-                module: library.module().as_str().to_string(),
+                library_module: library.module_path().as_str().to_string(),
+                module: library.module_path().as_str().to_string(),
             });
         }
     }
