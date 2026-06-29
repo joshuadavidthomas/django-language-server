@@ -100,8 +100,7 @@ fn standard_db() -> TestDatabase {
 }
 
 fn partial_db() -> TestDatabase {
-    let mut libraries = standard_inventory();
-    libraries.knowledge = StaticKnowledge::Partial;
+    let libraries = standard_inventory().with_knowledge(StaticKnowledge::Partial);
     TestDatabase::new()
         .with_template_libraries(libraries)
         .with_arity_specs(standard_arities())
@@ -119,8 +118,8 @@ fn partial_ambiguous_db() -> TestDatabase {
         ("beta".to_string(), "project.beta_tags".to_string()),
     ]);
     let builtins = vec![default_builtins_module().to_string()];
-    let mut libraries = make_template_libraries(&tags, &filters, &libraries, &builtins);
-    libraries.knowledge = StaticKnowledge::Partial;
+    let libraries = make_template_libraries(&tags, &filters, &libraries, &builtins)
+        .with_knowledge(StaticKnowledge::Partial);
     TestDatabase::new().with_template_libraries(libraries)
 }
 
@@ -151,8 +150,7 @@ fn standard_db_with_inactive_files(files: &[(&str, &str)]) -> TestDatabase {
 }
 
 fn partial_db_with_inactive_files(files: &[(&str, &str)]) -> TestDatabase {
-    let mut libraries = standard_inventory();
-    libraries.knowledge = StaticKnowledge::Partial;
+    let libraries = standard_inventory().with_knowledge(StaticKnowledge::Partial);
     db_with_project_files(libraries, files)
 }
 

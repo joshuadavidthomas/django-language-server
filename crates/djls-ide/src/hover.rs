@@ -50,7 +50,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",
-                    library.module().as_str()
+                    library.module_path().as_str()
                 ),
                 span,
             ))
@@ -143,7 +143,7 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
             .iter()
             .filter_map(|candidate| match &candidate.origin {
                 InstalledSymbolOrigin::Builtin { .. } => None,
-                InstalledSymbolOrigin::Loadable { load_name } => {
+                InstalledSymbolOrigin::Loadable { load_name, .. } => {
                     Some(format!("Requires `{{% load {} %}}`.", load_name.as_str()))
                 }
             }),
@@ -227,38 +227,75 @@ fn format_docstring(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use djls_project::BuiltinLibrarySource;
+    use djls_project::LibraryName;
+    use djls_project::LoadableLibrarySource;
+    use djls_project::PythonModulePath;
+    use djls_project::StaticKnowledge;
+    use djls_project::SymbolDefinition;
+    use djls_project::TemplateLibraries;
+    use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
 
     use super::*;
+
+    #[derive(Clone, Copy)]
+    enum TestOrigin {
+        Builtin(&'static str),
+        Loadable(&'static str),
+    }
 
     fn candidate(
         kind: TemplateSymbolKind,
         name: &str,
         doc: Option<&str>,
-        origin: InstalledSymbolOrigin,
+        origin: TestOrigin,
     ) -> InstalledSymbolCandidate {
-        let definition = match &origin {
-            InstalledSymbolOrigin::Builtin { .. } => djls_project::SymbolDefinition::Unknown,
-            InstalledSymbolOrigin::Loadable { load_name } => {
-                djls_project::SymbolDefinition::Module(
-                    djls_project::PythonModulePath::parse(&format!(
-                        "django.contrib.{0}.templatetags.{0}",
-                        load_name.as_str()
-                    ))
-                    .unwrap(),
-                )
+        let symbol_name = TemplateSymbolName::parse(name).unwrap();
+        let symbol = TemplateSymbol {
+            kind,
+            name: symbol_name,
+            definition: SymbolDefinition::Unknown,
+            doc: doc.map(str::to_string),
+        };
+        let libraries = match origin {
+            TestOrigin::Builtin(module) => {
+                let module = PythonModulePath::parse(module).unwrap();
+                TemplateLibraries::builder()
+                    .knowledge(StaticKnowledge::Known)
+                    .builtin_untracked(
+                        BuiltinLibrarySource::DjangoDefault,
+                        module,
+                        true,
+                        vec![symbol],
+                    )
+                    .build()
+            }
+            TestOrigin::Loadable(load_name) => {
+                let load_name = LibraryName::parse(load_name).unwrap();
+                let module = PythonModulePath::parse(&format!(
+                    "django.contrib.{0}.templatetags.{0}",
+                    load_name.as_str()
+                ))
+                .unwrap();
+                TemplateLibraries::builder()
+                    .knowledge(StaticKnowledge::Known)
+                    .loadable_untracked(
+                        load_name,
+                        LoadableLibrarySource::ConfiguredAlias,
+                        module,
+                        true,
+                        vec![symbol],
+                    )
+                    .build()
             }
         };
 
-        InstalledSymbolCandidate {
-            symbol: djls_project::TemplateSymbol {
-                kind,
-                name: TemplateSymbolName::parse(name).unwrap(),
-                definition,
-                doc: doc.map(str::to_string),
-            },
-            origin,
-        }
+        libraries
+            .installed_symbol_candidates(kind)
+            .into_iter()
+            .find(|candidate| candidate.symbol.name() == name)
+            .expect("candidate should exist")
     }
 
     #[test]
@@ -267,10 +304,7 @@ mod tests {
             TemplateSymbolKind::Tag,
             "if",
             Some("Evaluate a condition."),
-            InstalledSymbolOrigin::Builtin {
-                module: djls_project::PythonModulePath::parse("django.template.defaulttags")
-                    .unwrap(),
-            },
+            TestOrigin::Builtin("django.template.defaulttags"),
         )];
 
         let markdown = render_installed_symbol_hover(&candidates);
@@ -287,9 +321,7 @@ mod tests {
             TemplateSymbolKind::Filter,
             "intcomma",
             None,
-            InstalledSymbolOrigin::Loadable {
-                load_name: djls_project::LibraryName::parse("humanize").unwrap(),
-            },
+            TestOrigin::Loadable("humanize"),
         )];
 
         let markdown = render_installed_symbol_hover(&candidates);

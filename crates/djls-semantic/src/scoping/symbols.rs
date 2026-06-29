@@ -109,7 +109,7 @@ impl AvailableSymbols {
 
         // Builtins are always available.
         for library in template_libraries.builtin_libraries() {
-            for symbol in &library.symbols {
+            for symbol in library.symbols() {
                 match symbol.kind {
                     TemplateSymbolKind::Tag => tags.insert_available(symbol.name.as_str()),
                     TemplateSymbolKind::Filter => filters.insert_available(symbol.name.as_str()),
@@ -121,7 +121,7 @@ impl AvailableSymbols {
         for (name, library) in template_libraries.loadable_libraries() {
             let load_name = name.as_str();
 
-            for symbol in &library.symbols {
+            for symbol in library.symbols() {
                 match symbol.kind {
                     TemplateSymbolKind::Tag => {
                         tags.insert_candidate(symbol.name.as_str(), load_name);
@@ -218,11 +218,14 @@ impl SymbolIndex {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use djls_project::BuiltinLibrarySource;
     use djls_project::LibraryName;
+    use djls_project::LoadableLibrarySource;
     use djls_project::PythonModulePath;
     use djls_project::StaticKnowledge;
     use djls_project::SymbolDefinition;
-    use djls_project::TemplateLibrary;
     use djls_project::TemplateSymbolName;
     use djls_source::Span;
 
@@ -294,24 +297,16 @@ mod tests {
         libraries: &FxHashMap<String, String>,
         builtins: &[String],
     ) -> TemplateLibraries {
-        let mut result = TemplateLibraries {
-            knowledge: StaticKnowledge::Known,
-            ..TemplateLibraries::default()
-        };
-
+        let mut builtin_symbols: BTreeMap<PythonModulePath, Vec<TemplateSymbol>> = BTreeMap::new();
         for module_name in builtins {
             let Ok(module) = PythonModulePath::parse(module_name) else {
                 continue;
             };
-            if !result
-                .builtins
-                .iter()
-                .any(|library| library.module() == &module)
-            {
-                result.builtins.push(TemplateLibrary::new(module));
-            }
+            builtin_symbols.entry(module).or_default();
         }
 
+        let mut loadable_symbols: BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)> =
+            BTreeMap::new();
         for (load_name, module_name) in libraries {
             let Ok(load_name) = LibraryName::parse(load_name) else {
                 continue;
@@ -319,9 +314,7 @@ mod tests {
             let Ok(module) = PythonModulePath::parse(module_name) else {
                 continue;
             };
-            result
-                .loadable
-                .insert(load_name, TemplateLibrary::new(module));
+            loadable_symbols.insert(load_name, (module, Vec::new()));
         }
 
         let symbols = tags.iter().chain(filters.iter()).cloned();
@@ -347,12 +340,8 @@ mod tests {
                     let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
                         continue;
                     };
-                    if let Some(library) = result
-                        .builtins
-                        .iter_mut()
-                        .find(|library| library.module() == &module)
-                    {
-                        library.merge_symbol(symbol);
+                    if let Some(symbols) = builtin_symbols.get_mut(&module) {
+                        symbols.push(symbol);
                     }
                 }
                 Some(load_name) => {
@@ -362,18 +351,35 @@ mod tests {
                     let Ok(module) = PythonModulePath::parse(&fixture.library_module) else {
                         continue;
                     };
-                    let library = result
-                        .loadable
+                    let entry = loadable_symbols
                         .entry(load_name)
-                        .or_insert_with(|| TemplateLibrary::new(module.clone()));
-                    if library.module() == &module {
-                        library.merge_symbol(symbol);
+                        .or_insert_with(|| (module.clone(), Vec::new()));
+                    if entry.0 == module {
+                        entry.1.push(symbol);
                     }
                 }
             }
         }
 
-        result
+        let mut builder = TemplateLibraries::builder().knowledge(StaticKnowledge::Known);
+        for (module, symbols) in builtin_symbols {
+            builder = builder.builtin_untracked(
+                BuiltinLibrarySource::DjangoDefault,
+                module,
+                true,
+                symbols,
+            );
+        }
+        for (load_name, (module, symbols)) in loadable_symbols {
+            builder = builder.loadable_untracked(
+                load_name,
+                LoadableLibrarySource::ConfiguredAlias,
+                module,
+                true,
+                symbols,
+            );
+        }
+        builder.build()
     }
 
     fn make_template_libraries_tags_only(

@@ -963,7 +963,7 @@ def my_filter(value, arg):
             db.template_libraries()
                 .loadable_library_str("custom")
                 .unwrap()
-                .module()
+                .module_path()
                 .as_str(),
             module_path
         );
@@ -1231,8 +1231,13 @@ def my_filter(value, arg):
         let custom = libraries
             .loadable_library_str("custom")
             .expect("custom library should be derived");
-        assert_eq!(custom.module().as_str(), "blog.templatetags.custom");
-        assert!(custom.symbols.iter().any(|symbol| symbol.name() == "hello"));
+        assert_eq!(custom.module_path().as_str(), "blog.templatetags.custom");
+        assert!(
+            custom
+                .symbols()
+                .iter()
+                .any(|symbol| symbol.name() == "hello")
+        );
     }
 
     #[test]
@@ -1283,7 +1288,7 @@ def my_filter(value, arg):
         let custom = libraries.loadable_library_str("custom").unwrap();
         assert!(
             custom
-                .symbols
+                .symbols()
                 .iter()
                 .any(|symbol| symbol.name() == "old_tag")
         );
@@ -1300,13 +1305,13 @@ def my_filter(value, arg):
         let custom = libraries.loadable_library_str("custom").unwrap();
         assert!(
             custom
-                .symbols
+                .symbols()
                 .iter()
                 .any(|symbol| symbol.name() == "new_tag")
         );
         assert!(
             !custom
-                .symbols
+                .symbols()
                 .iter()
                 .any(|symbol| symbol.name() == "old_tag")
         );

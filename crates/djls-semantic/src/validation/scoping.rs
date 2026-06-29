@@ -127,7 +127,7 @@ pub(crate) fn check_load_libraries_rule(
     template_libraries: &TemplateLibraries,
     inactive_libraries: &InactiveLibraries,
 ) {
-    if template_libraries.knowledge == StaticKnowledge::Unknown {
+    if template_libraries.knowledge() == StaticKnowledge::Unknown {
         return;
     }
 
@@ -145,11 +145,11 @@ pub(crate) fn check_load_libraries_rule(
             // Invalid library name string (shouldn't happen given LoadKind parser, but safety first)
             continue;
         };
-        if template_libraries.loadable.contains_key(&load_name) {
+        if template_libraries.is_loadable(&load_name) {
             continue;
         }
 
-        if template_libraries.knowledge == StaticKnowledge::Known {
+        if template_libraries.knowledge() == StaticKnowledge::Known {
             let candidates = inactive_libraries.library_candidates(&load_name);
             if let Some(first) = candidates.first() {
                 let mut apps: Vec<_> = candidates
