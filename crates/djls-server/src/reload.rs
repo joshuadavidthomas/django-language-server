@@ -620,7 +620,7 @@ impl WarmStage {
             Self::ResolveTemplateDirs => Some(db.template_dirs().map_or(0, |dirs| dirs.len())),
             Self::IndexTemplateLibraries => {
                 let libraries = db.template_libraries();
-                Some(libraries.loadable_libraries().count() + libraries.builtin_libraries().count())
+                Some(libraries.installed_library_count())
             }
             Self::IndexTemplates => Some(template_resolution(db, project).origins(db).count()),
         }
