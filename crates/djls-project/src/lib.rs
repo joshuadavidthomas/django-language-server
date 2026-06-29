@@ -43,8 +43,6 @@ pub use templates::ExtractedMessageTemplate;
 pub use templates::FilterArity;
 pub use templates::FilterArityMap;
 pub use templates::FindTemplateResult;
-pub use templates::InactiveLibraries;
-pub use templates::InactiveLibrary;
 pub use templates::InactiveLibrarySource;
 pub use templates::InstalledSymbolCandidate;
 pub use templates::InstalledSymbolOrigin;
@@ -78,7 +76,6 @@ pub use templates::TriedTemplateSource;
 pub use templates::extract_block_specs;
 pub use templates::extract_filter_arities;
 pub use templates::extract_tag_rules;
-pub use templates::inactive_template_libraries;
 pub use templates::template_libraries;
 pub use templates::template_resolution;
 
