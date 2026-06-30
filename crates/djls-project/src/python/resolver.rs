@@ -69,9 +69,10 @@ impl<'db> PythonResolver<'db> {
         Ok(self.module(&name))
     }
 
-    fn package(&self, name: &PythonModuleName) -> Option<PythonPackage> {
+    pub(crate) fn package(&self, name: &str) -> Result<Option<PythonPackage>, InvalidModuleName> {
         self.project.touch_search_path_roots(self.db);
 
+        let name = PythonModuleName::parse(name)?;
         let relative = name.as_str().replace('.', "/");
         for search_path in self.project.search_paths(self.db).iter() {
             let dir = search_path.path().join(&relative);
@@ -84,18 +85,10 @@ impl<'db> PythonResolver<'db> {
                 .db
                 .path_is_file(&init_path)
                 .then(|| self.db.get_or_create_file(&init_path));
-            return Some(PythonPackage::new(name.clone(), dir, init_file));
+            return Ok(Some(PythonPackage::new(name, dir, init_file)));
         }
 
-        None
-    }
-
-    pub(crate) fn package_from_str(
-        &self,
-        name: &str,
-    ) -> Result<Option<PythonPackage>, InvalidModuleName> {
-        let name = PythonModuleName::parse(name)?;
-        Ok(self.package(&name))
+        Ok(None)
     }
 
     fn import_name(&self, import: PythonImport<'_>) -> Result<PythonModuleName, PythonImportError> {

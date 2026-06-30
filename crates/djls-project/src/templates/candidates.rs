@@ -133,8 +133,7 @@ pub(crate) fn templatetag_package_candidates(
         return scan;
     }
 
-    let Ok(Some(package)) = PythonResolver::new(db, project).package_from_str(package_module)
-    else {
+    let Ok(Some(package)) = PythonResolver::new(db, project).package(package_module) else {
         scan.demote_to_partial();
         return scan;
     };

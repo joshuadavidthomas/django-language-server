@@ -49,7 +49,7 @@ pub(crate) fn template_dirs(
             knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
             for app in &settings.installed_apps.values {
                 let Ok(Some(package)) =
-                    resolver.package_from_str(guess_package_module_from_installed_app_entry(app))
+                    resolver.package(guess_package_module_from_installed_app_entry(app))
                 else {
                     knowledge = knowledge.demoted_to_partial();
                     continue;
