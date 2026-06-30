@@ -11,11 +11,12 @@ use rustc_hash::FxHashMap;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::PythonModuleName;
+use crate::python::PythonResolver;
 
 #[salsa::tracked(returns(ref))]
 pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
     let search_paths = project.search_paths(db);
+    let resolver = PythonResolver::new(db, project);
     let mut modules_by_path: Vec<(usize, PythonModule)> = Vec::new();
     let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
 
@@ -42,17 +43,15 @@ pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> 
         };
 
         let search_path_len = search_path.path().as_str().len();
-        for (module_name, file_path) in discover_model_files_in_root(
+        for file_path in discover_model_files_in_root(
             db.file_system(),
             search_path.path(),
             search_path.root_kind(),
             &excluded_paths,
         ) {
-            let module = PythonModule::new(
-                module_name,
-                file_path.clone(),
-                db.get_or_create_file(&file_path),
-            );
+            let Some(module) = resolver.source_file_module(&file_path) else {
+                continue;
+            };
             if let Some(index) = path_indexes.get(&file_path).copied() {
                 let (existing_search_path_len, existing) = &mut modules_by_path[index];
                 if search_path_len > *existing_search_path_len {
@@ -81,7 +80,7 @@ fn discover_model_files_in_root(
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
-) -> Vec<(PythonModuleName, Utf8PathBuf)> {
+) -> Vec<Utf8PathBuf> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
@@ -131,17 +130,9 @@ fn discover_model_files_in_root(
             continue;
         }
 
-        let Some(rel) = path.strip_prefix(base_dir).ok() else {
-            continue;
-        };
-
-        let Ok(module_name) = PythonModuleName::from_relative_source_path(rel) else {
-            continue;
-        };
-
-        results.push((module_name, path));
+        results.push(path);
     }
 
-    results.sort_by(|(a, _), (b, _)| a.cmp(b));
+    results.sort();
     results
 }

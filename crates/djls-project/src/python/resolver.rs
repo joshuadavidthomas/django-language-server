@@ -162,6 +162,23 @@ impl<'db> PythonResolver<'db> {
         let name = self.import_name(import)?;
         Ok(self.module(&name))
     }
+
+    pub(crate) fn source_file_module(&self, source_path: &Utf8Path) -> Option<PythonModule> {
+        let name = self.module_name_for_source_path(source_path)?;
+        let module = self.module(&name)?;
+        (module.path() == source_path).then_some(module)
+    }
+
+    fn module_name_for_source_path(&self, source_path: &Utf8Path) -> Option<PythonModuleName> {
+        let search_path = self
+            .project
+            .search_paths(self.db)
+            .iter()
+            .filter(|search_path| source_path.starts_with(search_path.path()))
+            .max_by_key(|search_path| search_path.path().as_str().len())?;
+        let relative = source_path.strip_prefix(search_path.path()).ok()?;
+        PythonModuleName::from_relative_source_path(relative).ok()
+    }
 }
 
 fn module_file_in_search_path(

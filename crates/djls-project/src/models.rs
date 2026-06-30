@@ -1,8 +1,10 @@
+mod discovery;
 mod extract;
 mod graph;
 
 use std::ops::ControlFlow;
 
+pub use discovery::model_modules;
 use djls_source::File;
 use djls_source::FileKind;
 pub use graph::ModelGraph;
@@ -14,7 +16,6 @@ use crate::db::Db;
 use crate::models::extract::ModelCollector;
 use crate::project::Project;
 use crate::python::PythonModuleName;
-use crate::resolve::model_modules;
 
 /// Compute a merged `ModelGraph` from discovered model sources.
 #[salsa::tracked(returns(ref))]

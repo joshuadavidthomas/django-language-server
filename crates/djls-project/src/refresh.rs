@@ -8,9 +8,9 @@ use camino::Utf8PathBuf;
 use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
+use crate::models::model_modules;
 use crate::project::Project;
 use crate::python::SearchPaths;
-use crate::resolve::model_modules;
 use crate::settings::DjangoSettingsSources;
 use crate::settings::settings_sources;
 use crate::templates::refresh_templatetag_candidate_paths;

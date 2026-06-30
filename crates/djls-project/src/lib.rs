@@ -5,7 +5,6 @@ mod parse;
 mod project;
 mod python;
 mod refresh;
-mod resolve;
 mod settings;
 mod templates;
 
@@ -13,6 +12,7 @@ pub use db::Db;
 pub use models::ModelGraph;
 pub use models::ModelId;
 pub use models::compute_model_graph;
+pub use models::model_modules;
 pub use project::Project;
 pub use python::Interpreter;
 pub use python::InvalidModuleName;
@@ -28,7 +28,6 @@ pub use refresh::RefreshTaskDescriptor;
 pub use refresh::RefreshTaskGroup;
 pub use refresh::apply_refresh;
 pub use refresh::refresh_tasks;
-pub use resolve::model_modules;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
 pub use templates::BlockSpec;
@@ -78,8 +77,8 @@ pub mod testing {
     use camino::Utf8PathBuf;
 
     pub use crate::models::extract_model_graph;
+    pub use crate::models::model_modules;
     pub use crate::refresh::compute_refresh;
-    pub use crate::resolve::model_modules;
     pub use crate::settings::types::StaticKnowledge;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
