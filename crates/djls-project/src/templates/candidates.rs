@@ -13,7 +13,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::resolve::package_dir;
+use crate::python::PythonResolver;
 use crate::settings::StaticKnowledge;
 use crate::templates::LibraryName;
 
@@ -133,17 +133,13 @@ pub(crate) fn templatetag_package_candidates(
         return scan;
     }
 
-    let Ok(package_module) = PythonModuleName::parse(package_module) else {
+    let Ok(Some(package)) = PythonResolver::new(db, project).package_from_str(package_module)
+    else {
         scan.demote_to_partial();
         return scan;
     };
 
-    let Some(package_dir) = package_dir(db, project, package_module.as_str()) else {
-        scan.demote_to_partial();
-        return scan;
-    };
-
-    let templatetags_dir = package_dir.join("templatetags");
+    let templatetags_dir = package.dir().join("templatetags");
     if !db.path_is_file(&templatetags_dir.join("__init__.py")) {
         return scan;
     }
@@ -164,11 +160,11 @@ pub(crate) fn templatetag_package_candidates(
 
         match recognize_candidate_source(
             db.file_system(),
-            &package_dir,
+            package.dir(),
             entry.path,
             &[],
             TemplateTagDiscoveryMode::ActivePackage,
-            Some(&package_module),
+            Some(package.name()),
         ) {
             CandidateSourceRecognition::Candidate(source) => {
                 scan.candidates

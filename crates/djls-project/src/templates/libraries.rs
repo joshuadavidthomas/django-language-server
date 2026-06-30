@@ -15,7 +15,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::resolve::python_module;
+use crate::python::PythonResolver;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
@@ -651,7 +651,7 @@ fn library_from_module_name(
         return (StaticKnowledge::Partial, None);
     };
 
-    let Some(module) = python_module(db, project, module_name) else {
+    let Some(module) = PythonResolver::new(db, project).module(&module_name) else {
         return (StaticKnowledge::Partial, None);
     };
 

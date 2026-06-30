@@ -16,11 +16,16 @@ pub(crate) use types::TemplateDirPath;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
+use crate::python::PythonResolver;
 
 #[salsa::tracked]
 pub(crate) fn settings_module_file(db: &dyn ProjectDb, project: Project) -> Option<File> {
     let django_settings_module = project.django_settings_module(db).as_deref()?;
-    crate::resolve::module_file(db, project, django_settings_module)
+    PythonResolver::new(db, project)
+        .module_from_str(django_settings_module)
+        .ok()
+        .flatten()
+        .map(|module| module.file())
 }
 
 #[salsa::tracked(returns(ref))]
