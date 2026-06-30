@@ -32,7 +32,7 @@ impl TemplateDirStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TemplateDirResolution {
+struct TemplateDirResolution {
     dirs: Vec<Utf8PathBuf>,
     status: TemplateDirStatus,
 }

@@ -26,7 +26,6 @@ pub(crate) use registrations::RegistrationKind;
 pub(crate) use registrations::for_each_registration;
 pub use resolution::FindTemplateResult;
 pub use resolution::TemplateDoesNotExist;
-pub use resolution::TemplateDirStatus;
 pub use resolution::TemplateName;
 pub use resolution::TemplateOrigin;
 pub use resolution::TemplateResolution;
