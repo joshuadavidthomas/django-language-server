@@ -41,7 +41,9 @@ impl SearchPath {
         path: Utf8PathBuf,
     ) -> Self {
         if discovered_site_packages.is_some_and(|site_packages| site_packages == path)
-            || has_installed_package_component(&path)
+            || path
+                .components()
+                .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
         {
             Self::site_packages(path)
         } else if path.starts_with(root) {
@@ -71,11 +73,6 @@ impl SearchPath {
             Self::SitePackages(_) => FileRootKind::SearchPath,
         }
     }
-}
-
-fn has_installed_package_component(path: &Utf8Path) -> bool {
-    path.components()
-        .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

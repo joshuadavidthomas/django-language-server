@@ -4,9 +4,13 @@ use std::collections::BTreeSet;
 
 use djls_source::File;
 
+use super::candidates::templatetag_candidates;
+use super::candidates::templatetag_package_candidates;
+use super::guess_package_module_from_installed_app_entry;
 use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
 use super::symbols::TemplateSymbol;
+use super::symbols::TemplateSymbolKind;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
@@ -15,10 +19,6 @@ use crate::resolve::python_module;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
-use crate::templates::TemplateSymbolKind;
-use crate::templates::guess_package_module_from_installed_app_entry;
-use crate::templates::templatetag_candidates;
-use crate::templates::templatetag_package_candidates;
 
 const DEFAULT_TEMPLATE_BUILTINS: &[&str] = &[
     "django.template.defaulttags",

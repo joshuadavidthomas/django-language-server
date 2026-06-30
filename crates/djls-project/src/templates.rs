@@ -1,6 +1,6 @@
 mod candidates;
-pub(crate) mod filters;
-pub(crate) mod libraries;
+mod filters;
+mod libraries;
 mod names;
 mod registrations;
 mod resolution;
@@ -8,8 +8,6 @@ mod symbols;
 mod tags;
 
 pub(crate) use candidates::refresh_templatetag_candidate_paths;
-pub(crate) use candidates::templatetag_candidates;
-pub(crate) use candidates::templatetag_package_candidates;
 pub use filters::FilterArity;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;
