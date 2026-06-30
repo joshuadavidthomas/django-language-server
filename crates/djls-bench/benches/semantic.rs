@@ -2,6 +2,7 @@ use divan::Bencher;
 use djls_bench::BATCH_INNER_ITERS;
 use djls_bench::Db;
 use djls_bench::realistic_db;
+use djls_bench::structure_db;
 use djls_bench::template_fixtures;
 
 fn main() {
@@ -18,7 +19,7 @@ fn template_files(db: &mut Db) -> Vec<djls_source::File> {
 #[divan::bench]
 fn template_tree_cold(bencher: Bencher) {
     bencher.bench_local(move || {
-        let mut db = realistic_db();
+        let mut db = structure_db();
         let files = template_files(&mut db);
 
         let mut total_regions = 0;
@@ -115,7 +116,7 @@ fn validate_incremental(bencher: Bencher) {
 #[divan::bench]
 fn opaque_regions_cold(bencher: Bencher) {
     bencher.bench_local(move || {
-        let mut db = realistic_db();
+        let mut db = structure_db();
         let files = template_files(&mut db);
 
         let mut opaque_files = 0;

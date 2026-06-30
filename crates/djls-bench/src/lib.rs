@@ -15,6 +15,7 @@ pub use fixtures::python_fixtures;
 pub use fixtures::template_fixtures;
 pub use fixtures::validation_error_fixtures;
 pub use specs::realistic_db;
+pub use specs::structure_db;
 
 pub const BATCH_INNER_ITERS: usize = 8;
 pub const REPEATED_INNER_ITERS: usize = 100;

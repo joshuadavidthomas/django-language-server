@@ -1,15 +1,19 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
+use djls_project::LibraryName;
 use djls_project::PythonModulePath;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
+use djls_project::testing;
+use djls_project::testing::StaticKnowledge;
+use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_testing::extract_bundle;
@@ -63,6 +67,7 @@ fn builtin_filter(name: &str, module: &'static str) -> BenchSymbol {
 
 struct RealisticSpecs {
     tag_specs: TagSpecs,
+    template_library_inputs: Vec<TemplateLibraryInput>,
     filter_arity_specs: FilterAritySpecs,
 }
 
@@ -155,46 +160,65 @@ fn build_filter_arities(
     specs
 }
 
-fn build_template_libraries(
-    db: &dyn ProjectDb,
-    symbols: Vec<BenchSymbol>,
-) -> djls_project::TemplateLibraries {
-    let mut tags = Vec::new();
-    let mut filters = Vec::new();
+fn build_template_library_inputs(symbols: Vec<BenchSymbol>) -> Vec<TemplateLibraryInput> {
+    let mut builtins = BTreeMap::new();
+    for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
+        builtins.insert(PythonModulePath::parse(module_name).unwrap(), Vec::new());
+    }
+
+    let mut installed = BTreeMap::new();
+    for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
+        installed.insert(
+            LibraryName::parse(load_name).unwrap(),
+            (PythonModulePath::parse(module_name).unwrap(), Vec::new()),
+        );
+    }
 
     for bench_symbol in symbols {
-        let symbol_name = bench_symbol.symbol.name();
-        let value = match (bench_symbol.symbol.kind, bench_symbol.load_name) {
-            (TemplateSymbolKind::Tag, None) => {
-                djls_testing::builtin_tag(symbol_name, bench_symbol.module)
+        let module = PythonModulePath::parse(bench_symbol.module).unwrap();
+        match bench_symbol.load_name {
+            None => {
+                if let Some(symbols) = builtins.get_mut(&module) {
+                    symbols.push(bench_symbol.symbol);
+                }
             }
-            (TemplateSymbolKind::Tag, Some(load_name)) => {
-                djls_testing::library_tag(symbol_name, load_name, bench_symbol.module)
+            Some(load_name) => {
+                let load_name = LibraryName::parse(load_name).unwrap();
+                if let Some((installed_module, symbols)) = installed.get_mut(&load_name)
+                    && installed_module == &module
+                {
+                    symbols.push(bench_symbol.symbol);
+                }
             }
-            (TemplateSymbolKind::Filter, None) => {
-                djls_testing::builtin_filter(symbol_name, bench_symbol.module)
-            }
-            (TemplateSymbolKind::Filter, Some(load_name)) => {
-                djls_testing::library_filter(symbol_name, load_name, bench_symbol.module)
-            }
-        };
-
-        match bench_symbol.symbol.kind {
-            TemplateSymbolKind::Tag => tags.push(value),
-            TemplateSymbolKind::Filter => filters.push(value),
         }
     }
 
-    let libraries = HashMap::from([
-        ("i18n".to_string(), I18N.to_string()),
-        ("static".to_string(), STATIC.to_string()),
-    ]);
-    let builtins = vec![DEFAULTTAGS.to_string(), DEFAULTFILTERS.to_string()];
+    let mut inputs = Vec::new();
+    inputs.extend(
+        builtins
+            .into_iter()
+            .map(|(module, symbols)| TemplateLibraryInput::Builtin { module, symbols }),
+    );
+    inputs.extend(installed.into_iter().map(|(load_name, (module, symbols))| {
+        TemplateLibraryInput::Installed {
+            load_name,
+            module,
+            symbols,
+        }
+    }));
+    inputs
+}
 
-    djls_testing::make_template_libraries(db, &tags, &filters, &libraries, &builtins)
+fn build_template_libraries(
+    db: &dyn ProjectDb,
+    inputs: &[TemplateLibraryInput],
+) -> djls_project::TemplateLibraries {
+    testing::template_libraries(db, StaticKnowledge::Known, inputs.to_vec())
 }
 
 fn build_realistic_specs() -> RealisticSpecs {
+    let template_library_inputs = build_template_library_inputs(build_template_symbols());
+
     let mut tag_specs = TagSpecs::default();
 
     let fixture_root = crate::fixtures::crate_root().join("fixtures/python");
@@ -234,20 +258,33 @@ fn build_realistic_specs() -> RealisticSpecs {
 
     RealisticSpecs {
         tag_specs,
+        template_library_inputs,
         filter_arity_specs,
     }
+}
+
+fn realistic_specs() -> &'static RealisticSpecs {
+    static SPECS: OnceLock<RealisticSpecs> = OnceLock::new();
+    SPECS.get_or_init(build_realistic_specs)
+}
+
+/// Create a benchmark `Db` configured for semantic structure projections.
+#[must_use]
+pub fn structure_db() -> Db {
+    let specs = realistic_specs();
+    Db::new().with_tag_specs(specs.tag_specs.clone())
 }
 
 /// Create a benchmark `Db` configured with realistic Django tag specs,
 /// template libraries, and filter arity data extracted from real Django
 /// source files.
+#[must_use]
 pub fn realistic_db() -> Db {
-    static SPECS: OnceLock<RealisticSpecs> = OnceLock::new();
-    let specs = SPECS.get_or_init(build_realistic_specs);
+    let specs = realistic_specs();
 
     let db = Db::new()
         .with_tag_specs(specs.tag_specs.clone())
         .with_filter_arity_specs(specs.filter_arity_specs.clone());
-    let template_libraries = build_template_libraries(&db, build_template_symbols());
+    let template_libraries = build_template_libraries(&db, &specs.template_library_inputs);
     db.with_template_libraries(template_libraries)
 }
