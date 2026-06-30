@@ -43,7 +43,7 @@ impl<'db> PythonResolver<'db> {
         Self { db, project }
     }
 
-    pub(crate) fn module(&self, name: &PythonModuleName) -> Option<PythonModule> {
+    fn module(&self, name: &PythonModuleName) -> Option<PythonModule> {
         self.project.touch_search_path_roots(self.db);
 
         for search_path in self.project.search_paths(self.db).iter() {
@@ -69,7 +69,7 @@ impl<'db> PythonResolver<'db> {
         Ok(self.module(&name))
     }
 
-    pub(crate) fn package(&self, name: &PythonModuleName) -> Option<PythonPackage> {
+    fn package(&self, name: &PythonModuleName) -> Option<PythonPackage> {
         self.project.touch_search_path_roots(self.db);
 
         let relative = name.as_str().replace('.', "/");
@@ -98,10 +98,7 @@ impl<'db> PythonResolver<'db> {
         Ok(self.package(&name))
     }
 
-    pub(crate) fn import_name(
-        &self,
-        import: PythonImport<'_>,
-    ) -> Result<PythonModuleName, PythonImportError> {
+    fn import_name(&self, import: PythonImport<'_>) -> Result<PythonModuleName, PythonImportError> {
         if import.level == 0 {
             let module = import
                 .module
