@@ -15,7 +15,8 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
-use crate::settings::paths::evaluate_path_expr;
+use crate::python::PythonPathContext;
+use crate::python::evaluate_python_path_expr;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
@@ -42,6 +43,21 @@ pub(crate) fn extract_settings(
     extraction
         .extract_module(source, module_path, resolver)
         .into_settings()
+}
+
+fn evaluate_template_dir_path(
+    expr: &ast::Expr,
+    module_path: &Utf8Path,
+    locals: &LocalBindings,
+) -> TemplateDirPath {
+    evaluate_python_path_expr(
+        expr,
+        PythonPathContext {
+            file_path: module_path,
+            bindings: locals.path_bindings(),
+        },
+    )
+    .map_or(TemplateDirPath::Unknown, TemplateDirPath::Resolved)
 }
 
 #[derive(Debug, Default)]
@@ -441,7 +457,7 @@ impl SettingsBindingsCollector<'_> {
             None => self.bindings.locals.remove_bool(name),
         }
 
-        match evaluate_path_expr(value, self.module_path, &self.bindings.locals) {
+        match evaluate_template_dir_path(value, self.module_path, &self.bindings.locals) {
             TemplateDirPath::Resolved(path) => self.bindings.locals.set_path(name, path),
             TemplateDirPath::Unknown => self.bindings.locals.remove_path(name),
         }
@@ -642,7 +658,7 @@ impl SettingsBindingsCollector<'_> {
             return;
         };
         for element in &list.elts {
-            let path = evaluate_path_expr(element, self.module_path, &self.bindings.locals);
+            let path = evaluate_template_dir_path(element, self.module_path, &self.bindings.locals);
             if path == TemplateDirPath::Unknown {
                 backend.make_partial(Reason::UnsupportedPathExpression);
             }
@@ -698,7 +714,7 @@ impl SettingsBindingsCollector<'_> {
     }
 
     fn append_template_dir(&mut self, index: usize, value: &ast::Expr) {
-        let path = evaluate_path_expr(value, self.module_path, &self.bindings.locals);
+        let path = evaluate_template_dir_path(value, self.module_path, &self.bindings.locals);
         let path_is_unknown = path == TemplateDirPath::Unknown;
 
         let Some(templates) = self.bindings.templates.as_mut() else {

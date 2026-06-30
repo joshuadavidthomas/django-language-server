@@ -1,5 +1,4 @@
 mod extraction;
-mod paths;
 mod sources;
 pub(crate) mod types;
 
