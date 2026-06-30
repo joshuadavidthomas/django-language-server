@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::File;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
 use djls_source::WalkEntryKind;
@@ -13,7 +12,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::python::PythonResolver;
+use crate::python::PythonPackage;
 use crate::settings::StaticKnowledge;
 use crate::templates::LibraryName;
 
@@ -27,36 +26,38 @@ enum TemplateTagDiscoveryMode {
 pub(crate) struct TemplateTagCandidate {
     pub(crate) app: PythonModuleName,
     pub(crate) name: LibraryName,
-    pub(crate) module: PythonModuleName,
-    path: Utf8PathBuf,
-    pub(crate) file: File,
+    pub(crate) module: PythonModule,
 }
 
 impl TemplateTagCandidate {
     fn from_source(db: &dyn ProjectDb, source: TemplateTagCandidateSource) -> Self {
+        let module_name = templatetag_module(&source.app, &source.name)
+            .expect("template tag candidate source should have a valid module name");
         let file = db.get_or_create_file(&source.path);
         Self {
             app: source.app,
             name: source.name,
-            module: source.module,
-            path: source.path,
-            file,
+            module: PythonModule::new(module_name, source.path, file),
         }
     }
 
+    fn path(&self) -> &Utf8Path {
+        self.module.path()
+    }
+
     fn into_path(self) -> Utf8PathBuf {
-        self.path
+        self.module.path().to_path_buf()
     }
 
     pub(crate) fn into_python_module(self) -> PythonModule {
-        PythonModule::new(self.module, self.path, self.file)
+        self.module
     }
 
     fn cmp_by_app_name_path(&self, other: &Self) -> Ordering {
         self.app
             .cmp(&other.app)
             .then_with(|| self.name.cmp(&other.name))
-            .then_with(|| self.path.cmp(&other.path))
+            .then_with(|| self.path().cmp(other.path()))
     }
 }
 
@@ -64,19 +65,13 @@ impl TemplateTagCandidate {
 struct TemplateTagCandidateSource {
     app: PythonModuleName,
     name: LibraryName,
-    module: PythonModuleName,
     path: Utf8PathBuf,
 }
 
 impl TemplateTagCandidateSource {
     fn new(app: PythonModuleName, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
-        let module = templatetag_module(&app, &name)?;
-        Some(Self {
-            app,
-            name,
-            module,
-            path,
-        })
+        templatetag_module(&app, &name)?;
+        Some(Self { app, name, path })
     }
 }
 
@@ -124,16 +119,11 @@ pub(crate) fn refresh_templatetag_candidate_paths(
 pub(crate) fn templatetag_package_candidates(
     db: &dyn ProjectDb,
     project: Project,
-    package_module: &str,
+    package_module: PythonModuleName,
 ) -> TemplateTagPackageScan {
     let mut scan = TemplateTagPackageScan::known();
 
-    if package_module.is_empty() {
-        scan.demote_to_partial();
-        return scan;
-    }
-
-    let Ok(Some(package)) = PythonResolver::new(db, project).package(package_module) else {
+    let Some(package) = PythonPackage::resolve(db, project, package_module) else {
         scan.demote_to_partial();
         return scan;
     };
@@ -209,7 +199,7 @@ fn walk_candidates(
             &excluded_paths,
             mode,
         ) {
-            let path = candidate.path.clone();
+            let path = candidate.path().to_path_buf();
             if let Some(index) = path_indexes.get(&path).copied() {
                 let (existing_search_path_len, existing) = &mut candidates_by_path[index];
                 if search_path_len > *existing_search_path_len {
@@ -397,7 +387,6 @@ mod tests {
         let candidate = &discovered[0];
         assert_eq!(candidate.app.as_str(), "pkg_a");
         assert_eq!(candidate.name.as_str(), "foo");
-        assert_eq!(candidate.module.as_str(), "pkg_a.templatetags.foo");
         assert_eq!(candidate.path.as_str(), "/root/pkg_a/templatetags/foo.py");
     }
 
@@ -437,10 +426,6 @@ mod tests {
         };
         assert_eq!(candidate.app.as_str(), "namespace_app");
         assert_eq!(candidate.name.as_str(), "tools");
-        assert_eq!(
-            candidate.module.as_str(),
-            "namespace_app.templatetags.tools"
-        );
         assert!(matches!(
             available,
             CandidateSourceRecognition::NotCandidate

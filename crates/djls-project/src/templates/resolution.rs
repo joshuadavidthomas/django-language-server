@@ -10,11 +10,11 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonResolver;
+use crate::python::PythonPackage;
 use crate::settings::StaticKnowledge;
 use crate::settings::TemplateDirPath;
 use crate::settings::django_settings;
-use crate::templates::guess_package_module_from_installed_app_entry;
+use crate::templates::guess_package_module_name_from_installed_app_entry;
 
 #[salsa::tracked(returns(ref))]
 pub(crate) fn template_dirs(
@@ -27,8 +27,6 @@ pub(crate) fn template_dirs(
     let mut dirs = Vec::new();
     let mut knowledge = settings.templates.knowledge;
     let backend_count = settings.templates.backends.len();
-
-    let resolver = PythonResolver::new(db, project);
 
     for backend in settings
         .templates
@@ -48,9 +46,12 @@ pub(crate) fn template_dirs(
         if backend.app_dirs == Some(true) {
             knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
             for app in &settings.installed_apps.values {
-                let Ok(Some(package)) =
-                    resolver.package(guess_package_module_from_installed_app_entry(app))
+                let Some(package_module) = guess_package_module_name_from_installed_app_entry(app)
                 else {
+                    knowledge = knowledge.demoted_to_partial();
+                    continue;
+                };
+                let Some(package) = PythonPackage::resolve(db, project, package_module) else {
                     knowledge = knowledge.demoted_to_partial();
                     continue;
                 };

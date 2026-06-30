@@ -18,7 +18,7 @@ use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::db::Db as ProjectDb;
-use crate::parse::parse_python_module;
+use crate::python::parse_python_module;
 
 /// Decorator helper names on `django.template.Library` that register filters.
 const FILTER_DECORATORS: &[&str] = &["filter"];

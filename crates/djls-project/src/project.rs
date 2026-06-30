@@ -8,6 +8,7 @@ use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
+use crate::python::PythonModuleName;
 use crate::python::SearchPaths;
 
 /// Complete project configuration as a Salsa input.
@@ -30,9 +31,9 @@ pub struct Project {
     /// Interpreter specification for Python environment discovery
     #[returns(ref)]
     pub interpreter: Interpreter,
-    /// Django settings module (e.g., "myproject.settings")
+    /// Django settings module name (e.g., "myproject.settings")
     #[returns(ref)]
-    pub django_settings_module: Option<String>,
+    pub django_settings_module: Option<PythonModuleName>,
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
@@ -64,7 +65,9 @@ impl Project {
         let interpreter = settings.venv_path().map_or(Interpreter::Auto, |path| {
             Interpreter::VenvPath(path.to_string())
         });
-        let django_settings_module = settings.django_settings_module().map(String::from);
+        let django_settings_module = settings
+            .django_settings_module()
+            .and_then(|module_name| PythonModuleName::parse(module_name).ok());
         let pythonpath = settings.pythonpath().to_vec();
         let env_vars = Vec::new();
         let tagspecs = settings.tagspecs().clone();
@@ -86,7 +89,7 @@ impl Project {
 
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let interpreter = Interpreter::discover(settings.venv_path());
-        let django_settings_module = resolve_django_settings(db.file_system(), root, settings);
+        let django_settings_module = django_settings_module_name(db.file_system(), root, settings);
         let env_vars = load_env_file(db.file_system(), root, settings);
         let search_paths = SearchPaths::from_project_settings(
             db.file_system(),
@@ -116,7 +119,7 @@ impl Project {
     pub fn reload_from_settings(self, db: &mut dyn ProjectDb, settings: &Settings) {
         let root = self.root(db).clone();
         let interpreter = Interpreter::discover(settings.venv_path());
-        let django_settings_module = resolve_django_settings(db.file_system(), &root, settings);
+        let django_settings_module = django_settings_module_name(db.file_system(), &root, settings);
         let env_vars = load_env_file(db.file_system(), &root, settings);
         let search_paths = SearchPaths::from_project_settings(
             db.file_system(),
@@ -203,23 +206,22 @@ fn load_env_file(
     vars
 }
 
-fn resolve_django_settings(
+fn django_settings_module_name(
     fs: &dyn FileSystem,
     root: &Utf8Path,
     settings: &Settings,
-) -> Option<String> {
-    settings
-        .django_settings_module()
-        .map(String::from)
-        .or_else(|| {
-            std::env::var("DJANGO_SETTINGS_MODULE")
-                .ok()
-                .filter(|s| !s.is_empty())
-        })
-        .or_else(|| auto_detect_settings_module(fs, root))
-}
+) -> Option<PythonModuleName> {
+    if let Some(module_name) = settings.django_settings_module() {
+        return PythonModuleName::parse(module_name).ok();
+    }
 
-fn auto_detect_settings_module(fs: &dyn FileSystem, root: &Utf8Path) -> Option<String> {
+    if let Some(module_name) = std::env::var("DJANGO_SETTINGS_MODULE")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        return PythonModuleName::parse(&module_name).ok();
+    }
+
     if !fs.exists(&root.join("manage.py")) {
         tracing::debug!("No manage.py found, skipping Django settings auto-detection");
         return None;
@@ -237,7 +239,7 @@ fn auto_detect_settings_module(fs: &dyn FileSystem, root: &Utf8Path) -> Option<S
 
         if fs.exists(&path) {
             tracing::info!("Auto-detected Django settings module: {}", candidate);
-            return Some((*candidate).to_string());
+            return PythonModuleName::parse(candidate).ok();
         }
     }
 

@@ -421,7 +421,7 @@ fn add_available_symbol(
 pub struct ProjectFixture {
     root: Utf8PathBuf,
     files: Vec<(Utf8PathBuf, String)>,
-    django_settings_module: Option<String>,
+    django_settings_module: Option<PythonModuleName>,
     pythonpath: Vec<String>,
     env_vars: Vec<(String, String)>,
     interpreter: Interpreter,
@@ -453,9 +453,18 @@ impl ProjectFixture {
         self
     }
 
+    /// Set the fixture's Django settings module.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `module` is not a valid Python module name.
     #[must_use]
     pub fn django_settings_module(mut self, module: impl Into<String>) -> Self {
-        self.django_settings_module = Some(module.into());
+        let module = module.into();
+        self.django_settings_module = Some(
+            PythonModuleName::parse(&module)
+                .expect("fixture Django settings module should be a valid Python module name"),
+        );
         self
     }
 

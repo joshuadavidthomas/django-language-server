@@ -424,7 +424,10 @@ pythonpath = ["{config_extra_path}"]
 
         assert_eq!(project.root(db), root.as_path());
         assert_eq!(
-            project.django_settings_module(db).as_deref(),
+            project
+                .django_settings_module(db)
+                .as_ref()
+                .map(djls_project::PythonModuleName::as_str),
             Some("client.settings")
         );
         assert_eq!(project.pythonpath(db), &vec![client_extra_path.to_string()]);

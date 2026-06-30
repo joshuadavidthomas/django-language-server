@@ -702,7 +702,7 @@ env_file = ".env.local"
         let project = db.project().expect("initial project should exist");
 
         assert_eq!(project.root(&db), root.as_path());
-        assert_eq!(project.django_settings_module(&db).as_deref(), None);
+        assert_eq!(project.django_settings_module(&db).as_ref(), None);
         assert!(project.pythonpath(&db).is_empty());
         assert!(project.env_vars(&db).is_empty());
         let initial_paths: Vec<_> = project
@@ -717,7 +717,10 @@ env_file = ".env.local"
 
         assert_eq!(db.project(), Some(project));
         assert_eq!(
-            project.django_settings_module(&db).as_deref(),
+            project
+                .django_settings_module(&db)
+                .as_ref()
+                .map(djls_project::PythonModuleName::as_str),
             Some("config.settings")
         );
         assert_eq!(project.pythonpath(&db), &vec![extra_path.to_string()]);

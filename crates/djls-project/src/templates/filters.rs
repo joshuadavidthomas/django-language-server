@@ -4,8 +4,8 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::parse::parse_python_module;
 use crate::python::PythonModuleName;
+use crate::python::parse_python_module;
 use crate::templates::SymbolKey;
 use crate::templates::for_each_registration;
 

@@ -1,7 +1,6 @@
 mod ast;
 mod db;
 mod models;
-mod parse;
 mod project;
 mod python;
 mod refresh;

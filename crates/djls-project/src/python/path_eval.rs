@@ -21,6 +21,10 @@ impl PythonPathBindings {
         self.paths.extend(other.paths);
     }
 
+    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+        self.paths.keys().map(String::as_str)
+    }
+
     pub(crate) fn set(&mut self, name: impl Into<String>, value: Utf8PathBuf) {
         self.paths.insert(name.into(), value);
     }

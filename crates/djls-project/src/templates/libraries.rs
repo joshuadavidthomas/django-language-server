@@ -6,7 +6,7 @@ use djls_source::File;
 
 use super::candidates::templatetag_candidates;
 use super::candidates::templatetag_package_candidates;
-use super::guess_package_module_from_installed_app_entry;
+use super::guess_package_module_name_from_installed_app_entry;
 use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
 use super::symbols::TemplateSymbol;
@@ -15,7 +15,6 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::python::PythonResolver;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
@@ -483,11 +482,11 @@ impl TemplateLibraries {
         excluded_modules.extend(installed_template_library_modules.iter().cloned());
 
         for candidate in templatetag_candidates(db, project).iter().cloned() {
-            if excluded_modules.contains(&candidate.module) {
+            if excluded_modules.contains(candidate.module.name()) {
                 continue;
             }
 
-            let analysis = TemplateLibraryAnalysis::from_file(db, candidate.file);
+            let analysis = TemplateLibraryAnalysis::from_file(db, candidate.module.file());
             if !analysis.defines_library && analysis.symbols.is_empty() {
                 continue;
             }
@@ -544,7 +543,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 
     let mut installed_template_library_modules = BTreeSet::new();
 
-    let (knowledge, discovered_libraries) = templatetag_package_libraries(db, project, "django");
+    let django_module = PythonModuleName::parse("django").expect("django is a valid module name");
+    let (knowledge, discovered_libraries) =
+        templatetag_package_libraries(db, project, django_module);
     libraries.weaken_knowledge(knowledge);
     for (load_name, module, symbols) in discovered_libraries {
         installed_template_library_modules.insert(module.name().clone());
@@ -553,11 +554,14 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 
     if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
         for installed_app in &settings.installed_apps.values {
-            let (knowledge, discovered_libraries) = templatetag_package_libraries(
-                db,
-                project,
-                guess_package_module_from_installed_app_entry(installed_app),
-            );
+            let Some(package_module) =
+                guess_package_module_name_from_installed_app_entry(installed_app)
+            else {
+                libraries.demote_knowledge_to_partial();
+                continue;
+            };
+            let (knowledge, discovered_libraries) =
+                templatetag_package_libraries(db, project, package_module);
             libraries.weaken_knowledge(knowledge);
             for (load_name, module, symbols) in discovered_libraries {
                 installed_template_library_modules.insert(module.name().clone());
@@ -580,7 +584,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
                 libraries.demote_knowledge_to_partial();
                 continue;
             };
-            let (knowledge, library) = library_from_module_name(db, project, module_name);
+            let (knowledge, library) = library_from_module_name(db, project, module_name.clone());
             libraries.weaken_knowledge(knowledge);
             let Some((module, symbols)) = library else {
                 continue;
@@ -589,6 +593,8 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         }
 
         for module_name in DEFAULT_TEMPLATE_BUILTINS.iter().copied() {
+            let module_name = PythonModuleName::parse(module_name)
+                .expect("default builtin is a valid module name");
             let (knowledge, library) = library_from_module_name(db, project, module_name);
             libraries.weaken_knowledge(knowledge);
             let Some((module, symbols)) = library else {
@@ -597,8 +603,8 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             libraries.insert_library(TemplateLibrary::builtin(module, symbols));
         }
 
-        for module_name in backend.builtins.iter().map(String::as_str) {
-            let (knowledge, library) = library_from_module_name(db, project, module_name);
+        for module_name in &backend.builtins {
+            let (knowledge, library) = library_from_module_name(db, project, module_name.clone());
             libraries.weaken_knowledge(knowledge);
             let Some((module, symbols)) = library else {
                 continue;
@@ -614,7 +620,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 fn templatetag_package_libraries(
     db: &dyn ProjectDb,
     project: Project,
-    package_module: &str,
+    package_module: PythonModuleName,
 ) -> (
     StaticKnowledge,
     Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
@@ -624,7 +630,7 @@ fn templatetag_package_libraries(
     let mut libraries = Vec::new();
 
     for candidate in candidates {
-        let analysis = TemplateLibraryAnalysis::from_file(db, candidate.file);
+        let analysis = TemplateLibraryAnalysis::from_file(db, candidate.module.file());
         if !analysis.defines_library && analysis.symbols.is_empty() {
             continue;
         }
@@ -642,9 +648,9 @@ fn templatetag_package_libraries(
 fn library_from_module_name(
     db: &dyn ProjectDb,
     project: Project,
-    module_name: &str,
+    module_name: PythonModuleName,
 ) -> (StaticKnowledge, Option<(PythonModule, Vec<TemplateSymbol>)>) {
-    let Ok(Some(module)) = PythonResolver::new(db, project).module_from_str(module_name) else {
+    let Some(module) = PythonModule::resolve(db, project, module_name) else {
         return (StaticKnowledge::Partial, None);
     };
 

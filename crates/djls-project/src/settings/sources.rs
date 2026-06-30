@@ -6,7 +6,7 @@ use djls_source::File;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonImport;
-use crate::python::PythonResolver;
+use crate::python::PythonModule;
 use crate::settings::DjangoSettings;
 use crate::settings::SettingsSource;
 use crate::settings::SettingsSourceResolver;
@@ -134,9 +134,7 @@ impl<R: SettingsSourceReader> SettingsSourceResolver for ReaderResolver<'_, R> {
             module: import.module.as_deref(),
             importer,
         };
-        let module = PythonResolver::new(self.db, self.project)
-            .import_module(import)
-            .ok()??;
+        let module = PythonModule::resolve_import(self.db, self.project, import).ok()??;
         let file = module.file();
         self.resolved.push(file);
         self.reader.read_source(file)
