@@ -1,6 +1,4 @@
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
-use djls_source::FileSystem;
 use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
@@ -47,13 +45,22 @@ impl<'db> PythonResolver<'db> {
         self.project.touch_search_path_roots(self.db);
 
         for search_path in self.project.search_paths(self.db).iter() {
-            let Some(path) = module_file_in_search_path(
-                self.db.file_system(),
-                name.as_str(),
-                search_path.path(),
-            ) else {
-                continue;
+            let mut candidate = search_path.path().to_path_buf();
+            for part in name.as_str().split('.') {
+                candidate.push(part);
+            }
+
+            let py_file = candidate.with_extension("py");
+            let path = if self.db.path_is_file(&py_file) {
+                py_file
+            } else {
+                let init_file = candidate.join("__init__.py");
+                if !self.db.path_is_file(&init_file) {
+                    continue;
+                }
+                init_file
             };
+
             let file = self.db.get_or_create_file(&path);
             return Some(PythonModule::new(name.clone(), path, file));
         }
@@ -169,23 +176,4 @@ impl<'db> PythonResolver<'db> {
         let relative = source_path.strip_prefix(search_path.path()).ok()?;
         PythonModuleName::from_relative_source_path(relative).ok()
     }
-}
-
-fn module_file_in_search_path(
-    fs: &dyn FileSystem,
-    module_name: &str,
-    search_path: &Utf8Path,
-) -> Option<Utf8PathBuf> {
-    let mut candidate = search_path.to_path_buf();
-    for part in module_name.split('.') {
-        candidate.push(part);
-    }
-
-    let py_file = candidate.with_extension("py");
-    if fs.is_file(&py_file) {
-        return Some(py_file);
-    }
-
-    let init_file = candidate.join("__init__.py");
-    fs.is_file(&init_file).then_some(init_file)
 }
