@@ -17,25 +17,6 @@ pub enum StaticKnowledge {
     Unknown,
 }
 
-impl StaticKnowledge {
-    #[must_use]
-    pub(crate) fn weakened_by(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
-            (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
-            (Self::Known, Self::Known) => Self::Known,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn demoted_to_partial(self) -> Self {
-        match self {
-            Self::Known | Self::Partial => Self::Partial,
-            Self::Unknown => Self::Unknown,
-        }
-    }
-}
-
 /// Why an extracted value is [`StaticKnowledge::Partial`] or [`StaticKnowledge::Unknown`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reason {

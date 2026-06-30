@@ -11,21 +11,39 @@ use rustc_hash::FxHashMap;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonPackage;
-use crate::settings::StaticKnowledge;
 use crate::settings::TemplateDirPath;
 use crate::settings::django_settings;
 use crate::templates::guess_package_module_name_from_installed_app_entry;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TemplateDirStatus {
+    Complete,
+    Incomplete,
+}
+
+impl TemplateDirStatus {
+    const fn from_complete(complete: bool) -> Self {
+        if complete {
+            Self::Complete
+        } else {
+            Self::Incomplete
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TemplateDirResolution {
+    dirs: Vec<Utf8PathBuf>,
+    status: TemplateDirStatus,
+}
+
 #[salsa::tracked(returns(ref))]
-pub(crate) fn template_dirs(
-    db: &dyn ProjectDb,
-    project: Project,
-) -> (Vec<Utf8PathBuf>, StaticKnowledge) {
+pub(crate) fn template_dirs(db: &dyn ProjectDb, project: Project) -> TemplateDirResolution {
     project.touch_search_path_roots(db);
 
     let settings = django_settings(db, project);
     let mut dirs = Vec::new();
-    let mut knowledge = settings.templates.knowledge;
+    let mut complete = settings.templates.is_fully_extracted();
     let backend_count = settings.templates.backends.len();
 
     for backend in settings
@@ -34,25 +52,25 @@ pub(crate) fn template_dirs(
         .iter()
         .filter(|backend| backend.is_django_templates_backend(backend_count))
     {
-        knowledge = knowledge.weakened_by(backend.knowledge);
+        complete &= backend.is_fully_extracted();
 
         for dir in &backend.dirs {
             match dir {
                 TemplateDirPath::Resolved(path) => dirs.push(path.clone()),
-                TemplateDirPath::Unknown => knowledge = knowledge.demoted_to_partial(),
+                TemplateDirPath::Unknown => complete = false,
             }
         }
 
         if backend.app_dirs == Some(true) {
-            knowledge = knowledge.weakened_by(settings.installed_apps.knowledge);
+            complete &= settings.installed_apps.is_fully_extracted();
             for app in &settings.installed_apps.values {
                 let Some(package_module) = guess_package_module_name_from_installed_app_entry(app)
                 else {
-                    knowledge = knowledge.demoted_to_partial();
+                    complete = false;
                     continue;
                 };
                 let Some(package) = PythonPackage::resolve(db, project, package_module) else {
-                    knowledge = knowledge.demoted_to_partial();
+                    complete = false;
                     continue;
                 };
 
@@ -64,7 +82,10 @@ pub(crate) fn template_dirs(
         }
     }
 
-    (dirs, knowledge)
+    TemplateDirResolution {
+        dirs,
+        status: TemplateDirStatus::from_complete(complete),
+    }
 }
 
 #[salsa::interned]
@@ -101,7 +122,7 @@ pub struct TemplateResolution<'db> {
     #[returns(ref)]
     template_dirs: Vec<Utf8PathBuf>,
     #[tracked]
-    knowledge: StaticKnowledge,
+    status: TemplateDirStatus,
 }
 
 impl<'db> TemplateResolution<'db> {
@@ -117,7 +138,8 @@ impl<'db> TemplateResolution<'db> {
 
     #[must_use]
     pub fn known_template_dirs(self, db: &'db dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
-        (self.knowledge(db) == StaticKnowledge::Known).then(|| self.template_dirs(db).clone())
+        matches!(self.status(db), TemplateDirStatus::Complete)
+            .then(|| self.template_dirs(db).clone())
     }
 
     #[must_use]
@@ -148,8 +170,8 @@ impl<'db> TemplateResolution<'db> {
 
 #[salsa::tracked]
 pub fn template_resolution(db: &dyn ProjectDb, project: Project) -> TemplateResolution<'_> {
-    let (template_dirs, knowledge) = template_dirs(db, project);
-    TemplateResolution::new(db, project, template_dirs.clone(), *knowledge)
+    let resolution = template_dirs(db, project);
+    TemplateResolution::new(db, project, resolution.dirs.clone(), resolution.status)
 }
 
 #[salsa::tracked]
@@ -286,11 +308,11 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
         }
     }
 
-    let (search_dirs, _knowledge) = template_dirs(db, project);
+    let resolution = template_dirs(db, project);
     let mut templates = Vec::new();
     let walk_options = WalkOptions::unrestricted();
 
-    for dir in search_dirs {
+    for dir in &resolution.dirs {
         if !db.path_is_dir(dir) {
             tracing::warn!("Template directory does not exist: {}", dir);
             continue;

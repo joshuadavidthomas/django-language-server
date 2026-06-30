@@ -51,6 +51,7 @@ pub use templates::TagArgumentKind;
 pub use templates::TagRule;
 pub use templates::TagRuleMap;
 pub use templates::TemplateDoesNotExist;
+pub use templates::TemplateDirStatus;
 pub use templates::TemplateInventoryStatus;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
