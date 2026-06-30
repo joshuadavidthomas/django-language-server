@@ -8,7 +8,7 @@ use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
-use crate::resolve::SearchPaths;
+use crate::python::SearchPaths;
 
 /// Complete project configuration as a Salsa input.
 ///
