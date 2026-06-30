@@ -1,6 +1,5 @@
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
-use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -93,18 +92,38 @@ impl SymbolScope {
     }
 }
 
-fn insert_template_symbol_candidates(
-    scope: &mut SymbolScope,
+fn insert_template_symbols(
+    tags: &mut SymbolScope,
+    filters: &mut SymbolScope,
     template_libraries: &TemplateLibraries,
-    kind: TemplateSymbolKind,
 ) {
-    for candidate in template_libraries.template_symbol_candidates(kind) {
-        match &candidate.availability {
-            TemplateSymbolAvailability::Builtin { module: _ } => {
-                scope.insert_available(candidate.symbol.name.as_str());
+    for library in template_libraries
+        .active_libraries()
+        .filter(|library| library.load_name().is_none())
+    {
+        for symbol in library.symbols() {
+            match symbol.kind {
+                TemplateSymbolKind::Tag => tags.insert_available(symbol.name.as_str()),
+                TemplateSymbolKind::Filter => filters.insert_available(symbol.name.as_str()),
             }
-            TemplateSymbolAvailability::RequiresLoad { load_name } => {
-                scope.insert_candidate(candidate.symbol.name.as_str(), load_name.as_str());
+        }
+    }
+
+    for library in template_libraries
+        .active_libraries()
+        .filter(|library| library.load_name().is_some())
+    {
+        let load_name = library
+            .load_name()
+            .expect("installed libraries should carry a load name");
+        for symbol in library.symbols() {
+            match symbol.kind {
+                TemplateSymbolKind::Tag => {
+                    tags.insert_candidate(symbol.name.as_str(), load_name.as_str());
+                }
+                TemplateSymbolKind::Filter => {
+                    filters.insert_candidate(symbol.name.as_str(), load_name.as_str());
+                }
             }
         }
     }
@@ -125,12 +144,7 @@ impl AvailableSymbols {
         let mut tags = SymbolScope::default();
         let mut filters = SymbolScope::default();
 
-        insert_template_symbol_candidates(&mut tags, template_libraries, TemplateSymbolKind::Tag);
-        insert_template_symbol_candidates(
-            &mut filters,
-            template_libraries,
-            TemplateSymbolKind::Filter,
-        );
+        insert_template_symbols(&mut tags, &mut filters, template_libraries);
 
         tags.apply_load_state(load_state);
         filters.apply_load_state(load_state);

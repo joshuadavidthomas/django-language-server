@@ -24,7 +24,7 @@ COUNTED_PROGRESS_UNITS = [
     ("search path", "search paths"),
     ("settings file", "settings files"),
     ("model module", "model modules"),
-    ("template library module", "template library modules"),
+    ("template library source", "template library sources"),
     ("template tag candidate", "template tag candidates"),
     ("discovered file", "discovered files"),
     ("template directory", "template directories"),
