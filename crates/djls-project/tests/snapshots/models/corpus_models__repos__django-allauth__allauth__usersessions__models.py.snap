@@ -5,7 +5,7 @@ expression: graph
 models:
   allauth.usersessions.models.UserSession:
     name: UserSession
-    module_path: allauth.usersessions.models
+    module_name: allauth.usersessions.models
     line: 86
     relations:
       - field_name: user

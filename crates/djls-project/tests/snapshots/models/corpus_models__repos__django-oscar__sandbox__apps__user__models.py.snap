@@ -5,7 +5,7 @@ expression: graph
 models:
   sandbox.apps.user.models.Profile:
     name: Profile
-    module_path: sandbox.apps.user.models
+    module_name: sandbox.apps.user.models
     line: 15
     relations:
       - field_name: user

@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.plugins.ticketoutputpdf.models.TicketLayoutItem:
     name: TicketLayoutItem
-    module_path: src.pretix.plugins.ticketoutputpdf.models
+    module_name: src.pretix.plugins.ticketoutputpdf.models
     line: 347
     relations:
       - field_name: item

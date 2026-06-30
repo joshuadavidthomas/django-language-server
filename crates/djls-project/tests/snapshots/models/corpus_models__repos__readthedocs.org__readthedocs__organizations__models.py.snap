@@ -5,7 +5,7 @@ expression: graph
 models:
   readthedocs.organizations.models.Organization:
     name: Organization
-    module_path: readthedocs.organizations.models
+    module_name: readthedocs.organizations.models
     line: 66
     relations:
       - field_name: projects
@@ -38,7 +38,7 @@ models:
     kind: concrete
   readthedocs.organizations.models.OrganizationOwner:
     name: OrganizationOwner
-    module_path: readthedocs.organizations.models
+    module_name: readthedocs.organizations.models
     line: 294
     relations:
       - field_name: owner
@@ -56,7 +56,7 @@ models:
     kind: concrete
   readthedocs.organizations.models.Team:
     name: Team
-    module_path: readthedocs.organizations.models
+    module_name: readthedocs.organizations.models
     line: 307
     relations:
       - field_name: organization
@@ -81,7 +81,7 @@ models:
     kind: concrete
   readthedocs.organizations.models.TeamInvite:
     name: TeamInvite
-    module_path: readthedocs.organizations.models
+    module_name: readthedocs.organizations.models
     line: 380
     relations:
       - field_name: organization
@@ -99,7 +99,7 @@ models:
     kind: concrete
   readthedocs.organizations.models.TeamMember:
     name: TeamMember
-    module_path: readthedocs.organizations.models
+    module_name: readthedocs.organizations.models
     line: 448
     relations:
       - field_name: team

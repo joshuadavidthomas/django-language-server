@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.management_commands_http.models.ManagementCommandJob:
     name: ManagementCommandJob
-    module_path: geonode.management_commands_http.models
+    module_name: geonode.management_commands_http.models
     line: 28
     relations: []
     kind: concrete

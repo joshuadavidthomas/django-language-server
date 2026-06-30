@@ -5,7 +5,7 @@ expression: graph
 models:
   accounts.models.Profile:
     name: Profile
-    module_path: accounts.models
+    module_name: accounts.models
     line: 5
     relations:
       - field_name: user

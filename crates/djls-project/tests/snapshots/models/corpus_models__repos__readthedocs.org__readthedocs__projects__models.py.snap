@@ -5,13 +5,13 @@ expression: graph
 models:
   readthedocs.projects.models.APIProject:
     name: APIProject
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 1584
     relations: []
     kind: concrete
   readthedocs.projects.models.EnvironmentVariable:
     name: EnvironmentVariable
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 2206
     relations:
       - field_name: project
@@ -23,7 +23,7 @@ models:
     kind: concrete
   readthedocs.projects.models.Feature:
     name: Feature
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 2056
     relations:
       - field_name: projects
@@ -35,13 +35,13 @@ models:
     kind: concrete
   readthedocs.projects.models.HTMLFile:
     name: HTMLFile
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 1713
     relations: []
     kind: concrete
   readthedocs.projects.models.HTTPHeader:
     name: HTTPHeader
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 2014
     relations:
       - field_name: domain
@@ -53,7 +53,7 @@ models:
     kind: concrete
   readthedocs.projects.models.ImportedFile:
     name: ImportedFile
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 1662
     relations:
       - field_name: project
@@ -72,7 +72,7 @@ models:
     kind: concrete
   readthedocs.projects.models.Project:
     name: Project
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 289
     relations:
       - field_name: users
@@ -108,7 +108,7 @@ models:
     kind: concrete
   readthedocs.projects.models.ProjectRelationship:
     name: ProjectRelationship
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 84
     relations:
       - field_name: parent
@@ -128,7 +128,7 @@ models:
     kind: concrete
   readthedocs.projects.models.WebHookEvent:
     name: WebHookEvent
-    module_path: readthedocs.projects.models
+    module_name: readthedocs.projects.models
     line: 1768
     relations: []
     kind: concrete

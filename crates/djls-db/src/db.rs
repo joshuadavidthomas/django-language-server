@@ -837,7 +837,7 @@ env_file = ".env.local"
         let _result1 = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
+            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
         let events = event_log.take();
         assert!(
@@ -849,7 +849,7 @@ env_file = ".env.local"
         let _result2 = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
+            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
         let events = event_log.take();
         assert!(
@@ -870,7 +870,7 @@ env_file = ".env.local"
         let _result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
+            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
         event_log.take();
 
@@ -882,7 +882,7 @@ env_file = ".env.local"
         let _result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
+            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
         let events = event_log.take();
         assert!(
@@ -934,7 +934,7 @@ def my_filter(value, arg):
         let result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::PythonModulePath::parse("test.project.tags").unwrap(),
+            djls_project::PythonModuleName::parse("test.project.tags").unwrap(),
         );
 
         // Should extract the filter
@@ -948,16 +948,16 @@ def my_filter(value, arg):
         let other_module_result = djls_project::extract_filter_arities(
             &db,
             file,
-            djls_project::PythonModulePath::parse("other.project.tags").unwrap(),
+            djls_project::PythonModuleName::parse("other.project.tags").unwrap(),
         );
         let other_key = djls_project::SymbolKey::filter("other.project.tags", "my_filter");
         assert!(other_module_result.contains_key(&other_key));
         assert!(!other_module_result.contains_key(&key));
     }
 
-    fn settings_with_custom_library(module_path: &str) -> String {
+    fn settings_with_custom_library(module_name: &str) -> String {
         "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': '__MODULE__'}}}]\n"
-            .replace("__MODULE__", module_path)
+            .replace("__MODULE__", module_name)
     }
 
     fn template_tag_library_source(tag_name: &str) -> String {
@@ -966,13 +966,13 @@ def my_filter(value, arg):
         )
     }
 
-    fn assert_custom_library_module(db: &DjangoDatabase, module_path: &str) {
+    fn assert_custom_library_module(db: &DjangoDatabase, module_name: &str) {
         assert_eq!(
             db.template_libraries()
                 .installed_library_str("custom")
                 .unwrap()
-                .module_path_str(),
-            module_path
+                .module_name_str(),
+            module_name
         );
     }
 
@@ -1238,7 +1238,7 @@ def my_filter(value, arg):
         let custom = libraries
             .installed_library_str("custom")
             .expect("custom library should be derived");
-        assert_eq!(custom.module_path_str(), "blog.templatetags.custom");
+        assert_eq!(custom.module_name_str(), "blog.templatetags.custom");
         assert!(
             custom
                 .symbols()

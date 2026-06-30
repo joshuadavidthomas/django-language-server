@@ -5,7 +5,7 @@ expression: graph
 models:
   src.backend.InvenTree.importer.models.DataImportColumnMap:
     name: DataImportColumnMap
-    module_path: src.backend.InvenTree.importer.models
+    module_name: src.backend.InvenTree.importer.models
     line: 399
     relations:
       - field_name: session
@@ -17,7 +17,7 @@ models:
     kind: concrete
   src.backend.InvenTree.importer.models.DataImportRow:
     name: DataImportRow
-    module_path: src.backend.InvenTree.importer.models
+    module_name: src.backend.InvenTree.importer.models
     line: 512
     relations:
       - field_name: session
@@ -29,7 +29,7 @@ models:
     kind: concrete
   src.backend.InvenTree.importer.models.DataImportSession:
     name: DataImportSession
-    module_path: src.backend.InvenTree.importer.models
+    module_name: src.backend.InvenTree.importer.models
     line: 28
     relations:
       - field_name: user

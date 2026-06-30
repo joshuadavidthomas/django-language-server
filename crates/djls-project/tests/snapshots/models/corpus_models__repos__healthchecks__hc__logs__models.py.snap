@@ -5,7 +5,7 @@ expression: graph
 models:
   hc.logs.models.Record:
     name: Record
-    module_path: hc.logs.models
+    module_name: hc.logs.models
     line: 18
     relations: []
     kind: concrete

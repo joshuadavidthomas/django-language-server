@@ -5,7 +5,7 @@ expression: graph
 models:
   releases.models.Release:
     name: Release
-    module_path: releases.models
+    module_name: releases.models
     line: 164
     relations: []
     kind: concrete

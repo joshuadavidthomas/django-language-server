@@ -5,7 +5,7 @@ expression: graph
 models:
   allauth.account.models.EmailAddress:
     name: EmailAddress
-    module_path: allauth.account.models
+    module_name: allauth.account.models
     line: 20
     relations:
       - field_name: user
@@ -17,7 +17,7 @@ models:
     kind: concrete
   allauth.account.models.EmailConfirmation:
     name: EmailConfirmation
-    module_path: allauth.account.models
+    module_name: allauth.account.models
     line: 136
     relations:
       - field_name: email_address

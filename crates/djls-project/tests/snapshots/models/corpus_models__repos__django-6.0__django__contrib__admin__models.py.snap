@@ -5,7 +5,7 @@ expression: graph
 models:
   django.contrib.admin.models.LogEntry:
     name: LogEntry
-    module_path: django.contrib.admin.models
+    module_name: django.contrib.admin.models
     line: 57
     relations:
       - field_name: user

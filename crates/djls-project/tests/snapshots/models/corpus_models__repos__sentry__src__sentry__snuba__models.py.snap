@@ -5,19 +5,19 @@ expression: graph
 models:
   src.sentry.snuba.models.QuerySubscription:
     name: QuerySubscription
-    module_path: src.sentry.snuba.models
+    module_name: src.sentry.snuba.models
     line: 139
     relations: []
     kind: concrete
   src.sentry.snuba.models.SnubaQuery:
     name: SnubaQuery
-    module_path: src.sentry.snuba.models
+    module_name: src.sentry.snuba.models
     line: 54
     relations: []
     kind: concrete
   src.sentry.snuba.models.SnubaQueryEventType:
     name: SnubaQueryEventType
-    module_path: src.sentry.snuba.models
+    module_name: src.sentry.snuba.models
     line: 114
     relations: []
     kind: concrete

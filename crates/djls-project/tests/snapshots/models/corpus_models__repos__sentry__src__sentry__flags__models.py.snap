@@ -5,13 +5,13 @@ expression: graph
 models:
   src.sentry.flags.models.FlagAuditLogModel:
     name: FlagAuditLogModel
-    module_path: src.sentry.flags.models
+    module_name: src.sentry.flags.models
     line: 93
     relations: []
     kind: concrete
   src.sentry.flags.models.FlagWebHookSigningSecretModel:
     name: FlagWebHookSigningSecretModel
-    module_path: src.sentry.flags.models
+    module_name: src.sentry.flags.models
     line: 131
     relations: []
     kind: concrete

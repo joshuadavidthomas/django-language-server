@@ -5,7 +5,7 @@ expression: graph
 models:
   babybuddy.models.Settings:
     name: Settings
-    module_path: babybuddy.models
+    module_name: babybuddy.models
     line: 17
     relations:
       - field_name: user

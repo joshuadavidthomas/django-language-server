@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.base.models.ContactRole:
     name: ContactRole
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 93
     relations:
       - field_name: resource
@@ -23,7 +23,7 @@ models:
     kind: concrete
   geonode.base.models.ExtraMetadata:
     name: ExtraMetadata
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2140
     relations:
       - field_name: resource
@@ -35,7 +35,7 @@ models:
     kind: concrete
   geonode.base.models.GroupGeoLimit:
     name: GroupGeoLimit
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2134
     relations:
       - field_name: group
@@ -53,13 +53,13 @@ models:
     kind: concrete
   geonode.base.models.License:
     name: License
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 227
     relations: []
     kind: concrete
   geonode.base.models.Link:
     name: Link
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2014
     relations:
       - field_name: resource
@@ -78,7 +78,7 @@ models:
     kind: concrete
   geonode.base.models.LinkedResource:
     name: LinkedResource
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 1973
     relations:
       - field_name: source
@@ -96,43 +96,43 @@ models:
     kind: concrete
   geonode.base.models.Menu:
     name: Menu
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2051
     relations: []
     kind: concrete
   geonode.base.models.MenuItem:
     name: MenuItem
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2069
     relations: []
     kind: concrete
   geonode.base.models.MenuPlaceholder:
     name: MenuPlaceholder
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2044
     relations: []
     kind: concrete
   geonode.base.models.RestrictionCodeType:
     name: RestrictionCodeType
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 206
     relations: []
     kind: concrete
   geonode.base.models.SpatialRepresentationType:
     name: SpatialRepresentationType
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 130
     relations: []
     kind: concrete
   geonode.base.models.Thesaurus:
     name: Thesaurus
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 450
     relations: []
     kind: concrete
   geonode.base.models.ThesaurusKeyword:
     name: ThesaurusKeyword
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 505
     relations:
       - field_name: thesaurus
@@ -144,7 +144,7 @@ models:
     kind: concrete
   geonode.base.models.ThesaurusKeywordLabel:
     name: ThesaurusKeywordLabel
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 483
     relations:
       - field_name: keyword
@@ -156,7 +156,7 @@ models:
     kind: concrete
   geonode.base.models.ThesaurusLabel:
     name: ThesaurusLabel
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 547
     relations:
       - field_name: thesaurus
@@ -168,13 +168,13 @@ models:
     kind: concrete
   geonode.base.models.TopicCategory:
     name: TopicCategory
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 108
     relations: []
     kind: concrete
   geonode.base.models.UserGeoLimit:
     name: UserGeoLimit
-    module_path: geonode.base.models
+    module_name: geonode.base.models
     line: 2128
     relations:
       - field_name: user

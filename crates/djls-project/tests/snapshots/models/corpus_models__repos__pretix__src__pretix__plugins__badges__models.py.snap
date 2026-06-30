@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.plugins.badges.models.BadgeItem:
     name: BadgeItem
-    module_path: src.pretix.plugins.badges.models
+    module_name: src.pretix.plugins.badges.models
     line: 69
     relations:
       - field_name: item

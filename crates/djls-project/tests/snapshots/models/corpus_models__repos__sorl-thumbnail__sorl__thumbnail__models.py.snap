@@ -5,7 +5,7 @@ expression: graph
 models:
   sorl.thumbnail.models.KVStore:
     name: KVStore
-    module_path: sorl.thumbnail.models
+    module_name: sorl.thumbnail.models
     line: 6
     relations: []
     kind: concrete

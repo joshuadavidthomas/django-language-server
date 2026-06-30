@@ -5,13 +5,13 @@ expression: graph
 models:
   cms.test_utils.project.sampleapp.models.GrouperModel:
     name: GrouperModel
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 47
     relations: []
     kind: concrete
   cms.test_utils.project.sampleapp.models.GrouperModelContent:
     name: GrouperModelContent
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 52
     relations:
       - field_name: grouper_model
@@ -23,7 +23,7 @@ models:
     kind: concrete
   cms.test_utils.project.sampleapp.models.Picture:
     name: Picture
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 30
     relations:
       - field_name: category
@@ -35,19 +35,19 @@ models:
     kind: concrete
   cms.test_utils.project.sampleapp.models.SampleAppConfig:
     name: SampleAppConfig
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 35
     relations: []
     kind: concrete
   cms.test_utils.project.sampleapp.models.SimpleGrouperModel:
     name: SimpleGrouperModel
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 91
     relations: []
     kind: concrete
   cms.test_utils.project.sampleapp.models.SimpleGrouperModelContent:
     name: SimpleGrouperModelContent
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 95
     relations:
       - field_name: simple_grouper_model
@@ -59,7 +59,7 @@ models:
     kind: concrete
   cms.test_utils.project.sampleapp.models.SomeEditableModel:
     name: SomeEditableModel
-    module_path: cms.test_utils.project.sampleapp.models
+    module_name: cms.test_utils.project.sampleapp.models
     line: 43
     relations: []
     kind: concrete

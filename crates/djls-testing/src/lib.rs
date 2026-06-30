@@ -11,7 +11,7 @@ pub use corpus::Lockfile;
 pub use corpus::Manifest;
 pub use corpus::clean_entries;
 pub use corpus::lock_corpus;
-pub use corpus::module_path_from_file;
+pub use corpus::module_name_from_file;
 pub use corpus::sync_corpus;
 pub use db::TestDatabase;
 pub use extraction::ExtractionBundle;

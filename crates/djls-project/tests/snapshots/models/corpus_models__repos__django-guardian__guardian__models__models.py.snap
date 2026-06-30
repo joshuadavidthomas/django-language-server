@@ -5,7 +5,7 @@ expression: graph
 models:
   guardian.models.models.BaseGenericObjectPermission:
     name: BaseGenericObjectPermission
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 54
     relations:
       - field_name: content_type
@@ -21,7 +21,7 @@ models:
     kind: abstract
   guardian.models.models.BaseObjectPermission:
     name: BaseObjectPermission
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 13
     relations:
       - field_name: permission
@@ -33,7 +33,7 @@ models:
     kind: abstract
   guardian.models.models.GroupObjectPermission:
     name: GroupObjectPermission
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 179
     relations:
       - field_name: content_type
@@ -49,7 +49,7 @@ models:
     kind: concrete
   guardian.models.models.GroupObjectPermissionAbstract:
     name: GroupObjectPermissionAbstract
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 173
     relations:
       - field_name: content_type
@@ -65,7 +65,7 @@ models:
     kind: abstract
   guardian.models.models.GroupObjectPermissionBase:
     name: GroupObjectPermissionBase
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 134
     relations:
       - field_name: permission
@@ -83,7 +83,7 @@ models:
     kind: abstract
   guardian.models.models.UserObjectPermission:
     name: UserObjectPermission
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 114
     relations:
       - field_name: content_type
@@ -99,7 +99,7 @@ models:
     kind: concrete
   guardian.models.models.UserObjectPermissionAbstract:
     name: UserObjectPermissionAbstract
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 108
     relations:
       - field_name: content_type
@@ -115,7 +115,7 @@ models:
     kind: abstract
   guardian.models.models.UserObjectPermissionBase:
     name: UserObjectPermissionBase
-    module_path: guardian.models.models
+    module_name: guardian.models.models
     line: 66
     relations:
       - field_name: permission

@@ -5,13 +5,13 @@ expression: graph
 models:
   help.models.Page:
     name: Page
-    module_path: help.models
+    module_name: help.models
     line: 22
     relations: []
     kind: concrete
   help.models.Paragraph:
     name: Paragraph
-    module_path: help.models
+    module_name: help.models
     line: 89
     relations:
       - field_name: document

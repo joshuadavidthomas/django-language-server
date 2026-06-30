@@ -5,7 +5,7 @@ expression: graph
 models:
   example_project.articles.models.Article:
     name: Article
-    module_path: example_project.articles.models
+    module_name: example_project.articles.models
     line: 12
     relations: []
     kind: concrete

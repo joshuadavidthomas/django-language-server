@@ -5,7 +5,7 @@ expression: graph
 models:
   avatar.models.Avatar:
     name: Avatar
-    module_path: avatar.models
+    module_name: avatar.models
     line: 91
     relations: []
     kind: concrete

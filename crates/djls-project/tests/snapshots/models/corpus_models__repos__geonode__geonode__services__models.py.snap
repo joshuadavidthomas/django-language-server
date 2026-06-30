@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.services.models.ServiceProfileRole:
     name: ServiceProfileRole
-    module_path: geonode.services.models
+    module_name: geonode.services.models
     line: 146
     relations:
       - field_name: profiles

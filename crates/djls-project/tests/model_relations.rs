@@ -6,10 +6,10 @@ use djls_project::compute_model_graph;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
-fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_path: &str) -> &'a ModelId {
+fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_name: &str) -> &'a ModelId {
     graph
         .models_named(name)
-        .find(|(id, _model)| id.module_path().as_str() == module_path)
+        .find(|(id, _model)| id.module_name().as_str() == module_name)
         .map(|(id, _model)| id)
         .expect("model should exist")
 }

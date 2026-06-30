@@ -49,7 +49,7 @@ fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
     libraries
         .active_libraries()
         .filter(|&library| library.load_name().is_none())
-        .map(|library| library.module_path().as_str().to_string())
+        .map(|library| library.module_name().as_str().to_string())
         .collect()
 }
 
@@ -506,7 +506,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
     let custom = libraries
         .installed_library_str("custom")
         .expect("custom library should be discovered");
-    assert_eq!(custom.module_path_str(), "blog.templatetags.custom");
+    assert_eq!(custom.module_name_str(), "blog.templatetags.custom");
     assert!(
         custom
             .symbols()
@@ -547,7 +547,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
     let custom = libraries
         .installed_library_str("custom")
         .expect("namespace package templatetag should be discovered");
-    assert_eq!(custom.module_path_str(), "nsapp.templatetags.custom");
+    assert_eq!(custom.module_name_str(), "nsapp.templatetags.custom");
     assert!(
         custom
             .symbols()
@@ -590,7 +590,7 @@ fn template_libraries_include_empty_registered_modules() {
     let libraries = template_libraries(&db, project);
 
     let empty = libraries.installed_library_str("empty").unwrap();
-    assert_eq!(empty.module_path_str(), "blog.templatetags.empty");
+    assert_eq!(empty.module_name_str(), "blog.templatetags.empty");
     assert!(empty.symbols().is_empty());
 }
 
@@ -642,7 +642,7 @@ fn template_libraries_collect_available_uninstalled_templatetags() {
     assert_eq!(primary_app.as_str(), "crispy");
     assert_eq!(
         apps.iter()
-            .map(PythonModulePath::as_str)
+            .map(PythonModuleName::as_str)
             .collect::<Vec<_>>(),
         vec!["crispy"]
     );
@@ -835,7 +835,7 @@ fn template_libraries_include_options_libraries_and_builtins() {
     let libraries = template_libraries(&db, project);
 
     let custom = libraries.installed_library_str("custom").unwrap();
-    assert_eq!(custom.module_path_str(), "custom_tags");
+    assert_eq!(custom.module_name_str(), "custom_tags");
     assert!(
         custom
             .symbols()
@@ -891,7 +891,7 @@ fn template_libraries_keep_configured_libraries_when_installed_apps_unknown() {
 
     assert!(libraries.inventory_may_omit_loaded_symbols());
     let custom = libraries.installed_library_str("custom").unwrap();
-    assert_eq!(custom.module_path_str(), "project_tags");
+    assert_eq!(custom.module_name_str(), "project_tags");
     assert!(
         custom
             .symbols()
@@ -938,7 +938,7 @@ fn template_libraries_options_override_app_library_load_name() {
     let libraries = template_libraries(&db, project);
 
     let custom = libraries.installed_library_str("custom").unwrap();
-    assert_eq!(custom.module_path_str(), "project_tags");
+    assert_eq!(custom.module_name_str(), "project_tags");
     assert!(
         custom
             .symbols()
@@ -1037,7 +1037,7 @@ fn template_libraries_active_libraries_include_only_resolved_libraries() {
     let libraries = template_libraries(&db, project);
     let active_modules: Vec<_> = libraries
         .active_libraries()
-        .map(|library| library.module_path_str().to_string())
+        .map(|library| library.module_name_str().to_string())
         .collect();
 
     assert_eq!(active_modules, vec!["good_tags"]);
@@ -1134,7 +1134,7 @@ fn django_facts_golden_template_libraries_match() {
             let library = libraries.installed_library(&name)?;
             Some((
                 name.as_str().to_string(),
-                library.module_path_str().to_string(),
+                library.module_name_str().to_string(),
             ))
         })
         .collect();
@@ -1158,8 +1158,8 @@ fn comparable_symbols(libraries: &TemplateLibraries) -> Vec<GoldenTemplateSymbol
                 kind: symbol.kind,
                 name: symbol.name().to_string(),
                 load_name: load_name.clone(),
-                library_module: library.module_path_str().to_string(),
-                module: library.module_path_str().to_string(),
+                library_module: library.module_name_str().to_string(),
+                module: library.module_name_str().to_string(),
             });
         }
     }

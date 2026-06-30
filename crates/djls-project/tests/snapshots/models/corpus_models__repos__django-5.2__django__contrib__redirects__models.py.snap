@@ -5,7 +5,7 @@ expression: graph
 models:
   django.contrib.redirects.models.Redirect:
     name: Redirect
-    module_path: django.contrib.redirects.models
+    module_name: django.contrib.redirects.models
     line: 6
     relations:
       - field_name: site

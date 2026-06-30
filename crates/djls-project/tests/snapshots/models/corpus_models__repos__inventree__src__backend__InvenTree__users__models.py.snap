@@ -5,7 +5,7 @@ expression: graph
 models:
   src.backend.InvenTree.users.models.Owner:
     name: Owner
-    module_path: src.backend.InvenTree.users.models
+    module_name: src.backend.InvenTree.users.models
     line: 296
     relations:
       - field_name: owner_type
@@ -21,7 +21,7 @@ models:
     kind: concrete
   src.backend.InvenTree.users.models.RuleSet:
     name: RuleSet
-    module_path: src.backend.InvenTree.users.models
+    module_name: src.backend.InvenTree.users.models
     line: 201
     relations:
       - field_name: group

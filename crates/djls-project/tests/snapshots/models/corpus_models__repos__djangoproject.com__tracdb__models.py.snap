@@ -5,31 +5,31 @@ expression: graph
 models:
   tracdb.models.Attachment:
     name: Attachment
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 281
     relations: []
     kind: concrete
   tracdb.models.Component:
     name: Component
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 175
     relations: []
     kind: concrete
   tracdb.models.Milestone:
     name: Milestone
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 203
     relations: []
     kind: concrete
   tracdb.models.Revision:
     name: Revision
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 242
     relations: []
     kind: concrete
   tracdb.models.Ticket:
     name: Ticket
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 79
     relations:
       - field_name: component
@@ -53,7 +53,7 @@ models:
     kind: concrete
   tracdb.models.TicketChange:
     name: TicketChange
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 150
     relations:
       - field_name: ticket
@@ -65,7 +65,7 @@ models:
     kind: concrete
   tracdb.models.TicketCustom:
     name: TicketCustom
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 131
     relations:
       - field_name: ticket
@@ -77,13 +77,13 @@ models:
     kind: concrete
   tracdb.models.Version:
     name: Version
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 188
     relations: []
     kind: concrete
   tracdb.models.Wiki:
     name: Wiki
-    module_path: tracdb.models
+    module_name: tracdb.models
     line: 262
     relations: []
     kind: concrete

@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.themes.models.GeoNodeThemeCustomization:
     name: GeoNodeThemeCustomization
-    module_path: geonode.themes.models
+    module_name: geonode.themes.models
     line: 52
     relations:
       - field_name: jumbotron_slide_show
@@ -17,7 +17,7 @@ models:
     kind: concrete
   geonode.themes.models.JumbotronThemeSlide:
     name: JumbotronThemeSlide
-    module_path: geonode.themes.models
+    module_name: geonode.themes.models
     line: 31
     relations: []
     kind: concrete

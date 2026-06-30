@@ -5,7 +5,7 @@ expression: graph
 models:
   django.contrib.flatpages.models.FlatPage:
     name: FlatPage
-    module_path: django.contrib.flatpages.models
+    module_name: django.contrib.flatpages.models
     line: 8
     relations:
       - field_name: sites

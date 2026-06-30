@@ -5,7 +5,7 @@ expression: graph
 models:
   common.models.Base:
     name: Base
-    module_path: common.models
+    module_name: common.models
     line: 19
     relations:
       - field_name: owner
@@ -23,7 +23,7 @@ models:
     kind: abstract
   common.models.Base1:
     name: Base1
-    module_path: common.models
+    module_name: common.models
     line: 67
     relations:
       - field_name: owner
@@ -48,7 +48,7 @@ models:
     kind: abstract
   common.models.Base2:
     name: Base2
-    module_path: common.models
+    module_name: common.models
     line: 99
     relations:
       - field_name: department
@@ -61,7 +61,7 @@ models:
     kind: abstract
   common.models.Reminder:
     name: Reminder
-    module_path: common.models
+    module_name: common.models
     line: 142
     relations:
       - field_name: content_type
@@ -83,7 +83,7 @@ models:
     kind: concrete
   common.models.StageBase:
     name: StageBase
-    module_path: common.models
+    module_name: common.models
     line: 224
     relations:
       - field_name: department
@@ -96,7 +96,7 @@ models:
     kind: abstract
   common.models.TheFile:
     name: TheFile
-    module_path: common.models
+    module_name: common.models
     line: 193
     relations:
       - field_name: content_type
@@ -112,7 +112,7 @@ models:
     kind: concrete
   common.models.UserProfile:
     name: UserProfile
-    module_path: common.models
+    module_name: common.models
     line: 248
     relations:
       - field_name: user

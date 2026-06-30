@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.resource.models.ExecutionRequest:
     name: ExecutionRequest
-    module_path: geonode.resource.models
+    module_name: geonode.resource.models
     line: 28
     relations:
       - field_name: user

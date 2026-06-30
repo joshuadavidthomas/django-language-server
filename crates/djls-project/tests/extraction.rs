@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
 use djls_testing::ExtractionBundle;
 use djls_testing::TestDatabase;
@@ -18,12 +18,12 @@ const LOADER_TAGS_SOURCE: &str =
     include_str!("../src/templates/tags/testdata/django_loader_tags.py");
 const TESTTAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_testtags.py");
 
-fn extract_source(source: &str, module_path: &str) -> ExtractionBundle {
+fn extract_source(source: &str, module_name: &str) -> ExtractionBundle {
     let db = TestDatabase::new();
     let path = Utf8Path::new("/test/extraction.py");
     db.add_file(path.as_str(), source);
     let file = db.get_or_create_file(path);
-    extract_bundle(&db, file, PythonModulePath::parse(module_path).unwrap())
+    extract_bundle(&db, file, PythonModuleName::parse(module_name).unwrap())
 }
 
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —

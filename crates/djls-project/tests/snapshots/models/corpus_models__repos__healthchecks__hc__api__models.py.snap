@@ -5,7 +5,7 @@ expression: graph
 models:
   hc.api.models.Channel:
     name: Channel
-    module_path: hc.api.models
+    module_name: hc.api.models
     line: 967
     relations:
       - field_name: project
@@ -23,7 +23,7 @@ models:
     kind: concrete
   hc.api.models.Check:
     name: Check
-    module_path: hc.api.models
+    module_name: hc.api.models
     line: 184
     relations:
       - field_name: project
@@ -35,7 +35,7 @@ models:
     kind: concrete
   hc.api.models.Flip:
     name: Flip
-    module_path: hc.api.models
+    module_name: hc.api.models
     line: 1282
     relations:
       - field_name: owner
@@ -47,7 +47,7 @@ models:
     kind: concrete
   hc.api.models.Notification:
     name: Notification
-    module_path: hc.api.models
+    module_name: hc.api.models
     line: 1260
     relations:
       - field_name: owner
@@ -65,7 +65,7 @@ models:
     kind: concrete
   hc.api.models.Ping:
     name: Ping
-    module_path: hc.api.models
+    module_name: hc.api.models
     line: 666
     relations:
       - field_name: owner
@@ -77,7 +77,7 @@ models:
     kind: concrete
   hc.api.models.TokenBucket:
     name: TokenBucket
-    module_path: hc.api.models
+    module_name: hc.api.models
     line: 1340
     relations: []
     kind: concrete

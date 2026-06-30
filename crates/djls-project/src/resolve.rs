@@ -1,4 +1,4 @@
-//! Module path → file path resolution using Python search paths.
+//! Module name → file path resolution using Python search paths.
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -13,7 +13,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::Interpreter;
 use crate::python::PythonModule;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchPath {
@@ -180,14 +180,14 @@ pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> 
         };
 
         let search_path_len = search_path.path().as_str().len();
-        for (module_path, file_path) in discover_model_files_in_root(
+        for (module_name, file_path) in discover_model_files_in_root(
             db.file_system(),
             search_path.path(),
             search_path.root_kind(),
             &excluded_paths,
         ) {
             let module = PythonModule::new(
-                module_path,
+                module_name,
                 file_path.clone(),
                 db.get_or_create_file(&file_path),
             );
@@ -220,29 +220,29 @@ pub(crate) struct ImportParts<'a> {
 pub(crate) fn python_module(
     db: &dyn ProjectDb,
     project: Project,
-    module_path: PythonModulePath,
+    module_name: PythonModuleName,
 ) -> Option<PythonModule> {
     project.touch_search_path_roots(db);
 
     for search_path in project.search_paths(db).iter() {
         let Some(path) =
-            module_file_in_search_path(db.file_system(), module_path.as_str(), search_path.path())
+            module_file_in_search_path(db.file_system(), module_name.as_str(), search_path.path())
         else {
             continue;
         };
         let file = db.get_or_create_file(&path);
-        return Some(PythonModule::new(module_path, path, file));
+        return Some(PythonModule::new(module_name, path, file));
     }
 
     None
 }
 
-pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
+pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_name: &str) -> Option<File> {
     project.touch_search_path_roots(db);
 
     for search_path in project.search_paths(db).iter() {
         let Some(path) =
-            module_file_in_search_path(db.file_system(), module_path, search_path.path())
+            module_file_in_search_path(db.file_system(), module_name, search_path.path())
         else {
             continue;
         };
@@ -316,11 +316,11 @@ pub(crate) fn resolve_import(
 
 fn module_file_in_search_path(
     fs: &dyn FileSystem,
-    module_path: &str,
+    module_name: &str,
     search_path: &Utf8Path,
 ) -> Option<Utf8PathBuf> {
     let mut candidate = search_path.to_path_buf();
-    for part in module_path.split('.') {
+    for part in module_name.split('.') {
         candidate.push(part);
     }
 
@@ -342,7 +342,7 @@ fn discover_model_files_in_root(
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
-) -> Vec<(PythonModulePath, Utf8PathBuf)> {
+) -> Vec<(PythonModuleName, Utf8PathBuf)> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
@@ -396,11 +396,11 @@ fn discover_model_files_in_root(
             continue;
         };
 
-        let Ok(module_path) = PythonModulePath::from_relative_python_module(rel) else {
+        let Ok(module_name) = PythonModuleName::from_relative_source_path(rel) else {
             continue;
         };
 
-        results.push((module_path, path));
+        results.push((module_name, path));
     }
 
     results.sort_by(|(a, _), (b, _)| a.cmp(b));

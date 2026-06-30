@@ -5,7 +5,7 @@ expression: graph
 models:
   bookmarks.models.ApiToken:
     name: ApiToken
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 490
     relations:
       - field_name: user
@@ -17,7 +17,7 @@ models:
     kind: concrete
   bookmarks.models.Bookmark:
     name: Bookmark
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 53
     relations:
       - field_name: owner
@@ -41,7 +41,7 @@ models:
     kind: concrete
   bookmarks.models.BookmarkAsset:
     name: BookmarkAsset
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 129
     relations:
       - field_name: bookmark
@@ -53,7 +53,7 @@ models:
     kind: concrete
   bookmarks.models.BookmarkBundle:
     name: BookmarkBundle
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 183
     relations:
       - field_name: owner
@@ -65,7 +65,7 @@ models:
     kind: concrete
   bookmarks.models.FeedToken:
     name: FeedToken
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 464
     relations:
       - field_name: user
@@ -77,7 +77,7 @@ models:
     kind: concrete
   bookmarks.models.GlobalSettings:
     name: GlobalSettings
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 513
     relations:
       - field_name: guest_profile_user
@@ -89,7 +89,7 @@ models:
     kind: concrete
   bookmarks.models.Tag:
     name: Tag
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 21
     relations:
       - field_name: owner
@@ -101,7 +101,7 @@ models:
     kind: concrete
   bookmarks.models.Toast:
     name: Toast
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 457
     relations:
       - field_name: owner
@@ -113,7 +113,7 @@ models:
     kind: concrete
   bookmarks.models.UserProfile:
     name: UserProfile
-    module_path: bookmarks.models
+    module_name: bookmarks.models
     line: 320
     relations:
       - field_name: user

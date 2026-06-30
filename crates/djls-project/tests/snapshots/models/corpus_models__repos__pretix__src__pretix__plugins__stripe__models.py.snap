@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.plugins.stripe.models.ReferencedStripeObject:
     name: ReferencedStripeObject
-    module_path: src.pretix.plugins.stripe.models
+    module_name: src.pretix.plugins.stripe.models
     line: 25
     relations:
       - field_name: order
@@ -25,7 +25,7 @@ models:
     kind: concrete
   src.pretix.plugins.stripe.models.RegisteredApplePayDomain:
     name: RegisteredApplePayDomain
-    module_path: src.pretix.plugins.stripe.models
+    module_name: src.pretix.plugins.stripe.models
     line: 31
     relations: []
     kind: concrete

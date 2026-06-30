@@ -5,7 +5,7 @@ expression: graph
 models:
   src.sentry.remote_subscriptions.models.BaseRemoteSubscription:
     name: BaseRemoteSubscription
-    module_path: src.sentry.remote_subscriptions.models
+    module_name: src.sentry.remote_subscriptions.models
     line: 8
     relations: []
     kind: abstract

@@ -5,25 +5,25 @@ expression: graph
 models:
   archivebox.base_models.models.ModelWithConfig:
     name: ModelWithConfig
-    module_path: archivebox.base_models.models
+    module_name: archivebox.base_models.models
     line: 100
     relations: []
     kind: abstract
   archivebox.base_models.models.ModelWithHealthStats:
     name: ModelWithHealthStats
-    module_path: archivebox.base_models.models
+    module_name: archivebox.base_models.models
     line: 81
     relations: []
     kind: abstract
   archivebox.base_models.models.ModelWithNotes:
     name: ModelWithNotes
-    module_path: archivebox.base_models.models
+    module_name: archivebox.base_models.models
     line: 73
     relations: []
     kind: abstract
   archivebox.base_models.models.ModelWithOutputDir:
     name: ModelWithOutputDir
-    module_path: archivebox.base_models.models
+    module_name: archivebox.base_models.models
     line: 108
     relations:
       - field_name: created_by
@@ -35,7 +35,7 @@ models:
     kind: abstract
   archivebox.base_models.models.ModelWithUUID:
     name: ModelWithUUID
-    module_path: archivebox.base_models.models
+    module_name: archivebox.base_models.models
     line: 47
     relations:
       - field_name: created_by

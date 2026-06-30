@@ -5,19 +5,19 @@ expression: graph
 models:
   members.models.CorporateMember:
     name: CorporateMember
-    module_path: members.models
+    module_name: members.models
     line: 96
     relations: []
     kind: concrete
   members.models.IndividualMember:
     name: IndividualMember
-    module_path: members.models
+    module_name: members.models
     line: 40
     relations: []
     kind: concrete
   members.models.Invoice:
     name: Invoice
-    module_path: members.models
+    module_name: members.models
     line: 164
     relations:
       - field_name: member
@@ -29,7 +29,7 @@ models:
     kind: concrete
   members.models.Team:
     name: Team
-    module_path: members.models
+    module_name: members.models
     line: 66
     relations:
       - field_name: members

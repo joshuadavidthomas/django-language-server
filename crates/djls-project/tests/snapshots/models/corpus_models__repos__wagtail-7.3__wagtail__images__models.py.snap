@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.images.models.AbstractImage:
     name: AbstractImage
-    module_path: wagtail.images.models
+    module_name: wagtail.images.models
     line: 258
     relations:
       - field_name: uploaded_by_user
@@ -17,13 +17,13 @@ models:
     kind: abstract
   wagtail.images.models.AbstractRendition:
     name: AbstractRendition
-    module_path: wagtail.images.models
+    module_name: wagtail.images.models
     line: 1315
     relations: []
     kind: abstract
   wagtail.images.models.Image:
     name: Image
-    module_path: wagtail.images.models
+    module_name: wagtail.images.models
     line: 924
     relations:
       - field_name: uploaded_by_user
@@ -35,7 +35,7 @@ models:
     kind: concrete
   wagtail.images.models.Rendition:
     name: Rendition
-    module_path: wagtail.images.models
+    module_name: wagtail.images.models
     line: 1534
     relations:
       - field_name: image

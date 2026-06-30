@@ -5,19 +5,19 @@ expression: graph
 models:
   cms.test_utils.project.mti_pluginapp.models.LessMixedPlugin:
     name: LessMixedPlugin
-    module_path: cms.test_utils.project.mti_pluginapp.models
+    module_name: cms.test_utils.project.mti_pluginapp.models
     line: 88
     relations: []
     kind: concrete
   cms.test_utils.project.mti_pluginapp.models.MixedPlugin:
     name: MixedPlugin
-    module_path: cms.test_utils.project.mti_pluginapp.models
+    module_name: cms.test_utils.project.mti_pluginapp.models
     line: 81
     relations: []
     kind: concrete
   cms.test_utils.project.mti_pluginapp.models.NonPluginModel:
     name: NonPluginModel
-    module_path: cms.test_utils.project.mti_pluginapp.models
+    module_name: cms.test_utils.project.mti_pluginapp.models
     line: 73
     relations: []
     kind: concrete

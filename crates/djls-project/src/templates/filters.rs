@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::parse::parse_python_module;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 use crate::templates::SymbolKey;
 use crate::templates::for_each_registration;
 
@@ -31,7 +31,7 @@ pub struct FilterArity {
 pub fn extract_filter_arities(
     db: &dyn djls_source::Db,
     file: File,
-    registration_module: PythonModulePath,
+    registration_module: PythonModuleName,
 ) -> FilterArityMap {
     let Some(parsed) = parse_python_module(db, file) else {
         return FilterArityMap::default();

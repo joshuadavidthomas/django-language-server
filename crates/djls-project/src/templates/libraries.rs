@@ -14,7 +14,7 @@ use super::symbols::TemplateSymbolKind;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 use crate::resolve::python_module;
 use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
@@ -36,7 +36,7 @@ pub(crate) enum TemplateLibraryStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibrary {
     load_name: Option<LibraryName>,
-    app: Option<PythonModulePath>,
+    app: Option<PythonModuleName>,
     module: PythonModule,
     status: TemplateLibraryStatus,
     symbols: Vec<TemplateSymbol>,
@@ -72,7 +72,7 @@ impl TemplateLibrary {
     #[must_use]
     pub(crate) fn available(
         load_name: LibraryName,
-        app: PythonModulePath,
+        app: PythonModuleName,
         module: PythonModule,
         symbols: Vec<TemplateSymbol>,
     ) -> Self {
@@ -91,13 +91,13 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn module_path(&self) -> &PythonModulePath {
-        self.module.module_path()
+    pub fn module_name(&self) -> &PythonModuleName {
+        self.module.name()
     }
 
     #[must_use]
-    pub fn module_path_str(&self) -> &str {
-        self.module.module_path().as_str()
+    pub fn module_name_str(&self) -> &str {
+        self.module.name().as_str()
     }
 
     #[must_use]
@@ -111,7 +111,7 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    fn available_app(&self) -> Option<&PythonModulePath> {
+    fn available_app(&self) -> Option<&PythonModuleName> {
         match self.status {
             TemplateLibraryStatus::Available => self.app.as_ref(),
             TemplateLibraryStatus::Builtin | TemplateLibraryStatus::Installed => None,
@@ -146,7 +146,7 @@ fn merge_symbols(symbols: Vec<TemplateSymbol>) -> Vec<TemplateSymbol> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TemplateSymbolAvailability {
-    Builtin { module: PythonModulePath },
+    Builtin { module: PythonModuleName },
     RequiresLoad { load_name: LibraryName },
 }
 
@@ -160,7 +160,7 @@ pub struct TemplateSymbolCandidate {
 pub enum UnknownSymbolOutcome {
     Suppressed,
     Available {
-        app: PythonModulePath,
+        app: PythonModuleName,
         load_name: LibraryName,
     },
     TrulyUnknown,
@@ -170,8 +170,8 @@ pub enum UnknownSymbolOutcome {
 pub enum UnknownLibraryOutcome {
     Suppressed,
     AvailableInApps {
-        primary_app: PythonModulePath,
-        apps: Vec<PythonModulePath>,
+        primary_app: PythonModuleName,
+        apps: Vec<PythonModuleName>,
     },
     TrulyUnknown,
 }
@@ -277,7 +277,7 @@ impl TemplateLibraries {
                     TemplateSymbolCandidate {
                         symbol: symbol.clone(),
                         availability: TemplateSymbolAvailability::Builtin {
-                            module: library.module_path().clone(),
+                            module: library.module_name().clone(),
                         },
                     },
                 );
@@ -317,9 +317,9 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn installed_library_module(&self, name: &LibraryName) -> Option<&PythonModulePath> {
+    pub fn installed_library_module(&self, name: &LibraryName) -> Option<&PythonModuleName> {
         self.installed_library(name)
-            .map(TemplateLibrary::module_path)
+            .map(TemplateLibrary::module_name)
     }
 
     #[must_use]
@@ -443,12 +443,12 @@ impl TemplateLibraries {
                     .app
                     .clone()
                     .expect("available libraries should carry an app");
-                let module_path = library.module_path().clone();
+                let module_name = library.module_name().clone();
                 if let Some(existing_index) = self.libraries.iter().position(|existing| {
                     existing.status == TemplateLibraryStatus::Available
                         && existing.load_name() == Some(&name)
                         && existing.app.as_ref() == Some(&app)
-                        && existing.module_path() == &module_path
+                        && existing.module_name() == &module_name
                 }) {
                     let indexes = self.available_by_name.entry(name).or_default();
                     if !indexes.contains(&existing_index) {
@@ -468,14 +468,14 @@ impl TemplateLibraries {
         &mut self,
         db: &dyn ProjectDb,
         project: Project,
-        installed_template_library_modules: &BTreeSet<PythonModulePath>,
+        installed_template_library_modules: &BTreeSet<PythonModuleName>,
     ) {
         let mut excluded_modules: BTreeSet<_> = self
             .installed_libraries()
-            .map(|(_name, library)| library.module_path().clone())
+            .map(|(_name, library)| library.module_name().clone())
             .chain(
                 self.builtin_libraries()
-                    .map(TemplateLibrary::module_path)
+                    .map(TemplateLibrary::module_name)
                     .cloned(),
             )
             .collect();
@@ -547,7 +547,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     let (knowledge, discovered_libraries) = templatetag_package_libraries(db, project, "django");
     libraries.weaken_knowledge(knowledge);
     for (load_name, module, symbols) in discovered_libraries {
-        installed_template_library_modules.insert(module.module_path().clone());
+        installed_template_library_modules.insert(module.name().clone());
         libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
     }
 
@@ -560,7 +560,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             );
             libraries.weaken_knowledge(knowledge);
             for (load_name, module, symbols) in discovered_libraries {
-                installed_template_library_modules.insert(module.module_path().clone());
+                installed_template_library_modules.insert(module.name().clone());
                 libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
             }
         }
@@ -575,12 +575,12 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     {
         libraries.weaken_knowledge(backend.knowledge);
 
-        for (load_name, module_path) in &backend.libraries {
+        for (load_name, module_name) in &backend.libraries {
             let Ok(load_name) = LibraryName::parse(load_name) else {
                 libraries.demote_knowledge_to_partial();
                 continue;
             };
-            let (knowledge, library) = library_from_module_path(db, project, module_path);
+            let (knowledge, library) = library_from_module_name(db, project, module_name);
             libraries.weaken_knowledge(knowledge);
             let Some((module, symbols)) = library else {
                 continue;
@@ -588,8 +588,8 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
         }
 
-        for module_path in DEFAULT_TEMPLATE_BUILTINS.iter().copied() {
-            let (knowledge, library) = library_from_module_path(db, project, module_path);
+        for module_name in DEFAULT_TEMPLATE_BUILTINS.iter().copied() {
+            let (knowledge, library) = library_from_module_name(db, project, module_name);
             libraries.weaken_knowledge(knowledge);
             let Some((module, symbols)) = library else {
                 continue;
@@ -597,8 +597,8 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
             libraries.insert_library(TemplateLibrary::builtin(module, symbols));
         }
 
-        for module_path in backend.builtins.iter().map(String::as_str) {
-            let (knowledge, library) = library_from_module_path(db, project, module_path);
+        for module_name in backend.builtins.iter().map(String::as_str) {
+            let (knowledge, library) = library_from_module_name(db, project, module_name);
             libraries.weaken_knowledge(knowledge);
             let Some((module, symbols)) = library else {
                 continue;
@@ -619,7 +619,7 @@ fn templatetag_package_libraries(
     StaticKnowledge,
     Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
 ) {
-    if PythonModulePath::parse(package_module).is_err() {
+    if PythonModuleName::parse(package_module).is_err() {
         return (StaticKnowledge::Partial, Vec::new());
     }
     let (knowledge, candidates) =
@@ -642,16 +642,16 @@ fn templatetag_package_libraries(
     (knowledge, libraries)
 }
 
-fn library_from_module_path(
+fn library_from_module_name(
     db: &dyn ProjectDb,
     project: Project,
-    module_path: &str,
+    module_name: &str,
 ) -> (StaticKnowledge, Option<(PythonModule, Vec<TemplateSymbol>)>) {
-    let Ok(module_path) = PythonModulePath::parse(module_path) else {
+    let Ok(module_name) = PythonModuleName::parse(module_name) else {
         return (StaticKnowledge::Partial, None);
     };
 
-    let Some(module) = python_module(db, project, module_path) else {
+    let Some(module) = python_module(db, project, module_name) else {
         return (StaticKnowledge::Partial, None);
     };
 
@@ -684,7 +684,7 @@ fn cmp_available_libraries(left: &TemplateLibrary, right: &TemplateLibrary) -> O
     left.available_app()
         .cmp(&right.available_app())
         .then_with(|| left.load_name().cmp(&right.load_name()))
-        .then_with(|| left.module_path_str().cmp(right.module_path_str()))
+        .then_with(|| left.module_name_str().cmp(right.module_name_str()))
 }
 
 fn same_available_library(left: &TemplateLibrary, right: &TemplateLibrary) -> bool {
@@ -692,5 +692,5 @@ fn same_available_library(left: &TemplateLibrary, right: &TemplateLibrary) -> bo
         return false;
     };
 
-    left_app == right_app && left.module_path_str() == right.module_path_str()
+    left_app == right_app && left.module_name_str() == right.module_name_str()
 }

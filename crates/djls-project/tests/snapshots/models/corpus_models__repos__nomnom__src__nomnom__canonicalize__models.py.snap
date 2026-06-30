@@ -5,7 +5,7 @@ expression: graph
 models:
   src.nomnom.canonicalize.models.CanonicalizedNomination:
     name: CanonicalizedNomination
-    module_path: src.nomnom.canonicalize.models
+    module_name: src.nomnom.canonicalize.models
     line: 91
     relations:
       - field_name: work
@@ -24,7 +24,7 @@ models:
     kind: concrete
   src.nomnom.canonicalize.models.Work:
     name: Work
-    module_path: src.nomnom.canonicalize.models
+    module_name: src.nomnom.canonicalize.models
     line: 16
     relations:
       - field_name: category

@@ -5,7 +5,7 @@ expression: graph
 models:
   monthly.models.Newsletter:
     name: Newsletter
-    module_path: monthly.models
+    module_name: monthly.models
     line: 6
     relations: []
     kind: concrete

@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.users.models.UserProfile:
     name: UserProfile
-    module_path: wagtail.users.models
+    module_name: wagtail.users.models
     line: 22
     relations:
       - field_name: user

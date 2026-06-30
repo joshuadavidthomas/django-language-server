@@ -5,7 +5,7 @@ expression: graph
 models:
   blog.models.Entry:
     name: Entry
-    module_path: blog.models
+    module_name: blog.models
     line: 122
     relations:
       - field_name: social_media_card
@@ -17,13 +17,13 @@ models:
     kind: concrete
   blog.models.Event:
     name: Event
-    module_path: blog.models
+    module_name: blog.models
     line: 255
     relations: []
     kind: concrete
   blog.models.ImageUpload:
     name: ImageUpload
-    module_path: blog.models
+    module_name: blog.models
     line: 86
     relations:
       - field_name: uploaded_by

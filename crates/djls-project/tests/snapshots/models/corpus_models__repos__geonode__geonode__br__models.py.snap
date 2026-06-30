@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.br.models.RestoredBackup:
     name: RestoredBackup
-    module_path: geonode.br.models
+    module_name: geonode.br.models
     line: 28
     relations: []
     kind: concrete

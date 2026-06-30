@@ -5,13 +5,13 @@ expression: graph
 models:
   archivebox.workers.models.BaseModelWithStateMachine:
     name: BaseModelWithStateMachine
-    module_path: archivebox.workers.models
+    module_name: archivebox.workers.models
     line: 28
     relations: []
     kind: abstract
   archivebox.workers.models.ModelWithStateMachine:
     name: ModelWithStateMachine
-    module_path: archivebox.workers.models
+    module_name: archivebox.workers.models
     line: 311
     relations: []
     kind: abstract

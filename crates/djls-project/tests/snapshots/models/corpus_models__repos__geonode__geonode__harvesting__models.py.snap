@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.harvesting.models.AsynchronousHarvestingSession:
     name: AsynchronousHarvestingSession
-    module_path: geonode.harvesting.models
+    module_name: geonode.harvesting.models
     line: 293
     relations:
       - field_name: harvester
@@ -17,7 +17,7 @@ models:
     kind: concrete
   geonode.harvesting.models.HarvestableResource:
     name: HarvestableResource
-    module_path: geonode.harvesting.models
+    module_name: geonode.harvesting.models
     line: 393
     relations:
       - field_name: harvester
@@ -36,7 +36,7 @@ models:
     kind: concrete
   geonode.harvesting.models.Harvester:
     name: Harvester
-    module_path: geonode.harvesting.models
+    module_name: geonode.harvesting.models
     line: 41
     relations:
       - field_name: default_owner

@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 use crate::resolve::package_dir;
 use crate::settings::StaticKnowledge;
 use crate::templates::LibraryName;
@@ -25,9 +25,9 @@ enum TemplateTagDiscoveryMode {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TemplateTagCandidate {
-    pub(crate) app: PythonModulePath,
+    pub(crate) app: PythonModuleName,
     pub(crate) name: LibraryName,
-    pub(crate) module: PythonModulePath,
+    pub(crate) module: PythonModuleName,
     path: Utf8PathBuf,
     pub(crate) file: File,
 }
@@ -62,14 +62,14 @@ impl TemplateTagCandidate {
 
 #[derive(Clone, PartialEq, Eq)]
 struct TemplateTagCandidateSource {
-    app: PythonModulePath,
+    app: PythonModuleName,
     name: LibraryName,
-    module: PythonModulePath,
+    module: PythonModuleName,
     path: Utf8PathBuf,
 }
 
 impl TemplateTagCandidateSource {
-    fn new(app: PythonModulePath, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
+    fn new(app: PythonModuleName, name: LibraryName, path: Utf8PathBuf) -> Option<Self> {
         let module = templatetag_module(&app, &name)?;
         Some(Self {
             app,
@@ -133,7 +133,7 @@ pub(crate) fn templatetag_package_candidates(
         return scan;
     }
 
-    let Ok(package_module) = PythonModulePath::parse(package_module) else {
+    let Ok(package_module) = PythonModuleName::parse(package_module) else {
         scan.demote_to_partial();
         return scan;
     };
@@ -305,7 +305,7 @@ fn recognize_candidate_source(
     path: Utf8PathBuf,
     excluded_roots: &[Utf8PathBuf],
     mode: TemplateTagDiscoveryMode,
-    active_package: Option<&PythonModulePath>,
+    active_package: Option<&PythonModuleName>,
 ) -> CandidateSourceRecognition {
     if path.extension() != Some("py") {
         return CandidateSourceRecognition::NotCandidate;
@@ -351,7 +351,7 @@ fn recognize_candidate_source(
             let Ok(app_rel) = app_dir.strip_prefix(base_dir) else {
                 return CandidateSourceRecognition::NotCandidate;
             };
-            let Ok(app) = PythonModulePath::from_relative_package(app_rel) else {
+            let Ok(app) = PythonModuleName::from_relative_package_path(app_rel) else {
                 return CandidateSourceRecognition::NotCandidate;
             };
             app
@@ -367,8 +367,8 @@ fn recognize_candidate_source(
     CandidateSourceRecognition::Candidate(candidate)
 }
 
-fn templatetag_module(app: &PythonModulePath, name: &LibraryName) -> Option<PythonModulePath> {
-    PythonModulePath::parse(&format!("{}.templatetags.{}", app.as_str(), name.as_str())).ok()
+fn templatetag_module(app: &PythonModuleName, name: &LibraryName) -> Option<PythonModuleName> {
+    PythonModuleName::parse(&format!("{}.templatetags.{}", app.as_str(), name.as_str())).ok()
 }
 
 #[cfg(test)]
@@ -419,7 +419,7 @@ mod tests {
         );
 
         let path = Utf8PathBuf::from("/root/namespace_app/templatetags/tools.py");
-        let package = PythonModulePath::parse("namespace_app").unwrap();
+        let package = PythonModuleName::parse("namespace_app").unwrap();
         let active = recognize_candidate_source(
             &fs,
             Utf8Path::new("/root/namespace_app"),

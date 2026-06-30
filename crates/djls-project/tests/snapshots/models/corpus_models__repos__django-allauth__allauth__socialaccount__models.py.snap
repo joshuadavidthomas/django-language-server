@@ -5,7 +5,7 @@ expression: graph
 models:
   allauth.socialaccount.models.SocialAccount:
     name: SocialAccount
-    module_path: allauth.socialaccount.models
+    module_name: allauth.socialaccount.models
     line: 93
     relations:
       - field_name: user
@@ -17,13 +17,13 @@ models:
     kind: concrete
   allauth.socialaccount.models.SocialApp:
     name: SocialApp
-    module_path: allauth.socialaccount.models
+    module_name: allauth.socialaccount.models
     line: 40
     relations: []
     kind: concrete
   allauth.socialaccount.models.SocialToken:
     name: SocialToken
-    module_path: allauth.socialaccount.models
+    module_name: allauth.socialaccount.models
     line: 157
     relations:
       - field_name: app

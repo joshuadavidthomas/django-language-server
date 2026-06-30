@@ -5,7 +5,7 @@ expression: graph
 models:
   fixtures.safe_migrations_apps.bad_flow_add_column_with_notnull_app.models.TestTable:
     name: TestTable
-    module_path: fixtures.safe_migrations_apps.bad_flow_add_column_with_notnull_app.models
+    module_name: fixtures.safe_migrations_apps.bad_flow_add_column_with_notnull_app.models
     line: 4
     relations: []
     kind: concrete

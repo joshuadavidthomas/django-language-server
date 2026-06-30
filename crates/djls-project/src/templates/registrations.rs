@@ -66,7 +66,7 @@ pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<Registration
 
 pub(crate) fn for_each_registration(
     body: &[Stmt],
-    module_path: &str,
+    module_name: &str,
     mut f: impl FnMut(&RegistrationInfo, &StmtFunctionDef, SymbolKey),
 ) {
     let registrations = collect_registrations_from_body(body);
@@ -84,7 +84,7 @@ pub(crate) fn for_each_registration(
 
         let kind = reg.kind;
         let key = SymbolKey {
-            registration_module: module_path.to_string(),
+            registration_module: module_name.to_string(),
             name: reg.name.clone(),
             kind: kind.symbol_kind(),
         };

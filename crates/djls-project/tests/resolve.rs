@@ -11,7 +11,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
 struct TestModel {
-    module_path: PythonModulePath,
+    module_name: PythonModuleName,
 }
 
 #[derive(Default)]
@@ -40,7 +40,7 @@ fn compute_model_graph(db: &TestDatabase, project: Project) -> TestModelGraph {
             graph.models.insert(
                 name.to_string(),
                 TestModel {
-                    module_path: module.module_path().clone(),
+                    module_name: module.name().clone(),
                 },
             );
         }
@@ -190,12 +190,12 @@ fn model_modules_use_first_party_search_path_relative_names() {
     assert!(
         modules
             .iter()
-            .any(|module| module.module_path().as_str() == "blog.models")
+            .any(|module| module.name().as_str() == "blog.models")
     );
     assert!(
         !modules
             .iter()
-            .any(|module| module.module_path().as_str() == "src.blog.models")
+            .any(|module| module.name().as_str() == "src.blog.models")
     );
 }
 
@@ -252,7 +252,7 @@ fn model_modules_tolerate_unregistered_search_paths() {
     assert!(
         modules
             .iter()
-            .any(|module| module.module_path().as_str() == "blog.models")
+            .any(|module| module.name().as_str() == "blog.models")
     );
 }
 
@@ -282,7 +282,7 @@ fn template_libraries_tolerate_unregistered_search_paths() {
     let active: Vec<_> = libraries.active_libraries().collect();
 
     assert_eq!(active.len(), 1);
-    assert_eq!(active[0].module_path().as_str(), "django.templatetags.i18n");
+    assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
 }
 
 #[test]
@@ -315,7 +315,7 @@ fn template_library_resolution_uses_project_venv_site_packages_root() {
     let active: Vec<_> = libraries.active_libraries().collect();
 
     assert_eq!(active.len(), 1);
-    assert_eq!(active[0].module_path().as_str(), "django.templatetags.i18n");
+    assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
     let root = db.files().expect_root(&db, active[0].file().path(&db));
     assert_eq!(root.kind(&db), FileRootKind::SearchPath);
 }
@@ -388,13 +388,13 @@ fn active_template_libraries_preserve_builtin_order_across_roots() {
     );
 
     let libraries = template_libraries(&db, project);
-    let module_paths: Vec<_> = libraries
+    let module_names: Vec<_> = libraries
         .active_libraries()
-        .map(|library| library.module_path().as_str().to_string())
+        .map(|library| library.module_name().as_str().to_string())
         .collect();
 
     assert_eq!(
-        module_paths,
+        module_names,
         vec!["a.templatetags.tags", "z.templatetags.tags"]
     );
 }
@@ -426,12 +426,12 @@ fn active_template_libraries_yield_installed_before_builtins() {
     );
 
     let libraries = template_libraries(&db, project);
-    let module_paths: Vec<_> = libraries
+    let module_names: Vec<_> = libraries
         .active_libraries()
-        .map(|library| library.module_path().as_str().to_string())
+        .map(|library| library.module_name().as_str().to_string())
         .collect();
 
-    assert_eq!(module_paths, vec!["installed_tags", "builtin_tags"]);
+    assert_eq!(module_names, vec!["installed_tags", "builtin_tags"]);
 }
 
 #[test]
@@ -475,12 +475,12 @@ def duplicate(value, arg):
     );
 
     let libraries = template_libraries(&db, project);
-    let module_paths: Vec<_> = libraries
+    let module_names: Vec<_> = libraries
         .active_libraries()
-        .map(|library| library.module_path().as_str().to_string())
+        .map(|library| library.module_name().as_str().to_string())
         .collect();
 
-    assert_eq!(module_paths, vec!["z_first", "a_second"]);
+    assert_eq!(module_names, vec!["z_first", "a_second"]);
 }
 
 #[test]
@@ -606,7 +606,7 @@ fn external_model_graph_preserves_pythonpath_precedence() {
 
     let graph = compute_model_graph(&db, project);
     let model = graph.get("Duplicate").expect("model should be discovered");
-    assert_eq!(model.module_path.as_str(), "zapp.models");
+    assert_eq!(model.module_name.as_str(), "zapp.models");
 }
 
 #[test]
@@ -809,7 +809,7 @@ fn model_modules_finds_models_py_without_inspecting_contents() {
 
     let modules = model_modules(&db, project);
     assert_eq!(modules.len(), 1);
-    assert_eq!(modules[0].module_path().as_str(), "emptyapp.models");
+    assert_eq!(modules[0].name().as_str(), "emptyapp.models");
     assert!(modules[0].path().ends_with("models.py"));
 }
 
@@ -829,12 +829,12 @@ fn model_modules_finds_nested_apps() {
 
     let modules = model_modules(&db, project);
     assert_eq!(modules.len(), 2);
-    let module_paths: Vec<&str> = modules
+    let module_names: Vec<&str> = modules
         .iter()
-        .map(|module| module.module_path().as_str())
+        .map(|module| module.name().as_str())
         .collect();
-    assert!(module_paths.contains(&"blog.models"));
-    assert!(module_paths.contains(&"accounts.models"));
+    assert!(module_names.contains(&"blog.models"));
+    assert!(module_names.contains(&"accounts.models"));
 }
 
 #[test]
@@ -857,27 +857,27 @@ fn model_modules_finds_models_package_files() {
 
     let modules = model_modules(&db, project);
     assert_eq!(modules.len(), 3);
-    let module_paths: Vec<&str> = modules
+    let module_names: Vec<&str> = modules
         .iter()
-        .map(|module| module.module_path().as_str())
+        .map(|module| module.name().as_str())
         .collect();
-    assert!(module_paths.contains(&"myapp.models"));
-    assert!(module_paths.contains(&"myapp.models.user"));
-    assert!(module_paths.contains(&"myapp.models.order"));
+    assert!(module_names.contains(&"myapp.models"));
+    assert!(module_names.contains(&"myapp.models.user"));
+    assert!(module_names.contains(&"myapp.models.order"));
 }
 
 #[test]
-fn module_path_from_init_file() {
+fn module_name_from_init_file() {
     let path = Utf8Path::new("myapp/models/__init__.py");
-    let module_path = PythonModulePath::from_relative_python_module(path).unwrap();
-    assert_eq!(module_path.as_str(), "myapp.models");
+    let module_name = PythonModuleName::from_relative_source_path(path).unwrap();
+    assert_eq!(module_name.as_str(), "myapp.models");
 }
 
 #[test]
-fn module_path_from_submodule() {
+fn module_name_from_submodule() {
     let path = Utf8Path::new("myapp/models/user.py");
-    let module_path = PythonModulePath::from_relative_python_module(path).unwrap();
-    assert_eq!(module_path.as_str(), "myapp.models.user");
+    let module_name = PythonModuleName::from_relative_source_path(path).unwrap();
+    assert_eq!(module_name.as_str(), "myapp.models.user");
 }
 
 #[test]
@@ -893,13 +893,13 @@ fn model_modules_finds_nested_models_package_files() {
         .build(&db);
 
     let modules = model_modules(&db, project);
-    let module_paths: Vec<&str> = modules
+    let module_names: Vec<&str> = modules
         .iter()
-        .map(|module| module.module_path().as_str())
+        .map(|module| module.name().as_str())
         .collect();
     assert!(
-        module_paths.contains(&"myapp.models.base.abstract"),
-        "should discover nested model files: got {module_paths:?}"
+        module_names.contains(&"myapp.models.base.abstract"),
+        "should discover nested model files: got {module_names:?}"
     );
 }
 
@@ -926,12 +926,12 @@ fn project_model_discovery_skips_registered_non_first_party_paths() {
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
     let modules = model_modules(&db, project);
-    let module_paths: Vec<_> = modules
+    let module_names: Vec<_> = modules
         .iter()
-        .map(|module| module.module_path().as_str())
+        .map(|module| module.name().as_str())
         .collect();
 
-    assert!(module_paths.contains(&"app.models"));
-    assert!(module_paths.contains(&"somelib.models"));
-    assert!(!module_paths.contains(&"venv.lib.python3.12.site-packages.somelib.models"));
+    assert!(module_names.contains(&"app.models"));
+    assert!(module_names.contains(&"somelib.models"));
+    assert!(!module_names.contains(&"venv.lib.python3.12.site-packages.somelib.models"));
 }

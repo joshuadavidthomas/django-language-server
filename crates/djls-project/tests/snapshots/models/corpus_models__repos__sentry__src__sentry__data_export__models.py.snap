@@ -5,13 +5,13 @@ expression: graph
 models:
   src.sentry.data_export.models.ExportedData:
     name: ExportedData
-    module_path: src.sentry.data_export.models
+    module_name: src.sentry.data_export.models
     line: 39
     relations: []
     kind: concrete
   src.sentry.data_export.models.ExportedDataBlob:
     name: ExportedDataBlob
-    module_path: src.sentry.data_export.models
+    module_name: src.sentry.data_export.models
     line: 213
     relations: []
     kind: concrete

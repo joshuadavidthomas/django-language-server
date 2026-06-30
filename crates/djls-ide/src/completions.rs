@@ -754,7 +754,7 @@ mod tests {
     use std::borrow::Cow;
     use std::collections::HashMap;
 
-    use djls_project::PythonModulePath;
+    use djls_project::PythonModuleName;
     use djls_project::SymbolDefinition;
     use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
@@ -798,7 +798,7 @@ mod tests {
     fn template_symbol(
         kind: TemplateSymbolKind,
         name: &str,
-        module: &PythonModulePath,
+        module: &PythonModuleName,
         doc: Option<&str>,
     ) -> TemplateSymbol {
         TemplateSymbol {
@@ -849,7 +849,7 @@ mod tests {
     }
 
     fn test_tag_symbol(name: &str) -> TemplateSymbol {
-        let module = PythonModulePath::parse("django.template.defaulttags").unwrap();
+        let module = PythonModuleName::parse("django.template.defaulttags").unwrap();
         template_symbol(TemplateSymbolKind::Tag, name, &module, None)
     }
 

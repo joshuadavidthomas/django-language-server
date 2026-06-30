@@ -5,7 +5,7 @@ expression: graph
 models:
   menus.models.CacheKey:
     name: CacheKey
-    module_path: menus.models
+    module_name: menus.models
     line: 29
     relations: []
     kind: concrete

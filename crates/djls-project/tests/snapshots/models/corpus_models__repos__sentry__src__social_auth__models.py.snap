@@ -5,7 +5,7 @@ expression: graph
 models:
   src.social_auth.models.UserSocialAuth:
     name: UserSocialAuth
-    module_path: src.social_auth.models
+    module_name: src.social_auth.models
     line: 23
     relations:
       - field_name: user

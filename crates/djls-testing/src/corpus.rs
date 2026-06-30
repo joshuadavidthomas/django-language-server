@@ -327,7 +327,7 @@ impl Corpus {
     }
 }
 
-/// Derive a dotted Python module path from a file path within the corpus.
+/// Derive a dotted Python module name from a file path within the corpus.
 ///
 /// Handles the corpus layout where entries live under `repos/`:
 /// - `.corpus/repos/{name}/{python_code}...`
@@ -339,18 +339,18 @@ impl Corpus {
 ///
 /// ```
 /// # use camino::Utf8Path;
-/// # use djls_testing::module_path_from_file;
+/// # use djls_testing::module_name_from_file;
 /// let path = Utf8Path::new(".corpus/repos/django-6.0/django/template/defaulttags.py");
-/// assert_eq!(module_path_from_file(path), "django.template.defaulttags");
+/// assert_eq!(module_name_from_file(path), "django.template.defaulttags");
 ///
 /// let path = Utf8Path::new(".corpus/repos/sentry/sentry/templatetags/sentry_helpers.py");
-/// assert_eq!(module_path_from_file(path), "sentry.templatetags.sentry_helpers");
+/// assert_eq!(module_name_from_file(path), "sentry.templatetags.sentry_helpers");
 ///
 /// let path = Utf8Path::new(".corpus/repos/django-allauth/allauth/templatetags/allauth.py");
-/// assert_eq!(module_path_from_file(path), "allauth.templatetags.allauth");
+/// assert_eq!(module_name_from_file(path), "allauth.templatetags.allauth");
 /// ```
 #[must_use]
-pub fn module_path_from_file(file: &Utf8Path) -> String {
+pub fn module_name_from_file(file: &Utf8Path) -> String {
     let components: Vec<&str> = file
         .components()
         .filter_map(|c| match c {

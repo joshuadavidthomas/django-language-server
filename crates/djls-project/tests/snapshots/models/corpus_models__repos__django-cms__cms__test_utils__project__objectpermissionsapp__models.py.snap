@@ -5,7 +5,7 @@ expression: graph
 models:
   cms.test_utils.project.objectpermissionsapp.models.UserObjectPermission:
     name: UserObjectPermission
-    module_path: cms.test_utils.project.objectpermissionsapp.models
+    module_name: cms.test_utils.project.objectpermissionsapp.models
     line: 42
     relations:
       - field_name: permission

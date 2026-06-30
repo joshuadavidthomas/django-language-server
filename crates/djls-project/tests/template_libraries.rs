@@ -1,5 +1,5 @@
 use djls_project::LibraryName;
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
@@ -13,8 +13,8 @@ use djls_project::testing::StaticKnowledge;
 use djls_project::testing::TemplateLibraryInput;
 use djls_testing::TestDatabase;
 
-fn module(name: &str) -> PythonModulePath {
-    PythonModulePath::parse(name).unwrap()
+fn module(name: &str) -> PythonModuleName {
+    PythonModuleName::parse(name).unwrap()
 }
 
 fn symbol(kind: TemplateSymbolKind, name: &str, doc: Option<&str>) -> TemplateSymbol {
@@ -49,13 +49,13 @@ fn empty_libraries(knowledge: StaticKnowledge) -> TemplateLibraries {
     libraries(knowledge, Vec::new(), Vec::new(), Vec::new())
 }
 
-fn builtin(module: PythonModulePath, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
+fn builtin(module: PythonModuleName, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
     TemplateLibraryInput::Builtin { module, symbols }
 }
 
 fn installed(
     load_name: LibraryName,
-    module: PythonModulePath,
+    module: PythonModuleName,
     symbols: Vec<TemplateSymbol>,
 ) -> TemplateLibraryInput {
     TemplateLibraryInput::Installed {
@@ -67,8 +67,8 @@ fn installed(
 
 fn available(
     load_name: LibraryName,
-    app: PythonModulePath,
-    module: PythonModulePath,
+    app: PythonModuleName,
+    module: PythonModuleName,
     symbols: Vec<TemplateSymbol>,
 ) -> TemplateLibraryInput {
     TemplateLibraryInput::Available {
@@ -272,7 +272,7 @@ fn installed_libraries_replace_duplicate_load_names() {
     let library = libraries
         .installed_library(&load_name)
         .expect("replacement library should be installed");
-    assert_eq!(library.module_path(), &replacement_module);
+    assert_eq!(library.module_name(), &replacement_module);
     assert_eq!(libraries.completion_library_names(), vec![load_name]);
 
     let symbols: Vec<_> = libraries
@@ -287,7 +287,7 @@ fn installed_libraries_replace_duplicate_load_names() {
 fn available_libraries_dedup_by_app_and_module() {
     let app = module("available_app");
     let load_name = library_name("extra_tags");
-    let module_path = module("available_app.templatetags.extra_tags");
+    let module_name = module("available_app.templatetags.extra_tags");
     let libraries = libraries(
         StaticKnowledge::Known,
         Vec::new(),
@@ -296,13 +296,13 @@ fn available_libraries_dedup_by_app_and_module() {
             available(
                 load_name.clone(),
                 app.clone(),
-                module_path.clone(),
+                module_name.clone(),
                 vec![symbol(TemplateSymbolKind::Tag, "first", None)],
             ),
             available(
                 load_name.clone(),
                 app.clone(),
-                module_path,
+                module_name,
                 vec![symbol(TemplateSymbolKind::Tag, "second", None)],
             ),
         ],
@@ -424,7 +424,7 @@ fn builtin_libraries_retain_duplicate_modules_in_order() {
 
     let modules: Vec<_> = libraries
         .active_libraries()
-        .map(|library| library.module_path().as_str().to_string())
+        .map(|library| library.module_name().as_str().to_string())
         .collect();
 
     assert_eq!(

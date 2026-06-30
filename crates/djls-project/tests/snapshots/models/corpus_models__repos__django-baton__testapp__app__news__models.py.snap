@@ -5,7 +5,7 @@ expression: graph
 models:
   testapp.app.news.models.Activity:
     name: Activity
-    module_path: testapp.app.news.models
+    module_name: testapp.app.news.models
     line: 9
     relations:
       - field_name: user
@@ -27,7 +27,7 @@ models:
     kind: concrete
   testapp.app.news.models.Attachment:
     name: Attachment
-    module_path: testapp.app.news.models
+    module_name: testapp.app.news.models
     line: 86
     relations:
       - field_name: news
@@ -39,13 +39,13 @@ models:
     kind: concrete
   testapp.app.news.models.Category:
     name: Category
-    module_path: testapp.app.news.models
+    module_name: testapp.app.news.models
     line: 38
     relations: []
     kind: concrete
   testapp.app.news.models.News:
     name: News
-    module_path: testapp.app.news.models
+    module_name: testapp.app.news.models
     line: 49
     relations:
       - field_name: category
@@ -57,7 +57,7 @@ models:
     kind: concrete
   testapp.app.news.models.Video:
     name: Video
-    module_path: testapp.app.news.models
+    module_name: testapp.app.news.models
     line: 104
     relations:
       - field_name: news

@@ -5,7 +5,7 @@ expression: graph
 models:
   src.backend.InvenTree.part.models.PartCategoryStar:
     name: PartCategoryStar
-    module_path: src.backend.InvenTree.part.models
+    module_name: src.backend.InvenTree.part.models
     line: 3597
     relations:
       - field_name: category
@@ -23,7 +23,7 @@ models:
     kind: concrete
   src.backend.InvenTree.part.models.PartStar:
     name: PartStar
-    module_path: src.backend.InvenTree.part.models
+    module_name: src.backend.InvenTree.part.models
     line: 3567
     relations:
       - field_name: part
@@ -41,7 +41,7 @@ models:
     kind: concrete
   src.backend.InvenTree.part.models.PartStocktake:
     name: PartStocktake
-    module_path: src.backend.InvenTree.part.models
+    module_name: src.backend.InvenTree.part.models
     line: 3471
     relations:
       - field_name: part

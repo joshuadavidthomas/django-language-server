@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.favorite.models.Favorite:
     name: Favorite
-    module_path: geonode.favorite.models
+    module_name: geonode.favorite.models
     line: 95
     relations:
       - field_name: user

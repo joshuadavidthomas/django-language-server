@@ -5,7 +5,7 @@ expression: graph
 models:
   blog.models.BaseModel:
     name: BaseModel
-    module_path: blog.models
+    module_name: blog.models
     line: 220
     relations:
       - field_name: tags
@@ -23,7 +23,7 @@ models:
     kind: abstract
   blog.models.Blogmark:
     name: Blogmark
-    module_path: blog.models
+    module_name: blog.models
     line: 379
     relations:
       - field_name: tags
@@ -41,7 +41,7 @@ models:
     kind: concrete
   blog.models.Comment:
     name: Comment
-    module_path: blog.models
+    module_name: blog.models
     line: 532
     relations:
       - field_name: content_type
@@ -57,7 +57,7 @@ models:
     kind: concrete
   blog.models.Entry:
     name: Entry
-    module_path: blog.models
+    module_name: blog.models
     line: 254
     relations:
       - field_name: tags
@@ -75,7 +75,7 @@ models:
     kind: concrete
   blog.models.LiveUpdate:
     name: LiveUpdate
-    module_path: blog.models
+    module_name: blog.models
     line: 328
     relations:
       - field_name: entry
@@ -87,7 +87,7 @@ models:
     kind: concrete
   blog.models.Note:
     name: Note
-    module_path: blog.models
+    module_name: blog.models
     line: 425
     relations:
       - field_name: tags
@@ -105,13 +105,13 @@ models:
     kind: concrete
   blog.models.Photo:
     name: Photo
-    module_path: blog.models
+    module_name: blog.models
     line: 452
     relations: []
     kind: concrete
   blog.models.Photoset:
     name: Photoset
-    module_path: blog.models
+    module_name: blog.models
     line: 481
     relations:
       - field_name: photos
@@ -129,7 +129,7 @@ models:
     kind: concrete
   blog.models.PreviousTagName:
     name: PreviousTagName
-    module_path: blog.models
+    module_name: blog.models
     line: 157
     relations:
       - field_name: tag
@@ -141,7 +141,7 @@ models:
     kind: concrete
   blog.models.Quotation:
     name: Quotation
-    module_path: blog.models
+    module_name: blog.models
     line: 337
     relations:
       - field_name: tags
@@ -159,19 +159,19 @@ models:
     kind: concrete
   blog.models.Series:
     name: Series
-    module_path: blog.models
+    module_name: blog.models
     line: 195
     relations: []
     kind: concrete
   blog.models.Tag:
     name: Tag
-    module_path: blog.models
+    module_name: blog.models
     line: 22
     relations: []
     kind: concrete
   blog.models.TagMerge:
     name: TagMerge
-    module_path: blog.models
+    module_name: blog.models
     line: 165
     relations:
       - field_name: destination_tag

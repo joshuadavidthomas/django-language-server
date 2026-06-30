@@ -16,10 +16,10 @@ use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
 use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 
 pub(super) struct ModelCollector<'a> {
-    module_path: PythonModulePath,
+    module_name: PythonModuleName,
     source: &'a str,
     aliases: ImportAliases,
     graph: ModelGraph,
@@ -27,9 +27,9 @@ pub(super) struct ModelCollector<'a> {
 }
 
 impl<'a> ModelCollector<'a> {
-    pub(super) fn new(module_path: PythonModulePath, source: &'a str) -> Self {
+    pub(super) fn new(module_name: PythonModuleName, source: &'a str) -> Self {
         Self {
-            module_path,
+            module_name,
             source,
             aliases: ImportAliases::new(),
             graph: ModelGraph::new(),
@@ -41,7 +41,7 @@ impl<'a> ModelCollector<'a> {
         resolve_children(
             &mut self.graph,
             &self.children,
-            &self.module_path,
+            &self.module_name,
             self.source,
         );
         self.graph
@@ -93,7 +93,7 @@ impl<'a> ModelCollector<'a> {
                 if is_django_model(args.args.iter(), &self.aliases) {
                     let line = line_number(self.source, class.range.start().to_usize());
                     let mut model =
-                        ModelDef::new(class.name.to_string(), self.module_path.clone(), line);
+                        ModelDef::new(class.name.to_string(), self.module_name.clone(), line);
 
                     walk_stmts(&class.body, Recurse::Flat, |stmt| {
                         process_class_body(stmt, &mut model);
@@ -113,7 +113,7 @@ impl<'a> ModelCollector<'a> {
 fn resolve_children(
     graph: &mut ModelGraph,
     children: &[&StmtClassDef],
-    module_path: &PythonModulePath,
+    module_name: &PythonModuleName,
     source: &str,
 ) {
     let mut remaining: Vec<&StmtClassDef> = children.to_vec();
@@ -152,7 +152,7 @@ fn resolve_children(
             }
 
             let line = line_number(source, class.range.start().to_usize());
-            let mut model = ModelDef::new(class.name.to_string(), module_path.clone(), line);
+            let mut model = ModelDef::new(class.name.to_string(), module_name.clone(), line);
 
             // Copy relations from ALL abstract parents
             for arg in &args.args {
@@ -197,7 +197,7 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-/// Check if a module path is a known Django models parent module.
+/// Check if a module name is a known Django models parent module.
 ///
 /// These are the modules from which `models` can be imported
 /// (e.g., `from django.db import models`).
@@ -205,7 +205,7 @@ fn is_django_model_parent(module: &str) -> bool {
     matches!(module, "django.db" | "django.contrib.gis.db")
 }
 
-/// Check if a module path is a known Django `models` module.
+/// Check if a module name is a known Django `models` module.
 ///
 /// These are the fully-qualified paths to Django's model modules
 /// (for `import django.db.models as ...` or `from django.db.models import Model`).
@@ -456,10 +456,10 @@ mod tests {
     use super::*;
     use crate::models::graph::ModelId;
 
-    fn extract_model_graph(source: &str, module_path: &str) -> ModelGraph {
+    fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
         super::super::extract_model_graph_impl(
             source,
-            PythonModulePath::parse(module_path).unwrap(),
+            PythonModuleName::parse(module_name).unwrap(),
         )
     }
 
@@ -522,7 +522,7 @@ class User(models.Model):
         assert_eq!(graph.len(), 1);
 
         let user = model(&graph, "User");
-        assert_eq!(user.module_path.as_str(), "auth.models");
+        assert_eq!(user.module_name.as_str(), "auth.models");
         assert_eq!(user.line, 2);
         assert!(user.relations.is_empty());
         assert_eq!(user.kind, ModelKind::Concrete);

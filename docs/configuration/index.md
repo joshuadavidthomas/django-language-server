@@ -30,7 +30,7 @@ env_file = ".env.local"
 
 **Default:** `DJANGO_SETTINGS_MODULE` environment variable
 
-Your Django settings module path (e.g., `"myproject.settings"`).
+Your Django settings module name (e.g., `"myproject.settings"`).
 
 The server uses this to statically introspect your Django project for template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
@@ -323,7 +323,7 @@ The file uses the same format as `djls.toml` shown above.
 
 Django Language Server reads standard Python and Django environment variables:
 
-- `DJANGO_SETTINGS_MODULE` - Django settings module path
+- `DJANGO_SETTINGS_MODULE` - Django settings module name
 - `VIRTUAL_ENV` - Virtual environment path
 
 If you're already running Django with these environment variables set, the language server will automatically use them.
