@@ -112,7 +112,7 @@ impl<'db> PythonResolver<'db> {
             .iter()
             .filter(|search_path| import.importer.starts_with(search_path.path()))
             .max_by_key(|search_path| search_path.path().as_str().len())
-            .map(|search_path| search_path.path())
+            .map(super::search_paths::SearchPath::path)
             .ok_or_else(|| {
                 PythonImportError::ImporterOutsideSearchPaths(import.importer.to_string())
             })?;

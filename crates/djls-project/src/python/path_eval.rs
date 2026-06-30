@@ -5,6 +5,7 @@ use rustc_hash::FxHashMap;
 
 use crate::ast::ExprExt;
 
+#[derive(Clone, Copy)]
 pub(crate) struct PythonPathContext<'a> {
     pub(crate) file_path: &'a Utf8Path,
     pub(crate) bindings: &'a PythonPathBindings,
