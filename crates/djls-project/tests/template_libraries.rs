@@ -1,6 +1,7 @@
 use djls_project::LibraryName;
 use djls_project::PythonModuleName;
 use djls_project::SymbolDefinition;
+use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
@@ -9,7 +10,6 @@ use djls_project::TemplateSymbolName;
 use djls_project::UnknownLibraryOutcome;
 use djls_project::UnknownSymbolOutcome;
 use djls_project::testing;
-use djls_project::testing::StaticKnowledge;
 use djls_project::testing::TemplateLibraryInput;
 use djls_testing::TestDatabase;
 
@@ -31,7 +31,7 @@ fn library_name(name: &str) -> LibraryName {
 }
 
 fn libraries(
-    knowledge: StaticKnowledge,
+    status: TemplateInventoryStatus,
     builtins: Vec<TemplateLibraryInput>,
     installed: Vec<TemplateLibraryInput>,
     available: Vec<TemplateLibraryInput>,
@@ -42,11 +42,11 @@ fn libraries(
         .chain(installed)
         .chain(available)
         .collect();
-    testing::template_libraries(&db, knowledge, inputs)
+    testing::template_libraries(&db, status, inputs)
 }
 
-fn empty_libraries(knowledge: StaticKnowledge) -> TemplateLibraries {
-    libraries(knowledge, Vec::new(), Vec::new(), Vec::new())
+fn empty_libraries(status: TemplateInventoryStatus) -> TemplateLibraries {
+    libraries(status, Vec::new(), Vec::new(), Vec::new())
 }
 
 fn builtin(module: PythonModuleName, symbols: Vec<TemplateSymbol>) -> TemplateLibraryInput {
@@ -81,7 +81,7 @@ fn available(
 
 #[test]
 fn unknown_tag_outcome_suppresses_incomplete_inventory() {
-    let libraries = empty_libraries(StaticKnowledge::Partial);
+    let libraries = empty_libraries(TemplateInventoryStatus::Incomplete);
 
     assert_eq!(
         libraries.unknown_tag_outcome("missing"),
@@ -94,7 +94,7 @@ fn unknown_tag_outcome_reports_available_app_candidate() {
     let app = module("available_app");
     let load_name = library_name("extra_tags");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         Vec::new(),
         Vec::new(),
         vec![available(
@@ -113,7 +113,7 @@ fn unknown_tag_outcome_reports_available_app_candidate() {
 
 #[test]
 fn unknown_tag_outcome_reports_truly_unknown() {
-    let libraries = empty_libraries(StaticKnowledge::Known);
+    let libraries = empty_libraries(TemplateInventoryStatus::Complete);
 
     assert_eq!(
         libraries.unknown_tag_outcome("missing"),
@@ -123,7 +123,7 @@ fn unknown_tag_outcome_reports_truly_unknown() {
 
 #[test]
 fn unknown_filter_outcome_suppresses_incomplete_inventory() {
-    let libraries = empty_libraries(StaticKnowledge::Partial);
+    let libraries = empty_libraries(TemplateInventoryStatus::Incomplete);
 
     assert_eq!(
         libraries.unknown_filter_outcome("missing"),
@@ -136,7 +136,7 @@ fn unknown_filter_outcome_reports_available_app_candidate() {
     let app = module("available_app");
     let load_name = library_name("extra_filters");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         Vec::new(),
         Vec::new(),
         vec![available(
@@ -155,7 +155,7 @@ fn unknown_filter_outcome_reports_available_app_candidate() {
 
 #[test]
 fn unknown_filter_outcome_reports_truly_unknown() {
-    let libraries = empty_libraries(StaticKnowledge::Known);
+    let libraries = empty_libraries(TemplateInventoryStatus::Complete);
 
     assert_eq!(
         libraries.unknown_filter_outcome("missing"),
@@ -165,7 +165,7 @@ fn unknown_filter_outcome_reports_truly_unknown() {
 
 #[test]
 fn unknown_library_outcome_suppresses_incomplete_inventory() {
-    let libraries = empty_libraries(StaticKnowledge::Partial);
+    let libraries = empty_libraries(TemplateInventoryStatus::Incomplete);
 
     assert_eq!(
         libraries.unknown_library_outcome(&library_name("missing")),
@@ -179,7 +179,7 @@ fn unknown_library_outcome_reports_available_app_candidates() {
     let alpha = module("alpha");
     let beta = module("beta");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         Vec::new(),
         Vec::new(),
         vec![
@@ -215,7 +215,7 @@ fn unknown_library_outcome_reports_available_app_candidates() {
 
 #[test]
 fn unknown_library_outcome_reports_truly_unknown() {
-    let libraries = empty_libraries(StaticKnowledge::Known);
+    let libraries = empty_libraries(TemplateInventoryStatus::Complete);
 
     assert_eq!(
         libraries.unknown_library_outcome(&library_name("missing")),
@@ -226,7 +226,7 @@ fn unknown_library_outcome_reports_truly_unknown() {
 #[test]
 fn installed_library_count_counts_builtins_and_installed() {
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         vec![
             builtin(module("django.template.defaulttags"), Vec::new()),
             builtin(module("project.builtins"), Vec::new()),
@@ -252,7 +252,7 @@ fn installed_libraries_replace_duplicate_load_names() {
     let load_name = library_name("custom");
     let replacement_module = module("project.templatetags.replacement");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         Vec::new(),
         vec![
             installed(
@@ -289,7 +289,7 @@ fn available_libraries_dedup_by_app_and_module() {
     let load_name = library_name("extra_tags");
     let module_name = module("available_app.templatetags.extra_tags");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         Vec::new(),
         Vec::new(),
         vec![
@@ -332,7 +332,7 @@ fn available_libraries_dedup_by_app_and_module() {
 fn template_symbol_candidates_keep_last_builtin_symbol() {
     let a_second = module("a_second");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         vec![
             builtin(
                 module("z_first"),
@@ -369,7 +369,7 @@ fn template_symbol_candidates_keep_last_builtin_symbol() {
 fn template_symbol_candidates_report_load_requirement() {
     let load_name = library_name("humanize");
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         Vec::new(),
         vec![installed(
             load_name.clone(),
@@ -394,7 +394,7 @@ fn testing_inventory_files_belong_to_supplied_db() {
     let db = TestDatabase::new();
     let libraries = testing::template_libraries(
         &db,
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         vec![builtin(module("project.templatetags.custom"), Vec::new())],
     );
 
@@ -412,7 +412,7 @@ fn testing_inventory_files_belong_to_supplied_db() {
 #[test]
 fn builtin_libraries_retain_duplicate_modules_in_order() {
     let libraries = libraries(
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
         vec![
             builtin(module("django.template.defaulttags"), Vec::new()),
             builtin(module("project.builtins"), Vec::new()),

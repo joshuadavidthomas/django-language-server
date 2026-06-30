@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use camino::Utf8Path;
 use djls_ide::completion;
+use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
-use djls_project::testing::StaticKnowledge;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_source::Offset;
@@ -13,16 +13,16 @@ use djls_testing::TestDatabase;
 use djls_testing::builtin_tag;
 use djls_testing::library_filter;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_knowledge;
+use djls_testing::make_template_libraries_with_status;
 use tower_lsp_server::ls_types;
 
 fn tag_libraries(db: &TestDatabase) -> TemplateLibraries {
-    tag_libraries_with_knowledge(db, StaticKnowledge::Known)
+    tag_libraries_with_status(db, TemplateInventoryStatus::Complete)
 }
 
-fn tag_libraries_with_knowledge(
+fn tag_libraries_with_status(
     db: &TestDatabase,
-    knowledge: StaticKnowledge,
+    status: TemplateInventoryStatus,
 ) -> TemplateLibraries {
     let tags = vec![
         builtin_tag("if", "django.template.defaulttags"),
@@ -32,20 +32,20 @@ fn tag_libraries_with_knowledge(
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
     let builtins = vec!["django.template.defaulttags".to_string()];
 
-    make_template_libraries_with_knowledge(db, &tags, &[], &libraries, &builtins, knowledge)
+    make_template_libraries_with_status(db, &tags, &[], &libraries, &builtins, status)
 }
 
 fn filter_libraries(db: &TestDatabase) -> TemplateLibraries {
     let filters = vec![library_filter("trans", "i18n", "django.templatetags.i18n")];
     let libraries = HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
 
-    make_template_libraries_with_knowledge(
+    make_template_libraries_with_status(
         db,
         &[],
         &filters,
         &libraries,
         &[],
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
     )
 }
 
@@ -117,7 +117,7 @@ fn tag_completions_respect_load_position() {
 fn partial_tag_completions_use_known_libraries_not_raw_specs() {
     let labels = completion_labels(
         "{% project§ %}",
-        |db| tag_libraries_with_knowledge(db, StaticKnowledge::Partial),
+        |db| tag_libraries_with_status(db, TemplateInventoryStatus::Incomplete),
         project_only_specs(),
     );
 

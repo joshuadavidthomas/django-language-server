@@ -98,6 +98,16 @@ impl InstalledAppsSetting {
         }
     }
 
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        self.knowledge == StaticKnowledge::Known
+    }
+
+    #[must_use]
+    pub(crate) fn is_usable_for_app_scan(&self) -> bool {
+        self.knowledge != StaticKnowledge::Unknown
+    }
+
     pub(crate) fn make_partial(&mut self, reason: Reason) {
         if self.knowledge != StaticKnowledge::Unknown || self.reasons.is_empty() {
             self.knowledge = StaticKnowledge::Partial;
@@ -134,6 +144,11 @@ impl TemplateSettings {
             backends,
             knowledge: StaticKnowledge::Known,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        self.knowledge == StaticKnowledge::Known
     }
 
     pub(crate) fn partial() -> Self {
@@ -182,6 +197,11 @@ impl Default for TemplateBackend {
 }
 
 impl TemplateBackend {
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        self.knowledge == StaticKnowledge::Known
+    }
+
     #[must_use]
     pub(crate) fn is_django_templates_backend(&self, backend_count: usize) -> bool {
         match self.backend.as_deref() {

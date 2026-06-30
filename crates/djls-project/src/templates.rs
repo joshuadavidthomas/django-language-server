@@ -11,6 +11,7 @@ pub(crate) use candidates::refresh_templatetag_candidate_paths;
 pub use filters::FilterArity;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;
+pub use libraries::TemplateInventoryStatus;
 pub use libraries::TemplateLibraries;
 pub use libraries::TemplateLibrary;
 pub use libraries::TemplateSymbolAvailability;

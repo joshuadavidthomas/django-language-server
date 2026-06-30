@@ -13,7 +13,6 @@ use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonPackage;
-use crate::settings::StaticKnowledge;
 use crate::templates::LibraryName;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,25 +74,65 @@ impl TemplateTagCandidateSource {
     }
 }
 
-pub(crate) struct TemplateTagPackageScan {
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct TemplateTagCandidates {
     candidates: Vec<TemplateTagCandidate>,
-    knowledge: StaticKnowledge,
+    complete: bool,
 }
 
-impl TemplateTagPackageScan {
-    fn known() -> Self {
+impl TemplateTagCandidates {
+    fn new(candidates: Vec<TemplateTagCandidate>, complete: bool) -> Self {
         Self {
-            candidates: Vec::new(),
-            knowledge: StaticKnowledge::Known,
+            candidates,
+            complete,
         }
     }
 
-    fn demote_to_partial(&mut self) {
-        self.knowledge = self.knowledge.demoted_to_partial();
+    #[must_use]
+    pub(crate) fn candidates(&self) -> &[TemplateTagCandidate] {
+        &self.candidates
     }
 
-    pub(crate) fn into_parts(self) -> (StaticKnowledge, Vec<TemplateTagCandidate>) {
-        (self.knowledge, self.candidates)
+    #[must_use]
+    pub(crate) fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    fn into_candidates(self) -> Vec<TemplateTagCandidate> {
+        self.candidates
+    }
+}
+
+struct TemplateTagCandidateSourceScan {
+    sources: Vec<TemplateTagCandidateSource>,
+    complete: bool,
+}
+
+impl TemplateTagCandidateSourceScan {
+    fn new(sources: Vec<TemplateTagCandidateSource>, complete: bool) -> Self {
+        Self { sources, complete }
+    }
+}
+
+pub(crate) struct TemplateTagPackageScan {
+    candidates: Vec<TemplateTagCandidate>,
+    complete: bool,
+}
+
+impl TemplateTagPackageScan {
+    fn complete() -> Self {
+        Self {
+            candidates: Vec::new(),
+            complete: true,
+        }
+    }
+
+    fn mark_incomplete(&mut self) {
+        self.complete = false;
+    }
+
+    pub(crate) fn into_parts(self) -> (bool, Vec<TemplateTagCandidate>) {
+        (self.complete, self.candidates)
     }
 }
 
@@ -101,7 +140,7 @@ impl TemplateTagPackageScan {
 pub(crate) fn templatetag_candidates(
     db: &dyn ProjectDb,
     project: Project,
-) -> Vec<TemplateTagCandidate> {
+) -> TemplateTagCandidates {
     project.touch_search_path_roots(db);
     walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
 }
@@ -111,6 +150,7 @@ pub(crate) fn refresh_templatetag_candidate_paths(
     project: Project,
 ) -> Vec<Utf8PathBuf> {
     walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
+        .into_candidates()
         .into_iter()
         .map(TemplateTagCandidate::into_path)
         .collect()
@@ -121,10 +161,10 @@ pub(crate) fn templatetag_package_candidates(
     project: Project,
     package_module: PythonModuleName,
 ) -> TemplateTagPackageScan {
-    let mut scan = TemplateTagPackageScan::known();
+    let mut scan = TemplateTagPackageScan::complete();
 
     let Some(package) = PythonPackage::resolve(db, project, package_module) else {
-        scan.demote_to_partial();
+        scan.mark_incomplete();
         return scan;
     };
 
@@ -137,7 +177,7 @@ pub(crate) fn templatetag_package_candidates(
         Ok(entries) => entries,
         Err(err) => {
             tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            scan.demote_to_partial();
+            scan.mark_incomplete();
             return scan;
         }
     };
@@ -159,7 +199,7 @@ pub(crate) fn templatetag_package_candidates(
                 scan.candidates
                     .push(TemplateTagCandidate::from_source(db, source));
             }
-            CandidateSourceRecognition::InvalidIdentifier => scan.demote_to_partial(),
+            CandidateSourceRecognition::InvalidIdentifier => scan.mark_incomplete(),
             CandidateSourceRecognition::NotCandidate => {}
         }
     }
@@ -173,10 +213,11 @@ fn walk_candidates(
     db: &dyn ProjectDb,
     project: Project,
     mode: TemplateTagDiscoveryMode,
-) -> Vec<TemplateTagCandidate> {
+) -> TemplateTagCandidates {
     let search_paths = project.search_paths(db);
     let mut candidates_by_path: Vec<(usize, TemplateTagCandidate)> = Vec::new();
     let mut path_indexes: FxHashMap<Utf8PathBuf, usize> = FxHashMap::default();
+    let mut complete = true;
 
     for search_path in search_paths.iter() {
         let excluded_paths = if search_path.is_first_party() {
@@ -192,13 +233,16 @@ fn walk_candidates(
         };
         let search_path_len = search_path.path().as_str().len();
 
-        for candidate in discover_templatetag_candidates(
+        let scan = discover_templatetag_candidates(
             db,
             search_path.path(),
             search_path.root_kind(),
             &excluded_paths,
             mode,
-        ) {
+        );
+        complete &= scan.is_complete();
+
+        for candidate in scan.into_candidates() {
             let path = candidate.path().to_path_buf();
             if let Some(index) = path_indexes.get(&path).copied() {
                 let (existing_search_path_len, existing) = &mut candidates_by_path[index];
@@ -213,10 +257,11 @@ fn walk_candidates(
         }
     }
 
-    candidates_by_path
+    let candidates = candidates_by_path
         .into_iter()
         .map(|(_search_path_len, candidate)| candidate)
-        .collect()
+        .collect();
+    TemplateTagCandidates::new(candidates, complete)
 }
 
 fn discover_templatetag_candidates(
@@ -225,20 +270,22 @@ fn discover_templatetag_candidates(
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
     mode: TemplateTagDiscoveryMode,
-) -> Vec<TemplateTagCandidate> {
-    let mut results: Vec<_> = discover_templatetag_candidate_sources(
+) -> TemplateTagCandidates {
+    let source_scan = discover_templatetag_candidate_sources(
         db.file_system(),
         base_dir,
         root_kind,
         excluded_roots,
         mode,
-    )
-    .into_iter()
-    .map(|source| TemplateTagCandidate::from_source(db, source))
-    .collect();
+    );
+    let mut results: Vec<_> = source_scan
+        .sources
+        .into_iter()
+        .map(|source| TemplateTagCandidate::from_source(db, source))
+        .collect();
 
     results.sort_by(TemplateTagCandidate::cmp_by_app_name_path);
-    results
+    TemplateTagCandidates::new(results, source_scan.complete)
 }
 
 fn discover_templatetag_candidate_sources(
@@ -247,19 +294,20 @@ fn discover_templatetag_candidate_sources(
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
     mode: TemplateTagDiscoveryMode,
-) -> Vec<TemplateTagCandidateSource> {
+) -> TemplateTagCandidateSourceScan {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
     };
 
     let mut results = Vec::new();
+    let mut complete = true;
 
     let entries = match fs.walk_entries(base_dir, &options) {
         Ok(entries) => entries,
         Err(err) => {
             tracing::warn!("Failed to walk Python source root {}: {}", base_dir, err);
-            return results;
+            return TemplateTagCandidateSourceScan::new(results, false);
         }
     };
 
@@ -270,12 +318,12 @@ fn discover_templatetag_candidate_sources(
         let path = entry.path;
         match recognize_candidate_source(fs, base_dir, path, excluded_roots, mode, None) {
             CandidateSourceRecognition::Candidate(candidate) => results.push(candidate),
-            CandidateSourceRecognition::InvalidIdentifier
-            | CandidateSourceRecognition::NotCandidate => {}
+            CandidateSourceRecognition::InvalidIdentifier => complete = false,
+            CandidateSourceRecognition::NotCandidate => {}
         }
     }
 
-    results
+    TemplateTagCandidateSourceScan::new(results, complete)
 }
 
 enum CandidateSourceRecognition {
@@ -383,8 +431,9 @@ mod tests {
             TemplateTagDiscoveryMode::AvailableCandidate,
         );
 
-        assert_eq!(discovered.len(), 1);
-        let candidate = &discovered[0];
+        assert!(discovered.complete);
+        assert_eq!(discovered.sources.len(), 1);
+        let candidate = &discovered.sources[0];
         assert_eq!(candidate.app.as_str(), "pkg_a");
         assert_eq!(candidate.name.as_str(), "foo");
         assert_eq!(candidate.path.as_str(), "/root/pkg_a/templatetags/foo.py");

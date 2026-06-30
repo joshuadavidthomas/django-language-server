@@ -132,6 +132,40 @@ impl FileSystem for FailingReadFileSystem {
     }
 }
 
+struct FailingWalkFileSystem {
+    inner: InMemoryFileSystem,
+    failing_root: Utf8PathBuf,
+}
+
+impl FileSystem for FailingWalkFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        self.inner.read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.inner.exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.inner.is_dir(path)
+    }
+
+    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+        if root == self.failing_root.as_path() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "test root is unwalkable",
+            ));
+        }
+
+        self.inner.walk_entries(root, options)
+    }
+}
+
 fn project_with_settings(
     db: &mut TestDatabase,
     settings_module: &str,
@@ -595,6 +629,128 @@ fn template_libraries_include_empty_registered_modules() {
 }
 
 #[test]
+fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/__init__.py", ""),
+            ("/proj/blog/templatetags/__init__.py", ""),
+            ("/proj/blog/templatetags/helpers.py", "VALUE = 1\n"),
+            (
+                "/proj/blog/templatetags/orphan.py",
+                "@register.simple_tag\ndef orphan():\n    pass\n",
+            ),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+
+    assert!(libraries.inventory_is_complete());
+    assert!(libraries.installed_library_str("helpers").is_none());
+    let orphan = libraries
+        .installed_library_str("orphan")
+        .expect("symbol-bearing modules are template libraries even without register assignment");
+    assert!(
+        orphan
+            .symbols()
+            .iter()
+            .any(|symbol| symbol.name() == "orphan")
+    );
+}
+
+#[test]
+fn template_libraries_failed_discovered_library_marks_inventory_incomplete() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/__init__.py", ""),
+            ("/proj/blog/templatetags/__init__.py", ""),
+            ("/proj/blog/templatetags/broken.py", "def broken(:\n"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['blog']\nTEMPLATES = []\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+    assert!(libraries.installed_library_str("broken").is_none());
+}
+
+#[test]
+fn template_libraries_broad_invalid_identifier_marks_inventory_incomplete() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/django/__init__.py", ""),
+            ("/proj/crispy/__init__.py", ""),
+            ("/proj/crispy/templatetags/__init__.py", ""),
+            ("/proj/crispy/templatetags/bad-name.py", "VALUE = 1\n"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = []\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+}
+
+#[test]
+fn template_libraries_failed_available_candidate_walk_marks_inventory_incomplete() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file(Utf8PathBuf::from("/proj/django/__init__.py"), String::new());
+    fs.add_file(
+        Utf8PathBuf::from("/proj/myproject/settings.py"),
+        "INSTALLED_APPS = []\nTEMPLATES = []\n".to_string(),
+    );
+    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingWalkFileSystem {
+        inner: fs,
+        failing_root: Utf8PathBuf::from("/proj"),
+    }));
+    let root = Utf8PathBuf::from("/proj");
+    let interpreter = Interpreter::Auto;
+    let pythonpath = Vec::new();
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        root.as_path(),
+        &interpreter,
+        &pythonpath,
+    );
+    search_paths.register_roots(&db);
+    let tag_specs = djls_conf::Settings::default().tagspecs().clone();
+    let project = Project::new(
+        &db,
+        root,
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("myproject.settings").unwrap()),
+        pythonpath,
+        Vec::new(),
+        tag_specs,
+    );
+    db.project = Some(project);
+
+    let libraries = template_libraries(&db, project);
+
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+}
+
+#[test]
 fn template_libraries_collect_available_uninstalled_templatetags() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
@@ -959,6 +1115,39 @@ fn template_libraries_options_override_app_library_load_name() {
 }
 
 #[test]
+fn template_libraries_failed_configured_library_marks_inventory_incomplete() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            (
+                "/proj/django/template/defaulttags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/django/template/defaultfilters.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/django/template/loader_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            ("/proj/broken_tags.py", "def broken(:\n"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'broken': 'broken_tags'}}}]\n",
+            ),
+        ],
+    );
+
+    let libraries = template_libraries(&db, project);
+
+    assert!(libraries.inventory_may_omit_loaded_symbols());
+    assert!(libraries.installed_library_str("broken").is_none());
+}
+
+#[test]
 fn template_libraries_omit_invalid_configured_alias_and_demote_knowledge() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
@@ -1001,6 +1190,18 @@ fn template_libraries_omit_configured_non_library_module_and_demote_knowledge() 
         &mut db,
         "myproject.settings",
         &[
+            (
+                "/proj/django/template/defaulttags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/django/template/defaultfilters.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
+            (
+                "/proj/django/template/loader_tags.py",
+                "from django import template\nregister = template.Library()\n",
+            ),
             ("/proj/not_a_library.py", "VALUE = 1\n"),
             (
                 "/proj/myproject/settings.py",
