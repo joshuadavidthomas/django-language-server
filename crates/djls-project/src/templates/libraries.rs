@@ -619,9 +619,6 @@ fn templatetag_package_libraries(
     StaticKnowledge,
     Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
 ) {
-    if PythonModuleName::parse(package_module).is_err() {
-        return (StaticKnowledge::Partial, Vec::new());
-    }
     let (knowledge, candidates) =
         templatetag_package_candidates(db, project, package_module).into_parts();
     let mut libraries = Vec::new();
@@ -647,11 +644,7 @@ fn library_from_module_name(
     project: Project,
     module_name: &str,
 ) -> (StaticKnowledge, Option<(PythonModule, Vec<TemplateSymbol>)>) {
-    let Ok(module_name) = PythonModuleName::parse(module_name) else {
-        return (StaticKnowledge::Partial, None);
-    };
-
-    let Some(module) = PythonResolver::new(db, project).module(&module_name) else {
+    let Ok(Some(module)) = PythonResolver::new(db, project).module_from_str(module_name) else {
         return (StaticKnowledge::Partial, None);
     };
 
