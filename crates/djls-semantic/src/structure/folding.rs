@@ -28,46 +28,45 @@ pub fn build_template_folds(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<Template
 
 fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec<TemplateFold>) {
     for node in regions.get(region).nodes() {
-        collect_folds_for_node(regions, node, folds);
-    }
-}
-
-fn collect_folds_for_node(regions: &Regions, node: &TemplateNode, folds: &mut Vec<TemplateFold>) {
-    match node {
-        TemplateNode::Block {
-            tag,
-            full_span,
-            body,
-            role: BlockRole::Opener,
-            ..
-        } => {
-            let end = regions.get(*body).span().end();
-            if end > full_span.end() {
+        match node {
+            TemplateNode::Block {
+                tag,
+                full_span,
+                body,
+                role: BlockRole::Opener,
+                ..
+            } => {
+                let end = regions.get(*body).span().end();
+                if end > full_span.end() {
+                    folds.push(TemplateFold {
+                        span: Span::saturating_from_bounds_usize(
+                            full_span.start_usize(),
+                            end as usize,
+                        ),
+                        kind: TemplateFoldKind::from_tag_name(tag),
+                    });
+                }
+                collect_folds_for_region(regions, *body, folds);
+            }
+            TemplateNode::Block {
+                body,
+                role: BlockRole::Segment,
+                ..
+            } => {
+                collect_folds_for_region(regions, *body, folds);
+            }
+            TemplateNode::Opaque { tag, full_span, .. } => {
                 folds.push(TemplateFold {
-                    span: Span::saturating_from_bounds_usize(full_span.start_usize(), end as usize),
+                    span: *full_span,
                     kind: TemplateFoldKind::from_tag_name(tag),
                 });
             }
-            collect_folds_for_region(regions, *body, folds);
+            TemplateNode::StandaloneTag { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Text { .. }
+            | TemplateNode::Error { .. } => {}
         }
-        TemplateNode::Block {
-            body,
-            role: BlockRole::Segment,
-            ..
-        } => {
-            collect_folds_for_region(regions, *body, folds);
-        }
-        TemplateNode::Opaque { tag, full_span, .. } => {
-            folds.push(TemplateFold {
-                span: *full_span,
-                kind: TemplateFoldKind::from_tag_name(tag),
-            });
-        }
-        TemplateNode::StandaloneTag { .. }
-        | TemplateNode::Variable { .. }
-        | TemplateNode::Comment { .. }
-        | TemplateNode::Text { .. }
-        | TemplateNode::Error { .. } => {}
     }
 }
 
