@@ -1,12 +1,12 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
+use djls_project::Db as ProjectDb;
+use djls_project::ModelGraph;
+use djls_project::TemplateLibraries;
 
 use crate::errors::ValidationError;
-use crate::project::Db as ProjectDb;
-use crate::project::TemplateLibraries;
-use crate::python::ModelGraph;
-use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::TagSpecs;
+use crate::filters::FilterAritySpecs;
+use crate::tags::TagSpecs;
 
 #[salsa::db]
 pub trait Db: ProjectDb {
@@ -20,9 +20,8 @@ pub trait Db: ProjectDb {
 
     /// Get template libraries for the current project.
     ///
-    /// This includes:
-    /// - discovered libraries from scanning `sys.path`
-    /// - installed libraries/symbols from project introspection (when available)
+    /// This includes installed libraries and symbols from project introspection
+    /// when available.
     fn template_libraries(&self) -> &TemplateLibraries;
 
     /// Get the filter arity specifications for filter argument validation.

@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.maps.models.MapLayer:
+    name: MapLayer
+    module_name: geonode.maps.models
+    line: 200
+    relations:
+      - field_name: map
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Map
+        related_name: maplayers
+      - field_name: dataset
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Dataset
+        related_name: maplayers
+    kind: concrete

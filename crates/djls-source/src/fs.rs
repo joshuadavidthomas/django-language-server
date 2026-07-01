@@ -1,0 +1,596 @@
+//! Filesystem abstraction for source reads and project discovery.
+//!
+//! DJLS keeps filesystem access behind this trait so the same source queries can
+//! read from the operating system, tests, benchmark source maps, and the LSP
+//! overlay that includes unsaved editor buffers.
+//!
+//! The API is path-based by design. Django template features require filesystem
+//! context (`INSTALLED_APPS`, template loaders, settings modules, and source
+//! roots), and Salsa inputs are already keyed by `Utf8PathBuf`. URI handling
+//! belongs at the LSP boundary, not in semantic project discovery.
+
+use std::io;
+use std::sync::Mutex;
+
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use ignore::WalkBuilder;
+use ignore::overrides::OverrideBuilder;
+use rustc_hash::FxHashMap;
+
+/// Options controlling filesystem traversal.
+///
+/// The flags intentionally mirror ripgrep's file-filtering CLI options and map
+/// directly to the `ignore` crate's `WalkBuilder`. DJLS uses the same traversal
+/// policy for command-line checks and Project Facts discovery.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WalkOptions {
+    /// Include hidden files and directories (those starting with `.`).
+    pub hidden: bool,
+    /// Gitignore-style glob patterns. Prefix with `!` to exclude.
+    /// Later patterns take precedence over earlier patterns.
+    pub globs: Vec<String>,
+    /// Disable all ignore files (`.gitignore`, `.ignore`, etc.).
+    pub no_ignore: bool,
+    /// Follow symbolic links.
+    pub follow_links: bool,
+    /// Maximum directory recursion depth. `None` means unlimited.
+    pub max_depth: Option<usize>,
+}
+
+impl WalkOptions {
+    /// Walk every entry under a root without hidden-file or ignore filtering.
+    #[must_use]
+    pub fn unrestricted() -> Self {
+        Self {
+            hidden: true,
+            no_ignore: true,
+            ..Self::default()
+        }
+    }
+
+    /// Walk first-party project entries, respecting hidden-file and ignore rules.
+    #[must_use]
+    pub fn project() -> Self {
+        Self::default()
+    }
+
+    /// Walk library search path entries without hidden-file or ignore filtering.
+    #[must_use]
+    pub fn library_search_path() -> Self {
+        Self::unrestricted()
+    }
+
+    /// Walk immediate children without hidden-file or ignore filtering.
+    #[must_use]
+    pub fn shallow() -> Self {
+        Self {
+            max_depth: Some(1),
+            ..Self::unrestricted()
+        }
+    }
+}
+
+/// Kind of entry discovered under a walk root.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WalkEntryKind {
+    File,
+    Directory,
+    Other,
+}
+
+impl From<std::fs::FileType> for WalkEntryKind {
+    fn from(file_type: std::fs::FileType) -> Self {
+        if file_type.is_file() {
+            Self::File
+        } else if file_type.is_dir() {
+            Self::Directory
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// An entry discovered under a walk root.
+///
+/// Each entry carries both the resolved path and the path relative to the root
+/// that produced it. Source discovery uses the relative path for module and
+/// template-name mapping while preserving the full path for reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalkEntry {
+    /// Root path passed to `walk_entries`.
+    pub root: Utf8PathBuf,
+    /// Full path to the discovered entry.
+    pub path: Utf8PathBuf,
+    /// Entry path relative to `root`.
+    pub relative: Utf8PathBuf,
+    /// Entry type according to this filesystem view.
+    pub kind: WalkEntryKind,
+}
+
+impl WalkEntry {
+    #[must_use]
+    pub fn file_root(path: &Utf8Path) -> Self {
+        let relative = path
+            .file_name()
+            .map_or_else(|| Utf8PathBuf::from(path.as_str()), Utf8PathBuf::from);
+        Self {
+            root: path.to_path_buf(),
+            path: path.to_path_buf(),
+            relative,
+            kind: WalkEntryKind::File,
+        }
+    }
+}
+
+/// Filesystem view used by source and semantic crates.
+///
+/// Implementations may read from disk, memory, an overlay, or a benchmark source
+/// map. Callers should depend on this trait for project/source discovery instead
+/// of reaching for `std::fs` directly.
+pub trait FileSystem: Send + Sync {
+    /// Read a UTF-8 text file from this filesystem view.
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String>;
+    /// Return whether a path exists as a file or directory.
+    fn exists(&self, path: &Utf8Path) -> bool;
+    /// Return whether a path is a regular file.
+    fn is_file(&self, path: &Utf8Path) -> bool;
+    /// Return whether a path is a directory.
+    fn is_dir(&self, path: &Utf8Path) -> bool;
+    /// Walk entries under a root using the supplied traversal policy.
+    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>>;
+}
+
+impl<T> FileSystem for Mutex<T>
+where
+    T: FileSystem,
+{
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_dir(path)
+    }
+
+    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .walk_entries(root, options)
+    }
+}
+
+/// In-memory filesystem used by tests and stdin-backed command execution.
+#[derive(Clone)]
+pub struct InMemoryFileSystem {
+    files: FxHashMap<Utf8PathBuf, String>,
+}
+
+impl InMemoryFileSystem {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            files: FxHashMap::default(),
+        }
+    }
+
+    pub fn add_file(&mut self, path: Utf8PathBuf, content: String) {
+        self.files.insert(path, content);
+    }
+
+    pub fn remove_file(&mut self, path: &Utf8Path) {
+        self.files.remove(path);
+    }
+}
+
+impl Default for InMemoryFileSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FileSystem for InMemoryFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        self.files
+            .get(path)
+            .cloned()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found"))
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.is_file(path) || self.is_dir(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.files.contains_key(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.files.keys().any(|file| file.starts_with(path)) && !self.is_file(path)
+    }
+
+    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+        if !self.exists(root) {
+            return Ok(Vec::new());
+        }
+
+        let mut entries = Vec::new();
+        for path in self.files.keys() {
+            if path == root {
+                entries.push(WalkEntry::file_root(root));
+                continue;
+            }
+
+            if !path.starts_with(root) {
+                continue;
+            }
+
+            let Ok(file_relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            if file_relative.as_str().is_empty() {
+                continue;
+            }
+
+            let mut entry_path = root.to_path_buf();
+            let mut entry_relative = Utf8PathBuf::new();
+            for component in file_relative.components() {
+                entry_path.push(component.as_str());
+                entry_relative.push(component.as_str());
+
+                if !options.hidden
+                    && entry_relative.components().any(|component| {
+                        component.as_str().starts_with('.') && component.as_str() != "."
+                    })
+                {
+                    continue;
+                }
+                if options
+                    .max_depth
+                    .is_some_and(|max_depth| entry_relative.components().count() > max_depth)
+                {
+                    continue;
+                }
+                if entries
+                    .iter()
+                    .any(|entry: &WalkEntry| entry.path == entry_path)
+                {
+                    continue;
+                }
+
+                let kind = if self.is_file(&entry_path) {
+                    WalkEntryKind::File
+                } else if self.is_dir(&entry_path) {
+                    WalkEntryKind::Directory
+                } else {
+                    WalkEntryKind::Other
+                };
+                entries.push(WalkEntry {
+                    root: root.to_path_buf(),
+                    path: entry_path.clone(),
+                    relative: entry_relative.clone(),
+                    kind,
+                });
+            }
+        }
+
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        entries.dedup_by(|left, right| left.path == right.path);
+        Ok(entries)
+    }
+}
+
+/// Standard filesystem implementation that uses `std::fs` and the `ignore` crate.
+pub struct OsFileSystem;
+
+impl FileSystem for OsFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        std::fs::read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        path.exists()
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        path.is_file()
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        path.is_dir()
+    }
+
+    fn walk_entries(&self, root: &Utf8Path, options: &WalkOptions) -> io::Result<Vec<WalkEntry>> {
+        if root.is_file() {
+            return Ok(vec![WalkEntry::file_root(root)]);
+        }
+
+        if !root.is_dir() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = WalkBuilder::new(root.as_std_path());
+        // Call standard_filters first because it sets hidden, gitignore, etc.
+        // Override individual settings after.
+        builder
+            .standard_filters(!options.no_ignore)
+            .hidden(!options.hidden)
+            .follow_links(options.follow_links)
+            .max_depth(options.max_depth);
+
+        if !options.globs.is_empty() {
+            let mut overrides = OverrideBuilder::new(root.as_std_path());
+            for glob in &options.globs {
+                // OverrideBuilder only errors for invalid globs. Match ripgrep's
+                // lenient behavior and skip invalid overrides here.
+                let _ = overrides.add(glob);
+            }
+            if let Ok(built) = overrides.build() {
+                builder.overrides(built);
+            }
+        }
+
+        let mut entries = Vec::new();
+        for entry in builder.build().filter_map(Result::ok) {
+            let Some(path) = Utf8Path::from_path(entry.path()) else {
+                continue;
+            };
+            if path == root {
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let kind = entry
+                .file_type()
+                .map_or(WalkEntryKind::Other, WalkEntryKind::from);
+
+            entries.push(WalkEntry {
+                root: root.to_path_buf(),
+                path: path.to_path_buf(),
+                relative: relative.to_path_buf(),
+                kind,
+            });
+        }
+
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        entries.dedup_by(|left, right| left.path == right.path);
+        Ok(entries)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn in_memory_reads_existing_file() {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file("/test.py".into(), "file content".to_string());
+
+        assert_eq!(
+            fs.read_to_string(Utf8Path::new("/test.py")).unwrap(),
+            "file content"
+        );
+    }
+
+    #[test]
+    fn in_memory_reports_missing_file() {
+        let fs = InMemoryFileSystem::new();
+
+        let result = fs.read_to_string(Utf8Path::new("/missing.py"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn in_memory_walks_files_under_root() {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file("/project/templates/base.html".into(), "base".to_string());
+        fs.add_file(
+            "/project/templates/app/page.html".into(),
+            "page".to_string(),
+        );
+        fs.add_file("/project/other.py".into(), "other".to_string());
+
+        let files = fs
+            .walk_entries(
+                Utf8Path::new("/project/templates"),
+                &WalkOptions::unrestricted(),
+            )
+            .unwrap();
+        let relatives: Vec<_> = files
+            .iter()
+            .filter(|entry| entry.kind == WalkEntryKind::File)
+            .map(|entry| entry.relative.as_str())
+            .collect();
+
+        assert_eq!(relatives, vec!["app/page.html", "base.html"]);
+    }
+
+    #[test]
+    fn in_memory_walk_respects_hidden_option() {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file("/project/.hidden/secret.html".into(), "secret".to_string());
+        fs.add_file("/project/visible.html".into(), "visible".to_string());
+
+        let files = fs
+            .walk_entries(Utf8Path::new("/project"), &WalkOptions::default())
+            .unwrap();
+        let relatives: Vec<_> = files
+            .iter()
+            .filter(|entry| entry.kind == WalkEntryKind::File)
+            .map(|entry| entry.relative.as_str())
+            .collect();
+
+        assert_eq!(relatives, vec!["visible.html"]);
+    }
+
+    fn temp_path(dir: &tempfile::TempDir) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap()
+    }
+
+    fn entry_names(entries: &[WalkEntry]) -> Vec<&str> {
+        entries
+            .iter()
+            .filter(|entry| entry.kind == WalkEntryKind::File)
+            .filter_map(|entry| entry.path.file_name())
+            .collect()
+    }
+
+    #[test]
+    fn os_walk_skips_hidden_directories_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".hidden")).unwrap();
+        std::fs::write(dir.path().join(".hidden/secret.html"), "secret").unwrap();
+        std::fs::write(dir.path().join("visible.html"), "visible").unwrap();
+
+        let entries = OsFileSystem
+            .walk_entries(&temp_path(&dir), &WalkOptions::default())
+            .unwrap();
+        let names = entry_names(&entries);
+
+        assert!(names.contains(&"visible.html"));
+        assert!(!names.contains(&"secret.html"));
+    }
+
+    #[test]
+    fn os_walk_can_include_hidden_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".hidden")).unwrap();
+        std::fs::write(dir.path().join(".hidden/secret.html"), "secret").unwrap();
+        std::fs::write(dir.path().join("visible.html"), "visible").unwrap();
+
+        let options = WalkOptions {
+            hidden: true,
+            ..WalkOptions::default()
+        };
+        let entries = OsFileSystem
+            .walk_entries(&temp_path(&dir), &options)
+            .unwrap();
+        let names = entry_names(&entries);
+
+        assert!(names.contains(&"visible.html"));
+        assert!(names.contains(&"secret.html"));
+    }
+
+    #[test]
+    fn os_walk_respects_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("ignored")).unwrap();
+        std::fs::write(dir.path().join("ignored/skip.html"), "skip").unwrap();
+        std::fs::write(dir.path().join("keep.html"), "keep").unwrap();
+
+        let entries = OsFileSystem
+            .walk_entries(&temp_path(&dir), &WalkOptions::default())
+            .unwrap();
+        let names = entry_names(&entries);
+
+        assert!(names.contains(&"keep.html"));
+        assert!(!names.contains(&"skip.html"));
+    }
+
+    #[test]
+    fn os_walk_no_ignore_disables_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("ignored")).unwrap();
+        std::fs::write(dir.path().join("ignored/found.html"), "found").unwrap();
+        std::fs::write(dir.path().join("keep.html"), "keep").unwrap();
+
+        let options = WalkOptions {
+            no_ignore: true,
+            ..WalkOptions::default()
+        };
+        let entries = OsFileSystem
+            .walk_entries(&temp_path(&dir), &options)
+            .unwrap();
+        let names = entry_names(&entries);
+
+        assert!(names.contains(&"keep.html"));
+        assert!(names.contains(&"found.html"));
+    }
+
+    #[test]
+    fn os_walk_applies_glob_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("page.html"), "page").unwrap();
+        std::fs::write(dir.path().join("other.html"), "other").unwrap();
+        std::fs::write(dir.path().join("style.css"), "style").unwrap();
+
+        let options = WalkOptions {
+            globs: vec!["page.*".to_string()],
+            ..WalkOptions::default()
+        };
+        let entries = OsFileSystem
+            .walk_entries(&temp_path(&dir), &options)
+            .unwrap();
+        let names = entry_names(&entries);
+
+        assert!(names.contains(&"page.html"));
+        assert!(!names.contains(&"other.html"));
+        assert!(!names.contains(&"style.css"));
+    }
+
+    #[test]
+    fn os_walk_limits_max_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("top.html"), "top").unwrap();
+        std::fs::create_dir_all(dir.path().join("a/b")).unwrap();
+        std::fs::write(dir.path().join("a/b/deep.html"), "deep").unwrap();
+
+        let options = WalkOptions {
+            max_depth: Some(1),
+            ..WalkOptions::default()
+        };
+        let entries = OsFileSystem
+            .walk_entries(&temp_path(&dir), &options)
+            .unwrap();
+        let names = entry_names(&entries);
+
+        assert!(names.contains(&"top.html"));
+        assert!(!names.contains(&"deep.html"));
+    }
+
+    #[test]
+    fn os_walk_single_file_root_uses_file_name_as_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = Utf8PathBuf::from_path_buf(dir.path().join("single.html")).unwrap();
+        std::fs::write(file_path.as_std_path(), "single").unwrap();
+
+        let entries = OsFileSystem
+            .walk_entries(&file_path, &WalkOptions::default())
+            .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, file_path);
+        assert_eq!(entries[0].relative, Utf8PathBuf::from("single.html"));
+    }
+}

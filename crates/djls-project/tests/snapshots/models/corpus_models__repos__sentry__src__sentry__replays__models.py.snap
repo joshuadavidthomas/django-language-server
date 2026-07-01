@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.sentry.replays.models.ReplayRecordingSegment:
+    name: ReplayRecordingSegment
+    module_name: src.sentry.replays.models
+    line: 45
+    relations: []
+    kind: concrete

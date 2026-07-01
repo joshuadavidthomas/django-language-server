@@ -5,15 +5,12 @@
   <head>
     <meta charset="UTF-8">
     <title>
-
       {% block title %}Django Test App{% endblock %}
-
     </title>
   </head>
   <body>
     {% include "djls_app/header.html" %}
     <main>
-
       {% block content %}
         <h1>Hello, {{ user.username|lower }}!</h1>
         <p>This is a test template.</p>
@@ -27,7 +24,6 @@
         <img src="{% static 'images/logo.png' %}" alt="Logo">
         {# This is a comment #}
       {% endblock %}
-
     </main>
   </body>
 </html>

@@ -1,0 +1,33 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.users.models.Owner:
+    name: Owner
+    module_name: src.backend.InvenTree.users.models
+    line: 296
+    relations:
+      - field_name: owner_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: owner
+        relation_type: GenericForeignKey
+        ct_field: owner_type
+        fk_field: owner_id
+    kind: concrete
+  src.backend.InvenTree.users.models.RuleSet:
+    name: RuleSet
+    module_name: src.backend.InvenTree.users.models
+    line: 201
+    relations:
+      - field_name: group
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Group
+        related_name: rule_sets
+    kind: concrete

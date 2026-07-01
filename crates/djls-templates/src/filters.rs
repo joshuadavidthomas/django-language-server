@@ -2,7 +2,8 @@ use djls_source::Span;
 use serde::Serialize;
 
 use crate::bits::FilterArgument;
-use crate::quotes::for_each_unquoted;
+use crate::quotes::first_unquoted_delimiter_index;
+use crate::quotes::split_on_unquoted_delimiter;
 
 /// A parsed filter expression within a Django variable node.
 ///
@@ -18,7 +19,7 @@ pub struct Filter {
 
 impl Filter {
     #[must_use]
-    pub fn new(name: String, arg: Option<FilterArgument>, span: Span) -> Self {
+    fn new(name: String, arg: Option<FilterArgument>, span: Span) -> Self {
         Self { name, arg, span }
     }
 
@@ -41,22 +42,9 @@ fn usize_to_u32(val: usize) -> u32 {
 ///
 /// Returns an iterator of `(segment_str, byte_offset_within_content)` pairs.
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
-    let mut segments = Vec::new();
-    let mut start = 0;
-
-    for_each_unquoted(
-        content,
-        |ch| ch == '|',
-        false,
-        |idx| {
-            segments.push((&content[start..idx], usize_to_u32(start)));
-            start = idx + 1;
-            false
-        },
-    );
-
-    segments.push((&content[start..], usize_to_u32(start)));
-    segments.into_iter()
+    split_on_unquoted_delimiter(content, '|')
+        .into_iter()
+        .map(|segment| (segment.text, usize_to_u32(segment.start_byte)))
 }
 
 /// Parse a single raw filter string (e.g. `default:'nothing'` or `title`) into a
@@ -69,17 +57,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    let mut colon_pos = None;
-
-    for_each_unquoted(
-        trimmed,
-        |ch| ch == ':',
-        false,
-        |idx| {
-            colon_pos = Some(idx);
-            true
-        },
-    );
+    let colon_pos = first_unquoted_delimiter_index(trimmed, ':');
 
     let (name, arg) = match colon_pos {
         Some(pos) => {

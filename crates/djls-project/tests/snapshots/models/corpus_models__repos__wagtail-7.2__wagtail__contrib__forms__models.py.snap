@@ -1,0 +1,41 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  wagtail.contrib.forms.models.AbstractEmailForm:
+    name: AbstractEmailForm
+    module_name: wagtail.contrib.forms.models
+    line: 382
+    relations: []
+    kind: abstract
+  wagtail.contrib.forms.models.AbstractFormSubmission:
+    name: AbstractFormSubmission
+    module_name: wagtail.contrib.forms.models
+    line: 36
+    relations:
+      - field_name: page
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Page
+        related_name: ~
+    kind: abstract
+  wagtail.contrib.forms.models.EmailFormMixin:
+    name: EmailFormMixin
+    module_name: wagtail.contrib.forms.models
+    line: 322
+    relations: []
+    kind: abstract
+  wagtail.contrib.forms.models.FormSubmission:
+    name: FormSubmission
+    module_name: wagtail.contrib.forms.models
+    line: 70
+    relations:
+      - field_name: page
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Page
+        related_name: ~
+    kind: concrete

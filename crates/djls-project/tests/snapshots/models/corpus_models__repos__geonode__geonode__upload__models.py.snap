@@ -1,0 +1,35 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.upload.models.ResourceHandlerInfo:
+    name: ResourceHandlerInfo
+    module_name: geonode.upload.models
+    line: 143
+    relations:
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+      - field_name: execution_request
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ExecutionRequest
+        related_name: ~
+    kind: concrete
+  geonode.upload.models.UploadParallelismLimit:
+    name: UploadParallelismLimit
+    module_name: geonode.upload.models
+    line: 97
+    relations: []
+    kind: concrete
+  geonode.upload.models.UploadSizeLimit:
+    name: UploadSizeLimit
+    module_name: geonode.upload.models
+    line: 64
+    relations: []
+    kind: concrete

@@ -1,244 +1,176 @@
-use serde::Serialize;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
-pub enum Quote {
-    Single,
-    Double,
-}
-
-impl TryFrom<char> for Quote {
-    type Error = ();
-
-    fn try_from(ch: char) -> Result<Self, Self::Error> {
-        match ch {
-            '\'' => Ok(Self::Single),
-            '"' => Ok(Self::Double),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<Quote> for char {
-    fn from(quote: Quote) -> Self {
-        match quote {
-            Quote::Single => '\'',
-            Quote::Double => '"',
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemplateString<'a> {
-    Quoted(QuotedTemplateString<'a>),
+    Quoted(&'a str),
     Unquoted(&'a str),
 }
 
 impl<'a> TemplateString<'a> {
     #[must_use]
-    pub fn parse(raw: &'a str) -> Self {
+    pub(crate) fn parse(raw: &'a str) -> Self {
         let raw = raw.trim();
         let Some(first) = raw.chars().next() else {
             return Self::Unquoted(raw);
         };
-        let Ok(quote) = Quote::try_from(first) else {
-            return Self::Unquoted(raw);
-        };
-
-        let quote_char: char = quote.into();
-        if raw.len() < 2 || !raw.ends_with(quote_char) {
+        if first != '\'' && first != '"' {
             return Self::Unquoted(raw);
         }
 
-        Self::Quoted(QuotedTemplateString {
-            raw,
-            value: &raw[1..raw.len() - 1],
-            quote,
-        })
-    }
-
-    #[must_use]
-    pub fn raw(self) -> &'a str {
-        match self {
-            Self::Quoted(value) => value.raw,
-            Self::Unquoted(raw) => raw,
+        if raw.len() < 2 || !raw.ends_with(first) {
+            return Self::Unquoted(raw);
         }
+
+        Self::Quoted(&raw[1..raw.len() - 1])
     }
 
     #[must_use]
     pub fn value(self) -> &'a str {
         match self {
-            Self::Quoted(value) => value.value,
-            Self::Unquoted(raw) => raw,
+            Self::Quoted(value) | Self::Unquoted(value) => value,
         }
     }
 
     #[must_use]
     pub fn quoted_value(self) -> Option<&'a str> {
         match self {
-            Self::Quoted(value) => Some(value.value),
+            Self::Quoted(value) => Some(value),
             Self::Unquoted(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub fn quote(self) -> Option<Quote> {
-        match self {
-            Self::Quoted(value) => Some(value.quote),
-            Self::Unquoted(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub fn is_quoted(self) -> bool {
-        matches!(self, Self::Quoted(_))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct QuotedTemplateString<'a> {
-    raw: &'a str,
-    value: &'a str,
-    quote: Quote,
-}
-
-impl<'a> QuotedTemplateString<'a> {
-    #[must_use]
-    pub fn raw(self) -> &'a str {
-        self.raw
-    }
-
-    #[must_use]
-    pub fn value(self) -> &'a str {
-        self.value
-    }
-
-    #[must_use]
-    pub fn quote(self) -> Quote {
-        self.quote
-    }
-}
-
-/// Find positions of a delimiter character in `s`, skipping occurrences inside
-/// single- or double-quoted regions.
-///
-/// When `handle_escapes` is true, `\` inside a quoted region escapes the next
-/// character (so `\"` does not close the quote).
-///
-/// The callback receives the byte index of each unquoted delimiter found.
-/// Return `true` from the callback to stop early.
-pub(crate) fn for_each_unquoted(
-    s: &str,
-    delimiter: impl Fn(char) -> bool,
-    handle_escapes: bool,
-    mut cb: impl FnMut(usize) -> bool,
-) {
-    let mut quote: Option<char> = None;
-    let mut escape = false;
-
-    for (idx, ch) in s.char_indices() {
-        if escape {
-            escape = false;
-            continue;
-        }
-        match ch {
-            '\\' if handle_escapes && quote.is_some() => {
-                escape = true;
-            }
-            '"' | '\'' if quote == Some(ch) => {
-                quote = None;
-            }
-            '"' | '\'' if quote.is_none() => {
-                quote = Some(ch);
-            }
-            _ if quote.is_some() => {}
-            _ if delimiter(ch) && cb(idx) => {
-                return;
-            }
-            _ => {}
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SplitPiece<'a> {
-    pub text: &'a str,
-    pub start: usize,
+enum State {
+    Outside,
+    Quoted(char),
+    Escaped(char),
 }
 
-/// Split `s` on whitespace while respecting quoted regions (with escape handling).
-///
-/// Returns borrowed tokens with byte offsets relative to `s`.
-pub(crate) fn split_on_whitespace_with_offsets(s: &str) -> Vec<SplitPiece<'_>> {
-    let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
-    let mut start = None;
-    let mut quote: Option<char> = None;
-    let mut escape = false;
+impl State {
+    fn is_outside(self) -> bool {
+        matches!(self, Self::Outside)
+    }
 
-    for (idx, ch) in s.char_indices() {
-        if escape {
-            escape = false;
-            if start.is_none() {
-                start = Some(idx.saturating_sub(1));
+    fn feed(self, ch: char) -> Self {
+        match self {
+            Self::Outside if matches!(ch, '"' | '\'') => Self::Quoted(ch),
+            Self::Outside => Self::Outside,
+            Self::Quoted(quote) if ch == quote => Self::Outside,
+            Self::Quoted(quote) | Self::Escaped(quote) => Self::Quoted(quote),
+        }
+    }
+
+    fn feed_escaped(self, ch: char) -> Self {
+        match self {
+            Self::Outside if matches!(ch, '"' | '\'') => Self::Quoted(ch),
+            Self::Outside => Self::Outside,
+            Self::Quoted(quote) if ch == '\\' => Self::Escaped(quote),
+            Self::Quoted(quote) if ch == quote => Self::Outside,
+            Self::Quoted(quote) | Self::Escaped(quote) => Self::Quoted(quote),
+        }
+    }
+}
+
+struct DelimiterIndices<'a> {
+    input: &'a str,
+    cursor: usize,
+    delimiter: char,
+    state: State,
+}
+
+impl<'a> DelimiterIndices<'a> {
+    fn new(input: &'a str, delimiter: char) -> Self {
+        Self {
+            input,
+            cursor: 0,
+            delimiter,
+            state: State::Outside,
+        }
+    }
+
+    fn segments(mut self) -> Vec<Segment<'a>> {
+        let mut segments = Vec::with_capacity((self.input.len() / 8).clamp(2, 8));
+        let mut start_byte = 0;
+        let delimiter_len = self.delimiter.len_utf8();
+
+        while let Some(delimiter_byte) = self.next() {
+            segments.push(Segment {
+                text: &self.input[start_byte..delimiter_byte],
+                start_byte,
+            });
+            start_byte = delimiter_byte + delimiter_len;
+        }
+
+        segments.push(Segment {
+            text: &self.input[start_byte..],
+            start_byte,
+        });
+        segments
+    }
+}
+
+impl Iterator for DelimiterIndices<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cursor = self.cursor;
+        for (relative_byte, ch) in self.input[cursor..].char_indices() {
+            let byte_index = cursor + relative_byte;
+            self.cursor = byte_index + ch.len_utf8();
+
+            if self.state.is_outside() && ch == self.delimiter {
+                return Some(byte_index);
+            }
+            self.state = self.state.feed(ch);
+        }
+        None
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Segment<'a> {
+    pub text: &'a str,
+    pub start_byte: usize,
+}
+
+#[must_use]
+pub(crate) fn first_unquoted_delimiter_index(input: &str, delimiter: char) -> Option<usize> {
+    DelimiterIndices::new(input, delimiter).next()
+}
+
+pub(crate) fn split_on_unquoted_delimiter(input: &str, delimiter: char) -> Vec<Segment<'_>> {
+    DelimiterIndices::new(input, delimiter).segments()
+}
+
+pub(crate) fn split_on_unquoted_whitespace(input: &str) -> Vec<Segment<'_>> {
+    let mut segments = Vec::with_capacity((input.len() / 8).clamp(2, 8));
+    let mut start_byte = None;
+    let mut state = State::Outside;
+
+    for (byte_index, ch) in input.char_indices() {
+        if state.is_outside() && ch.is_whitespace() {
+            if let Some(segment_start_byte) = start_byte.take() {
+                segments.push(Segment {
+                    text: &input[segment_start_byte..byte_index],
+                    start_byte: segment_start_byte,
+                });
             }
             continue;
         }
-        match ch {
-            '\\' if quote.is_some() => {
-                escape = true;
-                if start.is_none() {
-                    start = Some(idx);
-                }
-            }
-            '"' | '\'' if quote == Some(ch) => {
-                quote = None;
-                if start.is_none() {
-                    start = Some(idx);
-                }
-            }
-            '"' | '\'' if quote.is_none() => {
-                quote = Some(ch);
-                if start.is_none() {
-                    start = Some(idx);
-                }
-            }
-            _ if quote.is_some() => {
-                if start.is_none() {
-                    start = Some(idx);
-                }
-            }
-            _ if ch.is_whitespace() => {
-                if let Some(s_start) = start.take() {
-                    pieces.push(SplitPiece {
-                        text: &s[s_start..idx],
-                        start: s_start,
-                    });
-                }
-            }
-            _ => {
-                if start.is_none() {
-                    start = Some(idx);
-                }
-            }
+
+        if start_byte.is_none() {
+            start_byte = Some(byte_index);
         }
+        state = state.feed_escaped(ch);
     }
-    if let Some(s_start) = start {
-        pieces.push(SplitPiece {
-            text: &s[s_start..],
-            start: s_start,
+
+    if let Some(segment_start_byte) = start_byte {
+        segments.push(Segment {
+            text: &input[segment_start_byte..],
+            start_byte: segment_start_byte,
         });
     }
-    pieces
-}
 
-/// Split `s` on whitespace while respecting quoted regions (with escape handling).
-///
-/// Returns owned strings for each whitespace-delimited token.
-#[cfg(test)]
-pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
-    split_on_whitespace_with_offsets(s)
-        .into_iter()
-        .map(|piece| piece.text.to_owned())
-        .collect()
+    segments
 }
 
 #[cfg(test)]
@@ -249,175 +181,173 @@ mod tests {
     fn template_string_recognizes_single_quoted_values() {
         let value = TemplateString::parse("'images/logo.png'");
 
-        assert_eq!(value.raw(), "'images/logo.png'");
+        assert_eq!(value, TemplateString::Quoted("images/logo.png"));
         assert_eq!(value.value(), "images/logo.png");
-        assert_eq!(value.quote(), Some(Quote::Single));
+        assert_eq!(value.quoted_value(), Some("images/logo.png"));
     }
 
     #[test]
     fn template_string_recognizes_double_quoted_values() {
         let value = TemplateString::parse(r#""base.html""#);
 
-        assert_eq!(value.raw(), r#""base.html""#);
+        assert_eq!(value, TemplateString::Quoted("base.html"));
         assert_eq!(value.value(), "base.html");
-        assert_eq!(value.quote(), Some(Quote::Double));
+        assert_eq!(value.quoted_value(), Some("base.html"));
     }
 
     #[test]
     fn template_string_leaves_bare_values_unquoted() {
         let value = TemplateString::parse("user.name");
 
-        assert_eq!(value.raw(), "user.name");
+        assert_eq!(value, TemplateString::Unquoted("user.name"));
         assert_eq!(value.value(), "user.name");
-        assert_eq!(value.quote(), None);
+        assert_eq!(value.quoted_value(), None);
+    }
+
+    fn split_on_unquoted_whitespace_text(input: &str) -> Vec<String> {
+        split_on_unquoted_whitespace(input)
+            .into_iter()
+            .map(|segment| segment.text.to_owned())
+            .collect()
     }
 
     #[test]
-    fn unquoted_delimiters_found() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            "a|b|c",
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
+    fn first_unquoted_delimiter_index_returns_first_delimiter() {
+        assert_eq!(first_unquoted_delimiter_index("a|b|c", '|'), Some(1));
+    }
+
+    #[test]
+    fn split_unquoted_delimiters() {
+        let segments = split_on_unquoted_delimiter("a|b|c", '|');
+        assert_eq!(
+            segments,
+            vec![
+                Segment {
+                    text: "a",
+                    start_byte: 0,
+                },
+                Segment {
+                    text: "b",
+                    start_byte: 2,
+                },
+                Segment {
+                    text: "c",
+                    start_byte: 4,
+                },
+            ]
         );
-        assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
     fn quoted_delimiters_skipped() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            "a|'b|c'|d",
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
+        let segments = split_on_unquoted_delimiter("a|'b|c'|d", '|');
+        assert_eq!(
+            segments,
+            vec![
+                Segment {
+                    text: "a",
+                    start_byte: 0,
+                },
+                Segment {
+                    text: "'b|c'",
+                    start_byte: 2,
+                },
+                Segment {
+                    text: "d",
+                    start_byte: 8,
+                },
+            ]
         );
-        assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
     fn double_quotes() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            r#"a|"b|c"|d"#,
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
-        );
-        assert_eq!(positions, vec![1, 7]);
-    }
-
-    #[test]
-    fn escape_handling() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            r#""a\"b"|c"#,
-            |ch| ch == '|',
-            true,
-            |idx| {
-                positions.push(idx);
-                false
-            },
-        );
-        // The \" is escaped, so the quote doesn't close until the real "
-        assert_eq!(positions, vec![6]);
-    }
-
-    #[test]
-    fn escape_ignored_without_flag() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            r#""a\"b"|c"#,
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                false
-            },
-        );
-        // Without escape handling, \" closes the quote, then b" opens a new one
-        // "a\" -> quote closed at \", then b" opens, |c is outside... actually:
-        // char-by-char: " opens, a inside, \ inside, " closes, b outside, " opens, | inside, c inside
-        assert!(positions.is_empty());
-    }
-
-    #[test]
-    fn early_stop() {
-        let mut positions = Vec::new();
-        for_each_unquoted(
-            "a|b|c|d",
-            |ch| ch == '|',
-            false,
-            |idx| {
-                positions.push(idx);
-                positions.len() >= 2
-            },
-        );
-        assert_eq!(positions, vec![1, 3]);
-    }
-
-    #[test]
-    fn split_whitespace_simple() {
+        let segments = split_on_unquoted_delimiter(r#"a|"b|c"|d"#, '|');
         assert_eq!(
-            split_on_whitespace("load i18n l10n"),
+            segments,
+            vec![
+                Segment {
+                    text: "a",
+                    start_byte: 0,
+                },
+                Segment {
+                    text: r#""b|c""#,
+                    start_byte: 2,
+                },
+                Segment {
+                    text: "d",
+                    start_byte: 8,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn escape_ignored_when_backslash_is_literal() {
+        let segments = split_on_unquoted_delimiter(r#""a\"b"|c"#, '|');
+
+        // With literal backslashes, \" closes the quote, then b" opens a new one.
+        assert_eq!(
+            segments,
+            vec![Segment {
+                text: r#""a\"b"|c"#,
+                start_byte: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn split_unquoted_whitespace_simple() {
+        assert_eq!(
+            split_on_unquoted_whitespace_text("load i18n l10n"),
             vec!["load", "i18n", "l10n"]
         );
     }
 
     #[test]
-    fn split_whitespace_quoted() {
+    fn split_unquoted_whitespace_keeps_quoted_text_together() {
         assert_eq!(
-            split_on_whitespace(r#"if x == "hello world""#),
+            split_on_unquoted_whitespace_text(r#"if x == "hello world""#),
             vec!["if", "x", "==", r#""hello world""#]
         );
     }
 
     #[test]
-    fn split_whitespace_escaped() {
+    fn split_unquoted_whitespace_honors_escaped_quotes() {
         assert_eq!(
-            split_on_whitespace(r#"blocktrans "it\"s fine""#),
+            split_on_unquoted_whitespace_text(r#"blocktrans "it\"s fine""#),
             vec!["blocktrans", r#""it\"s fine""#]
         );
     }
 
     #[test]
-    fn split_whitespace_empty() {
-        assert!(split_on_whitespace("").is_empty());
-        assert!(split_on_whitespace("   ").is_empty());
+    fn split_unquoted_whitespace_empty() {
+        assert!(split_on_unquoted_whitespace_text("").is_empty());
+        assert!(split_on_unquoted_whitespace_text("   ").is_empty());
     }
 
     #[test]
-    fn split_whitespace_offsets() {
-        let pieces = split_on_whitespace_with_offsets(r#"  url "view name" as view"#);
+    fn split_unquoted_whitespace_offsets() {
+        let segments = split_on_unquoted_whitespace(r#"  url "view name" as view"#);
 
         assert_eq!(
-            pieces,
+            segments,
             vec![
-                SplitPiece {
+                Segment {
                     text: "url",
-                    start: 2,
+                    start_byte: 2,
                 },
-                SplitPiece {
+                Segment {
                     text: r#""view name""#,
-                    start: 6,
+                    start_byte: 6,
                 },
-                SplitPiece {
+                Segment {
                     text: "as",
-                    start: 18,
+                    start_byte: 18,
                 },
-                SplitPiece {
+                Segment {
                     text: "view",
-                    start: 21,
+                    start_byte: 21,
                 },
             ]
         );

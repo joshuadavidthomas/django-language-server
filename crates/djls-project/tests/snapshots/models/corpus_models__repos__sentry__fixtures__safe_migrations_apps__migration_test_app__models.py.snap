@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  fixtures.safe_migrations_apps.migration_test_app.models.MigrationRunTest:
+    name: MigrationRunTest
+    module_name: fixtures.safe_migrations_apps.migration_test_app.models
+    line: 4
+    relations: []
+    kind: concrete

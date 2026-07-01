@@ -1,0 +1,41 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  allauth.socialaccount.models.SocialAccount:
+    name: SocialAccount
+    module_name: allauth.socialaccount.models
+    line: 93
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete
+  allauth.socialaccount.models.SocialApp:
+    name: SocialApp
+    module_name: allauth.socialaccount.models
+    line: 40
+    relations: []
+    kind: concrete
+  allauth.socialaccount.models.SocialToken:
+    name: SocialToken
+    module_name: allauth.socialaccount.models
+    line: 157
+    relations:
+      - field_name: app
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: SocialApp
+        related_name: ~
+      - field_name: account
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: SocialAccount
+        related_name: ~
+    kind: concrete

@@ -1,0 +1,41 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  members.models.CorporateMember:
+    name: CorporateMember
+    module_name: members.models
+    line: 96
+    relations: []
+    kind: concrete
+  members.models.IndividualMember:
+    name: IndividualMember
+    module_name: members.models
+    line: 40
+    relations: []
+    kind: concrete
+  members.models.Invoice:
+    name: Invoice
+    module_name: members.models
+    line: 164
+    relations:
+      - field_name: member
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: CorporateMember
+        related_name: ~
+    kind: concrete
+  members.models.Team:
+    name: Team
+    module_name: members.models
+    line: 66
+    relations:
+      - field_name: members
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: IndividualMember
+        related_name: ~
+    kind: concrete

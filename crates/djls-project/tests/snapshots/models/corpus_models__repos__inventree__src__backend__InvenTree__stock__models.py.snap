@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.stock.models.StockLocationType:
+    name: StockLocationType
+    module_name: src.backend.InvenTree.stock.models
+    line: 59
+    relations: []
+    kind: concrete

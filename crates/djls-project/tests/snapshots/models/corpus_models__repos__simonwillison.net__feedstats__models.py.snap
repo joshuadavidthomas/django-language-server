@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  feedstats.models.SubscriberCount:
+    name: SubscriberCount
+    module_name: feedstats.models
+    line: 4
+    relations: []
+    kind: concrete

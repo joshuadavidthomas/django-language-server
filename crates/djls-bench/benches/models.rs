@@ -2,12 +2,30 @@ use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use divan::Bencher;
-use djls_bench::model_fixtures;
+use djls_bench::Db;
 use djls_bench::REPEATED_INNER_ITERS;
-use djls_semantic::ModelGraph;
+use djls_bench::model_fixtures;
+use djls_project::ModelGraph;
+use djls_project::ModelId;
+use djls_project::PythonModuleName;
+use djls_project::testing::extract_model_graph;
 
 fn main() {
     divan::main();
+}
+
+fn module_name(path: &str) -> PythonModuleName {
+    PythonModuleName::parse(path).unwrap()
+}
+
+fn model_graph_from_source(
+    db: &mut Db,
+    path: impl Into<Utf8PathBuf>,
+    source: &str,
+    module_name: PythonModuleName,
+) -> ModelGraph {
+    let file = db.file_with_contents(path, source);
+    extract_model_graph(db, file, module_name).clone()
 }
 
 // Batch extraction: all fixtures in one iteration
@@ -16,10 +34,13 @@ fn main() {
 fn extract(bencher: Bencher) {
     let fixtures = model_fixtures();
     bencher.bench_local(move || {
-        for fixture in fixtures {
-            divan::black_box(djls_semantic::extract_model_graph(
+        let mut db = Db::new();
+        for (index, fixture) in fixtures.iter().enumerate() {
+            divan::black_box(model_graph_from_source(
+                &mut db,
+                format!("/bench/models/extract/{index}.py"),
                 &fixture.source,
-                "bench.models",
+                module_name("bench.models"),
             ));
         }
     });
@@ -30,9 +51,18 @@ fn extract(bencher: Bencher) {
 #[divan::bench]
 fn merge(bencher: Bencher) {
     let fixtures = model_fixtures();
+    let mut db = Db::new();
     let graphs: Vec<ModelGraph> = fixtures
         .iter()
-        .map(|f| djls_semantic::extract_model_graph(&f.source, "bench.models"))
+        .enumerate()
+        .map(|(index, fixture)| {
+            model_graph_from_source(
+                &mut db,
+                format!("/bench/models/merge/{index}.py"),
+                &fixture.source,
+                module_name("bench.models"),
+            )
+        })
         .collect();
 
     bencher.bench_local(move || {
@@ -48,7 +78,7 @@ fn merge(bencher: Bencher) {
     });
 }
 
-// Resolution: forward, reverse, and combined lookups on a populated graph
+// Resolution: forward and field-based relation lookups on a populated graph
 
 fn auth_graph() -> &'static ModelGraph {
     static GRAPH: OnceLock<ModelGraph> = OnceLock::new();
@@ -58,33 +88,51 @@ fn auth_graph() -> &'static ModelGraph {
             .iter()
             .find(|f| f.label == "medium_auth.py")
             .expect("medium_auth fixture missing");
-        djls_semantic::extract_model_graph(&auth.source, "django.contrib.auth.models")
+        let mut db = Db::new();
+        model_graph_from_source(
+            &mut db,
+            "/bench/models/auth.py",
+            &auth.source,
+            module_name("django.contrib.auth.models"),
+        )
     })
+}
+
+fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_name: &str) -> &'a ModelId {
+    let (id, _model) = graph.models_named(name).next().expect("model should exist");
+    assert_eq!(id.name(), name);
+    assert_eq!(id.module_name().as_str(), module_name);
+    assert!(graph.get_by_id(id).is_some());
+    id
 }
 
 #[divan::bench]
 fn resolve_relations(bencher: Bencher) {
     let graph = auth_graph();
+    let permission = model_id(graph, "Permission", "django.contrib.auth.models");
+    let group = model_id(graph, "Group", "django.contrib.auth.models");
+    let user = model_id(graph, "User", "django.contrib.auth.models");
+
+    let lookup_queries = [("auth", "Permission"), ("auth", "Group"), ("auth", "User")];
     let forward_queries = [
-        ("Permission", "content_type"),
-        ("Group", "permissions"),
-        ("User", "groups"),
+        (permission, "content_type"),
+        (group, "permissions"),
+        (user, "groups"),
     ];
-    let reverse_queries = ["Group", "Permission", "ContentType"];
     let relation_queries = [
-        ("Group", "user_set"),
-        ("Permission", "group_set"),
-        ("Permission", "user_set"),
+        (group, "user_set"),
+        (permission, "group_set"),
+        (permission, "user_set"),
     ];
 
     bencher.bench_local(|| {
         let mut resolved = 0;
         for _ in 0..REPEATED_INNER_ITERS {
+            for (app_label, name) in lookup_queries {
+                resolved += usize::from(graph.lookup(app_label, name).is_some());
+            }
             for (model, field) in forward_queries {
                 resolved += usize::from(graph.resolve_forward(model, field).is_some());
-            }
-            for model in reverse_queries {
-                resolved += graph.resolve_reverse(model).count();
             }
             for (model, relation) in relation_queries {
                 resolved += usize::from(graph.resolve_relation(model, relation).is_some());
@@ -97,26 +145,27 @@ fn resolve_relations(bencher: Bencher) {
 // Corpus-scale: extract all models.py from Django, then from the full corpus
 
 struct CorpusModels {
-    files: Vec<(String, String)>, // (source, module_path)
+    files: Vec<(String, PythonModuleName)>,
 }
 
 fn load_corpus_models_inner(
-    get_paths: impl FnOnce(&djls_corpus::Corpus) -> Option<Vec<Utf8PathBuf>>,
+    get_paths: impl FnOnce(&djls_testing::Corpus) -> Option<Vec<Utf8PathBuf>>,
 ) -> Option<CorpusModels> {
-    if !djls_corpus::Corpus::is_available() {
+    if !djls_testing::Corpus::is_available() {
         return None;
     }
 
-    let corpus = djls_corpus::Corpus::require();
+    let corpus = djls_testing::Corpus::require();
     let mut paths = get_paths(&corpus)?;
     paths.sort();
 
-    let files: Vec<(String, String)> = paths
+    let files: Vec<(String, PythonModuleName)> = paths
         .into_iter()
         .filter_map(|path| {
             let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            let module_path = djls_corpus::module_path_from_file(&path);
-            Some((source, module_path))
+            let module_name = djls_testing::module_name_from_file(&path);
+            let module_name = PythonModuleName::parse(&module_name).ok()?;
+            Some((source, module_name))
         })
         .collect();
 
@@ -163,9 +212,15 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
     bencher
         .counter(divan::counter::ItemsCount::new(file_count))
         .bench_local(move || {
+            let mut db = Db::new();
             let mut merged = ModelGraph::new();
-            for (source, module_path) in &corpus.files {
-                let graph = djls_semantic::extract_model_graph(source, module_path);
+            for (index, (source, module_name)) in corpus.files.iter().enumerate() {
+                let graph = model_graph_from_source(
+                    &mut db,
+                    format!("/bench/models/corpus/{index}.py"),
+                    source,
+                    module_name.clone(),
+                );
                 merged.merge(graph);
             }
             divan::black_box(merged);

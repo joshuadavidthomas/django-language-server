@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.indexing.models.ResourceIndex:
+    name: ResourceIndex
+    module_name: geonode.indexing.models
+    line: 8
+    relations:
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+    kind: concrete

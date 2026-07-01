@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  avatar.models.Avatar:
+    name: Avatar
+    module_name: avatar.models
+    line: 91
+    relations: []
+    kind: concrete

@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  readthedocs.redirects.models.Redirect:
+    name: Redirect
+    module_name: readthedocs.redirects.models
+    line: 40
+    relations:
+      - field_name: project
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Project
+        related_name: redirects
+    kind: concrete

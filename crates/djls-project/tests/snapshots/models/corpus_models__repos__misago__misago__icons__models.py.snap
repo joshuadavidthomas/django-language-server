@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.icons.models.Icon:
+    name: Icon
+    module_name: misago.icons.models
+    line: 4
+    relations: []
+    kind: concrete

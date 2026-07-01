@@ -1,0 +1,83 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  django.contrib.auth.models.AbstractUser:
+    name: AbstractUser
+    module_name: django.contrib.auth.models
+    line: 446
+    relations:
+      - field_name: groups
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Group
+        related_name: user_set
+      - field_name: user_permissions
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Permission
+        related_name: user_set
+    kind: abstract
+  django.contrib.auth.models.Group:
+    name: Group
+    module_name: django.contrib.auth.models
+    line: 102
+    relations:
+      - field_name: permissions
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Permission
+        related_name: ~
+    kind: concrete
+  django.contrib.auth.models.Permission:
+    name: Permission
+    module_name: django.contrib.auth.models
+    line: 39
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+    kind: concrete
+  django.contrib.auth.models.PermissionsMixin:
+    name: PermissionsMixin
+    module_name: django.contrib.auth.models
+    line: 317
+    relations:
+      - field_name: groups
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Group
+        related_name: user_set
+      - field_name: user_permissions
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Permission
+        related_name: user_set
+    kind: abstract
+  django.contrib.auth.models.User:
+    name: User
+    module_name: django.contrib.auth.models
+    line: 517
+    relations:
+      - field_name: groups
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Group
+        related_name: user_set
+      - field_name: user_permissions
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Permission
+        related_name: user_set
+    kind: concrete

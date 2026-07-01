@@ -1,0 +1,74 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.pretix.api.models.ApiCall:
+    name: ApiCall
+    module_name: src.pretix.api.models
+    line: 168
+    relations: []
+    kind: concrete
+  src.pretix.api.models.WebHook:
+    name: WebHook
+    module_name: src.pretix.api.models
+    line: 114
+    relations:
+      - field_name: organizer
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Organizer
+        related_name: webhooks
+      - field_name: limit_events
+        relation_type: ManyToMany
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Event
+        related_name: ~
+    kind: concrete
+  src.pretix.api.models.WebHookCall:
+    name: WebHookCall
+    module_name: src.pretix.api.models
+    line: 140
+    relations:
+      - field_name: webhook
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: WebHook
+        related_name: calls
+    kind: concrete
+  src.pretix.api.models.WebHookCallRetry:
+    name: WebHookCallRetry
+    module_name: src.pretix.api.models
+    line: 156
+    relations:
+      - field_name: webhook
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: WebHook
+        related_name: retries
+      - field_name: logentry
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: LogEntry
+        related_name: webhook_retries
+    kind: concrete
+  src.pretix.api.models.WebHookEventListener:
+    name: WebHookEventListener
+    module_name: src.pretix.api.models
+    line: 132
+    relations:
+      - field_name: webhook
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: WebHook
+        related_name: listeners
+    kind: concrete

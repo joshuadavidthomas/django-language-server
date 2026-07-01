@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  accounts.models.Profile:
+    name: Profile
+    module_name: accounts.models
+    line: 5
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete

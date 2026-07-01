@@ -1,12 +1,11 @@
 [package]
 name = "djls-templates"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
-djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
 memchr = { workspace = true }

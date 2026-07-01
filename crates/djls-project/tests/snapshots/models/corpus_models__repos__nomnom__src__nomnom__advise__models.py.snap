@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.nomnom.advise.models.Proposal:
+    name: Proposal
+    module_name: src.nomnom.advise.models
+    line: 32
+    relations: []
+    kind: concrete
+  src.nomnom.advise.models.Vote:
+    name: Vote
+    module_name: src.nomnom.advise.models
+    line: 128
+    relations:
+      - field_name: membership
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: NominatingMemberProfile
+        related_name: ~
+      - field_name: proposal
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Proposal
+        related_name: ~
+    kind: concrete

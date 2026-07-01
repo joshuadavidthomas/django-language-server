@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.sentry.explore.models.ExploreSavedQueryProject:
+    name: ExploreSavedQueryProject
+    module_name: src.sentry.explore.models
+    line: 38
+    relations: []
+    kind: concrete

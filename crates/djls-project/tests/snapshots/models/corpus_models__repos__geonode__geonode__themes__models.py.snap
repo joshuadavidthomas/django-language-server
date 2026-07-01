@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.themes.models.GeoNodeThemeCustomization:
+    name: GeoNodeThemeCustomization
+    module_name: geonode.themes.models
+    line: 52
+    relations:
+      - field_name: jumbotron_slide_show
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: JumbotronThemeSlide
+        related_name: ~
+    kind: concrete
+  geonode.themes.models.JumbotronThemeSlide:
+    name: JumbotronThemeSlide
+    module_name: geonode.themes.models
+    line: 31
+    relations: []
+    kind: concrete

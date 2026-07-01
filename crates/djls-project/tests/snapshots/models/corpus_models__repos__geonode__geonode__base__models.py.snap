@@ -1,0 +1,192 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.base.models.ContactRole:
+    name: ContactRole
+    module_name: geonode.base.models
+    line: 93
+    relations:
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+      - field_name: contact
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete
+  geonode.base.models.ExtraMetadata:
+    name: ExtraMetadata
+    module_name: geonode.base.models
+    line: 2140
+    relations:
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+    kind: concrete
+  geonode.base.models.GroupGeoLimit:
+    name: GroupGeoLimit
+    module_name: geonode.base.models
+    line: 2134
+    relations:
+      - field_name: group
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: GroupProfile
+        related_name: ~
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+    kind: concrete
+  geonode.base.models.License:
+    name: License
+    module_name: geonode.base.models
+    line: 227
+    relations: []
+    kind: concrete
+  geonode.base.models.Link:
+    name: Link
+    module_name: geonode.base.models
+    line: 2014
+    relations:
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+      - field_name: asset
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: assets
+          name: Asset
+        related_name: ~
+    kind: concrete
+  geonode.base.models.LinkedResource:
+    name: LinkedResource
+    module_name: geonode.base.models
+    line: 1973
+    relations:
+      - field_name: source
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: linked_to
+      - field_name: target
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: linked_by
+    kind: concrete
+  geonode.base.models.Menu:
+    name: Menu
+    module_name: geonode.base.models
+    line: 2051
+    relations: []
+    kind: concrete
+  geonode.base.models.MenuItem:
+    name: MenuItem
+    module_name: geonode.base.models
+    line: 2069
+    relations: []
+    kind: concrete
+  geonode.base.models.MenuPlaceholder:
+    name: MenuPlaceholder
+    module_name: geonode.base.models
+    line: 2044
+    relations: []
+    kind: concrete
+  geonode.base.models.RestrictionCodeType:
+    name: RestrictionCodeType
+    module_name: geonode.base.models
+    line: 206
+    relations: []
+    kind: concrete
+  geonode.base.models.SpatialRepresentationType:
+    name: SpatialRepresentationType
+    module_name: geonode.base.models
+    line: 130
+    relations: []
+    kind: concrete
+  geonode.base.models.Thesaurus:
+    name: Thesaurus
+    module_name: geonode.base.models
+    line: 450
+    relations: []
+    kind: concrete
+  geonode.base.models.ThesaurusKeyword:
+    name: ThesaurusKeyword
+    module_name: geonode.base.models
+    line: 505
+    relations:
+      - field_name: thesaurus
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Thesaurus
+        related_name: thesaurus
+    kind: concrete
+  geonode.base.models.ThesaurusKeywordLabel:
+    name: ThesaurusKeywordLabel
+    module_name: geonode.base.models
+    line: 483
+    relations:
+      - field_name: keyword
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ThesaurusKeyword
+        related_name: keyword
+    kind: concrete
+  geonode.base.models.ThesaurusLabel:
+    name: ThesaurusLabel
+    module_name: geonode.base.models
+    line: 547
+    relations:
+      - field_name: thesaurus
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Thesaurus
+        related_name: rel_thesaurus
+    kind: concrete
+  geonode.base.models.TopicCategory:
+    name: TopicCategory
+    module_name: geonode.base.models
+    line: 108
+    relations: []
+    kind: concrete
+  geonode.base.models.UserGeoLimit:
+    name: UserGeoLimit
+    module_name: geonode.base.models
+    line: 2128
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: resource
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ResourceBase
+        related_name: ~
+    kind: concrete

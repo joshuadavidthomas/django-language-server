@@ -1,0 +1,133 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  guardian.models.models.BaseGenericObjectPermission:
+    name: BaseGenericObjectPermission
+    module_name: guardian.models.models
+    line: 54
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_pk
+    kind: abstract
+  guardian.models.models.BaseObjectPermission:
+    name: BaseObjectPermission
+    module_name: guardian.models.models
+    line: 13
+    relations:
+      - field_name: permission
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Permission
+        related_name: ~
+    kind: abstract
+  guardian.models.models.GroupObjectPermission:
+    name: GroupObjectPermission
+    module_name: guardian.models.models
+    line: 179
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_pk
+    kind: concrete
+  guardian.models.models.GroupObjectPermissionAbstract:
+    name: GroupObjectPermissionAbstract
+    module_name: guardian.models.models
+    line: 173
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_pk
+    kind: abstract
+  guardian.models.models.GroupObjectPermissionBase:
+    name: GroupObjectPermissionBase
+    module_name: guardian.models.models
+    line: 134
+    relations:
+      - field_name: permission
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Permission
+        related_name: ~
+      - field_name: group
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Group
+        related_name: ~
+    kind: abstract
+  guardian.models.models.UserObjectPermission:
+    name: UserObjectPermission
+    module_name: guardian.models.models
+    line: 114
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_pk
+    kind: concrete
+  guardian.models.models.UserObjectPermissionAbstract:
+    name: UserObjectPermissionAbstract
+    module_name: guardian.models.models
+    line: 108
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_pk
+    kind: abstract
+  guardian.models.models.UserObjectPermissionBase:
+    name: UserObjectPermissionBase
+    module_name: guardian.models.models
+    line: 66
+    relations:
+      - field_name: permission
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Permission
+        related_name: ~
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: user_model_label
+        related_name: ~
+    kind: abstract

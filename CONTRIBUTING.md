@@ -8,21 +8,6 @@ Not all contributions need to start with an issue, such as typo fixes in documen
 
 We adhere to a version of Django's Code of Conduct in all interactions and expect all contributors to do the same. Please read the [Code of Conduct](https://github.com/joshuadavidthomas/django-language-server?tab=coc-ov-file) before contributing.
 
-## Development
-
-For a detailed look at how the codebase works — data flow, the Salsa database, the template pipeline — see [ARCHITECTURE.md](ARCHITECTURE.md).
-
-The project is written in Rust with a Python subprocess for Django introspection. It uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
-
-- **Dependency versions** are centralized in `[workspace.dependencies]` in the root [`Cargo.toml`](./Cargo.toml). Individual crates reference them with `dep.workspace = true` and never specify versions directly.
-- **Internal crates are listed before third-party crates** in each crate's `[dependencies]`, separated by a blank line. Both groups are kept in alphabetical order.
-- **Lints** are configured once in `[workspace.lints]` in the root `Cargo.toml`. Each crate opts in with `[lints] workspace = true`.
-- **Versioning**: Only the `djls` binary crate carries the release version. All library crates use `version = "0.0.0"`.
-
-Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase — Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
-
-So far it's all been built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way — send help!
-
 ## AI Policy
 
 Someone is going to read your PR. Be considerate of that — make sure what you're submitting is something you'd want to review yourself.
@@ -39,6 +24,87 @@ Mentioning that you used AI is appreciated but not required. We'll assume good f
 The project includes an [`AGENTS.md`](AGENTS.md) file with guidelines for AI coding agents. If you're using an AI tool that supports it, point it there.
 
 Before opening a PR, make sure the tests, clippy, formatting, and linting all pass.
+
+## Development
+
+For a detailed look at how the codebase works — data flow, the Salsa database, the template pipeline — see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+The project is written in Rust and uses static analysis to introspect Django projects. It uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
+
+- **Dependency versions** are centralized in `[workspace.dependencies]` in the root [`Cargo.toml`](./Cargo.toml). Individual crates reference them with `dep.workspace = true` and never specify versions directly.
+- **Internal crates are listed before third-party crates** in each crate's `[dependencies]`, separated by a blank line. Both groups are kept in alphabetical order.
+- **Lints** are configured once in `[workspace.lints]` in the root `Cargo.toml`. Each crate opts in with `[lints] workspace = true`.
+- **Versioning**: Only the `djls` binary crate carries the release version. All library crates use `version = "0.0.0"`.
+
+Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase — Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
+
+So far it's all been built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way — send help!
+
+### Linting
+
+#### Visibility Audits
+
+[Hawk](https://github.com/astral-sh/hawk) is an experimental Cargo lint from Astral that checks unnecessary public Rust visibility across a closed-world workspace. It is useful here because most crates are internal architecture layers behind the shipped `djls` binary.
+
+Hawk is part of the local linting suite for keeping crate boundaries clean.
+
+##### Setup
+
+Install the Rust toolchain and Cargo subcommand Hawk expects:
+
+```bash
+rustup toolchain install 1.95.0
+
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+```
+
+##### Usage
+
+Run Hawk through `just` rather than `cargo hawk` directly:
+
+```bash
+just hawk
+```
+
+The recipe pins `+1.95.0` and isolates Hawk's instrumented builds to avoid [astral-sh/hawk#74](https://github.com/astral-sh/hawk/issues/74). Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+
+A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
+
+The `just hawk` recipe keeps rustc dead-code and unused-import warnings quiet so the output stays focused on visibility. After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
+
+### Profiling
+
+#### Setup
+
+You'll need `jq`, `rg`, and the **codspeed fork of valgrind** (not stock valgrind):
+
+```bash
+git clone --depth 1 https://github.com/CodSpeedHQ/valgrind-codspeed /tmp/valgrind-codspeed
+cd /tmp/valgrind-codspeed
+./autogen.sh
+./configure --prefix=$HOME/.local
+make -j$(nproc)
+make install
+```
+
+Make sure `$HOME/.local/bin` is on your `PATH`. Verify with:
+
+```bash
+valgrind --version  # should contain "codspeed"
+```
+
+#### Usage
+
+The `just dev profile` command runs benchmarks under [valgrind-codspeed](https://github.com/CodSpeedHQ/valgrind-codspeed), the same callgrind fork used in CI. It produces deterministic per-function instruction counts with call trees, and automatically strips harness overhead.
+
+```bash
+just dev profile <bench> [filter]
+
+# Examples:
+just dev profile diagnostics collect_diagnostics_realistic
+just dev profile parser parse_template
+```
 
 ## Changelog
 
@@ -208,37 +274,6 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 7. **For major Django releases**: If adding support for a new major Django version (e.g., Django 6.0), the language server version should be bumped to match per [DjangoVer](docs/versioning.md) versioning. For example, when adding Django 6.0 support, bump the server from v5.x.x to v6.0.0.
 
-## Profiling
-
-The `just dev profile` command runs benchmarks under [valgrind-codspeed](https://github.com/CodSpeedHQ/valgrind-codspeed), the same callgrind fork used in CI. It produces deterministic per-function instruction counts with call trees, and automatically strips harness overhead.
-
-```bash
-just dev profile <bench> [filter]
-
-# Examples:
-just dev profile diagnostics collect_diagnostics_realistic
-just dev profile parser parse_template
-```
-
-### Prerequisites
-
-You'll need `jq`, `rg`, and the **codspeed fork of valgrind** (not stock valgrind):
-
-```bash
-git clone --depth 1 https://github.com/CodSpeedHQ/valgrind-codspeed /tmp/valgrind-codspeed
-cd /tmp/valgrind-codspeed
-./autogen.sh
-./configure --prefix=$HOME/.local
-make -j$(nproc)
-make install
-```
-
-Make sure `$HOME/.local/bin` is on your `PATH`. Verify with:
-
-```bash
-valgrind --version  # should contain "codspeed"
-```
-
 ## `Justfile`
 
 The repository includes a [`Justfile`](./Justfile) that provides all common development tasks with a consistent interface. Running `just` without arguments shows all available commands and their descriptions.
@@ -275,8 +310,11 @@ Available recipes:
     clean
     clippy *ARGS
     corpus *ARGS
+    e2e *ARGS
+    fixtures *ARGS
     fmt *ARGS
-    lint *ARGS    # run pre-commit on all files
+    hawk *ARGS
+    lint *ARGS     # run pre-commit on all files
     run *ARGS
     test *ARGS
     testall *ARGS

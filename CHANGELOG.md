@@ -21,6 +21,24 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
+- **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
+
+### Changed
+
+- Changed template tag library discovery to derive libraries from project source and Django settings instead of the runtime inspector.
+- Bumped Rust toolchain from 1.95 to 1.96.
+- **Internal**: Reshaped template tag library storage around loadable and builtin mounts.
+- **Internal**: Moved the project model and static source recognizers into `djls-project`.
+- **Internal**: Moved Python spec extraction and template-origin resolution into `djls-project`, leaving `djls-semantic` as the project-meaning layer.
+
+### Removed
+
+- Removed the runtime inspector subprocess, embedded Python zipapp, and `~/.cache/djls/inspector/` disk cache. The server no longer needs a working Django setup to derive project facts.
+- Removed the template library snapshot disk cache and startup cache-loading phase.
+
+### Fixed
+
+- Fixed settings refreshes for star imports inside `try` and `if` blocks.
 
 ## [6.0.3]
 

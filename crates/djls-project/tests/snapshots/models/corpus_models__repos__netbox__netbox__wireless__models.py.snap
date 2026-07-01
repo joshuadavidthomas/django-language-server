@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  netbox.wireless.models.WirelessAuthenticationBase:
+    name: WirelessAuthenticationBase
+    module_name: netbox.wireless.models
+    line: 20
+    relations: []
+    kind: abstract
+  netbox.wireless.models.WirelessLAN:
+    name: WirelessLAN
+    module_name: netbox.wireless.models
+    line: 79
+    relations: []
+    kind: concrete
+  netbox.wireless.models.WirelessLink:
+    name: WirelessLink
+    module_name: netbox.wireless.models
+    line: 132
+    relations: []
+    kind: concrete

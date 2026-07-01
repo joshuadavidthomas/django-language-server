@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.sentry.flags.models.FlagAuditLogModel:
+    name: FlagAuditLogModel
+    module_name: src.sentry.flags.models
+    line: 93
+    relations: []
+    kind: concrete
+  src.sentry.flags.models.FlagWebHookSigningSecretModel:
+    name: FlagWebHookSigningSecretModel
+    module_name: src.sentry.flags.models
+    line: 131
+    relations: []
+    kind: concrete

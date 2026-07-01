@@ -1,0 +1,24 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.resource.models.ExecutionRequest:
+    name: ExecutionRequest
+    module_name: geonode.resource.models
+    line: 28
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: geonode_resource
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: base
+          name: ResourceBase
+        related_name: ~
+    kind: concrete

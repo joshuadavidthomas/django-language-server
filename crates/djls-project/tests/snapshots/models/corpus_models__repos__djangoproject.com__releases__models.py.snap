@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  releases.models.Release:
+    name: Release
+    module_name: releases.models
+    line: 164
+    relations: []
+    kind: concrete

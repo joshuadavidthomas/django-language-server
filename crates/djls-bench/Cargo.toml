@@ -1,16 +1,17 @@
 [package]
 name = "djls-bench"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 djls-conf = { workspace = true }
-djls-corpus = { workspace = true }
 djls-db = { workspace = true }
 djls-ide = { workspace = true }
+djls-project = { workspace = true }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
+djls-testing = { workspace = true }
 
 camino = { workspace = true }
 divan = { workspace = true }

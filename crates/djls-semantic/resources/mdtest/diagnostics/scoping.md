@@ -97,35 +97,3 @@ error[S120]: Unknown template tag library 'nonexistent_library'
 1 | {% load nonexistent_library %}
   |         ^^^^^^^^^^^^^^^^^^^
 ```
-
-## tag app is not installed
-
-```htmldjango
-{% widget_tag %}
-```
-
-```snapshot
-error[S118]: Add 'example.widgets' to INSTALLED_APPS to use tag 'widget_tag'
- --> test.html:1:1
-  |
-1 | {% widget_tag %}
-  | ^^^^^^^^^^^^^^^^
-  |
-  = note: load_name: widgets
-```
-
-## filter app is not installed
-
-```htmldjango
-{{ value|widget_filter }}
-```
-
-```snapshot
-error[S119]: Add 'example.widgets' to INSTALLED_APPS to use filter 'widget_filter'
- --> test.html:1:10
-  |
-1 | {{ value|widget_filter }}
-  |          ^^^^^^^^^^^^^
-  |
-  = note: load_name: widgets
-```

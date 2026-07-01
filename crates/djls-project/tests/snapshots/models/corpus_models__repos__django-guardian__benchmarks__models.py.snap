@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  benchmarks.models.TestDirectModel:
+    name: TestDirectModel
+    module_name: benchmarks.models
+    line: 18
+    relations: []
+    kind: concrete
+  benchmarks.models.TestModel:
+    name: TestModel
+    module_name: benchmarks.models
+    line: 6
+    relations: []
+    kind: concrete

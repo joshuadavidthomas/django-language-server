@@ -1,22 +1,22 @@
 [package]
 name = "djls-ide"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 djls-conf = { workspace = true }
 djls-format = { workspace = true }
+djls-project = { workspace = true }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
-djls-workspace = { workspace = true }
 
 camino = { workspace = true }
 tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-salsa = { workspace = true }
+djls-testing = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,0 +1,50 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.readtracker.models.ReadCategory:
+    name: ReadCategory
+    module_name: misago.readtracker.models
+    line: 6
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: misago_categories
+          name: Category
+        related_name: ~
+    kind: concrete
+  misago.readtracker.models.ReadThread:
+    name: ReadThread
+    module_name: misago.readtracker.models
+    line: 19
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: misago_categories
+          name: Category
+        related_name: ~
+      - field_name: thread
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: misago_threads
+          name: Thread
+        related_name: ~
+    kind: concrete

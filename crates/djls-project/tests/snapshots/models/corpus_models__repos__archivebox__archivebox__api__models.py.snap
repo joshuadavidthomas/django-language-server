@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  archivebox.api.models.APIToken:
+    name: APIToken
+    module_name: archivebox.api.models
+    line: 20
+    relations:
+      - field_name: created_by
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete

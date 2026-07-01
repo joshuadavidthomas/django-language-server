@@ -1,25 +1,24 @@
-pub(crate) mod arguments;
-pub(crate) mod filters;
-pub(crate) mod if_expressions;
-pub(crate) mod scoping;
+mod arguments;
+mod filters;
+mod if_expressions;
+mod scoping;
 
-use std::collections::HashMap;
-
+use djls_project::TemplateLibraries;
 use djls_source::Span;
-use djls_templates::walk_nodelist;
 use djls_templates::Filter;
 use djls_templates::Node;
 use djls_templates::Visitor;
+use djls_templates::walk_nodelist;
 
 use crate::db::Db;
-use crate::project::DiscoveredSymbolCandidate;
-use crate::project::TemplateLibraries;
-use crate::project::TemplateSymbolKind;
-use crate::project::TemplateSymbolName;
+use crate::filters::FilterAritySpecs;
+use crate::scoping::LoadedLibraries;
 use crate::scoping::SymbolIndex;
-use crate::specs::filters::FilterAritySpecs;
-use crate::specs::tags::TagSpecs;
 use crate::structure::OpaqueRegions;
+use crate::structure::compute_tag_index;
+use crate::structure::grammar::TagClass;
+use crate::structure::grammar::TagIndex;
+use crate::tags::TagSpecs;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
 ///
@@ -50,14 +49,12 @@ impl ExtendsPosition {
 pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
+    tag_index: &'a TagIndex,
     symbol_index: &'a SymbolIndex,
+    loaded_libraries: &'a LoadedLibraries,
     template_libraries: &'a TemplateLibraries,
     opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
-
-    // Environment symbol caches
-    env_tags: Option<HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
-    env_filters: Option<HashMap<TemplateSymbolName, Vec<DiscoveredSymbolCandidate>>>,
 
     // Tracking state for positional checks (e.g. {% extends %})
     extends_position: ExtendsPosition,
@@ -72,23 +69,20 @@ impl<'a> TemplateValidator<'a> {
     ) -> Self {
         let template_libraries = db.template_libraries();
         let tag_specs = db.tag_specs();
+        let tag_index = compute_tag_index(db);
+        let loaded_libraries = crate::scoping::compute_loaded_libraries(db, nodelist);
         let symbol_index = crate::scoping::compute_symbol_index(db, nodelist);
         let filter_arity_specs = db.filter_arity_specs();
-
-        let env_tags =
-            template_libraries.discovered_symbol_candidates_by_name(TemplateSymbolKind::Tag);
-        let env_filters =
-            template_libraries.discovered_symbol_candidates_by_name(TemplateSymbolKind::Filter);
 
         Self {
             db,
             tag_specs,
+            tag_index,
             symbol_index,
+            loaded_libraries,
             template_libraries,
             opaque_regions,
             filter_arity_specs,
-            env_tags,
-            env_filters,
             extends_position: ExtendsPosition::default(),
         }
     }
@@ -139,23 +133,27 @@ impl Visitor for TemplateValidator<'_> {
 
         if !is_opaque {
             // 2. Scoping validation (skip structural tags and "load")
-            if name != "load" && !scoping::is_closer_or_intermediate(name, self.tag_specs) {
+            if name != "load"
+                && !matches!(
+                    self.tag_index.classify(name),
+                    TagClass::Closer { .. } | TagClass::Intermediate { .. }
+                )
+            {
                 let symbols = self.symbol_index.symbols_at(span.start());
                 scoping::check_tag_scoping_rule(
                     self.db,
                     name,
                     span,
                     symbols,
-                    self.env_tags.as_ref(),
-                    self.template_libraries.active_knowledge,
+                    self.template_libraries,
                 );
             }
 
             // 3. Argument validation
-            if let Some(spec) = self.tag_specs.get(name) {
-                if let Some(rules) = &spec.extracted_rules {
-                    arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
-                }
+            if let Some(spec) = self.tag_specs.get(name)
+                && let Some(rules) = spec.extracted_rules()
+            {
+                arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
             }
 
             // 4. Load library validation
@@ -180,17 +178,27 @@ impl Visitor for TemplateValidator<'_> {
                     self.db,
                     filter,
                     symbols,
-                    self.env_filters.as_ref(),
-                    self.template_libraries.active_knowledge,
+                    self.template_libraries,
                 );
 
                 // 2. Filter Arity
-                filters::check_filter_arity_rule(
-                    self.db,
-                    filter,
-                    self.filter_arity_specs,
-                    self.template_libraries.active_knowledge,
-                );
+                let unknown_load_can_shadow_filter =
+                    self.template_libraries.inventory_may_omit_loaded_symbols()
+                        && self
+                            .loaded_libraries
+                            .has_unknown_load_that_can_shadow_symbol_before(
+                                span.start(),
+                                &filter.name,
+                                self.template_libraries,
+                            );
+                if !unknown_load_can_shadow_filter {
+                    filters::check_filter_arity_rule(
+                        self.db,
+                        filter,
+                        self.filter_arity_specs,
+                        self.template_libraries.has_symbol_inventory(),
+                    );
+                }
             }
         }
 

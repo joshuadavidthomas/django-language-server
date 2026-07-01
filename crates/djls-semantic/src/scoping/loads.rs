@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use djls_project::TemplateLibraries;
 use djls_source::Span;
 use djls_templates::TagBit;
 
@@ -62,7 +63,7 @@ impl LoadKind {
     ///
     /// Returns `None` for non-`load` tags or malformed load bits.
     #[must_use]
-    pub fn from_tag(name: &str, bits: &[TagBit]) -> Option<Self> {
+    pub(crate) fn from_tag(name: &str, bits: &[TagBit]) -> Option<Self> {
         if name != "load" {
             return None;
         }
@@ -151,12 +152,6 @@ pub(crate) struct LoadState<'a> {
 }
 
 impl LoadState<'_> {
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn is_fully_loaded(&self, library: &str) -> bool {
-        self.fully_loaded.contains(library)
-    }
-
     #[must_use]
     pub(crate) fn is_symbol_available(&self, library: &str, symbol: &str) -> bool {
         self.fully_loaded.contains(library)
@@ -164,18 +159,6 @@ impl LoadState<'_> {
                 .selective
                 .get(library)
                 .is_some_and(|syms| syms.contains(symbol))
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn fully_loaded_libraries(&self) -> &HashSet<&str> {
-        &self.fully_loaded
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn selective_imports(&self) -> &HashMap<&str, HashSet<&str>> {
-        &self.selective
     }
 }
 
@@ -198,6 +181,34 @@ impl LoadedLibraries {
     #[must_use]
     pub(crate) fn statements(&self) -> &[LoadStatement] {
         &self.statements
+    }
+
+    #[must_use]
+    pub(crate) fn has_unknown_load_that_can_shadow_symbol_before(
+        &self,
+        position: u32,
+        symbol: &str,
+        template_libraries: &TemplateLibraries,
+    ) -> bool {
+        self.statements.iter().any(|stmt| {
+            if stmt.span.end() > position {
+                return false;
+            }
+
+            match &stmt.kind {
+                LoadKind::FullLoad { libraries } => libraries.iter().any(|library| {
+                    template_libraries
+                        .installed_library_str(library.as_str())
+                        .is_none()
+                }),
+                LoadKind::SelectiveImport { symbols, library } => {
+                    template_libraries
+                        .installed_library_str(library.as_str())
+                        .is_none()
+                        && symbols.iter().any(|loaded| loaded.as_str() == symbol)
+                }
+            }
+        })
     }
 
     /// Compute the load state at a given byte position.
@@ -364,8 +375,8 @@ mod tests {
     fn available_at_no_loads() {
         let libs = LoadedLibraries::new(vec![]);
         let state = libs.available_at(100);
-        assert!(state.fully_loaded_libraries().is_empty());
-        assert!(state.selective_imports().is_empty());
+        assert!(state.fully_loaded.is_empty());
+        assert!(state.selective.is_empty());
     }
 
     #[test]
@@ -379,7 +390,7 @@ mod tests {
 
         // Position after load ends (span end = 10 + 20 = 30)
         let state = libs.available_at(50);
-        assert!(state.is_fully_loaded("i18n"));
+        assert!(state.fully_loaded.contains("i18n"));
     }
 
     #[test]
@@ -393,7 +404,7 @@ mod tests {
 
         // Position before load ends (span end = 30)
         let state = libs.available_at(15);
-        assert!(!state.is_fully_loaded("i18n"));
+        assert!(!state.fully_loaded.contains("i18n"));
     }
 
     #[test]
@@ -407,7 +418,7 @@ mod tests {
         )]);
 
         let state = libs.available_at(50);
-        assert!(!state.is_fully_loaded("i18n"));
+        assert!(!state.fully_loaded.contains("i18n"));
         assert!(state.is_symbol_available("i18n", "trans"));
         assert!(!state.is_symbol_available("i18n", "blocktrans"));
     }
@@ -432,15 +443,15 @@ mod tests {
 
         // After selective, before full
         let state = libs.available_at(40);
-        assert!(!state.is_fully_loaded("i18n"));
+        assert!(!state.fully_loaded.contains("i18n"));
         assert!(state.is_symbol_available("i18n", "trans"));
 
         // After full load — fully loaded, selective cleared
         let state = libs.available_at(80);
-        assert!(state.is_fully_loaded("i18n"));
+        assert!(state.fully_loaded.contains("i18n"));
         assert!(state.is_symbol_available("i18n", "trans"));
         assert!(state.is_symbol_available("i18n", "blocktrans"));
-        assert!(state.selective_imports().get("i18n").is_none());
+        assert!(!state.selective.contains_key("i18n"));
     }
 
     #[test]
@@ -463,8 +474,8 @@ mod tests {
 
         // After both — library still fully loaded, selective ignored
         let state = libs.available_at(80);
-        assert!(state.is_fully_loaded("i18n"));
-        assert!(state.selective_imports().get("i18n").is_none());
+        assert!(state.fully_loaded.contains("i18n"));
+        assert!(!state.selective.contains_key("i18n"));
     }
 
     #[test]
@@ -487,7 +498,7 @@ mod tests {
         ]);
 
         let state = libs.available_at(100);
-        assert!(!state.is_fully_loaded("i18n"));
+        assert!(!state.fully_loaded.contains("i18n"));
         assert!(state.is_symbol_available("i18n", "trans"));
         assert!(state.is_symbol_available("i18n", "blocktrans"));
     }
@@ -495,8 +506,8 @@ mod tests {
     #[test]
     fn position_at_exact_span_end() {
         // Span: start=10, length=20, so end=30
-        // Position exactly at 30 should NOT include this load
-        // (we use > not >=, so end == position means it IS included)
+        // Position exactly at 30 should include this load
+        // (we use > not >=, so end == position means it is included)
         let libs = LoadedLibraries::new(vec![make_load(
             (10, 20),
             LoadKind::FullLoad {
@@ -507,10 +518,10 @@ mod tests {
         // At exactly end position (30) — the load's span ends at 30,
         // and 30 > 30 is false, so it IS included
         let state = libs.available_at(30);
-        assert!(state.is_fully_loaded("i18n"));
+        assert!(state.fully_loaded.contains("i18n"));
 
         // Just before end (29) — 30 > 29 is true, so NOT included
         let state = libs.available_at(29);
-        assert!(!state.is_fully_loaded("i18n"));
+        assert!(!state.fully_loaded.contains("i18n"));
     }
 }

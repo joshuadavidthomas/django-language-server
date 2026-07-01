@@ -1,0 +1,68 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  emaildigest.models.AnonymousSubscription:
+    name: AnonymousSubscription
+    module_name: emaildigest.models
+    line: 39
+    relations:
+      - field_name: logged_in_user
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: accounts
+          name: CustomUser
+        related_name: ~
+    kind: concrete
+  emaildigest.models.EmailDigest:
+    name: EmailDigest
+    module_name: emaildigest.models
+    line: 4
+    relations:
+      - field_name: stories
+        relation_type: ManyToMany
+        target:
+          kind: Qualified
+          app_label: news
+          name: Story
+        related_name: ~
+    kind: concrete
+  emaildigest.models.Subscription:
+    name: Subscription
+    module_name: emaildigest.models
+    line: 19
+    relations: []
+    kind: concrete
+  emaildigest.models.UnSubscription:
+    name: UnSubscription
+    module_name: emaildigest.models
+    line: 47
+    relations:
+      - field_name: subscription
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Subscription
+        related_name: ~
+      - field_name: from_digest
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: EmailDigest
+        related_name: ~
+    kind: concrete
+  emaildigest.models.UserSubscription:
+    name: UserSubscription
+    module_name: emaildigest.models
+    line: 35
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: accounts
+          name: CustomUser
+        related_name: ~
+    kind: concrete

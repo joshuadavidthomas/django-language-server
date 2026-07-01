@@ -1,0 +1,21 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  readthedocs.integrations.models.HttpExchange:
+    name: HttpExchange
+    module_name: readthedocs.integrations.models
+    line: 139
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: related_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: concrete

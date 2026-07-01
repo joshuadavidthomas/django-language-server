@@ -1,0 +1,27 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  cms.test_utils.project.objectpermissionsapp.models.UserObjectPermission:
+    name: UserObjectPermission
+    module_name: cms.test_utils.project.objectpermissionsapp.models
+    line: 42
+    relations:
+      - field_name: permission
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Permission
+        related_name: ~
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_pk
+    kind: concrete

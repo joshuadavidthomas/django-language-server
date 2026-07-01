@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  wagtail.documents.models.AbstractDocument:
+    name: AbstractDocument
+    module_name: wagtail.documents.models
+    line: 25
+    relations:
+      - field_name: uploaded_by_user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: abstract
+  wagtail.documents.models.Document:
+    name: Document
+    module_name: wagtail.documents.models
+    line: 212
+    relations:
+      - field_name: uploaded_by_user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete

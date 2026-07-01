@@ -1,23 +1,26 @@
 [workspace]
 members = ["crates/*"]
-resolver = "2"
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }
 djls-bench = { path = "crates/djls-bench" }
 djls-conf = { path = "crates/djls-conf" }
-djls-corpus = { path = "crates/djls-corpus" }
 djls-db = { path = "crates/djls-db" }
 djls-format = { path = "crates/djls-format" }
 djls-ide = { path = "crates/djls-ide" }
+djls-project = { path = "crates/djls-project" }
 djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
-djls-workspace = { path = "crates/djls-workspace" }
+djls-testing = { path = "crates/djls-testing" }
 
 # core deps, pin exact versions
-salsa = "0.26.1"
+salsa = "0.27.0"
 tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
 
 annotate-snippets = "0.12"
@@ -25,7 +28,7 @@ anyhow = "1.0"
 camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.6", features = ["derive"] }
 config = { version = "0.15", features = ["toml"] }
-dashmap = "6.1"
+dashmap = "6.2"
 datatest-stable = "0.3.3"
 directories = "6.0"
 divan = { package = "codspeed-divan-compat", version = "4.3" }
@@ -38,13 +41,12 @@ insta = { version = "1.47", features = ["glob", "yaml"] }
 memchr = "2.8"
 notify = "8.2"
 percent-encoding = "2.3"
-pulldown-cmark = "0.13.3"
+pulldown-cmark = "0.13.4"
 rayon = "1.12"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
 rustc-hash = "2.1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-sha2 = "0.11"
 tar = "0.4"
 tempfile = "3.26"
 thiserror = "2.0"

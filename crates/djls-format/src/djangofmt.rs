@@ -1,6 +1,6 @@
 use ::djangofmt::args::Profile;
-use ::djangofmt::commands::format::format_text;
 use ::djangofmt::commands::format::FormatterConfig;
+use ::djangofmt::commands::format::format_text;
 use ::djangofmt::line_width::IndentWidth as DjangofmtIndentWidth;
 use ::djangofmt::pyproject;
 use camino::Utf8Path;

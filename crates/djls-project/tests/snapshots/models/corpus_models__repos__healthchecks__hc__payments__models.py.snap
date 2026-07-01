@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  hc.payments.models.Subscription:
+    name: Subscription
+    module_name: hc.payments.models
+    line: 7
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete

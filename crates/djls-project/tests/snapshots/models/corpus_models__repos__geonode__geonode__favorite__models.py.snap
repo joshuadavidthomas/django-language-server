@@ -1,0 +1,27 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.favorite.models.Favorite:
+    name: Favorite
+    module_name: geonode.favorite.models
+    line: 95
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: content_object
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: concrete

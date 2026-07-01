@@ -1,2266 +1,1151 @@
-//! Completion logic for Django Language Server
-//!
-//! This module handles all LSP completion requests, analyzing cursor context
-//! and generating appropriate completion items for Django templates.
+//! Completion flow:
+//! 1. Locate source text from `File` and decide whether this file supports completions.
+//! 2. Read the `CompletionOffsetContext` for the offset.
+//! 3. Generate candidates relevant to that context.
+//! 4. Decide edit semantics for each candidate: replacement range, insert text, and snippets.
+//! 5. Rank candidates by relevance.
+//! 6. Convert candidates into an LSP completion response using client/session facts.
 
+use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbolAvailability;
+use djls_project::TemplateSymbolKind;
 use djls_semantic::AvailableSymbols;
-use djls_semantic::InstalledSymbolCandidate;
-use djls_semantic::InstalledSymbolOrigin;
-use djls_semantic::Knowledge;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagSpecs;
-use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateSymbol;
-use djls_semantic::TemplateSymbolKind;
+use djls_source::File;
 use djls_source::FileKind;
+use djls_source::Offset;
 use djls_source::PositionEncoding;
+use djls_source::Span;
 use tower_lsp_server::ls_types;
 
+use crate::context::CompletionOffsetContext;
+use crate::context::OffsetPrefix;
+use crate::context::OffsetSuffix;
+use crate::context::TagClose;
+use crate::context::TemplateCompletionContext;
+use crate::ext::CompletionCandidateExt;
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
 
-fn symbol_is_available(symbol: &TemplateSymbol, available: &AvailableSymbols) -> bool {
-    match symbol.kind {
-        TemplateSymbolKind::Tag => available.available_tags().contains(symbol.name()),
-        TemplateSymbolKind::Filter => available.available_filters().contains(symbol.name()),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompletionCandidateKind {
+    TagName,
+    EndTag,
+    TagArgumentLiteral,
+    TagArgumentChoice,
+    TagArgumentPlaceholder,
+    TagArgumentSnippet,
+    LibraryName,
+    LoadSymbol,
+    Filter,
+}
+
+impl CompletionCandidateKind {
+    pub(crate) fn rank(self) -> u8 {
+        match self {
+            Self::EndTag => 0,
+            Self::TagName
+            | Self::TagArgumentLiteral
+            | Self::TagArgumentChoice
+            | Self::LibraryName
+            | Self::LoadSymbol
+            | Self::Filter => 1,
+            Self::TagArgumentPlaceholder => 3,
+            Self::TagArgumentSnippet => 4,
+        }
     }
 }
 
-fn symbol_completion_kind(symbol: &TemplateSymbol) -> ls_types::CompletionItemKind {
-    match symbol.kind {
-        TemplateSymbolKind::Tag => ls_types::CompletionItemKind::KEYWORD,
-        TemplateSymbolKind::Filter => ls_types::CompletionItemKind::FUNCTION,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompletionInsertFormat {
+    PlainText,
+    Snippet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CompletionEdit {
+    pub(crate) replacement_span: Span,
+    pub(crate) insert_text: String,
+    pub(crate) insert_format: CompletionInsertFormat,
+}
+
+impl CompletionEdit {
+    fn plain(replacement_span: Span, insert_text: impl Into<String>) -> Self {
+        Self {
+            replacement_span,
+            insert_text: insert_text.into(),
+            insert_format: CompletionInsertFormat::PlainText,
+        }
+    }
+
+    fn snippet(replacement_span: Span, insert_text: impl Into<String>) -> Self {
+        Self {
+            replacement_span,
+            insert_text: insert_text.into(),
+            insert_format: CompletionInsertFormat::Snippet,
+        }
+    }
+
+    fn tag_plain(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        needs_leading_space: bool,
+        close: TagClose,
+    ) -> Self {
+        let mut insert_text = String::new();
+        if needs_leading_space {
+            insert_text.push(' ');
+        }
+        insert_text.push_str(name);
+        Self::append_tag_close(&mut insert_text, close);
+
+        Self::plain(Self::tag_replacement_span(prefix, close), insert_text)
+    }
+
+    fn tag_snippet(
+        name: &str,
+        spec: &djls_semantic::TagSpec,
+        prefix: &OffsetPrefix<'_>,
+        needs_leading_space: bool,
+        close: TagClose,
+    ) -> Option<Self> {
+        if spec.arguments().is_empty() {
+            return None;
+        }
+
+        let mut insert_text = String::new();
+        if needs_leading_space {
+            insert_text.push(' ');
+        }
+
+        let snippet = generate_snippet_for_tag_with_end(name, spec);
+        let snippet_closes_tag = snippet.contains("%}");
+        insert_text.push_str(&snippet);
+        if !snippet_closes_tag {
+            Self::append_tag_close(&mut insert_text, close);
+        }
+
+        let replacement_span = if snippet_closes_tag {
+            Self::replacement_span_with_suffix(
+                prefix,
+                close.existing_close_replacement_suffix_len(),
+            )
+        } else {
+            Self::tag_replacement_span(prefix, close)
+        };
+
+        Some(Self::snippet(replacement_span, insert_text))
+    }
+
+    fn tag_argument(label: &str, prefix: &OffsetPrefix<'_>, close: TagClose) -> Self {
+        let mut insert_text = label.to_string();
+        Self::append_tag_close(&mut insert_text, close);
+
+        Self::plain(Self::tag_replacement_span(prefix, close), insert_text)
+    }
+
+    fn tag_argument_with_suffix(
+        label: &str,
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        close: TagClose,
+    ) -> Self {
+        let mut insert_text = label.to_string();
+        Self::append_tag_close(&mut insert_text, close);
+
+        Self::plain(
+            Self::span_with_source_suffix(prefix, suffix, close.partial_replacement_suffix_len()),
+            insert_text,
+        )
+    }
+
+    fn load_symbol(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        needs_trailing_space: bool,
+    ) -> Self {
+        let mut insert_text = name.to_string();
+        if needs_trailing_space {
+            insert_text.push(' ');
+        }
+
+        Self::plain(
+            Self::span_with_source_suffix(prefix, suffix, 0),
+            insert_text,
+        )
+    }
+
+    fn append_tag_close(insert_text: &mut String, close: TagClose) {
+        match close {
+            TagClose::None | TagClose::Partial { .. } => insert_text.push_str(" %}"),
+            TagClose::Full { .. } => {}
+        }
+    }
+
+    fn tag_replacement_span(prefix: &OffsetPrefix<'_>, close: TagClose) -> Span {
+        Self::replacement_span_with_suffix(prefix, close.partial_replacement_suffix_len())
+    }
+
+    fn replacement_span_with_suffix(prefix: &OffsetPrefix<'_>, suffix_len: usize) -> Span {
+        let replacement_length = prefix.span.length_usize() + suffix_len;
+        prefix.span.with_length_usize_saturating(replacement_length)
+    }
+
+    fn span_with_source_suffix(
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        suffix_len: usize,
+    ) -> Span {
+        let end = suffix
+            .span
+            .end_usize()
+            .saturating_add(suffix_len)
+            .max(prefix.span.end_usize());
+        Span::saturating_from_bounds_usize(prefix.span.start_usize(), end)
     }
 }
 
-/// Tracks what closing characters are needed to complete a template tag.
-///
-/// Used to determine whether the completion system needs to insert
-/// closing braces when completing a Django template tag.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ClosingBrace {
-    /// No closing brace present - need to add full `%}` or `}}`
-    None,
-    /// Partial close present (just `}`) - need to add `%` or second `}`
-    PartialClose,
-    /// Full close present (`%}` or `}}`) - no closing needed
-    FullClose,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CompletionCandidate {
+    pub(crate) label: String,
+    pub(crate) kind: CompletionCandidateKind,
+    pub(crate) edit: CompletionEdit,
+    pub(crate) detail: Option<String>,
+    pub(crate) documentation: Option<String>,
 }
 
-/// Rich context-aware completion information for Django templates.
-///
-/// Distinguishes between different completion contexts to provide
-/// appropriate suggestions based on cursor position.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum TemplateCompletionContext {
-    /// Completing a tag name after {%
-    TagName {
-        /// Partial tag name typed so far
-        partial: String,
-        /// Whether a space is needed before the tag name
-        needs_space: bool,
-        /// What closing characters are present
-        closing: ClosingBrace,
-    },
-    /// Completing arguments within a tag
-    TagArgument {
-        /// The tag name
-        tag: String,
-        /// Position in the argument list (0-based)
-        position: usize,
-        /// Partial text for current argument
-        partial: String,
-        /// Arguments already parsed before cursor
-        parsed_args: Vec<String>,
-        /// What closing characters are present
-        closing: ClosingBrace,
-    },
-    /// Completing a library name after {% load
-    LibraryName {
-        /// Partial library name typed so far
-        partial: String,
-        /// What closing characters are present
-        closing: ClosingBrace,
-    },
-    /// Completing filters after |
-    Filter {
-        /// Partial filter name typed so far
-        partial: String,
-    },
+impl CompletionCandidate {
+    fn cmp_rank(left: &Self, right: &Self) -> std::cmp::Ordering {
+        left.kind
+            .rank()
+            .cmp(&right.kind.rank())
+            .then_with(|| left.label.cmp(&right.label))
+    }
+
+    fn tag_name(
+        symbol: &djls_project::TemplateSymbol,
+        prefix: &OffsetPrefix<'_>,
+        needs_leading_space: bool,
+        close: TagClose,
+        spec: Option<&djls_semantic::TagSpec>,
+        availability: &TemplateSymbolAvailability,
+        supports_snippets: bool,
+    ) -> Self {
+        let name = symbol.name();
+        let edit = if supports_snippets {
+            spec.and_then(|spec| {
+                CompletionEdit::tag_snippet(name, spec, prefix, needs_leading_space, close)
+            })
+            .unwrap_or_else(|| CompletionEdit::tag_plain(name, prefix, needs_leading_space, close))
+        } else {
+            CompletionEdit::tag_plain(name, prefix, needs_leading_space, close)
+        };
+
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::TagName,
+            edit,
+            detail: Some(tag_completion_detail(availability)),
+            documentation: symbol.doc().map(str::to_string),
+        }
+    }
+
+    fn tag_name_from_spec(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        needs_leading_space: bool,
+        close: TagClose,
+        spec: &djls_semantic::TagSpec,
+        supports_snippets: bool,
+    ) -> Self {
+        let edit = if supports_snippets {
+            CompletionEdit::tag_snippet(name, spec, prefix, needs_leading_space, close)
+                .unwrap_or_else(|| {
+                    CompletionEdit::tag_plain(name, prefix, needs_leading_space, close)
+                })
+        } else {
+            CompletionEdit::tag_plain(name, prefix, needs_leading_space, close)
+        };
+
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::TagName,
+            edit,
+            detail: Some("Django template tag".to_string()),
+            documentation: None,
+        }
+    }
+
+    fn end_tag(
+        opener_name: &str,
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        needs_leading_space: bool,
+        close: TagClose,
+    ) -> Self {
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::EndTag,
+            edit: CompletionEdit::tag_plain(name, prefix, needs_leading_space, close),
+            detail: Some(format!("End tag for {opener_name}")),
+            documentation: None,
+        }
+    }
+
+    fn tag_argument_literal(label: &str, prefix: &OffsetPrefix<'_>, close: TagClose) -> Self {
+        Self {
+            label: label.to_string(),
+            kind: CompletionCandidateKind::TagArgumentLiteral,
+            edit: CompletionEdit::tag_argument(label, prefix, close),
+            detail: Some("literal argument".to_string()),
+            documentation: None,
+        }
+    }
+
+    fn tag_argument_choice(
+        label: &str,
+        argument_name: &str,
+        prefix: &OffsetPrefix<'_>,
+        close: TagClose,
+    ) -> Self {
+        Self {
+            label: label.to_string(),
+            kind: CompletionCandidateKind::TagArgumentChoice,
+            edit: CompletionEdit::tag_argument(label, prefix, close),
+            detail: Some(format!("choice for {argument_name}")),
+            documentation: None,
+        }
+    }
+
+    fn tag_argument_placeholder(label: String, prefix: &OffsetPrefix<'_>) -> Self {
+        Self {
+            edit: CompletionEdit::plain(prefix.span, label.clone()),
+            label,
+            kind: CompletionCandidateKind::TagArgumentPlaceholder,
+            detail: Some("variable argument".to_string()),
+            documentation: None,
+        }
+    }
+
+    fn tag_argument_snippet(
+        label: String,
+        insert_text: String,
+        prefix: &OffsetPrefix<'_>,
+        close: TagClose,
+    ) -> Self {
+        let mut insert_text = insert_text;
+        CompletionEdit::append_tag_close(&mut insert_text, close);
+
+        Self {
+            label,
+            kind: CompletionCandidateKind::TagArgumentSnippet,
+            edit: CompletionEdit::snippet(
+                CompletionEdit::tag_replacement_span(prefix, close),
+                insert_text,
+            ),
+            detail: Some("Complete remaining arguments".to_string()),
+            documentation: None,
+        }
+    }
+
+    fn library_name(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        close: TagClose,
+        detail: String,
+    ) -> Self {
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::LibraryName,
+            edit: CompletionEdit::tag_argument_with_suffix(name, prefix, suffix, close),
+            detail: Some(detail),
+            documentation: None,
+        }
+    }
+
+    fn load_symbol(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        needs_trailing_space: bool,
+        documentation: Option<&str>,
+    ) -> Self {
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::LoadSymbol,
+            edit: CompletionEdit::load_symbol(name, prefix, suffix, needs_trailing_space),
+            detail: Some("load symbol".to_string()),
+            documentation: documentation.map(str::to_string),
+        }
+    }
+
+    fn filter(
+        name: &str,
+        prefix: &OffsetPrefix<'_>,
+        availability: &TemplateSymbolAvailability,
+        documentation: Option<&str>,
+    ) -> Self {
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::Filter,
+            edit: CompletionEdit::plain(prefix.span, name),
+            detail: Some(filter_completion_detail(availability)),
+            documentation: documentation.map(str::to_string),
+        }
+    }
 }
 
-/// Information about a line of text and cursor position within it
-#[derive(Debug)]
-pub(crate) struct LineInfo {
-    /// The complete line text
-    pub text: String,
-    /// The cursor byte offset within the line (safe for `line[..offset]` slicing)
-    pub cursor_offset: usize,
+fn tag_completion_detail(availability: &TemplateSymbolAvailability) -> String {
+    match availability {
+        TemplateSymbolAvailability::Builtin { module } => {
+            format!("builtin from {}", module.as_str())
+        }
+        TemplateSymbolAvailability::RequiresLoad { load_name } => {
+            format!("{{% load {} %}}", load_name.as_str())
+        }
+    }
 }
 
-/// Main entry point for handling completion requests
+fn filter_completion_detail(availability: &TemplateSymbolAvailability) -> String {
+    match availability {
+        TemplateSymbolAvailability::Builtin { module: _ } => "builtin filter".to_string(),
+        TemplateSymbolAvailability::RequiresLoad { load_name } => {
+            format!("{{% load {} %}}", load_name.as_str())
+        }
+    }
+}
+
 #[must_use]
-#[allow(clippy::too_many_arguments)]
-pub fn handle_completion(
-    source: &str,
-    position: ls_types::Position,
+pub fn completion(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    offset: Offset,
     encoding: PositionEncoding,
-    file_kind: FileKind,
-    template_libraries: Option<&TemplateLibraries>,
-    tag_specs: Option<&TagSpecs>,
-    available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
-) -> Vec<ls_types::CompletionItem> {
-    // Only handle template files
-    if file_kind != FileKind::Template {
-        return Vec::new();
-    }
-
-    // Get line information from source
-    let Some(line_info) = get_line_info(source, position, encoding) else {
-        return Vec::new();
-    };
-
-    // Analyze template context at cursor position
-    let Some(context) = analyze_template_context(&line_info.text, line_info.cursor_offset) else {
-        return Vec::new();
-    };
-
-    // Generate completions based on available template tags
-    generate_template_completions(
-        &context,
-        template_libraries,
-        tag_specs,
-        available_symbols,
-        supports_snippets,
-        position,
-        &line_info.text,
-        line_info.cursor_offset,
-    )
-}
-
-/// Extract line information from source at given position
-fn get_line_info(
-    source: &str,
-    position: ls_types::Position,
-    encoding: PositionEncoding,
-) -> Option<LineInfo> {
-    let lines: Vec<&str> = source.lines().collect();
-
-    let line_index = position.line as usize;
-    if line_index >= lines.len() {
+) -> Option<ls_types::CompletionResponse> {
+    let source = file.source(db);
+    if *source.kind() != FileKind::Template {
         return None;
     }
 
-    let line_text = lines[line_index].to_string();
+    let tokens = djls_templates::lex_template(db, file);
+    let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
+    let template_libraries = db.template_libraries();
 
-    // Convert LSP position to a byte offset within the line.
-    //
-    // All downstream consumers do byte-based string slicing (`line[..offset]`),
-    // so we must produce a byte offset, not a char count.
-    //
-    // LSP encodings:
-    //   - UTF-16 (default, VS Code): `position.character` counts UTF-16 code units
-    //   - UTF-32: `position.character` counts Unicode scalar values (codepoints)
-    //   - UTF-8: `position.character` is already a byte offset
-    let cursor_byte_offset = match encoding {
-        PositionEncoding::Utf16 => {
-            let utf16_pos = position.character as usize;
-            let mut byte_offset = 0;
-            let mut utf16_offset = 0;
-
-            for ch in line_text.chars() {
-                if utf16_offset >= utf16_pos {
-                    break;
-                }
-                utf16_offset += ch.len_utf16();
-                byte_offset += ch.len_utf8();
-            }
-            byte_offset
+    let available_symbols = if template_libraries.has_symbol_inventory() {
+        match &context {
+            CompletionOffsetContext::Template(
+                TemplateCompletionContext::TagName { .. }
+                | TemplateCompletionContext::Filter { .. },
+            ) => djls_templates::parse_template(db, file)
+                .map(|nodelist| djls_semantic::available_symbols_at(db, nodelist, offset.get())),
+            CompletionOffsetContext::Template(
+                TemplateCompletionContext::Text
+                | TemplateCompletionContext::TagArgument { .. }
+                | TemplateCompletionContext::LibraryName { .. }
+                | TemplateCompletionContext::LoadSymbol { .. },
+            )
+            | CompletionOffsetContext::None => None,
         }
-        PositionEncoding::Utf32 => {
-            let char_pos = position.character as usize;
-            let mut byte_offset = 0;
-
-            for (i, ch) in line_text.chars().enumerate() {
-                if i >= char_pos {
-                    break;
-                }
-                byte_offset += ch.len_utf8();
-            }
-            byte_offset
-        }
-        PositionEncoding::Utf8 => position.character as usize,
+    } else {
+        None
     };
 
-    let clamped_offset = cursor_byte_offset.min(line_text.len());
-
-    Some(LineInfo {
-        text: line_text,
-        cursor_offset: clamped_offset,
-    })
-}
-
-/// Analyze a line of template text to determine completion context
-fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<TemplateCompletionContext> {
-    let prefix = &line[..cursor_offset.min(line.len())];
-
-    // Find the last {{ or {% before cursor position, choosing the nearest one
-    let var_start = prefix.rfind("{{");
-    let tag_start = prefix.rfind("{%");
-
-    // Check if we're inside a variable expression ({{ ... }})
-    // A variable start is only valid if it's the closest template delimiter
-    if let Some(vs) = var_start {
-        let is_var_closer = tag_start.is_none() || tag_start.unwrap() < vs;
-        if is_var_closer {
-            return analyze_variable_context(prefix, vs);
-        }
-    }
-
-    let tag_start = tag_start?;
-
-    // Get the content between {% and cursor
-    let content_start = tag_start + 2;
-    let content = &prefix[content_start..];
-
-    // Check what's after the cursor for closing detection
-    let suffix = &line[cursor_offset.min(line.len())..];
-    let closing = detect_closing_brace(suffix);
-
-    // Check if we need a leading space (no space after {%)
-    let needs_space = content.is_empty() || !content.starts_with(' ');
-
-    // Parse the content to determine context
-    let trimmed = content.trim_start();
-
-    // Split into tokens by whitespace
-    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-
-    if tokens.is_empty() {
-        // Just opened tag, completing tag name
-        return Some(TemplateCompletionContext::TagName {
-            partial: String::new(),
-            needs_space,
-            closing,
-        });
-    }
-
-    // Check if we're in the middle of typing the first token (tag name)
-    if tokens.len() == 1 && !trimmed.ends_with(char::is_whitespace) {
-        // Still typing the tag name
-        return Some(TemplateCompletionContext::TagName {
-            partial: tokens[0].to_string(),
-            needs_space,
-            closing,
-        });
-    }
-
-    // We have a complete tag name and are working on arguments
-    let tag_name = tokens[0];
-
-    // Special case for {% load %} - completing library names
-    if tag_name == "load" {
-        // Get the partial library name being typed
-        let partial = if trimmed.ends_with(char::is_whitespace) {
-            String::new()
-        } else if tokens.len() > 1 {
-            (*tokens.last().unwrap()).to_string()
-        } else {
-            String::new()
-        };
-
-        return Some(TemplateCompletionContext::LibraryName { partial, closing });
-    }
-
-    // For other tags, we're completing arguments
-    // Calculate argument position and partial text
-    let parsed_args: Vec<String> = if tokens.len() > 1 {
-        tokens[1..].iter().map(|&s| s.to_string()).collect()
-    } else {
-        Vec::new()
-    };
-
-    // Determine position and partial
-    let (position, partial) = if trimmed.ends_with(char::is_whitespace) {
-        // After a space, starting a new argument
-        (parsed_args.len(), String::new())
-    } else if !parsed_args.is_empty() {
-        // In the middle of typing an argument
-        (parsed_args.len() - 1, parsed_args.last().unwrap().clone())
-    } else {
-        // Just after tag name with space
-        (0, String::new())
-    };
-
-    Some(TemplateCompletionContext::TagArgument {
-        tag: tag_name.to_string(),
-        position,
-        partial: partial.clone(),
-        parsed_args: if partial.is_empty() {
-            parsed_args
-        } else {
-            // Don't include the partial argument in parsed_args
-            parsed_args[..parsed_args.len() - 1].to_vec()
-        },
-        closing,
-    })
-}
-
-/// Analyze a variable expression context (`{{ ... }}`) to detect filter completion.
-///
-/// Returns `Some(Filter { partial })` when the cursor is after a pipe character
-/// inside a variable expression, indicating the user is typing a filter name.
-fn analyze_variable_context(prefix: &str, var_start: usize) -> Option<TemplateCompletionContext> {
-    // Get content between {{ and cursor
-    let content_start = var_start + 2;
-    let content = &prefix[content_start..];
-
-    // Look for the last pipe character (not inside quotes) to detect filter context
-    let last_pipe = find_last_unquoted_pipe(content)?;
-
-    // Extract partial filter name after the last pipe
-    let after_pipe = &content[last_pipe + 1..];
-    let partial = after_pipe.trim_start().to_string();
-
-    Some(TemplateCompletionContext::Filter { partial })
-}
-
-/// Find the position of the last pipe character (`|`) that is not inside quotes.
-///
-/// Handles escaped quotes (e.g., `\"` or `\'`) by counting consecutive
-/// preceding backslashes — a quote is only a real delimiter when preceded
-/// by an even number of backslashes.
-///
-/// Returns `None` if no unquoted pipe is found.
-fn find_last_unquoted_pipe(s: &str) -> Option<usize> {
-    let mut last_pipe = None;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let bytes = s.as_bytes();
-
-    for (i, ch) in s.char_indices() {
-        match ch {
-            '\'' if !in_double_quote => {
-                let num_backslashes = bytes[..i].iter().rev().take_while(|&&b| b == b'\\').count();
-                if num_backslashes % 2 == 0 {
-                    in_single_quote = !in_single_quote;
-                }
-            }
-            '"' if !in_single_quote => {
-                let num_backslashes = bytes[..i].iter().rev().take_while(|&&b| b == b'\\').count();
-                if num_backslashes % 2 == 0 {
-                    in_double_quote = !in_double_quote;
-                }
-            }
-            '|' if !in_single_quote && !in_double_quote => last_pipe = Some(i),
-            _ => {}
-        }
-    }
-
-    last_pipe
-}
-
-/// Detect what closing brace is present after the cursor
-fn detect_closing_brace(suffix: &str) -> ClosingBrace {
-    let trimmed = suffix.trim_start();
-    if trimmed.starts_with("%}") {
-        ClosingBrace::FullClose
-    } else if trimmed.starts_with('}') {
-        ClosingBrace::PartialClose
-    } else {
-        ClosingBrace::None
-    }
-}
-
-/// Generate Django template tag completion items based on context
-#[allow(clippy::too_many_arguments)]
-fn generate_template_completions(
-    context: &TemplateCompletionContext,
-    template_libraries: Option<&TemplateLibraries>,
-    tag_specs: Option<&TagSpecs>,
-    available_symbols: Option<&AvailableSymbols>,
-    supports_snippets: bool,
-    position: ls_types::Position,
-    line_text: &str,
-    cursor_offset: usize,
-) -> Vec<ls_types::CompletionItem> {
-    match context {
-        TemplateCompletionContext::TagName {
-            partial,
-            needs_space,
-            closing,
-        } => generate_tag_name_completions(
-            partial,
-            *needs_space,
-            closing,
+    let mut candidates = match &context {
+        CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
+            prefix,
+            needs_leading_space,
+            close,
+        }) => generate_tag_name_candidates(
+            prefix,
+            *needs_leading_space,
+            *close,
             template_libraries,
-            tag_specs,
-            available_symbols,
+            db.tag_specs(),
+            available_symbols.as_ref(),
             supports_snippets,
-            position,
-            line_text,
-            cursor_offset,
         ),
-        TemplateCompletionContext::TagArgument {
+        CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
             tag,
             position,
-            partial,
-            closing,
+            prefix,
+            close,
             ..
-        } => generate_argument_completions(
+        }) => generate_tag_argument_candidates(
             tag,
             *position,
-            partial,
-            closing,
-            tag_specs,
+            prefix,
+            *close,
+            db.tag_specs(),
             supports_snippets,
         ),
-        TemplateCompletionContext::LibraryName { partial, closing } => {
-            generate_library_completions(partial, closing, template_libraries)
+        CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
+            prefix,
+            suffix,
+            close,
+        }) => generate_library_name_candidates(prefix, suffix, *close, template_libraries),
+        CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
+            prefix,
+            suffix,
+            library,
+            needs_trailing_space,
+        }) => generate_load_symbol_candidates(
+            prefix,
+            suffix,
+            *library,
+            *needs_trailing_space,
+            template_libraries,
+        ),
+        CompletionOffsetContext::Template(TemplateCompletionContext::Filter { prefix }) => {
+            generate_filter_candidates(prefix, template_libraries, available_symbols.as_ref())
         }
-        TemplateCompletionContext::Filter { partial } => {
-            generate_filter_completions(partial, template_libraries, available_symbols)
-        }
+        CompletionOffsetContext::Template(TemplateCompletionContext::Text)
+        | CompletionOffsetContext::None => Vec::new(),
+    };
+    if candidates.is_empty() {
+        return None;
     }
+
+    candidates.sort_by(CompletionCandidate::cmp_rank);
+    let line_index = file.line_index(db);
+    let items = candidates
+        .iter()
+        .map(|candidate| candidate.to_lsp_completion_item(source.as_str(), line_index, encoding))
+        .collect::<Vec<_>>();
+
+    Some(ls_types::CompletionResponse::Array(items))
 }
 
-/// Calculate the range to replace for a completion
-fn calculate_replacement_range(
-    position: ls_types::Position,
-    line_text: &str,
-    cursor_offset: usize,
-    partial_len: usize,
-    closing: &ClosingBrace,
-) -> ls_types::Range {
-    // Start position: move back by the length of the partial text
-    let start_col = position
-        .character
-        .saturating_sub(u32::try_from(partial_len).unwrap_or(0));
-    let start = ls_types::Position::new(position.line, start_col);
-
-    // End position: include auto-paired } if present
-    let mut end_col = position.character;
-    if matches!(closing, ClosingBrace::PartialClose) {
-        // Include the auto-paired } in the replacement range
-        // Check if there's a } immediately after cursor
-        if line_text.as_bytes().get(cursor_offset) == Some(&b'}') {
-            end_col += 1;
-        }
-    }
-    let end = ls_types::Position::new(position.line, end_col);
-
-    ls_types::Range::new(start, end)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn generate_discovered_tag_name_completions(
-    partial: &str,
-    needs_space: bool,
-    closing: &ClosingBrace,
+fn generate_tag_name_candidates(
+    prefix: &OffsetPrefix<'_>,
+    needs_leading_space: bool,
+    close: TagClose,
     template_libraries: &TemplateLibraries,
-    _supports_snippets: bool,
-    position: ls_types::Position,
-    line_text: &str,
-    cursor_offset: usize,
-) -> Vec<ls_types::CompletionItem> {
-    let names: Vec<String> = template_libraries
-        .discovered_symbol_names(TemplateSymbolKind::Tag)
-        .into_iter()
-        .map(|name| name.as_str().to_string())
-        .collect();
-
-    let replacement_range =
-        calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
-
-    names
-        .into_iter()
-        .filter(|name| name.starts_with(partial))
-        .map(|name| {
-            let (insert_text, insert_text_format) =
-                build_plain_insert_for_tag(&name, needs_space, closing);
-
-            ls_types::CompletionItem {
-                label: name.clone(),
-                kind: Some(ls_types::CompletionItemKind::KEYWORD),
-                detail: Some("scanned tag".to_string()),
-                text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
-                    ls_types::TextEdit::new(replacement_range, insert_text),
-                )),
-                insert_text_format: Some(insert_text_format),
-                filter_text: Some(name),
-                ..Default::default()
-            }
-        })
-        .collect()
-}
-
-/// Generate completions for tag names
-///
-/// When `available_symbols` is `Some`, only tags that are available at the cursor
-/// position (builtins + tags from loaded libraries) are shown. When `None` (active
-/// Project Facts unavailable), all tags from `template_tags` are shown as a fallback.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn generate_tag_name_completions(
-    partial: &str,
-    needs_space: bool,
-    closing: &ClosingBrace,
-    template_libraries: Option<&TemplateLibraries>,
-    tag_specs: Option<&TagSpecs>,
+    tag_specs: &TagSpecs,
     available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
-    position: ls_types::Position,
-    line_text: &str,
-    cursor_offset: usize,
-) -> Vec<ls_types::CompletionItem> {
-    let Some(template_libraries) = template_libraries else {
-        return Vec::new();
-    };
+) -> Vec<CompletionCandidate> {
+    let mut candidates = Vec::new();
 
-    if template_libraries.active_knowledge != Knowledge::Known {
-        return generate_discovered_tag_name_completions(
-            partial,
-            needs_space,
-            closing,
-            template_libraries,
-            supports_snippets,
-            position,
-            line_text,
-            cursor_offset,
-        );
-    }
-
-    let tags = template_libraries.installed_symbol_candidates(TemplateSymbolKind::Tag);
-
-    let mut completions = Vec::new();
-
-    // Calculate the replacement range for all completions
-    let replacement_range =
-        calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
-
-    // First, check if we should suggest end tags
-    // If partial starts with "end", prioritize end tags
-    if partial.starts_with("end") {
-        if let Some(specs) = tag_specs {
-            // Add all end tags that match the partial
-            for (opener_name, spec) in specs {
-                if let Some(end_tag) = &spec.end_tag {
-                    if end_tag.name.starts_with(partial) {
-                        // Create a completion for the end tag
-                        let mut insert_text = String::new();
-                        if needs_space {
-                            insert_text.push(' ');
-                        }
-                        insert_text.push_str(&end_tag.name);
-
-                        // Add closing based on what's already present
-                        match closing {
-                            ClosingBrace::PartialClose | ClosingBrace::None => {
-                                insert_text.push_str(" %}");
-                            }
-                            ClosingBrace::FullClose => {} // No closing needed
-                        }
-
-                        completions.push(ls_types::CompletionItem {
-                            label: end_tag.name.to_string(),
-                            kind: Some(ls_types::CompletionItemKind::KEYWORD),
-                            detail: Some(format!("End tag for {opener_name}")),
-                            text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
-                                ls_types::TextEdit::new(replacement_range, insert_text.clone()),
-                            )),
-                            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                            filter_text: Some(end_tag.name.to_string()),
-                            sort_text: Some(format!("0_{}", end_tag.name.as_ref())), // Priority sort
-                            ..Default::default()
-                        });
-                    }
-                }
+    if prefix.text.starts_with("end") {
+        for (opener_name, spec) in tag_specs {
+            let Some(end_tag) = &spec.end_tag else {
+                continue;
+            };
+            let name = end_tag.name.as_ref();
+            if name.starts_with(prefix.text) {
+                candidates.push(CompletionCandidate::end_tag(
+                    opener_name,
+                    name,
+                    prefix,
+                    needs_leading_space,
+                    close,
+                ));
             }
         }
     }
 
-    for tag in tags {
-        let symbol = &tag.symbol;
-
-        if let Some(symbols) = available_symbols {
-            if !symbol_is_available(symbol, symbols) {
+    if !template_libraries.has_symbol_inventory() {
+        for (name, spec) in tag_specs {
+            if !name.starts_with(prefix.text) {
                 continue;
             }
+
+            candidates.push(CompletionCandidate::tag_name_from_spec(
+                name,
+                prefix,
+                needs_leading_space,
+                close,
+                spec,
+                supports_snippets,
+            ));
         }
 
-        let tag_name = symbol.name();
-
-        if tag_name.starts_with(partial) {
-            // Try to get snippet from TagSpecs if available and client supports snippets
-            let (insert_text, insert_format) = if supports_snippets {
-                if let Some(specs) = tag_specs {
-                    if let Some(spec) = specs.get(tag_name) {
-                        let has_args = !spec.arguments().is_empty();
-                        if has_args {
-                            // Generate snippet from tag spec
-                            let mut text = String::new();
-
-                            // Add leading space if needed
-                            if needs_space {
-                                text.push(' ');
-                            }
-
-                            // Generate the snippet
-                            let snippet = generate_snippet_for_tag_with_end(tag_name, spec);
-                            text.push_str(&snippet);
-
-                            // Only add closing if the snippet doesn't already include it
-                            // (snippets for tags with end tags include their own %} closing)
-                            if !snippet.contains("%}") {
-                                // Add closing based on what's already present
-                                match closing {
-                                    ClosingBrace::PartialClose | ClosingBrace::None => {
-                                        text.push_str(" %}");
-                                    }
-                                    ClosingBrace::FullClose => {} // No closing needed
-                                }
-                            }
-
-                            (text, ls_types::InsertTextFormat::SNIPPET)
-                        } else {
-                            // No args, use plain text
-                            build_plain_insert_for_tag(tag_name, needs_space, closing)
-                        }
-                    } else {
-                        // No spec found, use plain text
-                        build_plain_insert_for_tag(tag_name, needs_space, closing)
-                    }
-                } else {
-                    // No specs available, use plain text
-                    build_plain_insert_for_tag(tag_name, needs_space, closing)
-                }
-            } else {
-                // Client doesn't support snippets
-                build_plain_insert_for_tag(tag_name, needs_space, closing)
-            };
-
-            let kind = if matches!(insert_format, ls_types::InsertTextFormat::SNIPPET) {
-                ls_types::CompletionItemKind::SNIPPET
-            } else {
-                symbol_completion_kind(symbol)
-            };
-
-            let detail = match &tag.origin {
-                InstalledSymbolOrigin::Builtin { module } => {
-                    format!("builtin from {}", module.as_str())
-                }
-                InstalledSymbolOrigin::Loadable { load_name } => {
-                    format!("{{% load {} %}}", load_name.as_str())
-                }
-            };
-
-            let completion_item = ls_types::CompletionItem {
-                label: tag_name.to_string(),
-                kind: Some(kind),
-                detail: Some(detail),
-                documentation: symbol
-                    .doc()
-                    .map(|doc| ls_types::Documentation::String(doc.to_string())),
-                text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
-                    ls_types::TextEdit::new(replacement_range, insert_text.clone()),
-                )),
-                insert_text_format: Some(insert_format),
-                filter_text: Some(tag_name.to_string()),
-                sort_text: Some(format!("1_{tag_name}")), // Regular tags sort after end tags
-                ..Default::default()
-            };
-
-            completions.push(completion_item);
-        }
+        candidates.sort_by(CompletionCandidate::cmp_rank);
+        candidates.dedup_by(|left, right| left.label == right.label);
+        return candidates;
     }
 
-    completions
+    for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Tag) {
+        let symbol = &candidate.symbol;
+        if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
+            continue;
+        }
+
+        let name = symbol.name();
+        if !name.starts_with(prefix.text) {
+            continue;
+        }
+
+        candidates.push(CompletionCandidate::tag_name(
+            symbol,
+            prefix,
+            needs_leading_space,
+            close,
+            tag_specs.get(name),
+            &candidate.availability,
+            supports_snippets,
+        ));
+    }
+
+    candidates
 }
 
-/// Generate completions for tag arguments
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn generate_argument_completions(
+fn generate_tag_argument_candidates(
     tag: &str,
     position: usize,
-    partial: &str,
-    closing: &ClosingBrace,
-    tag_specs: Option<&TagSpecs>,
+    prefix: &OffsetPrefix<'_>,
+    close: TagClose,
+    tag_specs: &TagSpecs,
     supports_snippets: bool,
-) -> Vec<ls_types::CompletionItem> {
-    let Some(specs) = tag_specs else {
+) -> Vec<CompletionCandidate> {
+    let Some(spec) = tag_specs.get(tag) else {
         return Vec::new();
     };
 
-    let Some(spec) = specs.get(tag) else {
+    let arguments = spec.arguments();
+    let Some(argument) = arguments.get(position) else {
         return Vec::new();
     };
 
-    let args = spec.arguments();
-
-    if position >= args.len() {
-        return Vec::new();
-    }
-
-    let arg = &args[position];
-    let mut completions = Vec::new();
-
-    match &arg.kind {
-        TagArgumentKind::Literal(value) => {
-            // For literals, complete the exact text
-            if value.starts_with(partial) {
-                let mut insert_text = value.clone();
-
-                match closing {
-                    ClosingBrace::PartialClose | ClosingBrace::None => {
-                        insert_text.push_str(" %}");
-                    }
-                    ClosingBrace::FullClose => {}
-                }
-
-                completions.push(ls_types::CompletionItem {
-                    label: value.clone(),
-                    kind: Some(ls_types::CompletionItemKind::KEYWORD),
-                    detail: Some("literal argument".to_string()),
-                    insert_text: Some(insert_text),
-                    insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                    ..Default::default()
-                });
-            }
+    let mut candidates = match &argument.kind {
+        TagArgumentKind::Literal(value) if value.starts_with(prefix.text) => {
+            vec![CompletionCandidate::tag_argument_literal(
+                value, prefix, close,
+            )]
         }
-        TagArgumentKind::Choice(choices) => {
-            for option in choices {
-                if option.starts_with(partial) {
-                    let mut insert_text = option.clone();
-
-                    match closing {
-                        ClosingBrace::PartialClose | ClosingBrace::None => {
-                            insert_text.push_str(" %}");
-                        }
-                        ClosingBrace::FullClose => {}
-                    }
-
-                    completions.push(ls_types::CompletionItem {
-                        label: option.clone(),
-                        kind: Some(ls_types::CompletionItemKind::ENUM_MEMBER),
-                        detail: Some(format!("choice for {}", arg.name)),
-                        insert_text: Some(insert_text),
-                        insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                        ..Default::default()
-                    });
-                }
-            }
+        TagArgumentKind::Choice(choices) => choices
+            .iter()
+            .filter(|choice| choice.starts_with(prefix.text))
+            .map(|choice| {
+                CompletionCandidate::tag_argument_choice(choice, &argument.name, prefix, close)
+            })
+            .collect(),
+        TagArgumentKind::Variable | TagArgumentKind::Keyword if prefix.text.is_empty() => {
+            let label = format!("<{}>", argument.name);
+            vec![CompletionCandidate::tag_argument_placeholder(label, prefix)]
         }
-        TagArgumentKind::Variable | TagArgumentKind::Keyword => {
-            if partial.is_empty() {
-                completions.push(ls_types::CompletionItem {
-                    label: format!("<{}>", arg.name),
-                    kind: Some(ls_types::CompletionItemKind::VARIABLE),
-                    detail: Some("variable argument".to_string()),
-                    insert_text: None,
-                    insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                    ..Default::default()
-                });
-            }
-        }
-        TagArgumentKind::VarArgs => {
-            // VarArgs not specifically completed
-        }
-    }
+        TagArgumentKind::Literal(_)
+        | TagArgumentKind::Variable
+        | TagArgumentKind::Keyword
+        | TagArgumentKind::VarArgs => Vec::new(),
+    };
 
-    // If we're at the start of an argument position and client supports snippets,
-    // offer a snippet for all remaining arguments
-    if partial.is_empty() && supports_snippets && position < args.len() {
+    if supports_snippets && prefix.text.is_empty() {
         let remaining_snippet = generate_partial_snippet(spec, position);
         if !remaining_snippet.is_empty() {
-            let mut insert_text = remaining_snippet;
-
-            match closing {
-                ClosingBrace::PartialClose | ClosingBrace::None => {
-                    insert_text.push_str(" %}");
-                }
-                ClosingBrace::FullClose => {}
-            }
-
             let label = if position == 0 {
                 format!("{tag} arguments")
             } else {
                 "remaining arguments".to_string()
             };
-
-            completions.push(ls_types::CompletionItem {
+            candidates.push(CompletionCandidate::tag_argument_snippet(
                 label,
-                kind: Some(ls_types::CompletionItemKind::SNIPPET),
-                detail: Some("Complete remaining arguments".to_string()),
-                insert_text: Some(insert_text),
-                insert_text_format: Some(ls_types::InsertTextFormat::SNIPPET),
-                sort_text: Some("zzz".to_string()),
-                ..Default::default()
-            });
+                remaining_snippet,
+                prefix,
+                close,
+            ));
         }
     }
 
-    completions
+    candidates
 }
 
-/// Generate completions for library names (for {% load %} tag).
-///
-/// When `template_libraries` is `None`, returns an empty list since we have no
-/// knowledge of which libraries are available.
-fn generate_library_completions(
-    partial: &str,
-    closing: &ClosingBrace,
-    template_libraries: Option<&TemplateLibraries>,
-) -> Vec<ls_types::CompletionItem> {
-    let Some(template_libraries) = template_libraries else {
-        return Vec::new();
-    };
-
-    let names = template_libraries.completion_library_names();
-
-    let mut completions = Vec::new();
-
-    for load_name in names {
-        if load_name.as_str().starts_with(partial) {
-            let load_name_str = load_name.as_str().to_string();
-            let mut insert_text = load_name_str.clone();
-
-            // Add closing if needed
-            match closing {
-                ClosingBrace::PartialClose | ClosingBrace::None => {
-                    insert_text.push_str(" %}");
-                }
-                ClosingBrace::FullClose => {}
-            }
-
-            let detail = template_libraries
-                .loadable_library_module(&load_name)
-                .map_or_else(
-                    || "Django template tag library".to_string(),
-                    |module| format!("Django template tag library ({})", module.as_str()),
-                );
-
-            completions.push(ls_types::CompletionItem {
-                label: load_name_str.clone(),
-                kind: Some(ls_types::CompletionItemKind::MODULE),
-                detail: Some(detail),
-                insert_text: Some(insert_text),
-                insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(load_name_str.clone()),
-                ..Default::default()
-            });
-        }
-    }
-
-    completions
-}
-
-/// Generate completion items from a collection of template symbols.
-///
-/// When `available_symbols` is `Some` (active Project Facts are available), only symbols that are
-/// available at the cursor position (builtins + loaded library symbols) are shown.
-fn generate_completions(
-    symbols: impl IntoIterator<Item = InstalledSymbolCandidate>,
-    partial: &str,
-    available_symbols: Option<&AvailableSymbols>,
-) -> Vec<ls_types::CompletionItem> {
-    let mut completions = Vec::new();
-
-    for candidate in symbols {
-        let symbol = &candidate.symbol;
-
-        if let Some(avail) = available_symbols {
-            if !symbol_is_available(symbol, avail) {
-                continue;
-            }
-        }
-
-        let name = symbol.name();
-        if !name.starts_with(partial) {
+fn generate_library_name_candidates(
+    prefix: &OffsetPrefix<'_>,
+    suffix: &OffsetSuffix<'_>,
+    close: TagClose,
+    template_libraries: &TemplateLibraries,
+) -> Vec<CompletionCandidate> {
+    let mut candidates = Vec::new();
+    for name in template_libraries.completion_library_names() {
+        if !name.as_str().starts_with(prefix.text) {
             continue;
         }
 
-        let detail = match &candidate.origin {
-            InstalledSymbolOrigin::Builtin { module } => match symbol.kind {
-                TemplateSymbolKind::Tag => format!("builtin from {}", module.as_str()),
-                TemplateSymbolKind::Filter => "builtin filter".to_string(),
-            },
-            InstalledSymbolOrigin::Loadable { load_name } => {
-                format!("{{% load {} %}}", load_name.as_str())
-            }
-        };
-
-        completions.push(ls_types::CompletionItem {
-            label: name.to_string(),
-            kind: Some(symbol_completion_kind(symbol)),
-            detail: Some(detail),
-            documentation: symbol
-                .doc()
-                .map(|doc| ls_types::Documentation::String(doc.to_string())),
-            insert_text: Some(name.to_string()),
-            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-            filter_text: Some(name.to_string()),
-            sort_text: Some(format!("1_{name}")),
-            ..Default::default()
-        });
+        let detail = template_libraries
+            .installed_library_module(&name)
+            .map_or_else(
+                || "Django template library".to_string(),
+                |module| format!("Django template library ({})", module.as_str()),
+            );
+        candidates.push(CompletionCandidate::library_name(
+            name.as_str(),
+            prefix,
+            suffix,
+            close,
+            detail,
+        ));
     }
 
-    completions.sort_by(|a, b| a.label.cmp(&b.label));
-    completions.dedup_by(|a, b| a.label == b.label);
-
-    completions
+    candidates
 }
 
-/// Generate completions for filter names in `{{ var|filter }}` context.
-///
-/// When `available_symbols` is `Some` (active Project Facts are available), only shows builtin filters
-/// and filters from loaded libraries at the cursor position. When `None` (active Project Facts
-/// unavailable), shows all known filters as a fallback.
-fn generate_filter_completions(
-    partial: &str,
-    template_libraries: Option<&TemplateLibraries>,
-    available_symbols: Option<&AvailableSymbols>,
-) -> Vec<ls_types::CompletionItem> {
-    let Some(template_libraries) = template_libraries else {
+fn generate_load_symbol_candidates(
+    prefix: &OffsetPrefix<'_>,
+    suffix: &OffsetSuffix<'_>,
+    library: Option<&str>,
+    needs_trailing_space: bool,
+    template_libraries: &TemplateLibraries,
+) -> Vec<CompletionCandidate> {
+    if !template_libraries.inventory_is_complete() {
+        return Vec::new();
+    }
+
+    let Some(library) = library.and_then(|name| template_libraries.installed_library_str(name))
+    else {
         return Vec::new();
     };
 
-    if template_libraries.active_knowledge == Knowledge::Known {
-        let filters = template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
-        return generate_completions(filters, partial, available_symbols);
-    }
-
-    let names: Vec<String> = template_libraries
-        .discovered_symbol_names(TemplateSymbolKind::Filter)
-        .into_iter()
-        .map(|name| name.as_str().to_string())
-        .collect();
-
-    names
-        .into_iter()
-        .filter(|name| name.starts_with(partial))
-        .map(|name| ls_types::CompletionItem {
-            label: name.clone(),
-            kind: Some(ls_types::CompletionItemKind::FUNCTION),
-            detail: Some("scanned filter".to_string()),
-            insert_text: Some(name),
-            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-            ..Default::default()
+    library
+        .symbols()
+        .iter()
+        .filter(|symbol| symbol.name().starts_with(prefix.text))
+        .map(|symbol| {
+            CompletionCandidate::load_symbol(
+                symbol.name(),
+                prefix,
+                suffix,
+                needs_trailing_space,
+                symbol.doc(),
+            )
         })
         .collect()
 }
 
-/// Build plain insert text without snippets for tag names
-fn build_plain_insert_for_tag(
-    tag_name: &str,
-    needs_space: bool,
-    closing: &ClosingBrace,
-) -> (String, ls_types::InsertTextFormat) {
-    let mut insert_text = String::new();
+fn generate_filter_candidates(
+    prefix: &OffsetPrefix<'_>,
+    template_libraries: &TemplateLibraries,
+    available_symbols: Option<&AvailableSymbols>,
+) -> Vec<CompletionCandidate> {
+    if template_libraries.inventory_is_complete() {
+        let mut candidates = Vec::new();
 
-    // Add leading space if needed (cursor right after {%)
-    if needs_space {
-        insert_text.push(' ');
+        for candidate in template_libraries.template_symbol_candidates(TemplateSymbolKind::Filter) {
+            let symbol = &candidate.symbol;
+            if available_symbols.is_some_and(|symbols| !symbols.contains_symbol(symbol)) {
+                continue;
+            }
+
+            let name = symbol.name();
+            if name.starts_with(prefix.text) {
+                candidates.push(CompletionCandidate::filter(
+                    name,
+                    prefix,
+                    &candidate.availability,
+                    symbol.doc(),
+                ));
+            }
+        }
+
+        candidates.sort_by(|left, right| left.label.cmp(&right.label));
+        candidates.dedup_by(|left, right| left.label == right.label);
+        return candidates;
     }
 
-    // Add the tag name
-    insert_text.push_str(tag_name);
-
-    // Add closing based on what's already present
-    match closing {
-        ClosingBrace::PartialClose | ClosingBrace::None => insert_text.push_str(" %}"), // Include full closing since we're replacing the auto-paired }
-        ClosingBrace::FullClose => {} // No closing needed
-    }
-
-    (insert_text, ls_types::InsertTextFormat::PLAIN_TEXT)
+    Vec::new()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::borrow::Cow;
     use std::collections::HashMap;
 
+    use djls_project::PythonModuleName;
+    use djls_project::SymbolDefinition;
+    use djls_project::TemplateSymbol;
+    use djls_project::TemplateSymbolName;
+    use djls_semantic::EndTag;
     use djls_semantic::TagArgument;
+    use djls_semantic::TagSpec;
+    use djls_source::Span;
 
     use super::*;
 
-    fn symbol(
+    fn prefix(text: &'static str) -> OffsetPrefix<'static> {
+        OffsetPrefix {
+            text,
+            span: Span::before_offset(Offset::new(u32::try_from(text.len()).unwrap()), text.len()),
+        }
+    }
+
+    fn suffix(text: &'static str, start: u32) -> OffsetSuffix<'static> {
+        OffsetSuffix {
+            text,
+            span: Span::new(start, u32::try_from(text.len()).unwrap()),
+        }
+    }
+
+    fn labels(candidates: &[CompletionCandidate]) -> Vec<&str> {
+        candidates
+            .iter()
+            .map(|candidate| candidate.label.as_str())
+            .collect()
+    }
+
+    fn template_libraries(libraries: &[(&str, &str)]) -> TemplateLibraries {
+        let libraries = libraries
+            .iter()
+            .map(|(name, module)| ((*name).to_string(), (*module).to_string()))
+            .collect::<HashMap<_, _>>();
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, &[], &[], &libraries, &[])
+    }
+
+    fn template_symbol(
         kind: TemplateSymbolKind,
         name: &str,
-        load_name: Option<&str>,
-        library_module: &str,
-        module: &str,
+        module: &PythonModuleName,
         doc: Option<&str>,
-    ) -> djls_semantic::TemplateSymbolSnapshot {
-        djls_semantic::TemplateSymbolSnapshot {
-            kind: Some(kind),
-            name: name.to_string(),
-            load_name: load_name.map(str::to_string),
-            library_module: library_module.to_string(),
-            module: module.to_string(),
+    ) -> TemplateSymbol {
+        TemplateSymbol {
+            kind,
+            name: TemplateSymbolName::parse(name).unwrap(),
+            definition: SymbolDefinition::Module(module.clone()),
             doc: doc.map(str::to_string),
         }
     }
 
-    fn response_from_symbols(
-        symbols: Vec<djls_semantic::TemplateSymbolSnapshot>,
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> djls_semantic::TemplateLibrarySnapshot {
-        djls_semantic::TemplateLibrarySnapshot {
-            symbols,
-            libraries: libraries
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<BTreeMap<_, _>>(),
-            builtins: builtins.to_vec(),
+    fn filter_libraries() -> TemplateLibraries {
+        let libraries =
+            HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
+        let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
+        filter["doc"] = "Translate text.".into();
+
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, &[], &[filter], &libraries, &[])
+    }
+
+    fn tag_libraries() -> TemplateLibraries {
+        let builtins = vec!["django.template.defaulttags".to_string()];
+        let libraries =
+            HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
+        let tags = vec![
+            djls_testing::builtin_tag("if", "django.template.defaulttags"),
+            djls_testing::library_tag("trans", "i18n", "django.templatetags.i18n"),
+            djls_testing::library_tag("blocktrans", "i18n", "django.templatetags.i18n"),
+        ];
+
+        let db = djls_testing::TestDatabase::new();
+        djls_testing::make_template_libraries(&db, &tags, &[], &libraries, &builtins)
+    }
+
+    fn builtin_availability() -> TemplateSymbolAvailability {
+        tag_libraries()
+            .template_symbol_candidates(TemplateSymbolKind::Tag)
+            .into_iter()
+            .find(|candidate| candidate.symbol.name() == "if")
+            .expect("builtin if candidate should exist")
+            .availability
+    }
+
+    fn full_close() -> TagClose {
+        TagClose::Full {
+            replacement_suffix_len: 0,
         }
     }
 
-    fn build_template_libraries(
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> TemplateLibraries {
-        let mut symbols = Vec::new();
-
-        for module in builtins {
-            symbols.push(symbol(
-                TemplateSymbolKind::Tag,
-                &format!(
-                    "builtin_from_{}",
-                    module.split('.').next_back().unwrap_or("unknown")
-                ),
-                None,
-                module,
-                module,
-                None,
-            ));
-        }
-
-        for (load_name, module) in libraries {
-            symbols.push(symbol(
-                TemplateSymbolKind::Tag,
-                &format!("{load_name}_tag"),
-                Some(load_name),
-                module,
-                module,
-                None,
-            ));
-        }
-
-        let response = response_from_symbols(symbols, libraries, builtins);
-
-        TemplateLibraries::default().apply_active_snapshot(Some(response))
+    fn test_tag_symbol(name: &str) -> TemplateSymbol {
+        let module = PythonModuleName::parse("django.template.defaulttags").unwrap();
+        template_symbol(TemplateSymbolKind::Tag, name, &module, None)
     }
 
-    #[test]
-    fn test_library_completions_show_load_names_not_module_paths() {
-        let mut libraries = HashMap::new();
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions = generate_library_completions("", &ClosingBrace::None, Some(&libs));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert!(labels.contains(&"static"));
-        assert!(labels.contains(&"i18n"));
-        // Should NOT contain module paths
-        assert!(!labels.contains(&"django.templatetags.static"));
-        assert!(!labels.contains(&"django.templatetags.i18n"));
-    }
-
-    #[test]
-    fn test_library_completions_deterministic_alphabetical_order() {
-        let mut libraries = HashMap::new();
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-        libraries.insert(
-            "admin_list".to_string(),
-            "django.contrib.admin.templatetags.admin_list".to_string(),
-        );
-        libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
-
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions = generate_library_completions("", &ClosingBrace::None, Some(&libs));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, vec!["admin_list", "i18n", "static", "tz"]);
-    }
-
-    #[test]
-    fn test_library_completions_builtins_excluded() {
-        let mut libraries = HashMap::new();
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-
-        let builtins = vec![
-            "django.template.defaulttags".to_string(),
-            "django.template.defaultfilters".to_string(),
-        ];
-
-        let libs = build_template_libraries(&libraries, &builtins);
-
-        let completions = generate_library_completions("", &ClosingBrace::None, Some(&libs));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // Only the library, not builtins
-        assert_eq!(labels, vec!["static"]);
-    }
-
-    #[test]
-    fn test_library_completions_partial_prefix_filtering() {
-        let mut libraries = HashMap::new();
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-        libraries.insert(
-            "staticfiles".to_string(),
-            "django.contrib.staticfiles.templatetags.staticfiles".to_string(),
-        );
-
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions = generate_library_completions("stat", &ClosingBrace::None, Some(&libs));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, vec!["static", "staticfiles"]);
-        // i18n should be filtered out
-        assert!(!labels.contains(&"i18n"));
-    }
-
-    #[test]
-    fn test_library_completions_detail_shows_module_path() {
-        let mut libraries = HashMap::new();
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions = generate_library_completions("", &ClosingBrace::None, Some(&libs));
-
-        assert_eq!(completions.len(), 1);
-        assert_eq!(
-            completions[0].detail.as_deref(),
-            Some("Django template tag library (django.templatetags.static)")
-        );
-    }
-
-    #[test]
-    fn test_library_completions_without_active_knowledge_returns_empty() {
-        let completions = generate_library_completions("", &ClosingBrace::None, None);
-        assert!(
-            completions.is_empty(),
-            "Library completions should be empty when active Project Facts are unavailable"
-        );
-    }
-
-    #[test]
-    fn test_library_completions_without_active_knowledge_with_partial_returns_empty() {
-        let completions = generate_library_completions("stat", &ClosingBrace::None, None);
-        assert!(
-            completions.is_empty(),
-            "Library completions should be empty even with partial input when active Project Facts are unavailable"
-        );
-    }
-
-    #[test]
-    fn test_library_completions_with_active_knowledge_returns_names() {
-        let mut libraries = HashMap::new();
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-        libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
-
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions = generate_library_completions("", &ClosingBrace::None, Some(&libs));
-
-        assert_eq!(completions.len(), 3);
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, vec!["i18n", "static", "tz"]);
-
-        // Each has MODULE kind
-        for c in &completions {
-            assert_eq!(c.kind, Some(ls_types::CompletionItemKind::MODULE));
-        }
-    }
-
-    #[test]
-    fn test_analyze_template_context_tag_name() {
-        let line = "{% loa";
-        let cursor_offset = 6; // After "loa"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagName {
-                partial: "loa".to_string(),
-                needs_space: false,
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_needs_space() {
-        let line = "{%loa";
-        let cursor_offset = 5; // After "loa"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagName {
-                partial: "loa".to_string(),
-                needs_space: true,
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_with_closing() {
-        let line = "{% load %}";
-        let cursor_offset = 7; // After "load"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagName {
-                partial: "load".to_string(),
-                needs_space: false,
-                closing: ClosingBrace::FullClose,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_library_name() {
-        let line = "{% load stat";
-        let cursor_offset = 12; // After "stat"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::LibraryName {
-                partial: "stat".to_string(),
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_tag_argument() {
-        let line = "{% for item i";
-        let cursor_offset = 13; // After "i"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagArgument {
-                tag: "for".to_string(),
-                position: 1,
-                partial: "i".to_string(),
-                parsed_args: vec!["item".to_string()],
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_tag_argument_with_space() {
-        let line = "{% for item ";
-        let cursor_offset = 12; // After space
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagArgument {
-                tag: "for".to_string(),
-                position: 1,
-                partial: String::new(),
-                parsed_args: vec!["item".to_string()],
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_no_template() {
-        let line = "Just regular HTML";
-        let cursor_offset = 5;
-
-        let context = analyze_template_context(line, cursor_offset);
-
-        assert!(context.is_none());
-    }
-
-    #[test]
-    fn test_generate_template_completions_empty_tags() {
-        let context = TemplateCompletionContext::TagName {
-            partial: "loa".to_string(),
-            needs_space: false,
-            closing: ClosingBrace::None,
-        };
-
-        let completions = generate_template_completions(
-            &context,
-            None,
-            None,
-            None,
-            false,
-            ls_types::Position::new(0, 0),
-            "",
-            0,
-        );
-
-        assert!(completions.is_empty());
-    }
-
-    #[test]
-    fn test_analyze_context_for_tag_empty() {
-        let line = "{% ";
-        let cursor_offset = 3; // After space
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagName {
-                partial: String::new(),
-                needs_space: false,
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_context_for_second_argument() {
-        let line = "{% for item in ";
-        let cursor_offset = 15; // After "in "
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagArgument {
-                tag: "for".to_string(),
-                position: 2,
-                partial: String::new(),
-                parsed_args: vec!["item".to_string(), "in".to_string()],
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_context_autoescape_argument() {
-        let line = "{% autoescape o";
-        let cursor_offset = 15; // After "o"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagArgument {
-                tag: "autoescape".to_string(),
-                position: 0,
-                partial: "o".to_string(),
-                parsed_args: vec![],
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_library_context_multiple_libs() {
-        let line = "{% load staticfiles i18n ";
-        let cursor_offset = 25; // After "i18n "
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::LibraryName {
-                partial: String::new(),
-                closing: ClosingBrace::None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_with_auto_paired_brace() {
-        // Simulates when editor auto-pairs { with } and user types {% if
-        let line = "{% if}";
-        let cursor_offset = 5; // After "if", before the auto-paired }
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagName {
-                partial: "if".to_string(),
-                needs_space: false,
-                closing: ClosingBrace::PartialClose, // Auto-paired } is detected as PartialClose
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_template_context_with_proper_closing() {
-        // Proper closing should still be detected
-        let line = "{% if %}";
-        let cursor_offset = 5; // After "if"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::TagName {
-                partial: "if".to_string(),
-                needs_space: false,
-                closing: ClosingBrace::FullClose,
-            }
-        );
-    }
-
-    // Helper to build AvailableSymbols for testing load-scoped completions
-    fn build_available_symbols(
-        template_libraries: &TemplateLibraries,
-        loads: Vec<(u32, djls_semantic::LoadKind)>,
-        position: u32,
-    ) -> AvailableSymbols {
-        AvailableSymbols::from_loads(loads, template_libraries, position)
-    }
-
-    fn build_test_libraries() -> TemplateLibraries {
-        use std::collections::BTreeMap;
-
-        let mut libraries = HashMap::new();
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-        libraries.insert(
-            "static".to_string(),
-            "django.templatetags.static".to_string(),
-        );
-
-        let builtins = vec![
-            "django.template.defaulttags".to_string(),
-            "django.template.defaultfilters".to_string(),
-        ];
-
-        let symbols = vec![
-            symbol(
-                TemplateSymbolKind::Tag,
-                "if",
-                None,
-                "django.template.defaulttags",
-                "django.template.defaulttags",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Tag,
-                "for",
-                None,
-                "django.template.defaulttags",
-                "django.template.defaulttags",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Tag,
-                "block",
-                None,
-                "django.template.defaulttags",
-                "django.template.defaulttags",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Tag,
-                "trans",
-                Some("i18n"),
-                "django.templatetags.i18n",
-                "django.templatetags.i18n",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Tag,
-                "blocktrans",
-                Some("i18n"),
-                "django.templatetags.i18n",
-                "django.templatetags.i18n",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Tag,
-                "get_static_prefix",
-                Some("static"),
-                "django.templatetags.static",
-                "django.templatetags.static",
-                None,
-            ),
-        ];
-
-        let response = djls_semantic::TemplateLibrarySnapshot {
-            symbols,
-            libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
-            builtins,
-        };
-
-        TemplateLibraries::default().apply_active_snapshot(Some(response))
-    }
-
-    #[test]
-    fn test_tag_completions_before_any_load_only_builtins() {
-        let template_libraries = build_test_libraries();
-        let loads = vec![(
-            120,
-            djls_semantic::LoadKind::FullLoad {
-                libraries: vec!["i18n".into()],
-            },
-        )];
-
-        // Position 10 = before any load
-        let symbols = build_available_symbols(&template_libraries, loads, 10);
-
-        let completions = generate_tag_name_completions(
-            "",
-            false,
-            &ClosingBrace::None,
-            Some(&template_libraries),
-            None,
-            Some(&symbols),
-            false,
-            ls_types::Position::new(0, 0),
-            "{% ",
-            3,
-        );
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // Builtins should be present
-        assert!(labels.contains(&"if"));
-        assert!(labels.contains(&"for"));
-        assert!(labels.contains(&"block"));
-        // Library tags should NOT be present (not loaded yet)
-        assert!(!labels.contains(&"trans"));
-        assert!(!labels.contains(&"blocktrans"));
-        assert!(!labels.contains(&"get_static_prefix"));
-    }
-
-    #[test]
-    fn test_tag_completions_after_load_shows_library_tags() {
-        let template_libraries = build_test_libraries();
-        let loads = vec![(
-            30,
-            djls_semantic::LoadKind::FullLoad {
-                libraries: vec!["i18n".into()],
-            },
-        )];
-
-        // Position 100 = after load
-        let symbols = build_available_symbols(&template_libraries, loads, 100);
-
-        let completions = generate_tag_name_completions(
-            "",
-            false,
-            &ClosingBrace::None,
-            Some(&template_libraries),
-            None,
-            Some(&symbols),
-            false,
-            ls_types::Position::new(0, 0),
-            "{% ",
-            3,
-        );
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // Builtins present
-        assert!(labels.contains(&"if"));
-        assert!(labels.contains(&"for"));
-        // i18n tags present (loaded)
-        assert!(labels.contains(&"trans"));
-        assert!(labels.contains(&"blocktrans"));
-        // static tags NOT present (not loaded)
-        assert!(!labels.contains(&"get_static_prefix"));
-    }
-
-    #[test]
-    fn test_tag_completions_selective_import_only_imported_symbols() {
-        let template_libraries = build_test_libraries();
-        let loads = vec![(
-            40,
-            djls_semantic::LoadKind::SelectiveImport {
-                symbols: vec!["trans".into()],
-                library: "i18n".into(),
-            },
-        )];
-
-        // Position 100 = after selective load
-        let symbols = build_available_symbols(&template_libraries, loads, 100);
-
-        let completions = generate_tag_name_completions(
-            "",
-            false,
-            &ClosingBrace::None,
-            Some(&template_libraries),
-            None,
-            Some(&symbols),
-            false,
-            ls_types::Position::new(0, 0),
-            "{% ",
-            3,
-        );
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // trans selectively imported → present
-        assert!(labels.contains(&"trans"));
-        // blocktrans NOT imported → absent
-        assert!(!labels.contains(&"blocktrans"));
-        // builtins always present
-        assert!(labels.contains(&"if"));
-    }
-
-    #[test]
-    fn test_tag_completions_without_active_knowledge_shows_all_tags() {
-        let template_libraries = build_test_libraries();
-
-        // No available_symbols = active Project Facts unavailable → show all tags
-        let completions = generate_tag_name_completions(
-            "",
-            false,
-            &ClosingBrace::None,
-            Some(&template_libraries),
-            None,
-            None, // no available symbols
-            false,
-            ls_types::Position::new(0, 0),
-            "{% ",
-            3,
-        );
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // ALL tags shown (fallback behavior)
-        assert!(labels.contains(&"if"));
-        assert!(labels.contains(&"for"));
-        assert!(labels.contains(&"block"));
-        assert!(labels.contains(&"trans"));
-        assert!(labels.contains(&"blocktrans"));
-        assert!(labels.contains(&"get_static_prefix"));
-    }
-
-    #[test]
-    fn test_tag_completions_partial_filtering_with_scoping() {
-        let template_libraries = build_test_libraries();
-        let loads = vec![(
-            30,
-            djls_semantic::LoadKind::FullLoad {
-                libraries: vec!["i18n".into()],
-            },
-        )];
-
-        // Position 100 = after load, partial = "bl"
-        let symbols = build_available_symbols(&template_libraries, loads, 100);
-
-        let completions = generate_tag_name_completions(
-            "bl",
-            false,
-            &ClosingBrace::None,
-            Some(&template_libraries),
-            None,
-            Some(&symbols),
-            false,
-            ls_types::Position::new(0, 0),
-            "{% bl",
-            5,
-        );
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // "block" (builtin, starts with "bl") → present
-        assert!(labels.contains(&"block"));
-        // "blocktrans" (i18n loaded, starts with "bl") → present
-        assert!(labels.contains(&"blocktrans"));
-        // "if", "for", "trans" don't start with "bl" → absent
-        assert!(!labels.contains(&"if"));
-        assert!(!labels.contains(&"trans"));
-    }
-
-    // --- Filter completion tests ---
-
-    fn build_test_filter_libraries() -> TemplateLibraries {
-        let tags = vec![symbol(
-            TemplateSymbolKind::Tag,
-            "if",
-            None,
-            "django.template.defaulttags",
-            "django.template.defaulttags",
-            None,
-        )];
-
-        let filters = vec![
-            symbol(
-                TemplateSymbolKind::Filter,
-                "lower",
-                None,
-                "django.template.defaultfilters",
-                "django.template.defaultfilters",
-                Some("Convert a string to lowercase."),
-            ),
-            symbol(
-                TemplateSymbolKind::Filter,
-                "title",
-                None,
-                "django.template.defaultfilters",
-                "django.template.defaultfilters",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Filter,
-                "default",
-                None,
-                "django.template.defaultfilters",
-                "django.template.defaultfilters",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Filter,
-                "intcomma",
-                Some("humanize"),
-                "django.contrib.humanize.templatetags.humanize",
-                "django.contrib.humanize.templatetags.humanize",
-                Some("Converts an integer to a string containing commas."),
-            ),
-            symbol(
-                TemplateSymbolKind::Filter,
-                "naturaltime",
-                Some("humanize"),
-                "django.contrib.humanize.templatetags.humanize",
-                "django.contrib.humanize.templatetags.humanize",
-                None,
-            ),
-            symbol(
-                TemplateSymbolKind::Filter,
-                "localize",
-                Some("l10n"),
-                "django.templatetags.l10n",
-                "django.templatetags.l10n",
-                None,
-            ),
-        ];
-
-        let mut libraries = HashMap::new();
-        libraries.insert(
-            "humanize".to_string(),
-            "django.contrib.humanize.templatetags.humanize".to_string(),
-        );
-        libraries.insert("l10n".to_string(), "django.templatetags.l10n".to_string());
-
-        let builtins = vec![
-            "django.template.defaulttags".to_string(),
-            "django.template.defaultfilters".to_string(),
-        ];
-
-        let mut symbols: Vec<djls_semantic::TemplateSymbolSnapshot> = tags;
-        symbols.extend(filters);
-
-        let response = djls_semantic::TemplateLibrarySnapshot {
-            symbols,
-            libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
-            builtins,
-        };
-
-        TemplateLibraries::default().apply_active_snapshot(Some(response))
-    }
-
-    #[test]
-    fn test_analyze_variable_context_pipe_detected() {
-        let line = "{{ value|";
-        let cursor_offset = 9;
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::Filter {
-                partial: String::new(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_variable_context_partial_filter() {
-        let line = "{{ value|def";
-        let cursor_offset = 12;
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::Filter {
-                partial: "def".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_variable_context_chained_filter() {
-        let line = "{{ value|lower|tit";
-        let cursor_offset = 18;
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::Filter {
-                partial: "tit".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_variable_context_pipe_after_arg() {
-        // After a filter with argument and a new pipe, cursor is after the pipe
-        let line = "{{ value|default:'nothing'|";
-        let cursor_offset = 27;
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::Filter {
-                partial: String::new(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_analyze_variable_context_no_pipe_returns_none() {
-        // No pipe = not in filter context; variable completions not yet implemented
-        let line = "{{ value";
-        let cursor_offset = 8;
-
-        let context = analyze_template_context(line, cursor_offset);
-
-        // Variable context without pipe doesn't match any completion context
-        assert!(context.is_none());
-    }
-
-    #[test]
-    fn test_analyze_variable_context_pipe_inside_quotes_ignored() {
-        // Pipe inside quotes should not be treated as filter separator
-        let line = "{{ value|default:\"a|b\"";
-        let cursor_offset = 21;
-
-        let context = analyze_template_context(line, cursor_offset);
-
-        // The last unquoted pipe is at position 8, so partial is `default:"a|b"`
-        // This is a valid filter context — cursor is after the pipe
-        assert!(matches!(
-            context,
-            Some(TemplateCompletionContext::Filter { .. })
-        ));
-    }
-
-    #[test]
-    fn test_filter_completions_all_builtins_with_empty_partial() {
-        let template_libraries = build_test_filter_libraries();
-        let symbols = build_available_symbols(&template_libraries, vec![], 100);
-
-        let completions =
-            generate_filter_completions("", Some(&template_libraries), Some(&symbols));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // Builtin filters always present
-        assert!(labels.contains(&"lower"));
-        assert!(labels.contains(&"title"));
-        assert!(labels.contains(&"default"));
-        // Library filters NOT present (not loaded)
-        assert!(!labels.contains(&"intcomma"));
-        assert!(!labels.contains(&"naturaltime"));
-        assert!(!labels.contains(&"localize"));
-    }
-
-    #[test]
-    fn test_filter_completions_partial_prefix_filtering() {
-        let template_libraries = build_test_filter_libraries();
-        let symbols = build_available_symbols(&template_libraries, vec![], 100);
-
-        let completions =
-            generate_filter_completions("def", Some(&template_libraries), Some(&symbols));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, vec!["default"]);
-    }
-
-    #[test]
-    fn test_filter_completions_library_filters_after_load() {
-        let template_libraries = build_test_filter_libraries();
-        let loads = vec![(
-            30,
-            djls_semantic::LoadKind::FullLoad {
-                libraries: vec!["humanize".into()],
-            },
-        )];
-        let symbols = build_available_symbols(&template_libraries, loads, 100);
-
-        let completions =
-            generate_filter_completions("", Some(&template_libraries), Some(&symbols));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // Builtins present
-        assert!(labels.contains(&"lower"));
-        assert!(labels.contains(&"title"));
-        assert!(labels.contains(&"default"));
-        // Humanize filters present (loaded)
-        assert!(labels.contains(&"intcomma"));
-        assert!(labels.contains(&"naturaltime"));
-        // l10n filter NOT present (not loaded)
-        assert!(!labels.contains(&"localize"));
-    }
-
-    #[test]
-    fn test_filter_completions_library_filters_excluded_when_not_loaded() {
-        let template_libraries = build_test_filter_libraries();
-        let symbols = build_available_symbols(&template_libraries, vec![], 100);
-
-        let completions =
-            generate_filter_completions("int", Some(&template_libraries), Some(&symbols));
-
-        // intcomma not loaded → should not appear
-        assert!(completions.is_empty());
-    }
-
-    #[test]
-    fn test_filter_completions_without_active_knowledge_shows_all() {
-        let template_libraries = build_test_filter_libraries();
-
-        // No available_symbols → show all installed filters
-        let completions = generate_filter_completions("", Some(&template_libraries), None);
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert!(labels.contains(&"lower"));
-        assert!(labels.contains(&"title"));
-        assert!(labels.contains(&"default"));
-        assert!(labels.contains(&"intcomma"));
-        assert!(labels.contains(&"naturaltime"));
-        assert!(labels.contains(&"localize"));
-    }
-
-    #[test]
-    fn test_filter_completions_selective_import_only_imported_symbols() {
-        let template_libraries = build_test_filter_libraries();
-        let loads = vec![(
-            50,
-            djls_semantic::LoadKind::SelectiveImport {
-                symbols: vec!["intcomma".into()],
-                library: "humanize".into(),
-            },
-        )];
-        let symbols = build_available_symbols(&template_libraries, loads, 100);
-
-        let completions =
-            generate_filter_completions("", Some(&template_libraries), Some(&symbols));
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        // intcomma selectively imported → present
-        assert!(labels.contains(&"intcomma"));
-        // naturaltime NOT imported → absent
-        assert!(!labels.contains(&"naturaltime"));
-        // builtins always present
-        assert!(labels.contains(&"lower"));
-    }
-
-    #[test]
-    fn test_filter_completions_alphabetical_order() {
-        let template_libraries = build_test_filter_libraries();
-
-        let completions = generate_filter_completions("", Some(&template_libraries), None);
-
-        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
-        let mut sorted = labels.clone();
-        sorted.sort_unstable();
-        assert_eq!(
-            labels, sorted,
-            "Filter completions should be alphabetically sorted"
-        );
-    }
-
-    #[test]
-    fn test_filter_completions_detail_text() {
-        let template_libraries = build_test_filter_libraries();
-
-        let completions = generate_filter_completions("", Some(&template_libraries), None);
-
-        let lower_completion = completions.iter().find(|c| c.label == "lower").unwrap();
-        assert_eq!(lower_completion.detail.as_deref(), Some("builtin filter"));
-
-        let intcomma_completion = completions.iter().find(|c| c.label == "intcomma").unwrap();
-        assert_eq!(
-            intcomma_completion.detail.as_deref(),
-            Some("{% load humanize %}")
-        );
-    }
-
-    #[test]
-    fn test_filter_completions_documentation() {
-        let template_libraries = build_test_filter_libraries();
-
-        let completions = generate_filter_completions("", Some(&template_libraries), None);
-
-        let lower_completion = completions.iter().find(|c| c.label == "lower").unwrap();
-        assert_eq!(
-            lower_completion.documentation,
-            Some(ls_types::Documentation::String(
-                "Convert a string to lowercase.".to_string()
-            ))
-        );
-
-        let title_completion = completions.iter().find(|c| c.label == "title").unwrap();
-        assert!(title_completion.documentation.is_none());
-    }
-
-    #[test]
-    fn test_filter_completions_no_template_tags_returns_empty() {
-        let completions = generate_filter_completions("", None, None);
-        assert!(completions.is_empty());
-    }
-
-    #[test]
-    fn test_filter_completions_kind_is_function() {
-        let template_libraries = build_test_filter_libraries();
-
-        let completions = generate_filter_completions("lower", Some(&template_libraries), None);
-
-        assert_eq!(completions.len(), 1);
-        assert_eq!(
-            completions[0].kind,
-            Some(ls_types::CompletionItemKind::FUNCTION)
-        );
-    }
-
-    #[test]
-    fn test_tag_context_preferred_over_variable_when_both_present() {
-        // When both {% and {{ are present, the closer one wins
-        let line = "{{ var }} {% if";
-        let cursor_offset = 14; // After "if"
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        // {% is closer to cursor than {{ so it's a tag context
-        assert!(matches!(context, TemplateCompletionContext::TagName { .. }));
-    }
-
-    #[test]
-    fn test_variable_context_preferred_when_closer() {
-        let line = "{% if True %} {{ value|";
-        let cursor_offset = 23;
-
-        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
-
-        assert_eq!(
-            context,
-            TemplateCompletionContext::Filter {
-                partial: String::new(),
-            }
-        );
-    }
-
-    fn build_test_tag_specs_with_args() -> TagSpecs {
-        use std::borrow::Cow;
-
+    fn choice_tag_specs() -> TagSpecs {
         let mut specs = TagSpecs::default();
-
         specs.insert(
-            "autoescape".to_string(),
-            djls_semantic::TagSpec {
-                module: Cow::Borrowed("django.template.defaulttags"),
-                end_tag: Some(djls_semantic::EndTag {
-                    name: Cow::Borrowed("endautoescape"),
+            "cache".to_string(),
+            TagSpec::new(Cow::Borrowed("test.tags"), None, Cow::Borrowed(&[]), false)
+                .with_arguments(vec![TagArgument {
+                    name: "fragment_name".to_string(),
                     required: true,
-                }),
-                intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
-                semantic_role: None,
-                extracted_rules: None,
-            }
-            .with_arguments(vec![TagArgument {
-                name: "setting".to_string(),
-                required: true,
-                kind: TagArgumentKind::Choice(vec!["on".to_string(), "off".to_string()]),
-                position: 0,
-            }]),
-        );
-
-        specs.insert(
-            "cycle".to_string(),
-            djls_semantic::TagSpec {
-                module: Cow::Borrowed("django.template.defaulttags"),
-                end_tag: None,
-                intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
-                semantic_role: None,
-                extracted_rules: None,
-            }
-            .with_arguments(vec![
-                TagArgument {
-                    name: "value1".to_string(),
-                    required: true,
-                    kind: TagArgumentKind::Variable,
+                    kind: TagArgumentKind::Choice(vec![
+                        "sidebar".to_string(),
+                        "site_header".to_string(),
+                    ]),
                     position: 0,
-                },
-                TagArgument {
-                    name: "as".to_string(),
-                    required: false,
-                    kind: TagArgumentKind::Literal("as".to_string()),
-                    position: 1,
-                },
-            ]),
+                }]),
         );
-
         specs
     }
 
+    fn block_tag_spec() -> TagSpec {
+        TagSpec::new(
+            Cow::Borrowed("test.tags"),
+            Some(EndTag {
+                name: Cow::Borrowed("endblock"),
+                required: true,
+            }),
+            Cow::Borrowed(&[]),
+            false,
+        )
+        .with_arguments(vec![TagArgument {
+            name: "name".to_string(),
+            required: true,
+            kind: TagArgumentKind::Variable,
+            position: 0,
+        }])
+    }
+
     #[test]
-    fn test_library_completions_partial_close_includes_closing_brace() {
-        let mut libraries = HashMap::new();
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+    fn generates_library_name_candidates() {
+        let libraries = template_libraries(&[
+            ("i18n", "django.templatetags.i18n"),
+            ("static", "django.templatetags.static"),
+        ]);
+        let suffix = suffix("", 2);
+        let candidates =
+            generate_library_name_candidates(&prefix("st"), &suffix, TagClose::None, &libraries);
 
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions =
-            generate_library_completions("i18n", &ClosingBrace::PartialClose, Some(&libs));
-
-        assert_eq!(completions.len(), 1);
-        let insert = completions[0].insert_text.as_deref().unwrap();
-        assert!(
-            insert.ends_with(" %}"),
-            "PartialClose should append ' %}}' but got: {insert:?}"
+        assert_eq!(labels(&candidates), vec!["static"]);
+        assert_eq!(candidates[0].kind, CompletionCandidateKind::LibraryName);
+        assert_eq!(candidates[0].edit.replacement_span, Span::new(0, 2));
+        assert_eq!(candidates[0].edit.insert_text, "static %}");
+        assert_eq!(
+            candidates[0].edit.insert_format,
+            CompletionInsertFormat::PlainText,
+        );
+        assert_eq!(
+            candidates[0].detail.as_deref(),
+            Some("Django template library (django.templatetags.static)")
         );
     }
 
     #[test]
-    fn test_library_completions_none_close_includes_closing_brace() {
-        let mut libraries = HashMap::new();
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+    fn library_name_candidate_replaces_source_suffix_without_consuming_full_close() {
+        let libraries = template_libraries(&[("static", "django.templatetags.static")]);
+        let suffix = suffix("i18n", 0);
+        let candidates = generate_library_name_candidates(
+            &prefix(""),
+            &suffix,
+            TagClose::Full {
+                replacement_suffix_len: 3,
+            },
+            &libraries,
+        );
 
-        let libs = build_template_libraries(&libraries, &[]);
+        assert_eq!(labels(&candidates), vec!["static"]);
+        assert_eq!(candidates[0].edit.replacement_span, Span::new(0, 4));
+        assert_eq!(candidates[0].edit.insert_text, "static");
+    }
 
-        let completions = generate_library_completions("i18n", &ClosingBrace::None, Some(&libs));
+    #[test]
+    fn generates_load_symbol_candidates() {
+        let libraries = tag_libraries();
+        let suffix = suffix("", 5);
+        let candidates = generate_load_symbol_candidates(
+            &prefix("trans"),
+            &suffix,
+            Some("i18n"),
+            false,
+            &libraries,
+        );
 
-        assert_eq!(completions.len(), 1);
-        let insert = completions[0].insert_text.as_deref().unwrap();
+        assert_eq!(labels(&candidates), vec!["trans"]);
+        assert_eq!(candidates[0].kind, CompletionCandidateKind::LoadSymbol);
+        assert_eq!(candidates[0].edit.replacement_span, Span::new(0, 5));
+        assert_eq!(candidates[0].edit.insert_text, "trans");
+    }
+
+    #[test]
+    fn load_symbol_candidate_adds_space_before_from_keyword() {
+        let libraries = tag_libraries();
+        let suffix = suffix("", 0);
+        let candidates =
+            generate_load_symbol_candidates(&prefix(""), &suffix, Some("i18n"), true, &libraries);
+
         assert!(
-            insert.ends_with(" %}"),
-            "None should append ' %}}' but got: {insert:?}"
+            candidates
+                .iter()
+                .any(|candidate| candidate.edit.insert_text == "trans ")
         );
     }
 
     #[test]
-    fn test_library_completions_full_close_no_closing_appended() {
-        let mut libraries = HashMap::new();
-        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
-
-        let libs = build_template_libraries(&libraries, &[]);
-
-        let completions =
-            generate_library_completions("i18n", &ClosingBrace::FullClose, Some(&libs));
-
-        assert_eq!(completions.len(), 1);
-        let insert = completions[0].insert_text.as_deref().unwrap();
-        assert_eq!(insert, "i18n", "FullClose should not append closing");
-    }
-
-    #[test]
-    fn test_argument_completions_choice_partial_close_includes_closing_brace() {
-        let specs = build_test_tag_specs_with_args();
-
-        let completions = generate_argument_completions(
-            "autoescape",
+    fn generates_tag_argument_choice_candidates() {
+        let candidates = generate_tag_argument_candidates(
+            "cache",
             0,
-            "o",
-            &ClosingBrace::PartialClose,
-            Some(&specs),
+            &prefix("si"),
+            full_close(),
+            &choice_tag_specs(),
             false,
         );
 
+        assert_eq!(labels(&candidates), vec!["sidebar", "site_header"]);
         assert!(
-            !completions.is_empty(),
-            "Should have completions for 'o' prefix"
+            candidates
+                .iter()
+                .all(|candidate| candidate.kind == CompletionCandidateKind::TagArgumentChoice)
         );
-        for c in &completions {
-            let insert = c.insert_text.as_deref().unwrap();
-            assert!(
-                insert.ends_with(" %}"),
-                "Choice completion with PartialClose should end with ' %}}' but got: {insert:?}"
-            );
-        }
+        assert_eq!(candidates[0].edit.replacement_span, Span::new(0, 2));
+        assert_eq!(candidates[0].edit.insert_text, "sidebar");
+        assert_eq!(
+            candidates[0].detail.as_deref(),
+            Some("choice for fragment_name")
+        );
     }
 
     #[test]
-    fn test_argument_completions_literal_partial_close_includes_closing_brace() {
-        let specs = build_test_tag_specs_with_args();
-
-        let completions = generate_argument_completions(
-            "cycle",
-            1,
-            "as",
-            &ClosingBrace::PartialClose,
-            Some(&specs),
-            false,
-        );
-
-        assert!(
-            !completions.is_empty(),
-            "Should have completions for 'as' literal"
-        );
-        for c in &completions {
-            let insert = c.insert_text.as_deref().unwrap();
-            assert!(
-                insert.ends_with(" %}"),
-                "Literal completion with PartialClose should end with ' %}}' but got: {insert:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_argument_completions_snippet_partial_close_includes_closing_brace() {
-        let specs = build_test_tag_specs_with_args();
-
-        let completions = generate_argument_completions(
-            "autoescape",
+    fn generates_remaining_argument_snippet_candidates() {
+        let candidates = generate_tag_argument_candidates(
+            "cache",
             0,
-            "",
-            &ClosingBrace::PartialClose,
-            Some(&specs),
+            &prefix(""),
+            full_close(),
+            &choice_tag_specs(),
             true,
         );
 
-        let snippet = completions
+        let snippet = candidates
             .iter()
-            .find(|c| c.kind == Some(ls_types::CompletionItemKind::SNIPPET));
-        assert!(snippet.is_some(), "Should have a snippet completion");
-        let insert = snippet.unwrap().insert_text.as_deref().unwrap();
-        assert!(
-            insert.ends_with(" %}"),
-            "Snippet completion with PartialClose should end with ' %}}' but got: {insert:?}"
+            .find(|candidate| candidate.kind == CompletionCandidateKind::TagArgumentSnippet)
+            .expect("expected remaining-arguments snippet");
+
+        assert_eq!(snippet.label, "cache arguments");
+        assert_eq!(snippet.edit.insert_format, CompletionInsertFormat::Snippet);
+        assert_eq!(snippet.edit.insert_text, "${1|sidebar,site_header|}");
+        assert_eq!(
+            snippet.detail.as_deref(),
+            Some("Complete remaining arguments")
         );
+    }
+
+    #[test]
+    fn tag_snippet_with_full_close_replaces_existing_close() {
+        let availability = builtin_availability();
+        let spec = block_tag_spec();
+        let candidate = CompletionCandidate::tag_name(
+            &test_tag_symbol("block"),
+            &prefix("blo"),
+            false,
+            TagClose::Full {
+                replacement_suffix_len: 3,
+            },
+            Some(&spec),
+            &availability,
+            true,
+        );
+
+        assert_eq!(
+            candidate.edit.insert_format,
+            CompletionInsertFormat::Snippet
+        );
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 6));
+        assert_eq!(
+            candidate.edit.insert_text,
+            "block ${1:name} %}\n$0\n{% endblock ${1} %}"
+        );
+    }
+
+    #[test]
+    fn filter_candidates_include_detail_and_documentation() {
+        let candidates = generate_filter_candidates(&prefix("tr"), &filter_libraries(), None);
+
+        assert_eq!(labels(&candidates), vec!["trans"]);
+        assert_eq!(candidates[0].detail.as_deref(), Some("{% load i18n %}"));
+        assert_eq!(
+            candidates[0].documentation.as_deref(),
+            Some("Translate text.")
+        );
+    }
+
+    #[test]
+    fn tag_candidates_fall_back_to_specs_when_libraries_are_unknown() {
+        let mut specs = TagSpecs::default();
+        specs.insert(
+            "static".to_string(),
+            TagSpec::new(
+                Cow::Borrowed("django.templatetags.static"),
+                None,
+                Cow::Borrowed(&[]),
+                false,
+            ),
+        );
+
+        let candidates = generate_tag_name_candidates(
+            &prefix("sta"),
+            false,
+            full_close(),
+            TemplateLibraries::empty_ref(),
+            &specs,
+            None,
+            false,
+        );
+
+        assert_eq!(labels(&candidates), vec!["static"]);
+        assert_eq!(candidates[0].detail.as_deref(), Some("Django template tag"));
+    }
+
+    #[test]
+    fn partial_tag_close_extends_replacement_span() {
+        let availability = builtin_availability();
+        let candidate = CompletionCandidate::tag_name(
+            &test_tag_symbol("load"),
+            &prefix("lo"),
+            false,
+            TagClose::Partial {
+                replacement_suffix_len: 1,
+            },
+            None,
+            &availability,
+            false,
+        );
+
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 3));
+        assert_eq!(candidate.edit.insert_text, "load %}");
+    }
+
+    #[test]
+    fn partial_tag_close_after_whitespace_extends_replacement_span_to_close() {
+        let availability = builtin_availability();
+        let candidate = CompletionCandidate::tag_name(
+            &test_tag_symbol("load"),
+            &prefix("lo"),
+            false,
+            TagClose::Partial {
+                replacement_suffix_len: 2,
+            },
+            None,
+            &availability,
+            false,
+        );
+
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 4));
+        assert_eq!(candidate.edit.insert_text, "load %}");
+    }
+
+    #[test]
+    fn ranks_candidates_by_relevance_then_label() {
+        let empty = prefix("");
+        let availability = builtin_availability();
+        let mut candidates = vec![
+            CompletionCandidate::tag_argument_placeholder("<arg>".to_string(), &empty),
+            CompletionCandidate::tag_name(
+                &test_tag_symbol("url"),
+                &empty,
+                false,
+                full_close(),
+                None,
+                &availability,
+                false,
+            ),
+            CompletionCandidate::end_tag("if", "endif", &empty, false, full_close()),
+            CompletionCandidate::tag_name(
+                &test_tag_symbol("block"),
+                &empty,
+                false,
+                full_close(),
+                None,
+                &availability,
+                false,
+            ),
+        ];
+
+        candidates.sort_by(CompletionCandidate::cmp_rank);
+
+        assert_eq!(labels(&candidates), vec!["endif", "block", "url", "<arg>"]);
     }
 }

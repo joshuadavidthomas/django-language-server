@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  cms.test_utils.project.placeholder_relation_field_app.models.FancyPoll:
+    name: FancyPoll
+    module_name: cms.test_utils.project.placeholder_relation_field_app.models
+    line: 7
+    relations: []
+    kind: concrete

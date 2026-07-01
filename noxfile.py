@@ -105,8 +105,65 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
-    session.run("cargo", "run", "-p", "djls-corpus", "--", "sync", external=True)
+    session.run("cargo", "run", "-p", "djls-testing", "--bin", "corpus", "--", "sync", external=True)
     session.run(*command, external=True)
+
+
+@nox.session(python=PY_DEFAULT)
+def e2e(session):
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--inexact",
+        "--python",
+        session.python,
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.install(f"django=={DJ_DEFAULT}")
+    session.run(
+        "cargo",
+        "test",
+        "-q",
+        "-p",
+        "djls-semantic",
+        "django_facts_golden",
+        "--",
+        "--ignored",
+        external=True,
+        env={"VIRTUAL_ENV": session.virtualenv.location},
+    )
+
+    args = []
+    for arg in session.posargs:
+        if arg:
+            args.extend(arg.split(" "))
+    session.run("pytest", *args)
+
+
+@nox.session(python=PY_DEFAULT)
+def fixtures(session):
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--inexact",
+        "--python",
+        session.python,
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.install(f"django=={DJ_DEFAULT}")
+
+    output = session.run(
+        "python",
+        "tools/django_facts.py",
+        "--project",
+        "tests/project",
+        silent=True,
+    )
+    output_path = Path("tests/fixtures/django-facts/django-5.2.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
 
 
 @nox.session

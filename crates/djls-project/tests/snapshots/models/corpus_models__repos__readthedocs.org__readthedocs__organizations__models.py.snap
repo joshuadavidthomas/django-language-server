@@ -1,0 +1,123 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  readthedocs.organizations.models.Organization:
+    name: Organization
+    module_name: readthedocs.organizations.models
+    line: 66
+    relations:
+      - field_name: projects
+        relation_type: ManyToMany
+        target:
+          kind: Qualified
+          app_label: projects
+          name: Project
+        related_name: organizations
+      - field_name: owners
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: User
+        related_name: owner_organizations
+      - field_name: stripe_customer
+        relation_type: OneToOne
+        target:
+          kind: Qualified
+          app_label: djstripe
+          name: Customer
+        related_name: rtd_organization
+      - field_name: stripe_subscription
+        relation_type: OneToOne
+        target:
+          kind: Qualified
+          app_label: djstripe
+          name: Subscription
+        related_name: rtd_organization
+    kind: concrete
+  readthedocs.organizations.models.OrganizationOwner:
+    name: OrganizationOwner
+    module_name: readthedocs.organizations.models
+    line: 294
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+      - field_name: organization
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Organization
+        related_name: ~
+    kind: concrete
+  readthedocs.organizations.models.Team:
+    name: Team
+    module_name: readthedocs.organizations.models
+    line: 307
+    relations:
+      - field_name: organization
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Organization
+        related_name: teams
+      - field_name: projects
+        relation_type: ManyToMany
+        target:
+          kind: Qualified
+          app_label: projects
+          name: Project
+        related_name: teams
+      - field_name: members
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: User
+        related_name: teams
+    kind: concrete
+  readthedocs.organizations.models.TeamInvite:
+    name: TeamInvite
+    module_name: readthedocs.organizations.models
+    line: 380
+    relations:
+      - field_name: organization
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Organization
+        related_name: invites
+      - field_name: team
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Team
+        related_name: invites
+    kind: concrete
+  readthedocs.organizations.models.TeamMember:
+    name: TeamMember
+    module_name: readthedocs.organizations.models
+    line: 448
+    relations:
+      - field_name: team
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Team
+        related_name: ~
+      - field_name: member
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+      - field_name: invite
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: TeamInvite
+        related_name: ~
+    kind: concrete

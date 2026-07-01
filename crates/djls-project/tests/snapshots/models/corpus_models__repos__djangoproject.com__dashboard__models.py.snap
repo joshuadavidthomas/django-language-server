@@ -1,0 +1,87 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  dashboard.models.Category:
+    name: Category
+    module_name: dashboard.models
+    line: 25
+    relations: []
+    kind: concrete
+  dashboard.models.Datum:
+    name: Datum
+    module_name: dashboard.models
+    line: 252
+    relations:
+      - field_name: metric
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: +
+    kind: concrete
+  dashboard.models.GitHubSearchCountMetric:
+    name: GitHubSearchCountMetric
+    module_name: dashboard.models
+    line: 161
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: concrete
+  dashboard.models.GithubItemCountMetric:
+    name: GithubItemCountMetric
+    module_name: dashboard.models
+    line: 136
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: concrete
+  dashboard.models.JenkinsFailuresMetric:
+    name: JenkinsFailuresMetric
+    module_name: dashboard.models
+    line: 180
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: concrete
+  dashboard.models.Metric:
+    name: Metric
+    module_name: dashboard.models
+    line: 36
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: abstract
+  dashboard.models.TracTicketMetric:
+    name: TracTicketMetric
+    module_name: dashboard.models
+    line: 125
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: concrete

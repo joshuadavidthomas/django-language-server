@@ -1,45 +1,44 @@
-use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use djls_semantic::load_template_library_cache;
-use djls_semantic::refresh_external_data;
-use djls_semantic::Db as SemanticDb;
-use djls_semantic::ProjectDb;
-use djls_source::Db as SourceDb;
 use djls_source::FileKind;
-use djls_workspace::TextDocument;
-use tokio::sync::oneshot;
 use tokio::sync::Mutex;
-use tower_lsp_server::jsonrpc::Result as LspResult;
-use tower_lsp_server::ls_types;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
+use tower_lsp_server::jsonrpc::Result as LspResult;
+use tower_lsp_server::ls_types;
 
+use crate::document::TextDocument;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
-use crate::queue::Queue;
+use crate::reload::ProjectReload;
+use crate::session::SNAPSHOT_CANCEL_RETRIES;
 use crate::session::Session;
+use crate::session::SessionSnapshot;
 
 pub(crate) struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
-    queue: Queue,
+    reload: ProjectReload,
     logging: LoggingGuard,
 }
 
 impl DjangoLanguageServer {
     #[must_use]
     pub(crate) fn new(client: Client, logging: LoggingGuard) -> Self {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let reload = ProjectReload::new(Arc::clone(&session), client.clone());
+
         Self {
             client,
-            session: Arc::new(Mutex::new(Session::default())),
-            queue: Queue::new(),
+            session,
+            reload,
             logging,
         }
     }
 
-    pub(crate) async fn with_session<F, R>(&self, f: F) -> R
+    async fn with_session<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Session) -> R,
     {
@@ -47,7 +46,7 @@ impl DjangoLanguageServer {
         f(&session)
     }
 
-    pub(crate) async fn with_session_mut<F, R>(&self, f: F) -> R
+    async fn with_session_mut<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut Session) -> R,
     {
@@ -55,75 +54,79 @@ impl DjangoLanguageServer {
         f(&mut session)
     }
 
-    pub(crate) async fn with_session_mut_task<F, Fut>(
-        &self,
-        f: F,
-    ) -> oneshot::Receiver<anyhow::Result<()>>
+    /// Capture a snapshot under a brief lock, then compute on the blocking
+    /// pool so the single-threaded event loop stays responsive.
+    async fn with_snapshot<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
-        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+        F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
+        R: Default + Send + 'static,
     {
-        let session = Arc::clone(&self.session);
-        let (tx, rx) = oneshot::channel();
+        let f = Arc::new(f);
 
-        if let Err(e) = self
-            .queue
-            .submit(async move {
-                let res = f(session).await;
-                let _ = tx.send(res);
-                Ok(())
+        for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
+            let snapshot = { self.session.lock().await.snapshot() };
+            let f = Arc::clone(&f);
+            let result = tokio::task::spawn_blocking(move || {
+                salsa::Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))
             })
             .await
-        {
-            tracing::error!("Failed to submit task: {}", e);
-        } else {
-            tracing::info!("Task submitted successfully");
+            .expect("snapshot task must not panic");
+
+            match result {
+                Ok(result) => return result,
+                Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
+                    tracing::debug!(
+                        ?cancelled,
+                        attempt = attempt + 1,
+                        "Snapshot request cancelled; retrying with fresh snapshot"
+                    );
+                }
+                Err(cancelled) => {
+                    tracing::debug!(
+                        ?cancelled,
+                        retries = SNAPSHOT_CANCEL_RETRIES,
+                        "Snapshot request cancelled; returning fallback"
+                    );
+                    return R::default();
+                }
+            }
         }
 
-        rx
+        unreachable!("snapshot retry loop must return")
     }
 
-    async fn publish_diagnostics(&self, document: &TextDocument) {
-        let supports_pull = self
+    async fn maybe_push_diagnostics(&self, document: &TextDocument) {
+        if self
             .with_session(|session| session.client_info().supports_pull_diagnostics())
-            .await;
-
-        if supports_pull {
+            .await
+        {
             tracing::debug!("Client supports pull diagnostics, skipping push");
             return;
         }
 
-        let path = self
-            .with_session(|session| document.path(session.db()).to_owned())
-            .await;
-
-        if FileKind::from(&path) != FileKind::Template {
+        let file = document.file();
+        let Some(diagnostics) = self
+            .with_snapshot(move |snapshot| djls_ide::collect_diagnostics(snapshot.db(), file))
+            .await
+        else {
             return;
-        }
+        };
 
-        let diagnostics: Vec<ls_types::Diagnostic> = self
-            .with_session(|session| {
-                let db = session.db();
-                let file = db.get_or_create_file(&path);
-                djls_ide::collect_diagnostics(db, file)
-            })
+        let Some(lsp_uri) = ls_types::Uri::from_path(document.path()) else {
+            return;
+        };
+
+        let diagnostic_count = diagnostics.len();
+        let lsp_uri_text = lsp_uri.to_string();
+        self.client
+            .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
             .await;
 
-        if let Some(lsp_uri) = ls_types::Uri::from_path(&path) {
-            self.client
-                .publish_diagnostics(lsp_uri, diagnostics.clone(), Some(document.version()))
-                .await;
-
-            tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
-        }
-    }
-
-    async fn republish_open_template_diagnostics(&self) {
-        let documents = self.with_session(Session::open_documents).await;
-
-        for document in documents {
-            self.publish_diagnostics(&document).await;
-        }
+        tracing::debug!(
+            "Published {} diagnostics for {}",
+            diagnostic_count,
+            lsp_uri_text
+        );
     }
 }
 
@@ -199,54 +202,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        // Phase 1: Load the cached template library snapshot for near-instant startup.
-        // This populates template_libraries from disk cache so completions and
-        // diagnostics work immediately while fresh project introspection runs.
-        let cache_loaded = self
-            .with_session_mut(|session| {
-                let t = std::time::Instant::now();
-                let loaded = load_template_library_cache(session.db_mut());
-                if loaded {
-                    tracing::info!(
-                        "Template library snapshot cache loaded in {:?}",
-                        t.elapsed()
-                    );
-                } else {
-                    tracing::info!("No template library snapshot cache available");
-                }
-                loaded
-            })
-            .await;
-
-        // Phase 2: Refresh project data in the background.
-        // This validates/refreshes the cached data, extracts external
-        // rules, and initializes the workspace.
-        let rx = self
-            .with_session_mut_task(|session| async move {
-                let start = std::time::Instant::now();
-
-                let mut session_lock = session.lock().await;
-                let db = session_lock.db_mut();
-
-                let t = std::time::Instant::now();
-                refresh_external_data(db);
-                tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                if db.project().is_none() {
-                    tracing::info!("Task: No project configured, skipping initialization.");
-                }
-
-                tracing::info!("Server initialization completed in {:?}", start.elapsed());
-                Ok(())
-            })
-            .await;
-
-        // If we loaded from cache, the server is already functional — requests
-        // arriving during the background refresh will use cached data. If no
-        // cache was available, we wait for the full initialization like before.
-        if !cache_loaded {
-            let _ = rx.await;
-        }
+        self.reload.request();
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -260,7 +216,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         if let Some(document) = document {
-            self.publish_diagnostics(&document).await;
+            self.maybe_push_diagnostics(&document).await;
         }
     }
 
@@ -270,7 +226,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         if let Some(document) = document {
-            self.publish_diagnostics(&document).await;
+            self.maybe_push_diagnostics(&document).await;
         }
     }
 
@@ -282,7 +238,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         if let Some(document) = document {
-            self.publish_diagnostics(&document).await;
+            self.maybe_push_diagnostics(&document).await;
         }
     }
 
@@ -296,66 +252,25 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::CompletionParams,
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
         let response = self
-            .with_session(|session| {
-                let position = params.text_document_position.position;
-                let encoding = session.client_info().position_encoding();
-                let file = session.file_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
+                    params.text_document_position.position,
                     "completion",
                 )?;
-                let db = session.db();
-                let path = file.path(db);
-                let source = file.source(db);
-                let file_kind = *source.kind();
+                let db = snapshot.db();
 
-                tracing::debug!("Completion requested for {} at {:?}", path, position);
-                let template_libraries = db.project().map(|project| project.template_libraries(db));
-
-                let tag_specs = db.tag_specs();
-                let supports_snippets = session.client_info().supports_snippets();
-
-                // Compute position-aware available symbols for load-scoped completions.
-                let available_symbols = if file_kind == FileKind::Template {
-                    if let Some(template_libraries) = template_libraries {
-                        if template_libraries.active_knowledge == djls_semantic::Knowledge::Known {
-                            let nodelist = djls_templates::parse_template(db, file);
-
-                            nodelist.map(|nl| {
-                                let line_index = file.line_index(db);
-                                let source_text = file.source(db);
-                                let byte_offset = line_index.offset(
-                                    source_text.as_str(),
-                                    djls_source::LineCol::new(position.line, position.character),
-                                    encoding,
-                                );
-                                djls_semantic::available_symbols_at(db, nl, byte_offset.get())
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let completions = djls_ide::handle_completion(
-                    source.as_str(),
-                    position,
-                    encoding,
-                    file_kind,
-                    template_libraries,
-                    Some(tag_specs),
-                    available_symbols.as_ref(),
-                    supports_snippets,
-                );
-
-                if completions.is_empty() {
-                    None
-                } else {
-                    Some(ls_types::CompletionResponse::Array(completions))
+                if *file.source(db).kind() != FileKind::Template {
+                    return None;
                 }
+
+                djls_ide::completion(
+                    db,
+                    file,
+                    offset,
+                    snapshot.client_info().position_encoding(),
+                    snapshot.client_info().supports_snippets(),
+                )
             })
             .await;
 
@@ -364,13 +279,13 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn hover(&self, params: ls_types::HoverParams) -> LspResult<Option<ls_types::Hover>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
                     "hover",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -393,19 +308,14 @@ impl LanguageServer for DjangoLanguageServer {
         );
 
         let diagnostics = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "diagnostic")
+                    snapshot.file_for_document_request(&params.text_document, "diagnostic")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
 
-                if *file.source(db).kind() != FileKind::Template {
-                    return Vec::new();
-                }
-
-                djls_ide::collect_diagnostics(db, file)
+                djls_ide::collect_diagnostics(snapshot.db(), file).unwrap_or_default()
             })
             .await;
 
@@ -427,13 +337,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::FoldingRangeParams,
     ) -> LspResult<Option<Vec<ls_types::FoldingRange>>> {
         let ranges = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "folding")
+                    snapshot.file_for_document_request(&params.text_document, "folding")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return Vec::new();
@@ -451,13 +361,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::DocumentSymbolParams,
     ) -> LspResult<Option<ls_types::DocumentSymbolResponse>> {
         let symbols = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "document symbol")
+                    snapshot.file_for_document_request(&params.text_document, "document symbol")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return Vec::new();
@@ -475,13 +385,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::GotoDefinitionParams,
     ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
                     "goto definition",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -499,13 +409,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::ReferenceParams,
     ) -> LspResult<Option<Vec<ls_types::Location>>> {
         let response = self
-            .with_session(|session| {
-                let (file, offset) = session.position_for_document_request(
+            .with_snapshot(move |snapshot| {
+                let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
                     "references",
                 )?;
-                let db = session.db();
+                let db = snapshot.db();
 
                 if *file.source(db).kind() != FileKind::Template {
                     return None;
@@ -523,13 +433,13 @@ impl LanguageServer for DjangoLanguageServer {
         params: ls_types::DocumentFormattingParams,
     ) -> LspResult<Option<Vec<ls_types::TextEdit>>> {
         let edits = self
-            .with_session(|session| {
+            .with_snapshot(move |snapshot| {
                 let Some(file) =
-                    session.file_for_document_request(&params.text_document, "formatting")
+                    snapshot.file_for_document_request(&params.text_document, "formatting")
                 else {
                     return Vec::new();
                 };
-                let db = session.db();
+                let db = snapshot.db();
                 let format_config = db.settings().format().clone();
 
                 if !format_config.enabled() {
@@ -544,7 +454,7 @@ impl LanguageServer for DjangoLanguageServer {
                 djls_ide::format_document(
                     db,
                     file,
-                    session.client_info().position_encoding(),
+                    snapshot.client_info().position_encoding(),
                     format_config.backend(),
                     &params.options,
                 )
@@ -555,60 +465,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
-        tracing::info!("Configuration change detected. Reloading settings...");
-
-        let settings_update = self
-            .with_session_mut(|session| {
-                if session.project().is_none() {
-                    return djls_db::SettingsUpdate::default();
-                }
-
-                let project_root = session.db().project_root_or_cwd();
-
-                match djls_conf::Settings::new(
-                    &project_root,
-                    Some(session.client_info().config_overrides().clone()),
-                ) {
-                    Ok(new_settings) => session.set_settings(new_settings),
-                    Err(e) => {
-                        tracing::error!("Error loading settings: {}", e);
-                        djls_db::SettingsUpdate::default()
-                    }
-                }
-            })
-            .await;
-
-        if !settings_update.env_changed && !settings_update.diagnostics_changed {
-            return;
-        }
-
-        if settings_update.env_changed {
-            let rx = self
-                .with_session_mut_task(|session| async move {
-                    let start = std::time::Instant::now();
-
-                    let mut session_lock = session.lock().await;
-                    let db = session_lock.db_mut();
-
-                    if db.project().is_none() {
-                        return Ok(());
-                    }
-
-                    let t = std::time::Instant::now();
-                    refresh_external_data(db);
-                    tracing::info!("External data refresh completed in {:?}", t.elapsed());
-
-                    tracing::info!("Environment refresh completed in {:?}", start.elapsed());
-                    Ok(())
-                })
-                .await;
-
-            // Wait for environment update to complete before republishing diagnostics
-            let _ = rx.await;
-        }
-
-        if settings_update.env_changed || settings_update.diagnostics_changed {
-            self.republish_open_template_diagnostics().await;
-        }
+        tracing::info!("Configuration change detected. Requesting project reload...");
+        self.reload.request();
     }
 }

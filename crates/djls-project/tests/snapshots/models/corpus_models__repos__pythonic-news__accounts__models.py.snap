@@ -1,0 +1,41 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  accounts.models.EmailVerification:
+    name: EmailVerification
+    module_name: accounts.models
+    line: 75
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: CustomUser
+        related_name: ~
+    kind: concrete
+  accounts.models.Invitation:
+    name: Invitation
+    module_name: accounts.models
+    line: 52
+    relations:
+      - field_name: inviting_user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: CustomUser
+        related_name: ~
+    kind: concrete
+  accounts.models.PasswordResetRequest:
+    name: PasswordResetRequest
+    module_name: accounts.models
+    line: 91
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: CustomUser
+        related_name: ~
+    kind: concrete

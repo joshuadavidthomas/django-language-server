@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  news.models.Vote:
+    name: Vote
+    module_name: news.models
+    line: 120
+    relations:
+      - field_name: item
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Item
+        related_name: ~
+    kind: concrete

@@ -1,0 +1,47 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  aggregator.models.Feed:
+    name: Feed
+    module_name: aggregator.models
+    line: 44
+    relations:
+      - field_name: feed_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: FeedType
+        related_name: ~
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: owned_feeds
+    kind: concrete
+  aggregator.models.FeedItem:
+    name: FeedItem
+    module_name: aggregator.models
+    line: 123
+    relations:
+      - field_name: feed
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Feed
+        related_name: ~
+    kind: concrete
+  aggregator.models.FeedType:
+    name: FeedType
+    module_name: aggregator.models
+    line: 17
+    relations: []
+    kind: concrete
+  aggregator.models.LocalDjangoCommunity:
+    name: LocalDjangoCommunity
+    module_name: aggregator.models
+    line: 214
+    relations: []
+    kind: concrete

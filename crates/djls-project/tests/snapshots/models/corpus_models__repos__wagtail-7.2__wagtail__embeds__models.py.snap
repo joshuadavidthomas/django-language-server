@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  wagtail.embeds.models.Embed:
+    name: Embed
+    module_name: wagtail.embeds.models
+    line: 13
+    relations: []
+    kind: concrete

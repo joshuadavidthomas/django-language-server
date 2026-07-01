@@ -24,9 +24,9 @@ pub enum Severity {
 /// underline treatment.
 #[derive(Debug, Clone)]
 pub struct DiagnosticAnnotation<'a> {
-    pub span: Span,
-    pub label: &'a str,
-    pub primary: bool,
+    span: Span,
+    label: &'a str,
+    primary: bool,
 }
 
 /// A diagnostic ready for rendering.
@@ -36,13 +36,12 @@ pub struct DiagnosticAnnotation<'a> {
 /// span/code/message from their error types and build this struct.
 #[derive(Debug)]
 pub struct Diagnostic<'a> {
-    pub source: &'a str,
-    pub path: &'a str,
-    pub code: &'a str,
-    pub message: &'a str,
-    pub severity: Severity,
-    pub annotations: Vec<DiagnosticAnnotation<'a>>,
-    pub notes: Vec<&'a str>,
+    source: &'a str,
+    path: &'a str,
+    code: &'a str,
+    message: &'a str,
+    severity: Severity,
+    annotations: Vec<DiagnosticAnnotation<'a>>,
 }
 
 impl<'a> Diagnostic<'a> {
@@ -70,7 +69,6 @@ impl<'a> Diagnostic<'a> {
                 label,
                 primary: true,
             }],
-            notes: Vec::new(),
         }
     }
 
@@ -82,13 +80,6 @@ impl<'a> Diagnostic<'a> {
             label,
             primary,
         });
-        self
-    }
-
-    /// Add a note to this diagnostic.
-    #[must_use]
-    pub fn note(mut self, note: &'a str) -> Self {
-        self.notes.push(note);
         self
     }
 }
@@ -149,14 +140,10 @@ impl DiagnosticRenderer {
             snippet = snippet.annotation(kind.span(start..end).label(ann.label));
         }
 
-        let mut title = level
+        let title = level
             .primary_title(diagnostic.message)
             .id(diagnostic.code)
             .element(snippet);
-
-        for note in &diagnostic.notes {
-            title = title.element(Level::NOTE.message(*note));
-        }
 
         let report = &[title];
         self.renderer.render(report)
@@ -168,7 +155,7 @@ mod tests {
     //! Renderer capability tests.
     //!
     //! These exercise the rendering engine itself — multi-span annotations,
-    //! notes, severity levels, long-line truncation, etc. The diagnostic
+    //! severity levels, long-line truncation, etc. The diagnostic
     //! scenarios are synthetic; real validation output (produced by
     //! `djls-semantic`) currently uses single-span diagnostics with empty
     //! labels. See `djls-semantic/src/testing.rs` for how actual errors are
@@ -239,22 +226,6 @@ mod tests {
             "previous operator here",
             false,
         );
-        insta::assert_snapshot!(plain().render(&diag));
-    }
-
-    #[test]
-    fn with_note() {
-        let source = "<p>{{ value|intcomma }}</p>\n{% crispy form %}\n";
-        let diag = Diagnostic::new(
-            source,
-            "templates/form.html",
-            "S109",
-            "Tag 'crispy' requires {% load crispy_forms_tags %}",
-            Severity::Error,
-            span_of(source, "{% crispy form %}"),
-            "tag not loaded",
-        )
-        .note("add {% load crispy_forms_tags %} at the top of this template");
         insta::assert_snapshot!(plain().render(&diag));
     }
 

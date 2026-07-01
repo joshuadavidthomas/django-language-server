@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  hc.logs.models.Record:
+    name: Record
+    module_name: hc.logs.models
+    line: 18
+    relations: []
+    kind: concrete

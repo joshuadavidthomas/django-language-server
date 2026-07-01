@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.machine.models.MachineConfig:
+    name: MachineConfig
+    module_name: src.backend.InvenTree.machine.models
+    line: 17
+    relations: []
+    kind: concrete

@@ -1,12 +1,13 @@
 [package]
 name = "djls-source"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 annotate-snippets = { workspace = true }
 camino = { workspace = true }
 dashmap = { workspace = true }
+ignore = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
@@ -14,6 +15,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

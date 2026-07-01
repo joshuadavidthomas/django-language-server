@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.socialauth.models.SocialAuthProvider:
+    name: SocialAuthProvider
+    module_name: misago.socialauth.models
+    line: 6
+    relations: []
+    kind: concrete

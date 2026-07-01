@@ -1,36 +1,43 @@
-use djls_semantic::resolve_template;
-use djls_semantic::InstalledSymbolCandidate;
-use djls_semantic::InstalledSymbolOrigin;
-use djls_semantic::ResolveResult;
-use djls_semantic::TemplateLibraries;
-use djls_semantic::TemplateSymbolKind;
-use djls_semantic::TemplateSymbolName;
+use djls_project::FindTemplateResult;
+use djls_project::TemplateLibraries;
+use djls_project::TemplateSymbolAvailability;
+use djls_project::TemplateSymbolCandidate;
+use djls_project::TemplateSymbolKind;
+use djls_project::template_resolution;
+use djls_semantic::SemanticOffsetContext;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
-use crate::context::OffsetContext;
 use crate::ext::SpanExt;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
-    let (markdown, span) = match OffsetContext::from_offset(db, file, offset) {
-        OffsetContext::TemplateReference { name, span } => {
+    let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
+        SemanticOffsetContext::TemplateReference {
+            name: template_name,
+            span,
+        } => {
+            let project = db.project()?;
+            let name = template_name.name(db);
+
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
-            match resolve_template(db, &name) {
-                ResolveResult::Found(template) => {
-                    let path = template.path_buf(db);
+
+            match template_resolution(db, project).resolve(db, template_name) {
+                FindTemplateResult::Found(origin) => {
+                    let path = origin.path_buf(db);
                     sections.push(format!("Resolved to `{path}`"));
                 }
-                ResolveResult::NotFound { tried, .. } => {
+                FindTemplateResult::DoesNotExist(error) => {
                     // No tried paths means the project did not provide template loader
                     // locations, so there is nothing useful to show.
-                    if tried.is_empty() {
+                    if error.tried.is_empty() {
                         return None;
                     }
 
-                    let tried = tried
+                    let tried = error
+                        .tried
                         .iter()
-                        .map(|path| format!("- `{path}`"))
+                        .map(|source| format!("- `{}`", source.path))
                         .collect::<Vec<_>>()
                         .join("\n");
                     sections.push(format!("Template not found.\n\nTried:\n\n{tried}"));
@@ -38,21 +45,21 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             }
             Some((sections.join("\n---\n"), span))
         }
-        OffsetContext::LoadLibrary { name, span } => {
-            let library = db.template_libraries().best_loadable_library_str(&name)?;
+        SemanticOffsetContext::LoadLibrary { name, span } => {
+            let library = db.template_libraries().installed_library_str(&name)?;
             Some((
                 format!(
                     "```text\n(library) {name}\n```\n---\n```python\n{}\n```",
-                    library.module().as_str()
+                    library.module_name_str()
                 ),
                 span,
             ))
         }
-        OffsetContext::LoadSymbol { name, span } => Some((
+        SemanticOffsetContext::LoadSymbol { name, span } => Some((
             render_symbol_hover(db.template_libraries(), &name, None)?,
             span,
         )),
-        OffsetContext::Tag { name, span } => Some((
+        SemanticOffsetContext::Tag { name, span } => Some((
             render_symbol_hover(
                 db.template_libraries(),
                 &name,
@@ -60,7 +67,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        OffsetContext::Filter { name, span } => Some((
+        SemanticOffsetContext::Filter { name, span } => Some((
             render_symbol_hover(
                 db.template_libraries(),
                 &name,
@@ -68,7 +75,7 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
             )?,
             span,
         )),
-        OffsetContext::Variable { .. } | OffsetContext::None => None,
+        SemanticOffsetContext::Variable { .. } | SemanticOffsetContext::None => None,
     }?;
 
     Some(ls_types::Hover {
@@ -93,47 +100,18 @@ fn render_symbol_hover(
 
     let candidates: Vec<_> = kinds
         .iter()
-        .flat_map(|kind| libraries.installed_symbol_candidates(*kind))
+        .flat_map(|kind| libraries.template_symbol_candidates(*kind))
         .filter(|candidate| candidate.symbol.name() == name)
         .collect();
 
     if !candidates.is_empty() {
-        return render_installed_symbol_hover(&candidates);
+        return render_template_symbol_hover(&candidates);
     }
 
-    let symbol_name = TemplateSymbolName::parse(name).ok()?;
-    let discovered = kinds
-        .iter()
-        .filter_map(|kind| {
-            libraries
-                .discovered_symbol_candidates_by_name(*kind)
-                .and_then(|mut candidates| candidates.remove(&symbol_name))
-        })
-        .flatten()
-        .map(|candidate| {
-            format!(
-                "Requires `{{% load {} %}}`.",
-                candidate.library_name.as_str()
-            )
-        })
-        .collect::<Vec<_>>();
-
-    if discovered.is_empty() {
-        None
-    } else {
-        let kind = match kind {
-            Some(TemplateSymbolKind::Tag) => "tag",
-            Some(TemplateSymbolKind::Filter) => "filter",
-            None => "symbol",
-        };
-        Some(format!(
-            "```text\n({kind}) {name}\n```\n---\n{}",
-            discovered.join("\n")
-        ))
-    }
+    None
 }
 
-fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Option<String> {
+fn render_template_symbol_hover(candidates: &[TemplateSymbolCandidate]) -> Option<String> {
     let candidate = candidates
         .iter()
         .find(|candidate| {
@@ -163,9 +141,9 @@ fn render_installed_symbol_hover(candidates: &[InstalledSymbolCandidate]) -> Opt
     sections.extend(
         candidates
             .iter()
-            .filter_map(|candidate| match &candidate.origin {
-                InstalledSymbolOrigin::Builtin { .. } => None,
-                InstalledSymbolOrigin::Loadable { load_name } => {
+            .filter_map(|candidate| match &candidate.availability {
+                TemplateSymbolAvailability::Builtin { module: _ } => None,
+                TemplateSymbolAvailability::RequiresLoad { load_name } => {
                     Some(format!("Requires `{{% load {} %}}`.", load_name.as_str()))
                 }
             }),
@@ -249,78 +227,61 @@ fn format_docstring(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use djls_semantic::Knowledge;
-    use djls_semantic::LibraryName;
-    use djls_semantic::LibraryOrigin;
-    use djls_semantic::PyModuleName;
-    use djls_semantic::TemplateLibraries;
-    use djls_semantic::TemplateLibrary;
+    use std::collections::HashMap;
 
     use super::*;
+
+    #[derive(Clone, Copy)]
+    enum TestOrigin {
+        Builtin(&'static str),
+        Installed(&'static str),
+    }
 
     fn candidate(
         kind: TemplateSymbolKind,
         name: &str,
         doc: Option<&str>,
-        origin: InstalledSymbolOrigin,
-    ) -> InstalledSymbolCandidate {
-        let definition = match &origin {
-            InstalledSymbolOrigin::Builtin { .. } => djls_semantic::SymbolDefinition::Unknown,
-            InstalledSymbolOrigin::Loadable { load_name } => {
-                djls_semantic::SymbolDefinition::Module(
-                    djls_semantic::PyModuleName::parse(&format!(
-                        "django.contrib.{0}.templatetags.{0}",
-                        load_name.as_str()
-                    ))
-                    .unwrap(),
-                )
+        origin: TestOrigin,
+    ) -> TemplateSymbolCandidate {
+        let mut libraries = HashMap::new();
+        let mut builtins = Vec::new();
+        let mut fixture = match (kind, origin) {
+            (TemplateSymbolKind::Tag, TestOrigin::Builtin(module)) => {
+                builtins.push(module.to_string());
+                djls_testing::builtin_tag(name, module)
+            }
+            (TemplateSymbolKind::Filter, TestOrigin::Builtin(module)) => {
+                builtins.push(module.to_string());
+                djls_testing::builtin_filter(name, module)
+            }
+            (TemplateSymbolKind::Tag, TestOrigin::Installed(load_name)) => {
+                let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
+                libraries.insert(load_name.to_string(), module.clone());
+                djls_testing::library_tag(name, load_name, &module)
+            }
+            (TemplateSymbolKind::Filter, TestOrigin::Installed(load_name)) => {
+                let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
+                libraries.insert(load_name.to_string(), module.clone());
+                djls_testing::library_filter(name, load_name, &module)
             }
         };
-
-        InstalledSymbolCandidate {
-            symbol: djls_semantic::TemplateSymbol {
-                kind,
-                name: TemplateSymbolName::parse(name).unwrap(),
-                definition,
-                doc: doc.map(str::to_string),
-            },
-            origin,
+        if let Some(doc) = doc {
+            fixture["doc"] = doc.into();
         }
-    }
 
-    #[test]
-    fn discovered_symbol_hover_shows_load_hint() {
-        let mut library = TemplateLibrary::new_discovered(
-            LibraryName::parse("humanize").unwrap(),
-            LibraryOrigin {
-                app: PyModuleName::parse("django.contrib.humanize").unwrap(),
-                module: PyModuleName::parse("django.contrib.humanize.templatetags.humanize")
-                    .unwrap(),
-                path: "django/contrib/humanize/templatetags/humanize.py".into(),
-            },
-        );
-        library.symbols.push(djls_semantic::TemplateSymbol {
-            kind: TemplateSymbolKind::Filter,
-            name: TemplateSymbolName::parse("intcomma").unwrap(),
-            definition: djls_semantic::SymbolDefinition::Unknown,
-            doc: None,
-        });
-        let libraries = TemplateLibraries {
-            active_knowledge: Knowledge::Unknown,
-            discovery_knowledge: Knowledge::Known,
-            loadable: BTreeMap::from([(LibraryName::parse("humanize").unwrap(), vec![library])]),
-            builtins: BTreeMap::new(),
+        let (tags, filters) = match kind {
+            TemplateSymbolKind::Tag => (vec![fixture], Vec::new()),
+            TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
         };
+        let db = djls_testing::TestDatabase::new();
+        let libraries =
+            djls_testing::make_template_libraries(&db, &tags, &filters, &libraries, &builtins);
 
-        let markdown =
-            render_symbol_hover(&libraries, "intcomma", Some(TemplateSymbolKind::Filter));
-
-        assert_eq!(
-            markdown.as_deref(),
-            Some("```text\n(filter) intcomma\n```\n---\nRequires `{% load humanize %}`.")
-        );
+        libraries
+            .template_symbol_candidates(kind)
+            .into_iter()
+            .find(|candidate| candidate.symbol.name() == name)
+            .expect("candidate should exist")
     }
 
     #[test]
@@ -329,12 +290,10 @@ mod tests {
             TemplateSymbolKind::Tag,
             "if",
             Some("Evaluate a condition."),
-            InstalledSymbolOrigin::Builtin {
-                module: djls_semantic::PyModuleName::parse("django.template.defaulttags").unwrap(),
-            },
+            TestOrigin::Builtin("django.template.defaulttags"),
         )];
 
-        let markdown = render_installed_symbol_hover(&candidates);
+        let markdown = render_template_symbol_hover(&candidates);
 
         assert_eq!(
             markdown.as_deref(),
@@ -348,12 +307,10 @@ mod tests {
             TemplateSymbolKind::Filter,
             "intcomma",
             None,
-            InstalledSymbolOrigin::Loadable {
-                load_name: djls_semantic::LibraryName::parse("humanize").unwrap(),
-            },
+            TestOrigin::Installed("humanize"),
         )];
 
-        let markdown = render_installed_symbol_hover(&candidates);
+        let markdown = render_template_symbol_hover(&candidates);
 
         assert_eq!(
             markdown.as_deref(),
@@ -388,8 +345,10 @@ mod tests {
 
         assert!(formatted.contains("{{ var }}\n```"));
         assert!(formatted.contains("Contextual translations are also supported:"));
-        assert!(formatted
-            .contains("```htmldjango\n{% translate \"this is a test\" context \"greeting\" %}"));
+        assert!(
+            formatted
+                .contains("```htmldjango\n{% translate \"this is a test\" context \"greeting\" %}")
+        );
     }
 
     #[test]

@@ -59,7 +59,7 @@ impl IndentWidth {
     const MAX: u8 = 16;
 
     #[must_use]
-    pub(crate) const fn value(self) -> u8 {
+    const fn value(self) -> u8 {
         self.0.get()
     }
 }
@@ -91,15 +91,19 @@ fn normalize_formatted_text(formatted: String, format_options: FormatOptions) ->
         formatted = trim_trailing_line_whitespace(formatted);
     }
 
-    if format_options.trim_final_newlines {
-        if let Some((mut prefix, ending)) = LineEnding::strip_suffix(&formatted) {
-            while let Some((next_prefix, _)) = LineEnding::strip_suffix(prefix) {
-                prefix = next_prefix;
-            }
+    let final_line_suffix = if format_options.trim_final_newlines {
+        LineEnding::strip_suffix(&formatted)
+    } else {
+        None
+    };
 
-            let prefix_len = prefix.len();
-            formatted.replace_range(prefix_len.., ending.as_str());
+    if let Some((mut prefix, ending)) = final_line_suffix {
+        while let Some((next_prefix, _)) = LineEnding::strip_suffix(prefix) {
+            prefix = next_prefix;
         }
+
+        let prefix_len = prefix.len();
+        formatted.replace_range(prefix_len.., ending.as_str());
     }
 
     if format_options.insert_final_newline && LineEnding::strip_suffix(&formatted).is_none() {

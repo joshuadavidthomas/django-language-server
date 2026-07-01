@@ -1,0 +1,41 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  simple_history.registry_tests.migration_test_app.models.DoYouKnow:
+    name: DoYouKnow
+    module_name: simple_history.registry_tests.migration_test_app.models
+    line: 6
+    relations: []
+    kind: concrete
+  simple_history.registry_tests.migration_test_app.models.ModelWithCustomAttrForeignKey:
+    name: ModelWithCustomAttrForeignKey
+    module_name: simple_history.registry_tests.migration_test_app.models
+    line: 34
+    relations: []
+    kind: concrete
+  simple_history.registry_tests.migration_test_app.models.ModelWithCustomAttrOneToOneField:
+    name: ModelWithCustomAttrOneToOneField
+    module_name: simple_history.registry_tests.migration_test_app.models
+    line: 56
+    relations: []
+    kind: concrete
+  simple_history.registry_tests.migration_test_app.models.WhatIMean:
+    name: WhatIMean
+    module_name: simple_history.registry_tests.migration_test_app.models
+    line: 10
+    relations: []
+    kind: concrete
+  simple_history.registry_tests.migration_test_app.models.Yar:
+    name: Yar
+    module_name: simple_history.registry_tests.migration_test_app.models
+    line: 14
+    relations:
+      - field_name: what
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: WhatIMean
+        related_name: ~
+    kind: concrete

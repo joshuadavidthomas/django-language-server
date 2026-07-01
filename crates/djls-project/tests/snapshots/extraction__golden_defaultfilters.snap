@@ -1,0 +1,37 @@
+---
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
+---
+tag_rules: {}
+filter_arities:
+  "django.template.defaultfilters::filter::add":
+    expects_arg: true
+    arg_optional: false
+  "django.template.defaultfilters::filter::addslashes":
+    expects_arg: false
+    arg_optional: false
+  "django.template.defaultfilters::filter::cut":
+    expects_arg: true
+    arg_optional: false
+  "django.template.defaultfilters::filter::date":
+    expects_arg: true
+    arg_optional: true
+  "django.template.defaultfilters::filter::default":
+    expects_arg: true
+    arg_optional: false
+  "django.template.defaultfilters::filter::escapejs":
+    expects_arg: false
+    arg_optional: false
+  "django.template.defaultfilters::filter::floatformat":
+    expects_arg: true
+    arg_optional: true
+  "django.template.defaultfilters::filter::lower":
+    expects_arg: false
+    arg_optional: false
+  "django.template.defaultfilters::filter::title":
+    expects_arg: false
+    arg_optional: false
+  "django.template.defaultfilters::filter::upper":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

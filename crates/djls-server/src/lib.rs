@@ -1,9 +1,12 @@
 mod client;
+mod document;
 mod ext;
 mod logging;
-mod queue;
+mod progress;
+mod reload;
 mod server;
 mod session;
+mod workspace;
 
 use std::io::IsTerminal;
 

@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  babybuddy.models.Settings:
+    name: Settings
+    module_name: babybuddy.models
+    line: 17
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete

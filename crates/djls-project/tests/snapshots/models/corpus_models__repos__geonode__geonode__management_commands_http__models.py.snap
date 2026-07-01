@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  geonode.management_commands_http.models.ManagementCommandJob:
+    name: ManagementCommandJob
+    module_name: geonode.management_commands_http.models
+    line: 28
+    relations: []
+    kind: concrete

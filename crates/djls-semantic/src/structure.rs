@@ -15,29 +15,29 @@ pub(crate) mod opaque;
 pub(crate) mod outline;
 pub(crate) mod tree;
 
-#[cfg(test)]
-pub(crate) mod snapshot;
-
 use crate::db::Db;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
-pub(crate) use crate::structure::grammar::TagIndex;
+pub use crate::structure::grammar::TagClass;
+pub use crate::structure::grammar::TagIndex;
+pub use crate::structure::grammar::compute_tag_index;
+pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
-pub(crate) use crate::structure::opaque::OpaqueRegions;
-pub use crate::structure::outline::build_template_outline;
+pub(crate) use crate::structure::opaque::opaque_regions_from_tree;
 pub use crate::structure::outline::OutlineItem;
 pub use crate::structure::outline::OutlineKind;
-pub(crate) use crate::structure::tree::BlockRole;
-pub(crate) use crate::structure::tree::RegionId;
-pub(crate) use crate::structure::tree::Regions;
-pub(crate) use crate::structure::tree::TemplateNode;
-pub(crate) use crate::structure::tree::TemplateTree;
-use crate::traits::SemanticModel;
+pub use crate::structure::outline::build_template_outline;
+pub use crate::structure::tree::BlockRole;
+pub use crate::structure::tree::RegionId;
+pub use crate::structure::tree::Regions;
+pub use crate::structure::tree::TemplateNode;
+pub use crate::structure::tree::TemplateRegion;
+pub use crate::structure::tree::TemplateTree;
 
 #[salsa::tracked]
 pub fn build_template_tree<'db>(
     db: &'db dyn Db,
     nodelist: djls_templates::NodeList<'db>,
 ) -> TemplateTree<'db> {
-    let builder = TemplateTreeBuilder::new(db, TagIndex::from_specs(db));
+    let builder = TemplateTreeBuilder::new(db, compute_tag_index(db));
     builder.model(db, nodelist)
 }

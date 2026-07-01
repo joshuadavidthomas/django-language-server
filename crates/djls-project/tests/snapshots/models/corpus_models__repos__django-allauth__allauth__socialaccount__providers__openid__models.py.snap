@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  allauth.socialaccount.providers.openid.models.OpenIDNonce:
+    name: OpenIDNonce
+    module_name: allauth.socialaccount.providers.openid.models
+    line: 16
+    relations: []
+    kind: concrete
+  allauth.socialaccount.providers.openid.models.OpenIDStore:
+    name: OpenIDStore
+    module_name: allauth.socialaccount.providers.openid.models
+    line: 4
+    relations: []
+    kind: concrete

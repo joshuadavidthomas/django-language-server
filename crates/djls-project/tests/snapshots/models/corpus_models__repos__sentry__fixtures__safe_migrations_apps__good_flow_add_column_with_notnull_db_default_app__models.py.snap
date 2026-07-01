@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  fixtures.safe_migrations_apps.good_flow_add_column_with_notnull_db_default_app.models.TestTable:
+    name: TestTable
+    module_name: fixtures.safe_migrations_apps.good_flow_add_column_with_notnull_db_default_app.models
+    line: 4
+    relations: []
+    kind: concrete

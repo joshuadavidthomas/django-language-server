@@ -1,0 +1,89 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  tracdb.models.Attachment:
+    name: Attachment
+    module_name: tracdb.models
+    line: 281
+    relations: []
+    kind: concrete
+  tracdb.models.Component:
+    name: Component
+    module_name: tracdb.models
+    line: 175
+    relations: []
+    kind: concrete
+  tracdb.models.Milestone:
+    name: Milestone
+    module_name: tracdb.models
+    line: 203
+    relations: []
+    kind: concrete
+  tracdb.models.Revision:
+    name: Revision
+    module_name: tracdb.models
+    line: 242
+    relations: []
+    kind: concrete
+  tracdb.models.Ticket:
+    name: Ticket
+    module_name: tracdb.models
+    line: 79
+    relations:
+      - field_name: component
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Component
+        related_name: tickets
+      - field_name: version
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Version
+        related_name: tickets
+      - field_name: milestone
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Milestone
+        related_name: tickets
+    kind: concrete
+  tracdb.models.TicketChange:
+    name: TicketChange
+    module_name: tracdb.models
+    line: 150
+    relations:
+      - field_name: ticket
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Ticket
+        related_name: changes
+    kind: concrete
+  tracdb.models.TicketCustom:
+    name: TicketCustom
+    module_name: tracdb.models
+    line: 131
+    relations:
+      - field_name: ticket
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Ticket
+        related_name: custom_fields
+    kind: concrete
+  tracdb.models.Version:
+    name: Version
+    module_name: tracdb.models
+    line: 188
+    relations: []
+    kind: concrete
+  tracdb.models.Wiki:
+    name: Wiki
+    module_name: tracdb.models
+    line: 262
+    relations: []
+    kind: concrete

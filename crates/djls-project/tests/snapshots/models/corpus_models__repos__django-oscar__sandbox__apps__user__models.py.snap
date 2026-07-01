@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  sandbox.apps.user.models.Profile:
+    name: Profile
+    module_name: sandbox.apps.user.models
+    line: 15
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: profile
+    kind: concrete

@@ -1,0 +1,103 @@
+---
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
+---
+tag_rules:
+  "django.templatetags.i18n::tag::blocktrans":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options:
+      values:
+        - with
+        - count
+        - context
+        - trimmed
+        - asvar
+      allow_duplicates: false
+      rejects_unknown: true
+    extracted_args: []
+    as_var: keep
+  "django.templatetags.i18n::tag::blocktranslate":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options:
+      values:
+        - with
+        - count
+        - context
+        - trimmed
+        - asvar
+      allow_duplicates: false
+      rejects_unknown: true
+    extracted_args: []
+    as_var: keep
+  "django.templatetags.i18n::tag::trans":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options:
+      values:
+        - noop
+        - context
+        - as
+      allow_duplicates: false
+      rejects_unknown: true
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument"
+            args:
+              - SplitElement:
+                  Forward: 0
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+  "django.templatetags.i18n::tag::translate":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options:
+      values:
+        - noop
+        - context
+        - as
+      allow_duplicates: false
+      rejects_unknown: true
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument"
+            args:
+              - SplitElement:
+                  Forward: 0
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+filter_arities: {}
+block_specs:
+  "django.templatetags.i18n::tag::blocktrans":
+    end_tag: endblocktrans
+    intermediates:
+      - plural
+    opaque: false
+  "django.templatetags.i18n::tag::blocktranslate":
+    end_tag: endblocktranslate
+    intermediates:
+      - plural
+    opaque: false

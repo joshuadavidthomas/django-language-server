@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  wagtail.contrib.settings.models.AbstractSetting:
+    name: AbstractSetting
+    module_name: wagtail.contrib.settings.models
+    line: 19
+    relations: []
+    kind: abstract
+  wagtail.contrib.settings.models.BaseGenericSetting:
+    name: BaseGenericSetting
+    module_name: wagtail.contrib.settings.models
+    line: 168
+    relations: []
+    kind: abstract
+  wagtail.contrib.settings.models.BaseSiteSetting:
+    name: BaseSiteSetting
+    module_name: wagtail.contrib.settings.models
+    line: 112
+    relations:
+      - field_name: site
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: Site
+        related_name: ~
+    kind: abstract

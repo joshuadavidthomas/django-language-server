@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  monthly.models.Newsletter:
+    name: Newsletter
+    module_name: monthly.models
+    line: 6
+    relations: []
+    kind: concrete

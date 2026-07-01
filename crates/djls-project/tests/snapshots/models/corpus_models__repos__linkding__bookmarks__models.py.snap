@@ -1,0 +1,125 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  bookmarks.models.ApiToken:
+    name: ApiToken
+    module_name: bookmarks.models
+    line: 490
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: api_tokens
+    kind: concrete
+  bookmarks.models.Bookmark:
+    name: Bookmark
+    module_name: bookmarks.models
+    line: 53
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+      - field_name: tags
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+      - field_name: latest_snapshot
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: BookmarkAsset
+        related_name: latest_snapshot
+    kind: concrete
+  bookmarks.models.BookmarkAsset:
+    name: BookmarkAsset
+    module_name: bookmarks.models
+    line: 129
+    relations:
+      - field_name: bookmark
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Bookmark
+        related_name: ~
+    kind: concrete
+  bookmarks.models.BookmarkBundle:
+    name: BookmarkBundle
+    module_name: bookmarks.models
+    line: 183
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete
+  bookmarks.models.FeedToken:
+    name: FeedToken
+    module_name: bookmarks.models
+    line: 464
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: User
+        related_name: feed_token
+    kind: concrete
+  bookmarks.models.GlobalSettings:
+    name: GlobalSettings
+    module_name: bookmarks.models
+    line: 513
+    relations:
+      - field_name: guest_profile_user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete
+  bookmarks.models.Tag:
+    name: Tag
+    module_name: bookmarks.models
+    line: 21
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete
+  bookmarks.models.Toast:
+    name: Toast
+    module_name: bookmarks.models
+    line: 457
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete
+  bookmarks.models.UserProfile:
+    name: UserProfile
+    module_name: bookmarks.models
+    line: 320
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: User
+        related_name: profile
+    kind: concrete

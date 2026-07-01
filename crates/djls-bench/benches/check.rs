@@ -14,10 +14,10 @@ use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use divan::Bencher;
-use djls_bench::realistic_db;
-use djls_bench::template_fixtures;
 use djls_bench::Db;
 use djls_bench::FileCheckResult;
+use djls_bench::realistic_db;
+use djls_bench::template_fixtures;
 use djls_source::DiagnosticRenderer;
 
 fn main() {
@@ -71,13 +71,13 @@ struct CorpusTemplates {
 }
 
 fn load_corpus_inner(
-    get_paths: impl FnOnce(&djls_corpus::Corpus) -> Option<Vec<Utf8PathBuf>>,
+    get_paths: impl FnOnce(&djls_testing::Corpus) -> Option<Vec<Utf8PathBuf>>,
 ) -> Option<CorpusTemplates> {
-    if !djls_corpus::Corpus::is_available() {
+    if !djls_testing::Corpus::is_available() {
         return None;
     }
 
-    let corpus = djls_corpus::Corpus::require();
+    let corpus = djls_testing::Corpus::require();
     let mut template_paths = get_paths(&corpus)?;
     template_paths.sort();
 

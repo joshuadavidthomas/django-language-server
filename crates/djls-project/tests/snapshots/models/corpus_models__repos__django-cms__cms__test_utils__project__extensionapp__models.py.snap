@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  cms.test_utils.project.extensionapp.models.MultiTableContentExtensionParent:
+    name: MultiTableContentExtensionParent
+    module_name: cms.test_utils.project.extensionapp.models
+    line: 39
+    relations: []
+    kind: concrete
+  cms.test_utils.project.extensionapp.models.MultiTablePageContentExtension:
+    name: MultiTablePageContentExtension
+    module_name: cms.test_utils.project.extensionapp.models
+    line: 43
+    relations: []
+    kind: concrete
+  cms.test_utils.project.extensionapp.models.MultiTablePageExtension:
+    name: MultiTablePageExtension
+    module_name: cms.test_utils.project.extensionapp.models
+    line: 32
+    relations: []
+    kind: concrete
+  cms.test_utils.project.extensionapp.models.MultiTablePageExtensionParent:
+    name: MultiTablePageExtensionParent
+    module_name: cms.test_utils.project.extensionapp.models
+    line: 28
+    relations: []
+    kind: concrete

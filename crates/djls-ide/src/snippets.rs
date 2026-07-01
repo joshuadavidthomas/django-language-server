@@ -4,7 +4,7 @@ use djls_semantic::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of tag arguments.
 #[must_use]
-pub(crate) fn generate_snippet_from_args(args: &[TagArgument]) -> String {
+fn generate_snippet_from_args(args: &[TagArgument]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
 
@@ -46,7 +46,7 @@ pub(crate) fn generate_snippet_from_args(args: &[TagArgument]) -> String {
 
 /// Generate a complete LSP snippet for a tag including the tag name
 #[must_use]
-pub(crate) fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
+fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
     let args = spec.arguments();
 
     let args_snippet = generate_snippet_from_args(&args);
@@ -70,12 +70,12 @@ pub(crate) fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) 
     let mut snippet = generate_snippet_for_tag(tag_name, spec);
 
     // If this tag has a required end tag, include it in the snippet
-    if let Some(end_tag) = &spec.end_tag {
-        if end_tag.required {
-            snippet.push_str(" %}\n$0\n{% ");
-            snippet.push_str(&end_tag.name);
-            snippet.push_str(" %}");
-        }
+    if let Some(end_tag) = &spec.end_tag
+        && end_tag.required
+    {
+        snippet.push_str(" %}\n$0\n{% ");
+        snippet.push_str(&end_tag.name);
+        snippet.push_str(" %}");
     }
 
     snippet
@@ -179,17 +179,15 @@ mod tests {
     fn test_snippet_for_block_tag() {
         use std::borrow::Cow;
 
-        let spec = TagSpec {
-            module: "django.template.loader_tags".into(),
-            end_tag: Some(EndTag {
+        let spec = TagSpec::new(
+            "django.template.loader_tags".into(),
+            Some(EndTag {
                 name: "endblock".into(),
                 required: true,
             }),
-            intermediate_tags: Cow::Borrowed(&[]),
-            opaque: false,
-            semantic_role: None,
-            extracted_rules: None,
-        }
+            Cow::Borrowed(&[]),
+            false,
+        )
         .with_arguments(vec![make_var("name", true, 0)]);
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -200,17 +198,15 @@ mod tests {
     fn test_snippet_with_end_tag() {
         use std::borrow::Cow;
 
-        let spec = TagSpec {
-            module: "django.template.defaulttags".into(),
-            end_tag: Some(EndTag {
+        let spec = TagSpec::new(
+            "django.template.defaulttags".into(),
+            Some(EndTag {
                 name: "endautoescape".into(),
                 required: true,
             }),
-            intermediate_tags: Cow::Borrowed(&[]),
-            opaque: false,
-            semantic_role: None,
-            extracted_rules: None,
-        }
+            Cow::Borrowed(&[]),
+            false,
+        )
         .with_arguments(vec![make_choice("mode", true, vec!["on", "off"], 0)]);
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);

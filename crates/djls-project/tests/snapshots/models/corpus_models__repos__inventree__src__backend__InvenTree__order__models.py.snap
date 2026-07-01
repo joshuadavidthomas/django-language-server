@@ -1,0 +1,84 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.order.models.PurchaseOrder:
+    name: PurchaseOrder
+    module_name: src.backend.InvenTree.order.models
+    line: 536
+    relations:
+      - field_name: supplier
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Company
+        related_name: purchase_orders
+      - field_name: received_by
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: +
+    kind: concrete
+  src.backend.InvenTree.order.models.ReturnOrder:
+    name: ReturnOrder
+    module_name: src.backend.InvenTree.order.models
+    line: 2633
+    relations:
+      - field_name: customer
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Company
+        related_name: sales_orders
+    kind: concrete
+  src.backend.InvenTree.order.models.SalesOrder:
+    name: SalesOrder
+    module_name: src.backend.InvenTree.order.models
+    line: 1242
+    relations:
+      - field_name: customer
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Company
+        related_name: return_orders
+      - field_name: shipped_by
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: +
+    kind: concrete
+  src.backend.InvenTree.order.models.SalesOrderAllocation:
+    name: SalesOrderAllocation
+    module_name: src.backend.InvenTree.order.models
+    line: 2483
+    relations:
+      - field_name: line
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: SalesOrderLineItem
+        related_name: allocations
+      - field_name: shipment
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: SalesOrderShipment
+        related_name: allocations
+      - field_name: item
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: stock
+          name: StockItem
+        related_name: sales_order_allocations
+    kind: concrete
+  src.backend.InvenTree.order.models.TotalPriceMixin:
+    name: TotalPriceMixin
+    module_name: src.backend.InvenTree.order.models
+    line: 65
+    relations: []
+    kind: abstract

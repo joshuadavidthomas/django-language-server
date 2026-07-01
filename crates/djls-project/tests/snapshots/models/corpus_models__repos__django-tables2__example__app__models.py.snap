@@ -1,0 +1,35 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  example.app.models.Continent:
+    name: Continent
+    module_name: example.app.models
+    line: 6
+    relations: []
+    kind: concrete
+  example.app.models.Country:
+    name: Country
+    module_name: example.app.models
+    line: 13
+    relations:
+      - field_name: continent
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Continent
+        related_name: ~
+    kind: concrete
+  example.app.models.Person:
+    name: Person
+    module_name: example.app.models
+    line: 39
+    relations:
+      - field_name: country
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Country
+        related_name: ~
+    kind: concrete

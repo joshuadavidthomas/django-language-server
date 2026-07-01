@@ -39,6 +39,14 @@ pub enum ValidationError {
     #[error("Unknown tag '{tag}'")]
     UnknownTag { tag: String, span: Span },
 
+    #[error("Add '{app}' to INSTALLED_APPS to use tag '{tag}'")]
+    TagNotInInstalledApps {
+        tag: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
+
     #[error("Tag '{tag}' requires the '{library}' tag library")]
     UnloadedTag {
         tag: String,
@@ -58,6 +66,14 @@ pub enum ValidationError {
 
     #[error("Unknown filter '{filter}'")]
     UnknownFilter { filter: String, span: Span },
+
+    #[error("Add '{app}' to INSTALLED_APPS to use filter '{filter}'")]
+    FilterNotInInstalledApps {
+        filter: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
 
     #[error("Filter '{filter}' requires the '{library}' tag library")]
     UnloadedFilter {
@@ -93,22 +109,6 @@ pub enum ValidationError {
     ExtractedRuleViolation {
         tag: String,
         message: String,
-        span: Span,
-    },
-
-    #[error("Add '{app}' to INSTALLED_APPS to use tag '{tag}'")]
-    TagNotInInstalledApps {
-        tag: String,
-        app: String,
-        load_name: String,
-        span: Span,
-    },
-
-    #[error("Add '{app}' to INSTALLED_APPS to use filter '{filter}'")]
-    FilterNotInInstalledApps {
-        filter: String,
-        app: String,
-        load_name: String,
         span: Span,
     },
 
@@ -174,17 +174,17 @@ impl ValidationError {
             | Self::OrphanedClosingTag { span, .. }
             | Self::UnmatchedBlockName { span, .. }
             | Self::UnknownTag { span, .. }
+            | Self::TagNotInInstalledApps { span, .. }
             | Self::UnloadedTag { span, .. }
             | Self::AmbiguousUnloadedTag { span, .. }
             | Self::UnknownFilter { span, .. }
+            | Self::FilterNotInInstalledApps { span, .. }
             | Self::UnloadedFilter { span, .. }
             | Self::AmbiguousUnloadedFilter { span, .. }
             | Self::ExpressionSyntaxError { span, .. }
             | Self::FilterMissingArgument { span, .. }
             | Self::FilterUnexpectedArgument { span, .. }
             | Self::ExtractedRuleViolation { span, .. }
-            | Self::TagNotInInstalledApps { span, .. }
-            | Self::FilterNotInInstalledApps { span, .. }
             | Self::UnknownLibrary { span, .. }
             | Self::LibraryNotInInstalledApps { span, .. }
             | Self::ExtendsMustBeFirst { span, .. }

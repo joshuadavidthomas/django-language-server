@@ -3,13 +3,14 @@ use djls_templates::TagBit;
 
 use crate::db::Db;
 use crate::scoping::LoadKind;
-use crate::specs::tags::TagSemanticRole;
-use crate::specs::tags::TagSpecs;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
+use crate::tags::TagRole;
+use crate::tags::TagSpec;
+use crate::tags::TagSpecs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
@@ -39,16 +40,16 @@ pub enum OutlineKind {
     Filter,
 }
 
-impl From<TagSemanticRole> for OutlineKind {
-    fn from(role: TagSemanticRole) -> Self {
+impl From<TagRole> for OutlineKind {
+    fn from(role: TagRole) -> Self {
         match role {
-            TagSemanticRole::TemplateReference => Self::TemplateReference,
-            TagSemanticRole::TemplateLibraryLoader => Self::TemplateLibrary,
-            TagSemanticRole::TemplateBlock => Self::TemplateBlock,
-            TagSemanticRole::ControlTag => Self::ControlTag,
-            TagSemanticRole::TemplateTag => Self::TemplateTag,
-            TagSemanticRole::StaticAssetReference => Self::StaticAssetReference,
-            TagSemanticRole::RouteReference => Self::RouteReference,
+            TagRole::TemplateReference(_) => Self::TemplateReference,
+            TagRole::TemplateLibraryLoader => Self::TemplateLibrary,
+            TagRole::TemplateBlock => Self::TemplateBlock,
+            TagRole::ControlTag => Self::ControlTag,
+            TagRole::TemplateTag => Self::TemplateTag,
+            TagRole::StaticAssetReference => Self::StaticAssetReference,
+            TagRole::RouteReference => Self::RouteReference,
         }
     }
 }
@@ -62,7 +63,7 @@ pub fn build_template_outline(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<Outlin
 }
 
 fn outline_items_for_tag(
-    role: TagSemanticRole,
+    role: TagRole,
     tag: &str,
     name_span: Span,
     bits: &[TagBit],
@@ -70,10 +71,10 @@ fn outline_items_for_tag(
     children: Vec<OutlineItem>,
 ) -> Vec<OutlineItem> {
     match role {
-        TagSemanticRole::TemplateReference
-        | TagSemanticRole::TemplateBlock
-        | TagSemanticRole::StaticAssetReference
-        | TagSemanticRole::RouteReference => {
+        TagRole::TemplateReference(_)
+        | TagRole::TemplateBlock
+        | TagRole::StaticAssetReference
+        | TagRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
                 OutlineItem {
                     label: bit.template_string().value().to_string(),
@@ -95,7 +96,7 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagSemanticRole::TemplateLibraryLoader => match LoadKind::from_tag(tag, bits) {
+        TagRole::TemplateLibraryLoader => match LoadKind::from_tag(tag, bits) {
             Some(LoadKind::FullLoad { libraries }) => libraries
                 .into_iter()
                 .map(|library| OutlineItem {
@@ -127,7 +128,7 @@ fn outline_items_for_tag(
             }],
             None => Vec::new(),
         },
-        TagSemanticRole::ControlTag | TagSemanticRole::TemplateTag => {
+        TagRole::ControlTag | TagRole::TemplateTag => {
             let mut label = tag.to_string();
             for bit in bits {
                 label.push(' ');
@@ -175,8 +176,8 @@ fn outline_items_for_node(
         } => {
             let role = tag_specs
                 .get(tag)
-                .and_then(|spec| spec.semantic_role)
-                .unwrap_or(TagSemanticRole::ControlTag);
+                .and_then(TagSpec::role)
+                .unwrap_or(TagRole::ControlTag);
             let children = regions
                 .get(*body)
                 .nodes()
@@ -214,7 +215,7 @@ fn outline_items_for_node(
         } => {
             let children = outline_items_for_region(regions, tag_specs, *body);
             outline_items_for_tag(
-                TagSemanticRole::ControlTag,
+                TagRole::ControlTag,
                 tag,
                 *name_span,
                 bits,
@@ -230,7 +231,7 @@ fn outline_items_for_node(
             ..
         } => tag_specs
             .get(tag)
-            .and_then(|spec| spec.semantic_role)
+            .and_then(TagSpec::role)
             .map_or_else(Vec::new, |role| {
                 outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
             }),
@@ -257,250 +258,9 @@ fn outline_items_for_node(
                 })
                 .collect(),
         }],
-        TemplateNode::Comment { .. } | TemplateNode::Text { .. } | TemplateNode::Error { .. } => {
-            Vec::new()
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::borrow::Cow;
-
-    use camino::Utf8Path;
-    use djls_templates::parse_template;
-    use rustc_hash::FxHashMap;
-
-    use super::*;
-    use crate::build_template_tree;
-    use crate::builtin_tag_specs;
-    use crate::testing::TestDatabase;
-    use crate::EndTag;
-    use crate::TagSpec;
-    use crate::TagSpecs;
-
-    fn outline_for_source<'db>(db: &'db TestDatabase, source: &str) -> &'db Vec<OutlineItem> {
-        db.add_file("test.html", source);
-        let file = db.create_file(Utf8Path::new("test.html"));
-        let nodelist = parse_template(db, file).expect("should parse");
-        let tree = build_template_tree(db, nodelist);
-        build_template_outline(db, tree)
-    }
-
-    fn labels(items: &[OutlineItem]) -> Vec<&str> {
-        items.iter().map(|item| item.label.as_str()).collect()
-    }
-
-    #[test]
-    fn header_tags_produce_outline_items() {
-        let db = TestDatabase::new();
-        let outline = outline_for_source(
-            &db,
-            r#"{% extends "base.html" %}
-{% load static i18n %}
-{% include "partials/nav.html" %}"#,
-        );
-
-        assert_eq!(
-            labels(outline),
-            vec!["base.html", "static", "i18n", "partials/nav.html"]
-        );
-        assert_eq!(
-            outline.iter().map(|item| item.kind).collect::<Vec<_>>(),
-            vec![
-                OutlineKind::TemplateReference,
-                OutlineKind::TemplateLibrary,
-                OutlineKind::TemplateLibrary,
-                OutlineKind::TemplateReference,
-            ]
-        );
-        assert_eq!(
-            outline
-                .iter()
-                .map(|item| item.detail.as_deref())
-                .collect::<Vec<_>>(),
-            vec![Some("extends"), Some("load"), Some("load"), Some("include")]
-        );
-    }
-
-    #[test]
-    fn selective_load_uses_library_as_outline_item_with_imported_symbols() {
-        let db = TestDatabase::new();
-        let outline = outline_for_source(&db, "{% load trans blocktrans from i18n %}");
-
-        assert_eq!(labels(outline), vec!["i18n"]);
-        assert_eq!(outline[0].kind, OutlineKind::TemplateLibrary);
-        assert_eq!(outline[0].detail.as_deref(), Some("load"));
-        assert_eq!(
-            outline[0].selection_span.start_usize(),
-            "{% load trans blocktrans from ".len()
-        );
-        assert_eq!(labels(&outline[0].children), vec!["trans", "blocktrans"]);
-        assert_eq!(
-            outline[0].children[0].kind,
-            OutlineKind::TemplateLibrarySymbol
-        );
-        assert_eq!(outline[0].children[0].detail.as_deref(), Some("from i18n"));
-        assert_eq!(
-            outline[0].children[0].selection_span.start_usize(),
-            "{% load ".len()
-        );
-    }
-
-    #[test]
-    fn nested_blocks_produce_nested_outline_items() {
-        let db = TestDatabase::new();
-        let outline = outline_for_source(
-            &db,
-            r"{% block content %}
-  {% block title %}Title{% endblock %}
-{% endblock %}",
-        );
-
-        assert_eq!(labels(outline), vec!["content"]);
-        assert_eq!(labels(&outline[0].children), vec!["title"]);
-    }
-
-    #[test]
-    fn standalone_tag_items_inside_blocks_are_nested() {
-        let db = TestDatabase::new();
-        let outline = outline_for_source(
-            &db,
-            r#"{% block content %}
-  {% include "card.html" %}
-{% endblock %}"#,
-        );
-
-        assert_eq!(labels(outline), vec!["content"]);
-        assert_eq!(labels(&outline[0].children), vec!["card.html"]);
-    }
-
-    #[test]
-    fn custom_callable_block_tags_produce_callable_outline_items() {
-        let mut specs = builtin_tag_specs();
-        specs.merge(TagSpecs::new(FxHashMap::from_iter([(
-            "partialdef".to_string(),
-            TagSpec {
-                module: Cow::Borrowed("django_template_partials.templatetags.partials"),
-                end_tag: Some(EndTag {
-                    name: Cow::Borrowed("endpartialdef"),
-                    required: true,
-                }),
-                intermediate_tags: Cow::Borrowed(&[]),
-                opaque: false,
-                semantic_role: Some(TagSemanticRole::TemplateTag),
-                extracted_rules: None,
-            },
-        )])));
-        let db = TestDatabase::new().with_specs(specs);
-        let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}");
-
-        assert_eq!(labels(outline), vec!["partialdef card"]);
-        assert_eq!(outline[0].kind, OutlineKind::TemplateTag);
-    }
-
-    #[test]
-    fn tags_without_semantic_role_hide_standalone_tags_but_keep_blocks() {
-        let mut specs = builtin_tag_specs();
-        specs.merge(TagSpecs::new(FxHashMap::from_iter([
-            (
-                "myblock".to_string(),
-                TagSpec {
-                    module: Cow::Borrowed("myapp.templatetags.custom"),
-                    end_tag: Some(EndTag {
-                        name: Cow::Borrowed("endmyblock"),
-                        required: true,
-                    }),
-                    intermediate_tags: Cow::Borrowed(&[]),
-                    opaque: false,
-                    semantic_role: None,
-                    extracted_rules: None,
-                },
-            ),
-            (
-                "mytag".to_string(),
-                TagSpec {
-                    module: Cow::Borrowed("myapp.templatetags.custom"),
-                    end_tag: None,
-                    intermediate_tags: Cow::Borrowed(&[]),
-                    opaque: false,
-                    semantic_role: None,
-                    extracted_rules: None,
-                },
-            ),
-        ])));
-        let db = TestDatabase::new().with_specs(specs);
-        let outline = outline_for_source(&db, "{% mytag %}{% myblock thing %}Body{% endmyblock %}");
-
-        assert_eq!(labels(outline), vec!["myblock thing"]);
-        assert_eq!(outline[0].kind, OutlineKind::ControlTag);
-    }
-
-    #[test]
-    fn control_structure_inside_blocks_is_visible() {
-        let db = TestDatabase::new();
-        let outline = outline_for_source(
-            &db,
-            r#"{% load static %}
-{% block content %}
-  <h1>Hello, {{ user.username|lower }}!</h1>
-  {% if items %}
-    {% for item in items %}<li>{{ item.name }}</li>{% endfor %}
-  {% else %}
-    <p>No items found.</p>
-  {% endif %}
-  <img src="{% static 'images/logo.png' %}" alt="Logo">
-{% endblock %}"#,
-        );
-
-        assert_eq!(labels(outline), vec!["static", "content"]);
-        let block_children = &outline[1].children;
-        assert_eq!(
-            labels(block_children),
-            vec!["user.username", "if items", "images/logo.png"]
-        );
-        assert_eq!(block_children[0].kind, OutlineKind::Variable);
-        assert_eq!(
-            block_children[0].selection_span.start_usize(),
-            r"{% load static %}
-{% block content %}
-  <h1>Hello, {{ "
-                .len()
-        );
-        assert_eq!(labels(&block_children[0].children), vec!["lower"]);
-        assert_eq!(block_children[0].children[0].kind, OutlineKind::Filter);
-        assert_eq!(block_children[1].kind, OutlineKind::ControlTag);
-        assert_eq!(
-            block_children[1].selection_span.start_usize(),
-            r"{% load static %}
-{% block content %}
-  <h1>Hello, {{ user.username|lower }}!</h1>
-  {% "
-            .len()
-        );
-        assert_eq!(
-            labels(&block_children[1].children),
-            vec!["for item in items", "else"]
-        );
-        assert_eq!(
-            labels(&block_children[1].children[0].children),
-            vec!["item.name"]
-        );
-        assert_eq!(block_children[2].kind, OutlineKind::StaticAssetReference);
-    }
-
-    #[test]
-    fn malformed_unclosed_blocks_produce_best_effort_outline_items() {
-        let db = TestDatabase::new();
-        let outline = outline_for_source(
-            &db,
-            r"{% block content %}
-  {% if user %}
-    {% block title %}Title",
-        );
-
-        assert_eq!(labels(outline), vec!["content"]);
-        assert_eq!(labels(&outline[0].children), vec!["if user"]);
-        assert_eq!(labels(&outline[0].children[0].children), vec!["title"]);
+        TemplateNode::Opaque { .. }
+        | TemplateNode::Comment { .. }
+        | TemplateNode::Text { .. }
+        | TemplateNode::Error { .. } => Vec::new(),
     }
 }

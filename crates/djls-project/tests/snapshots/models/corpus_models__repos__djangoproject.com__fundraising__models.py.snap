@@ -1,0 +1,53 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  fundraising.models.DjangoHero:
+    name: DjangoHero
+    module_name: fundraising.models
+    line: 61
+    relations: []
+    kind: concrete
+  fundraising.models.Donation:
+    name: Donation
+    module_name: fundraising.models
+    line: 105
+    relations:
+      - field_name: donor
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: DjangoHero
+        related_name: ~
+    kind: concrete
+  fundraising.models.FundraisingModel:
+    name: FundraisingModel
+    module_name: fundraising.models
+    line: 46
+    relations: []
+    kind: abstract
+  fundraising.models.InKindDonor:
+    name: InKindDonor
+    module_name: fundraising.models
+    line: 149
+    relations: []
+    kind: concrete
+  fundraising.models.Payment:
+    name: Payment
+    module_name: fundraising.models
+    line: 130
+    relations:
+      - field_name: donation
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Donation
+        related_name: ~
+    kind: concrete
+  fundraising.models.Testimonial:
+    name: Testimonial
+    module_name: fundraising.models
+    line: 140
+    relations: []
+    kind: concrete

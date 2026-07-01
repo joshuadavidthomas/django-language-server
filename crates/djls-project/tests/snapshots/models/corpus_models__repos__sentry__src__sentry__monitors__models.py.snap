@@ -1,0 +1,35 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.sentry.monitors.models.Monitor:
+    name: Monitor
+    module_name: src.sentry.monitors.models
+    line: 213
+    relations: []
+    kind: concrete
+  src.sentry.monitors.models.MonitorCheckIn:
+    name: MonitorCheckIn
+    module_name: src.sentry.monitors.models
+    line: 474
+    relations: []
+    kind: concrete
+  src.sentry.monitors.models.MonitorEnvBrokenDetection:
+    name: MonitorEnvBrokenDetection
+    module_name: src.sentry.monitors.models
+    line: 808
+    relations: []
+    kind: concrete
+  src.sentry.monitors.models.MonitorEnvironment:
+    name: MonitorEnvironment
+    module_name: src.sentry.monitors.models
+    line: 650
+    relations: []
+    kind: concrete
+  src.sentry.monitors.models.MonitorIncident:
+    name: MonitorIncident
+    module_name: src.sentry.monitors.models
+    line: 756
+    relations: []
+    kind: concrete

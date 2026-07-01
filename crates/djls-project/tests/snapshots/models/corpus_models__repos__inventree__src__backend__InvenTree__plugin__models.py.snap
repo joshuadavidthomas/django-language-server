@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.plugin.models.PluginConfig:
+    name: PluginConfig
+    module_name: src.backend.InvenTree.plugin.models
+    line: 22
+    relations: []
+    kind: concrete

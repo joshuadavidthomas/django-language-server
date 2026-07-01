@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  example_project_custom_group.articles.models.Article:
+    name: Article
+    module_name: example_project_custom_group.articles.models
+    line: 13
+    relations: []
+    kind: concrete

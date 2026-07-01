@@ -1,0 +1,15 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  netbox.extras.models.models.Bookmark:
+    name: Bookmark
+    module_name: netbox.extras.models.models
+    line: 842
+    relations:
+      - field_name: object
+        relation_type: GenericForeignKey
+        ct_field: object_type
+        fk_field: object_id
+    kind: concrete

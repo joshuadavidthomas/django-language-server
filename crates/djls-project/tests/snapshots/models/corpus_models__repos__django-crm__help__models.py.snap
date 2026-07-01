@@ -1,0 +1,35 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  help.models.Page:
+    name: Page
+    module_name: help.models
+    line: 22
+    relations: []
+    kind: concrete
+  help.models.Paragraph:
+    name: Paragraph
+    module_name: help.models
+    line: 89
+    relations:
+      - field_name: document
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Page
+        related_name: ~
+      - field_name: groups
+        relation_type: ManyToMany
+        target:
+          kind: Qualified
+          app_label: auth
+          name: Group
+        related_name: ~
+      - field_name: link1
+        relation_type: ForeignKey
+        target:
+          kind: SelfRef
+        related_name: ~
+    kind: concrete

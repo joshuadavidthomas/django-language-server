@@ -75,12 +75,12 @@ impl LineCol {
     }
 
     #[must_use]
-    pub fn line(&self) -> u32 {
+    pub(crate) fn line(self) -> u32 {
         self.line
     }
 
     #[must_use]
-    pub fn column(&self) -> u32 {
+    pub(crate) fn column(self) -> u32 {
         self.column
     }
 }
@@ -212,16 +212,10 @@ impl Span {
         }
     }
 
-    pub fn try_from_bounds_usize(start: usize, end: usize) -> Result<Self, SpanConversionError> {
-        if end < start {
-            return Err(SpanConversionError::EndBeforeStart);
-        }
-        let start_u32 = u32::try_from(start).map_err(|_| SpanConversionError::Overflow)?;
-        let end_u32 = u32::try_from(end).map_err(|_| SpanConversionError::Overflow)?;
-        Ok(Self {
-            start: start_u32,
-            length: end_u32 - start_u32,
-        })
+    #[must_use]
+    pub fn before_offset(offset: Offset, length: usize) -> Self {
+        let end = offset.get() as usize;
+        Self::saturating_from_bounds_usize(end.saturating_sub(length), end)
     }
 
     #[must_use]
@@ -279,5 +273,20 @@ impl TryFrom<(usize, usize)> for Span {
             start: u32::try_from(start).map_err(|_| SpanConversionError::Overflow)?,
             length: u32::try_from(length).map_err(|_| SpanConversionError::Overflow)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn span_before_offset_uses_offset_as_end_bound() {
+        assert_eq!(Span::before_offset(Offset::new(10), 3), Span::new(7, 3),);
+    }
+
+    #[test]
+    fn span_before_offset_clamps_start_to_zero() {
+        assert_eq!(Span::before_offset(Offset::new(2), 5), Span::new(0, 2),);
     }
 }

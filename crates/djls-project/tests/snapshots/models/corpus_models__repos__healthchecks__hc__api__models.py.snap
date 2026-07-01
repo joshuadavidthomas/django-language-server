@@ -1,0 +1,83 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  hc.api.models.Channel:
+    name: Channel
+    module_name: hc.api.models
+    line: 967
+    relations:
+      - field_name: project
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Project
+        related_name: ~
+      - field_name: checks
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Check
+        related_name: ~
+    kind: concrete
+  hc.api.models.Check:
+    name: Check
+    module_name: hc.api.models
+    line: 184
+    relations:
+      - field_name: project
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Project
+        related_name: ~
+    kind: concrete
+  hc.api.models.Flip:
+    name: Flip
+    module_name: hc.api.models
+    line: 1282
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Check
+        related_name: ~
+    kind: concrete
+  hc.api.models.Notification:
+    name: Notification
+    module_name: hc.api.models
+    line: 1260
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Check
+        related_name: ~
+      - field_name: channel
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Channel
+        related_name: ~
+    kind: concrete
+  hc.api.models.Ping:
+    name: Ping
+    module_name: hc.api.models
+    line: 666
+    relations:
+      - field_name: owner
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Check
+        related_name: ~
+    kind: concrete
+  hc.api.models.TokenBucket:
+    name: TokenBucket
+    module_name: hc.api.models
+    line: 1340
+    relations: []
+    kind: concrete

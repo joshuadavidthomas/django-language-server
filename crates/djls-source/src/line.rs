@@ -76,21 +76,83 @@ impl LineEnding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineIndex(Vec<u32>);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceLine<'text> {
+    line: u32,
+    start: Offset,
+    text: &'text str,
+}
+
+impl<'text> SourceLine<'text> {
+    #[must_use]
+    pub fn line(&self) -> u32 {
+        self.line
+    }
+
+    #[must_use]
+    pub fn text(&self) -> &'text str {
+        self.text
+    }
+
+    #[must_use]
+    pub fn byte_offset(&self, offset: Offset) -> usize {
+        let mut byte_offset = (offset.get() as usize)
+            .saturating_sub(self.start.get() as usize)
+            .min(self.text.len());
+        while byte_offset > 0 && !self.text.is_char_boundary(byte_offset) {
+            byte_offset -= 1;
+        }
+        byte_offset
+    }
+}
+
 impl LineIndex {
     #[must_use]
-    pub fn lines(&self) -> &[u32] {
+    fn lines(&self) -> &[u32] {
         &self.0
     }
 
     #[must_use]
-    pub fn line_start(&self, line: u32) -> Option<u32> {
+    fn line_start(&self, line: u32) -> Option<u32> {
         self.0.get(line as usize).copied()
     }
 
     // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
     // The index is derived from that text, so public callers should usually go through `File`.
     #[must_use]
-    pub fn end_line_col(&self, text: &str, encoding: PositionEncoding) -> LineCol {
+    pub fn line_at_offset<'text>(
+        &self,
+        text: &'text str,
+        offset: Offset,
+    ) -> Option<SourceLine<'text>> {
+        let line = self.to_line_col(offset).line();
+        let line_start = self.line_start(line)? as usize;
+        let next_line_start = self
+            .lines()
+            .get(line as usize + 1)
+            .copied()
+            .unwrap_or_else(|| u32::try_from(text.len()).unwrap_or(u32::MAX));
+
+        let line_start = line_start.min(text.len());
+        let line_end = (next_line_start as usize).min(text.len());
+        if line_start > line_end {
+            return None;
+        }
+
+        let line_text = &text[line_start..line_end];
+        let line_text = LineEnding::strip_suffix(line_text).map_or(line_text, |(text, _)| text);
+
+        Some(SourceLine {
+            line,
+            start: Offset::new(u32::try_from(line_start).unwrap_or(u32::MAX)),
+            text: line_text,
+        })
+    }
+
+    // TODO(source-api): Revisit methods that take both `LineIndex` and source text.
+    // The index is derived from that text, so public callers should usually go through `File`.
+    #[must_use]
+    pub(crate) fn end_line_col(&self, text: &str, encoding: PositionEncoding) -> LineCol {
         let line = u32::try_from(self.lines().len().saturating_sub(1)).unwrap_or_default();
         let line_start = self.lines().last().copied().unwrap_or_default() as usize;
         let line_text = &text[line_start.min(text.len())..];

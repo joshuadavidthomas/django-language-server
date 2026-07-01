@@ -1,0 +1,25 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  wagtail.contrib.redirects.models.Redirect:
+    name: Redirect
+    module_name: wagtail.contrib.redirects.models
+    line: 11
+    relations:
+      - field_name: site
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: wagtailcore
+          name: Site
+        related_name: redirects
+      - field_name: redirect_page
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: wagtailcore
+          name: Page
+        related_name: ~
+    kind: concrete

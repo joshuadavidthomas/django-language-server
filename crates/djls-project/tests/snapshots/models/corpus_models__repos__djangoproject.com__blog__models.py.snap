@@ -1,0 +1,36 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  blog.models.Entry:
+    name: Entry
+    module_name: blog.models
+    line: 122
+    relations:
+      - field_name: social_media_card
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ImageUpload
+        related_name: ~
+    kind: concrete
+  blog.models.Event:
+    name: Event
+    module_name: blog.models
+    line: 255
+    relations: []
+    kind: concrete
+  blog.models.ImageUpload:
+    name: ImageUpload
+    module_name: blog.models
+    line: 86
+    relations:
+      - field_name: uploaded_by
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: auth
+          name: User
+        related_name: ~
+    kind: concrete

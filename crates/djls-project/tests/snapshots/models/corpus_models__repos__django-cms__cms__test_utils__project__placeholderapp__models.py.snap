@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  cms.test_utils.project.placeholderapp.models.CharPksExample:
+    name: CharPksExample
+    module_name: cms.test_utils.project.placeholderapp.models
+    line: 81
+    relations: []
+    kind: concrete
+  cms.test_utils.project.placeholderapp.models.DynamicPlaceholderSlotExample:
+    name: DynamicPlaceholderSlotExample
+    module_name: cms.test_utils.project.placeholderapp.models
+    line: 74
+    relations: []
+    kind: concrete
+  cms.test_utils.project.placeholderapp.models.Example1:
+    name: Example1
+    module_name: cms.test_utils.project.placeholderapp.models
+    line: 21
+    relations: []
+    kind: concrete
+  cms.test_utils.project.placeholderapp.models.TwoPlaceholderExample:
+    name: TwoPlaceholderExample
+    module_name: cms.test_utils.project.placeholderapp.models
+    line: 65
+    relations: []
+    kind: concrete

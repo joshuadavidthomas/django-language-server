@@ -1,0 +1,53 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.part.models.PartCategoryStar:
+    name: PartCategoryStar
+    module_name: src.backend.InvenTree.part.models
+    line: 3597
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: PartCategory
+        related_name: starred_users
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: starred_categories
+    kind: concrete
+  src.backend.InvenTree.part.models.PartStar:
+    name: PartStar
+    module_name: src.backend.InvenTree.part.models
+    line: 3567
+    relations:
+      - field_name: part
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Part
+        related_name: starred_users
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: starred_parts
+    kind: concrete
+  src.backend.InvenTree.part.models.PartStocktake:
+    name: PartStocktake
+    module_name: src.backend.InvenTree.part.models
+    line: 3471
+    relations:
+      - field_name: part
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Part
+        related_name: stocktakes
+    kind: concrete

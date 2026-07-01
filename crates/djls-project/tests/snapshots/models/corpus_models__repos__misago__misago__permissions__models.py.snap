@@ -1,0 +1,44 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.permissions.models.CategoryGroupPermission:
+    name: CategoryGroupPermission
+    module_name: misago.permissions.models
+    line: 13
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: misago_categories
+          name: Category
+        related_name: ~
+      - field_name: group
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: misago_users
+          name: Group
+        related_name: ~
+    kind: concrete
+  misago.permissions.models.Moderator:
+    name: Moderator
+    module_name: misago.permissions.models
+    line: 41
+    relations:
+      - field_name: group
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: misago_users
+          name: Group
+        related_name: ~
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete

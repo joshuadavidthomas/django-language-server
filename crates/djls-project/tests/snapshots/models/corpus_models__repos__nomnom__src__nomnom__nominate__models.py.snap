@@ -1,0 +1,119 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.nomnom.nominate.models.AdminMessage:
+    name: AdminMessage
+    module_name: src.nomnom.nominate.models
+    line: 534
+    relations: []
+    kind: concrete
+  src.nomnom.nominate.models.Category:
+    name: Category
+    module_name: src.nomnom.nominate.models
+    line: 310
+    relations:
+      - field_name: election
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Election
+        related_name: ~
+    kind: concrete
+  src.nomnom.nominate.models.Election:
+    name: Election
+    module_name: src.nomnom.nominate.models
+    line: 58
+    relations: []
+    kind: concrete
+  src.nomnom.nominate.models.Finalist:
+    name: Finalist
+    module_name: src.nomnom.nominate.models
+    line: 456
+    relations:
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: concrete
+  src.nomnom.nominate.models.NominatingMemberProfile:
+    name: NominatingMemberProfile
+    module_name: src.nomnom.nominate.models
+    line: 28
+    relations:
+      - field_name: user
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: UserModel
+        related_name: convention_profile
+    kind: concrete
+  src.nomnom.nominate.models.Nomination:
+    name: Nomination
+    module_name: src.nomnom.nominate.models
+    line: 375
+    relations:
+      - field_name: nominator
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: NominatingMemberProfile
+        related_name: ~
+      - field_name: category
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Category
+        related_name: ~
+    kind: concrete
+  src.nomnom.nominate.models.NominationAdminData:
+    name: NominationAdminData
+    module_name: src.nomnom.nominate.models
+    line: 448
+    relations:
+      - field_name: nomination
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: Nomination
+        related_name: admin
+    kind: concrete
+  src.nomnom.nominate.models.Rank:
+    name: Rank
+    module_name: src.nomnom.nominate.models
+    line: 493
+    relations:
+      - field_name: membership
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: NominatingMemberProfile
+        related_name: ~
+      - field_name: finalist
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Finalist
+        related_name: ~
+    kind: concrete
+  src.nomnom.nominate.models.ReportRecipient:
+    name: ReportRecipient
+    module_name: src.nomnom.nominate.models
+    line: 524
+    relations: []
+    kind: concrete
+  src.nomnom.nominate.models.VotingInformation:
+    name: VotingInformation
+    module_name: src.nomnom.nominate.models
+    line: 302
+    relations:
+      - field_name: election
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: Election
+        related_name: voting_info
+    kind: concrete

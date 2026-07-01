@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  archivebox.core.models.SnapshotTag:
+    name: SnapshotTag
+    module_name: archivebox.core.models
+    line: 132
+    relations:
+      - field_name: snapshot
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Snapshot
+        related_name: ~
+      - field_name: tag
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+    kind: concrete

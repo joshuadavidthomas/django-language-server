@@ -86,10 +86,10 @@ pub struct EndTagDef {
     pub required: bool,
     /// End tag arguments
     #[serde(default)]
-    pub args: Vec<TagArgDef>,
+    args: Vec<TagArgDef>,
     /// Extra metadata
     #[serde(default)]
-    pub extra: Option<HashMap<String, serde_json::Value>>,
+    extra: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Intermediate tag specification
@@ -99,19 +99,19 @@ pub struct IntermediateTagDef {
     pub name: String,
     /// Intermediate tag arguments
     #[serde(default)]
-    pub args: Vec<TagArgDef>,
+    args: Vec<TagArgDef>,
     /// Minimum occurrence count
     #[serde(default)]
-    pub min: Option<usize>,
+    min: Option<usize>,
     /// Maximum occurrence count
     #[serde(default)]
-    pub max: Option<usize>,
+    max: Option<usize>,
     /// Positioning constraint
     #[serde(default = "default_position")]
-    pub position: PositionDef,
+    position: PositionDef,
     /// Extra metadata
     #[serde(default)]
-    pub extra: Option<HashMap<String, serde_json::Value>>,
+    extra: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Intermediate tag positioning
@@ -139,7 +139,7 @@ pub struct TagArgDef {
     pub kind: ArgKindDef,
     /// Exact token count (null means variable)
     #[serde(default)]
-    pub count: Option<usize>,
+    count: Option<usize>,
     /// Extra metadata
     #[serde(default)]
     pub extra: Option<HashMap<String, serde_json::Value>>,

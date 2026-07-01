@@ -1,7 +1,0 @@
----
-source: crates/djls-semantic/src/python.rs
-expression: "snapshot(extract_rules(source, \"app.templatetags.filters\"))"
----
-tag_rules: {}
-filter_arities: {}
-block_specs: {}

@@ -1,12 +1,12 @@
 use divan::Bencher;
+use djls_bench::DIAGNOSTICS_INNER_ITERS;
+use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
+use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::ValidationErrorFixture;
 use djls_bench::prime;
 use djls_bench::realistic_db;
 use djls_bench::template_fixtures;
 use djls_bench::validation_error_fixtures;
-use djls_bench::ValidationErrorFixture;
-use djls_bench::DIAGNOSTICS_INNER_ITERS;
-use djls_bench::DIAGNOSTICS_WARMUP_ITERS;
-use djls_bench::REPEATED_INNER_ITERS;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::Severity;
@@ -104,7 +104,9 @@ fn collect_cached(bencher: Bencher) {
         let mut total = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for file in &files {
-                total += djls_ide::collect_diagnostics(&db, *file).len();
+                total += djls_ide::collect_diagnostics(&db, *file)
+                    .expect("template fixture should be eligible for diagnostics")
+                    .len();
             }
         }
         divan::black_box(total);
@@ -163,7 +165,9 @@ fn collect_incremental(bencher: Bencher) {
                 db.set_file_contents(template.file, contents, revision);
                 revision = revision.wrapping_add(1);
 
-                total += djls_ide::collect_diagnostics(&db, template.file).len();
+                total += djls_ide::collect_diagnostics(&db, template.file)
+                    .expect("template fixture should be eligible for diagnostics")
+                    .len();
             }
         }
         divan::black_box(total);
@@ -194,7 +198,7 @@ fn validation_render_fixture(fixture: &ValidationErrorFixture) -> ValidationRend
 }
 
 #[divan::bench]
-fn render_validation(bencher: Bencher) {
+fn render_validation_output(bencher: Bencher) {
     let fixtures: Vec<_> = validation_error_fixtures()
         .iter()
         .map(validation_render_fixture)
@@ -206,15 +210,14 @@ fn render_validation(bencher: Bencher) {
         let mut rendered_count = 0;
         for fixture in &fixtures {
             for error in &fixture.check.validation_errors {
-                if djls_bench::render_validation_error(
+                if let Some(output) = djls_bench::render_validation_error(
                     fixture.source,
                     fixture.path,
                     error,
                     &config,
                     &renderer,
-                )
-                .is_some()
-                {
+                ) {
+                    divan::black_box_drop(output);
                     rendered_count += 1;
                 }
             }
@@ -224,7 +227,7 @@ fn render_validation(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn render_validation_synthetic(bencher: Bencher) {
+fn render_validation_synthetic_output(bencher: Bencher) {
     let mut db = realistic_db();
     let file = db.file_with_contents("bench.html", MANY_ERRORS_SOURCE);
 
@@ -241,15 +244,14 @@ fn render_validation_synthetic(bencher: Bencher) {
         let mut rendered_count = 0;
         for _ in 0..DIAGNOSTICS_INNER_ITERS {
             for error in &check.validation_errors {
-                if djls_bench::render_validation_error(
+                if let Some(output) = djls_bench::render_validation_error(
                     MANY_ERRORS_SOURCE,
                     "bench.html",
                     error,
                     &config,
                     &renderer,
-                )
-                .is_some()
-                {
+                ) {
+                    divan::black_box_drop(output);
                     rendered_count += 1;
                 }
             }

@@ -1,0 +1,78 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.pretix.plugins.banktransfer.models.BankImportJob:
+    name: BankImportJob
+    module_name: src.pretix.plugins.banktransfer.models
+    line: 31
+    relations:
+      - field_name: event
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Event
+        related_name: ~
+      - field_name: organizer
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Organizer
+        related_name: ~
+    kind: concrete
+  src.pretix.plugins.banktransfer.models.BankTransaction:
+    name: BankTransaction
+    module_name: src.pretix.plugins.banktransfer.models
+    line: 60
+    relations:
+      - field_name: event
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Event
+        related_name: ~
+      - field_name: organizer
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Organizer
+        related_name: ~
+      - field_name: import_job
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: BankImportJob
+        related_name: transactions
+      - field_name: order
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Order
+        related_name: ~
+    kind: concrete
+  src.pretix.plugins.banktransfer.models.RefundExport:
+    name: RefundExport
+    module_name: src.pretix.plugins.banktransfer.models
+    line: 115
+    relations:
+      - field_name: event
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Event
+        related_name: banktransfer_refund_exports
+      - field_name: organizer
+        relation_type: ForeignKey
+        target:
+          kind: Qualified
+          app_label: pretixbase
+          name: Organizer
+        related_name: banktransfer_refund_exports
+    kind: concrete

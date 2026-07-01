@@ -1,16 +1,16 @@
 [package]
 name = "djls-server"
 version = "0.0.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
 djls-ide = { workspace = true }
+djls-project = { workspace = true }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
-djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }
@@ -19,11 +19,15 @@ percent-encoding = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+salsa = { workspace = true }
 tokio = { workspace = true }
 tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [build-dependencies]
 toml = { workspace = true }

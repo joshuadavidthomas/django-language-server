@@ -1,0 +1,149 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  checklists.models.BugFixRelease:
+    name: BugFixRelease
+    module_name: checklists.models
+    line: 323
+    relations:
+      - field_name: releaser
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Releaser
+        related_name: ~
+      - field_name: release
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: Release
+        related_name: ~
+    kind: concrete
+  checklists.models.FeatureRelease:
+    name: FeatureRelease
+    module_name: checklists.models
+    line: 255
+    relations:
+      - field_name: releaser
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Releaser
+        related_name: ~
+      - field_name: release
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: Release
+        related_name: ~
+      - field_name: eom_release
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Release
+        related_name: +
+      - field_name: eol_release
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Release
+        related_name: +
+    kind: concrete
+  checklists.models.PreRelease:
+    name: PreRelease
+    module_name: checklists.models
+    line: 290
+    relations:
+      - field_name: releaser
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Releaser
+        related_name: ~
+      - field_name: release
+        relation_type: OneToOne
+        target:
+          kind: Bare
+          name: Release
+        related_name: ~
+      - field_name: feature_release
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: FeatureRelease
+        related_name: ~
+    kind: concrete
+  checklists.models.ReleaseChecklist:
+    name: ReleaseChecklist
+    module_name: checklists.models
+    line: 147
+    relations:
+      - field_name: releaser
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Releaser
+        related_name: ~
+    kind: abstract
+  checklists.models.Releaser:
+    name: Releaser
+    module_name: checklists.models
+    line: 131
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: User
+        related_name: ~
+    kind: concrete
+  checklists.models.SecurityIssue:
+    name: SecurityIssue
+    module_name: checklists.models
+    line: 500
+    relations:
+      - field_name: release
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: SecurityRelease
+        related_name: ~
+      - field_name: releases
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Release
+        related_name: ~
+    kind: concrete
+  checklists.models.SecurityIssueReleasesThrough:
+    name: SecurityIssueReleasesThrough
+    module_name: checklists.models
+    line: 467
+    relations:
+      - field_name: securityissue
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: SecurityIssue
+        related_name: ~
+      - field_name: release
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Release
+        related_name: ~
+    kind: concrete
+  checklists.models.SecurityRelease:
+    name: SecurityRelease
+    module_name: checklists.models
+    line: 356
+    relations:
+      - field_name: releaser
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Releaser
+        related_name: ~
+    kind: concrete

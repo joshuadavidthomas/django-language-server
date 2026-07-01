@@ -1,0 +1,24 @@
+---
+source: crates/djls-semantic/tests/validation.rs
+expression: rendered
+---
+error[S114]: Not expecting 'and' in this position in if tag.
+ --> test.html:1:1
+  |
+1 | {% if and x %}oops{% endif %}
+  | ^^^^^^^^^^^^^^
+error[S116]: Filter 'title' does not accept an argument
+ --> test.html:2:9
+  |
+2 | {{ name|title:"arg" }}
+  |         ^^^^^^^^^^^
+error[S115]: Filter 'truncatewords' requires an argument
+ --> test.html:3:9
+  |
+3 | {{ text|truncatewords }}
+  |         ^^^^^^^^^^^^^
+error[S109]: Tag 'trans' requires the 'i18n' tag library
+ --> test.html:4:1
+  |
+4 | {% trans "hello" %}
+  | ^^^^^^^^^^^^^^^^^^^

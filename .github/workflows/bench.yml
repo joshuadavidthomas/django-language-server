@@ -22,24 +22,24 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
           toolchain: stable
 
       - name: Cache corpus
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: crates/djls-corpus/.corpus
-          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-corpus/manifest.lock') }}
+          path: crates/djls-testing/.corpus
+          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-testing/manifest.lock') }}
           restore-keys: |
             ${{ runner.os }}-corpus-
 
       - name: Sync corpus
-        run: cargo run -q -p djls-corpus -- sync
+        run: cargo run -q -p djls-testing --bin corpus -- sync
 
       - run: cargo install cargo-codspeed --locked
 
@@ -47,7 +47,7 @@ jobs:
         run: cargo codspeed build -p djls-bench
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd
+        uses: CodSpeedHQ/action@63f3e98b61959fe67f146a3ff022e4136fe9bb9c
         with:
-          mode: instrumentation
+          mode: simulation
           run: cargo codspeed run -p djls-bench

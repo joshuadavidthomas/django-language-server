@@ -1,0 +1,59 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.backend.InvenTree.InvenTree.models.InvenTreeBarcodeMixin:
+    name: InvenTreeBarcodeMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 1237
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.InvenTreeImageMixin:
+    name: InvenTreeImageMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 1470
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.InvenTreeMetadataModel:
+    name: InvenTreeMetadataModel
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 480
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.InvenTreeModel:
+    name: InvenTreeModel
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 466
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.InvenTreeNotesMixin:
+    name: InvenTreeNotesMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 1192
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.InvenTreeParameterMixin:
+    name: InvenTreeParameterMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 510
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.MetadataMixin:
+    name: MetadataMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 155
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.PathStringMixin:
+    name: PathStringMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 998
+    relations: []
+    kind: abstract
+  src.backend.InvenTree.InvenTree.models.ReferenceIndexingMixin:
+    name: ReferenceIndexingMixin
+    module_name: src.backend.InvenTree.InvenTree.models
+    line: 240
+    relations: []
+    kind: abstract

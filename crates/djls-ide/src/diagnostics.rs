@@ -1,5 +1,6 @@
 use djls_semantic::ValidationError;
 use djls_source::File;
+use djls_source::FileKind;
 use djls_source::LineIndex;
 use djls_source::Span;
 use djls_templates::TemplateError;
@@ -8,6 +9,8 @@ use tower_lsp_server::ls_types;
 
 use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
+
+const DIAGNOSTIC_SOURCE: &str = "djls";
 
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
@@ -30,7 +33,7 @@ trait DiagnosticError: std::fmt::Display {
                 self.diagnostic_code().to_string(),
             )),
             code_description: None,
-            source: Some(crate::SOURCE_NAME.to_string()),
+            source: Some(DIAGNOSTIC_SOURCE.to_string()),
             message: self.message(),
             related_information: None,
             tags: None,
@@ -80,11 +83,19 @@ fn push_with_severity(
 
 /// Collect all LSP diagnostics for a template file.
 ///
-/// Triggers parsing and validation via Salsa-tracked queries (cached
-/// across calls), then converts the accumulated errors to LSP types.
-/// Diagnostics are filtered and severity-adjusted per `diagnostics_config`.
+/// Returns `None` when `file` is not a diagnostics target. For template files,
+/// triggers parsing and validation via Salsa-tracked queries (cached across
+/// calls), then converts the accumulated errors to LSP types. Diagnostics are
+/// filtered and severity-adjusted per `diagnostics_config`.
 #[must_use]
-pub fn collect_diagnostics(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::Diagnostic> {
+pub fn collect_diagnostics(
+    db: &dyn djls_semantic::Db,
+    file: File,
+) -> Option<Vec<ls_types::Diagnostic>> {
+    if *file.source(db).kind() != FileKind::Template {
+        return None;
+    }
+
     let mut diagnostics = Vec::new();
 
     let config = db.diagnostics_config();
@@ -110,7 +121,7 @@ pub fn collect_diagnostics(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_typ
         push_with_severity(diagnostic, &config, &mut diagnostics);
     }
 
-    diagnostics
+    Some(diagnostics)
 }
 
 #[cfg(test)]

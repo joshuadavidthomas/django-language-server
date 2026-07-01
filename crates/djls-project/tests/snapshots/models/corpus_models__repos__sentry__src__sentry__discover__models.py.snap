@@ -1,0 +1,30 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.sentry.discover.models.DiscoverSavedQuery:
+    name: DiscoverSavedQuery
+    module_name: src.sentry.discover.models
+    line: 81
+    relations:
+      - field_name: projects
+        relation_type: ManyToMany
+        target:
+          kind: Qualified
+          app_label: sentry
+          name: Project
+        related_name: ~
+    kind: concrete
+  src.sentry.discover.models.DiscoverSavedQueryProject:
+    name: DiscoverSavedQueryProject
+    module_name: src.sentry.discover.models
+    line: 68
+    relations: []
+    kind: concrete
+  src.sentry.discover.models.TeamKeyTransaction:
+    name: TeamKeyTransaction
+    module_name: src.sentry.discover.models
+    line: 197
+    relations: []
+    kind: concrete

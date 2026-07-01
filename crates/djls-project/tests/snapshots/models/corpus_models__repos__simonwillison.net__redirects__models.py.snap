@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  redirects.models.Redirect:
+    name: Redirect
+    module_name: redirects.models
+    line: 4
+    relations: []
+    kind: concrete

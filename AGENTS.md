@@ -11,8 +11,8 @@ cargo test -p crate_name         # Test one crate
 just test                        # Run nox/Django matrix
 just clippy                      # Lint with clippy
 just fmt                         # Format code with nightly rustfmt features
-just fmt --check                 # Check formatting with nightly rustfmt features
 just lint                        # Run pre-commit hooks
+just hawk                        # Check crate-boundary visibility
 just corpus sync                 # Download corpus from lockfile
 just corpus sync -U              # Re-resolve corpus and sync
 ```
@@ -22,6 +22,10 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 ## Testing
 **All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated".
 
+Prefer explicit tests over helper proliferation. Use helpers only for substantial fixture setup; avoid one-off assertion wrappers and tiny call-chain helpers. Model after `crates/djls-templates/src/lexer.rs`: clear input, direct execution, direct assertion/snapshot.
+
+Keep db/Salsa-backed tests in `crates/*/tests/`. Inline `src/` `#[cfg(test)]` modules should be pure unit tests with explicit data, not `djls_testing::TestDatabase`, even when possible.
+
 ## Generated Content
 - Do not edit text inside cog-generated blocks by hand. Update the source of truth, then run `just cog` to regenerate the block.
 
@@ -29,20 +33,21 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 - `djls-conf`: config schema/loading.
 - `djls-format`: formatter backend adapter boundary.
 - `djls-ide`: IDE feature behavior and LSP-shaped outputs.
-- `djls-semantic`: Django/project/template meaning.
-- `djls-server`: LSP/session glue. Resolve documents, check file kind, call `djls-ide`.
-- `djls-source`: files, spans, line indexes, diagnostics primitives.
+- `djls-project`: project model, Python environment discovery, module resolution, template discovery/resolution, derived Django facts, static source recognizers, and Python spec extraction (tag rules, block specs, filter arities, model graph).
+- `djls-semantic`: Django project meaning: template validation, scoping, structure, tag specs, and template-reference relationships.
+- `djls-server`: LSP/session glue, open document buffers, overlay filesystem adapter. Resolve documents, check file kind, call `djls-ide`.
+- `djls-source`: files, filesystem access/discovery, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
-- `djls-workspace`: VFS, open buffers, file discovery.
+
+Run `just hawk` when changing public APIs, moving code across crates, or cleaning up visibility. It is compile-intensive and may run multiple Cargo analysis passes. Review visibility findings against crate responsibilities before using `--fix`; run normal lint/test checks afterward for dead-code cleanup.
 
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
 - Use `camino::Utf8Path`/`Utf8PathBuf` as canonical path types. Convert from `std::path` only at API boundaries.
-- Imports are one per line, grouped std/external/crate, formatted by `.rustfmt.toml`.
 - Treat `lib.rs` as the external crate API. Internal code should import from the owning module path, not from crate-root re-exports.
 - Module façade files may re-export their intended boundary API, but avoid re-exporting items through multiple layers unless that layer is a real domain boundary.
 - Prefer `crate::<owning_module>::...` for internal imports. Use `super::...` only inside local test modules or when reaching private siblings is clearer than exposing a broader module API.
-- Formatting uses `cargo +nightly fmt` through `just fmt` because `.rustfmt.toml` enables nightly-only import formatting features. Do not run `cargo fmt --check` directly; use `just fmt --check`.
+- Formatting uses `just fmt` because `.rustfmt.toml` needs nightly rustfmt. Do not run `cargo fmt` directly. Use `just fmt --check` only for explicit verification gates.
 - Use `anyhow::Result` in binaries and `thiserror` in libraries.
 - Prefer comments that explain why; do not write obvious doc comments.
 - Use `folder.rs`, not `folder/mod.rs`.

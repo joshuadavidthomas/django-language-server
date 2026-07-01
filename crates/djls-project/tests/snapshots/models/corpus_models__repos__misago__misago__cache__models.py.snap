@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.cache.models.CacheVersion:
+    name: CacheVersion
+    module_name: misago.cache.models
+    line: 6
+    relations: []
+    kind: concrete

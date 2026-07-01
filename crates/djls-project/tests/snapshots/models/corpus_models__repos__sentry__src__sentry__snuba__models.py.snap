@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.sentry.snuba.models.QuerySubscription:
+    name: QuerySubscription
+    module_name: src.sentry.snuba.models
+    line: 139
+    relations: []
+    kind: concrete
+  src.sentry.snuba.models.SnubaQuery:
+    name: SnubaQuery
+    module_name: src.sentry.snuba.models
+    line: 54
+    relations: []
+    kind: concrete
+  src.sentry.snuba.models.SnubaQueryEventType:
+    name: SnubaQueryEventType
+    module_name: src.sentry.snuba.models
+    line: 114
+    relations: []
+    kind: concrete

@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.conf.models.Setting:
+    name: Setting
+    module_name: misago.conf.models
+    line: 23
+    relations: []
+    kind: concrete

@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  misago.menus.models.MenuItem:
+    name: MenuItem
+    module_name: misago.menus.models
+    line: 5
+    relations: []
+    kind: concrete

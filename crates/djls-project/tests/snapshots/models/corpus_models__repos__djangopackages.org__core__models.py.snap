@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  core.models.BaseModel:
+    name: BaseModel
+    module_name: core.models
+    line: 7
+    relations: []
+    kind: abstract

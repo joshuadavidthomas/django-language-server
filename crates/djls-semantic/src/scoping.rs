@@ -5,7 +5,7 @@ use djls_templates::Node;
 use djls_templates::NodeList;
 
 use crate::db::Db;
-pub use crate::scoping::loads::LoadKind;
+pub(crate) use crate::scoping::loads::LoadKind;
 pub(crate) use crate::scoping::loads::LoadState;
 pub(crate) use crate::scoping::loads::LoadStatement;
 pub(crate) use crate::scoping::loads::LoadedLibraries;

@@ -1,0 +1,29 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  allauth.account.models.EmailAddress:
+    name: EmailAddress
+    module_name: allauth.account.models
+    line: 20
+    relations:
+      - field_name: user
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: AUTH_USER_MODEL
+        related_name: ~
+    kind: concrete
+  allauth.account.models.EmailConfirmation:
+    name: EmailConfirmation
+    module_name: allauth.account.models
+    line: 136
+    relations:
+      - field_name: email_address
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: EmailAddress
+        related_name: ~
+    kind: concrete

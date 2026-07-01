@@ -4,17 +4,16 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::project::Knowledge;
-use crate::specs::filters::FilterAritySpecs;
+use crate::filters::FilterAritySpecs;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_filter_arity_rule(
     db: &dyn Db,
     filter: &Filter,
     arity_specs: &FilterAritySpecs,
-    active_knowledge: Knowledge,
+    has_symbol_inventory: bool,
 ) {
-    if active_knowledge != Knowledge::Known {
+    if !has_symbol_inventory {
         return;
     }
 

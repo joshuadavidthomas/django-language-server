@@ -1,0 +1,183 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  blog.models.BaseModel:
+    name: BaseModel
+    module_name: blog.models
+    line: 220
+    relations:
+      - field_name: tags
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+      - field_name: series
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Series
+        related_name: ~
+    kind: abstract
+  blog.models.Blogmark:
+    name: Blogmark
+    module_name: blog.models
+    line: 379
+    relations:
+      - field_name: tags
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+      - field_name: series
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Series
+        related_name: ~
+    kind: concrete
+  blog.models.Comment:
+    name: Comment
+    module_name: blog.models
+    line: 532
+    relations:
+      - field_name: content_type
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: ContentType
+        related_name: ~
+      - field_name: item
+        relation_type: GenericForeignKey
+        ct_field: content_type
+        fk_field: object_id
+    kind: concrete
+  blog.models.Entry:
+    name: Entry
+    module_name: blog.models
+    line: 254
+    relations:
+      - field_name: tags
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+      - field_name: series
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Series
+        related_name: ~
+    kind: concrete
+  blog.models.LiveUpdate:
+    name: LiveUpdate
+    module_name: blog.models
+    line: 328
+    relations:
+      - field_name: entry
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Entry
+        related_name: updates
+    kind: concrete
+  blog.models.Note:
+    name: Note
+    module_name: blog.models
+    line: 425
+    relations:
+      - field_name: tags
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+      - field_name: series
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Series
+        related_name: ~
+    kind: concrete
+  blog.models.Photo:
+    name: Photo
+    module_name: blog.models
+    line: 452
+    relations: []
+    kind: concrete
+  blog.models.Photoset:
+    name: Photoset
+    module_name: blog.models
+    line: 481
+    relations:
+      - field_name: photos
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Photo
+        related_name: in_photoset
+      - field_name: primary
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Photo
+        related_name: ~
+    kind: concrete
+  blog.models.PreviousTagName:
+    name: PreviousTagName
+    module_name: blog.models
+    line: 157
+    relations:
+      - field_name: tag
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+    kind: concrete
+  blog.models.Quotation:
+    name: Quotation
+    module_name: blog.models
+    line: 337
+    relations:
+      - field_name: tags
+        relation_type: ManyToMany
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+      - field_name: series
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Series
+        related_name: ~
+    kind: concrete
+  blog.models.Series:
+    name: Series
+    module_name: blog.models
+    line: 195
+    relations: []
+    kind: concrete
+  blog.models.Tag:
+    name: Tag
+    module_name: blog.models
+    line: 22
+    relations: []
+    kind: concrete
+  blog.models.TagMerge:
+    name: TagMerge
+    module_name: blog.models
+    line: 165
+    relations:
+      - field_name: destination_tag
+        relation_type: ForeignKey
+        target:
+          kind: Bare
+          name: Tag
+        related_name: ~
+    kind: concrete

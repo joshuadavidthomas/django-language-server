@@ -8,12 +8,12 @@ pub enum TagDelimiter {
 }
 
 impl TagDelimiter {
-    pub const CHAR_OPEN: char = '{';
-    pub const LENGTH: usize = 2;
+    pub(crate) const CHAR_OPEN: char = '{';
+    pub(crate) const LENGTH: usize = 2;
     pub const LENGTH_U32: u32 = 2;
 
     #[must_use]
-    pub fn from_input(input: &str) -> Option<Self> {
+    pub(crate) fn from_input(input: &str) -> Option<Self> {
         let bytes = input.as_bytes();
 
         if bytes.len() < Self::LENGTH {
@@ -33,7 +33,7 @@ impl TagDelimiter {
     }
 
     #[must_use]
-    pub fn opener(self) -> &'static str {
+    pub(crate) fn opener(self) -> &'static str {
         match self {
             Self::Block => "{%",
             Self::Variable => "{{",
@@ -42,7 +42,7 @@ impl TagDelimiter {
     }
 
     #[must_use]
-    pub fn closer(self) -> &'static str {
+    pub(crate) fn closer(self) -> &'static str {
         match self {
             Self::Block => "%}",
             Self::Variable => "}}",
@@ -52,7 +52,7 @@ impl TagDelimiter {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Token {
+pub enum Token {
     Block {
         content: String,
         span: Span,
@@ -106,7 +106,7 @@ impl Token {
     }
 
     #[must_use]
-    pub(crate) fn offset(&self) -> Option<u32> {
+    fn offset(&self) -> Option<u32> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -123,7 +123,7 @@ impl Token {
 
     /// Get the length of the token content
     #[must_use]
-    pub(crate) fn length(&self) -> u32 {
+    fn length(&self) -> u32 {
         let len = match self {
             Token::Block { content, .. }
             | Token::Comment { content, .. }
@@ -137,7 +137,7 @@ impl Token {
     }
 
     #[must_use]
-    pub(crate) fn full_span(&self) -> Option<Span> {
+    pub fn full_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -153,7 +153,7 @@ impl Token {
     }
 
     #[must_use]
-    pub(crate) fn content_span(&self) -> Option<Span> {
+    fn content_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
@@ -183,95 +183,6 @@ impl Token {
         let content = self.content_span_or_fallback();
         let full = self.full_span().unwrap_or(content);
         (content, full)
-    }
-}
-
-#[cfg(test)]
-#[derive(Debug, serde::Serialize)]
-pub(crate) enum TokenSnapshot {
-    Block {
-        content: String,
-        span: (u32, u32),
-        full_span: (u32, u32),
-    },
-    Comment {
-        content: String,
-        span: (u32, u32),
-        full_span: (u32, u32),
-    },
-    Eof,
-    Error {
-        content: String,
-        span: (u32, u32),
-        full_span: (u32, u32),
-    },
-    Newline {
-        span: (u32, u32),
-    },
-    Text {
-        content: String,
-        span: (u32, u32),
-        full_span: (u32, u32),
-    },
-    Variable {
-        content: String,
-        span: (u32, u32),
-        full_span: (u32, u32),
-    },
-    Whitespace {
-        span: (u32, u32),
-    },
-}
-
-#[cfg(test)]
-impl Token {
-    /// ## Panics
-    ///
-    /// This may panic on the `full_span` calls, but it's only used in testing,
-    /// so it's all good.
-    #[must_use]
-    pub(crate) fn to_snapshot(&self) -> TokenSnapshot {
-        match self {
-            Token::Block { span, .. } => TokenSnapshot::Block {
-                content: self.content(),
-                span: span.into(),
-                full_span: self.full_span().unwrap().into(),
-            },
-            Token::Comment { span, .. } => TokenSnapshot::Comment {
-                content: self.content(),
-                span: span.into(),
-                full_span: self.full_span().unwrap().into(),
-            },
-            Token::Eof => TokenSnapshot::Eof,
-            Token::Error { span, .. } => TokenSnapshot::Error {
-                content: self.content(),
-                span: span.into(),
-                full_span: self.full_span().unwrap().into(),
-            },
-            Token::Newline { span } => TokenSnapshot::Newline { span: span.into() },
-            Token::Text { span, .. } => TokenSnapshot::Text {
-                content: self.content(),
-                span: span.into(),
-                full_span: span.into(),
-            },
-            Token::Variable { span, .. } => TokenSnapshot::Variable {
-                content: self.content(),
-                span: span.into(),
-                full_span: self.full_span().unwrap().into(),
-            },
-            Token::Whitespace { span } => TokenSnapshot::Whitespace { span: span.into() },
-        }
-    }
-}
-
-#[cfg(test)]
-pub(crate) struct TokenSnapshotVec(pub Vec<Token>);
-
-#[cfg(test)]
-impl TokenSnapshotVec {
-    #[must_use]
-    pub(crate) fn to_snapshot(&self) -> Vec<TokenSnapshot> {
-        self.0.iter().map(Token::to_snapshot).collect()
     }
 }
 
