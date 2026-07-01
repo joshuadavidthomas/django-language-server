@@ -147,13 +147,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
     S108 = "warning" # New
     ```
 
-*Tag Scoping (requires complete [static knowledge](../template-validation.md#static-knowledge-availability)):*
+*Tag Scoping (requires a complete [template inventory](../template-validation.md#template-inventory-completeness)):*
 
 - `S108` - Unknown tag (not found in any active library)
 - `S109` - Unloaded tag (requires `{% load %}` for a specific library)
 - `S110` - Ambiguous unloaded tag (defined in multiple libraries)
 
-*Filter Scoping (requires complete [static knowledge](../template-validation.md#static-knowledge-availability)):*
+*Filter Scoping (requires a complete [template inventory](../template-validation.md#template-inventory-completeness)):*
 
 - `S111` - Unknown filter (not found in any active library)
 - `S112` - Unloaded filter (requires `{% load %}` for a specific library)
@@ -169,7 +169,7 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 - `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
 
-*Library Resolution (requires complete [static knowledge](../template-validation.md#static-knowledge-availability)):*
+*Library Resolution (requires a complete [template inventory](../template-validation.md#template-inventory-completeness)):*
 
 - `S120` - Unknown template tag library (not found among known template tag libraries)
 

@@ -51,6 +51,7 @@ pub use templates::TagArgumentKind;
 pub use templates::TagRule;
 pub use templates::TagRuleMap;
 pub use templates::TemplateDoesNotExist;
+pub use templates::TemplateInventoryStatus;
 pub use templates::TemplateLibraries;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateName;
@@ -78,7 +79,7 @@ pub mod testing {
     pub use crate::models::extract_model_graph;
     pub use crate::models::model_modules;
     pub use crate::refresh::compute_refresh;
-    pub use crate::settings::types::StaticKnowledge;
+    pub use crate::templates::TemplateInventoryStatus;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {
@@ -102,7 +103,7 @@ pub mod testing {
     #[must_use]
     pub fn template_libraries(
         db: &dyn super::Db,
-        knowledge: StaticKnowledge,
+        status: TemplateInventoryStatus,
         inputs: Vec<TemplateLibraryInput>,
     ) -> super::TemplateLibraries {
         let libraries = inputs
@@ -134,7 +135,7 @@ pub mod testing {
             })
             .collect();
 
-        super::TemplateLibraries::from_libraries(knowledge, libraries)
+        super::TemplateLibraries::from_libraries(status, libraries)
     }
 
     fn testing_module(

@@ -23,12 +23,12 @@ use djls_project::SplitPosition;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TagRule;
+use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
 use djls_project::testing;
-use djls_project::testing::StaticKnowledge;
 use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpec;
@@ -178,53 +178,53 @@ pub fn make_template_libraries(
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    make_template_libraries_with_knowledge(
+    make_template_libraries_with_status(
         db,
         tags,
         filters,
         libraries,
         builtins,
-        StaticKnowledge::Known,
+        TemplateInventoryStatus::Complete,
     )
 }
 
-/// Build Template Library facts from JSON fixture rows with explicit knowledge.
+/// Build Template Library facts from JSON fixture rows with explicit inventory status.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_knowledge(
+pub fn make_template_libraries_with_status(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
-    knowledge: StaticKnowledge,
+    status: TemplateInventoryStatus,
 ) -> TemplateLibraries {
-    make_template_libraries_with_available_and_knowledge(
+    make_template_libraries_with_available_and_status(
         db,
         tags,
         filters,
         libraries,
         builtins,
         &[],
-        knowledge,
+        status,
     )
 }
 
-/// Build Template Library facts from JSON fixture rows plus available libraries with explicit knowledge.
+/// Build Template Library facts from JSON fixture rows plus available libraries with explicit inventory status.
 ///
 /// # Panics
 ///
 /// Panics if a fixture row does not match the expected `TemplateSymbolFixture` shape.
-pub fn make_template_libraries_with_available_and_knowledge(
+pub fn make_template_libraries_with_available_and_status(
     db: &dyn ProjectDb,
     tags: &[serde_json::Value],
     filters: &[serde_json::Value],
     libraries: &HashMap<String, String, impl std::hash::BuildHasher>,
     builtins: &[String],
     available_libraries: &[AvailableTemplateLibraryFixture],
-    knowledge: StaticKnowledge,
+    status: TemplateInventoryStatus,
 ) -> TemplateLibraries {
     let mut builtin_symbols = builtin_symbol_buckets(builtins);
     let mut installed_symbols = installed_symbol_buckets(libraries);
@@ -272,7 +272,7 @@ pub fn make_template_libraries_with_available_and_knowledge(
         },
     ));
 
-    testing::template_libraries(db, knowledge, library_inputs)
+    testing::template_libraries(db, status, library_inputs)
 }
 
 type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;

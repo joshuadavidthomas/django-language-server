@@ -395,18 +395,16 @@ fn callable_name(expr: &Expr) -> Option<String> {
     }
 }
 
-pub(crate) struct TemplateLibraryAnalysis {
-    pub(crate) defines_library: bool,
-    pub(crate) symbols: Vec<TemplateSymbol>,
+pub(crate) enum TemplateLibraryAnalysis {
+    Failed,
+    ParsedNotLibrary,
+    Library { symbols: Vec<TemplateSymbol> },
 }
 
 impl TemplateLibraryAnalysis {
     pub(crate) fn from_file(db: &dyn ProjectDb, file: File) -> Self {
         let Some(parsed) = parse_python_module(db, file) else {
-            return Self {
-                defines_library: false,
-                symbols: Vec::new(),
-            };
+            return Self::Failed;
         };
 
         let mut symbols = Vec::new();
@@ -425,9 +423,11 @@ impl TemplateLibraryAnalysis {
             });
         }
 
-        Self {
-            defines_library: parsed.body(db).iter().any(Self::stmt_defines_library),
-            symbols,
+        let defines_library = parsed.body(db).iter().any(Self::stmt_defines_library);
+        if defines_library || !symbols.is_empty() {
+            Self::Library { symbols }
+        } else {
+            Self::ParsedNotLibrary
         }
     }
 

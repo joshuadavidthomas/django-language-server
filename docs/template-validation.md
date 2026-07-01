@@ -123,19 +123,19 @@ Django templates are deeply dynamic — many things can only be checked at runti
 - **Dynamic tag behavior** — Tags whose validation depends on runtime state
 - **Format strings** — Whether date/time format strings are valid
 
-## Static Knowledge Availability
+## Template Inventory Completeness
 
-Static discovery can be complete, partial, or unavailable. It is complete only when djls can resolve the active settings, installed apps, template backends, and relevant Python modules.
+The template inventory can be complete, incomplete, or unavailable. It is complete only when djls can resolve the active settings, installed apps, template backends, and relevant Python modules.
 
-When static discovery is **complete**:
+When the template inventory is **complete**:
 
 - Full validation is active — all current validation diagnostics are emitted
 - Completions are scoped to loaded libraries at cursor position
 
-When static discovery is **partial or unavailable**:
+When the template inventory is **incomplete or unavailable**:
 
-- **Absence-claim diagnostics are suppressed** — S108, S111, S118, S119, S120, and S121 require a complete active set, so djls does not emit them from partial evidence
-- **Known unloaded diagnostics can still appear under partial knowledge** — S109, S110, S112, and S113 are based on positive active-library evidence
+- **Absence-claim diagnostics are suppressed** — S108, S111, S118, S119, S120, and S121 require a complete active set, so djls does not emit them from incomplete evidence
+- **Known unloaded diagnostics can still appear with an incomplete inventory** — S109, S110, S112, and S113 are based on positive active-library evidence
 - **S115–S116 are suppressed when filter arity rules are unavailable** — Filter arity rules come from extraction, which depends on knowing source modules
 - **S117 is suppressed when tag argument rules are unavailable** — Tag argument rules come from extraction, which depends on discovering tag source modules
 - **S100–S103 still work** — Block structure validation uses built-in tag specs

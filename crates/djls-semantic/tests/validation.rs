@@ -5,8 +5,8 @@ use std::fmt::Write;
 use camino::Utf8PathBuf;
 use djls_project::FilterArity;
 use djls_project::SymbolKey;
+use djls_project::TemplateInventoryStatus;
 use djls_project::TemplateLibraries;
-use djls_project::testing::StaticKnowledge;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::ValidationError;
 use djls_testing::TestDatabase;
@@ -17,8 +17,8 @@ use djls_testing::builtin_filter;
 use djls_testing::builtin_tag;
 use djls_testing::collect_errors;
 use djls_testing::library_tag;
-use djls_testing::make_template_libraries_with_available_and_knowledge;
-use djls_testing::make_template_libraries_with_knowledge;
+use djls_testing::make_template_libraries_with_available_and_status;
+use djls_testing::make_template_libraries_with_status;
 
 fn default_builtins_module() -> &'static str {
     "django.template.defaulttags"
@@ -29,7 +29,7 @@ fn default_filters_module() -> &'static str {
 }
 
 fn standard_inventory(db: &TestDatabase) -> TemplateLibraries {
-    standard_inventory_with_available(db, &[], &[], &[], StaticKnowledge::Known)
+    standard_inventory_with_available(db, &[], &[], &[], TemplateInventoryStatus::Complete)
 }
 
 fn standard_inventory_with_available(
@@ -37,7 +37,7 @@ fn standard_inventory_with_available(
     available_libraries: &[djls_testing::AvailableTemplateLibraryFixture],
     available_tags: &[serde_json::Value],
     available_filters: &[serde_json::Value],
-    knowledge: StaticKnowledge,
+    status: TemplateInventoryStatus,
 ) -> TemplateLibraries {
     let mut tags = vec![
         builtin_tag("if", default_builtins_module()),
@@ -67,14 +67,14 @@ fn standard_inventory_with_available(
         default_builtins_module().to_string(),
         default_filters_module().to_string(),
     ];
-    make_template_libraries_with_available_and_knowledge(
+    make_template_libraries_with_available_and_status(
         db,
         &tags,
         &filters,
         &libraries,
         &builtins,
         available_libraries,
-        knowledge,
+        status,
     )
 }
 
@@ -126,7 +126,8 @@ fn standard_db() -> TestDatabase {
 
 fn partial_db() -> TestDatabase {
     let db = TestDatabase::new().with_arity_specs(standard_arities());
-    let libraries = standard_inventory_with_available(&db, &[], &[], &[], StaticKnowledge::Partial);
+    let libraries =
+        standard_inventory_with_available(&db, &[], &[], &[], TemplateInventoryStatus::Incomplete);
     db.with_template_libraries(libraries)
 }
 
@@ -143,13 +144,13 @@ fn partial_ambiguous_db() -> TestDatabase {
     ]);
     let builtins = vec![default_builtins_module().to_string()];
     let db = TestDatabase::new();
-    let libraries = make_template_libraries_with_knowledge(
+    let libraries = make_template_libraries_with_status(
         &db,
         &tags,
         &filters,
         &libraries,
         &builtins,
-        StaticKnowledge::Partial,
+        TemplateInventoryStatus::Incomplete,
     );
     db.with_template_libraries(libraries)
 }
@@ -173,7 +174,7 @@ fn standard_db_with_available(
             available_libraries,
             available_tags,
             available_filters,
-            StaticKnowledge::Known,
+            TemplateInventoryStatus::Complete,
         )
     })
 }
@@ -189,7 +190,7 @@ fn partial_db_with_available(
             available_libraries,
             available_tags,
             available_filters,
-            StaticKnowledge::Partial,
+            TemplateInventoryStatus::Incomplete,
         )
     })
 }

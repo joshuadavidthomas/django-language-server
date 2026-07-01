@@ -15,7 +15,6 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::settings::StaticKnowledge;
 use crate::settings::django_settings;
 use crate::settings::settings_module_file;
 
@@ -175,9 +174,26 @@ pub enum UnknownLibraryOutcome {
     TrulyUnknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TemplateInventoryStatus {
+    NotDiscovered,
+    Complete,
+    Incomplete,
+}
+
+impl TemplateInventoryStatus {
+    fn from_complete(complete: bool) -> Self {
+        if complete {
+            Self::Complete
+        } else {
+            Self::Incomplete
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibraries {
-    knowledge: StaticKnowledge,
+    status: TemplateInventoryStatus,
     libraries: Vec<TemplateLibrary>,
     installed_by_name: BTreeMap<LibraryName, usize>,
     available_by_name: BTreeMap<LibraryName, Vec<usize>>,
@@ -186,7 +202,7 @@ pub struct TemplateLibraries {
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
-            knowledge: StaticKnowledge::Unknown,
+            status: TemplateInventoryStatus::NotDiscovered,
             libraries: Vec::new(),
             installed_by_name: BTreeMap::new(),
             available_by_name: BTreeMap::new(),
@@ -204,10 +220,10 @@ impl TemplateLibraries {
 
     #[must_use]
     pub(crate) fn from_libraries(
-        knowledge: StaticKnowledge,
+        status: TemplateInventoryStatus,
         libraries: Vec<TemplateLibrary>,
     ) -> Self {
-        let mut inventory = Self::from_knowledge(knowledge);
+        let mut inventory = Self::from_status(status);
 
         for library in libraries {
             inventory.insert_library(library);
@@ -217,34 +233,26 @@ impl TemplateLibraries {
         inventory
     }
 
-    fn from_knowledge(knowledge: StaticKnowledge) -> Self {
+    fn from_status(status: TemplateInventoryStatus) -> Self {
         Self {
-            knowledge,
+            status,
             ..Self::default()
         }
     }
 
     #[must_use]
     pub fn has_symbol_inventory(&self) -> bool {
-        self.knowledge != StaticKnowledge::Unknown
+        !matches!(self.status, TemplateInventoryStatus::NotDiscovered)
     }
 
     #[must_use]
     pub fn inventory_is_complete(&self) -> bool {
-        self.knowledge == StaticKnowledge::Known
+        matches!(self.status, TemplateInventoryStatus::Complete)
     }
 
     #[must_use]
     pub fn inventory_may_omit_loaded_symbols(&self) -> bool {
-        self.knowledge == StaticKnowledge::Partial
-    }
-
-    fn weaken_knowledge(&mut self, knowledge: StaticKnowledge) {
-        self.knowledge = self.knowledge.weakened_by(knowledge);
-    }
-
-    fn demote_knowledge_to_partial(&mut self) {
-        self.knowledge = self.knowledge.demoted_to_partial();
+        matches!(self.status, TemplateInventoryStatus::Incomplete)
     }
 
     #[must_use]
@@ -468,7 +476,7 @@ impl TemplateLibraries {
         db: &dyn ProjectDb,
         project: Project,
         installed_template_library_modules: &BTreeSet<PythonModuleName>,
-    ) {
+    ) -> bool {
         let mut excluded_modules: BTreeSet<_> = self
             .installed_libraries()
             .map(|(_name, library)| library.module_name().clone())
@@ -481,25 +489,29 @@ impl TemplateLibraries {
 
         excluded_modules.extend(installed_template_library_modules.iter().cloned());
 
-        for candidate in templatetag_candidates(db, project).iter().cloned() {
+        let candidates = templatetag_candidates(db, project);
+        let mut complete = candidates.is_complete();
+        for candidate in candidates.candidates().iter().cloned() {
             if excluded_modules.contains(candidate.module.name()) {
                 continue;
             }
 
-            let analysis = TemplateLibraryAnalysis::from_file(db, candidate.module.file());
-            if !analysis.defines_library && analysis.symbols.is_empty() {
-                continue;
+            match TemplateLibraryAnalysis::from_file(db, candidate.module.file()) {
+                TemplateLibraryAnalysis::Failed => complete = false,
+                TemplateLibraryAnalysis::ParsedNotLibrary => {}
+                TemplateLibraryAnalysis::Library { symbols } => {
+                    self.insert_library(TemplateLibrary::available(
+                        candidate.name.clone(),
+                        candidate.app.clone(),
+                        candidate.into_python_module(),
+                        symbols,
+                    ));
+                }
             }
-
-            self.insert_library(TemplateLibrary::available(
-                candidate.name.clone(),
-                candidate.app.clone(),
-                candidate.into_python_module(),
-                analysis.symbols,
-            ));
         }
 
         self.sort_and_dedup_available();
+        complete
     }
 
     fn sort_and_dedup_available(&mut self) {
@@ -530,39 +542,31 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
     }
 
     let settings = django_settings(db, project);
-
-    let mut libraries =
-        TemplateLibraries::from_knowledge(match settings.installed_apps.knowledge {
-            StaticKnowledge::Known => StaticKnowledge::Known,
-            StaticKnowledge::Partial | StaticKnowledge::Unknown => StaticKnowledge::Partial,
-        });
-
-    if settings.templates.knowledge != StaticKnowledge::Known {
-        libraries.demote_knowledge_to_partial();
-    }
-
+    let mut inventory_complete =
+        settings.installed_apps.is_fully_extracted() && settings.templates.is_fully_extracted();
+    let mut libraries = TemplateLibraries::from_status(TemplateInventoryStatus::Incomplete);
     let mut installed_template_library_modules = BTreeSet::new();
 
     let django_module = PythonModuleName::parse("django").expect("django is a valid module name");
-    let (knowledge, discovered_libraries) =
+    let (scan_complete, discovered_libraries) =
         templatetag_package_libraries(db, project, django_module);
-    libraries.weaken_knowledge(knowledge);
+    inventory_complete &= scan_complete;
     for (load_name, module, symbols) in discovered_libraries {
         installed_template_library_modules.insert(module.name().clone());
         libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
     }
 
-    if settings.installed_apps.knowledge != StaticKnowledge::Unknown {
+    if settings.installed_apps.is_usable_for_app_scan() {
         for installed_app in &settings.installed_apps.values {
             let Some(package_module) =
                 guess_package_module_name_from_installed_app_entry(installed_app)
             else {
-                libraries.demote_knowledge_to_partial();
+                inventory_complete = false;
                 continue;
             };
-            let (knowledge, discovered_libraries) =
+            let (scan_complete, discovered_libraries) =
                 templatetag_package_libraries(db, project, package_module);
-            libraries.weaken_knowledge(knowledge);
+            inventory_complete &= scan_complete;
             for (load_name, module, symbols) in discovered_libraries {
                 installed_template_library_modules.insert(module.name().clone());
                 libraries.insert_library(TemplateLibrary::installed(load_name, module, symbols));
@@ -577,15 +581,16 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         .iter()
         .filter(|backend| backend.is_django_templates_backend(backend_count))
     {
-        libraries.weaken_knowledge(backend.knowledge);
+        inventory_complete &= backend.is_fully_extracted();
 
         for (load_name, module_name) in &backend.libraries {
             let Ok(load_name) = LibraryName::parse(load_name) else {
-                libraries.demote_knowledge_to_partial();
+                inventory_complete = false;
                 continue;
             };
-            let (knowledge, library) = library_from_module_name(db, project, module_name.clone());
-            libraries.weaken_knowledge(knowledge);
+            let (library_complete, library) =
+                library_from_module_name(db, project, module_name.clone());
+            inventory_complete &= library_complete;
             let Some((module, symbols)) = library else {
                 continue;
             };
@@ -595,8 +600,8 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         for module_name in DEFAULT_TEMPLATE_BUILTINS.iter().copied() {
             let module_name = PythonModuleName::parse(module_name)
                 .expect("default builtin is a valid module name");
-            let (knowledge, library) = library_from_module_name(db, project, module_name);
-            libraries.weaken_knowledge(knowledge);
+            let (library_complete, library) = library_from_module_name(db, project, module_name);
+            inventory_complete &= library_complete;
             let Some((module, symbols)) = library else {
                 continue;
             };
@@ -604,8 +609,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         }
 
         for module_name in &backend.builtins {
-            let (knowledge, library) = library_from_module_name(db, project, module_name.clone());
-            libraries.weaken_knowledge(knowledge);
+            let (library_complete, library) =
+                library_from_module_name(db, project, module_name.clone());
+            inventory_complete &= library_complete;
             let Some((module, symbols)) = library else {
                 continue;
             };
@@ -613,7 +619,9 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
         }
     }
 
-    libraries.insert_available_candidates(db, project, &installed_template_library_modules);
+    inventory_complete &=
+        libraries.insert_available_candidates(db, project, &installed_template_library_modules);
+    libraries.status = TemplateInventoryStatus::from_complete(inventory_complete);
     libraries
 }
 
@@ -621,45 +629,41 @@ fn templatetag_package_libraries(
     db: &dyn ProjectDb,
     project: Project,
     package_module: PythonModuleName,
-) -> (
-    StaticKnowledge,
-    Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>,
-) {
-    let (knowledge, candidates) =
+) -> (bool, Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>) {
+    let (mut complete, candidates) =
         templatetag_package_candidates(db, project, package_module).into_parts();
     let mut libraries = Vec::new();
 
     for candidate in candidates {
-        let analysis = TemplateLibraryAnalysis::from_file(db, candidate.module.file());
-        if !analysis.defines_library && analysis.symbols.is_empty() {
-            continue;
+        match TemplateLibraryAnalysis::from_file(db, candidate.module.file()) {
+            TemplateLibraryAnalysis::Failed => complete = false,
+            TemplateLibraryAnalysis::ParsedNotLibrary => {}
+            TemplateLibraryAnalysis::Library { symbols } => libraries.push((
+                candidate.name.clone(),
+                candidate.into_python_module(),
+                symbols,
+            )),
         }
-
-        libraries.push((
-            candidate.name.clone(),
-            candidate.into_python_module(),
-            analysis.symbols,
-        ));
     }
 
-    (knowledge, libraries)
+    (complete, libraries)
 }
 
 fn library_from_module_name(
     db: &dyn ProjectDb,
     project: Project,
     module_name: PythonModuleName,
-) -> (StaticKnowledge, Option<(PythonModule, Vec<TemplateSymbol>)>) {
+) -> (bool, Option<(PythonModule, Vec<TemplateSymbol>)>) {
     let Some(module) = PythonModule::resolve(db, project, module_name) else {
-        return (StaticKnowledge::Partial, None);
+        return (false, None);
     };
 
-    let analysis = TemplateLibraryAnalysis::from_file(db, module.file());
-    if !analysis.defines_library && analysis.symbols.is_empty() {
-        return (StaticKnowledge::Partial, None);
+    match TemplateLibraryAnalysis::from_file(db, module.file()) {
+        TemplateLibraryAnalysis::Failed | TemplateLibraryAnalysis::ParsedNotLibrary => {
+            (false, None)
+        }
+        TemplateLibraryAnalysis::Library { symbols } => (true, Some((module, symbols))),
     }
-
-    (StaticKnowledge::Known, Some((module, analysis.symbols)))
 }
 
 fn unknown_symbol_candidate_outcome(candidates: &[&TemplateLibrary]) -> UnknownSymbolOutcome {

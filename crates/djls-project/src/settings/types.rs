@@ -1,5 +1,3 @@
-use std::fmt;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
@@ -9,106 +7,68 @@ use crate::python::PythonPathBindings;
 
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 
-/// How much to trust an extracted value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-pub enum StaticKnowledge {
-    Known,
-    Partial,
-    Unknown,
-}
-
-impl StaticKnowledge {
-    #[must_use]
-    pub(crate) fn weakened_by(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
-            (Self::Partial, _) | (_, Self::Partial) => Self::Partial,
-            (Self::Known, Self::Known) => Self::Known,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn demoted_to_partial(self) -> Self {
-        match self {
-            Self::Known | Self::Partial => Self::Partial,
-            Self::Unknown => Self::Unknown,
-        }
-    }
-}
-
-/// Why an extracted value is [`StaticKnowledge::Partial`] or [`StaticKnowledge::Unknown`].
+/// How completely a watched settings value was extracted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Reason {
-    SyntaxErrors,
-    UnresolvedSettingsStarImport,
-    UnsupportedAssignment,
-    UnsupportedMutation,
-    NonLiteralElement,
-    NonLiteralKey,
-    UnsupportedValue,
-    InvalidModuleName,
-    DictUnpack,
-    AmbiguousCondition,
-    UnsupportedPathExpression,
-}
-
-impl fmt::Display for Reason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message = match self {
-            Self::SyntaxErrors => "settings source contains syntax errors",
-            Self::UnresolvedSettingsStarImport => "star import could not be resolved statically",
-            Self::UnsupportedAssignment => "assignment is not statically supported",
-            Self::UnsupportedMutation => "mutation is not statically supported",
-            Self::NonLiteralElement => "element is not a literal",
-            Self::NonLiteralKey => "dictionary key is not a literal",
-            Self::UnsupportedValue => "value is not statically supported",
-            Self::InvalidModuleName => "value is not a valid Python module name",
-            Self::DictUnpack => "dictionary unpack is not statically supported",
-            Self::AmbiguousCondition => "condition is not statically decidable",
-            Self::UnsupportedPathExpression => "path expression is not statically supported",
-        };
-        f.write_str(message)
-    }
+pub(crate) enum SettingExtraction {
+    Full,
+    Partial,
+    Unsupported,
 }
 
 /// A best-effort string list setting such as `INSTALLED_APPS`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InstalledAppsSetting {
     pub(crate) values: Vec<String>,
-    pub(crate) knowledge: StaticKnowledge,
-    pub(crate) reasons: Vec<Reason>,
+    pub(crate) extraction: SettingExtraction,
 }
 
 impl Default for InstalledAppsSetting {
     fn default() -> Self {
-        Self {
-            values: Vec::new(),
-            knowledge: StaticKnowledge::Unknown,
-            reasons: Vec::new(),
-        }
+        Self::unsupported()
     }
 }
 
 impl InstalledAppsSetting {
-    pub(crate) fn known(values: Vec<String>) -> Self {
+    pub(crate) fn full(values: Vec<String>) -> Self {
         Self {
             values,
-            knowledge: StaticKnowledge::Known,
-            reasons: Vec::new(),
+            extraction: SettingExtraction::Full,
         }
     }
 
-    pub(crate) fn make_partial(&mut self, reason: Reason) {
-        if self.knowledge != StaticKnowledge::Unknown || self.reasons.is_empty() {
-            self.knowledge = StaticKnowledge::Partial;
+    pub(crate) fn partial() -> Self {
+        Self {
+            values: Vec::new(),
+            extraction: SettingExtraction::Partial,
         }
-        self.reasons.push(reason);
     }
 
-    pub(crate) fn make_unknown(&mut self, reason: Reason) {
+    pub(crate) fn unsupported() -> Self {
+        Self {
+            values: Vec::new(),
+            extraction: SettingExtraction::Unsupported,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        matches!(self.extraction, SettingExtraction::Full)
+    }
+
+    #[must_use]
+    pub(crate) fn is_usable_for_app_scan(&self) -> bool {
+        !matches!(self.extraction, SettingExtraction::Unsupported)
+    }
+
+    pub(crate) fn mark_partial(&mut self) {
+        if !matches!(self.extraction, SettingExtraction::Unsupported) {
+            self.extraction = SettingExtraction::Partial;
+        }
+    }
+
+    pub(crate) fn mark_unsupported(&mut self) {
         self.values.clear();
-        self.knowledge = StaticKnowledge::Unknown;
-        self.reasons.push(reason);
+        self.extraction = SettingExtraction::Unsupported;
     }
 }
 
@@ -116,42 +76,51 @@ impl InstalledAppsSetting {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TemplateSettings {
     pub(crate) backends: Vec<TemplateBackend>,
-    pub(crate) knowledge: StaticKnowledge,
+    pub(crate) extraction: SettingExtraction,
 }
 
 impl Default for TemplateSettings {
     fn default() -> Self {
-        Self {
-            backends: Vec::new(),
-            knowledge: StaticKnowledge::Unknown,
-        }
+        Self::unsupported()
     }
 }
 
 impl TemplateSettings {
-    pub(crate) fn known(backends: Vec<TemplateBackend>) -> Self {
+    pub(crate) fn full(backends: Vec<TemplateBackend>) -> Self {
         Self {
             backends,
-            knowledge: StaticKnowledge::Known,
+            extraction: SettingExtraction::Full,
         }
     }
 
     pub(crate) fn partial() -> Self {
         Self {
             backends: Vec::new(),
-            knowledge: StaticKnowledge::Partial,
+            extraction: SettingExtraction::Partial,
         }
     }
 
-    pub(crate) fn make_partial(&mut self) {
-        if self.knowledge != StaticKnowledge::Unknown {
-            self.knowledge = StaticKnowledge::Partial;
+    pub(crate) fn unsupported() -> Self {
+        Self {
+            backends: Vec::new(),
+            extraction: SettingExtraction::Unsupported,
         }
     }
 
-    pub(crate) fn make_unknown(&mut self) {
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        matches!(self.extraction, SettingExtraction::Full)
+    }
+
+    pub(crate) fn mark_partial(&mut self) {
+        if !matches!(self.extraction, SettingExtraction::Unsupported) {
+            self.extraction = SettingExtraction::Partial;
+        }
+    }
+
+    pub(crate) fn mark_unsupported(&mut self) {
         self.backends.clear();
-        self.knowledge = StaticKnowledge::Unknown;
+        self.extraction = SettingExtraction::Unsupported;
     }
 }
 
@@ -163,8 +132,7 @@ pub(crate) struct TemplateBackend {
     pub(crate) app_dirs: Option<bool>,
     pub(crate) libraries: Vec<(String, PythonModuleName)>,
     pub(crate) builtins: Vec<PythonModuleName>,
-    pub(crate) knowledge: StaticKnowledge,
-    reasons: Vec<Reason>,
+    pub(crate) extraction: SettingExtraction,
 }
 
 impl Default for TemplateBackend {
@@ -175,13 +143,17 @@ impl Default for TemplateBackend {
             app_dirs: None,
             libraries: Vec::new(),
             builtins: Vec::new(),
-            knowledge: StaticKnowledge::Known,
-            reasons: Vec::new(),
+            extraction: SettingExtraction::Full,
         }
     }
 }
 
 impl TemplateBackend {
+    #[must_use]
+    pub(crate) fn is_fully_extracted(&self) -> bool {
+        matches!(self.extraction, SettingExtraction::Full)
+    }
+
     #[must_use]
     pub(crate) fn is_django_templates_backend(&self, backend_count: usize) -> bool {
         match self.backend.as_deref() {
@@ -191,11 +163,10 @@ impl TemplateBackend {
         }
     }
 
-    pub(crate) fn make_partial(&mut self, reason: Reason) {
-        if self.knowledge != StaticKnowledge::Unknown || self.reasons.is_empty() {
-            self.knowledge = StaticKnowledge::Partial;
+    pub(crate) fn mark_partial(&mut self) {
+        if !matches!(self.extraction, SettingExtraction::Unsupported) {
+            self.extraction = SettingExtraction::Partial;
         }
-        self.reasons.push(reason);
     }
 }
 
