@@ -979,7 +979,7 @@ def my_filter(value, arg):
         );
     }
 
-    fn assert_refresh_updates_star_imported_settings_source(settings_source: &str) {
+    fn assert_django_discovery_updates_star_imported_settings_source(settings_source: &str) {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -1026,32 +1026,32 @@ def my_filter(value, arg):
         fs.lock()
             .unwrap()
             .add_file(base_settings_path, settings_with_custom_library("new_tags"));
-        apply_project_refresh(&mut db);
+        apply_project_discovery(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
     }
 
     #[test]
-    fn project_refresh_reads_changed_star_imported_settings_source_for_template_libraries() {
-        assert_refresh_updates_star_imported_settings_source("from .base import *\n");
+    fn django_discovery_reads_changed_star_imported_settings_source_for_template_libraries() {
+        assert_django_discovery_updates_star_imported_settings_source("from .base import *\n");
     }
 
     #[test]
-    fn project_refresh_reads_changed_try_star_imported_settings_source() {
-        assert_refresh_updates_star_imported_settings_source(
+    fn django_discovery_reads_changed_try_star_imported_settings_source() {
+        assert_django_discovery_updates_star_imported_settings_source(
             "try:\n    from .base import *\nexcept ImportError:\n    pass\n",
         );
     }
 
     #[test]
-    fn project_refresh_reads_changed_conditionally_star_imported_settings_source() {
-        assert_refresh_updates_star_imported_settings_source(
+    fn django_discovery_reads_changed_conditionally_star_imported_settings_source() {
+        assert_django_discovery_updates_star_imported_settings_source(
             "import os\nif os.environ.get(\"EXTRA\"):\n    from .base import *\nelse:\n    from .base import *\n",
         );
     }
 
     #[test]
-    fn project_refresh_discovers_newly_star_imported_known_file() {
+    fn django_discovery_discovers_newly_star_imported_known_file() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -1109,19 +1109,19 @@ def my_filter(value, arg):
                 settings_with_custom_library("new_tags"),
             );
         }
-        apply_project_refresh(&mut db);
+        apply_project_discovery(&mut db);
 
         assert_custom_library_module(&db, "new_tags");
     }
 
-    fn apply_project_refresh(db: &mut DjangoDatabase) {
-        let project = db.project().expect("project refresh data");
-        let refresh = djls_project::testing::compute_refresh(db, project);
-        djls_project::apply_refresh(db, refresh);
+    fn apply_project_discovery(db: &mut DjangoDatabase) {
+        let project = db.project().expect("project should exist");
+        let discovery = djls_project::testing::compute_django_discovery(db, project);
+        djls_project::apply_django_discovery(db, discovery);
     }
 
     #[test]
-    fn apply_refresh_bumps_roots_but_not_unchanged_file_contents() {
+    fn apply_django_discovery_bumps_roots_but_not_unchanged_file_contents() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(
@@ -1155,10 +1155,10 @@ def my_filter(value, arg):
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
 
-        let refresh = djls_project::testing::compute_refresh(&db, project);
-        let file_paths: Vec<_> = refresh.file_paths().to_vec();
+        let discovery = djls_project::testing::compute_django_discovery(&db, project);
+        let file_paths: Vec<_> = discovery.file_paths().to_vec();
         assert!(!file_paths.is_empty());
-        djls_project::apply_refresh(&mut db, refresh);
+        djls_project::apply_django_discovery(&mut db, discovery);
 
         let project = db.project().expect("project should exist");
         let file_revisions: Vec<_> = file_paths
@@ -1178,8 +1178,8 @@ def my_filter(value, arg):
             .collect();
         assert!(!root_revisions.is_empty());
 
-        let refresh = djls_project::testing::compute_refresh(&db, project);
-        djls_project::apply_refresh(&mut db, refresh);
+        let discovery = djls_project::testing::compute_django_discovery(&db, project);
+        djls_project::apply_django_discovery(&mut db, discovery);
 
         let unchanged_file_revisions: Vec<_> = file_paths
             .iter()

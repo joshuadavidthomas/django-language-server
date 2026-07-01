@@ -6,7 +6,7 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
-use djls_project::testing::compute_refresh;
+use djls_project::testing::compute_django_discovery;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
@@ -178,14 +178,14 @@ fn project_with_settings(
     fixture.install(db)
 }
 
-fn apply_project_refresh(db: &mut TestDatabase) {
+fn apply_project_discovery(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
-    let refresh = compute_refresh(db, project);
-    apply_refresh(db, refresh);
+    let discovery = compute_django_discovery(db, project);
+    apply_django_discovery(db, discovery);
 }
 
 #[test]
-fn project_refresh_enumerates_settings_star_import_chain() {
+fn django_discovery_enumerates_settings_star_import_chain() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -207,7 +207,7 @@ fn project_refresh_enumerates_settings_star_import_chain() {
         ],
     );
 
-    let refresh = compute_refresh(&db, project);
+    let discovery = compute_django_discovery(&db, project);
 
     let expected = [
         Utf8PathBuf::from("/proj/myproject/base.py"),
@@ -215,11 +215,11 @@ fn project_refresh_enumerates_settings_star_import_chain() {
         Utf8PathBuf::from("/proj/myproject/feature.py"),
         Utf8PathBuf::from("/proj/myproject/settings.py"),
     ];
-    assert_eq!(refresh.file_paths(), expected.as_slice());
+    assert_eq!(discovery.file_paths(), expected.as_slice());
 }
 
 #[test]
-fn project_refresh_includes_deduped_unreadable_settings_source() {
+fn django_discovery_includes_deduped_unreadable_settings_source() {
     let unreadable = Utf8PathBuf::from("/proj/myproject/unreadable.py");
     let mut fs = InMemoryFileSystem::new();
     fs.add_file(
@@ -259,22 +259,18 @@ fn project_refresh_includes_deduped_unreadable_settings_source() {
     );
     db.project = Some(project);
 
-    let settings_sources = refresh_tasks()
-        .iter()
-        .copied()
-        .find(|task| task.descriptor().message == "Scanning settings")
-        .expect("settings sources refresh task should exist")
-        .run(&db, project);
+    let settings_sources =
+        DiscoveryPhase::ProjectFacts(ProjectFactsPhase::SettingsSources).run(&db, project);
     assert_eq!(settings_sources.count(), 3);
 
-    let refresh = compute_refresh(&db, project);
+    let discovery = compute_django_discovery(&db, project);
 
     let expected = [
         Utf8PathBuf::from("/proj/myproject/base.py"),
         Utf8PathBuf::from("/proj/myproject/settings.py"),
         unreadable,
     ];
-    assert_eq!(refresh.file_paths(), expected.as_slice());
+    assert_eq!(discovery.file_paths(), expected.as_slice());
 }
 
 #[test]
@@ -883,7 +879,7 @@ fn template_libraries_available_candidates_rerun_after_search_root_revision_bump
 }
 
 #[test]
-fn project_refresh_updates_available_template_library_symbols() {
+fn django_discovery_updates_available_template_library_symbols() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
@@ -929,7 +925,7 @@ fn project_refresh_updates_available_template_library_symbols() {
         "/proj/crispy/templatetags/crispy.py",
         "from django import template\nregister = template.Library()\n@register.simple_tag\ndef new_tag():\n    pass\n",
     );
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     assert!(matches!(
         template_libraries(&db, project).unknown_tag_outcome("new_tag"),

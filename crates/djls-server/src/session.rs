@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn session_new_uses_initial_project_until_refresh_loads_settings() {
+    fn session_new_uses_initial_project_until_django_discovery_loads_settings() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         let config_extra_path = root.join("config_extra");

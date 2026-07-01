@@ -30,6 +30,14 @@ _Avoid_: Settings, DJLS settings, environment
 The process of building **Project Facts** for a **Project**.
 _Avoid_: Project Model, analysis mode, environment
 
+**Django Discovery Phase**:
+A discrete, domain-owned step in **Django Discovery** that computes one slice of **Project Facts** or discovered source-file identity.
+_Avoid_: Refresh Task, progress step, LSP task
+
+**IDE Cache Warm-up**:
+Read-only precomputation of derived Project/Semantic queries after **Django Discovery** has applied **Project Facts**, so interactive IDE features respond quickly.
+_Avoid_: Django Discovery, refresh, indexing mode
+
 **Static Extraction**:
 Source-based **Django Discovery** that derives **Project Facts** from source files without executing project code.
 _Avoid_: introspection, runtime analysis, import-time analysis
