@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::names::TemplateSymbolName;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 
 /// Whether a symbol is a template tag or a template filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub enum TemplateSymbolKind {
 
 /// Identifies a specific tag or filter registration within a module.
 ///
-/// Keyed by both the registration module path and the symbol name to avoid
+/// Keyed by both the registration module name and the symbol name to avoid
 /// collisions when different libraries register identically-named symbols.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SymbolKey {
@@ -47,7 +47,7 @@ impl SymbolKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolDefinition {
     Exact { file: Utf8PathBuf },
-    Module(PythonModulePath),
+    Module(PythonModuleName),
     LibraryFile(Utf8PathBuf),
     Unknown,
 }

@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.privatethreads.models.PrivateThreadMember:
     name: PrivateThreadMember
-    module_path: misago.privatethreads.models
+    module_name: misago.privatethreads.models
     line: 6
     relations:
       - field_name: thread

@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.plugins.paypal.models.ReferencedPayPalObject:
     name: ReferencedPayPalObject
-    module_path: src.pretix.plugins.paypal.models
+    module_name: src.pretix.plugins.paypal.models
     line: 25
     relations:
       - field_name: order

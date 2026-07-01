@@ -19,11 +19,11 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus
 //! ```
 
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_testing::Corpus;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
-use djls_testing::module_path_from_file;
+use djls_testing::module_name_from_file;
 use djls_testing::sorted_snapshot;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
@@ -43,10 +43,10 @@ fn extraction_snapshots() {
 
     for path in targets {
         let source = std::fs::read_to_string(path.as_std_path()).unwrap();
-        let module_path = module_path_from_file(&path);
+        let module_name = module_name_from_file(&path);
         db.add_file(path.as_str(), &source);
         let file = db.get_or_create_file(&path);
-        let bundle = extract_bundle(&db, file, PythonModulePath::parse(&module_path).unwrap());
+        let bundle = extract_bundle(&db, file, PythonModuleName::parse(&module_name).unwrap());
 
         let relative = path.strip_prefix(corpus.root()).unwrap_or(&path);
         let snapshot_name = relative.as_str().replace('/', "__");

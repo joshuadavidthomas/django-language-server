@@ -16,7 +16,7 @@ use djls_project::FilterArity;
 use djls_project::Interpreter;
 use djls_project::LibraryName;
 use djls_project::Project;
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_project::RequiredKeyword;
 use djls_project::SearchPaths;
 use djls_project::SplitPosition;
@@ -46,7 +46,7 @@ use djls_templates::parse_template;
 use crate::Corpus;
 use crate::TestDatabase;
 use crate::extract_bundle;
-use crate::module_path_from_file;
+use crate::module_name_from_file;
 
 #[must_use]
 pub fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
@@ -275,15 +275,15 @@ pub fn make_template_libraries_with_available_and_knowledge(
     testing::template_libraries(db, knowledge, library_inputs)
 }
 
-type BuiltinSymbolBuckets = Vec<(PythonModulePath, Vec<TemplateSymbol>)>;
-type InstalledLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModulePath, Vec<TemplateSymbol>)>;
+type BuiltinSymbolBuckets = Vec<(PythonModuleName, Vec<TemplateSymbol>)>;
+type InstalledLibrarySymbolBuckets = BTreeMap<LibraryName, (PythonModuleName, Vec<TemplateSymbol>)>;
 type AvailableSymbolBuckets =
-    BTreeMap<(LibraryName, PythonModulePath, PythonModulePath), Vec<TemplateSymbol>>;
+    BTreeMap<(LibraryName, PythonModuleName, PythonModuleName), Vec<TemplateSymbol>>;
 
 fn builtin_symbol_buckets(builtins: &[String]) -> BuiltinSymbolBuckets {
     builtins
         .iter()
-        .filter_map(|module_name| PythonModulePath::parse(module_name).ok())
+        .filter_map(|module_name| PythonModuleName::parse(module_name).ok())
         .map(|module| (module, Vec::new()))
         .collect()
 }
@@ -296,7 +296,7 @@ fn installed_symbol_buckets(
         let Ok(load_name) = LibraryName::parse(load_name) else {
             continue;
         };
-        let Ok(module) = PythonModulePath::parse(module_name) else {
+        let Ok(module) = PythonModuleName::parse(module_name) else {
             continue;
         };
         buckets.insert(load_name, (module, Vec::new()));
@@ -312,10 +312,10 @@ fn available_symbol_buckets(
         let Ok(load_name) = LibraryName::parse(&library.load_name) else {
             continue;
         };
-        let Ok(app) = PythonModulePath::parse(&library.app) else {
+        let Ok(app) = PythonModuleName::parse(&library.app) else {
             continue;
         };
-        let Ok(module) = PythonModulePath::parse(&library.module) else {
+        let Ok(module) = PythonModuleName::parse(&library.module) else {
             continue;
         };
         buckets.entry((load_name, app, module)).or_default();
@@ -341,7 +341,7 @@ fn add_fixture_symbol(
     let Ok(name) = TemplateSymbolName::parse(&name) else {
         return;
     };
-    let definition = PythonModulePath::parse(&module)
+    let definition = PythonModuleName::parse(&module)
         .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
     let symbol = TemplateSymbol {
         kind,
@@ -366,7 +366,7 @@ fn add_builtin_symbol(
     module_name: &str,
     symbol: &TemplateSymbol,
 ) {
-    let Ok(module) = PythonModulePath::parse(module_name) else {
+    let Ok(module) = PythonModuleName::parse(module_name) else {
         return;
     };
     for (builtin_module, symbols) in buckets.iter_mut() {
@@ -385,7 +385,7 @@ fn add_installed_symbol(
     let Ok(load_name) = LibraryName::parse(load_name) else {
         return;
     };
-    let Ok(module) = PythonModulePath::parse(module_name) else {
+    let Ok(module) = PythonModuleName::parse(module_name) else {
         return;
     };
     let entry = buckets
@@ -406,10 +406,10 @@ fn add_available_symbol(
     let Ok(load_name) = LibraryName::parse(load_name) else {
         return;
     };
-    let Ok(app) = PythonModulePath::parse(app) else {
+    let Ok(app) = PythonModuleName::parse(app) else {
         return;
     };
-    let Ok(module) = PythonModulePath::parse(module_name) else {
+    let Ok(module) = PythonModuleName::parse(module_name) else {
         return;
     };
     buckets
@@ -594,13 +594,13 @@ pub fn extract_and_merge(
             continue;
         };
 
-        let module_path = module_path_from_file(file_path);
-        let Ok(module_path) = PythonModulePath::parse(&module_path) else {
+        let module_name = module_name_from_file(file_path);
+        let Ok(module_name) = PythonModuleName::parse(&module_name) else {
             continue;
         };
         db.add_file(file_path.as_str(), &source);
         let file = db.get_or_create_file(file_path);
-        let bundle = extract_bundle(&db, file, module_path);
+        let bundle = extract_bundle(&db, file, module_name);
 
         arities.merge_filter_arities(&bundle.filter_arities);
         specs

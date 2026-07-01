@@ -7,25 +7,25 @@ use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::model_fixtures;
 use djls_project::ModelGraph;
 use djls_project::ModelId;
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_project::testing::extract_model_graph;
 
 fn main() {
     divan::main();
 }
 
-fn module_path(path: &str) -> PythonModulePath {
-    PythonModulePath::parse(path).unwrap()
+fn module_name(path: &str) -> PythonModuleName {
+    PythonModuleName::parse(path).unwrap()
 }
 
 fn model_graph_from_source(
     db: &mut Db,
     path: impl Into<Utf8PathBuf>,
     source: &str,
-    module_path: PythonModulePath,
+    module_name: PythonModuleName,
 ) -> ModelGraph {
     let file = db.file_with_contents(path, source);
-    extract_model_graph(db, file, module_path).clone()
+    extract_model_graph(db, file, module_name).clone()
 }
 
 // Batch extraction: all fixtures in one iteration
@@ -40,7 +40,7 @@ fn extract(bencher: Bencher) {
                 &mut db,
                 format!("/bench/models/extract/{index}.py"),
                 &fixture.source,
-                module_path("bench.models"),
+                module_name("bench.models"),
             ));
         }
     });
@@ -60,7 +60,7 @@ fn merge(bencher: Bencher) {
                 &mut db,
                 format!("/bench/models/merge/{index}.py"),
                 &fixture.source,
-                module_path("bench.models"),
+                module_name("bench.models"),
             )
         })
         .collect();
@@ -93,15 +93,15 @@ fn auth_graph() -> &'static ModelGraph {
             &mut db,
             "/bench/models/auth.py",
             &auth.source,
-            module_path("django.contrib.auth.models"),
+            module_name("django.contrib.auth.models"),
         )
     })
 }
 
-fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_path: &str) -> &'a ModelId {
+fn model_id<'a>(graph: &'a ModelGraph, name: &'a str, module_name: &str) -> &'a ModelId {
     let (id, _model) = graph.models_named(name).next().expect("model should exist");
     assert_eq!(id.name(), name);
-    assert_eq!(id.module_path().as_str(), module_path);
+    assert_eq!(id.module_name().as_str(), module_name);
     assert!(graph.get_by_id(id).is_some());
     id
 }
@@ -145,7 +145,7 @@ fn resolve_relations(bencher: Bencher) {
 // Corpus-scale: extract all models.py from Django, then from the full corpus
 
 struct CorpusModels {
-    files: Vec<(String, PythonModulePath)>,
+    files: Vec<(String, PythonModuleName)>,
 }
 
 fn load_corpus_models_inner(
@@ -159,13 +159,13 @@ fn load_corpus_models_inner(
     let mut paths = get_paths(&corpus)?;
     paths.sort();
 
-    let files: Vec<(String, PythonModulePath)> = paths
+    let files: Vec<(String, PythonModuleName)> = paths
         .into_iter()
         .filter_map(|path| {
             let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            let module_path = djls_testing::module_path_from_file(&path);
-            let module_path = PythonModulePath::parse(&module_path).ok()?;
-            Some((source, module_path))
+            let module_name = djls_testing::module_name_from_file(&path);
+            let module_name = PythonModuleName::parse(&module_name).ok()?;
+            Some((source, module_name))
         })
         .collect();
 
@@ -214,12 +214,12 @@ fn bench_corpus(bencher: Bencher, corpus: Option<&'static CorpusModels>) {
         .bench_local(move || {
             let mut db = Db::new();
             let mut merged = ModelGraph::new();
-            for (index, (source, module_path)) in corpus.files.iter().enumerate() {
+            for (index, (source, module_name)) in corpus.files.iter().enumerate() {
                 let graph = model_graph_from_source(
                     &mut db,
                     format!("/bench/models/corpus/{index}.py"),
                     source,
-                    module_path.clone(),
+                    module_name.clone(),
                 );
                 merged.merge(graph);
             }

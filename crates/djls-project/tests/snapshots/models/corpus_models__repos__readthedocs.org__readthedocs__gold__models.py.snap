@@ -5,7 +5,7 @@ expression: graph
 models:
   readthedocs.gold.models.GoldUser:
     name: GoldUser
-    module_path: readthedocs.gold.models
+    module_name: readthedocs.gold.models
     line: 26
     relations:
       - field_name: user

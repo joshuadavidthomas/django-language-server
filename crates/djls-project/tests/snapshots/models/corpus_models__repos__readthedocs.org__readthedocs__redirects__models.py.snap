@@ -5,7 +5,7 @@ expression: graph
 models:
   readthedocs.redirects.models.Redirect:
     name: Redirect
-    module_path: readthedocs.redirects.models
+    module_name: readthedocs.redirects.models
     line: 40
     relations:
       - field_name: project

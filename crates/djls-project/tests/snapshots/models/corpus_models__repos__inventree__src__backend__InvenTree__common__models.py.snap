@@ -5,19 +5,19 @@ expression: graph
 models:
   src.backend.InvenTree.common.models.BaseInvenTreeSetting:
     name: BaseInvenTreeSetting
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 190
     relations: []
     kind: abstract
   src.backend.InvenTree.common.models.CustomUnit:
     name: CustomUnit
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1790
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.DataOutput:
     name: DataOutput
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 2859
     relations:
       - field_name: user
@@ -29,7 +29,7 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.EmailMessage:
     name: EmailMessage
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 2979
     relations:
       - field_name: thread
@@ -41,7 +41,7 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.InvenTreeCustomUserStateModel:
     name: InvenTreeCustomUserStateModel
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 2077
     relations:
       - field_name: model
@@ -53,13 +53,13 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.InvenTreeSetting:
     name: InvenTreeSetting
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1212
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.InvenTreeUserSetting:
     name: InvenTreeUserSetting
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1307
     relations:
       - field_name: user
@@ -71,19 +71,19 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.MetaMixin:
     name: MetaMixin
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 92
     relations: []
     kind: abstract
   src.backend.InvenTree.common.models.NewsFeedEntry:
     name: NewsFeedEntry
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1724
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.NotesImage:
     name: NotesImage
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1760
     relations:
       - field_name: user
@@ -95,13 +95,13 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.NotificationEntry:
     name: NotificationEntry
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1615
     relations: []
     kind: concrete
   src.backend.InvenTree.common.models.NotificationMessage:
     name: NotificationMessage
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1652
     relations:
       - field_name: target_content_type
@@ -133,7 +133,7 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.Parameter:
     name: Parameter
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 2577
     relations:
       - field_name: updated_by
@@ -161,13 +161,13 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.PriceBreak:
     name: PriceBreak
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1346
     relations: []
     kind: abstract
   src.backend.InvenTree.common.models.SelectionListEntry:
     name: SelectionListEntry
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 2320
     relations:
       - field_name: list
@@ -179,7 +179,7 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.UpdatedUserMixin:
     name: UpdatedUserMixin
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 112
     relations:
       - field_name: updated_by
@@ -191,7 +191,7 @@ models:
     kind: abstract
   src.backend.InvenTree.common.models.WebhookEndpoint:
     name: WebhookEndpoint
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1398
     relations:
       - field_name: user
@@ -203,7 +203,7 @@ models:
     kind: concrete
   src.backend.InvenTree.common.models.WebhookMessage:
     name: WebhookMessage
-    module_path: src.backend.InvenTree.common.models
+    module_name: src.backend.InvenTree.common.models
     line: 1555
     relations:
       - field_name: endpoint

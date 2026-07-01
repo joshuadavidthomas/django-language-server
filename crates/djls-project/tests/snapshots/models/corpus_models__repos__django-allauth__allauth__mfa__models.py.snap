@@ -5,7 +5,7 @@ expression: graph
 models:
   allauth.mfa.models.Authenticator:
     name: Authenticator
-    module_path: allauth.mfa.models
+    module_name: allauth.mfa.models
     line: 22
     relations:
       - field_name: user

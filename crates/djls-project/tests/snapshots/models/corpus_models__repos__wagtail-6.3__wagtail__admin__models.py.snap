@@ -5,13 +5,13 @@ expression: graph
 models:
   wagtail.admin.models.Admin:
     name: Admin
-    module_path: wagtail.admin.models
+    module_name: wagtail.admin.models
     line: 22
     relations: []
     kind: concrete
   wagtail.admin.models.EditingSession:
     name: EditingSession
-    module_path: wagtail.admin.models
+    module_name: wagtail.admin.models
     line: 77
     relations:
       - field_name: user

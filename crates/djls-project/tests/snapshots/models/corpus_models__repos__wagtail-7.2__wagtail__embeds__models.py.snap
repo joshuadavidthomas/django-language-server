@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.embeds.models.Embed:
     name: Embed
-    module_path: wagtail.embeds.models
+    module_name: wagtail.embeds.models
     line: 13
     relations: []
     kind: concrete

@@ -1,4 +1,4 @@
-//! Module path → file path resolution using Python search paths.
+//! Module name → file path resolution using Python search paths.
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -11,145 +11,8 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::Interpreter;
 use crate::python::PythonModule;
-use crate::python::PythonModulePath;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SearchPath {
-    FirstParty(Utf8PathBuf),
-    Extra(Utf8PathBuf),
-    SitePackages(Utf8PathBuf),
-}
-
-impl SearchPath {
-    fn first_party(path: Utf8PathBuf) -> Self {
-        Self::FirstParty(path)
-    }
-
-    fn extra(path: Utf8PathBuf) -> Self {
-        Self::Extra(path)
-    }
-
-    fn site_packages(path: Utf8PathBuf) -> Self {
-        Self::SitePackages(path)
-    }
-
-    fn from_pythonpath(
-        root: &Utf8Path,
-        discovered_site_packages: Option<&Utf8Path>,
-        path: Utf8PathBuf,
-    ) -> Self {
-        if discovered_site_packages.is_some_and(|site_packages| site_packages == path)
-            || path
-                .components()
-                .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
-        {
-            Self::site_packages(path)
-        } else if path.starts_with(root) {
-            Self::first_party(path)
-        } else {
-            Self::extra(path)
-        }
-    }
-
-    #[must_use]
-    pub fn path(&self) -> &Utf8Path {
-        match self {
-            Self::FirstParty(path) | Self::Extra(path) | Self::SitePackages(path) => path,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn is_first_party(&self) -> bool {
-        matches!(self, Self::FirstParty(_))
-    }
-
-    pub(crate) fn root_kind(&self) -> FileRootKind {
-        match self {
-            // Extra pythonpath entries are user-edited code, so they get the
-            // same low-durability treatment as project files.
-            Self::FirstParty(_) | Self::Extra(_) => FileRootKind::Project,
-            Self::SitePackages(_) => FileRootKind::SearchPath,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SearchPaths {
-    paths: Vec<SearchPath>,
-}
-
-impl SearchPaths {
-    #[must_use]
-    pub(crate) fn root_only(root: &Utf8Path) -> Self {
-        let mut search_paths = Self::default();
-        search_paths.push(SearchPath::first_party(root.to_path_buf()));
-        search_paths
-    }
-
-    #[must_use]
-    pub fn from_project_settings(
-        fs: &dyn FileSystem,
-        root: &Utf8Path,
-        interpreter: &Interpreter,
-        pythonpath: &[String],
-    ) -> Self {
-        let mut search_paths = Self::default();
-        search_paths.push(SearchPath::first_party(root.to_path_buf()));
-        let discovered_site_packages = interpreter.site_packages_path(fs, root);
-
-        for path in pythonpath {
-            let path = Utf8PathBuf::from(path);
-            if !fs.is_dir(&path) || search_paths.contains_path(&path) {
-                continue;
-            }
-
-            search_paths.push(SearchPath::from_pythonpath(
-                root,
-                discovered_site_packages.as_deref(),
-                path,
-            ));
-        }
-
-        if let Some(site_packages) = discovered_site_packages
-            && !search_paths.contains_path(&site_packages)
-        {
-            search_paths.push(SearchPath::site_packages(site_packages));
-        }
-
-        search_paths
-    }
-
-    pub fn register_roots(&self, db: &dyn ProjectDb) {
-        let mut roots = Vec::new();
-        for search_path in self.iter() {
-            if search_path.is_first_party()
-                && roots.iter().any(|(path, kind)| {
-                    *kind == FileRootKind::Project && search_path.path().starts_with(path)
-                })
-            {
-                continue;
-            }
-
-            roots.push((search_path.path().to_path_buf(), search_path.root_kind()));
-        }
-
-        db.files().replace_roots(db, roots);
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &SearchPath> {
-        self.paths.iter()
-    }
-
-    fn push(&mut self, search_path: SearchPath) {
-        self.paths.push(search_path);
-    }
-
-    fn contains_path(&self, path: &Utf8Path) -> bool {
-        self.iter().any(|search_path| search_path.path() == path)
-    }
-}
+use crate::python::PythonModuleName;
 
 #[salsa::tracked(returns(ref))]
 pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> {
@@ -180,14 +43,14 @@ pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonModule> 
         };
 
         let search_path_len = search_path.path().as_str().len();
-        for (module_path, file_path) in discover_model_files_in_root(
+        for (module_name, file_path) in discover_model_files_in_root(
             db.file_system(),
             search_path.path(),
             search_path.root_kind(),
             &excluded_paths,
         ) {
             let module = PythonModule::new(
-                module_path,
+                module_name,
                 file_path.clone(),
                 db.get_or_create_file(&file_path),
             );
@@ -220,29 +83,29 @@ pub(crate) struct ImportParts<'a> {
 pub(crate) fn python_module(
     db: &dyn ProjectDb,
     project: Project,
-    module_path: PythonModulePath,
+    module_name: PythonModuleName,
 ) -> Option<PythonModule> {
     project.touch_search_path_roots(db);
 
     for search_path in project.search_paths(db).iter() {
         let Some(path) =
-            module_file_in_search_path(db.file_system(), module_path.as_str(), search_path.path())
+            module_file_in_search_path(db.file_system(), module_name.as_str(), search_path.path())
         else {
             continue;
         };
         let file = db.get_or_create_file(&path);
-        return Some(PythonModule::new(module_path, path, file));
+        return Some(PythonModule::new(module_name, path, file));
     }
 
     None
 }
 
-pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_path: &str) -> Option<File> {
+pub(crate) fn module_file(db: &dyn ProjectDb, project: Project, module_name: &str) -> Option<File> {
     project.touch_search_path_roots(db);
 
     for search_path in project.search_paths(db).iter() {
         let Some(path) =
-            module_file_in_search_path(db.file_system(), module_path, search_path.path())
+            module_file_in_search_path(db.file_system(), module_name, search_path.path())
         else {
             continue;
         };
@@ -316,11 +179,11 @@ pub(crate) fn resolve_import(
 
 fn module_file_in_search_path(
     fs: &dyn FileSystem,
-    module_path: &str,
+    module_name: &str,
     search_path: &Utf8Path,
 ) -> Option<Utf8PathBuf> {
     let mut candidate = search_path.to_path_buf();
-    for part in module_path.split('.') {
+    for part in module_name.split('.') {
         candidate.push(part);
     }
 
@@ -342,7 +205,7 @@ fn discover_model_files_in_root(
     base_dir: &Utf8Path,
     root_kind: FileRootKind,
     excluded_roots: &[Utf8PathBuf],
-) -> Vec<(PythonModulePath, Utf8PathBuf)> {
+) -> Vec<(PythonModuleName, Utf8PathBuf)> {
     let options = match root_kind {
         FileRootKind::Project => WalkOptions::project(),
         FileRootKind::SearchPath => WalkOptions::library_search_path(),
@@ -396,11 +259,11 @@ fn discover_model_files_in_root(
             continue;
         };
 
-        let Ok(module_path) = PythonModulePath::from_relative_python_module(rel) else {
+        let Ok(module_name) = PythonModuleName::from_relative_source_path(rel) else {
             continue;
         };
 
-        results.push((module_path, path));
+        results.push((module_name, path));
     }
 
     results.sort_by(|(a, _), (b, _)| a.cmp(b));

@@ -16,7 +16,7 @@ use ruff_python_ast::StmtFunctionDef;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::parse::parse_python_module;
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 use crate::templates::for_each_registration;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
@@ -141,7 +141,7 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
 pub fn extract_tag_rules(
     db: &dyn djls_source::Db,
     file: File,
-    registration_module: PythonModulePath,
+    registration_module: PythonModuleName,
 ) -> TagRuleMap {
     with_parsed_body(db, file, |body| {
         let registration_module = registration_module.into_string();
@@ -165,7 +165,7 @@ pub fn extract_tag_rules(
 pub fn extract_block_specs(
     db: &dyn djls_source::Db,
     file: File,
-    registration_module: PythonModulePath,
+    registration_module: PythonModuleName,
 ) -> BlockSpecs {
     with_parsed_body(db, file, |body| {
         let registration_module = registration_module.into_string();

@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.metadata.models.SparseField:
     name: SparseField
-    module_path: geonode.metadata.models
+    module_name: geonode.metadata.models
     line: 26
     relations:
       - field_name: resource

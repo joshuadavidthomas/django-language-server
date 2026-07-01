@@ -5,19 +5,19 @@ expression: graph
 models:
   src.sentry.sentry_metrics.indexer.postgres.models.BaseIndexer:
     name: BaseIndexer
-    module_path: src.sentry.sentry_metrics.indexer.postgres.models
+    module_name: src.sentry.sentry_metrics.indexer.postgres.models
     line: 17
     relations: []
     kind: abstract
   src.sentry.sentry_metrics.indexer.postgres.models.PerfStringIndexer:
     name: PerfStringIndexer
-    module_path: src.sentry.sentry_metrics.indexer.postgres.models
+    module_name: src.sentry.sentry_metrics.indexer.postgres.models
     line: 44
     relations: []
     kind: concrete
   src.sentry.sentry_metrics.indexer.postgres.models.StringIndexer:
     name: StringIndexer
-    module_path: src.sentry.sentry_metrics.indexer.postgres.models
+    module_name: src.sentry.sentry_metrics.indexer.postgres.models
     line: 32
     relations: []
     kind: concrete

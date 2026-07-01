@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.plugins.banktransfer.models.BankImportJob:
     name: BankImportJob
-    module_path: src.pretix.plugins.banktransfer.models
+    module_name: src.pretix.plugins.banktransfer.models
     line: 31
     relations:
       - field_name: event
@@ -25,7 +25,7 @@ models:
     kind: concrete
   src.pretix.plugins.banktransfer.models.BankTransaction:
     name: BankTransaction
-    module_path: src.pretix.plugins.banktransfer.models
+    module_name: src.pretix.plugins.banktransfer.models
     line: 60
     relations:
       - field_name: event
@@ -58,7 +58,7 @@ models:
     kind: concrete
   src.pretix.plugins.banktransfer.models.RefundExport:
     name: RefundExport
-    module_path: src.pretix.plugins.banktransfer.models
+    module_name: src.pretix.plugins.banktransfer.models
     line: 115
     relations:
       - field_name: event

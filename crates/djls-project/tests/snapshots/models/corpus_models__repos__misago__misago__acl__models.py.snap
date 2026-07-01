@@ -5,13 +5,13 @@ expression: graph
 models:
   misago.acl.models.BaseRole:
     name: BaseRole
-    module_path: misago.acl.models
+    module_name: misago.acl.models
     line: 11
     relations: []
     kind: abstract
   misago.acl.models.Role:
     name: Role
-    module_path: misago.acl.models
+    module_name: misago.acl.models
     line: 32
     relations: []
     kind: concrete

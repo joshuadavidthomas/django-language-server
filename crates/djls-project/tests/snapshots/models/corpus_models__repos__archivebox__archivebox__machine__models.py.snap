@@ -5,7 +5,7 @@ expression: graph
 models:
   archivebox.machine.models.Process:
     name: Process
-    module_path: archivebox.machine.models
+    module_name: archivebox.machine.models
     line: 659
     relations:
       - field_name: machine

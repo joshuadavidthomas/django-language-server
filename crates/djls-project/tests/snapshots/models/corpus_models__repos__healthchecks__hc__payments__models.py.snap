@@ -5,7 +5,7 @@ expression: graph
 models:
   hc.payments.models.Subscription:
     name: Subscription
-    module_path: hc.payments.models
+    module_name: hc.payments.models
     line: 7
     relations:
       - field_name: user

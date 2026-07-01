@@ -5,13 +5,13 @@ expression: graph
 models:
   benchmarks.models.TestDirectModel:
     name: TestDirectModel
-    module_path: benchmarks.models
+    module_name: benchmarks.models
     line: 18
     relations: []
     kind: concrete
   benchmarks.models.TestModel:
     name: TestModel
-    module_path: benchmarks.models
+    module_name: benchmarks.models
     line: 6
     relations: []
     kind: concrete

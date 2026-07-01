@@ -5,7 +5,7 @@ expression: graph
 models:
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.Article:
     name: Article
-    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 6
     relations:
       - field_name: section
@@ -17,7 +17,7 @@ models:
     kind: concrete
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.FKModel:
     name: FKModel
-    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 32
     relations:
       - field_name: fk_field
@@ -29,13 +29,13 @@ models:
     kind: concrete
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.M2MTargetModel:
     name: M2MTargetModel
-    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 36
     relations: []
     kind: concrete
   cms.test_utils.project.pluginapp.plugins.manytomany_rel.models.Section:
     name: Section
-    module_path: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
+    module_name: cms.test_utils.project.pluginapp.plugins.manytomany_rel.models
     line: 14
     relations: []
     kind: concrete

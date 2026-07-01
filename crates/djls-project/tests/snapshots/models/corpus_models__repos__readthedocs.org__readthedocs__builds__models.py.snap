@@ -5,7 +5,7 @@ expression: graph
 models:
   readthedocs.builds.models.Build:
     name: Build
-    module_path: readthedocs.builds.models
+    module_name: readthedocs.builds.models
     line: 645
     relations:
       - field_name: project
@@ -29,7 +29,7 @@ models:
     kind: concrete
   readthedocs.builds.models.BuildCommandResult:
     name: BuildCommandResult
-    module_path: readthedocs.builds.models
+    module_name: readthedocs.builds.models
     line: 1082
     relations:
       - field_name: build

@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.oauth2.models.Subject:
     name: Subject
-    module_path: misago.oauth2.models
+    module_name: misago.oauth2.models
     line: 7
     relations:
       - field_name: user

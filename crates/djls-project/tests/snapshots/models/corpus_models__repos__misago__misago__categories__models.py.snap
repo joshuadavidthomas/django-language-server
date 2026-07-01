@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.categories.models.RoleCategoryACL:
     name: RoleCategoryACL
-    module_path: misago.categories.models
+    module_name: misago.categories.models
     line: 164
     relations:
       - field_name: role

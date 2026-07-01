@@ -5,13 +5,13 @@ expression: graph
 models:
   geonode.groups.models.GroupCategory:
     name: GroupCategory
-    module_path: geonode.groups.models
+    module_name: geonode.groups.models
     line: 46
     relations: []
     kind: concrete
   geonode.groups.models.GroupMember:
     name: GroupMember
-    module_path: geonode.groups.models
+    module_name: geonode.groups.models
     line: 263
     relations:
       - field_name: group
@@ -29,7 +29,7 @@ models:
     kind: concrete
   geonode.groups.models.GroupProfile:
     name: GroupProfile
-    module_path: geonode.groups.models
+    module_name: geonode.groups.models
     line: 68
     relations:
       - field_name: group

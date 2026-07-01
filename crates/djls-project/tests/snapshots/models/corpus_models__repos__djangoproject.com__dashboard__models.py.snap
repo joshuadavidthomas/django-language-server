@@ -5,13 +5,13 @@ expression: graph
 models:
   dashboard.models.Category:
     name: Category
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 25
     relations: []
     kind: concrete
   dashboard.models.Datum:
     name: Datum
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 252
     relations:
       - field_name: metric
@@ -27,7 +27,7 @@ models:
     kind: concrete
   dashboard.models.GitHubSearchCountMetric:
     name: GitHubSearchCountMetric
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 161
     relations:
       - field_name: category
@@ -39,7 +39,7 @@ models:
     kind: concrete
   dashboard.models.GithubItemCountMetric:
     name: GithubItemCountMetric
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 136
     relations:
       - field_name: category
@@ -51,7 +51,7 @@ models:
     kind: concrete
   dashboard.models.JenkinsFailuresMetric:
     name: JenkinsFailuresMetric
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 180
     relations:
       - field_name: category
@@ -63,7 +63,7 @@ models:
     kind: concrete
   dashboard.models.Metric:
     name: Metric
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 36
     relations:
       - field_name: category
@@ -75,7 +75,7 @@ models:
     kind: abstract
   dashboard.models.TracTicketMetric:
     name: TracTicketMetric
-    module_path: dashboard.models
+    module_name: dashboard.models
     line: 125
     relations:
       - field_name: category

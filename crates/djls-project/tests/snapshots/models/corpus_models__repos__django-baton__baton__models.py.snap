@@ -5,7 +5,7 @@ expression: graph
 models:
   baton.models.BatonTheme:
     name: BatonTheme
-    module_path: baton.models
+    module_name: baton.models
     line: 4
     relations: []
     kind: concrete

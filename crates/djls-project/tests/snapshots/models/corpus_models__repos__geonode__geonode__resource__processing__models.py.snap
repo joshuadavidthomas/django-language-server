@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.resource.processing.models.ProcessingWorkflow:
     name: ProcessingWorkflow
-    module_path: geonode.resource.processing.models
+    module_name: geonode.resource.processing.models
     line: 55
     relations:
       - field_name: processing_tasks
@@ -17,7 +17,7 @@ models:
     kind: concrete
   geonode.resource.processing.models.ProcessingWorkflowTasks:
     name: ProcessingWorkflowTasks
-    module_path: geonode.resource.processing.models
+    module_name: geonode.resource.processing.models
     line: 73
     relations:
       - field_name: workflow

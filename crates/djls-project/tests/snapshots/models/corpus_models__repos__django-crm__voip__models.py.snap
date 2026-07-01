@@ -5,7 +5,7 @@ expression: graph
 models:
   voip.models.Connection:
     name: Connection
-    module_path: voip.models
+    module_name: voip.models
     line: 6
     relations:
       - field_name: owner

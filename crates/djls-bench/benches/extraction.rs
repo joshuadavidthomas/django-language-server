@@ -3,13 +3,13 @@ use djls_bench::Db;
 use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::python_fixtures;
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_source::File;
 use djls_testing::extract_bundle;
 
 struct ExtractionFile {
     file: File,
-    module: PythonModulePath,
+    module: PythonModuleName,
 }
 
 struct ExtractionInput {
@@ -27,7 +27,7 @@ fn extraction_input(fixtures: &[Fixture]) -> ExtractionInput {
         .iter()
         .map(|fixture| ExtractionFile {
             file: db.file_with_contents(fixture.path.clone(), &fixture.source),
-            module: PythonModulePath::parse("bench.module").unwrap(),
+            module: PythonModuleName::parse("bench.module").unwrap(),
         })
         .collect();
 

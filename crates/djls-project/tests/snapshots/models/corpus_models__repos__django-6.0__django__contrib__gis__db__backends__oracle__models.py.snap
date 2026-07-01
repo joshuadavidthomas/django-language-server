@@ -5,13 +5,13 @@ expression: graph
 models:
   django.contrib.gis.db.backends.oracle.models.OracleGeometryColumns:
     name: OracleGeometryColumns
-    module_path: django.contrib.gis.db.backends.oracle.models
+    module_name: django.contrib.gis.db.backends.oracle.models
     line: 15
     relations: []
     kind: concrete
   django.contrib.gis.db.backends.oracle.models.OracleSpatialRefSys:
     name: OracleSpatialRefSys
-    module_path: django.contrib.gis.db.backends.oracle.models
+    module_name: django.contrib.gis.db.backends.oracle.models
     line: 48
     relations: []
     kind: concrete

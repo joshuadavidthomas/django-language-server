@@ -5,7 +5,7 @@ use djls_project::Db as ProjectDb;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::LibraryName;
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_project::SymbolDefinition;
 use djls_project::SymbolKey;
 use djls_project::TemplateSymbol;
@@ -35,7 +35,7 @@ fn template_symbol(kind: TemplateSymbolKind, name: &str, module: &str) -> Templa
     TemplateSymbol {
         kind,
         name: TemplateSymbolName::parse(name).unwrap(),
-        definition: PythonModulePath::parse(module)
+        definition: PythonModuleName::parse(module)
             .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module),
         doc: None,
     }
@@ -163,19 +163,19 @@ fn build_filter_arities(
 fn build_template_library_inputs(symbols: Vec<BenchSymbol>) -> Vec<TemplateLibraryInput> {
     let mut builtins = BTreeMap::new();
     for module_name in [DEFAULTTAGS, DEFAULTFILTERS] {
-        builtins.insert(PythonModulePath::parse(module_name).unwrap(), Vec::new());
+        builtins.insert(PythonModuleName::parse(module_name).unwrap(), Vec::new());
     }
 
     let mut installed = BTreeMap::new();
     for (load_name, module_name) in [("i18n", I18N), ("static", STATIC)] {
         installed.insert(
             LibraryName::parse(load_name).unwrap(),
-            (PythonModulePath::parse(module_name).unwrap(), Vec::new()),
+            (PythonModuleName::parse(module_name).unwrap(), Vec::new()),
         );
     }
 
     for bench_symbol in symbols {
-        let module = PythonModulePath::parse(bench_symbol.module).unwrap();
+        let module = PythonModuleName::parse(bench_symbol.module).unwrap();
         match bench_symbol.load_name {
             None => {
                 if let Some(symbols) = builtins.get_mut(&module) {
@@ -236,7 +236,7 @@ fn build_realistic_specs() -> RealisticSpecs {
     let defaulttags = extract_bundle(
         &extraction_db,
         defaulttags_file,
-        PythonModulePath::parse(DEFAULTTAGS).unwrap(),
+        PythonModuleName::parse(DEFAULTTAGS).unwrap(),
     );
     tag_specs
         .merge_block_specs(&defaulttags.block_specs)
@@ -245,7 +245,7 @@ fn build_realistic_specs() -> RealisticSpecs {
     let i18n = extract_bundle(
         &extraction_db,
         i18n_file,
-        PythonModulePath::parse(I18N).unwrap(),
+        PythonModuleName::parse(I18N).unwrap(),
     );
     tag_specs
         .merge_block_specs(&i18n.block_specs)

@@ -5,7 +5,7 @@ expression: graph
 models:
   src.backend.InvenTree.stock.models.StockLocationType:
     name: StockLocationType
-    module_path: src.backend.InvenTree.stock.models
+    module_name: src.backend.InvenTree.stock.models
     line: 59
     relations: []
     kind: concrete

@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.indexing.models.ResourceIndex:
     name: ResourceIndex
-    module_path: geonode.indexing.models
+    module_name: geonode.indexing.models
     line: 8
     relations:
       - field_name: resource

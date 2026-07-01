@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::python::PythonModulePath;
+use crate::python::PythonModuleName;
 
 macro_rules! string_newtype {
     ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
@@ -68,7 +68,7 @@ string_newtype! {
 
 /// A deterministic import identity for a Django model.
 ///
-/// The module path is the importable Python module where the model class was
+/// The module name is the importable Python module where the model class was
 /// found, and the name is the class name within that module. Serde represents
 /// the identity as a qualified import-style string such as
 /// `"django.contrib.auth.models.User"`.
@@ -78,18 +78,18 @@ pub struct ModelId {
     // Keep `name` first: `ModelGraph::models_named` and exact lookups rely
     // on the derived `Ord` grouping same-named models together.
     name: ModelName,
-    module_path: PythonModulePath,
+    module_name: PythonModuleName,
 }
 
 impl ModelId {
     #[must_use]
-    fn new(module_path: PythonModulePath, name: ModelName) -> Self {
-        Self { name, module_path }
+    fn new(module_name: PythonModuleName, name: ModelName) -> Self {
+        Self { name, module_name }
     }
 
     #[must_use]
-    pub fn module_path(&self) -> &PythonModulePath {
-        &self.module_path
+    pub fn module_name(&self) -> &PythonModuleName {
+        &self.module_name
     }
 
     #[must_use]
@@ -102,21 +102,21 @@ impl TryFrom<String> for ModelId {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let (module_path, name) = value
+        let (module_name, name) = value
             .rsplit_once('.')
-            .ok_or_else(|| "model id must include a module path and model name".to_string())?;
+            .ok_or_else(|| "model id must include a module name and model name".to_string())?;
         if name.is_empty() {
             return Err("model id must include a model name".to_string());
         }
 
-        let module_path = PythonModulePath::parse(module_path).map_err(|err| err.to_string())?;
-        Ok(Self::new(module_path, ModelName::new(name)))
+        let module_name = PythonModuleName::parse(module_name).map_err(|err| err.to_string())?;
+        Ok(Self::new(module_name, ModelName::new(name)))
     }
 }
 
 impl From<ModelId> for String {
     fn from(value: ModelId) -> Self {
-        format!("{}.{}", value.module_path.as_str(), value.name.as_str())
+        format!("{}.{}", value.module_name.as_str(), value.name.as_str())
     }
 }
 
@@ -236,24 +236,24 @@ impl Relation {
     /// Otherwise synthesizes Django's default: `<model>_set` for FK/M2M, or
     /// `<model>` for `OneToOne`.
     ///
-    /// `module_path` is the dotted Python module path (e.g., `"myapp.models"`);
+    /// `module_name` is the dotted Python module name (e.g., `"myapp.models"`);
     /// the app label is derived as the component before `models`.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn effective_related_name(
         &self,
         source_model: &str,
-        module_path: &str,
+        module_name: &str,
     ) -> Option<String> {
         let lower = source_model.to_lowercase();
         match &self.relation_type {
             RelationType::ForeignKey { related_name, .. }
             | RelationType::ManyToMany { related_name, .. } => Some(match related_name {
-                Some(name) => substitute_related_name(name, &lower, module_path),
+                Some(name) => substitute_related_name(name, &lower, module_name),
                 None => format!("{lower}_set"),
             }),
             RelationType::OneToOne { related_name, .. } => Some(match related_name {
-                Some(name) => substitute_related_name(name, &lower, module_path),
+                Some(name) => substitute_related_name(name, &lower, module_name),
                 None => lower,
             }),
             RelationType::GenericForeignKey { .. } => None,
@@ -263,14 +263,14 @@ impl Relation {
     fn effective_related_name_matches(
         &self,
         source_model: &str,
-        module_path: &str,
+        module_name: &str,
         field_name: &str,
     ) -> bool {
         match &self.relation_type {
             RelationType::ForeignKey { related_name, .. }
             | RelationType::ManyToMany { related_name, .. } => match related_name {
                 Some(name) => {
-                    template_related_name_matches(name, source_model, module_path, field_name)
+                    template_related_name_matches(name, source_model, module_name, field_name)
                 }
                 None => field_name
                     .strip_suffix("_set")
@@ -278,7 +278,7 @@ impl Relation {
             },
             RelationType::OneToOne { related_name, .. } => match related_name {
                 Some(name) => {
-                    template_related_name_matches(name, source_model, module_path, field_name)
+                    template_related_name_matches(name, source_model, module_name, field_name)
                 }
                 None => source_model.to_lowercase() == field_name,
             },
@@ -290,7 +290,7 @@ impl Relation {
 fn template_related_name_matches(
     template: &str,
     source_model: &str,
-    module_path: &str,
+    module_name: &str,
     field_name: &str,
 ) -> bool {
     if !template.contains("%(") {
@@ -298,16 +298,16 @@ fn template_related_name_matches(
     }
 
     let lower = source_model.to_lowercase();
-    substitute_related_name(template, &lower, module_path) == field_name
+    substitute_related_name(template, &lower, module_name) == field_name
 }
 
-fn substitute_related_name(template: &str, lower_model: &str, module_path: &str) -> String {
+fn substitute_related_name(template: &str, lower_model: &str, module_name: &str) -> String {
     let substituted = template.replace("%(class)s", lower_model);
     if !substituted.contains("%(app_label)s") {
         return substituted;
     }
 
-    let app_label = lower_app_label(app_label_from_module_path(module_path).unwrap_or_default());
+    let app_label = lower_app_label(app_label_from_module_name(module_name).unwrap_or_default());
     substituted.replace("%(app_label)s", &app_label)
 }
 
@@ -319,17 +319,17 @@ fn lower_app_label(app_label: &str) -> Cow<'_, str> {
     }
 }
 
-/// Derive the app label from a dotted module path.
+/// Derive the app label from a dotted module name.
 ///
 /// This is an approximation until real `AppConfig` support exists. It mirrors
 /// the common convention: the component immediately before `models` in the
-/// module path. Returns `None` when no valid app label can be determined
-/// (e.g., bare `"models"` with no package prefix, or an empty path).
-fn app_label_from_module_path(module_path: &str) -> Option<&str> {
+/// module name. Returns `None` when no valid app label can be determined
+/// (e.g., bare `"models"` with no package prefix, or an empty name).
+fn app_label_from_module_name(module_name: &str) -> Option<&str> {
     let mut first: Option<&str> = None;
     let mut previous: Option<&str> = None;
 
-    for part in module_path.split('.') {
+    for part in module_name.split('.') {
         if first.is_none() {
             first = Some(part);
         }
@@ -357,7 +357,7 @@ fn django_name_matches(candidate: &str, query: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelDef {
     pub(crate) name: ModelName,
-    pub(crate) module_path: PythonModulePath,
+    pub(crate) module_name: PythonModuleName,
     pub(crate) line: usize,
     pub(crate) relations: Vec<Relation>,
     pub(crate) kind: ModelKind,
@@ -365,10 +365,10 @@ pub struct ModelDef {
 
 impl ModelDef {
     #[must_use]
-    pub fn new(name: impl Into<String>, module_path: PythonModulePath, line: usize) -> Self {
+    pub fn new(name: impl Into<String>, module_name: PythonModuleName, line: usize) -> Self {
         Self {
             name: ModelName::new(name),
-            module_path,
+            module_name,
             line,
             relations: Vec::new(),
             kind: ModelKind::Concrete,
@@ -377,7 +377,7 @@ impl ModelDef {
 
     #[must_use]
     fn id(&self) -> ModelId {
-        ModelId::new(self.module_path.clone(), self.name.clone())
+        ModelId::new(self.module_name.clone(), self.name.clone())
     }
 }
 
@@ -452,7 +452,7 @@ impl ModelGraph {
 
         self.models.iter().find(|(id, _model)| {
             django_name_matches(id.name.as_str(), name)
-                && app_label_from_module_path(id.module_path.as_str())
+                && app_label_from_module_name(id.module_name.as_str())
                     .is_some_and(|candidate| django_name_matches(candidate, app_label))
         })
     }
@@ -466,7 +466,7 @@ impl ModelGraph {
             if candidate_name != name {
                 break;
             }
-            if app_label_from_module_path(id.module_path.as_str()) == Some(app_label) {
+            if app_label_from_module_name(id.module_name.as_str()) == Some(app_label) {
                 return Some((id, model));
             }
         }
@@ -504,7 +504,7 @@ impl ModelGraph {
         match target {
             RelationTarget::SelfRef => self.models.get_key_value(scope),
             RelationTarget::Bare { name } => {
-                let app_label = app_label_from_module_path(scope.module_path.as_str())?;
+                let app_label = app_label_from_module_name(scope.module_name.as_str())?;
                 self.lookup_entry(app_label, name.as_str())
             }
             RelationTarget::Qualified { app_label, name } => {
@@ -531,7 +531,7 @@ impl ModelGraph {
                 }
 
                 relation
-                    .effective_related_name(model.name.as_str(), model.module_path.as_str())
+                    .effective_related_name(model.name.as_str(), model.module_name.as_str())
                     .map(|name| (source_id, name))
             })
         })
@@ -567,7 +567,7 @@ impl ModelGraph {
                 if target_id == scope
                     && relation.effective_related_name_matches(
                         model.name.as_str(),
-                        model.module_path.as_str(),
+                        model.module_name.as_str(),
                         field_name,
                     )
                 {
@@ -591,8 +591,8 @@ impl ModelGraph {
 mod tests {
     use super::*;
 
-    fn module_path(path: &str) -> PythonModulePath {
-        PythonModulePath::parse(path).unwrap()
+    fn module_name(name: &str) -> PythonModuleName {
+        PythonModuleName::parse(name).unwrap()
     }
 
     fn model_id<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelId {
@@ -610,9 +610,9 @@ mod tests {
     fn user_order_graph() -> ModelGraph {
         let mut graph = ModelGraph::new();
 
-        let user = ModelDef::new("User", module_path("auth.models"), 1);
+        let user = ModelDef::new("User", module_name("auth.models"), 1);
 
-        let mut order = ModelDef::new("Order", module_path("shop.models"), 1);
+        let mut order = ModelDef::new("Order", module_name("shop.models"), 1);
         order.relations.push(Relation {
             field_name: "user".into(),
             relation_type: RelationType::ForeignKey {
@@ -624,7 +624,7 @@ mod tests {
             },
         });
 
-        let mut profile = ModelDef::new("Profile", module_path("accounts.models"), 1);
+        let mut profile = ModelDef::new("Profile", module_name("accounts.models"), 1);
         profile.relations.push(Relation {
             field_name: "user".into(),
             relation_type: RelationType::OneToOne {
@@ -691,7 +691,7 @@ mod tests {
     fn unresolved_forward_relation_does_not_fall_through_to_reverse_lookup() {
         let mut graph = ModelGraph::new();
 
-        let mut user = ModelDef::new("User", module_path("auth.models"), 1);
+        let mut user = ModelDef::new("User", module_name("auth.models"), 1);
         user.relations.push(Relation {
             field_name: "orders".into(),
             relation_type: RelationType::ForeignKey {
@@ -703,7 +703,7 @@ mod tests {
             },
         });
 
-        let mut order = ModelDef::new("Order", module_path("shop.models"), 1);
+        let mut order = ModelDef::new("Order", module_name("shop.models"), 1);
         order.relations.push(Relation {
             field_name: "user".into(),
             relation_type: RelationType::ForeignKey {
@@ -793,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn app_label_from_nested_module_path() {
+    fn app_label_from_nested_module_name() {
         let rel = Relation {
             field_name: "user".into(),
             relation_type: RelationType::ForeignKey {
@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn app_label_bare_models_path() {
-        // A bare "models" module path has no valid app label — %(app_label)s
+        // A bare "models" module name has no valid app label — %(app_label)s
         // should substitute as empty rather than producing "models".
         let rel = Relation {
             field_name: "user".into(),
@@ -849,22 +849,22 @@ mod tests {
     #[test]
     fn lookup_normalizes_app_label_and_model_name() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_path("accounts.models"), 1));
+        graph.add_model(ModelDef::new("User", module_name("accounts.models"), 1));
 
         let model = graph
             .lookup("ACCOUNTS", "user")
             .expect("lookup should normalize app label and model name");
         assert_eq!(model.name.as_str(), "User");
-        assert_eq!(model.module_path.as_str(), "accounts.models");
+        assert_eq!(model.module_name.as_str(), "accounts.models");
     }
 
     #[test]
     fn relation_target_policy_resolves_self_bare_and_qualified() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("User", module_path("accounts.models"), 1));
-        graph.add_model(ModelDef::new("User", module_path("blog.models"), 1));
+        graph.add_model(ModelDef::new("User", module_name("accounts.models"), 1));
+        graph.add_model(ModelDef::new("User", module_name("blog.models"), 1));
 
-        let mut post = ModelDef::new("Post", module_path("blog.models"), 1);
+        let mut post = ModelDef::new("Post", module_name("blog.models"), 1);
         post.relations.push(Relation {
             field_name: "author".into(),
             relation_type: RelationType::ForeignKey {
@@ -897,19 +897,19 @@ mod tests {
         assert_eq!(
             graph
                 .resolve_forward(post_id, "author")
-                .map(|model| model.module_path.as_str()),
+                .map(|model| model.module_name.as_str()),
             Some("blog.models")
         );
         assert_eq!(
             graph
                 .resolve_forward(post_id, "account_author")
-                .map(|model| model.module_path.as_str()),
+                .map(|model| model.module_name.as_str()),
             Some("accounts.models")
         );
         assert_eq!(
             graph
                 .resolve_forward(post_id, "parent")
-                .map(|model| model.module_path.as_str()),
+                .map(|model| model.module_name.as_str()),
             Some("blog.models")
         );
     }
@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn generic_foreign_key_skipped_in_forward_lookup() {
         let mut graph = ModelGraph::new();
-        let mut model = ModelDef::new("TaggedItem", module_path("tagging.models"), 1);
+        let mut model = ModelDef::new("TaggedItem", module_name("tagging.models"), 1);
         model.relations.push(Relation {
             field_name: "content_object".into(),
             relation_type: RelationType::GenericForeignKey {
@@ -952,10 +952,10 @@ mod tests {
     #[test]
     fn merge_graphs() {
         let mut g1 = ModelGraph::new();
-        g1.add_model(ModelDef::new("User", module_path("auth.models"), 1));
+        g1.add_model(ModelDef::new("User", module_name("auth.models"), 1));
 
         let mut g2 = ModelGraph::new();
-        g2.add_model(ModelDef::new("Order", module_path("shop.models"), 1));
+        g2.add_model(ModelDef::new("Order", module_name("shop.models"), 1));
 
         g1.merge(g2);
         assert_eq!(g1.len(), 2);
@@ -966,12 +966,12 @@ mod tests {
     #[test]
     fn same_named_models_in_different_modules_coexist() {
         let mut graph = ModelGraph::new();
-        graph.add_model(ModelDef::new("Comment", module_path("blog.models"), 1));
-        graph.add_model(ModelDef::new("Comment", module_path("news.models"), 1));
+        graph.add_model(ModelDef::new("Comment", module_name("blog.models"), 1));
+        graph.add_model(ModelDef::new("Comment", module_name("news.models"), 1));
 
         let comments: Vec<_> = graph
             .models_named("Comment")
-            .map(|(id, model)| (id.module_path().as_str(), model.module_path.as_str()))
+            .map(|(id, model)| (id.module_name().as_str(), model.module_name.as_str()))
             .collect();
 
         assert_eq!(graph.len(), 2);

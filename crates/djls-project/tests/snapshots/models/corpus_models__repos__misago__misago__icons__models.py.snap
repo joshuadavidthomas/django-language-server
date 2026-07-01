@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.icons.models.Icon:
     name: Icon
-    module_path: misago.icons.models
+    module_name: misago.icons.models
     line: 4
     relations: []
     kind: concrete

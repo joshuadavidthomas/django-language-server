@@ -5,7 +5,7 @@ expression: graph
 models:
   readthedocs.integrations.models.HttpExchange:
     name: HttpExchange
-    module_path: readthedocs.integrations.models
+    module_name: readthedocs.integrations.models
     line: 139
     relations:
       - field_name: content_type

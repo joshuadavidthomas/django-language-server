@@ -5,7 +5,7 @@ expression: graph
 models:
   cms.extensions.models.BaseExtension:
     name: BaseExtension
-    module_path: cms.extensions.models
+    module_name: cms.extensions.models
     line: 7
     relations:
       - field_name: public_extension
@@ -16,7 +16,7 @@ models:
     kind: abstract
   cms.extensions.models.PageContentExtension:
     name: PageContentExtension
-    module_path: cms.extensions.models
+    module_name: cms.extensions.models
     line: 84
     relations:
       - field_name: public_extension
@@ -33,7 +33,7 @@ models:
     kind: abstract
   cms.extensions.models.PageExtension:
     name: PageExtension
-    module_path: cms.extensions.models
+    module_name: cms.extensions.models
     line: 74
     relations:
       - field_name: public_extension

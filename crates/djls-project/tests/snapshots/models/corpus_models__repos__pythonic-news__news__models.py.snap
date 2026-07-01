@@ -5,7 +5,7 @@ expression: graph
 models:
   news.models.Vote:
     name: Vote
-    module_path: news.models
+    module_name: news.models
     line: 120
     relations:
       - field_name: item

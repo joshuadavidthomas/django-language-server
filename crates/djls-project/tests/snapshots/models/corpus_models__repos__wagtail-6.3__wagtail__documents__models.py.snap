@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.documents.models.AbstractDocument:
     name: AbstractDocument
-    module_path: wagtail.documents.models
+    module_name: wagtail.documents.models
     line: 25
     relations:
       - field_name: uploaded_by_user
@@ -17,7 +17,7 @@ models:
     kind: abstract
   wagtail.documents.models.Document:
     name: Document
-    module_path: wagtail.documents.models
+    module_name: wagtail.documents.models
     line: 212
     relations:
       - field_name: uploaded_by_user

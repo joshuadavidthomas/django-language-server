@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.search.models.BaseIndexEntry:
     name: BaseIndexEntry
-    module_path: wagtail.search.models
+    module_name: wagtail.search.models
     line: 41
     relations:
       - field_name: content_type

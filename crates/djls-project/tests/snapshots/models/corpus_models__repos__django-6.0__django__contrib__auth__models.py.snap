@@ -5,7 +5,7 @@ expression: graph
 models:
   django.contrib.auth.models.AbstractUser:
     name: AbstractUser
-    module_path: django.contrib.auth.models
+    module_name: django.contrib.auth.models
     line: 446
     relations:
       - field_name: groups
@@ -23,7 +23,7 @@ models:
     kind: abstract
   django.contrib.auth.models.Group:
     name: Group
-    module_path: django.contrib.auth.models
+    module_name: django.contrib.auth.models
     line: 102
     relations:
       - field_name: permissions
@@ -35,7 +35,7 @@ models:
     kind: concrete
   django.contrib.auth.models.Permission:
     name: Permission
-    module_path: django.contrib.auth.models
+    module_name: django.contrib.auth.models
     line: 39
     relations:
       - field_name: content_type
@@ -47,7 +47,7 @@ models:
     kind: concrete
   django.contrib.auth.models.PermissionsMixin:
     name: PermissionsMixin
-    module_path: django.contrib.auth.models
+    module_name: django.contrib.auth.models
     line: 317
     relations:
       - field_name: groups
@@ -65,7 +65,7 @@ models:
     kind: abstract
   django.contrib.auth.models.User:
     name: User
-    module_path: django.contrib.auth.models
+    module_name: django.contrib.auth.models
     line: 517
     relations:
       - field_name: groups

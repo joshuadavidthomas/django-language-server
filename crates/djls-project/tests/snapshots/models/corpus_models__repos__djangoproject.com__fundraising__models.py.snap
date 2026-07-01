@@ -5,13 +5,13 @@ expression: graph
 models:
   fundraising.models.DjangoHero:
     name: DjangoHero
-    module_path: fundraising.models
+    module_name: fundraising.models
     line: 61
     relations: []
     kind: concrete
   fundraising.models.Donation:
     name: Donation
-    module_path: fundraising.models
+    module_name: fundraising.models
     line: 105
     relations:
       - field_name: donor
@@ -23,19 +23,19 @@ models:
     kind: concrete
   fundraising.models.FundraisingModel:
     name: FundraisingModel
-    module_path: fundraising.models
+    module_name: fundraising.models
     line: 46
     relations: []
     kind: abstract
   fundraising.models.InKindDonor:
     name: InKindDonor
-    module_path: fundraising.models
+    module_name: fundraising.models
     line: 149
     relations: []
     kind: concrete
   fundraising.models.Payment:
     name: Payment
-    module_path: fundraising.models
+    module_name: fundraising.models
     line: 130
     relations:
       - field_name: donation
@@ -47,7 +47,7 @@ models:
     kind: concrete
   fundraising.models.Testimonial:
     name: Testimonial
-    module_path: fundraising.models
+    module_name: fundraising.models
     line: 140
     relations: []
     kind: concrete

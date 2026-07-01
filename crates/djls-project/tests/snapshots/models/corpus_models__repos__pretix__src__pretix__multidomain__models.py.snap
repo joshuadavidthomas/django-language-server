@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.multidomain.models.AlternativeDomainAssignment:
     name: AlternativeDomainAssignment
-    module_path: src.pretix.multidomain.models
+    module_name: src.pretix.multidomain.models
     line: 138
     relations:
       - field_name: domain
@@ -23,7 +23,7 @@ models:
     kind: concrete
   src.pretix.multidomain.models.KnownDomain:
     name: KnownDomain
-    module_path: src.pretix.multidomain.models
+    module_name: src.pretix.multidomain.models
     line: 31
     relations:
       - field_name: organizer

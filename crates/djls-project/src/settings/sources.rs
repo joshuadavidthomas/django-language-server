@@ -133,8 +133,8 @@ impl<R: SettingsSourceReader> SettingsSourceResolver for ReaderResolver<'_, R> {
             module: import.module.as_deref(),
             importer,
         };
-        let module_path = crate::resolve::resolve_import(self.db, self.project, parts)?;
-        let file = crate::resolve::module_file(self.db, self.project, &module_path)?;
+        let module_name = crate::resolve::resolve_import(self.db, self.project, parts)?;
+        let file = crate::resolve::module_file(self.db, self.project, &module_name)?;
         self.resolved.push(file);
         self.reader.read_source(file)
     }

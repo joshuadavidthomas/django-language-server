@@ -5,7 +5,7 @@ expression: graph
 models:
   actstream.models.Action:
     name: Action
-    module_path: actstream.models
+    module_name: actstream.models
     line: 45
     relations:
       - field_name: actor_content_type
@@ -41,7 +41,7 @@ models:
     kind: concrete
   actstream.models.Follow:
     name: Follow
-    module_path: actstream.models
+    module_name: actstream.models
     line: 16
     relations:
       - field_name: user

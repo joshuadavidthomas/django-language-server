@@ -5,7 +5,7 @@ expression: graph
 models:
   allauth.idp.oidc.models.Client:
     name: Client
-    module_path: allauth.idp.oidc.models
+    module_name: allauth.idp.oidc.models
     line: 35
     relations:
       - field_name: owner
@@ -17,7 +17,7 @@ models:
     kind: concrete
   allauth.idp.oidc.models.Token:
     name: Token
-    module_path: allauth.idp.oidc.models
+    module_name: allauth.idp.oidc.models
     line: 198
     relations:
       - field_name: client

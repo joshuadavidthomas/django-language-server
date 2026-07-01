@@ -5,7 +5,7 @@ expression: graph
 models:
   chat.models.ChatMessage:
     name: ChatMessage
-    module_path: chat.models
+    module_name: chat.models
     line: 12
     relations:
       - field_name: content_type

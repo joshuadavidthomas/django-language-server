@@ -5,7 +5,7 @@ expression: graph
 models:
   src.sentry.explore.models.ExploreSavedQueryProject:
     name: ExploreSavedQueryProject
-    module_path: src.sentry.explore.models
+    module_name: src.sentry.explore.models
     line: 38
     relations: []
     kind: concrete

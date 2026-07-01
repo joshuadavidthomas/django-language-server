@@ -18,11 +18,11 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus_models
 //! ```
 
-use djls_project::PythonModulePath;
+use djls_project::PythonModuleName;
 use djls_project::testing::extract_model_graph;
 use djls_testing::Corpus;
 use djls_testing::TestDatabase;
-use djls_testing::module_path_from_file;
+use djls_testing::module_name_from_file;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     let mut settings = insta::Settings::clone_current();
@@ -46,11 +46,11 @@ fn model_extraction_snapshots() {
         let source = std::fs::read_to_string(path.as_std_path()).unwrap();
         db.add_file(path.as_str(), &source);
         let file = db.get_or_create_file(&path);
-        let module_path = module_path_from_file(&path);
-        let Ok(module_path) = PythonModulePath::parse(&module_path) else {
+        let module_name = module_name_from_file(&path);
+        let Ok(module_name) = PythonModuleName::parse(&module_name) else {
             continue;
         };
-        let graph = extract_model_graph(&db, file, module_path);
+        let graph = extract_model_graph(&db, file, module_name);
 
         // Skip files that produce no models — they're likely just
         // re-exports or empty __init__-style modules

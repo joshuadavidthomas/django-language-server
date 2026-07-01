@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.contrib.simple_translation.models.SimpleTranslation:
     name: SimpleTranslation
-    module_path: wagtail.contrib.simple_translation.models
+    module_name: wagtail.contrib.simple_translation.models
     line: 9
     relations: []
     kind: concrete

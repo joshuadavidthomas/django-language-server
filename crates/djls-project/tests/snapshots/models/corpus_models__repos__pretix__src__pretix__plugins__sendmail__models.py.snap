@@ -5,7 +5,7 @@ expression: graph
 models:
   src.pretix.plugins.sendmail.models.Rule:
     name: Rule
-    module_path: src.pretix.plugins.sendmail.models
+    module_name: src.pretix.plugins.sendmail.models
     line: 220
     relations:
       - field_name: event
@@ -29,7 +29,7 @@ models:
     kind: concrete
   src.pretix.plugins.sendmail.models.ScheduledMail:
     name: ScheduledMail
-    module_path: src.pretix.plugins.sendmail.models
+    module_name: src.pretix.plugins.sendmail.models
     line: 43
     relations:
       - field_name: rule

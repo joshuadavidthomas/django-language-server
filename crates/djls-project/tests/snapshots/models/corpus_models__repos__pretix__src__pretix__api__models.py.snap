@@ -5,13 +5,13 @@ expression: graph
 models:
   src.pretix.api.models.ApiCall:
     name: ApiCall
-    module_path: src.pretix.api.models
+    module_name: src.pretix.api.models
     line: 168
     relations: []
     kind: concrete
   src.pretix.api.models.WebHook:
     name: WebHook
-    module_path: src.pretix.api.models
+    module_name: src.pretix.api.models
     line: 114
     relations:
       - field_name: organizer
@@ -31,7 +31,7 @@ models:
     kind: concrete
   src.pretix.api.models.WebHookCall:
     name: WebHookCall
-    module_path: src.pretix.api.models
+    module_name: src.pretix.api.models
     line: 140
     relations:
       - field_name: webhook
@@ -43,7 +43,7 @@ models:
     kind: concrete
   src.pretix.api.models.WebHookCallRetry:
     name: WebHookCallRetry
-    module_path: src.pretix.api.models
+    module_name: src.pretix.api.models
     line: 156
     relations:
       - field_name: webhook
@@ -62,7 +62,7 @@ models:
     kind: concrete
   src.pretix.api.models.WebHookEventListener:
     name: WebHookEventListener
-    module_path: src.pretix.api.models
+    module_name: src.pretix.api.models
     line: 132
     relations:
       - field_name: webhook

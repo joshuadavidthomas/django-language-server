@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.legal.models.Agreement:
     name: Agreement
-    module_path: misago.legal.models
+    module_name: misago.legal.models
     line: 38
     relations:
       - field_name: created_by
@@ -23,7 +23,7 @@ models:
     kind: concrete
   misago.legal.models.UserAgreement:
     name: UserAgreement
-    module_path: misago.legal.models
+    module_name: misago.legal.models
     line: 98
     relations:
       - field_name: user

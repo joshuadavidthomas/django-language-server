@@ -5,13 +5,13 @@ expression: graph
 models:
   src.nomnom.nominate.models.AdminMessage:
     name: AdminMessage
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 534
     relations: []
     kind: concrete
   src.nomnom.nominate.models.Category:
     name: Category
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 310
     relations:
       - field_name: election
@@ -23,13 +23,13 @@ models:
     kind: concrete
   src.nomnom.nominate.models.Election:
     name: Election
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 58
     relations: []
     kind: concrete
   src.nomnom.nominate.models.Finalist:
     name: Finalist
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 456
     relations:
       - field_name: category
@@ -41,7 +41,7 @@ models:
     kind: concrete
   src.nomnom.nominate.models.NominatingMemberProfile:
     name: NominatingMemberProfile
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 28
     relations:
       - field_name: user
@@ -53,7 +53,7 @@ models:
     kind: concrete
   src.nomnom.nominate.models.Nomination:
     name: Nomination
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 375
     relations:
       - field_name: nominator
@@ -71,7 +71,7 @@ models:
     kind: concrete
   src.nomnom.nominate.models.NominationAdminData:
     name: NominationAdminData
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 448
     relations:
       - field_name: nomination
@@ -83,7 +83,7 @@ models:
     kind: concrete
   src.nomnom.nominate.models.Rank:
     name: Rank
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 493
     relations:
       - field_name: membership
@@ -101,13 +101,13 @@ models:
     kind: concrete
   src.nomnom.nominate.models.ReportRecipient:
     name: ReportRecipient
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 524
     relations: []
     kind: concrete
   src.nomnom.nominate.models.VotingInformation:
     name: VotingInformation
-    module_path: src.nomnom.nominate.models
+    module_name: src.nomnom.nominate.models
     line: 302
     relations:
       - field_name: election

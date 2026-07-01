@@ -5,7 +5,7 @@ expression: graph
 models:
   src.backend.InvenTree.order.models.PurchaseOrder:
     name: PurchaseOrder
-    module_path: src.backend.InvenTree.order.models
+    module_name: src.backend.InvenTree.order.models
     line: 536
     relations:
       - field_name: supplier
@@ -23,7 +23,7 @@ models:
     kind: concrete
   src.backend.InvenTree.order.models.ReturnOrder:
     name: ReturnOrder
-    module_path: src.backend.InvenTree.order.models
+    module_name: src.backend.InvenTree.order.models
     line: 2633
     relations:
       - field_name: customer
@@ -35,7 +35,7 @@ models:
     kind: concrete
   src.backend.InvenTree.order.models.SalesOrder:
     name: SalesOrder
-    module_path: src.backend.InvenTree.order.models
+    module_name: src.backend.InvenTree.order.models
     line: 1242
     relations:
       - field_name: customer
@@ -53,7 +53,7 @@ models:
     kind: concrete
   src.backend.InvenTree.order.models.SalesOrderAllocation:
     name: SalesOrderAllocation
-    module_path: src.backend.InvenTree.order.models
+    module_name: src.backend.InvenTree.order.models
     line: 2483
     relations:
       - field_name: line
@@ -78,7 +78,7 @@ models:
     kind: concrete
   src.backend.InvenTree.order.models.TotalPriceMixin:
     name: TotalPriceMixin
-    module_path: src.backend.InvenTree.order.models
+    module_name: src.backend.InvenTree.order.models
     line: 65
     relations: []
     kind: abstract

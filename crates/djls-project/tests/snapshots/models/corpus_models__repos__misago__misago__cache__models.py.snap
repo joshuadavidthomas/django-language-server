@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.cache.models.CacheVersion:
     name: CacheVersion
-    module_path: misago.cache.models
+    module_name: misago.cache.models
     line: 6
     relations: []
     kind: concrete

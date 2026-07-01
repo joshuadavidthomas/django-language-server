@@ -15,9 +15,11 @@ pub use models::ModelId;
 pub use models::compute_model_graph;
 pub use project::Project;
 pub use python::Interpreter;
-pub use python::InvalidModulePath;
+pub use python::InvalidModuleName;
 pub use python::PythonModule;
-pub use python::PythonModulePath;
+pub use python::PythonModuleName;
+pub use python::SearchPath;
+pub use python::SearchPaths;
 pub use refresh::RefreshCountUnits;
 pub use refresh::RefreshData;
 pub use refresh::RefreshPart;
@@ -26,8 +28,6 @@ pub use refresh::RefreshTaskDescriptor;
 pub use refresh::RefreshTaskGroup;
 pub use refresh::apply_refresh;
 pub use refresh::refresh_tasks;
-pub use resolve::SearchPath;
-pub use resolve::SearchPaths;
 pub use resolve::model_modules;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
@@ -85,18 +85,18 @@ pub mod testing {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {
         Builtin {
-            module: super::PythonModulePath,
+            module: super::PythonModuleName,
             symbols: Vec<super::TemplateSymbol>,
         },
         Installed {
             load_name: super::LibraryName,
-            module: super::PythonModulePath,
+            module: super::PythonModuleName,
             symbols: Vec<super::TemplateSymbol>,
         },
         Available {
             load_name: super::LibraryName,
-            app: super::PythonModulePath,
-            module: super::PythonModulePath,
+            app: super::PythonModuleName,
+            module: super::PythonModuleName,
             symbols: Vec<super::TemplateSymbol>,
         },
     }
@@ -141,13 +141,13 @@ pub mod testing {
 
     fn testing_module(
         db: &dyn super::Db,
-        module_path: super::PythonModulePath,
+        module_name: super::PythonModuleName,
     ) -> super::PythonModule {
         let path = Utf8PathBuf::from(format!(
             "/__djls_testing__/{}.py",
-            module_path.as_str().replace('.', "/")
+            module_name.as_str().replace('.', "/")
         ));
         let file = db.get_or_create_file(&path);
-        super::PythonModule::new(module_path, path, file)
+        super::PythonModule::new(module_name, path, file)
     }
 }

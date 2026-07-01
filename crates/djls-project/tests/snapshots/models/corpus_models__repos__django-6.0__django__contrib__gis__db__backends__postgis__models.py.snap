@@ -5,13 +5,13 @@ expression: graph
 models:
   django.contrib.gis.db.backends.postgis.models.PostGISGeometryColumns:
     name: PostGISGeometryColumns
-    module_path: django.contrib.gis.db.backends.postgis.models
+    module_name: django.contrib.gis.db.backends.postgis.models
     line: 9
     relations: []
     kind: concrete
   django.contrib.gis.db.backends.postgis.models.PostGISSpatialRefSys:
     name: PostGISSpatialRefSys
-    module_path: django.contrib.gis.db.backends.postgis.models
+    module_name: django.contrib.gis.db.backends.postgis.models
     line: 54
     relations: []
     kind: concrete

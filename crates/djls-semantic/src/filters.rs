@@ -64,7 +64,7 @@ pub fn compute_filter_arity_specs(db: &dyn Db, project: Project) -> FilterArityS
 
     for library in template_libraries(db, project).active_libraries() {
         let filter_arities =
-            extract_filter_arities(db, library.file(), library.module_path().clone());
+            extract_filter_arities(db, library.file(), library.module_name().clone());
         if !filter_arities.is_empty() {
             specs.merge_filter_arities(filter_arities);
         }

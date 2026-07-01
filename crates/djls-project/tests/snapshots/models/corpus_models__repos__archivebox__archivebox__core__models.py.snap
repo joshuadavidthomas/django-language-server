@@ -5,7 +5,7 @@ expression: graph
 models:
   archivebox.core.models.SnapshotTag:
     name: SnapshotTag
-    module_path: archivebox.core.models
+    module_name: archivebox.core.models
     line: 132
     relations:
       - field_name: snapshot

@@ -5,7 +5,7 @@ expression: graph
 models:
   hc.accounts.models.Credential:
     name: Credential
-    module_path: hc.accounts.models
+    module_name: hc.accounts.models
     line: 602
     relations:
       - field_name: user
@@ -17,7 +17,7 @@ models:
     kind: concrete
   hc.accounts.models.Member:
     name: Member
-    module_path: hc.accounts.models
+    module_name: hc.accounts.models
     line: 576
     relations:
       - field_name: user
@@ -35,7 +35,7 @@ models:
     kind: concrete
   hc.accounts.models.Profile:
     name: Profile
-    module_path: hc.accounts.models
+    module_name: hc.accounts.models
     line: 75
     relations:
       - field_name: user
@@ -47,7 +47,7 @@ models:
     kind: concrete
   hc.accounts.models.Project:
     name: Project
-    module_path: hc.accounts.models
+    module_name: hc.accounts.models
     line: 427
     relations:
       - field_name: owner

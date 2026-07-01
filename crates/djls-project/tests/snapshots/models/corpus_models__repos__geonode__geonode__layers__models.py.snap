@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.layers.models.Attribute:
     name: Attribute
-    module_path: geonode.layers.models
+    module_name: geonode.layers.models
     line: 448
     relations:
       - field_name: dataset
@@ -17,7 +17,7 @@ models:
     kind: concrete
   geonode.layers.models.Style:
     name: Style
-    module_path: geonode.layers.models
+    module_name: geonode.layers.models
     line: 63
     relations: []
     kind: concrete

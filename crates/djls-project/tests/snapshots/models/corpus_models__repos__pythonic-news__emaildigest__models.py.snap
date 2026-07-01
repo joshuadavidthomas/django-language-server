@@ -5,7 +5,7 @@ expression: graph
 models:
   emaildigest.models.AnonymousSubscription:
     name: AnonymousSubscription
-    module_path: emaildigest.models
+    module_name: emaildigest.models
     line: 39
     relations:
       - field_name: logged_in_user
@@ -18,7 +18,7 @@ models:
     kind: concrete
   emaildigest.models.EmailDigest:
     name: EmailDigest
-    module_path: emaildigest.models
+    module_name: emaildigest.models
     line: 4
     relations:
       - field_name: stories
@@ -31,13 +31,13 @@ models:
     kind: concrete
   emaildigest.models.Subscription:
     name: Subscription
-    module_path: emaildigest.models
+    module_name: emaildigest.models
     line: 19
     relations: []
     kind: concrete
   emaildigest.models.UnSubscription:
     name: UnSubscription
-    module_path: emaildigest.models
+    module_name: emaildigest.models
     line: 47
     relations:
       - field_name: subscription
@@ -55,7 +55,7 @@ models:
     kind: concrete
   emaildigest.models.UserSubscription:
     name: UserSubscription
-    module_path: emaildigest.models
+    module_name: emaildigest.models
     line: 35
     relations:
       - field_name: user

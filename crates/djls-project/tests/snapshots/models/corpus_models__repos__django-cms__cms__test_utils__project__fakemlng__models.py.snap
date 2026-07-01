@@ -5,13 +5,13 @@ expression: graph
 models:
   cms.test_utils.project.fakemlng.models.MainModel:
     name: MainModel
-    module_path: cms.test_utils.project.fakemlng.models
+    module_name: cms.test_utils.project.fakemlng.models
     line: 6
     relations: []
     kind: concrete
   cms.test_utils.project.fakemlng.models.Translations:
     name: Translations
-    module_path: cms.test_utils.project.fakemlng.models
+    module_name: cms.test_utils.project.fakemlng.models
     line: 10
     relations:
       - field_name: master

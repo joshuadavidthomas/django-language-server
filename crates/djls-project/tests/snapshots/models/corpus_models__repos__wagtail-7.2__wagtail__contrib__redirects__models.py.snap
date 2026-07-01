@@ -5,7 +5,7 @@ expression: graph
 models:
   wagtail.contrib.redirects.models.Redirect:
     name: Redirect
-    module_path: wagtail.contrib.redirects.models
+    module_name: wagtail.contrib.redirects.models
     line: 11
     relations:
       - field_name: site

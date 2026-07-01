@@ -5,19 +5,19 @@ expression: graph
 models:
   netbox.wireless.models.WirelessAuthenticationBase:
     name: WirelessAuthenticationBase
-    module_path: netbox.wireless.models
+    module_name: netbox.wireless.models
     line: 20
     relations: []
     kind: abstract
   netbox.wireless.models.WirelessLAN:
     name: WirelessLAN
-    module_path: netbox.wireless.models
+    module_name: netbox.wireless.models
     line: 79
     relations: []
     kind: concrete
   netbox.wireless.models.WirelessLink:
     name: WirelessLink
-    module_path: netbox.wireless.models
+    module_name: netbox.wireless.models
     line: 132
     relations: []
     kind: concrete

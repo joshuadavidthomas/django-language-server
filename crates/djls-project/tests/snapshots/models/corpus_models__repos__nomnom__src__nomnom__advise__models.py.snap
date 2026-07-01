@@ -5,13 +5,13 @@ expression: graph
 models:
   src.nomnom.advise.models.Proposal:
     name: Proposal
-    module_path: src.nomnom.advise.models
+    module_name: src.nomnom.advise.models
     line: 32
     relations: []
     kind: concrete
   src.nomnom.advise.models.Vote:
     name: Vote
-    module_path: src.nomnom.advise.models
+    module_name: src.nomnom.advise.models
     line: 128
     relations:
       - field_name: membership

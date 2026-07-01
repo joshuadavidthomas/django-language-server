@@ -9,7 +9,7 @@ use salsa::Setter;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::resolve::SearchPaths;
+use crate::python::SearchPaths;
 use crate::resolve::model_modules;
 use crate::settings::DjangoSettingsSources;
 use crate::settings::settings_sources;

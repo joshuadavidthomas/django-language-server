@@ -5,13 +5,13 @@ expression: graph
 models:
   wagtail.contrib.search_promotions.models.Query:
     name: Query
-    module_path: wagtail.contrib.search_promotions.models
+    module_name: wagtail.contrib.search_promotions.models
     line: 11
     relations: []
     kind: concrete
   wagtail.contrib.search_promotions.models.QueryDailyHits:
     name: QueryDailyHits
-    module_path: wagtail.contrib.search_promotions.models
+    module_name: wagtail.contrib.search_promotions.models
     line: 71
     relations:
       - field_name: query
@@ -23,7 +23,7 @@ models:
     kind: concrete
   wagtail.contrib.search_promotions.models.SearchPromotion:
     name: SearchPromotion
-    module_path: wagtail.contrib.search_promotions.models
+    module_name: wagtail.contrib.search_promotions.models
     line: 96
     relations:
       - field_name: query

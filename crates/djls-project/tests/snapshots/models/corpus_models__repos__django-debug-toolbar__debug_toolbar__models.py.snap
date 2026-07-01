@@ -5,7 +5,7 @@ expression: graph
 models:
   debug_toolbar.models.HistoryEntry:
     name: HistoryEntry
-    module_path: debug_toolbar.models
+    module_name: debug_toolbar.models
     line: 5
     relations: []
     kind: concrete

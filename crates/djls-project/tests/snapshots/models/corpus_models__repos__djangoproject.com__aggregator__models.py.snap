@@ -5,7 +5,7 @@ expression: graph
 models:
   aggregator.models.Feed:
     name: Feed
-    module_path: aggregator.models
+    module_name: aggregator.models
     line: 44
     relations:
       - field_name: feed_type
@@ -23,7 +23,7 @@ models:
     kind: concrete
   aggregator.models.FeedItem:
     name: FeedItem
-    module_path: aggregator.models
+    module_name: aggregator.models
     line: 123
     relations:
       - field_name: feed
@@ -35,13 +35,13 @@ models:
     kind: concrete
   aggregator.models.FeedType:
     name: FeedType
-    module_path: aggregator.models
+    module_name: aggregator.models
     line: 17
     relations: []
     kind: concrete
   aggregator.models.LocalDjangoCommunity:
     name: LocalDjangoCommunity
-    module_path: aggregator.models
+    module_name: aggregator.models
     line: 214
     relations: []
     kind: concrete

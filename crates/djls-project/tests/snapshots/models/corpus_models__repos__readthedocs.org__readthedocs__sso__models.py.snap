@@ -5,13 +5,13 @@ expression: graph
 models:
   readthedocs.sso.models.SSODomain:
     name: SSODomain
-    module_path: readthedocs.sso.models
+    module_name: readthedocs.sso.models
     line: 68
     relations: []
     kind: concrete
   readthedocs.sso.models.SSOIntegration:
     name: SSOIntegration
-    module_path: readthedocs.sso.models
+    module_name: readthedocs.sso.models
     line: 10
     relations:
       - field_name: organization

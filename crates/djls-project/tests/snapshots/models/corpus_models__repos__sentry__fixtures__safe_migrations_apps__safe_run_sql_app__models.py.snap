@@ -5,7 +5,7 @@ expression: graph
 models:
   fixtures.safe_migrations_apps.safe_run_sql_app.models.TestTable:
     name: TestTable
-    module_path: fixtures.safe_migrations_apps.safe_run_sql_app.models
+    module_name: fixtures.safe_migrations_apps.safe_run_sql_app.models
     line: 6
     relations: []
     kind: concrete

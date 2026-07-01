@@ -5,7 +5,7 @@ expression: graph
 models:
   misago.menus.models.MenuItem:
     name: MenuItem
-    module_path: misago.menus.models
+    module_name: misago.menus.models
     line: 5
     relations: []
     kind: concrete

@@ -5,7 +5,7 @@ expression: graph
 models:
   src.nomnom.hugopacket.models.ElectionPacket:
     name: ElectionPacket
-    module_path: src.nomnom.hugopacket.models
+    module_name: src.nomnom.hugopacket.models
     line: 9
     relations:
       - field_name: election
@@ -18,7 +18,7 @@ models:
     kind: concrete
   src.nomnom.hugopacket.models.PacketFile:
     name: PacketFile
-    module_path: src.nomnom.hugopacket.models
+    module_name: src.nomnom.hugopacket.models
     line: 51
     relations:
       - field_name: packet
@@ -36,7 +36,7 @@ models:
     kind: concrete
   src.nomnom.hugopacket.models.PacketFileGroup:
     name: PacketFileGroup
-    module_path: src.nomnom.hugopacket.models
+    module_name: src.nomnom.hugopacket.models
     line: 36
     relations: []
     kind: concrete

@@ -5,13 +5,13 @@ expression: graph
 models:
   example.app.models.Continent:
     name: Continent
-    module_path: example.app.models
+    module_name: example.app.models
     line: 6
     relations: []
     kind: concrete
   example.app.models.Country:
     name: Country
-    module_path: example.app.models
+    module_name: example.app.models
     line: 13
     relations:
       - field_name: continent
@@ -23,7 +23,7 @@ models:
     kind: concrete
   example.app.models.Person:
     name: Person
-    module_path: example.app.models
+    module_name: example.app.models
     line: 39
     relations:
       - field_name: country

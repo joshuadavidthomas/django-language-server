@@ -5,7 +5,7 @@ expression: graph
 models:
   geonode.maps.models.MapLayer:
     name: MapLayer
-    module_path: geonode.maps.models
+    module_name: geonode.maps.models
     line: 200
     relations:
       - field_name: map
