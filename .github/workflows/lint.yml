@@ -27,7 +27,7 @@ jobs:
       - run: true
 
   pre-commit:
-    needs: [should-run]
+    needs: should-run
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -71,28 +71,8 @@ jobs:
           SKIP=no-commit-to-branch,cargo-fmt,cargo-clippy \
           uv run --no-project --with "nox[uv]" nox --session lint
 
-  rust-changes:
-    needs: [should-run]
-    runs-on: ubuntu-latest
-    outputs:
-      rust: ${{ steps.filter.outputs.rust }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
-        id: filter
-        with:
-          filters: |
-            rust:
-              - '.github/workflows/lint.yml'
-              - 'crates/**'
-              - 'Cargo.lock'
-              - 'Cargo.toml'
-
   ast-grep-tests:
-    needs: [should-run]
+    needs: should-run
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -115,6 +95,26 @@ jobs:
 
       - name: Run ast-grep rule tests
         run: sg test --config tools/ast-grep/sgconfig.yml --skip-snapshot-tests --color=never
+
+  rust-changes:
+    needs: should-run
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            rust:
+              - '.github/workflows/lint.yml'
+              - 'crates/**'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
 
   rustfmt:
     runs-on: ubuntu-24.04
