@@ -15,7 +15,9 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
-use crate::settings::paths::evaluate_path_expr;
+use crate::python::PythonModuleName;
+use crate::python::PythonPathContext;
+use crate::python::evaluate_python_path_expr;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
@@ -42,6 +44,21 @@ pub(crate) fn extract_settings(
     extraction
         .extract_module(source, module_path, resolver)
         .into_settings()
+}
+
+fn evaluate_template_dir_path(
+    expr: &ast::Expr,
+    module_path: &Utf8Path,
+    locals: &LocalBindings,
+) -> TemplateDirPath {
+    evaluate_python_path_expr(
+        expr,
+        PythonPathContext {
+            file_path: module_path,
+            bindings: locals.path_bindings(),
+        },
+    )
+    .map_or(TemplateDirPath::Unknown, TemplateDirPath::Resolved)
 }
 
 #[derive(Debug, Default)]
@@ -441,7 +458,7 @@ impl SettingsBindingsCollector<'_> {
             None => self.bindings.locals.remove_bool(name),
         }
 
-        match evaluate_path_expr(value, self.module_path, &self.bindings.locals) {
+        match evaluate_template_dir_path(value, self.module_path, &self.bindings.locals) {
             TemplateDirPath::Resolved(path) => self.bindings.locals.set_path(name, path),
             TemplateDirPath::Unknown => self.bindings.locals.remove_path(name),
         }
@@ -642,7 +659,7 @@ impl SettingsBindingsCollector<'_> {
             return;
         };
         for element in &list.elts {
-            let path = evaluate_path_expr(element, self.module_path, &self.bindings.locals);
+            let path = evaluate_template_dir_path(element, self.module_path, &self.bindings.locals);
             if path == TemplateDirPath::Unknown {
                 backend.make_partial(Reason::UnsupportedPathExpression);
             }
@@ -667,14 +684,14 @@ impl SettingsBindingsCollector<'_> {
             };
             match key {
                 "libraries" => {
-                    let (libraries, reasons) = extract_string_pair_dict(&item.value);
+                    let (libraries, reasons) = extract_template_library_dict(&item.value);
                     backend.libraries.extend(libraries);
                     for reason in reasons {
                         backend.make_partial(reason);
                     }
                 }
                 "builtins" => {
-                    let (builtins, reasons) = extract_string_list_literal(&item.value);
+                    let (builtins, reasons) = extract_python_module_name_list(&item.value);
                     backend.builtins.extend(builtins);
                     for reason in reasons {
                         backend.make_partial(reason);
@@ -698,7 +715,7 @@ impl SettingsBindingsCollector<'_> {
     }
 
     fn append_template_dir(&mut self, index: usize, value: &ast::Expr) {
-        let path = evaluate_path_expr(value, self.module_path, &self.bindings.locals);
+        let path = evaluate_template_dir_path(value, self.module_path, &self.bindings.locals);
         let path_is_unknown = path == TemplateDirPath::Unknown;
 
         let Some(templates) = self.bindings.templates.as_mut() else {
@@ -991,7 +1008,9 @@ fn collect_name_write(name: &str, writes: &mut TouchedNames) {
     }
 }
 
-fn extract_string_pair_dict(value: &ast::Expr) -> (Vec<(String, String)>, Vec<Reason>) {
+fn extract_template_library_dict(
+    value: &ast::Expr,
+) -> (Vec<(String, PythonModuleName)>, Vec<Reason>) {
     let ast::Expr::Dict(dict) = value else {
         return (Vec::new(), vec![Reason::UnsupportedValue]);
     };
@@ -1003,18 +1022,34 @@ fn extract_string_pair_dict(value: &ast::Expr) -> (Vec<(String, String)>, Vec<Re
             item.key.as_ref().and_then(ExprExt::string_literal),
             item.value.string_literal(),
         ) {
-            (Some(key), Some(value)) => values.push((key.to_string(), value.to_string())),
+            (Some(key), Some(value)) => match PythonModuleName::parse(value) {
+                Ok(module_name) => values.push((key.to_string(), module_name)),
+                Err(_) => reasons.push(Reason::InvalidModuleName),
+            },
             _ => reasons.push(Reason::UnsupportedValue),
         }
     }
     (values, reasons)
 }
 
-fn extract_string_list_literal(value: &ast::Expr) -> (Vec<String>, Vec<Reason>) {
+fn extract_python_module_name_list(value: &ast::Expr) -> (Vec<PythonModuleName>, Vec<Reason>) {
     let ast::Expr::List(list) = value else {
         return (Vec::new(), vec![Reason::UnsupportedValue]);
     };
-    extract_string_elements(&list.elts)
+
+    let mut values = Vec::new();
+    let mut reasons = Vec::new();
+    for element in &list.elts {
+        let Some(value) = element.string_literal() else {
+            reasons.push(Reason::NonLiteralElement);
+            continue;
+        };
+        match PythonModuleName::parse(value) {
+            Ok(module_name) => values.push(module_name),
+            Err(_) => reasons.push(Reason::InvalidModuleName),
+        }
+    }
+    (values, reasons)
 }
 
 fn extract_string_elements(elements: &[ast::Expr]) -> (Vec<String>, Vec<Reason>) {
@@ -1318,6 +1353,46 @@ mod tests {
     }
 
     #[test]
+    fn star_imported_bool_overwrites_stale_local_path_binding() {
+        let mut resolver = MapResolver::default().with_module("flags", "BASE_DIR = False");
+        let settings = extract_settings(
+            "from pathlib import Path\n\
+             BASE_DIR = Path(__file__).resolve().parent.parent\n\
+             from flags import *\n\
+             TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Partial);
+        assert_eq!(
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Unknown]
+        );
+    }
+
+    #[test]
+    fn star_imported_path_overwrites_stale_local_bool_binding() {
+        let mut resolver = MapResolver::default()
+            .with_module("paths", "BASE_DIR = Path(__file__).resolve().parent.parent");
+        let settings = extract_settings(
+            "BASE_DIR = False\n\
+             from paths import *\n\
+             TEMPLATES = [{'DIRS': [BASE_DIR / 'templates']}]",
+            Utf8Path::new("/project/config/settings.py"),
+            &mut resolver,
+        );
+
+        assert_eq!(settings.templates.knowledge, StaticKnowledge::Known);
+        assert_eq!(
+            settings.templates.backends[0].dirs,
+            [TemplateDirPath::Resolved(Utf8PathBuf::from(
+                "/project/templates"
+            ))]
+        );
+    }
+
+    #[test]
     fn cyclic_star_import_does_not_recurse_forever() {
         let mut resolver = MapResolver::default()
             .with_module("cycle", "from cycle import *\nINSTALLED_APPS = ['local']");
@@ -1362,9 +1437,15 @@ mod tests {
         assert_eq!(backend.app_dirs, Some(true));
         assert_eq!(
             backend.libraries,
-            [("custom".to_string(), "app.templatetags.custom".to_string())]
+            [(
+                "custom".to_string(),
+                PythonModuleName::parse("app.templatetags.custom").unwrap()
+            )]
         );
-        assert_eq!(backend.builtins, ["django.templatetags.static"]);
+        assert_eq!(
+            backend.builtins,
+            [PythonModuleName::parse("django.templatetags.static").unwrap()]
+        );
         assert_eq!(
             backend.dirs,
             [TemplateDirPath::Resolved(Utf8PathBuf::from(

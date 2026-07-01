@@ -4,6 +4,9 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
 
+use crate::python::PythonModuleName;
+use crate::python::PythonPathBindings;
+
 const DJANGO_TEMPLATES_BACKEND: &str = "django.template.backends.django.DjangoTemplates";
 
 /// How much to trust an extracted value.
@@ -43,6 +46,7 @@ pub(crate) enum Reason {
     NonLiteralElement,
     NonLiteralKey,
     UnsupportedValue,
+    InvalidModuleName,
     DictUnpack,
     AmbiguousCondition,
     UnsupportedPathExpression,
@@ -58,6 +62,7 @@ impl fmt::Display for Reason {
             Self::NonLiteralElement => "element is not a literal",
             Self::NonLiteralKey => "dictionary key is not a literal",
             Self::UnsupportedValue => "value is not statically supported",
+            Self::InvalidModuleName => "value is not a valid Python module name",
             Self::DictUnpack => "dictionary unpack is not statically supported",
             Self::AmbiguousCondition => "condition is not statically decidable",
             Self::UnsupportedPathExpression => "path expression is not statically supported",
@@ -156,8 +161,8 @@ pub(crate) struct TemplateBackend {
     pub(crate) backend: Option<String>,
     pub(crate) dirs: Vec<TemplateDirPath>,
     pub(crate) app_dirs: Option<bool>,
-    pub(crate) libraries: Vec<(String, String)>,
-    pub(crate) builtins: Vec<String>,
+    pub(crate) libraries: Vec<(String, PythonModuleName)>,
+    pub(crate) builtins: Vec<PythonModuleName>,
     pub(crate) knowledge: StaticKnowledge,
     reasons: Vec<Reason>,
 }
@@ -234,51 +239,48 @@ pub(crate) trait SettingsSourceResolver {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct LocalBindings {
-    values: FxHashMap<String, LocalValue>,
+    bools: FxHashMap<String, bool>,
+    paths: PythonPathBindings,
 }
 
 impl LocalBindings {
     pub(crate) fn extend(&mut self, other: Self) {
-        self.values.extend(other.values);
+        for name in other.bools.keys() {
+            self.paths.remove(name.as_str());
+        }
+        for name in other.paths.names() {
+            self.bools.remove(name);
+        }
+
+        self.bools.extend(other.bools);
+        self.paths.extend(other.paths);
     }
 
     pub(crate) fn set_bool(&mut self, name: impl Into<String>, value: bool) {
-        self.values.insert(name.into(), LocalValue::Bool(value));
+        let name = name.into();
+        self.paths.remove(&name);
+        self.bools.insert(name, value);
     }
 
     pub(crate) fn remove_bool(&mut self, name: &str) {
-        if matches!(self.values.get(name), Some(LocalValue::Bool(_))) {
-            self.values.remove(name);
-        }
+        self.bools.remove(name);
     }
 
     pub(crate) fn bool_value(&self, name: &str) -> Option<bool> {
-        match self.values.get(name) {
-            Some(LocalValue::Bool(value)) => Some(*value),
-            Some(LocalValue::Path(_)) | None => None,
-        }
+        self.bools.get(name).copied()
     }
 
     pub(crate) fn set_path(&mut self, name: impl Into<String>, value: Utf8PathBuf) {
-        self.values.insert(name.into(), LocalValue::Path(value));
+        let name = name.into();
+        self.bools.remove(&name);
+        self.paths.set(name, value);
     }
 
     pub(crate) fn remove_path(&mut self, name: &str) {
-        if matches!(self.values.get(name), Some(LocalValue::Path(_))) {
-            self.values.remove(name);
-        }
+        self.paths.remove(name);
     }
 
-    pub(crate) fn path_value(&self, name: &str) -> Option<&Utf8PathBuf> {
-        match self.values.get(name) {
-            Some(LocalValue::Path(path)) => Some(path),
-            Some(LocalValue::Bool(_)) | None => None,
-        }
+    pub(crate) fn path_bindings(&self) -> &PythonPathBindings {
+        &self.paths
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LocalValue {
-    Bool(bool),
-    Path(Utf8PathBuf),
 }

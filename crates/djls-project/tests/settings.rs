@@ -218,7 +218,7 @@ fn project_refresh_includes_deduped_unreadable_settings_source() {
         root,
         search_paths,
         interpreter,
-        Some("myproject.settings".to_string()),
+        Some(PythonModuleName::parse("myproject.settings").unwrap()),
         pythonpath,
         Vec::new(),
         tag_specs,

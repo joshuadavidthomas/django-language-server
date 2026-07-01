@@ -15,8 +15,8 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::parse::parse_python_module;
 use crate::python::PythonModuleName;
+use crate::python::parse_python_module;
 use crate::templates::for_each_registration;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;

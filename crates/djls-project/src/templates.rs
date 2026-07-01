@@ -53,12 +53,16 @@ pub use tags::TagRuleMap;
 pub use tags::extract_block_specs;
 pub use tags::extract_tag_rules;
 
-fn guess_package_module_from_installed_app_entry(entry: &str) -> &str {
-    if let Some((module, _)) = entry.split_once(".apps.") {
+use crate::python::PythonModuleName;
+
+fn guess_package_module_name_from_installed_app_entry(entry: &str) -> Option<PythonModuleName> {
+    let module = if let Some((module, _)) = entry.split_once(".apps.") {
         module
     } else if entry.ends_with("Config") {
         entry.rsplit_once('.').map_or(entry, |(module, _)| module)
     } else {
         entry
-    }
+    };
+
+    PythonModuleName::parse(module).ok()
 }
