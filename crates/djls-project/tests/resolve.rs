@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
-use djls_project::testing::compute_refresh;
+use djls_project::testing::compute_django_discovery;
 use djls_project::testing::model_modules;
 use djls_project::*;
 use djls_source::Db as _;
@@ -75,10 +75,10 @@ fn project_with_template_settings(
         .build(db)
 }
 
-fn apply_project_refresh(db: &mut TestDatabase) {
+fn apply_project_discovery(db: &mut TestDatabase) {
     let project = db.project().expect("project should be configured");
-    let refresh = compute_refresh(db, project);
-    apply_refresh(db, refresh);
+    let discovery = compute_django_discovery(db, project);
+    apply_django_discovery(db, discovery);
 }
 
 fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> String {
@@ -484,7 +484,7 @@ def duplicate(value, arg):
 }
 
 #[test]
-fn project_model_graph_refresh_reads_changed_project_file() {
+fn project_model_graph_reads_changed_project_file_after_django_discovery() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/blog/models.py",
@@ -509,7 +509,7 @@ fn project_model_graph_refresh_reads_changed_project_file() {
         "/project/blog/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_none());
@@ -517,7 +517,7 @@ fn project_model_graph_refresh_reads_changed_project_file() {
 }
 
 #[test]
-fn project_model_discovery_refreshes_through_project_refresh() {
+fn project_model_discovery_updates_through_django_discovery() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/blog/models.py",
@@ -542,7 +542,7 @@ fn project_model_discovery_refreshes_through_project_refresh() {
         "/project/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_some());
@@ -550,7 +550,7 @@ fn project_model_discovery_refreshes_through_project_refresh() {
 }
 
 #[test]
-fn external_model_graph_refresh_reads_changed_site_packages_file() {
+fn external_model_graph_reads_changed_site_packages_file_after_django_discovery() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
@@ -575,7 +575,7 @@ fn external_model_graph_refresh_reads_changed_site_packages_file() {
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_none());
@@ -610,7 +610,7 @@ fn external_model_graph_preserves_pythonpath_precedence() {
 }
 
 #[test]
-fn external_model_discovery_refreshes_through_project_refresh() {
+fn external_model_discovery_updates_through_django_discovery() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
@@ -635,7 +635,7 @@ fn external_model_discovery_refreshes_through_project_refresh() {
         "/project/.venv/lib/python3.12/site-packages/comments/models.py",
         "from django.db import models\nclass Comment(models.Model):\n    pass\n",
     );
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_some());
@@ -643,7 +643,7 @@ fn external_model_discovery_refreshes_through_project_refresh() {
 }
 
 #[test]
-fn external_model_discovery_removes_deleted_models_through_project_refresh() {
+fn external_model_discovery_removes_deleted_models_through_django_discovery() {
     let mut db = TestDatabase::new();
     db.add_file(
         "/project/.venv/lib/python3.12/site-packages/blog/models.py",
@@ -669,7 +669,7 @@ fn external_model_discovery_removes_deleted_models_through_project_refresh() {
     assert!(graph.get("Comment").is_some());
 
     db.remove_file("/project/.venv/lib/python3.12/site-packages/comments/models.py");
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     let graph = compute_model_graph(&db, project);
     assert!(graph.get("Article").is_some());
@@ -699,7 +699,7 @@ fn external_model_graph_reads_extra_pythonpath_models() {
 }
 
 #[test]
-fn project_refresh_discovers_site_packages_created_after_bootstrap() {
+fn django_discovery_discovers_site_packages_created_after_bootstrap() {
     let mut db = TestDatabase::new();
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -727,7 +727,7 @@ fn project_refresh_discovers_site_packages_created_after_bootstrap() {
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
     );
 
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
@@ -737,7 +737,7 @@ fn project_refresh_discovers_site_packages_created_after_bootstrap() {
 }
 
 #[test]
-fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
+fn compute_and_apply_django_discovery_discovers_site_packages_created_after_bootstrap() {
     let mut db = TestDatabase::new();
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
@@ -757,7 +757,7 @@ fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
         "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
     );
 
-    apply_project_refresh(&mut db);
+    apply_project_discovery(&mut db);
 
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
@@ -767,7 +767,7 @@ fn compute_and_apply_refresh_discovers_site_packages_created_after_bootstrap() {
 }
 
 #[test]
-fn project_refresh_enumerates_new_empty_templatetag_candidate_before_root_bump() {
+fn django_discovery_enumerates_new_empty_templatetag_candidate_before_root_bump() {
     let mut db = TestDatabase::new();
     db.add_file("/project/blog/__init__.py", "");
     db.add_file("/project/blog/templatetags/__init__.py", "");
@@ -781,22 +781,14 @@ fn project_refresh_enumerates_new_empty_templatetag_candidate_before_root_bump()
     search_paths.register_roots(&db);
     let project = project_for_search_paths(&mut db, "/project", search_paths);
 
-    let candidates = refresh_tasks()
-        .iter()
-        .copied()
-        .find(|task| task.descriptor().message == "Discovering template tag candidates")
-        .expect("template tag candidate refresh task should exist")
-        .run(&db, project);
+    let candidates =
+        DiscoveryPhase::ProjectFacts(ProjectFactsPhase::TemplateTagCandidates).run(&db, project);
     assert_eq!(candidates.count(), 0);
 
     db.add_file("/project/blog/templatetags/future.py", "");
 
-    let candidates = refresh_tasks()
-        .iter()
-        .copied()
-        .find(|task| task.descriptor().message == "Discovering template tag candidates")
-        .expect("template tag candidate refresh task should exist")
-        .run(&db, project);
+    let candidates =
+        DiscoveryPhase::ProjectFacts(ProjectFactsPhase::TemplateTagCandidates).run(&db, project);
     assert_eq!(candidates.count(), 1);
 }
 

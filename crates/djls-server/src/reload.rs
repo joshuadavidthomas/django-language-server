@@ -11,18 +11,16 @@ use std::sync::Arc;
 
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
+use djls_ide::WarmCachePart;
+use djls_ide::WarmCachePhase;
+use djls_ide::warm_cache_phases;
 use djls_project::Db as ProjectDb;
+use djls_project::DiscoveryPhase;
+use djls_project::DjangoDiscoveryData;
+use djls_project::DjangoDiscoveryPart;
 use djls_project::Project;
-use djls_project::RefreshCountUnits;
-use djls_project::RefreshData;
-use djls_project::RefreshPart;
-use djls_project::RefreshTask;
-use djls_project::RefreshTaskDescriptor;
-use djls_project::RefreshTaskGroup;
-use djls_project::apply_refresh;
-use djls_project::refresh_tasks;
-use djls_project::template_resolution;
-use djls_semantic::Db as SemanticDb;
+use djls_project::apply_django_discovery;
+use djls_project::django_discovery_phases;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -105,28 +103,39 @@ impl ProgressEnd {
     }
 }
 
-const DISCOVERED_FILES_UNITS: RefreshCountUnits = RefreshCountUnits {
-    singular: "discovered file",
-    plural: "discovered files",
-};
-
-struct RefreshJobCount {
-    group: RefreshTaskGroup,
-    units: RefreshCountUnits,
-    count: usize,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CountLabel {
+    singular: &'static str,
+    plural: &'static str,
 }
 
-fn refresh_task_progress_total(group: RefreshTaskGroup) -> usize {
-    refresh_tasks()
-        .iter()
-        .filter(|task| task.descriptor().group == group)
-        .count()
+impl From<djls_project::CountLabel> for CountLabel {
+    fn from(label: djls_project::CountLabel) -> Self {
+        Self {
+            singular: label.singular,
+            plural: label.plural,
+        }
+    }
+}
+
+impl From<djls_ide::CountLabel> for CountLabel {
+    fn from(label: djls_ide::CountLabel) -> Self {
+        Self {
+            singular: label.singular,
+            plural: label.plural,
+        }
+    }
+}
+
+struct DiscoveryJobCount {
+    phase: DiscoveryPhase,
+    label: CountLabel,
+    count: usize,
 }
 
 const RESOLVE_ENVIRONMENT_TITLE: &str = "Resolving Django environment";
 const DISCOVER_PROJECT_FACTS_TITLE: &str = "Discovering Django project facts";
 const WARM_CACHES_TITLE: &str = "Warming Django caches";
-const PUBLISH_DIAGNOSTICS_TITLE: &str = "Publishing diagnostics";
 
 async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_info: ClientInfo) {
     let start = std::time::Instant::now();
@@ -145,7 +154,7 @@ async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_inf
     }
 
     let mut facts_progress = None;
-    let Some(refresh) = compute_project_refresh(
+    let Some(discovery) = compute_project_discovery(
         &session,
         &progress,
         &mut environment_progress,
@@ -163,47 +172,23 @@ async fn reload_project(session: Arc<Mutex<Session>>, client: Client, client_inf
         progress.report("Applying project facts").await;
     }
 
-    let Some((snapshot, documents)) = apply_project_facts(&session, refresh).await else {
+    let Some((snapshot, documents)) = apply_project_facts(&session, discovery).await else {
         finish_progress(&mut facts_progress, ProgressEnd::Skipped).await;
         return;
     };
     finish_progress(&mut facts_progress, ProgressEnd::Complete).await;
 
     warm_snapshot_queries(&progress, snapshot.clone()).await;
-    publish_refresh_diagnostics(&progress, client, snapshot, documents).await;
+    republish_snapshot_diagnostics(client, snapshot, documents).await;
 
-    tracing::info!("Project refresh completed in {:?}", start.elapsed());
+    tracing::info!("Project reload completed in {:?}", start.elapsed());
 }
 
 async fn warm_snapshot_queries(progress: &ProgressReporter, snapshot: SessionSnapshot) {
     let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
-    let warm_outcome = warm_project_queries(snapshot, &warm_progress).await;
+    let warm_outcome = warm_cache_queries(snapshot, &warm_progress).await;
     warm_progress
         .finish(warm_outcome.progress_end().as_str())
-        .await;
-}
-
-async fn publish_refresh_diagnostics(
-    progress: &ProgressReporter,
-    client: Client,
-    snapshot: SessionSnapshot,
-    documents: Vec<TextDocument>,
-) {
-    let diagnostics_progress = progress.begin(PUBLISH_DIAGNOSTICS_TITLE).await;
-    diagnostics_progress.report("Publishing diagnostics").await;
-    diagnostics_progress
-        .report(&count_message(
-            documents.len(),
-            RefreshCountUnits {
-                singular: "diagnostics document",
-                plural: "diagnostics documents",
-            },
-        ))
-        .await;
-
-    republish_snapshot_diagnostics(client, snapshot, documents).await;
-    diagnostics_progress
-        .finish(ProgressEnd::Complete.as_str())
         .await;
 }
 
@@ -241,15 +226,15 @@ async fn apply_project_settings(session: &Arc<Mutex<Session>>, settings: Setting
 
 async fn apply_project_facts(
     session: &Arc<Mutex<Session>>,
-    refresh: RefreshData,
+    discovery: DjangoDiscoveryData,
 ) -> Option<(SessionSnapshot, Vec<TextDocument>)> {
     let mut session_lock = session.lock().await;
     let db = session_lock.db_mut();
     db.project()?;
 
     let t = std::time::Instant::now();
-    apply_refresh(db, refresh);
-    tracing::info!("External data refresh completed in {:?}", t.elapsed());
+    apply_django_discovery(db, discovery);
+    tracing::info!("Django Discovery apply completed in {:?}", t.elapsed());
 
     Some((session_lock.snapshot(), session_lock.open_documents()))
 }
@@ -283,27 +268,27 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> Option<Settings
     }
 }
 
-type RefreshJobResult = Result<RefreshPart, salsa::Cancelled>;
-type RefreshJobSet = JoinSet<RefreshJobResult>;
+type DiscoveryJobResult = Result<DjangoDiscoveryPart, salsa::Cancelled>;
+type DiscoveryJobSet = JoinSet<DiscoveryJobResult>;
 
-async fn compute_project_refresh(
+async fn compute_project_discovery(
     session: &Arc<Mutex<Session>>,
     progress: &ProgressReporter,
     environment_progress: &mut Option<ProgressItem>,
     facts_progress: &mut Option<ProgressItem>,
-) -> Option<RefreshData> {
+) -> Option<DjangoDiscoveryData> {
     // Cancellation here usually means a document edit, not a config change:
     // nothing bumps the epoch or resubmits, so dropping the compute would lose
-    // the refresh for good. Retry with a fresh database clone instead, like
-    // the snapshot reads do.
+    // the Django Discovery run. Retry with a fresh database clone instead,
+    // like the snapshot reads do.
     for attempt in 0..=SNAPSHOT_CANCEL_RETRIES {
-        let Some((compute_db, project)) = capture_refresh_db(session).await else {
+        let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(environment_progress, ProgressEnd::Skipped).await;
             finish_progress(facts_progress, ProgressEnd::Skipped).await;
             return None;
         };
 
-        let handles = spawn_refresh_jobs(
+        let handles = spawn_discovery_jobs(
             compute_db,
             project,
             progress,
@@ -311,12 +296,12 @@ async fn compute_project_refresh(
             facts_progress,
         )
         .await;
-        let result = collect_refresh_jobs(handles, environment_progress, facts_progress).await;
+        let result = collect_discovery_jobs(handles, environment_progress, facts_progress).await;
 
         match result {
-            Ok(refresh) => {
+            Ok(discovery) => {
                 finish_progress(environment_progress, ProgressEnd::Complete).await;
-                return Some(refresh);
+                return Some(discovery);
             }
             Err(cancelled) if attempt < SNAPSHOT_CANCEL_RETRIES => {
                 finish_progress(environment_progress, ProgressEnd::Retrying).await;
@@ -324,7 +309,7 @@ async fn compute_project_refresh(
                 tracing::debug!(
                     ?cancelled,
                     attempt = attempt + 1,
-                    "Project refresh compute cancelled; retrying with fresh database clone"
+                    "Django Discovery compute cancelled; retrying with fresh database clone"
                 );
             }
             Err(cancelled) => {
@@ -333,17 +318,17 @@ async fn compute_project_refresh(
                 tracing::warn!(
                     ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Project refresh compute cancelled repeatedly; project facts may be stale until the next refresh"
+                    "Django Discovery compute cancelled repeatedly; project facts may be stale until the next Django Discovery run"
                 );
                 return None;
             }
         }
     }
 
-    unreachable!("project refresh retry loop must return")
+    unreachable!("Django Discovery retry loop must return")
 }
 
-async fn capture_refresh_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoDatabase, Project)> {
+async fn capture_discovery_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoDatabase, Project)> {
     let session_lock = session.lock().await;
     let db = session_lock.db();
     let Some(project) = db.project() else {
@@ -354,44 +339,45 @@ async fn capture_refresh_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoData
     Some((db.clone(), project))
 }
 
-async fn spawn_refresh_jobs(
+async fn spawn_discovery_jobs(
     compute_db: DjangoDatabase,
     project: Project,
     reporter: &ProgressReporter,
     environment_progress: &mut Option<ProgressItem>,
     facts_progress: &mut Option<ProgressItem>,
-) -> RefreshJobSet {
+) -> DiscoveryJobSet {
     let mut jobs = JoinSet::new();
-    for task in refresh_tasks().iter().copied() {
+    for phase in django_discovery_phases() {
         let db = compute_db.clone();
         jobs.spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| task.run(&db, project)))
+            salsa::Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
         });
     }
 
-    for task in refresh_tasks().iter().copied() {
-        report_refresh_task(task, reporter, environment_progress, facts_progress).await;
+    for phase in django_discovery_phases() {
+        report_discovery_phase(phase, reporter, environment_progress, facts_progress).await;
     }
 
     jobs
 }
 
-async fn collect_refresh_jobs(
-    mut jobs: RefreshJobSet,
+async fn collect_discovery_jobs(
+    mut jobs: DiscoveryJobSet,
     environment_progress: &mut Option<ProgressItem>,
     facts_progress: &mut Option<ProgressItem>,
-) -> Result<RefreshData, salsa::Cancelled> {
+) -> Result<DjangoDiscoveryData, salsa::Cancelled> {
     let mut cancellation = None;
     let mut counts = Vec::new();
     let mut parts = Vec::new();
 
     while let Some(joined) = jobs.join_next().await {
-        match joined.expect("project refresh task must not panic") {
+        match joined.expect("Django Discovery phase must not panic") {
             Ok(part) => {
-                let descriptor = part.descriptor();
-                counts.push(RefreshJobCount {
-                    group: descriptor.group,
-                    units: descriptor.units,
+                let phase = part.phase();
+                let progress = phase.progress();
+                counts.push(DiscoveryJobCount {
+                    phase,
+                    label: progress.count_label.into(),
                     count: part.count(),
                 });
                 parts.push(part);
@@ -404,50 +390,50 @@ async fn collect_refresh_jobs(
         return Err(cancelled);
     }
 
-    let refresh = RefreshData::assemble(parts);
-    report_refresh_job_counts(
+    let discovery = DjangoDiscoveryData::assemble(parts);
+    report_discovery_job_counts(
         counts,
-        refresh.discovered_file_count(),
+        discovery.discovered_file_count(),
         environment_progress.as_ref(),
         facts_progress.as_ref(),
     )
     .await;
 
-    Ok(refresh)
+    Ok(discovery)
 }
 
-async fn report_refresh_job_counts(
-    counts: Vec<RefreshJobCount>,
+async fn report_discovery_job_counts(
+    counts: Vec<DiscoveryJobCount>,
     discovered_file_count: usize,
     environment_progress: Option<&ProgressItem>,
     facts_progress: Option<&ProgressItem>,
 ) {
-    let environment_total = refresh_task_progress_total(RefreshTaskGroup::Environment);
-    let facts_total = refresh_task_progress_total(RefreshTaskGroup::Facts) + 1;
+    let environment_total = DiscoveryPhase::environment_phase_count();
+    let facts_total = DiscoveryPhase::project_facts_phase_count() + 1;
     let mut environment_done = 0;
     let mut facts_done = 0;
 
     for summary in counts {
-        match summary.group {
-            RefreshTaskGroup::Environment => {
+        match summary.phase {
+            DiscoveryPhase::Environment(_) => {
                 environment_done += 1;
                 report_count(
                     environment_progress,
                     environment_done,
                     environment_total,
                     summary.count,
-                    summary.units,
+                    summary.label,
                 )
                 .await;
             }
-            RefreshTaskGroup::Facts => {
+            DiscoveryPhase::ProjectFacts(_) => {
                 facts_done += 1;
                 report_count(
                     facts_progress,
                     facts_done,
                     facts_total,
                     summary.count,
-                    summary.units,
+                    summary.label,
                 )
                 .await;
             }
@@ -459,7 +445,7 @@ async fn report_refresh_job_counts(
         facts_total,
         facts_total,
         discovered_file_count,
-        DISCOVERED_FILES_UNITS,
+        DjangoDiscoveryData::discovered_file_count_label().into(),
     )
     .await;
 }
@@ -469,20 +455,20 @@ async fn report_count(
     done: usize,
     total: usize,
     count: usize,
-    units: RefreshCountUnits,
+    label: CountLabel,
 ) {
-    let message = count_message(count, units);
+    let message = count_message(count, label);
 
     if let Some(progress) = progress {
         progress.report_fraction(done, total, &message).await;
     }
 }
 
-fn count_message(count: usize, units: RefreshCountUnits) -> String {
+fn count_message(count: usize, label: CountLabel) -> String {
     let unit = if count == 1 {
-        units.singular
+        label.singular
     } else {
-        units.plural
+        label.plural
     };
     format!("{count} {unit}")
 }
@@ -493,31 +479,31 @@ fn remember_cancellation(cancellation: &mut Option<salsa::Cancelled>, cancelled:
     }
 }
 
-async fn report_refresh_task(
-    task: RefreshTask,
+async fn report_discovery_phase(
+    phase: DiscoveryPhase,
     reporter: &ProgressReporter,
     environment_progress: &mut Option<ProgressItem>,
     facts_progress: &mut Option<ProgressItem>,
 ) {
-    let descriptor = task.descriptor();
-    let (progress, title) = refresh_task_progress(descriptor, environment_progress, facts_progress);
+    let phase_progress = phase.progress();
+    let (progress, title) = discovery_phase_progress(phase, environment_progress, facts_progress);
 
     if progress.is_none() {
         *progress = Some(reporter.begin(title).await);
     }
     if let Some(progress) = progress.as_ref() {
-        progress.report(descriptor.message).await;
+        progress.report(phase_progress.message).await;
     }
 }
 
-fn refresh_task_progress<'a>(
-    descriptor: RefreshTaskDescriptor,
+fn discovery_phase_progress<'a>(
+    phase: DiscoveryPhase,
     environment_progress: &'a mut Option<ProgressItem>,
     facts_progress: &'a mut Option<ProgressItem>,
 ) -> (&'a mut Option<ProgressItem>, &'static str) {
-    match descriptor.group {
-        RefreshTaskGroup::Environment => (environment_progress, RESOLVE_ENVIRONMENT_TITLE),
-        RefreshTaskGroup::Facts => (facts_progress, DISCOVER_PROJECT_FACTS_TITLE),
+    match phase {
+        DiscoveryPhase::Environment(_) => (environment_progress, RESOLVE_ENVIRONMENT_TITLE),
+        DiscoveryPhase::ProjectFacts(_) => (facts_progress, DISCOVER_PROJECT_FACTS_TITLE),
     }
 }
 
@@ -527,7 +513,7 @@ async fn finish_progress(progress: &mut Option<ProgressItem>, end: ProgressEnd) 
     }
 }
 
-type WarmJobResult = Result<Option<usize>, salsa::Cancelled>;
+type WarmJobResult = Result<WarmCachePart, salsa::Cancelled>;
 type WarmJobHandle = tokio::task::JoinHandle<WarmJobResult>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -545,133 +531,76 @@ impl WarmOutcome {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-enum WarmStage {
-    BuildTagSpecs,
-    BuildFilterAritySpecs,
-    BuildModelGraph,
-    ResolveTemplateDirs,
-    IndexTemplateLibraries,
-    IndexTemplates,
+fn spawn_warm_cache_job(phase: WarmCachePhase, snapshot: SessionSnapshot) -> WarmJobHandle {
+    tokio::task::spawn_blocking(move || {
+        salsa::Cancelled::catch(AssertUnwindSafe(|| phase.run(snapshot.db())))
+    })
 }
 
-impl WarmStage {
-    const ALL: [Self; 6] = [
-        Self::BuildTagSpecs,
-        Self::BuildFilterAritySpecs,
-        Self::BuildModelGraph,
-        Self::ResolveTemplateDirs,
-        Self::IndexTemplateLibraries,
-        Self::IndexTemplates,
-    ];
-
-    fn message(self) -> &'static str {
-        match self {
-            Self::BuildTagSpecs => "Building tag specs",
-            Self::BuildFilterAritySpecs => "Building filter arity specs",
-            Self::BuildModelGraph => "Building model graph",
-            Self::ResolveTemplateDirs => "Resolving template directories",
-            Self::IndexTemplateLibraries => "Indexing template libraries",
-            Self::IndexTemplates => "Indexing templates",
-        }
-    }
-
-    const fn count_units(self) -> Option<RefreshCountUnits> {
-        match self {
-            Self::BuildTagSpecs | Self::BuildFilterAritySpecs | Self::BuildModelGraph => None,
-            Self::ResolveTemplateDirs => Some(RefreshCountUnits {
-                singular: "template directory",
-                plural: "template directories",
-            }),
-            Self::IndexTemplateLibraries => Some(RefreshCountUnits {
-                singular: "template library",
-                plural: "template libraries",
-            }),
-            Self::IndexTemplates => Some(RefreshCountUnits {
-                singular: "template",
-                plural: "templates",
-            }),
-        }
-    }
-
-    fn spawn(self, snapshot: SessionSnapshot) -> WarmJobHandle {
-        tokio::task::spawn_blocking(move || {
-            salsa::Cancelled::catch(AssertUnwindSafe(|| self.run(&snapshot)))
-        })
-    }
-
-    fn run(self, snapshot: &SessionSnapshot) -> Option<usize> {
-        let db = snapshot.db();
-        let project = db.project()?;
-
-        match self {
-            Self::BuildTagSpecs => {
-                let _ = db.tag_specs();
-                None
-            }
-            Self::BuildFilterAritySpecs => {
-                let _ = db.filter_arity_specs();
-                None
-            }
-            Self::BuildModelGraph => {
-                let _ = db.model_graph();
-                None
-            }
-            Self::ResolveTemplateDirs => Some(db.template_dirs().map_or(0, |dirs| dirs.len())),
-            Self::IndexTemplateLibraries => {
-                let libraries = db.template_libraries();
-                Some(libraries.installed_library_count())
-            }
-            Self::IndexTemplates => Some(template_resolution(db, project).origins(db).count()),
-        }
-    }
-
-    async fn join(self, handle: WarmJobHandle) -> WarmJobResult {
-        handle.await.unwrap_or_else(|error| {
-            panic!("project warm-up {self:?} task must not panic: {error}");
-        })
-    }
+async fn join_warm_cache_job(phase: WarmCachePhase, handle: WarmJobHandle) -> WarmJobResult {
+    handle.await.unwrap_or_else(|error| {
+        panic!("IDE cache warm-up {phase:?} task must not panic: {error}");
+    })
 }
 
-async fn warm_project_queries(snapshot: SessionSnapshot, progress: &ProgressItem) -> WarmOutcome {
+async fn warm_cache_queries(snapshot: SessionSnapshot, progress: &ProgressItem) -> WarmOutcome {
     let mut handles = Vec::new();
-    for (index, stage) in WarmStage::ALL.into_iter().enumerate() {
-        handles.push((index + 1, stage, stage.spawn(snapshot.clone())));
-        progress.report(stage.message()).await;
+    for (index, phase) in warm_cache_phases().iter().copied().enumerate() {
+        handles.push((
+            index + 1,
+            phase,
+            spawn_warm_cache_job(phase, snapshot.clone()),
+        ));
+        progress.report(phase.progress().message).await;
     }
 
     let mut summaries = Vec::new();
     let mut outcome = WarmOutcome::Complete;
-    for (done, stage, handle) in handles {
-        match stage.join(handle).await {
-            Ok(Some(count)) => summaries.push((done, stage, count)),
-            Ok(None) => {}
+    for (done, phase, handle) in handles {
+        match join_warm_cache_job(phase, handle).await {
+            Ok(part) => {
+                if let Some(count) = part.count() {
+                    summaries.push((done, part.phase(), count));
+                }
+            }
             Err(cancelled) => {
                 outcome = WarmOutcome::Partial;
                 tracing::debug!(
                     ?cancelled,
-                    ?stage,
-                    "Project refresh warm-up cancelled; newer inputs will re-warm queries"
+                    ?phase,
+                    "IDE cache warm-up cancelled; newer inputs will re-warm queries"
                 );
             }
         }
     }
 
     if outcome == WarmOutcome::Complete {
-        for (done, stage, count) in summaries {
-            report_warm_summary(progress, done, stage, count).await;
+        for (done, phase, count) in summaries {
+            report_warm_summary(progress, done, phase, count).await;
         }
     }
 
     outcome
 }
 
-async fn report_warm_summary(progress: &ProgressItem, done: usize, stage: WarmStage, count: usize) {
-    let Some(units) = stage.count_units() else {
+async fn report_warm_summary(
+    progress: &ProgressItem,
+    done: usize,
+    phase: WarmCachePhase,
+    count: usize,
+) {
+    let Some(label) = phase.progress().count_label else {
         return;
     };
 
-    report_count(Some(progress), done, WarmStage::ALL.len(), count, units).await;
+    report_count(
+        Some(progress),
+        done,
+        warm_cache_phases().len(),
+        count,
+        label.into(),
+    )
+    .await;
 }
 
 async fn republish_snapshot_diagnostics(
@@ -680,7 +609,7 @@ async fn republish_snapshot_diagnostics(
     documents: Vec<TextDocument>,
 ) {
     if snapshot.client_info().supports_pull_diagnostics() {
-        tracing::debug!("Client supports pull diagnostics, skipping refresh diagnostics push");
+        tracing::debug!("Client supports pull diagnostics, skipping diagnostics push");
         return;
     }
 
@@ -728,14 +657,14 @@ async fn collect_snapshot_diagnostics(
                 tracing::debug!(
                     ?cancelled,
                     attempt = attempt + 1,
-                    "Refresh diagnostics cancelled; retrying with same snapshot"
+                    "Snapshot diagnostics cancelled; retrying with same snapshot"
                 );
             }
             Err(cancelled) => {
                 tracing::debug!(
                     ?cancelled,
                     retries = SNAPSHOT_CANCEL_RETRIES,
-                    "Refresh diagnostics cancelled; skipping diagnostics republish"
+                    "Snapshot diagnostics cancelled; skipping diagnostics republish"
                 );
                 return None;
             }
@@ -906,7 +835,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn project_settings_load_error_skips_refresh_inputs() {
+    async fn project_settings_load_error_skips_discovery_inputs() {
         let tempdir = tempdir().unwrap();
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
         std::fs::write(

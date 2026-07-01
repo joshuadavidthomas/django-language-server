@@ -29,7 +29,6 @@ EXPECTED_STARTUP_PROGRESS_TITLES = {
     "Resolving Django environment",
     "Discovering Django project facts",
     "Warming Django caches",
-    "Publishing diagnostics",
 }
 
 

@@ -145,7 +145,7 @@ pub(crate) fn templatetag_candidates(
     walk_candidates(db, project, TemplateTagDiscoveryMode::AvailableCandidate)
 }
 
-pub(crate) fn refresh_templatetag_candidate_paths(
+pub(crate) fn discover_templatetag_candidate_paths(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Vec<Utf8PathBuf> {

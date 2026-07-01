@@ -149,8 +149,8 @@ impl Drop for ProgressItem {
         };
 
         // Only LSP items that sent Begin owe the client an End. Drop without
-        // finish() means the refresh future itself was dropped (cancellation or
-        // unwind), not a normal supersede.
+        // finish() means the progress owner future itself was dropped
+        // (cancellation or unwind), not a normal supersede.
         tokio::spawn(async move {
             send_end(&client, token, Some("cancelled".to_string())).await;
         });

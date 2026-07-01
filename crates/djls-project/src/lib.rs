@@ -1,13 +1,22 @@
 mod ast;
 mod db;
+mod discovery;
 mod models;
 mod project;
 mod python;
-mod refresh;
 mod settings;
 mod templates;
 
 pub use db::Db;
+pub use discovery::CountLabel;
+pub use discovery::DiscoveryPhase;
+pub use discovery::DjangoDiscoveryData;
+pub use discovery::DjangoDiscoveryPart;
+pub use discovery::DjangoDiscoveryProgress;
+pub use discovery::EnvironmentPhase;
+pub use discovery::ProjectFactsPhase;
+pub use discovery::apply_django_discovery;
+pub use discovery::django_discovery_phases;
 pub use models::ModelGraph;
 pub use models::ModelId;
 pub use models::compute_model_graph;
@@ -19,14 +28,6 @@ pub use python::PythonModule;
 pub use python::PythonModuleName;
 pub use python::SearchPath;
 pub use python::SearchPaths;
-pub use refresh::RefreshCountUnits;
-pub use refresh::RefreshData;
-pub use refresh::RefreshPart;
-pub use refresh::RefreshTask;
-pub use refresh::RefreshTaskDescriptor;
-pub use refresh::RefreshTaskGroup;
-pub use refresh::apply_refresh;
-pub use refresh::refresh_tasks;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
 pub use templates::BlockSpec;
@@ -76,9 +77,9 @@ pub use templates::template_resolution;
 pub mod testing {
     use camino::Utf8PathBuf;
 
+    pub use crate::discovery::compute_django_discovery;
     pub use crate::models::extract_model_graph;
     pub use crate::models::model_modules;
-    pub use crate::refresh::compute_refresh;
     pub use crate::templates::TemplateInventoryStatus;
 
     #[derive(Clone, Debug, PartialEq, Eq)]

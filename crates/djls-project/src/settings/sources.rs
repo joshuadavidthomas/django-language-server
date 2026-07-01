@@ -60,9 +60,9 @@ pub(crate) fn settings_sources(db: &dyn ProjectDb, project: Project) -> DjangoSe
         return DjangoSettingsSources::empty();
     };
 
-    // The refresh bump set must cover the same settings source graph the
-    // extractor would read against current disk content.
-    let mut reader = RefreshSettingsSourceReader { db };
+    // The Django Discovery bump set must cover the same settings source graph
+    // the extractor would read against current disk content.
+    let mut reader = DiscoverySettingsSourceReader { db };
     let Some(source) = reader.read_source(file) else {
         return DjangoSettingsSources::from_files(db, [file]);
     };
@@ -89,11 +89,11 @@ impl SettingsSourceReader for TrackedSettingsSourceReader<'_> {
     }
 }
 
-struct RefreshSettingsSourceReader<'db> {
+struct DiscoverySettingsSourceReader<'db> {
     db: &'db dyn ProjectDb,
 }
 
-impl SettingsSourceReader for RefreshSettingsSourceReader<'_> {
+impl SettingsSourceReader for DiscoverySettingsSourceReader<'_> {
     fn read_source(&mut self, file: File) -> Option<SettingsSource> {
         let path = file.path(self.db).to_path_buf();
         let source = self.db.read_file(&path).ok()?;

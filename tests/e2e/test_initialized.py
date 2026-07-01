@@ -20,7 +20,7 @@ async def test_client_initializes(client: LanguageClient):
 @pytest.mark.asyncio
 async def test_client_receives_initialized_notification(client: LanguageClient):
     while not any(
-        message.message.startswith("Project refresh completed")
+        message.message.startswith("Project reload completed")
         for message in client.log_messages
     ):
         await asyncio.wait_for(
@@ -31,4 +31,4 @@ async def test_client_receives_initialized_notification(client: LanguageClient):
     messages = [message.message for message in client.log_messages]
 
     assert "Server received initialized notification." in messages
-    assert any(message.startswith("Project refresh completed") for message in messages)
+    assert any(message.startswith("Project reload completed") for message in messages)

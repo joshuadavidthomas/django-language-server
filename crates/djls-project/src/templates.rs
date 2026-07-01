@@ -7,7 +7,7 @@ mod resolution;
 mod symbols;
 mod tags;
 
-pub(crate) use candidates::refresh_templatetag_candidate_paths;
+pub(crate) use candidates::discover_templatetag_candidate_paths;
 pub use filters::FilterArity;
 pub use filters::FilterArityMap;
 pub use filters::extract_filter_arities;

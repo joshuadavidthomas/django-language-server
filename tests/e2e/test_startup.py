@@ -18,7 +18,6 @@ EXPECTED_STARTUP_PROGRESS_TITLES = {
     "Resolving Django environment",
     "Discovering Django project facts",
     "Warming Django caches",
-    "Publishing diagnostics",
 }
 COUNTED_PROGRESS_UNITS = [
     ("search path", "search paths"),
@@ -30,7 +29,6 @@ COUNTED_PROGRESS_UNITS = [
     ("template directory", "template directories"),
     ("template library", "template libraries"),
     ("template", "templates"),
-    ("diagnostics document", "diagnostics documents"),
 ]
 
 
@@ -255,7 +253,8 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
     report_messages = [event.message for event in report_events if event.message is not None]
     for expected in [
         "Resolving environment",
-        "Scanning settings",
+        "Resolving Python search paths",
+        "Reading settings sources",
         "Discovering model modules",
         "Discovering template libraries",
         "Discovering template tag candidates",
@@ -266,7 +265,6 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
         "Resolving template directories",
         "Indexing template libraries",
         "Indexing templates",
-        "Publishing diagnostics",
     ]:
         assert expected in report_messages
 
@@ -281,7 +279,7 @@ async def test_unsupported_client_receives_log_fallback(
     no_progress_client: LanguageClient,
 ):
     await wait_for_log_message(no_progress_client, "Resolving Django environment")
-    await wait_for_log_message(no_progress_client, "Project refresh completed")
+    await wait_for_log_message(no_progress_client, "Project reload completed")
 
     messages = [message.message for message in no_progress_client.log_messages]
 

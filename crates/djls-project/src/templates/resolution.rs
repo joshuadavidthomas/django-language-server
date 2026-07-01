@@ -293,9 +293,8 @@ impl fmt::Debug for ProjectTemplateFile {
 #[salsa::tracked(returns(ref))]
 fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTemplateFiles {
     // Freshness boundary: template discovery re-runs when any search-path root
-    // revision is bumped during project refresh, matching the previous
-    // imperative refresh cadence. Template dirs that live outside
-    // every registered root are still re-walked then, because this query
+    // revision is bumped during Django Discovery. Template dirs that live
+    // outside every registered root are still re-walked then, because this query
     // invalidates as a whole.
     for search_path in project.search_paths(db).iter() {
         if let Some(root) = db.files().root(db, search_path.path()) {

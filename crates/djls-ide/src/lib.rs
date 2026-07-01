@@ -8,6 +8,7 @@ mod hover;
 mod navigation;
 mod snippets;
 mod symbols;
+mod warmup;
 
 pub use completions::completion;
 pub use diagnostics::collect_diagnostics;
@@ -17,3 +18,8 @@ pub use hover::hover;
 pub use navigation::find_references;
 pub use navigation::goto_definition;
 pub use symbols::document_symbols;
+pub use warmup::CountLabel;
+pub use warmup::WarmCachePart;
+pub use warmup::WarmCachePhase;
+pub use warmup::WarmCacheProgress;
+pub use warmup::warm_cache_phases;
