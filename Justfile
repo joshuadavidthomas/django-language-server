@@ -17,6 +17,11 @@ cog:
 nox SESSION *ARGS:
     uv run --no-project --with "nox[uv]" nox --session "{{ SESSION }}" -- "{{ ARGS }}"
 
+# run ast-grep scan and rule tests
+ast-grep:
+    sg scan --config tools/ast-grep/sgconfig.yml --report-style=short --color=never
+    sg test --config tools/ast-grep/sgconfig.yml --skip-snapshot-tests --color=never
+
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
 

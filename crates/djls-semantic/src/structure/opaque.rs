@@ -51,7 +51,7 @@ pub fn compute_opaque_regions<'db>(db: &'db dyn Db, nodelist: NodeList<'db>) -> 
     opaque_regions_from_tree(tree.regions(db))
 }
 
-pub(crate) fn opaque_regions_from_tree(regions: &Regions) -> OpaqueRegions {
+fn opaque_regions_from_tree(regions: &Regions) -> OpaqueRegions {
     let spans = regions
         .iter()
         .flat_map(TemplateRegion::nodes)

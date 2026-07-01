@@ -666,6 +666,44 @@ fn comment_block_also_opaque() {
 }
 
 #[test]
+fn load_inside_verbatim_does_not_affect_later_tag_availability() {
+    let db = standard_db();
+    let source = concat!(
+        "{% verbatim %}{% load i18n %}{% endverbatim %}\n",
+        "{% trans \"hello\" %}\n",
+    );
+    let errors = collect_all_errors(&db, source);
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedTag { tag, library, .. }
+                if tag == "trans" && library == "i18n"
+        )),
+        "opaque load should not make trans available: {errors:?}"
+    );
+}
+
+#[test]
+fn load_inside_comment_does_not_affect_later_tag_availability() {
+    let db = standard_db();
+    let source = concat!(
+        "{% comment %}{% load i18n %}{% endcomment %}\n",
+        "{% trans \"hello\" %}\n",
+    );
+    let errors = collect_all_errors(&db, source);
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedTag { tag, library, .. }
+                if tag == "trans" && library == "i18n"
+        )),
+        "opaque load should not make trans available: {errors:?}"
+    );
+}
+
+#[test]
 fn unloaded_tag_and_filter_with_expression_error() {
     let db = standard_db();
     // trans requires {% load i18n %}, but it's not loaded
@@ -989,6 +1027,55 @@ fn tag_before_extends_and_multiple_extends_s122_and_s123() {
         .collect();
     assert_eq!(s122.len(), 1, "Expected S122, got: {s122:?}");
     assert_eq!(s123.len(), 1, "Expected S123, got: {s123:?}");
+}
+
+#[test]
+fn extends_inside_verbatim_after_content_does_not_need_to_be_first() {
+    let db = standard_db();
+    let source = r#"<p>body</p>{% verbatim %}{% extends "base.html" %}{% endverbatim %}"#;
+    let errors = collect_all_errors(&db, source);
+    let s122: Vec<_> = errors
+        .iter()
+        .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
+        .collect();
+
+    assert!(
+        s122.is_empty(),
+        "Extends inside verbatim should not affect extends ordering, got: {s122:?}"
+    );
+}
+
+#[test]
+fn multiple_extends_inside_comment_do_not_count_as_multiple_extends() {
+    let db = standard_db();
+    let source = r#"{% comment %}{% extends "a.html" %}{% extends "b.html" %}{% endcomment %}"#;
+    let errors = collect_all_errors(&db, source);
+    let s123: Vec<_> = errors
+        .iter()
+        .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
+        .collect();
+
+    assert!(
+        s123.is_empty(),
+        "Extends inside comment should not count as active extends tags, got: {s123:?}"
+    );
+}
+
+#[test]
+fn opaque_extends_after_active_extends_does_not_count_as_second_extends() {
+    let db = standard_db();
+    let source =
+        r#"{% extends "base.html" %}{% verbatim %}{% extends "ignored.html" %}{% endverbatim %}"#;
+    let errors = collect_all_errors(&db, source);
+    let s123: Vec<_> = errors
+        .iter()
+        .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
+        .collect();
+
+    assert!(
+        s123.is_empty(),
+        "Extends inside verbatim should not count as a second active extends tag, got: {s123:?}"
+    );
 }
 
 // Corpus / template validation tests

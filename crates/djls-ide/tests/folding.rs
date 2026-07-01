@@ -53,3 +53,34 @@ fn folding_ranges_include_top_level_and_nested_template_blocks() {
             && range.kind == Some(ls_types::FoldingRangeKind::Region)
     }));
 }
+
+#[test]
+fn folding_ranges_ignore_closer_looking_tags_inside_opaque_content() {
+    let source = r"{% if outer %}
+{% verbatim %}
+{% endif %}
+body
+{% endverbatim %}
+{% endif %}
+";
+    let db = TestDatabase::new();
+    db.add_file("template.html", source);
+    let file = db.get_or_create_file(Utf8Path::new("template.html"));
+    let ranges = collect_folding_ranges(&db, file);
+
+    assert!(ranges.iter().any(|range| {
+        range.start_line == 0
+            && range.end_line == 5
+            && range.kind == Some(ls_types::FoldingRangeKind::Region)
+    }));
+    assert!(ranges.iter().any(|range| {
+        range.start_line == 1
+            && range.end_line == 4
+            && range.kind == Some(ls_types::FoldingRangeKind::Region)
+    }));
+    assert!(!ranges.iter().any(|range| {
+        range.start_line == 0
+            && range.end_line == 2
+            && range.kind == Some(ls_types::FoldingRangeKind::Region)
+    }));
+}

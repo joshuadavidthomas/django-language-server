@@ -1,7 +1,6 @@
 pub(crate) mod loads;
 pub(crate) mod symbols;
 
-use djls_templates::Node;
 use djls_templates::NodeList;
 
 use crate::db::Db;
@@ -11,19 +10,16 @@ pub(crate) use crate::scoping::loads::LoadStatement;
 pub(crate) use crate::scoping::loads::LoadedLibraries;
 pub use crate::scoping::symbols::AvailableSymbols;
 pub(crate) use crate::scoping::symbols::SymbolIndex;
+use crate::structure::active_template_tags;
+use crate::structure::build_template_tree;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
 #[salsa::tracked(returns(ref))]
 pub(crate) fn compute_loaded_libraries(db: &dyn Db, nodelist: NodeList<'_>) -> LoadedLibraries {
-    let statements: Vec<LoadStatement> = nodelist
-        .nodelist(db)
-        .iter()
-        .filter_map(|node| match node {
-            Node::Tag {
-                name, bits, span, ..
-            } => LoadStatement::from_tag(name, bits, *span),
-            _ => None,
-        })
+    let tree = build_template_tree(db, nodelist);
+    let statements = active_template_tags(tree.regions(db), tree.root(db))
+        .into_iter()
+        .filter_map(|tag| LoadStatement::from_tag(tag.tag, tag.bits, tag.span))
         .collect();
 
     LoadedLibraries::new(statements)

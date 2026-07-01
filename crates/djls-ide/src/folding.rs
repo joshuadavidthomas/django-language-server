@@ -1,5 +1,5 @@
-use djls_semantic::TagClass;
-use djls_semantic::TagIndex;
+use djls_semantic::TemplateFold;
+use djls_semantic::TemplateFoldKind;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
@@ -17,8 +17,10 @@ pub fn collect_folding_ranges(
     };
 
     let source = file.source(db);
-    let tag_index = djls_semantic::compute_tag_index(db);
-    let folds = FoldSpans::collect(nodelist.nodelist(db), source.as_str(), tag_index).into_vec();
+    let template_tree = djls_semantic::build_template_tree(db, nodelist);
+    let semantic_folds = djls_semantic::build_template_folds(db, template_tree);
+    let folds =
+        FoldSpans::collect(semantic_folds, nodelist.nodelist(db), source.as_str()).into_vec();
 
     let line_index = file.line_index(db);
     folds
@@ -30,108 +32,46 @@ pub fn collect_folding_ranges(
 #[derive(Default)]
 struct FoldSpans(Vec<FoldSpan>);
 
-struct FoldFrame {
-    opener_name: String,
-    opener_span: Span,
-    closer_name: Option<String>,
-    opaque: bool,
-}
-
 impl FoldSpans {
-    fn collect(nodes: &[Node], source: &str, tag_index: &TagIndex) -> Self {
+    fn collect(semantic_folds: &[TemplateFold], nodes: &[Node], source: &str) -> Self {
         let mut folds = Self::default();
-        folds.collect_semantic(nodes, tag_index);
-        folds.collect_header(nodes, source);
+        for fold in semantic_folds {
+            folds.push((*fold).into());
+        }
+
+        let mut import_header = ImportHeaderFold::None;
+        for node in nodes {
+            match node {
+                Node::Comment { .. } => {
+                    folds.push_imports(import_header.finish());
+                    folds.push(FoldSpan::comment(node.full_span()));
+                }
+                Node::Tag { name, .. } if name == "extends" => {
+                    folds.push_imports(import_header.finish());
+                    import_header.start_at_extends(node.full_span());
+                }
+                Node::Tag { name, .. } if name == "load" => {
+                    import_header.include_load(node.full_span());
+                }
+                Node::Text { span }
+                    if source
+                        .get(span.start_usize()..span.end_usize())
+                        .is_some_and(|text| text.trim().is_empty()) => {}
+                Node::Tag { .. }
+                | Node::Text { .. }
+                | Node::Variable { .. }
+                | Node::Error { .. } => {
+                    folds.push_imports(import_header.finish());
+                }
+            }
+        }
+        folds.push_imports(import_header.finish());
+
         folds
-    }
-
-    fn collect_semantic(&mut self, nodes: &[Node], tag_index: &TagIndex) {
-        let mut stack: Vec<FoldFrame> = Vec::new();
-
-        for node in nodes {
-            let Node::Tag { name, .. } = node else {
-                continue;
-            };
-
-            if let Some(frame) = stack
-                .pop_if(|frame| frame.opaque && frame.closer_name.as_deref() == Some(name.as_str()))
-            {
-                self.push_bounds(
-                    frame.opener_span.start(),
-                    node.full_span().end(),
-                    FoldKind::from_semantic_tag_name(&frame.opener_name),
-                );
-                continue;
-            }
-            if stack.last().is_some_and(|frame| frame.opaque) {
-                continue;
-            }
-
-            if let Some(possible_openers) = tag_index.closer_openers(name)
-                && let Some(open_idx) = stack.iter().rposition(|frame| {
-                    possible_openers
-                        .iter()
-                        .any(|opener| opener == &frame.opener_name)
-                })
-            {
-                while stack.len() > open_idx + 1 {
-                    stack.pop();
-                }
-                let frame = stack.pop().expect("matched opener should remain on stack");
-                self.push_bounds(
-                    frame.opener_span.start(),
-                    node.full_span().end(),
-                    FoldKind::from_semantic_tag_name(&frame.opener_name),
-                );
-                continue;
-            }
-
-            match tag_index.classify(name) {
-                TagClass::Opener => {
-                    stack.push(FoldFrame {
-                        opener_name: name.clone(),
-                        opener_span: node.full_span(),
-                        closer_name: tag_index.closer_name(name).map(str::to_string),
-                        opaque: tag_index.is_opaque(name),
-                    });
-                }
-                TagClass::Closer { .. } | TagClass::Intermediate { .. } | TagClass::Unknown => {}
-            }
-        }
-    }
-
-    fn collect_header(&mut self, nodes: &[Node], source: &str) {
-        let mut imports = ImportHeaderCandidate::None;
-
-        for node in nodes {
-            match HeaderItem::from_node(node, source) {
-                HeaderItem::Comment(span) => {
-                    self.push_imports(imports.finish());
-                    self.push(FoldSpan::comment(span));
-                }
-                HeaderItem::Extends(span) => {
-                    self.push_imports(imports.finish());
-                    imports.begin_with_extends(span);
-                }
-                HeaderItem::Load(span) => {
-                    imports.include_load(span);
-                }
-                HeaderItem::Whitespace => {}
-                HeaderItem::Boundary => self.push_imports(imports.finish()),
-            }
-        }
-
-        self.push_imports(imports.finish());
     }
 
     fn push(&mut self, fold: FoldSpan) {
         self.0.push(fold);
-    }
-
-    fn push_bounds(&mut self, start: u32, end: u32, kind: FoldKind) {
-        if let Some(fold) = FoldSpan::from_bounds(start, end, kind) {
-            self.push(fold);
-        }
     }
 
     fn push_imports(&mut self, fold: Option<FoldSpan>) {
@@ -151,6 +91,15 @@ impl FoldSpans {
 pub(crate) struct FoldSpan {
     pub(crate) span: Span,
     pub(crate) kind: FoldKind,
+}
+
+impl From<TemplateFold> for FoldSpan {
+    fn from(fold: TemplateFold) -> Self {
+        Self {
+            span: fold.span,
+            kind: fold.kind.into(),
+        }
+    }
 }
 
 impl FoldSpan {
@@ -188,14 +137,16 @@ pub(crate) enum FoldKind {
     Imports,
 }
 
-impl FoldKind {
-    fn from_semantic_tag_name(name: &str) -> Self {
-        match name {
-            "comment" => Self::Comment,
-            _ => Self::Region,
+impl From<TemplateFoldKind> for FoldKind {
+    fn from(kind: TemplateFoldKind) -> Self {
+        match kind {
+            TemplateFoldKind::Region => Self::Region,
+            TemplateFoldKind::Comment => Self::Comment,
         }
     }
+}
 
+impl FoldKind {
     fn sort_key(self) -> u8 {
         match self {
             Self::Region => 0,
@@ -206,78 +157,43 @@ impl FoldKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum HeaderItem {
-    Comment(Span),
-    Extends(Span),
-    Load(Span),
-    Whitespace,
-    Boundary,
-}
-
-impl HeaderItem {
-    fn from_node(node: &Node, source: &str) -> Self {
-        match node {
-            Node::Comment { .. } => Self::Comment(node.full_span()),
-            Node::Tag { name, .. } if name == "extends" => Self::Extends(node.full_span()),
-            Node::Tag { name, .. } if name == "load" => Self::Load(node.full_span()),
-            Node::Text { span }
-                if source
-                    .get(span.start_usize()..span.end() as usize)
-                    .is_some_and(|text| text.trim().is_empty()) =>
-            {
-                Self::Whitespace
-            }
-            Node::Tag { .. } | Node::Text { .. } | Node::Variable { .. } | Node::Error { .. } => {
-                Self::Boundary
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ImportHeaderCandidate {
+enum ImportHeaderFold {
     None,
-    Started {
-        start: u32,
-        last_load_end: Option<u32>,
-    },
+    ExtendsOnly { start: u32 },
+    Imports { start: u32, end: u32 },
 }
 
-impl ImportHeaderCandidate {
-    fn begin_with_extends(&mut self, span: Span) {
-        *self = Self::Started {
+impl ImportHeaderFold {
+    fn start_at_extends(&mut self, span: Span) {
+        *self = Self::ExtendsOnly {
             start: span.start(),
-            last_load_end: None,
         };
     }
 
     fn include_load(&mut self, span: Span) {
         match self {
             Self::None => {
-                *self = Self::Started {
+                *self = Self::Imports {
                     start: span.start(),
-                    last_load_end: Some(span.end()),
+                    end: span.end(),
                 };
             }
-            Self::Started { last_load_end, .. } => {
-                *last_load_end = Some(span.end());
+            Self::ExtendsOnly { start } => {
+                *self = Self::Imports {
+                    start: *start,
+                    end: span.end(),
+                };
+            }
+            Self::Imports { end, .. } => {
+                *end = span.end();
             }
         }
     }
 
     fn finish(&mut self) -> Option<FoldSpan> {
-        let finished = std::mem::replace(self, Self::None);
-
-        match finished {
-            Self::Started {
-                start,
-                last_load_end: Some(end),
-            } => FoldSpan::imports(start, end),
-            Self::None
-            | Self::Started {
-                last_load_end: None,
-                ..
-            } => None,
+        match std::mem::replace(self, Self::None) {
+            Self::Imports { start, end } => FoldSpan::imports(start, end),
+            Self::None | Self::ExtendsOnly { .. } => None,
         }
     }
 }

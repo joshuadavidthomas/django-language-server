@@ -1,0 +1,49 @@
+id: no-trivial-whitespace-helper
+valid:
+  - |
+    fn collect(nodes: &[Node], source: &str) {
+        for node in nodes {
+            match node {
+                Node::Text { span }
+                    if source
+                        .get(span.start_usize()..span.end_usize())
+                        .is_some_and(|text| text.trim().is_empty()) => {}
+                _ => {}
+            }
+        }
+    }
+  - |
+    fn contains_whitespace(text: &str) -> bool {
+        text.chars().any(char::is_whitespace)
+    }
+  - |
+    fn lex_whitespace(&mut self, first: char) {
+        if first.is_whitespace() {
+            self.advance();
+        }
+    }
+invalid:
+  - |
+    fn is_blank(text: &str) -> bool {
+        text.trim().is_empty()
+    }
+  - |
+    fn is_blank_ascii(text: &str) -> bool {
+        text.trim_ascii().is_empty()
+    }
+  - |
+    fn is_whitespace(text: &str) -> bool {
+        text.chars().all(char::is_whitespace)
+    }
+  - |
+    fn is_whitespace(source: &str, span: Span) -> bool {
+        source
+            .get(span.start_usize()..span.end_usize())
+            .is_some_and(|text| text.trim().is_empty())
+    }
+  - |
+    fn is_whitespace_ascii(source: &str, span: Span) -> bool {
+        source
+            .get(span.start_usize()..span.end_usize())
+            .is_some_and(|text| text.trim_ascii().is_empty())
+    }
