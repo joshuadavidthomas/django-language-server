@@ -95,6 +95,84 @@ fn template_references_ignore_dynamic_template_names() {
 }
 
 #[test]
+fn template_references_ignore_include_inside_verbatim() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "child.html",
+                "/test/project/templates/child.html",
+                "{% verbatim %}{% include \"partial.html\" %}{% endverbatim %}",
+            ),
+            (
+                "partial.html",
+                "/test/project/templates/partial.html",
+                "partial",
+            ),
+        ],
+    );
+
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+    let references = references_to_template_name(&db, project, partial);
+
+    assert!(references.is_empty());
+}
+
+#[test]
+fn template_references_ignore_extends_inside_comment() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "child.html",
+                "/test/project/templates/child.html",
+                "{% comment %}{% extends \"base.html\" %}{% endcomment %}",
+            ),
+            ("base.html", "/test/project/templates/base.html", "base"),
+        ],
+    );
+
+    let base = TemplateName::new(&db, "base.html".to_string());
+    let references = references_to_template_name(&db, project, base);
+
+    assert!(references.is_empty());
+}
+
+#[test]
+fn template_references_include_only_active_references() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "child.html",
+                "/test/project/templates/child.html",
+                concat!(
+                    "{% verbatim %}{% include \"partial.html\" %}{% endverbatim %}\n",
+                    "{% include \"partial.html\" %}",
+                ),
+            ),
+            (
+                "partial.html",
+                "/test/project/templates/partial.html",
+                "partial",
+            ),
+        ],
+    );
+
+    let partial = TemplateName::new(&db, "partial.html".to_string());
+    let references = references_to_template_name(&db, project, partial);
+
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].kind(&db), TemplateReferenceKind::Include);
+}
+
+#[test]
 fn template_references_to_template_name_include_all_sources() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(

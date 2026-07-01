@@ -19,6 +19,14 @@ repos:
         args: ["--branch", "main"]
   - repo: local
     hooks:
+      - id: ast-grep
+        name: ast-grep
+        entry: sg scan --config tools/ast-grep/sgconfig.yml --report-style=short --color=never
+        language: node
+        additional_dependencies:
+          - "@ast-grep/cli@0.44.0"
+        types: [rust]
+        pass_filenames: false
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo +nightly fmt --check

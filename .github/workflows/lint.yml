@@ -14,6 +14,7 @@ permissions:
   contents: read
 
 env:
+  AST_GREP_VERSION: "0.44.0"
   CARGO_TERM_COLOR: always
   FORCE_COLOR: "1"
   PYTHONUNBUFFERED: "1"
@@ -26,7 +27,7 @@ jobs:
       - run: true
 
   pre-commit:
-    needs: [should-run]
+    needs: should-run
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -51,13 +52,52 @@ jobs:
           path: ~/.cache/pre-commit/
           key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
+      - name: Cache ast-grep binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/sg
+            ~/.cargo/bin/ast-grep
+          key: ${{ runner.os }}-${{ runner.arch }}-ast-grep-${{ env.AST_GREP_VERSION }}
+
+      - name: Install ast-grep
+        run: |
+          if ! command -v sg >/dev/null 2>&1 || [ "$(sg --version)" != "ast-grep ${AST_GREP_VERSION}" ]; then
+            cargo install ast-grep --version "${AST_GREP_VERSION}" --locked --force
+          fi
+
       - name: Run pre-commit
         run: |
           SKIP=no-commit-to-branch,cargo-fmt,cargo-clippy \
           uv run --no-project --with "nox[uv]" nox --session lint
 
+  ast-grep-tests:
+    needs: should-run
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Cache Cargo binaries
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/sg
+            ~/.cargo/bin/ast-grep
+          key: ${{ runner.os }}-${{ runner.arch }}-ast-grep-${{ env.AST_GREP_VERSION }}
+
+      - name: Install ast-grep
+        run: |
+          if ! command -v sg >/dev/null 2>&1 || [ "$(sg --version)" != "ast-grep ${AST_GREP_VERSION}" ]; then
+            cargo install ast-grep --version "${AST_GREP_VERSION}" --locked --force
+          fi
+
+      - name: Run ast-grep rule tests
+        run: sg test --config tools/ast-grep/sgconfig.yml --skip-snapshot-tests --color=never
+
   rust-changes:
-    needs: [should-run]
+    needs: should-run
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.filter.outputs.rust }}

@@ -42,10 +42,3 @@ fn walk_node<V: Visitor + ?Sized>(visitor: &mut V, node: &Node) {
         } => visitor.visit_error(*span, *full_span, error),
     }
 }
-
-/// Walk a list of nodes, visiting each one in sequence.
-pub fn walk_nodelist<V: Visitor + ?Sized>(visitor: &mut V, nodes: &[Node]) {
-    for node in nodes {
-        visitor.visit_node(node);
-    }
-}

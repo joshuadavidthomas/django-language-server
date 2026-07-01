@@ -235,7 +235,7 @@ A range of template source whose contents the language server treats as a black 
 _Avoid_: ignored content, raw text, hidden block
 
 **Template Tree**:
-The language server's tree-shaped structural view of a **Template**, made of **Template Branches** and **Template Leaves**.
+The language server's tree-shaped structural view of a **Template**, made of **Template Branches** and **Template Leaves**. It is the canonical structure for semantically active **Template Tags** and **Template Variables**; callers that need structured template meaning should use **Template Tree**-derived queries rather than re-walking the raw **Template Node List**.
 _Avoid_: AST, syntax tree, parse tree
 
 **Template Branch**:

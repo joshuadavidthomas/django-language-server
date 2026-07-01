@@ -4,17 +4,14 @@ mod if_expressions;
 mod scoping;
 
 use djls_project::TemplateLibraries;
-use djls_source::Span;
-use djls_templates::Filter;
-use djls_templates::Node;
-use djls_templates::Visitor;
-use djls_templates::walk_nodelist;
 
 use crate::db::Db;
 use crate::filters::FilterAritySpecs;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::SymbolIndex;
-use crate::structure::OpaqueRegions;
+use crate::structure::ActiveTemplateNode;
+use crate::structure::ActiveTemplateTag;
+use crate::structure::ActiveTemplateVariable;
 use crate::structure::compute_tag_index;
 use crate::structure::grammar::TagClass;
 use crate::structure::grammar::TagIndex;
@@ -42,10 +39,10 @@ impl ExtendsPosition {
     }
 }
 
-/// Combined validator that performs a single-pass validation of a template AST.
+/// Combined validator for active template semantic facts.
 ///
-/// This visitor consolidates multiple validation rules (scoping, arity, bits,
-/// structure) into a single walk of the `NodeList`, reducing redundant traversals.
+/// The validator consumes the `TemplateTree`-derived active view rather than the
+/// raw parser `NodeList`, so opaque body content cannot affect semantic rules.
 pub(crate) struct TemplateValidator<'a> {
     db: &'a dyn Db,
     tag_specs: &'a TagSpecs,
@@ -53,7 +50,6 @@ pub(crate) struct TemplateValidator<'a> {
     symbol_index: &'a SymbolIndex,
     loaded_libraries: &'a LoadedLibraries,
     template_libraries: &'a TemplateLibraries,
-    opaque_regions: &'a OpaqueRegions,
     filter_arity_specs: &'a FilterAritySpecs,
 
     // Tracking state for positional checks (e.g. {% extends %})
@@ -62,11 +58,7 @@ pub(crate) struct TemplateValidator<'a> {
 
 impl<'a> TemplateValidator<'a> {
     #[must_use]
-    pub(crate) fn new(
-        db: &'a dyn Db,
-        nodelist: djls_templates::NodeList<'_>,
-        opaque_regions: &'a OpaqueRegions,
-    ) -> Self {
+    pub(crate) fn new(db: &'a dyn Db, nodelist: djls_templates::NodeList<'_>) -> Self {
         let template_libraries = db.template_libraries();
         let tag_specs = db.tag_specs();
         let tag_index = compute_tag_index(db);
@@ -81,48 +73,43 @@ impl<'a> TemplateValidator<'a> {
             symbol_index,
             loaded_libraries,
             template_libraries,
-            opaque_regions,
             filter_arity_specs,
             extends_position: ExtendsPosition::default(),
         }
     }
 
-    pub(crate) fn validate(mut self, nodes: &[Node]) {
-        walk_nodelist(&mut self, nodes);
+    pub(crate) fn validate(mut self, nodes: &[ActiveTemplateNode<'_>]) {
+        for node in nodes {
+            match node {
+                ActiveTemplateNode::Tag(tag) => self.validate_tag(*tag),
+                ActiveTemplateNode::Variable(variable) => self.validate_variable(*variable),
+            }
+        }
     }
-}
 
-impl Visitor for TemplateValidator<'_> {
-    fn visit_tag(
-        &mut self,
-        name: &str,
-        _name_span: Span,
-        bits: &[djls_templates::TagBit],
-        span: Span,
-    ) {
-        let is_opaque = self.opaque_regions.is_opaque(span.start());
+    fn validate_tag(&mut self, tag: ActiveTemplateTag<'_>) {
+        let name = tag.tag;
+        let bits = tag.bits;
+        let span = tag.span;
 
-        // 1. Extends validation (cares about order/opacity)
+        // 1. Extends validation
         if name == "extends" {
-            use djls_templates::TagDelimiter;
             use salsa::Accumulator;
 
             use crate::ValidationError;
             use crate::ValidationErrorAccumulator;
 
-            let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-
             match self.extends_position {
                 ExtendsPosition::Start => {}
                 ExtendsPosition::AfterContent => {
                     ValidationErrorAccumulator(ValidationError::ExtendsMustBeFirst {
-                        span: full_span,
+                        span: tag.full_span,
                     })
                     .accumulate(self.db);
                 }
                 ExtendsPosition::AfterExtends => {
                     ValidationErrorAccumulator(ValidationError::MultipleExtends {
-                        span: full_span,
+                        span: tag.full_span,
                     })
                     .accumulate(self.db);
                 }
@@ -131,48 +118,40 @@ impl Visitor for TemplateValidator<'_> {
             self.extends_position = ExtendsPosition::AfterExtends;
         }
 
-        if !is_opaque {
-            // 2. Scoping validation (skip structural tags and "load")
-            if name != "load"
-                && !matches!(
-                    self.tag_index.classify(name),
-                    TagClass::Closer { .. } | TagClass::Intermediate { .. }
-                )
-            {
-                let symbols = self.symbol_index.symbols_at(span.start());
-                scoping::check_tag_scoping_rule(
-                    self.db,
-                    name,
-                    span,
-                    symbols,
-                    self.template_libraries,
-                );
-            }
+        // 2. Scoping validation (skip structural tags and "load")
+        if name != "load"
+            && !matches!(
+                self.tag_index.classify(name),
+                TagClass::Closer { .. } | TagClass::Intermediate { .. }
+            )
+        {
+            let symbols = self.symbol_index.symbols_at(span.start());
+            scoping::check_tag_scoping_rule(self.db, name, span, symbols, self.template_libraries);
+        }
 
-            // 3. Argument validation
-            if let Some(spec) = self.tag_specs.get(name)
-                && let Some(rules) = spec.extracted_rules()
-            {
-                arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
-            }
+        // 3. Argument validation
+        if let Some(spec) = self.tag_specs.get(name)
+            && let Some(rules) = spec.extracted_rules()
+        {
+            arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
+        }
 
-            // 4. Load library validation
-            scoping::check_load_libraries_rule(self.db, name, bits, self.template_libraries);
+        // 4. Load library validation
+        scoping::check_load_libraries_rule(self.db, name, bits, self.template_libraries);
 
-            // 5. If expression validation
-            if name == "if" || name == "elif" {
-                if_expressions::check_if_expression_rule(self.db, name, bits, span);
-            }
+        // 5. If expression validation
+        if name == "if" || name == "elif" {
+            if_expressions::check_if_expression_rule(self.db, name, bits, span);
         }
 
         self.extends_position = self.extends_position.record_non_text();
     }
 
-    fn visit_variable(&mut self, _var: &str, _var_span: Span, filters: &[Filter], span: Span) {
-        if !filters.is_empty() && !self.opaque_regions.is_opaque(span.start()) {
-            let symbols = self.symbol_index.symbols_at(span.start());
+    fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {
+        if !variable.filters.is_empty() {
+            let symbols = self.symbol_index.symbols_at(variable.span.start());
 
-            for filter in filters {
+            for filter in variable.filters {
                 // 1. Filter Scoping
                 scoping::check_filter_scoping_rule(
                     self.db,
@@ -187,7 +166,7 @@ impl Visitor for TemplateValidator<'_> {
                         && self
                             .loaded_libraries
                             .has_unknown_load_that_can_shadow_symbol_before(
-                                span.start(),
+                                variable.span.start(),
                                 &filter.name,
                                 self.template_libraries,
                             );
@@ -203,17 +182,5 @@ impl Visitor for TemplateValidator<'_> {
         }
 
         self.extends_position = self.extends_position.record_non_text();
-    }
-
-    fn visit_comment(&mut self, _content: &str, _span: Span) {
-        // Comments don't count as non-text for {% extends %} check
-    }
-
-    fn visit_text(&mut self, _span: Span) {
-        // Text doesn't count as non-text for {% extends %} check
-    }
-
-    fn visit_error(&mut self, _span: Span, _full_span: Span, _error: &djls_templates::ParseError) {
-        // Errors don't count as non-text for {% extends %} check
     }
 }

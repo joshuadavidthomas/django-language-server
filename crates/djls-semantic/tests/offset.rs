@@ -111,11 +111,47 @@ fn identifies_tag_name_context() {
 }
 
 #[test]
+fn identifies_opaque_opener_tag_context() {
+    let db = TestDatabase::new();
+    let source = r#"{% verbatim %}{% include "partial.html" %}{% endverbatim %}"#;
+
+    let context = context_for_source(&db, source, offset_of(source, "verbatim"));
+
+    assert_eq!(
+        context,
+        SemanticOffsetContext::Tag {
+            name: "verbatim".to_string(),
+            span: Span::new(3, 8),
+        }
+    );
+}
+
+#[test]
 fn ignores_unrecognized_tag_arguments() {
     let db = TestDatabase::new();
     let source = "{% if user %}";
 
     let context = context_for_source(&db, source, offset_of(source, "user"));
+
+    assert_eq!(context, SemanticOffsetContext::None);
+}
+
+#[test]
+fn ignores_template_reference_inside_verbatim() {
+    let db = TestDatabase::new();
+    let source = r#"{% verbatim %}{% include "partial.html" %}{% endverbatim %}"#;
+
+    let context = context_for_source(&db, source, offset_of(source, "partial.html"));
+
+    assert_eq!(context, SemanticOffsetContext::None);
+}
+
+#[test]
+fn ignores_load_library_inside_comment() {
+    let db = TestDatabase::new();
+    let source = "{% comment %}{% load static %}{% endcomment %}";
+
+    let context = context_for_source(&db, source, offset_of(source, "static"));
 
     assert_eq!(context, SemanticOffsetContext::None);
 }

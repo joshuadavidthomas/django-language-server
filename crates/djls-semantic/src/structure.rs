@@ -9,26 +9,33 @@
 //! not affect structure, such as exact parse errors, remain available from the
 //! original `NodeList`.
 
+pub(crate) mod active;
 pub(crate) mod builder;
+pub(crate) mod folding;
 pub(crate) mod grammar;
 pub(crate) mod opaque;
 pub(crate) mod outline;
 pub(crate) mod tree;
 
 use crate::db::Db;
+pub(crate) use crate::structure::active::ActiveTemplateNode;
+pub(crate) use crate::structure::active::ActiveTemplateTag;
+pub(crate) use crate::structure::active::ActiveTemplateVariable;
+pub(crate) use crate::structure::active::active_template_nodes;
+pub(crate) use crate::structure::active::active_template_tags;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
-pub use crate::structure::grammar::TagClass;
-pub use crate::structure::grammar::TagIndex;
-pub use crate::structure::grammar::compute_tag_index;
+pub use crate::structure::folding::TemplateFold;
+pub use crate::structure::folding::TemplateFoldKind;
+pub use crate::structure::folding::build_template_folds;
+pub(crate) use crate::structure::grammar::compute_tag_index;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
-pub(crate) use crate::structure::opaque::opaque_regions_from_tree;
 pub use crate::structure::outline::OutlineItem;
 pub use crate::structure::outline::OutlineKind;
 pub use crate::structure::outline::build_template_outline;
 pub use crate::structure::tree::BlockRole;
 pub use crate::structure::tree::RegionId;
-pub use crate::structure::tree::Regions;
+pub(crate) use crate::structure::tree::Regions;
 pub use crate::structure::tree::TemplateNode;
 pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;

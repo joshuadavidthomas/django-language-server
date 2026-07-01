@@ -62,7 +62,6 @@ use salsa::Accumulator;
 pub use tokens::TagDelimiter;
 pub use tokens::Token;
 pub use visitor::Visitor;
-pub use visitor::walk_nodelist;
 
 /// Lex a Django template file.
 #[salsa::tracked(returns(ref))]

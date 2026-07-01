@@ -25,15 +25,15 @@ pub use structure::OpaqueRegions;
 pub use structure::OutlineItem;
 pub use structure::OutlineKind;
 pub use structure::RegionId;
-pub use structure::TagClass;
-pub use structure::TagIndex;
+pub use structure::TemplateFold;
+pub use structure::TemplateFoldKind;
 pub use structure::TemplateNode;
 pub use structure::TemplateRegion;
 pub use structure::TemplateTree;
+pub use structure::build_template_folds;
 pub use structure::build_template_outline;
 pub use structure::build_template_tree;
 pub use structure::compute_opaque_regions;
-pub use structure::compute_tag_index;
 pub use tags::EndTag;
 pub use tags::IntermediateTag;
 pub use tags::TagRole;
@@ -42,7 +42,7 @@ pub use tags::TagSpecs;
 pub use tags::builtin_tag_specs;
 pub use tags::compute_tag_specs;
 
-use crate::structure::opaque_regions_from_tree;
+use crate::structure::active_template_nodes;
 use crate::validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -70,16 +70,11 @@ pub fn validate_template_file(db: &dyn Db, file: djls_source::File) {
 /// - Unmatched block names
 #[salsa::tracked]
 pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
-    let nodes = nodelist.nodelist(db);
-    if nodes.is_empty() {
-        return;
-    }
-
     // 1. Structural analysis accumulates block-structure diagnostics.
     let template_tree = build_template_tree(db, nodelist);
 
-    // 2. Perform all other validations in a single walk.
-    let opaque_regions = opaque_regions_from_tree(template_tree.regions(db));
-    let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
-    validator.validate(nodes);
+    // 2. Perform all other validations from the tree-derived active semantic view.
+    let active_nodes = active_template_nodes(template_tree.regions(db), template_tree.root(db));
+    let validator = TemplateValidator::new(db, nodelist);
+    validator.validate(&active_nodes);
 }
