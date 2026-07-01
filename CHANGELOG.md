@@ -21,24 +21,38 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added opt-in whole-document Django template formatting through `djangofmt`.
+- Added startup progress reporting for Django project discovery and IDE cache warm-up.
+- Added a public `ROADMAP.md` for current and planned Django/LSP capabilities.
+- **Internal**: Added domain glossary docs for canonical project terminology.
 - **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
+- **Internal**: Added end-to-end LSP coverage for initialization, diagnostics, navigation, completions, hover, folding ranges, document symbols, and startup progress.
+- **Internal**: Added the `djls-testing` crate for shared fixtures, corpus syncing, and Salsa-backed test databases.
 
 ### Changed
 
 - Changed template tag library discovery to derive libraries from project source and Django settings instead of the runtime inspector.
-- Bumped Rust toolchain from 1.95 to 1.96.
+- Changed static Django discovery to preserve inactive-app evidence for `S118`, `S119`, and `S121` diagnostics without runtime introspection.
+- Changed Django discovery to run after LSP initialization, refresh in the background, and warm IDE caches without blocking read requests.
+- Changed startup refreshes to run discovery phases in parallel and report counted progress.
+- Changed template validation and completion scoping to use localized inventory completeness, suppressing absence diagnostics only where discovery evidence is incomplete.
+- Changed template formatting to honor LSP/editor formatting options for indentation and final/trailing whitespace.
+- Bumped Rust toolchain from 1.95 to 1.96 and moved workspace crates to Rust 2024.
 - **Internal**: Reshaped template tag library storage around loadable and builtin mounts.
 - **Internal**: Moved the project model and static source recognizers into `djls-project`.
 - **Internal**: Moved Python spec extraction and template-origin resolution into `djls-project`, leaving `djls-semantic` as the project-meaning layer.
+- **Internal**: Refactored template semantics around `TemplateTree` for validation, references, outlines, folding, and opaque-region handling.
+- **Internal**: Moved corpus tooling and shared test fixtures into `djls-testing`.
 
 ### Removed
 
 - Removed the runtime inspector subprocess, embedded Python zipapp, and `~/.cache/djls/inspector/` disk cache. The server no longer needs a working Django setup to derive project facts.
 - Removed the template library snapshot disk cache and startup cache-loading phase.
+- **Internal**: Removed `djls-workspace`; workspace/filesystem logic now lives in `djls-source` and `djls-server`.
+- **Internal**: Removed the deprecated `extract_rules` extraction path.
 
 ### Fixed
 
-- Fixed settings refreshes for star imports inside `try` and `if` blocks.
+- Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
 
 ## [6.0.3]
 
