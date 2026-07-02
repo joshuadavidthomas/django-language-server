@@ -185,6 +185,10 @@ impl LanguageServer for DjangoLanguageServer {
                     true,
                 )),
                 document_symbol_provider: Some(ls_types::OneOf::Left(true)),
+                document_link_provider: Some(ls_types::DocumentLinkOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: ls_types::WorkDoneProgressOptions::default(),
+                }),
                 hover_provider: Some(ls_types::HoverProviderCapability::Simple(true)),
                 definition_provider: Some(ls_types::OneOf::Left(true)),
                 references_provider: Some(ls_types::OneOf::Left(true)),
@@ -378,6 +382,30 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         Ok(Some(ls_types::DocumentSymbolResponse::Nested(symbols)))
+    }
+
+    async fn document_link(
+        &self,
+        params: ls_types::DocumentLinkParams,
+    ) -> LspResult<Option<Vec<ls_types::DocumentLink>>> {
+        let links = self
+            .with_snapshot(move |snapshot| {
+                let Some(file) =
+                    snapshot.file_for_document_request(&params.text_document, "document link")
+                else {
+                    return Vec::new();
+                };
+                let db = snapshot.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return Vec::new();
+                }
+
+                djls_ide::document_links(db, file)
+            })
+            .await;
+
+        Ok(Some(links))
     }
 
     async fn goto_definition(

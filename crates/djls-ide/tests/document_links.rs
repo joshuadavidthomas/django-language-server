@@ -1,0 +1,64 @@
+use camino::Utf8Path;
+use djls_ide::document_links;
+use djls_testing::ProjectFixture;
+use djls_testing::TestDatabase;
+use tower_lsp_server::ls_types;
+
+fn file_uri(path: &str) -> ls_types::Uri {
+    ls_types::Uri::from_file_path(Utf8Path::new(path).as_std_path())
+        .expect("test path should convert to a file URI")
+}
+
+#[test]
+fn document_links_resolve_template_references_with_interior_ranges() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let base_path = "/test/project/templates/base.html";
+    let partial_path = "/test/project/templates/partials/card.html";
+    let source = concat!(
+        "{% extends \"base.html\" %}\n",
+        "{% include \"partials/card.html\" %}\n",
+        "{% include \"missing.html\" %}\n",
+        "{% include dynamic_template %}\n",
+    );
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("child.html", child_path, source)
+        .template_file("base.html", base_path, "base")
+        .template_file("partials/card.html", partial_path, "partial")
+        .install(&mut db);
+
+    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let links = document_links(&db, file);
+
+    assert_eq!(links.len(), 2);
+    assert_eq!(
+        links[0],
+        ls_types::DocumentLink {
+            range: ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 21),
+            ),
+            target: Some(file_uri(base_path)),
+            tooltip: None,
+            data: None,
+        }
+    );
+    assert_eq!(
+        links[1],
+        ls_types::DocumentLink {
+            range: ls_types::Range::new(
+                ls_types::Position::new(1, 12),
+                ls_types::Position::new(1, 30),
+            ),
+            target: Some(file_uri(partial_path)),
+            tooltip: None,
+            data: None,
+        }
+    );
+}

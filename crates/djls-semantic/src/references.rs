@@ -45,22 +45,10 @@ impl<'db> TemplateReferences<'db> {
 pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> TemplateReferences<'_> {
     let mut by_template_name = FxHashMap::default();
     let resolution = template_resolution(db, project);
-    let tag_specs = compute_tag_specs(db, project);
 
     for source in resolution.origins(db) {
-        let file = source.file(db);
-        let Some(nodelist) = parse_template(db, file) else {
-            continue;
-        };
-        let tree = build_template_tree(db, nodelist);
-
-        for tag in active_template_tags(tree.regions(db), tree.root(db)) {
-            let Some(reference) = LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)
-            else {
-                continue;
-            };
-
-            let target_template_name = TemplateName::new(db, reference.template_name.to_string());
+        for reference in template_references_in_file(db, project, source.file(db)).as_slice(db) {
+            let target_template_name = reference.target_template_name;
             let reference = TemplateReference::new(
                 db,
                 source,
@@ -77,6 +65,53 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
     }
 
     TemplateReferences::new(db, by_template_name)
+}
+
+#[salsa::tracked]
+pub struct TemplateReferencesInFile<'db> {
+    #[tracked]
+    #[returns(ref)]
+    references: Vec<TemplateReferenceInFile<'db>>,
+}
+
+impl<'db> TemplateReferencesInFile<'db> {
+    pub fn as_slice(self, db: &'db dyn SemanticDb) -> &'db [TemplateReferenceInFile<'db>] {
+        self.references(db)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub struct TemplateReferenceInFile<'db> {
+    pub target_template_name: TemplateName<'db>,
+    kind: TemplateReferenceKind,
+    pub span: Span,
+}
+
+#[salsa::tracked]
+pub fn template_references_in_file(
+    db: &dyn SemanticDb,
+    project: Project,
+    file: File,
+) -> TemplateReferencesInFile<'_> {
+    let tag_specs = compute_tag_specs(db, project);
+    let Some(nodelist) = parse_template(db, file) else {
+        return TemplateReferencesInFile::new(db, Vec::new());
+    };
+    let tree = build_template_tree(db, nodelist);
+
+    let references = active_template_tags(tree.regions(db), tree.root(db))
+        .into_iter()
+        .filter_map(|tag| {
+            let reference = LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)?;
+            Some(TemplateReferenceInFile {
+                target_template_name: TemplateName::new(db, reference.template_name.to_string()),
+                kind: reference.kind,
+                span: reference.span,
+            })
+        })
+        .collect();
+
+    TemplateReferencesInFile::new(db, references)
 }
 
 pub fn references_to_template_name<'db>(
