@@ -78,7 +78,7 @@ fn outline_items_for_tag(
         | TagRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
                 let (label, selection_span) = match bit.template_string() {
-                    TemplateString::Quoted { value, value_span } => (value.to_string(), value_span),
+                    TemplateString::Quoted { value, span } => (value.to_string(), span),
                     TemplateString::Unquoted(value) => (value.to_string(), bit.span),
                 };
 

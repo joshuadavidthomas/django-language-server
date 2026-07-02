@@ -124,7 +124,7 @@ impl<'db> SemanticOffsetContext<'db> {
                 .filter(|reference| reference.bit_span.contains(offset))
                 .map_or(Self::None, |reference| Self::TemplateReference {
                     name: TemplateName::new(db, reference.template_name.to_string()),
-                    span: reference.value_span,
+                    span: reference.span,
                 }),
         }
     }

@@ -27,10 +27,6 @@ fn labels(items: &[OutlineItem]) -> Vec<&str> {
     items.iter().map(|item| item.label.as_str()).collect()
 }
 
-fn span_of(source: &str, needle: &str) -> Span {
-    Span::saturating_from_parts_usize(source.find(needle).unwrap(), needle.len())
-}
-
 #[test]
 fn header_tags_produce_outline_items() {
     let db = TestDatabase::new();
@@ -59,10 +55,16 @@ fn header_tags_produce_outline_items() {
             .collect::<Vec<_>>(),
         vec![Some("extends"), Some("load"), Some("load"), Some("include")]
     );
-    assert_eq!(outline[0].selection_span, span_of(source, "base.html"));
+    assert_eq!(
+        outline[0].selection_span,
+        Span::saturating_from_parts_usize(source.find("base.html").unwrap(), "base.html".len())
+    );
     assert_eq!(
         outline[3].selection_span,
-        span_of(source, "partials/nav.html")
+        Span::saturating_from_parts_usize(
+            source.find("partials/nav.html").unwrap(),
+            "partials/nav.html".len()
+        )
     );
 }
 

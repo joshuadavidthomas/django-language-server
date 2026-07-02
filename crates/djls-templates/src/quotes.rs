@@ -2,7 +2,7 @@ use djls_source::Span;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemplateString<'a> {
-    Quoted { value: &'a str, value_span: Span },
+    Quoted { value: &'a str, span: Span },
     Unquoted(&'a str),
 }
 
@@ -27,9 +27,9 @@ impl<'a> TemplateString<'a> {
             .start_usize()
             .saturating_add(trim_start_len)
             .saturating_add(first.len_utf8());
-        let value_span = Span::saturating_from_parts_usize(value_start, value.len());
+        let span = Span::saturating_from_parts_usize(value_start, value.len());
 
-        Self::Quoted { value, value_span }
+        Self::Quoted { value, span }
     }
 }
 
@@ -183,7 +183,7 @@ mod tests {
             value,
             TemplateString::Quoted {
                 value: "images/logo.png",
-                value_span: Span::saturating_from_parts_usize(1, 15),
+                span: Span::saturating_from_parts_usize(1, 15),
             }
         );
     }
@@ -197,20 +197,20 @@ mod tests {
             value,
             TemplateString::Quoted {
                 value: "base.html",
-                value_span: Span::saturating_from_parts_usize(1, 9),
+                span: Span::saturating_from_parts_usize(1, 9),
             }
         );
     }
 
     #[test]
-    fn template_string_records_empty_value_span() {
+    fn template_string_records_empty_span() {
         let value = TemplateString::parse(r#""""#, Span::saturating_from_parts_usize(10, 2));
 
         assert_eq!(
             value,
             TemplateString::Quoted {
                 value: "",
-                value_span: Span::saturating_from_parts_usize(11, 0),
+                span: Span::saturating_from_parts_usize(11, 0),
             }
         );
     }
@@ -224,7 +224,7 @@ mod tests {
             value,
             TemplateString::Quoted {
                 value: "base.html",
-                value_span: Span::saturating_from_parts_usize(43, 9),
+                span: Span::saturating_from_parts_usize(43, 9),
             }
         );
     }
@@ -237,7 +237,7 @@ mod tests {
             value,
             TemplateString::Quoted {
                 value: "é.html",
-                value_span: Span::saturating_from_parts_usize(1, 7),
+                span: Span::saturating_from_parts_usize(1, 7),
             }
         );
     }

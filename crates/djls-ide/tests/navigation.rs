@@ -5,10 +5,6 @@ use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
-fn offset_of(source: &str, needle: &str) -> Offset {
-    Offset::new(u32::try_from(source.find(needle).unwrap()).unwrap())
-}
-
 #[test]
 fn find_references_reports_template_name_interior_range() {
     let mut db = TestDatabase::new();
@@ -26,8 +22,12 @@ fn find_references_reports_template_name_interior_range() {
         .install(&mut db);
 
     let file = db.get_or_create_file(Utf8Path::new(child_path));
-    let locations = find_references(&db, file, offset_of(source, "base"))
-        .expect("template reference should resolve to at least one reference");
+    let locations = find_references(
+        &db,
+        file,
+        Offset::new(u32::try_from(source.find("base").unwrap()).unwrap()),
+    )
+    .expect("template reference should resolve to at least one reference");
 
     assert_eq!(locations.len(), 1);
     assert_eq!(

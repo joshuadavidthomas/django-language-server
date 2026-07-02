@@ -66,7 +66,7 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
                 source,
                 target_template_name,
                 reference.kind,
-                reference.value_span,
+                reference.span,
             );
 
             by_template_name
@@ -122,7 +122,7 @@ pub(crate) struct LiteralTemplateReference<'bits> {
     kind: TemplateReferenceKind,
     pub(crate) template_name: &'bits str,
     pub(crate) bit_span: Span,
-    pub(crate) value_span: Span,
+    pub(crate) span: Span,
 }
 
 impl<'bits> LiteralTemplateReference<'bits> {
@@ -139,7 +139,7 @@ impl<'bits> LiteralTemplateReference<'bits> {
         let bit = bits.first()?;
         let TemplateString::Quoted {
             value: template_name,
-            value_span,
+            span,
         } = bit.template_string()
         else {
             return None;
@@ -149,7 +149,7 @@ impl<'bits> LiteralTemplateReference<'bits> {
             kind,
             template_name,
             bit_span: bit.span,
-            value_span,
+            span,
         })
     }
 }
