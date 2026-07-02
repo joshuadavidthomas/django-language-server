@@ -121,10 +121,10 @@ impl<'db> SemanticOffsetContext<'db> {
             }
 
             _ => LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)
-                .filter(|reference| reference.span.contains(offset))
+                .filter(|reference| reference.bit_span.contains(offset))
                 .map_or(Self::None, |reference| Self::TemplateReference {
                     name: TemplateName::new(db, reference.template_name.to_string()),
-                    span: reference.span,
+                    span: reference.value_span,
                 }),
         }
     }

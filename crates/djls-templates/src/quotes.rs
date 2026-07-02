@@ -1,12 +1,15 @@
+use djls_source::Span;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemplateString<'a> {
-    Quoted(&'a str),
+    Quoted { value: &'a str, value_span: Span },
     Unquoted(&'a str),
 }
 
 impl<'a> TemplateString<'a> {
     #[must_use]
-    pub(crate) fn parse(raw: &'a str) -> Self {
+    pub(crate) fn parse(raw: &'a str, raw_span: Span) -> Self {
+        let trim_start_len = raw.len() - raw.trim_start().len();
         let raw = raw.trim();
         let Some(first) = raw.chars().next() else {
             return Self::Unquoted(raw);
@@ -19,22 +22,14 @@ impl<'a> TemplateString<'a> {
             return Self::Unquoted(raw);
         }
 
-        Self::Quoted(&raw[1..raw.len() - 1])
-    }
+        let value = &raw[1..raw.len() - 1];
+        let value_start = raw_span
+            .start_usize()
+            .saturating_add(trim_start_len)
+            .saturating_add(first.len_utf8());
+        let value_span = Span::saturating_from_parts_usize(value_start, value.len());
 
-    #[must_use]
-    pub fn value(self) -> &'a str {
-        match self {
-            Self::Quoted(value) | Self::Unquoted(value) => value,
-        }
-    }
-
-    #[must_use]
-    pub fn quoted_value(self) -> Option<&'a str> {
-        match self {
-            Self::Quoted(value) => Some(value),
-            Self::Unquoted(_) => None,
-        }
+        Self::Quoted { value, value_span }
     }
 }
 
@@ -179,29 +174,86 @@ mod tests {
 
     #[test]
     fn template_string_recognizes_single_quoted_values() {
-        let value = TemplateString::parse("'images/logo.png'");
+        let value = TemplateString::parse(
+            "'images/logo.png'",
+            Span::saturating_from_parts_usize(0, 17),
+        );
 
-        assert_eq!(value, TemplateString::Quoted("images/logo.png"));
-        assert_eq!(value.value(), "images/logo.png");
-        assert_eq!(value.quoted_value(), Some("images/logo.png"));
+        assert_eq!(
+            value,
+            TemplateString::Quoted {
+                value: "images/logo.png",
+                value_span: Span::saturating_from_parts_usize(1, 15),
+            }
+        );
     }
 
     #[test]
     fn template_string_recognizes_double_quoted_values() {
-        let value = TemplateString::parse(r#""base.html""#);
+        let value =
+            TemplateString::parse(r#""base.html""#, Span::saturating_from_parts_usize(0, 11));
 
-        assert_eq!(value, TemplateString::Quoted("base.html"));
-        assert_eq!(value.value(), "base.html");
-        assert_eq!(value.quoted_value(), Some("base.html"));
+        assert_eq!(
+            value,
+            TemplateString::Quoted {
+                value: "base.html",
+                value_span: Span::saturating_from_parts_usize(1, 9),
+            }
+        );
+    }
+
+    #[test]
+    fn template_string_records_empty_value_span() {
+        let value = TemplateString::parse(r#""""#, Span::saturating_from_parts_usize(10, 2));
+
+        assert_eq!(
+            value,
+            TemplateString::Quoted {
+                value: "",
+                value_span: Span::saturating_from_parts_usize(11, 0),
+            }
+        );
+    }
+
+    #[test]
+    fn template_string_accounts_for_trimmed_leading_bytes() {
+        let value =
+            TemplateString::parse("  'base.html' ", Span::saturating_from_parts_usize(40, 14));
+
+        assert_eq!(
+            value,
+            TemplateString::Quoted {
+                value: "base.html",
+                value_span: Span::saturating_from_parts_usize(43, 9),
+            }
+        );
+    }
+
+    #[test]
+    fn template_string_records_non_ascii_byte_length() {
+        let value = TemplateString::parse(r#""é.html""#, Span::saturating_from_parts_usize(0, 9));
+
+        assert_eq!(
+            value,
+            TemplateString::Quoted {
+                value: "é.html",
+                value_span: Span::saturating_from_parts_usize(1, 7),
+            }
+        );
+    }
+
+    #[test]
+    fn template_string_leaves_unterminated_quotes_unquoted() {
+        let value = TemplateString::parse("'base.html", Span::saturating_from_parts_usize(0, 10));
+
+        assert_eq!(value, TemplateString::Unquoted("'base.html"));
     }
 
     #[test]
     fn template_string_leaves_bare_values_unquoted() {
-        let value = TemplateString::parse("user.name");
+        let value = TemplateString::parse("user.name", Span::saturating_from_parts_usize(0, 9));
 
         assert_eq!(value, TemplateString::Unquoted("user.name"));
-        assert_eq!(value.value(), "user.name");
-        assert_eq!(value.quoted_value(), None);
     }
 
     fn split_on_unquoted_whitespace_text(input: &str) -> Vec<String> {

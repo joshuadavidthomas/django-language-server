@@ -5,6 +5,7 @@ use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::TagBit;
+use djls_templates::TemplateString;
 use djls_templates::parse_template;
 use rustc_hash::FxHashMap;
 
@@ -60,8 +61,13 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
             };
 
             let target_template_name = TemplateName::new(db, reference.template_name.to_string());
-            let reference =
-                TemplateReference::new(db, source, target_template_name, reference.kind, tag.span);
+            let reference = TemplateReference::new(
+                db,
+                source,
+                target_template_name,
+                reference.kind,
+                reference.value_span,
+            );
 
             by_template_name
                 .entry(target_template_name)
@@ -115,7 +121,8 @@ impl<'db> TemplateReference<'db> {
 pub(crate) struct LiteralTemplateReference<'bits> {
     kind: TemplateReferenceKind,
     pub(crate) template_name: &'bits str,
-    pub(crate) span: Span,
+    pub(crate) bit_span: Span,
+    pub(crate) value_span: Span,
 }
 
 impl<'bits> LiteralTemplateReference<'bits> {
@@ -130,12 +137,19 @@ impl<'bits> LiteralTemplateReference<'bits> {
             return None;
         };
         let bit = bits.first()?;
-        let template_name = bit.template_string().quoted_value()?;
+        let TemplateString::Quoted {
+            value: template_name,
+            value_span,
+        } = bit.template_string()
+        else {
+            return None;
+        };
 
         Some(Self {
             kind,
             template_name,
-            span: bit.span,
+            bit_span: bit.span,
+            value_span,
         })
     }
 }
