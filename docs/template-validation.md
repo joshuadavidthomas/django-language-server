@@ -47,6 +47,8 @@ Each layer has a different failure mode and a different fix:
 
 `{% load %}` library names are checked against the active static inventory first. If the library exists on the project's Python search paths but its app is not in `INSTALLED_APPS`, djls reports S121. If no inactive-library evidence exists, djls reports S120.
 
+The same inventory powers editor links: resolved `{% load %}` library names become document links to their `templatetags/*.py` source files. Unresolved libraries are skipped.
+
 This gives you diagnostics based on the same template tag inventory Django would use at runtime, while distinguishing "not installed or misspelled" from "installed but not activated".
 
 ## What djls Validates
@@ -119,7 +121,7 @@ Django templates are deeply dynamic — many things can only be checked at runti
 
 - **Variable resolution** — Whether a variable exists in the template context
 - **Type coercion** — Whether filter arguments have the correct type at runtime
-- **Template inheritance** — `{% extends %}` and `{% include %}` resolution across files
+- **Template existence and inheritance semantics** — Whether every `{% extends %}` / `{% include %}` target exists or whether inherited blocks match intended runtime behavior
 - **Dynamic tag behavior** — Tags whose validation depends on runtime state
 - **Format strings** — Whether date/time format strings are valid
 
@@ -140,7 +142,7 @@ When the template inventory is **incomplete or unavailable**:
 - **S117 is suppressed when tag argument rules are unavailable** — Tag argument rules come from extraction, which depends on discovering tag source modules
 - **S100–S103 still work** — Block structure validation uses built-in tag specs
 - **S114 still works** — Expression syntax validation is purely structural
-- **Project-backed completions are unavailable** when the active inventory is unknown; syntax-only completions may still appear
+- **Project-backed completions and `{% load %}` document links are unavailable** when the active inventory is unknown; syntax-only completions may still appear
 
 This design avoids false positives when djls cannot prove whether a tag, filter, or library is absent from the active project.
 

@@ -1,3 +1,4 @@
+use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
@@ -10,6 +11,7 @@ use djls_templates::parse_template;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as SemanticDb;
+use crate::scoping::LoadKind;
 use crate::structure::active_template_tags;
 use crate::structure::build_template_tree;
 use crate::tags::TagRole;
@@ -45,22 +47,10 @@ impl<'db> TemplateReferences<'db> {
 pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> TemplateReferences<'_> {
     let mut by_template_name = FxHashMap::default();
     let resolution = template_resolution(db, project);
-    let tag_specs = compute_tag_specs(db, project);
 
     for source in resolution.origins(db) {
-        let file = source.file(db);
-        let Some(nodelist) = parse_template(db, file) else {
-            continue;
-        };
-        let tree = build_template_tree(db, nodelist);
-
-        for tag in active_template_tags(tree.regions(db), tree.root(db)) {
-            let Some(reference) = LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)
-            else {
-                continue;
-            };
-
-            let target_template_name = TemplateName::new(db, reference.template_name.to_string());
+        for reference in template_references_in_file(db, project, source.file(db)).as_slice(db) {
+            let target_template_name = reference.target_template_name;
             let reference = TemplateReference::new(
                 db,
                 source,
@@ -77,6 +67,133 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
     }
 
     TemplateReferences::new(db, by_template_name)
+}
+
+#[salsa::tracked]
+pub struct TemplateReferencesInFile<'db> {
+    #[tracked]
+    #[returns(ref)]
+    references: Vec<TemplateReferenceInFile<'db>>,
+}
+
+impl<'db> TemplateReferencesInFile<'db> {
+    pub fn as_slice(self, db: &'db dyn SemanticDb) -> &'db [TemplateReferenceInFile<'db>] {
+        self.references(db)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub struct TemplateReferenceInFile<'db> {
+    target_template_name: TemplateName<'db>,
+    kind: TemplateReferenceKind,
+    span: Span,
+}
+
+impl<'db> TemplateReferenceInFile<'db> {
+    #[must_use]
+    pub fn target_template_name(self) -> TemplateName<'db> {
+        self.target_template_name
+    }
+
+    #[must_use]
+    pub fn span(self) -> Span {
+        self.span
+    }
+}
+
+#[salsa::tracked]
+pub struct TemplateLibraryReferencesInFile<'db> {
+    #[tracked]
+    #[returns(ref)]
+    references: Vec<TemplateLibraryReferenceInFile>,
+}
+
+impl<'db> TemplateLibraryReferencesInFile<'db> {
+    pub fn as_slice(self, db: &'db dyn SemanticDb) -> &'db [TemplateLibraryReferenceInFile] {
+        self.references(db)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub struct TemplateLibraryReferenceInFile {
+    load_name: LibraryName,
+    span: Span,
+}
+
+impl TemplateLibraryReferenceInFile {
+    #[must_use]
+    pub fn load_name(&self) -> &LibraryName {
+        &self.load_name
+    }
+
+    #[must_use]
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[salsa::tracked]
+pub fn template_references_in_file(
+    db: &dyn SemanticDb,
+    project: Project,
+    file: File,
+) -> TemplateReferencesInFile<'_> {
+    let tag_specs = compute_tag_specs(db, project);
+    let Some(nodelist) = parse_template(db, file) else {
+        return TemplateReferencesInFile::new(db, Vec::new());
+    };
+    let tree = build_template_tree(db, nodelist);
+
+    let references = active_template_tags(tree.regions(db), tree.root(db))
+        .into_iter()
+        .filter_map(|tag| {
+            let reference = LiteralTemplateReference::from_tag(tag_specs, tag.tag, tag.bits)?;
+            Some(TemplateReferenceInFile {
+                target_template_name: TemplateName::new(db, reference.template_name.to_string()),
+                kind: reference.kind,
+                span: reference.span,
+            })
+        })
+        .collect();
+
+    TemplateReferencesInFile::new(db, references)
+}
+
+#[salsa::tracked]
+pub fn template_library_references_in_file(
+    db: &dyn SemanticDb,
+    file: File,
+) -> TemplateLibraryReferencesInFile<'_> {
+    let Some(nodelist) = parse_template(db, file) else {
+        return TemplateLibraryReferencesInFile::new(db, Vec::new());
+    };
+    let tree = build_template_tree(db, nodelist);
+
+    let references = active_template_tags(tree.regions(db), tree.root(db))
+        .into_iter()
+        .flat_map(|tag| literal_load_references_from_tag(tag.tag, tag.bits))
+        .collect();
+
+    TemplateLibraryReferencesInFile::new(db, references)
+}
+
+fn literal_load_references_from_tag(
+    name: &str,
+    bits: &[TagBit],
+) -> Vec<TemplateLibraryReferenceInFile> {
+    let Some(kind) = LoadKind::from_tag(name, bits) else {
+        return Vec::new();
+    };
+
+    kind.into_library_arguments()
+        .into_iter()
+        .filter_map(|argument| {
+            Some(TemplateLibraryReferenceInFile {
+                load_name: LibraryName::parse(argument.as_str()).ok()?,
+                span: argument.span(),
+            })
+        })
+        .collect()
 }
 
 pub fn references_to_template_name<'db>(
@@ -96,16 +213,12 @@ pub struct TemplateReference<'db> {
 }
 
 impl<'db> TemplateReference<'db> {
-    pub fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
+    fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
         self.source_origin(db)
     }
 
     pub fn source_file(self, db: &'db dyn SemanticDb) -> File {
         self.source(db).file(db)
-    }
-
-    pub fn target_template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
-        self.target_name(db)
     }
 
     pub fn kind(self, db: &dyn SemanticDb) -> TemplateReferenceKind {

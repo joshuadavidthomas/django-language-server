@@ -70,6 +70,14 @@ impl LoadKind {
 
         parse_load_bits(bits)
     }
+
+    #[must_use]
+    pub(crate) fn into_library_arguments(self) -> Vec<LoadArgument> {
+        match self {
+            Self::FullLoad { libraries } => libraries,
+            Self::SelectiveImport { library, .. } => vec![library],
+        }
+    }
 }
 
 /// A parsed `{% load %}` tag with its source span and load kind.

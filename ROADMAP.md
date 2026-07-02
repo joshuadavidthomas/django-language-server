@@ -26,9 +26,9 @@ Prefer conservative diagnostics over false positives when project facts are part
 
 #### Template reference polish
 
-**Status:** 📅 Planned
+**Status:** 🚧 Partially supported
 
-`{% extends %}` and `{% include %}` references should feel complete across completion, navigation, and editor links. The first pass should add document links, precise goto targets, and template-name completion from discovered templates.
+`{% extends %}` and `{% include %}` references should feel complete across completion, navigation, and editor links. Document links are supported for resolved `{% extends %}`, `{% include %}`, and `{% load %}` template-library names. Remaining first-pass polish should add precise goto targets and template-name completion from discovered templates.
 
 #### Inheritance block intelligence
 
@@ -118,9 +118,9 @@ Document symbols are supported for template structure outlines. They can become 
 
 #### Document links
 
-**Status:** 📅 Planned
+**Status:** ✅ Supported
 
-Document links should make resolved `{% extends %}` and `{% include %}` template names clickable in editors. Static asset and URL links can follow once those domains have facts.
+Document links make resolved `{% extends %}` and `{% include %}` template names clickable in editors, and link `{% load %}` template-library names to their resolved `templatetags/*.py` source files. Static asset and URL links can follow once those domains have facts.
 
 #### Folding range
 
@@ -216,16 +216,15 @@ Execute commands may be useful for hierarchy views, project-status inspection, o
 
 ## Priority Order
 
-1. Document links for template references.
-2. Precise template-reference goto targets.
-3. Template-name completion for `{% extends %}` and `{% include %}`.
-4. Block navigation across inheritance.
-5. Block references and block-name completion.
-6. Code actions for existing diagnostics.
-7. URL/static completions and diagnostics.
-8. Settings hover and typo diagnostics.
-9. Model facts surfaced through navigation and hover.
-10. Template context and variable intelligence.
+1. Precise template-reference goto targets.
+2. Template-name completion for `{% extends %}` and `{% include %}`.
+3. Block navigation across inheritance.
+4. Block references and block-name completion.
+5. Code actions for existing diagnostics.
+6. URL/static completions and diagnostics.
+7. Settings hover and typo diagnostics.
+8. Model facts surfaced through navigation and hover.
+9. Template context and variable intelligence.
 
 ## Deferred or Not Planned
 
