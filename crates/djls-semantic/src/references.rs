@@ -84,9 +84,21 @@ impl<'db> TemplateReferencesInFile<'db> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
 pub struct TemplateReferenceInFile<'db> {
-    pub target_template_name: TemplateName<'db>,
+    target_template_name: TemplateName<'db>,
     kind: TemplateReferenceKind,
-    pub span: Span,
+    span: Span,
+}
+
+impl<'db> TemplateReferenceInFile<'db> {
+    #[must_use]
+    pub fn target_template_name(self) -> TemplateName<'db> {
+        self.target_template_name
+    }
+
+    #[must_use]
+    pub fn span(self) -> Span {
+        self.span
+    }
 }
 
 #[salsa::tracked]
@@ -104,8 +116,20 @@ impl<'db> TemplateLibraryReferencesInFile<'db> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
 pub struct TemplateLibraryReferenceInFile {
-    pub load_name: LibraryName,
-    pub span: Span,
+    load_name: LibraryName,
+    span: Span,
+}
+
+impl TemplateLibraryReferenceInFile {
+    #[must_use]
+    pub fn load_name(&self) -> &LibraryName {
+        &self.load_name
+    }
+
+    #[must_use]
+    pub fn span(&self) -> Span {
+        self.span
+    }
 }
 
 #[salsa::tracked]
@@ -189,16 +213,12 @@ pub struct TemplateReference<'db> {
 }
 
 impl<'db> TemplateReference<'db> {
-    pub fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
+    fn source(self, db: &'db dyn SemanticDb) -> TemplateOrigin<'db> {
         self.source_origin(db)
     }
 
     pub fn source_file(self, db: &'db dyn SemanticDb) -> File {
         self.source(db).file(db)
-    }
-
-    pub fn target_template_name(self, db: &'db dyn SemanticDb) -> TemplateName<'db> {
-        self.target_name(db)
     }
 
     pub fn kind(self, db: &dyn SemanticDb) -> TemplateReferenceKind {

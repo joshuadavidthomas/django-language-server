@@ -19,9 +19,9 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                 .as_slice(db)
                 .iter()
                 .filter_map(|reference| {
-                    match resolution.resolve(db, reference.target_template_name) {
+                    match resolution.resolve(db, reference.target_template_name()) {
                         FindTemplateResult::Found(origin) => Some(ls_types::DocumentLink {
-                            range: reference.span.to_lsp_range(line_index),
+                            range: reference.span().to_lsp_range(line_index),
                             target: Some(origin.path_buf(db).to_lsp_uri()?),
                             tooltip: None,
                             data: None,
@@ -46,9 +46,9 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
             .filter_map(|reference| {
                 let library = db
                     .template_libraries()
-                    .installed_library(&reference.load_name)?;
+                    .installed_library(reference.load_name())?;
                 Some(ls_types::DocumentLink {
-                    range: reference.span.to_lsp_range(line_index),
+                    range: reference.span().to_lsp_range(line_index),
                     target: Some(library.file().path(db).to_lsp_uri()?),
                     tooltip: None,
                     data: None,
