@@ -7,11 +7,6 @@ use djls_testing::TestDatabase;
 use djls_testing::make_template_libraries;
 use tower_lsp_server::ls_types;
 
-fn file_uri(path: &str) -> ls_types::Uri {
-    ls_types::Uri::from_file_path(Utf8Path::new(path).as_std_path())
-        .expect("test path should convert to a file URI")
-}
-
 #[test]
 fn document_links_resolve_template_references_with_interior_ranges() {
     let mut db = TestDatabase::new();
@@ -47,7 +42,11 @@ fn document_links_resolve_template_references_with_interior_ranges() {
                 ls_types::Position::new(0, 12),
                 ls_types::Position::new(0, 21),
             ),
-            target: Some(file_uri(base_path)),
+            target: Some(
+                "file:///test/project/templates/base.html"
+                    .parse()
+                    .expect("test URI should parse"),
+            ),
             tooltip: None,
             data: None,
         }
@@ -59,7 +58,11 @@ fn document_links_resolve_template_references_with_interior_ranges() {
                 ls_types::Position::new(1, 12),
                 ls_types::Position::new(1, 30),
             ),
-            target: Some(file_uri(partial_path)),
+            target: Some(
+                "file:///test/project/templates/partials/card.html"
+                    .parse()
+                    .expect("test URI should parse"),
+            ),
             tooltip: None,
             data: None,
         }
@@ -99,9 +102,11 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(0, 8),
                     ls_types::Position::new(0, 21),
                 ),
-                target: Some(file_uri(
-                    "/__djls_testing__/djls_app/templatetags/djls_app_tags.py",
-                )),
+                target: Some(
+                    "file:///__djls_testing__/djls_app/templatetags/djls_app_tags.py"
+                        .parse()
+                        .expect("test URI should parse"),
+                ),
                 tooltip: None,
                 data: None,
             },
@@ -110,7 +115,11 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(0, 22),
                     ls_types::Position::new(0, 28),
                 ),
-                target: Some(file_uri("/__djls_testing__/project/templatetags/extras.py")),
+                target: Some(
+                    "file:///__djls_testing__/project/templatetags/extras.py"
+                        .parse()
+                        .expect("test URI should parse"),
+                ),
                 tooltip: None,
                 data: None,
             },
@@ -119,9 +128,11 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(1, 27),
                     ls_types::Position::new(1, 40),
                 ),
-                target: Some(file_uri(
-                    "/__djls_testing__/djls_app/templatetags/djls_app_tags.py",
-                )),
+                target: Some(
+                    "file:///__djls_testing__/djls_app/templatetags/djls_app_tags.py"
+                        .parse()
+                        .expect("test URI should parse"),
+                ),
                 tooltip: None,
                 data: None,
             },
