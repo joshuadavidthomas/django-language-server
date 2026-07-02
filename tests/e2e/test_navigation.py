@@ -110,9 +110,9 @@ async def test_find_references_for_template_reference(client: LanguageClient):
         )
         for location in result
     } == {
-        (HOME_TEMPLATE.as_uri(), 0, 2, 0, 32),
-        (EXTENDS_TAG_TEMPLATE.as_uri(), 2, 2, 2, 32),
-        (EXTENDS_TAG_TEMPLATE.as_uri(), 10, 2, 10, 32),
+        (HOME_TEMPLATE.as_uri(), 0, 12, 0, 30),
+        (EXTENDS_TAG_TEMPLATE.as_uri(), 2, 12, 2, 30),
+        (EXTENDS_TAG_TEMPLATE.as_uri(), 10, 12, 10, 30),
     }
 
 

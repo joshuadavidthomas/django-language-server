@@ -12,6 +12,7 @@ Use this for changes to template parsing, semantic validation, environment scann
 - `Node::Tag.bits` excludes the tag name.
 - Example: `{% load i18n %}` becomes `name: "load"`, `bits: ["i18n"]`.
 - Functions processing `bits` work with tag arguments only.
+- Extracted text and its span are computed by the same parse, in the crate that owns the syntax. Do not re-derive quote/content spans in semantic or IDE consumers.
 
 ## Environment scanning
 

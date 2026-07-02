@@ -61,7 +61,7 @@ fn template_references_record_extends_and_include_kinds() {
     assert_eq!(base_refs[0].kind(&db), TemplateReferenceKind::Extends);
     assert_eq!(
         base_refs[0].span(&db),
-        Span::saturating_from_parts_usize(2, 21)
+        Span::saturating_from_parts_usize(12, 9)
     );
     assert_eq!(partial_refs.len(), 1);
     assert_eq!(partial_refs[0].kind(&db), TemplateReferenceKind::Include);

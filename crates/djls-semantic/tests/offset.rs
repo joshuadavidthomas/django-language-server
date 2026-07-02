@@ -31,7 +31,23 @@ fn identifies_template_reference_context() {
         context,
         SemanticOffsetContext::TemplateReference {
             name: TemplateName::new(&db, "base.html".to_string()),
-            span: Span::saturating_from_parts_usize(11, 11),
+            span: Span::saturating_from_parts_usize(12, 9),
+        }
+    );
+}
+
+#[test]
+fn identifies_template_reference_context_from_opening_quote() {
+    let db = TestDatabase::new();
+    let source = r#"{% extends "base.html" %}"#;
+
+    let context = context_for_source(&db, source, offset_of(source, "\"base"));
+
+    assert_eq!(
+        context,
+        SemanticOffsetContext::TemplateReference {
+            name: TemplateName::new(&db, "base.html".to_string()),
+            span: Span::saturating_from_parts_usize(12, 9),
         }
     );
 }

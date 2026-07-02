@@ -1,5 +1,6 @@
 use djls_source::Span;
 use djls_templates::TagBit;
+use djls_templates::TemplateString;
 
 use crate::db::Db;
 use crate::scoping::LoadKind;
@@ -76,12 +77,17 @@ fn outline_items_for_tag(
         | TagRole::StaticAssetReference
         | TagRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
+                let (label, selection_span) = match bit.template_string() {
+                    TemplateString::Quoted { value, span } => (value.to_string(), span),
+                    TemplateString::Unquoted(value) => (value.to_string(), bit.span),
+                };
+
                 OutlineItem {
-                    label: bit.template_string().value().to_string(),
+                    label,
                     detail: Some(tag.to_string()),
                     kind: role.into(),
                     span,
-                    selection_span: bit.span,
+                    selection_span,
                     children,
                 }
             } else {

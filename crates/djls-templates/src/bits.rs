@@ -22,7 +22,7 @@ impl TagBit {
 
     #[must_use]
     pub fn template_string(&self) -> TemplateString<'_> {
-        TemplateString::parse(&self.text)
+        TemplateString::parse(&self.text, self.span)
     }
 }
 

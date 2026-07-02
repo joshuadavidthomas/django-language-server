@@ -10,6 +10,7 @@ use djls_semantic::TagSpecs;
 use djls_semantic::build_template_outline;
 use djls_semantic::build_template_tree;
 use djls_semantic::builtin_tag_specs;
+use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
@@ -29,12 +30,10 @@ fn labels(items: &[OutlineItem]) -> Vec<&str> {
 #[test]
 fn header_tags_produce_outline_items() {
     let db = TestDatabase::new();
-    let outline = outline_for_source(
-        &db,
-        r#"{% extends "base.html" %}
+    let source = r#"{% extends "base.html" %}
 {% load static i18n %}
-{% include "partials/nav.html" %}"#,
-    );
+{% include "partials/nav.html" %}"#;
+    let outline = outline_for_source(&db, source);
 
     assert_eq!(
         labels(outline),
@@ -55,6 +54,17 @@ fn header_tags_produce_outline_items() {
             .map(|item| item.detail.as_deref())
             .collect::<Vec<_>>(),
         vec![Some("extends"), Some("load"), Some("load"), Some("include")]
+    );
+    assert_eq!(
+        outline[0].selection_span,
+        Span::saturating_from_parts_usize(source.find("base.html").unwrap(), "base.html".len())
+    );
+    assert_eq!(
+        outline[3].selection_span,
+        Span::saturating_from_parts_usize(
+            source.find("partials/nav.html").unwrap(),
+            "partials/nav.html".len()
+        )
     );
 }
 
