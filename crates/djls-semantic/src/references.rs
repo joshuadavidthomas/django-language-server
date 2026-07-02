@@ -1,3 +1,4 @@
+use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
@@ -10,6 +11,7 @@ use djls_templates::parse_template;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as SemanticDb;
+use crate::scoping::LoadKind;
 use crate::structure::active_template_tags;
 use crate::structure::build_template_tree;
 use crate::tags::TagRole;
@@ -88,6 +90,25 @@ pub struct TemplateReferenceInFile<'db> {
 }
 
 #[salsa::tracked]
+pub struct TemplateLibraryReferencesInFile<'db> {
+    #[tracked]
+    #[returns(ref)]
+    references: Vec<TemplateLibraryReferenceInFile>,
+}
+
+impl<'db> TemplateLibraryReferencesInFile<'db> {
+    pub fn as_slice(self, db: &'db dyn SemanticDb) -> &'db [TemplateLibraryReferenceInFile] {
+        self.references(db)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub struct TemplateLibraryReferenceInFile {
+    pub load_name: LibraryName,
+    pub span: Span,
+}
+
+#[salsa::tracked]
 pub fn template_references_in_file(
     db: &dyn SemanticDb,
     project: Project,
@@ -112,6 +133,43 @@ pub fn template_references_in_file(
         .collect();
 
     TemplateReferencesInFile::new(db, references)
+}
+
+#[salsa::tracked]
+pub fn template_library_references_in_file(
+    db: &dyn SemanticDb,
+    file: File,
+) -> TemplateLibraryReferencesInFile<'_> {
+    let Some(nodelist) = parse_template(db, file) else {
+        return TemplateLibraryReferencesInFile::new(db, Vec::new());
+    };
+    let tree = build_template_tree(db, nodelist);
+
+    let references = active_template_tags(tree.regions(db), tree.root(db))
+        .into_iter()
+        .flat_map(|tag| literal_load_references_from_tag(tag.tag, tag.bits))
+        .collect();
+
+    TemplateLibraryReferencesInFile::new(db, references)
+}
+
+fn literal_load_references_from_tag(
+    name: &str,
+    bits: &[TagBit],
+) -> Vec<TemplateLibraryReferenceInFile> {
+    let Some(kind) = LoadKind::from_tag(name, bits) else {
+        return Vec::new();
+    };
+
+    kind.into_library_arguments()
+        .into_iter()
+        .filter_map(|argument| {
+            Some(TemplateLibraryReferenceInFile {
+                load_name: LibraryName::parse(argument.as_str()).ok()?,
+                span: argument.span(),
+            })
+        })
+        .collect()
 }
 
 pub fn references_to_template_name<'db>(

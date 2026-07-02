@@ -136,12 +136,7 @@ pub(crate) fn check_load_libraries_rule(
         return;
     };
 
-    let libs = match kind {
-        crate::scoping::LoadKind::FullLoad { libraries } => libraries,
-        crate::scoping::LoadKind::SelectiveImport { library, .. } => vec![library],
-    };
-
-    for lib in libs {
+    for lib in kind.into_library_arguments() {
         let Ok(load_name) = LibraryName::parse(lib.as_str()) else {
             // Invalid library name string (shouldn't happen given LoadKind parser, but safety first)
             continue;

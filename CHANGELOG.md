@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added document links for resolvable Django template references.
+- Added document links for resolvable Django template and template-library references.
 - Added opt-in whole-document Django template formatting through `djangofmt`.
 - Added startup progress reporting for Django project discovery and IDE cache warm-up.
 - Added a public `ROADMAP.md` for current and planned Django/LSP capabilities.

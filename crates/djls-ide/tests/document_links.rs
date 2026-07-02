@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use camino::Utf8Path;
 use djls_ide::document_links;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
+use djls_testing::make_template_libraries;
 use tower_lsp_server::ls_types;
 
 fn file_uri(path: &str) -> ls_types::Uri {
@@ -60,5 +63,68 @@ fn document_links_resolve_template_references_with_interior_ranges() {
             tooltip: None,
             data: None,
         }
+    );
+}
+
+#[test]
+fn document_links_resolve_load_libraries_with_argument_ranges() {
+    let db = TestDatabase::new();
+    let library_modules = HashMap::from([
+        (
+            "djls_app_tags".to_string(),
+            "djls_app.templatetags.djls_app_tags".to_string(),
+        ),
+        (
+            "extras".to_string(),
+            "project.templatetags.extras".to_string(),
+        ),
+    ]);
+    let template_libraries = make_template_libraries(&db, &[], &[], &library_modules, &[]);
+    let db = db.with_template_libraries(template_libraries);
+    let template_path = "/test/project/templates/load.html";
+    let source = concat!(
+        "{% load djls_app_tags extras missing %}\n",
+        "{% load djls_greeting from djls_app_tags %}\n",
+    );
+
+    db.add_file(template_path, source);
+    let file = db.get_or_create_file(Utf8Path::new(template_path));
+    let links = document_links(&db, file);
+
+    assert_eq!(
+        links,
+        vec![
+            ls_types::DocumentLink {
+                range: ls_types::Range::new(
+                    ls_types::Position::new(0, 8),
+                    ls_types::Position::new(0, 21),
+                ),
+                target: Some(file_uri(
+                    "/__djls_testing__/djls_app/templatetags/djls_app_tags.py",
+                )),
+                tooltip: None,
+                data: None,
+            },
+            ls_types::DocumentLink {
+                range: ls_types::Range::new(
+                    ls_types::Position::new(0, 22),
+                    ls_types::Position::new(0, 28),
+                ),
+                target: Some(file_uri("/__djls_testing__/project/templatetags/extras.py")),
+                tooltip: None,
+                data: None,
+            },
+            ls_types::DocumentLink {
+                range: ls_types::Range::new(
+                    ls_types::Position::new(1, 27),
+                    ls_types::Position::new(1, 40),
+                ),
+                target: Some(file_uri(
+                    "/__djls_testing__/djls_app/templatetags/djls_app_tags.py",
+                )),
+                tooltip: None,
+                data: None,
+            },
+        ]
     );
 }
