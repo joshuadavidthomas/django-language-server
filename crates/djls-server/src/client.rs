@@ -83,6 +83,11 @@ impl ClientInfo {
     pub(crate) fn supports_snippets(&self) -> bool {
         self.capabilities.snippets
     }
+
+    #[must_use]
+    pub(crate) fn supports_location_links(&self) -> bool {
+        self.capabilities.definition.supports_location_links()
+    }
 }
 
 /// LSP client identification for client-specific behavioral overrides.
@@ -101,6 +106,7 @@ pub(crate) enum Client {
 pub(crate) struct ClientCapabilities {
     pull_diagnostics: bool,
     snippets: bool,
+    definition: DefinitionCapabilities,
     work_done_progress: bool,
 }
 
@@ -121,6 +127,8 @@ impl ClientCapabilities {
             .and_then(|completion_item| completion_item.snippet_support)
             .unwrap_or(false);
 
+        let definition = DefinitionCapabilities::new(capabilities);
+
         let work_done_progress = capabilities
             .window
             .as_ref()
@@ -130,8 +138,33 @@ impl ClientCapabilities {
         Self {
             pull_diagnostics,
             snippets,
+            definition,
             work_done_progress,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DefinitionCapabilities {
+    location_links: bool,
+}
+
+impl DefinitionCapabilities {
+    #[must_use]
+    fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
+        let location_links = capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.definition.as_ref())
+            .and_then(|definition| definition.link_support)
+            .unwrap_or(false);
+
+        Self { location_links }
+    }
+
+    #[must_use]
+    fn supports_location_links(self) -> bool {
+        self.location_links
     }
 }
 
@@ -207,6 +240,33 @@ mod tests {
         let capabilities = ls_types::ClientCapabilities::default();
         let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
         assert_eq!(client_info.position_encoding(), PositionEncoding::Utf16);
+    }
+
+    #[test]
+    fn test_supports_location_links_when_definition_link_support_is_declared() {
+        let capabilities = ls_types::ClientCapabilities {
+            text_document: Some(ls_types::TextDocumentClientCapabilities {
+                definition: Some(ls_types::GotoCapability {
+                    link_support: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+
+        assert!(client_info.supports_location_links());
+    }
+
+    #[test]
+    fn test_does_not_support_location_links_when_definition_link_support_is_absent() {
+        let capabilities = ls_types::ClientCapabilities::default();
+
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+
+        assert!(!client_info.supports_location_links());
     }
 
     #[test]

@@ -32,7 +32,7 @@ env_file = ".env.local"
 
 Your Django settings module name (e.g., `"myproject.settings"`).
 
-The server uses this to statically introspect your Django project for template tag completions, diagnostics, navigation, hover, and template-library document links. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
+The server uses this to statically introspect your Django project for template tag completions, diagnostics, template navigation, hover, and document links for templates and template libraries. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
 **When to configure:**
 
@@ -56,7 +56,7 @@ The server needs access to your virtual environment to discover installed Django
 
 **Default:** `[]` (empty list)
 
-Additional directories to add to the Python import search paths used for static project introspection. These paths are searched alongside the project root when the server resolves settings modules, installed apps, template tag libraries, and Python sources for diagnostics, hover, completions, and `{% load %}` document links.
+Additional directories to add to the Python import search paths used for static project introspection. These paths are searched alongside the project root when the server resolves settings modules, installed apps, template tag libraries, and Python sources for diagnostics, hover, completions, template navigation, and `{% load %}` document links.
 
 **When to configure:**
 

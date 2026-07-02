@@ -13,11 +13,12 @@ pub fn goto_definition(
     db: &dyn djls_semantic::Db,
     file: File,
     offset: Offset,
+    supports_location_links: bool,
 ) -> Option<ls_types::GotoDefinitionResponse> {
     match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
             name: template_name,
-            ..
+            span,
         } => {
             tracing::debug!("Found template reference: '{}'", template_name.name(db));
 
@@ -28,12 +29,27 @@ pub fn goto_definition(
                     let path = origin.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
 
-                    Some(ls_types::GotoDefinitionResponse::Scalar(
-                        ls_types::Location {
-                            uri: path.to_lsp_uri()?,
-                            range: ls_types::Range::default(),
-                        },
-                    ))
+                    let target_uri = path.to_lsp_uri()?;
+                    let target_range = ls_types::Range::default();
+                    if supports_location_links {
+                        Some(ls_types::GotoDefinitionResponse::Link(vec![
+                            ls_types::LocationLink {
+                                origin_selection_range: Some(
+                                    span.to_lsp_range(file.line_index(db)),
+                                ),
+                                target_uri,
+                                target_range,
+                                target_selection_range: target_range,
+                            },
+                        ]))
+                    } else {
+                        Some(ls_types::GotoDefinitionResponse::Scalar(
+                            ls_types::Location {
+                                uri: target_uri,
+                                range: target_range,
+                            },
+                        ))
+                    }
                 }
                 FindTemplateResult::DoesNotExist(error) => {
                     tracing::warn!(

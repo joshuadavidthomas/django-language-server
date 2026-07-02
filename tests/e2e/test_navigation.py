@@ -43,8 +43,18 @@ async def test_goto_definition_for_extends_template_reference(client: LanguageCl
     )
 
     assert result is not None
-    assert result.uri == BASE_TEMPLATE.as_uri()
-    assert result.range == Range(
+    assert len(result) == 1
+    link = result[0]
+    assert link.origin_selection_range == Range(
+        start=Position(line=0, character=12),
+        end=Position(line=0, character=30),
+    )
+    assert link.target_uri == BASE_TEMPLATE.as_uri()
+    assert link.target_range == Range(
+        start=Position(line=0, character=0),
+        end=Position(line=0, character=0),
+    )
+    assert link.target_selection_range == Range(
         start=Position(line=0, character=0),
         end=Position(line=0, character=0),
     )
@@ -71,8 +81,18 @@ async def test_goto_definition_for_include_template_reference(client: LanguageCl
     )
 
     assert result is not None
-    assert result.uri == HEADER_TEMPLATE.as_uri()
-    assert result.range == Range(
+    assert len(result) == 1
+    link = result[0]
+    assert link.origin_selection_range == Range(
+        start=Position(line=11, character=16),
+        end=Position(line=11, character=36),
+    )
+    assert link.target_uri == HEADER_TEMPLATE.as_uri()
+    assert link.target_range == Range(
+        start=Position(line=0, character=0),
+        end=Position(line=0, character=0),
+    )
+    assert link.target_selection_range == Range(
         start=Position(line=0, character=0),
         end=Position(line=0, character=0),
     )

@@ -16,7 +16,7 @@ The project is currently a template-first Django language server. The near-term 
 
 ## Strategy
 
-Finish high-value template IDE features first: links, precise navigation, template-name completion, block navigation, and quick fixes. Broader Django intelligence should build from static project facts through settings, URLs/static assets, model facts, view context, and finally template variable types.
+Finish high-value template IDE features first: template-name completion, block navigation, block references, and quick fixes. Broader Django intelligence should build from static project facts through settings, URLs/static assets, model facts, view context, and finally template variable types.
 
 Prefer conservative diagnostics over false positives when project facts are partial or dynamic. Defer rename, code lens, and type-driven features until references and symbol identity are strong enough to make them safe.
 
@@ -28,7 +28,7 @@ Prefer conservative diagnostics over false positives when project facts are part
 
 **Status:** 🚧 Partially supported
 
-`{% extends %}` and `{% include %}` references should feel complete across completion, navigation, and editor links. Document links are supported for resolved `{% extends %}`, `{% include %}`, and `{% load %}` template-library names. Remaining first-pass polish should add precise goto targets and template-name completion from discovered templates.
+`{% extends %}` and `{% include %}` references should feel complete across completion, navigation, and editor links. Document links are supported for resolved `{% extends %}`, `{% include %}`, and `{% load %}` template-library names. Go to definition resolves literal `{% extends %}` and `{% include %}` names and sends exact origin ranges to clients that support definition links. Remaining first-pass polish should add template-name completion from discovered templates.
 
 #### Inheritance block intelligence
 
@@ -102,7 +102,7 @@ Hover is supported for template tags, filters, libraries, selectively loaded sym
 
 **Status:** 🚧 Partially supported
 
-Go to definition works for template references in `{% extends %}` and `{% include %}`. The next improvements are precise template-reference targets and parent block navigation across inheritance.
+Go to definition works for literal template references in `{% extends %}` and `{% include %}`. Clients that support definition links receive exact origin ranges for the referenced template name; older clients still receive plain locations. The next improvement is parent block navigation across inheritance.
 
 #### Find references
 
@@ -216,15 +216,14 @@ Execute commands may be useful for hierarchy views, project-status inspection, o
 
 ## Priority Order
 
-1. Precise template-reference goto targets.
-2. Template-name completion for `{% extends %}` and `{% include %}`.
-3. Block navigation across inheritance.
-4. Block references and block-name completion.
-5. Code actions for existing diagnostics.
-6. URL/static completions and diagnostics.
-7. Settings hover and typo diagnostics.
-8. Model facts surfaced through navigation and hover.
-9. Template context and variable intelligence.
+1. Template-name completion for `{% extends %}` and `{% include %}`.
+2. Block navigation across inheritance.
+3. Block references and block-name completion.
+4. Code actions for existing diagnostics.
+5. URL/static completions and diagnostics.
+6. Settings hover and typo diagnostics.
+7. Model facts surfaced through navigation and hover.
+8. Template context and variable intelligence.
 
 ## Deferred or Not Planned
 
