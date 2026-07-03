@@ -88,6 +88,23 @@ djls primarily derives tag structure and argument rules automatically from Pytho
 
 See [TagSpecs](tagspecs.md).
 
+### `format`
+
+Configure Django template formatting. Formatting is disabled by default and must be enabled explicitly.
+
+```toml
+[format]
+enabled = true
+backend = "djangofmt"
+```
+
+**Options:**
+
+- `enabled` — Enable LSP whole-document formatting for Django templates. Default: `false`.
+- `backend` — Formatter backend. Currently supported: `"djangofmt"`. Default: `"djangofmt"`.
+
+When enabled, editor "format document" requests are handled by `djangofmt`. DJLS passes through standard editor formatting options when the client provides them, including tab width, spaces vs tabs, trailing whitespace trimming, final newline insertion, and final newline trimming.
+
 ### `debug`
 
 **Default:** `false`
@@ -147,17 +164,19 @@ Map diagnostic codes or prefixes to severity levels. Supports:
     S108 = "warning" # New
     ```
 
-*Tag Scoping (requires a complete [template inventory](../template-validation.md#template-inventory-completeness)):*
+*Tag Scoping:*
 
-- `S108` - Unknown tag (not found in any active library)
+- `S108` - Unknown tag (not found in any active or inactive library)
 - `S109` - Unloaded tag (requires `{% load %}` for a specific library)
-- `S110` - Ambiguous unloaded tag (defined in multiple libraries)
+- `S110` - Ambiguous unloaded tag (defined in multiple active libraries)
+- `S118` - Tag exists in a library whose app is not in `INSTALLED_APPS`
 
-*Filter Scoping (requires a complete [template inventory](../template-validation.md#template-inventory-completeness)):*
+*Filter Scoping:*
 
-- `S111` - Unknown filter (not found in any active library)
+- `S111` - Unknown filter (not found in any active or inactive library)
 - `S112` - Unloaded filter (requires `{% load %}` for a specific library)
-- `S113` - Ambiguous unloaded filter (defined in multiple libraries)
+- `S113` - Ambiguous unloaded filter (defined in multiple active libraries)
+- `S119` - Filter exists in a library whose app is not in `INSTALLED_APPS`
 
 *Expression & Filter Arity:*
 
@@ -169,9 +188,10 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 - `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
 
-*Library Resolution (requires a complete [template inventory](../template-validation.md#template-inventory-completeness)):*
+*Library Resolution:*
 
 - `S120` - Unknown template tag library (not found among known template tag libraries)
+- `S121` - Template tag library exists on the Python search paths, but its app is not in `INSTALLED_APPS`
 
 *Extends Validation:*
 
@@ -272,6 +292,10 @@ Pass configuration through your editor's LSP client using `initializationOptions
   "venv_path": "/path/to/venv",
   "pythonpath": ["/path/to/shared/libs"],
   "env_file": ".env",
+  "format": {
+    "enabled": true,
+    "backend": "djangofmt"
+  },
   "diagnostics": {
     "severity": {
       "S100": "off",
@@ -297,6 +321,10 @@ django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
 env_file = ".env"  # Optional: path to env file (auto-detects .env by default)
+
+[tool.djls.format]
+enabled = true
+backend = "djangofmt"
 
 [tool.djls.diagnostics.severity]
 S100 = "off"

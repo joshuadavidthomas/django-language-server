@@ -10,6 +10,7 @@ use djls_db::DjangoDatabase;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Offset;
+use djls_source::Span;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
@@ -182,33 +183,6 @@ impl Session {
         self.workspace.get_document(path)
     }
 
-    /// Resolve an LSP document request to the tracked file for that URI.
-    ///
-    /// Open editor buffers are exposed to Salsa through the workspace overlay,
-    /// so feature code should read current text through [`File::source`]
-    /// instead of reaching back into [`TextDocument`] state.
-    #[allow(dead_code)]
-    pub(crate) fn file_for_document_request(
-        &self,
-        text_document: &ls_types::TextDocumentIdentifier,
-        request: &str,
-    ) -> Option<File> {
-        self.snapshot()
-            .file_for_document_request(text_document, request)
-    }
-
-    /// Resolve an LSP positioned document request to a tracked file and byte offset.
-    #[allow(dead_code)]
-    pub(crate) fn position_for_document_request(
-        &self,
-        text_document: &ls_types::TextDocumentIdentifier,
-        position: ls_types::Position,
-        request: &str,
-    ) -> Option<(File, Offset)> {
-        self.snapshot()
-            .position_for_document_request(text_document, position, request)
-    }
-
     /// Get all currently open documents.
     pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
         self.workspace
@@ -284,6 +258,31 @@ impl SessionSnapshot {
         );
 
         Some((file, offset))
+    }
+
+    /// Resolve an LSP ranged document request to a tracked file and byte span.
+    pub(crate) fn range_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        range: ls_types::Range,
+        request: &str,
+    ) -> Option<(File, Span)> {
+        let file = self.file_for_document_request(text_document, request)?;
+        let source = file.source(&self.db);
+        let line_index = file.line_index(&self.db);
+        let start = range.start.to_offset(
+            source.as_str(),
+            line_index,
+            self.client_info.position_encoding(),
+        );
+        let end = range.end.to_offset(
+            source.as_str(),
+            line_index,
+            self.client_info.position_encoding(),
+        );
+        let span = Span::saturating_from_bounds_usize(start.get() as usize, end.get() as usize);
+
+        Some((file, span))
     }
 }
 

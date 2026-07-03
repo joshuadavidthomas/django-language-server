@@ -20,6 +20,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added quick-fix code actions for loading missing Django template tag libraries.
+- Added quick-fix code actions for choosing among ambiguous unloaded Django template tag libraries.
+- Added a quick-fix code action for renaming mismatched `{% endblock %}` names.
 - Added completion for resolvable template names inside quoted `{% extends %}` and `{% include %}` arguments.
 - Added document links for resolvable Django template and template-library references.
 - Added opt-in whole-document Django template formatting through `djangofmt`.
@@ -148,7 +151,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Deprecated
 
-- TagSpecs v0.4.0 flat format (will be removed in v6.0.2). [migration guide here](docs/configuration/tagspecs.md#migration-from-v040)
+- TagSpecs v0.4.0 flat format (will be removed in v6.0.2). See the [TagSpecs docs](docs/configuration/tagspecs.md).
 
 ### Removed
 

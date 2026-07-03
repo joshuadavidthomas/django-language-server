@@ -33,7 +33,9 @@ pub enum ValidationError {
     UnmatchedBlockName {
         expected: String,
         got: String,
+        got_span: Span,
         span: Span,
+        opener_span: Span,
     },
 
     #[error("Unknown tag '{tag}'")]

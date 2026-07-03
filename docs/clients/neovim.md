@@ -3,7 +3,7 @@
 ## Requirements
 
 - Neovim 0.11+
-- Django Language Server (`djls`) installed on your system. See [Installation](../index.md#installation).
+- Django Language Server (`djls`) installed on your system. See [Installation](../installation.md).
 
 ## Configuration
 
@@ -54,7 +54,7 @@ vim.lsp.enable('djls')
 
 ### Django settings
 
-For Django project settings and other server options, see [Configuration](../configuration.md).
+For Django project settings and other server options, see [Configuration](../configuration/index.md).
 
 To pass settings via Neovim's LSP client, use `init_options`:
 

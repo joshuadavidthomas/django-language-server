@@ -26,6 +26,8 @@ Use this for changes to template parsing, semantic validation, environment scann
 
 ## Validation errors
 
+Quick-fix edits are derived from typed `ValidationError` values against the current Salsa snapshot inside the request handler. Keep `Diagnostic.data` as `None`; do not serialize internal error or edit shapes into the LSP wire contract.
+
 When adding or removing `ValidationError` variants, update:
 
 - `errors.rs`

@@ -24,6 +24,7 @@ pub struct TestDatabase {
     tag_specs: TagSpecs,
     filter_arity_specs: FilterAritySpecs,
     template_libraries: TemplateLibraries,
+    diagnostics_config: djls_conf::DiagnosticsConfig,
     project: Option<Project>,
     storage: salsa::Storage<Self>,
 }
@@ -43,6 +44,7 @@ impl TestDatabase {
             tag_specs: builtin_tag_specs(),
             filter_arity_specs: FilterAritySpecs::new(),
             template_libraries: TemplateLibraries::default(),
+            diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
             storage: salsa::Storage::default(),
         }
@@ -63,6 +65,15 @@ impl TestDatabase {
     #[must_use]
     pub fn with_template_libraries(mut self, template_libraries: TemplateLibraries) -> Self {
         self.template_libraries = template_libraries;
+        self
+    }
+
+    #[must_use]
+    pub fn with_diagnostics_config(
+        mut self,
+        diagnostics_config: djls_conf::DiagnosticsConfig,
+    ) -> Self {
+        self.diagnostics_config = diagnostics_config;
         self
     }
 
@@ -142,7 +153,7 @@ impl SemanticDb for TestDatabase {
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-        djls_conf::DiagnosticsConfig::default()
+        self.diagnostics_config.clone()
     }
 
     fn template_libraries(&self) -> &TemplateLibraries {

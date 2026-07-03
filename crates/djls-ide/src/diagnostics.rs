@@ -1,85 +1,9 @@
-use djls_semantic::ValidationError;
 use djls_source::File;
 use djls_source::FileKind;
-use djls_source::LineIndex;
-use djls_source::Span;
-use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::ls_types;
 
-use crate::ext::DiagnosticSeverityExt;
-use crate::ext::SpanExt;
-
-const DIAGNOSTIC_SOURCE: &str = "djls";
-
-trait DiagnosticError: std::fmt::Display {
-    fn span(&self) -> Option<(u32, u32)>;
-    fn diagnostic_code(&self) -> &'static str;
-
-    fn message(&self) -> String {
-        self.to_string()
-    }
-
-    fn as_diagnostic(&self, line_index: &LineIndex) -> ls_types::Diagnostic {
-        let range = self
-            .span()
-            .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
-            .unwrap_or_default();
-
-        ls_types::Diagnostic {
-            range,
-            severity: Some(ls_types::DiagnosticSeverity::ERROR),
-            code: Some(ls_types::NumberOrString::String(
-                self.diagnostic_code().to_string(),
-            )),
-            code_description: None,
-            source: Some(DIAGNOSTIC_SOURCE.to_string()),
-            message: self.message(),
-            related_information: None,
-            tags: None,
-            data: None,
-        }
-    }
-}
-
-impl DiagnosticError for TemplateError {
-    fn span(&self) -> Option<(u32, u32)> {
-        self.primary_span()
-    }
-
-    fn diagnostic_code(&self) -> &'static str {
-        // Calls the inherent method on TemplateError (not recursive —
-        // inherent methods take priority over trait methods in resolution).
-        TemplateError::diagnostic_code(self)
-    }
-}
-
-impl DiagnosticError for ValidationError {
-    fn span(&self) -> Option<(u32, u32)> {
-        self.primary_span().map(Into::into)
-    }
-
-    fn diagnostic_code(&self) -> &'static str {
-        self.code()
-    }
-}
-
-fn push_with_severity(
-    mut diagnostic: ls_types::Diagnostic,
-    config: &djls_conf::DiagnosticsConfig,
-    diagnostics: &mut Vec<ls_types::Diagnostic>,
-) {
-    if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
-        let severity = config.get_severity(code);
-
-        if let Some(lsp_severity) = severity.to_lsp_severity() {
-            diagnostic.severity = Some(lsp_severity);
-            diagnostics.push(diagnostic);
-        }
-    } else {
-        diagnostics.push(diagnostic);
-    }
-}
+use crate::ext::DiagnosticExt;
 
 /// Collect all LSP diagnostics for a template file.
 ///
@@ -108,8 +32,9 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        let diagnostic = error_acc.0.as_diagnostic(line_index);
-        push_with_severity(diagnostic, &config, &mut diagnostics);
+        if let Some(diagnostic) = error_acc.0.to_lsp_diagnostic(line_index, &config) {
+            diagnostics.push(diagnostic);
+        }
     }
 
     let validation_errors = djls_semantic::validate_template_file::accumulated::<
@@ -117,8 +42,9 @@ pub fn collect_diagnostics(
     >(db, file);
 
     for error_acc in validation_errors {
-        let diagnostic = error_acc.0.as_diagnostic(line_index);
-        push_with_severity(diagnostic, &config, &mut diagnostics);
+        if let Some(diagnostic) = error_acc.0.to_lsp_diagnostic(line_index, &config) {
+            diagnostics.push(diagnostic);
+        }
     }
 
     Some(diagnostics)
@@ -127,9 +53,12 @@ pub fn collect_diagnostics(
 #[cfg(test)]
 mod tests {
     use djls_conf::DiagnosticSeverity;
+    use djls_source::LineIndex;
     use djls_templates::ParseError;
+    use djls_templates::TemplateError;
 
     use super::*;
+    use crate::ext::DiagnosticSeverityExt;
 
     #[test]
     fn template_parse_diagnostics_use_legacy_code_and_structured_range() {
@@ -142,7 +71,9 @@ mod tests {
             content: "value".to_string(),
         });
 
-        let diagnostic = error.as_diagnostic(&line_index);
+        let diagnostic = error
+            .to_lsp_diagnostic(&line_index, &djls_conf::DiagnosticsConfig::default())
+            .expect("default diagnostic severity should be enabled");
 
         assert_eq!(
             diagnostic.code,

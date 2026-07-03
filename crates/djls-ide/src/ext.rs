@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
+use djls_semantic::ValidationError;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Span;
+use djls_templates::TemplateError;
 use tower_lsp_server::ls_types;
 
 use crate::completions::CompletionCandidate;
@@ -112,6 +116,43 @@ impl SpanExt for Span {
             .end_offset()
             .to_lsp_position_with_encoding(source, line_index, encoding);
         ls_types::Range { start, end }
+    }
+}
+
+pub(crate) trait QuickFixActionExt {
+    fn to_quick_fix_action(
+        self,
+        uri: ls_types::Uri,
+        title: String,
+        diagnostic: ls_types::Diagnostic,
+        is_preferred: Option<bool>,
+    ) -> ls_types::CodeActionOrCommand;
+}
+
+impl QuickFixActionExt for Vec<ls_types::TextEdit> {
+    fn to_quick_fix_action(
+        self,
+        uri: ls_types::Uri,
+        title: String,
+        diagnostic: ls_types::Diagnostic,
+        is_preferred: Option<bool>,
+    ) -> ls_types::CodeActionOrCommand {
+        let workspace_edit = ls_types::WorkspaceEdit {
+            changes: Some(HashMap::from([(uri, self)])),
+            document_changes: None,
+            change_annotations: None,
+        };
+
+        ls_types::CodeActionOrCommand::CodeAction(ls_types::CodeAction {
+            title,
+            kind: Some(ls_types::CodeActionKind::QUICKFIX),
+            diagnostics: Some(vec![diagnostic]),
+            edit: Some(workspace_edit),
+            command: None,
+            is_preferred,
+            disabled: None,
+            data: None,
+        })
     }
 }
 
@@ -284,6 +325,64 @@ impl DiagnosticSeverityExt for DiagnosticSeverity {
             DiagnosticSeverity::Info => Some(ls_types::DiagnosticSeverity::INFORMATION),
             DiagnosticSeverity::Hint => Some(ls_types::DiagnosticSeverity::HINT),
         }
+    }
+}
+
+const DIAGNOSTIC_SOURCE: &str = "djls";
+
+pub(crate) trait DiagnosticExt: std::fmt::Display {
+    fn diagnostic_span(&self) -> Option<(u32, u32)>;
+    fn diagnostic_code(&self) -> &'static str;
+
+    fn diagnostic_message(&self) -> String {
+        self.to_string()
+    }
+
+    fn to_lsp_diagnostic(
+        &self,
+        line_index: &LineIndex,
+        config: &djls_conf::DiagnosticsConfig,
+    ) -> Option<ls_types::Diagnostic> {
+        let code = self.diagnostic_code();
+        let severity = config.get_severity(code).to_lsp_severity()?;
+        let range = self
+            .diagnostic_span()
+            .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
+            .unwrap_or_default();
+
+        Some(ls_types::Diagnostic {
+            range,
+            severity: Some(severity),
+            code: Some(ls_types::NumberOrString::String(code.to_string())),
+            code_description: None,
+            source: Some(DIAGNOSTIC_SOURCE.to_string()),
+            message: self.diagnostic_message(),
+            related_information: None,
+            tags: None,
+            data: None,
+        })
+    }
+}
+
+impl DiagnosticExt for TemplateError {
+    fn diagnostic_span(&self) -> Option<(u32, u32)> {
+        self.primary_span()
+    }
+
+    fn diagnostic_code(&self) -> &'static str {
+        // Calls the inherent method on TemplateError (not recursive —
+        // inherent methods take priority over trait methods in resolution).
+        TemplateError::diagnostic_code(self)
+    }
+}
+
+impl DiagnosticExt for ValidationError {
+    fn diagnostic_span(&self) -> Option<(u32, u32)> {
+        self.primary_span().map(Into::into)
+    }
+
+    fn diagnostic_code(&self) -> &'static str {
+        self.code()
     }
 }
 

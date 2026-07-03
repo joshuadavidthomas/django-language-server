@@ -250,12 +250,18 @@ impl<'db> TemplateTreeBuilder<'db> {
             CloseValidation::Valid => {
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
             }
-            CloseValidation::ArgumentMismatch { expected, got } => {
+            CloseValidation::ArgumentMismatch {
+                expected,
+                got,
+                got_span,
+            } => {
                 self.ops.push(TreeOp::AccumulateDiagnostic(
                     ValidationError::UnmatchedBlockName {
                         expected,
                         got,
+                        got_span,
                         span: full_span,
+                        opener_span: frame.opener_span,
                     },
                 ));
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
@@ -344,12 +350,18 @@ impl<'db> TemplateTreeBuilder<'db> {
             CloseValidation::Valid => {
                 self.finalize_frame(frame, span, full_span);
             }
-            CloseValidation::ArgumentMismatch { expected, got } => {
+            CloseValidation::ArgumentMismatch {
+                expected,
+                got,
+                got_span,
+            } => {
                 self.ops.push(TreeOp::AccumulateDiagnostic(
                     ValidationError::UnmatchedBlockName {
                         expected,
                         got,
+                        got_span,
                         span: full_span,
+                        opener_span: frame.opener_span(),
                     },
                 ));
                 self.finalize_frame(frame, span, full_span);

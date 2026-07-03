@@ -92,6 +92,7 @@ impl TagIndex {
             return CloseValidation::ArgumentMismatch {
                 expected: opener_arg.as_str().to_string(),
                 got: closer_arg.as_str().to_string(),
+                got_span: closer_arg.span,
             };
         }
 
@@ -159,7 +160,11 @@ pub enum TagClass<'a> {
 pub(crate) enum CloseValidation {
     Valid,
     NotABlock,
-    ArgumentMismatch { expected: String, got: String },
+    ArgumentMismatch {
+        expected: String,
+        got: String,
+        got_span: djls_source::Span,
+    },
 }
 
 #[cfg(test)]
