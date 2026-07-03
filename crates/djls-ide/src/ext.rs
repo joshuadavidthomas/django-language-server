@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
@@ -112,6 +114,43 @@ impl SpanExt for Span {
             .end_offset()
             .to_lsp_position_with_encoding(source, line_index, encoding);
         ls_types::Range { start, end }
+    }
+}
+
+pub(crate) trait QuickFixActionExt {
+    fn to_quick_fix_action(
+        self,
+        uri: ls_types::Uri,
+        title: String,
+        diagnostic: ls_types::Diagnostic,
+        is_preferred: Option<bool>,
+    ) -> ls_types::CodeActionOrCommand;
+}
+
+impl QuickFixActionExt for Vec<ls_types::TextEdit> {
+    fn to_quick_fix_action(
+        self,
+        uri: ls_types::Uri,
+        title: String,
+        diagnostic: ls_types::Diagnostic,
+        is_preferred: Option<bool>,
+    ) -> ls_types::CodeActionOrCommand {
+        let workspace_edit = ls_types::WorkspaceEdit {
+            changes: Some(HashMap::from([(uri, self)])),
+            document_changes: None,
+            change_annotations: None,
+        };
+
+        ls_types::CodeActionOrCommand::CodeAction(ls_types::CodeAction {
+            title,
+            kind: Some(ls_types::CodeActionKind::QUICKFIX),
+            diagnostics: Some(vec![diagnostic]),
+            edit: Some(workspace_edit),
+            command: None,
+            is_preferred,
+            disabled: None,
+            data: None,
+        })
     }
 }
 

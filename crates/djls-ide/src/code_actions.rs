@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_source::File;
@@ -12,6 +10,7 @@ use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
 use crate::diagnostics::lsp_diagnostic_for;
+use crate::ext::QuickFixActionExt;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 use crate::header::import_header;
@@ -143,20 +142,34 @@ fn insert_load_action(
     library: &str,
     is_preferred: Option<bool>,
 ) -> ls_types::CodeActionOrCommand {
+    let line_ending = LineEnding::last_in(context.source)
+        .unwrap_or_default()
+        .as_str();
+    let load_line = format!("{{% load {library} %}}{line_ending}");
+    let offset = insertion_offset.get() as usize;
+    let new_text = if !context.source.is_empty()
+        && offset == context.source.len()
+        && !context.source.ends_with('\n')
+        && !context.source.ends_with('\r')
+    {
+        format!("{line_ending}{load_line}")
+    } else {
+        load_line
+    };
+
     let edit = ls_types::TextEdit::new(
         Span::new(insertion_offset.get(), 0).to_lsp_range_with_encoding(
             context.source,
             context.line_index,
             context.encoding,
         ),
-        load_edit_text(context.source, insertion_offset, library),
+        new_text,
     );
 
-    quick_fix_action(
-        context,
+    vec![edit].to_quick_fix_action(
+        context.uri.clone(),
         format!("Add '{{% load {library} %}}'"),
         diagnostic,
-        vec![edit],
         is_preferred,
     )
 }
@@ -172,38 +185,12 @@ fn rename_closing_block_action(
         expected.to_string(),
     );
 
-    quick_fix_action(
-        context,
+    vec![edit].to_quick_fix_action(
+        context.uri.clone(),
         format!("Rename closing block to '{expected}'"),
         diagnostic,
-        vec![edit],
         Some(true),
     )
-}
-
-fn quick_fix_action(
-    context: &EditContext<'_>,
-    title: String,
-    diagnostic: ls_types::Diagnostic,
-    edits: Vec<ls_types::TextEdit>,
-    is_preferred: Option<bool>,
-) -> ls_types::CodeActionOrCommand {
-    let workspace_edit = ls_types::WorkspaceEdit {
-        changes: Some(HashMap::from([(context.uri.clone(), edits)])),
-        document_changes: None,
-        change_annotations: None,
-    };
-
-    ls_types::CodeActionOrCommand::CodeAction(ls_types::CodeAction {
-        title,
-        kind: Some(ls_types::CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic]),
-        edit: Some(workspace_edit),
-        command: None,
-        is_preferred,
-        disabled: None,
-        data: None,
-    })
 }
 
 fn closing_block_name_span(nodelist: &[Node], full_span: Span) -> Option<Span> {
@@ -222,22 +209,6 @@ fn sorted_libraries(libraries: &[String]) -> Vec<String> {
     libraries.sort_unstable();
     libraries.dedup();
     libraries
-}
-
-fn load_edit_text(source: &str, insertion_offset: Offset, library: &str) -> String {
-    let line_ending = LineEnding::last_in(source).unwrap_or_default().as_str();
-    let load_line = format!("{{% load {library} %}}{line_ending}");
-
-    let insertion_offset = insertion_offset.get() as usize;
-    if !source.is_empty()
-        && insertion_offset == source.len()
-        && !source.ends_with('\n')
-        && !source.ends_with('\r')
-    {
-        format!("{line_ending}{load_line}")
-    } else {
-        load_line
-    }
 }
 
 fn span_intersects_request(span: Span, request: Span) -> bool {
