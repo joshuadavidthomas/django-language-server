@@ -12,7 +12,7 @@ use crate::ext::SpanExt;
 
 const DIAGNOSTIC_SOURCE: &str = "djls";
 
-trait DiagnosticError: std::fmt::Display {
+pub(crate) trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
     fn diagnostic_code(&self) -> &'static str;
 
@@ -64,21 +64,26 @@ impl DiagnosticError for ValidationError {
     }
 }
 
-fn push_with_severity(
+pub(crate) fn lsp_diagnostic_for(
+    error: &impl DiagnosticError,
+    line_index: &LineIndex,
+    config: &djls_conf::DiagnosticsConfig,
+) -> Option<ls_types::Diagnostic> {
+    with_configured_severity(error.as_diagnostic(line_index), config)
+}
+
+fn with_configured_severity(
     mut diagnostic: ls_types::Diagnostic,
     config: &djls_conf::DiagnosticsConfig,
-    diagnostics: &mut Vec<ls_types::Diagnostic>,
-) {
-    if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
-        let severity = config.get_severity(code);
+) -> Option<ls_types::Diagnostic> {
+    let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code else {
+        return Some(diagnostic);
+    };
 
-        if let Some(lsp_severity) = severity.to_lsp_severity() {
-            diagnostic.severity = Some(lsp_severity);
-            diagnostics.push(diagnostic);
-        }
-    } else {
-        diagnostics.push(diagnostic);
-    }
+    let severity = config.get_severity(code);
+    let lsp_severity = severity.to_lsp_severity()?;
+    diagnostic.severity = Some(lsp_severity);
+    Some(diagnostic)
 }
 
 /// Collect all LSP diagnostics for a template file.
@@ -108,8 +113,9 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        let diagnostic = error_acc.0.as_diagnostic(line_index);
-        push_with_severity(diagnostic, &config, &mut diagnostics);
+        if let Some(diagnostic) = lsp_diagnostic_for(&error_acc.0, line_index, &config) {
+            diagnostics.push(diagnostic);
+        }
     }
 
     let validation_errors = djls_semantic::validate_template_file::accumulated::<
@@ -117,8 +123,9 @@ pub fn collect_diagnostics(
     >(db, file);
 
     for error_acc in validation_errors {
-        let diagnostic = error_acc.0.as_diagnostic(line_index);
-        push_with_severity(diagnostic, &config, &mut diagnostics);
+        if let Some(diagnostic) = lsp_diagnostic_for(&error_acc.0, line_index, &config) {
+            diagnostics.push(diagnostic);
+        }
     }
 
     Some(diagnostics)

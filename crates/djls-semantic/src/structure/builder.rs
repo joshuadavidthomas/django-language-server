@@ -256,6 +256,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                         expected,
                         got,
                         span: full_span,
+                        opener_span: frame.opener_span,
                     },
                 ));
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
@@ -350,6 +351,7 @@ impl<'db> TemplateTreeBuilder<'db> {
                         expected,
                         got,
                         span: full_span,
+                        opener_span: frame.opener_span(),
                     },
                 ));
                 self.finalize_frame(frame, span, full_span);

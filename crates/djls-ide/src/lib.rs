@@ -1,9 +1,11 @@
+mod code_actions;
 mod completions;
 mod context;
 mod diagnostics;
 mod ext;
 mod folding;
 mod formatting;
+mod header;
 mod hover;
 mod links;
 mod navigation;
@@ -11,6 +13,7 @@ mod snippets;
 mod symbols;
 mod warmup;
 
+pub use code_actions::code_actions;
 pub use completions::completion;
 pub use diagnostics::collect_diagnostics;
 pub use folding::collect_folding_ranges;

@@ -6,6 +6,7 @@ use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
 use crate::ext::FoldSpanExt;
+use crate::header;
 
 #[must_use]
 pub fn collect_folding_ranges(
@@ -39,33 +40,14 @@ impl FoldSpans {
             folds.push((*fold).into());
         }
 
-        let mut import_header = ImportHeaderFold::None;
         for node in nodes {
-            match node {
-                Node::Comment { .. } => {
-                    folds.push_imports(import_header.finish());
-                    folds.push(FoldSpan::comment(node.full_span()));
-                }
-                Node::Tag { name, .. } if name == "extends" => {
-                    folds.push_imports(import_header.finish());
-                    import_header.start_at_extends(node.full_span());
-                }
-                Node::Tag { name, .. } if name == "load" => {
-                    import_header.include_load(node.full_span());
-                }
-                Node::Text { span }
-                    if source
-                        .get(span.start_usize()..span.end_usize())
-                        .is_some_and(|text| text.trim().is_empty()) => {}
-                Node::Tag { .. }
-                | Node::Text { .. }
-                | Node::Variable { .. }
-                | Node::Error { .. } => {
-                    folds.push_imports(import_header.finish());
-                }
+            if let Node::Comment { .. } = node {
+                folds.push(FoldSpan::comment(node.full_span()));
             }
         }
-        folds.push_imports(import_header.finish());
+        for span in header::import_fold_spans(nodes, source) {
+            folds.push_imports(FoldSpan::imports(span.start(), span.end()));
+        }
 
         folds
     }
@@ -152,48 +134,6 @@ impl FoldKind {
             Self::Region => 0,
             Self::Comment => 1,
             Self::Imports => 2,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ImportHeaderFold {
-    None,
-    ExtendsOnly { start: u32 },
-    Imports { start: u32, end: u32 },
-}
-
-impl ImportHeaderFold {
-    fn start_at_extends(&mut self, span: Span) {
-        *self = Self::ExtendsOnly {
-            start: span.start(),
-        };
-    }
-
-    fn include_load(&mut self, span: Span) {
-        match self {
-            Self::None => {
-                *self = Self::Imports {
-                    start: span.start(),
-                    end: span.end(),
-                };
-            }
-            Self::ExtendsOnly { start } => {
-                *self = Self::Imports {
-                    start: *start,
-                    end: span.end(),
-                };
-            }
-            Self::Imports { end, .. } => {
-                *end = span.end();
-            }
-        }
-    }
-
-    fn finish(&mut self) -> Option<FoldSpan> {
-        match std::mem::replace(self, Self::None) {
-            Self::Imports { start, end } => FoldSpan::imports(start, end),
-            Self::None | Self::ExtendsOnly { .. } => None,
         }
     }
 }

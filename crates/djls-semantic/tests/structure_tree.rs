@@ -761,11 +761,15 @@ fn test_endblock_name_mismatch() {
     let nodelist = parse_template(&db, file).expect("should parse");
     let errors = build_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
     assert_eq!(errors.len(), 1);
+    let opener_start = source
+        .find("{% block content %}")
+        .expect("fixture should contain opener");
+    let expected_opener_span = Span::saturating_from_parts_usize(opener_start, 19);
     assert!(
         matches!(
             &errors[0].0,
-            ValidationError::UnmatchedBlockName { expected, got, .. }
-                if expected == "content" && got == "fdsaf"
+            ValidationError::UnmatchedBlockName { expected, got, opener_span, .. }
+                if expected == "content" && got == "fdsaf" && *opener_span == expected_opener_span
         ),
         "Expected UnmatchedBlockName, got: {:?}",
         errors[0].0

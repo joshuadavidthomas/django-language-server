@@ -183,6 +183,13 @@ impl LanguageServer for DjangoLanguageServer {
                         work_done_progress_options: ls_types::WorkDoneProgressOptions::default(),
                     },
                 )),
+                code_action_provider: Some(ls_types::CodeActionProviderCapability::Options(
+                    ls_types::CodeActionOptions {
+                        code_action_kinds: Some(vec![ls_types::CodeActionKind::QUICKFIX]),
+                        work_done_progress_options: ls_types::WorkDoneProgressOptions::default(),
+                        resolve_provider: Some(false),
+                    },
+                )),
                 folding_range_provider: Some(ls_types::FoldingRangeProviderCapability::Simple(
                     true,
                 )),
@@ -251,6 +258,38 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_close(&self, params: ls_types::DidCloseTextDocumentParams) {
         self.with_session_mut(|session| session.close_document(&params.text_document))
             .await;
+    }
+
+    async fn code_action(
+        &self,
+        params: ls_types::CodeActionParams,
+    ) -> LspResult<Option<ls_types::CodeActionResponse>> {
+        if params.context.only.as_ref().is_some_and(|only| {
+            !only
+                .iter()
+                .any(|kind| kind == &ls_types::CodeActionKind::QUICKFIX)
+        }) {
+            return Ok(None);
+        }
+
+        let response = self
+            .with_snapshot(move |snapshot| {
+                let (file, range) = snapshot.range_for_document_request(
+                    &params.text_document,
+                    params.range,
+                    "code action",
+                )?;
+                let db = snapshot.db();
+
+                if *file.source(db).kind() != FileKind::Template {
+                    return None;
+                }
+
+                djls_ide::code_actions(db, file, range, snapshot.client_info().position_encoding())
+            })
+            .await;
+
+        Ok(response)
     }
 
     async fn completion(

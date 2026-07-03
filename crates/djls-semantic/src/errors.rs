@@ -34,6 +34,7 @@ pub enum ValidationError {
         expected: String,
         got: String,
         span: Span,
+        opener_span: Span,
     },
 
     #[error("Unknown tag '{tag}'")]

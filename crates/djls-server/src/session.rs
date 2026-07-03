@@ -10,6 +10,7 @@ use djls_db::DjangoDatabase;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Offset;
+use djls_source::Span;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
@@ -209,6 +210,18 @@ impl Session {
             .position_for_document_request(text_document, position, request)
     }
 
+    /// Resolve an LSP ranged document request to a tracked file and byte span.
+    #[allow(dead_code)]
+    pub(crate) fn range_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        range: ls_types::Range,
+        request: &str,
+    ) -> Option<(File, Span)> {
+        self.snapshot()
+            .range_for_document_request(text_document, range, request)
+    }
+
     /// Get all currently open documents.
     pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
         self.workspace
@@ -284,6 +297,31 @@ impl SessionSnapshot {
         );
 
         Some((file, offset))
+    }
+
+    /// Resolve an LSP ranged document request to a tracked file and byte span.
+    pub(crate) fn range_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+        range: ls_types::Range,
+        request: &str,
+    ) -> Option<(File, Span)> {
+        let file = self.file_for_document_request(text_document, request)?;
+        let source = file.source(&self.db);
+        let line_index = file.line_index(&self.db);
+        let start = range.start.to_offset(
+            source.as_str(),
+            line_index,
+            self.client_info.position_encoding(),
+        );
+        let end = range.end.to_offset(
+            source.as_str(),
+            line_index,
+            self.client_info.position_encoding(),
+        );
+        let span = Span::saturating_from_bounds_usize(start.get() as usize, end.get() as usize);
+
+        Some((file, span))
     }
 }
 
