@@ -1,5 +1,24 @@
 # Extends diagnostics
 
+## two-file scenario validates the primary template
+
+`child.html`:
+
+```htmldjango
+{% extends "base.html" %}
+{% block content %}Hello{% endblock %}
+```
+
+`base.html`:
+
+```htmldjango
+{% block content %}{% endblock %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
 ## extends is not first tag
 
 ```htmldjango

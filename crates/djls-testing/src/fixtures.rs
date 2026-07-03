@@ -543,6 +543,14 @@ pub fn collect_errors_with_revision(
     source: &str,
 ) -> Vec<ValidationError> {
     db.add_file(path, source);
+    collect_loaded_file_errors_with_revision(db, path, revision)
+}
+
+fn collect_loaded_file_errors_with_revision(
+    db: &TestDatabase,
+    path: &str,
+    revision: u64,
+) -> Vec<ValidationError> {
     let file = db.create_file_with_revision(Utf8Path::new(path), revision);
 
     let Some(nodelist) = parse_template(db, file) else {
@@ -686,6 +694,29 @@ pub fn snapshot_validate(source: &str) -> String {
 #[must_use]
 pub fn snapshot_validate_file(path: &str, source: &str) -> String {
     render_validate_snapshot(&standard_validation_db(), path, 0, source)
+}
+
+#[must_use]
+pub fn snapshot_validate_files<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
+    let files = files.into_iter().collect::<Vec<_>>();
+    let Some((primary_path, primary_source)) = files.first().copied() else {
+        return String::new();
+    };
+
+    if files.len() == 1 {
+        return if primary_path == "test.html" {
+            snapshot_validate(primary_source)
+        } else {
+            snapshot_validate_file(primary_path, primary_source)
+        };
+    }
+
+    let db = standard_validation_db();
+    for (path, source) in files {
+        db.add_file(path, source);
+    }
+
+    render_loaded_file_validate_snapshot(&db, primary_path, 0, primary_source)
 }
 
 /// Curated validation environment for mdtest snapshots.
@@ -1049,6 +1080,36 @@ pub fn render_validate_snapshot(
     source: &str,
 ) -> String {
     render_validate_snapshot_filtered(db, path, revision, source, |_| true)
+}
+
+fn render_loaded_file_validate_snapshot(
+    db: &TestDatabase,
+    path: &str,
+    revision: u64,
+    source: &str,
+) -> String {
+    render_loaded_file_validate_snapshot_filtered(db, path, revision, source, |_| true)
+}
+
+fn render_loaded_file_validate_snapshot_filtered<F>(
+    db: &TestDatabase,
+    path: &str,
+    revision: u64,
+    source: &str,
+    filter: F,
+) -> String
+where
+    F: Fn(&ValidationError) -> bool,
+{
+    let mut errors: Vec<ValidationError> =
+        collect_loaded_file_errors_with_revision(db, path, revision)
+            .into_iter()
+            .filter(|e| filter(e))
+            .collect();
+
+    errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
+
+    render_diagnostic_snapshot(path, source, &errors)
 }
 
 pub fn render_validate_snapshot_filtered<F>(
