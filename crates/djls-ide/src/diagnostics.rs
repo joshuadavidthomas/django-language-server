@@ -20,25 +20,29 @@ pub(crate) trait DiagnosticError: std::fmt::Display {
         self.to_string()
     }
 
-    fn as_diagnostic(&self, line_index: &LineIndex) -> ls_types::Diagnostic {
+    fn to_lsp_diagnostic(
+        &self,
+        line_index: &LineIndex,
+        config: &djls_conf::DiagnosticsConfig,
+    ) -> Option<ls_types::Diagnostic> {
+        let code = self.diagnostic_code();
+        let severity = config.get_severity(code).to_lsp_severity()?;
         let range = self
             .span()
             .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
             .unwrap_or_default();
 
-        ls_types::Diagnostic {
+        Some(ls_types::Diagnostic {
             range,
-            severity: Some(ls_types::DiagnosticSeverity::ERROR),
-            code: Some(ls_types::NumberOrString::String(
-                self.diagnostic_code().to_string(),
-            )),
+            severity: Some(severity),
+            code: Some(ls_types::NumberOrString::String(code.to_string())),
             code_description: None,
             source: Some(DIAGNOSTIC_SOURCE.to_string()),
             message: self.message(),
             related_information: None,
             tags: None,
             data: None,
-        }
+        })
     }
 }
 
@@ -62,28 +66,6 @@ impl DiagnosticError for ValidationError {
     fn diagnostic_code(&self) -> &'static str {
         self.code()
     }
-}
-
-pub(crate) fn lsp_diagnostic_for(
-    error: &impl DiagnosticError,
-    line_index: &LineIndex,
-    config: &djls_conf::DiagnosticsConfig,
-) -> Option<ls_types::Diagnostic> {
-    with_configured_severity(error.as_diagnostic(line_index), config)
-}
-
-fn with_configured_severity(
-    mut diagnostic: ls_types::Diagnostic,
-    config: &djls_conf::DiagnosticsConfig,
-) -> Option<ls_types::Diagnostic> {
-    let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code else {
-        return Some(diagnostic);
-    };
-
-    let severity = config.get_severity(code);
-    let lsp_severity = severity.to_lsp_severity()?;
-    diagnostic.severity = Some(lsp_severity);
-    Some(diagnostic)
 }
 
 /// Collect all LSP diagnostics for a template file.
@@ -113,7 +95,7 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        if let Some(diagnostic) = lsp_diagnostic_for(&error_acc.0, line_index, &config) {
+        if let Some(diagnostic) = error_acc.0.to_lsp_diagnostic(line_index, &config) {
             diagnostics.push(diagnostic);
         }
     }
@@ -123,7 +105,7 @@ pub fn collect_diagnostics(
     >(db, file);
 
     for error_acc in validation_errors {
-        if let Some(diagnostic) = lsp_diagnostic_for(&error_acc.0, line_index, &config) {
+        if let Some(diagnostic) = error_acc.0.to_lsp_diagnostic(line_index, &config) {
             diagnostics.push(diagnostic);
         }
     }
@@ -149,7 +131,9 @@ mod tests {
             content: "value".to_string(),
         });
 
-        let diagnostic = error.as_diagnostic(&line_index);
+        let diagnostic = error
+            .to_lsp_diagnostic(&line_index, &djls_conf::DiagnosticsConfig::default())
+            .expect("default diagnostic severity should be enabled");
 
         assert_eq!(
             diagnostic.code,

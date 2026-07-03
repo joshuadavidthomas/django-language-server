@@ -9,7 +9,7 @@ use djls_source::PositionEncoding;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
-use crate::diagnostics::lsp_diagnostic_for;
+use crate::diagnostics::DiagnosticError;
 use crate::ext::QuickFixActionExt;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
@@ -67,7 +67,7 @@ pub fn code_actions(
         match error {
             ValidationError::UnloadedTag { library, .. }
             | ValidationError::UnloadedFilter { library, .. } => {
-                let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
+                let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) else {
                     continue;
                 };
                 let insertion_offset =
@@ -83,7 +83,7 @@ pub fn code_actions(
             }
             ValidationError::AmbiguousUnloadedTag { libraries, .. }
             | ValidationError::AmbiguousUnloadedFilter { libraries, .. } => {
-                let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
+                let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) else {
                     continue;
                 };
                 let insertion_offset =
@@ -106,7 +106,7 @@ pub fn code_actions(
             ValidationError::UnmatchedBlockName {
                 expected, got_span, ..
             } => {
-                let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
+                let Some(diagnostic) = error.to_lsp_diagnostic(line_index, &config) else {
                     continue;
                 };
                 let edit = ls_types::TextEdit::new(
