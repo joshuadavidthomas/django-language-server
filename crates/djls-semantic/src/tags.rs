@@ -24,6 +24,7 @@ pub enum TagRole {
     TemplateReference(TemplateReferenceKind),
     TemplateLibraryLoader,
     TemplateBlock,
+    TemplatePartial,
     ControlTag,
     TemplateTag,
     StaticAssetReference,

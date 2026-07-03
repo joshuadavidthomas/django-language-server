@@ -40,6 +40,12 @@ Use:
 rg "ValidationError" crates/ -g '*.rs'
 ```
 
+## Semantic model
+
+- Cross-file semantic queries depend on small per-file derived products (e.g. `template_symbols`), never on other files' full parses directly.
+- Code over config: tag-spec knowledge acquisition prefers static extraction from Python source; tagspec config is a last-resort escape hatch, never primary.
+- Semantic features bind to `TagRole`, never tag names.
+
 ## Local runtime state
 
 - Server logs: `~/.cache/djls/djls.log.YYYY-MM-DD`
