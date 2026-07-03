@@ -9,8 +9,10 @@
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
+use djls_project::template_resolution;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::TagArgumentKind;
+use djls_semantic::TagRole;
 use djls_semantic::TagSpecs;
 use djls_source::File;
 use djls_source::FileKind;
@@ -36,6 +38,7 @@ pub(crate) enum CompletionCandidateKind {
     TagArgumentChoice,
     TagArgumentPlaceholder,
     TagArgumentSnippet,
+    TemplateName,
     LibraryName,
     LoadSymbol,
     Filter,
@@ -48,6 +51,7 @@ impl CompletionCandidateKind {
             Self::TagName
             | Self::TagArgumentLiteral
             | Self::TagArgumentChoice
+            | Self::TemplateName
             | Self::LibraryName
             | Self::LoadSymbol
             | Self::Filter => 1,
@@ -156,6 +160,35 @@ impl CompletionEdit {
 
         Self::plain(
             Self::span_with_source_suffix(prefix, suffix, close.partial_replacement_suffix_len()),
+            insert_text,
+        )
+    }
+
+    fn template_name(
+        name: &str,
+        quote: char,
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        closed: bool,
+        close: TagClose,
+    ) -> Self {
+        let mut insert_text = name.to_string();
+        let close_suffix_len = match (closed, close) {
+            (true, TagClose::Full { .. }) => 0,
+            (true, close) => {
+                insert_text.push(quote);
+                Self::append_tag_close(&mut insert_text, close);
+                quote.len_utf8() + close.partial_replacement_suffix_len()
+            }
+            (false, close) => {
+                insert_text.push(quote);
+                Self::append_tag_close(&mut insert_text, close);
+                close.partial_replacement_suffix_len()
+            }
+        };
+
+        Self::plain(
+            Self::span_with_source_suffix(prefix, suffix, close_suffix_len),
             insert_text,
         )
     }
@@ -350,6 +383,23 @@ impl CompletionCandidate {
         }
     }
 
+    fn template_name(
+        name: &str,
+        quote: char,
+        prefix: &OffsetPrefix<'_>,
+        suffix: &OffsetSuffix<'_>,
+        closed: bool,
+        close: TagClose,
+    ) -> Self {
+        Self {
+            label: name.to_string(),
+            kind: CompletionCandidateKind::TemplateName,
+            edit: CompletionEdit::template_name(name, quote, prefix, suffix, closed, close),
+            detail: Some("Django template".to_string()),
+            documentation: None,
+        }
+    }
+
     fn library_name(
         name: &str,
         prefix: &OffsetPrefix<'_>,
@@ -434,25 +484,8 @@ pub fn completion(
     let tokens = djls_templates::lex_template(db, file);
     let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
     let template_libraries = db.template_libraries();
-
-    let available_symbols = if template_libraries.has_symbol_inventory() {
-        match &context {
-            CompletionOffsetContext::Template(
-                TemplateCompletionContext::TagName { .. }
-                | TemplateCompletionContext::Filter { .. },
-            ) => djls_templates::parse_template(db, file)
-                .map(|nodelist| djls_semantic::available_symbols_at(db, nodelist, offset.get())),
-            CompletionOffsetContext::Template(
-                TemplateCompletionContext::Text
-                | TemplateCompletionContext::TagArgument { .. }
-                | TemplateCompletionContext::LibraryName { .. }
-                | TemplateCompletionContext::LoadSymbol { .. },
-            )
-            | CompletionOffsetContext::None => None,
-        }
-    } else {
-        None
-    };
+    let available_symbols =
+        available_symbols_for_completion(db, file, offset, &context, template_libraries);
 
     let mut candidates = match &context {
         CompletionOffsetContext::Template(TemplateCompletionContext::TagName {
@@ -481,6 +514,27 @@ pub fn completion(
             *close,
             db.tag_specs(),
             supports_snippets,
+        ),
+        CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+            tag,
+            position,
+            quote,
+            prefix,
+            suffix,
+            closed,
+            close,
+        }) => generate_template_name_candidates(
+            db,
+            TemplateNameCandidateInput {
+                tag,
+                position: *position,
+                quote: *quote,
+                prefix,
+                suffix,
+                closed: *closed,
+                close: *close,
+            },
+            db.tag_specs(),
         ),
         CompletionOffsetContext::Template(TemplateCompletionContext::LibraryName {
             prefix,
@@ -517,6 +571,33 @@ pub fn completion(
         .collect::<Vec<_>>();
 
     Some(ls_types::CompletionResponse::Array(items))
+}
+
+fn available_symbols_for_completion(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    offset: Offset,
+    context: &CompletionOffsetContext<'_>,
+    template_libraries: &TemplateLibraries,
+) -> Option<AvailableSymbols> {
+    if !template_libraries.has_symbol_inventory() {
+        return None;
+    }
+
+    match context {
+        CompletionOffsetContext::Template(
+            TemplateCompletionContext::TagName { .. } | TemplateCompletionContext::Filter { .. },
+        ) => djls_templates::parse_template(db, file)
+            .map(|nodelist| djls_semantic::available_symbols_at(db, nodelist, offset.get())),
+        CompletionOffsetContext::Template(
+            TemplateCompletionContext::Text
+            | TemplateCompletionContext::TagArgument { .. }
+            | TemplateCompletionContext::QuotedArgument { .. }
+            | TemplateCompletionContext::LibraryName { .. }
+            | TemplateCompletionContext::LoadSymbol { .. },
+        )
+        | CompletionOffsetContext::None => None,
+    }
 }
 
 fn generate_tag_name_candidates(
@@ -652,6 +733,51 @@ fn generate_tag_argument_candidates(
     }
 
     candidates
+}
+
+#[derive(Clone, Copy)]
+struct TemplateNameCandidateInput<'context, 'source> {
+    tag: &'source str,
+    position: usize,
+    quote: char,
+    prefix: &'context OffsetPrefix<'source>,
+    suffix: &'context OffsetSuffix<'source>,
+    closed: bool,
+    close: TagClose,
+}
+
+fn generate_template_name_candidates(
+    db: &dyn djls_semantic::Db,
+    input: TemplateNameCandidateInput<'_, '_>,
+    tag_specs: &TagSpecs,
+) -> Vec<CompletionCandidate> {
+    let Some(spec) = tag_specs.get(input.tag) else {
+        return Vec::new();
+    };
+    if !matches!(spec.role(), Some(TagRole::TemplateReference(_))) || input.position != 0 {
+        return Vec::new();
+    }
+
+    let Some(project) = db.project() else {
+        return Vec::new();
+    };
+
+    template_resolution(db, project)
+        .template_names(db)
+        .filter_map(|name| {
+            let name = name.name(db);
+            name.starts_with(input.prefix.text).then(|| {
+                CompletionCandidate::template_name(
+                    name,
+                    input.quote,
+                    input.prefix,
+                    input.suffix,
+                    input.closed,
+                    input.close,
+                )
+            })
+        })
+        .collect()
 }
 
 fn generate_library_name_candidates(
@@ -1010,6 +1136,112 @@ mod tests {
         assert_eq!(
             snippet.detail.as_deref(),
             Some("Complete remaining arguments")
+        );
+    }
+
+    #[test]
+    fn template_name_candidate_closes_open_quote_and_tag() {
+        let candidate = CompletionCandidate::template_name(
+            "base.html",
+            '"',
+            &prefix("ba"),
+            &suffix("", 2),
+            false,
+            TagClose::None,
+        );
+
+        assert_eq!(candidate.kind, CompletionCandidateKind::TemplateName);
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 2));
+        assert_eq!(candidate.edit.insert_text, "base.html\" %}");
+        assert_eq!(candidate.detail.as_deref(), Some("Django template"));
+    }
+
+    #[test]
+    fn template_name_candidate_preserves_existing_full_close_after_open_quote() {
+        let candidate = CompletionCandidate::template_name(
+            "base.html",
+            '"',
+            &prefix("ba"),
+            &suffix("", 2),
+            false,
+            full_close(),
+        );
+
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 2));
+        assert_eq!(candidate.edit.insert_text, "base.html\"");
+    }
+
+    #[test]
+    fn template_name_candidate_replaces_autopaired_quote_and_partial_close() {
+        let candidate = CompletionCandidate::template_name(
+            "base.html",
+            '"',
+            &prefix("ba"),
+            &suffix("", 2),
+            true,
+            TagClose::Partial {
+                replacement_suffix_len: 1,
+            },
+        );
+
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 4));
+        assert_eq!(candidate.edit.insert_text, "base.html\" %}");
+    }
+
+    #[test]
+    fn template_name_candidate_replaces_closed_quote_interior() {
+        let candidate = CompletionCandidate::template_name(
+            "base.html",
+            '"',
+            &prefix("ba"),
+            &suffix("se.html", 2),
+            true,
+            full_close(),
+        );
+
+        assert_eq!(candidate.edit.replacement_span, Span::new(0, 9));
+        assert_eq!(candidate.edit.insert_text, "base.html");
+    }
+
+    #[test]
+    fn template_name_candidates_are_role_and_position_gated() {
+        let db = djls_testing::TestDatabase::new();
+        let tag_specs = djls_semantic::builtin_tag_specs();
+
+        let prefix = prefix("");
+        let suffix = suffix("", 0);
+
+        assert!(
+            generate_template_name_candidates(
+                &db,
+                TemplateNameCandidateInput {
+                    tag: "cache",
+                    position: 0,
+                    quote: '"',
+                    prefix: &prefix,
+                    suffix: &suffix,
+                    closed: false,
+                    close: TagClose::None,
+                },
+                &tag_specs,
+            )
+            .is_empty()
+        );
+        assert!(
+            generate_template_name_candidates(
+                &db,
+                TemplateNameCandidateInput {
+                    tag: "extends",
+                    position: 1,
+                    quote: '"',
+                    prefix: &prefix,
+                    suffix: &suffix,
+                    closed: false,
+                    close: TagClose::None,
+                },
+                &tag_specs,
+            )
+            .is_empty()
         );
     }
 

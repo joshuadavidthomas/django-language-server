@@ -153,6 +153,8 @@ impl LanguageServer for DjangoLanguageServer {
                         "{".to_string(),
                         "%".to_string(),
                         " ".to_string(),
+                        "\"".to_string(),
+                        "'".to_string(),
                     ]),
                     ..Default::default()
                 }),

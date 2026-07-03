@@ -13,6 +13,7 @@ from .conftest import TEST_WORKSPACE
 from .utils import position_after
 
 BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
+HOME_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "home.html"
 LOAD_TEMPLATE = (
     TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "tags" / "load.html"
 )
@@ -50,6 +51,35 @@ async def test_completes_available_template_tags(client: LanguageClient):
     static = next(item for item in result if item.label == "static")
     assert static.detail == "{% load static %}"
     assert static.filter_text == "static"
+
+
+@pytest.mark.asyncio
+async def test_completes_template_names_inside_quoted_references(client: LanguageClient):
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=HOME_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=HOME_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    result = await client.text_document_completion_async(
+        CompletionParams(
+            text_document=TextDocumentIdentifier(uri=HOME_TEMPLATE.as_uri()),
+            position=position_after(HOME_TEMPLATE, '{% extends "'),
+        )
+    )
+
+    assert result is not None
+    base = next(item for item in result if item.label == "djls_app/base.html")
+    assert base.kind == CompletionItemKind.File
+    assert base.insert_text_format == InsertTextFormat.PlainText
+    assert base.detail == "Django template"
+    assert base.text_edit is not None
+    assert base.text_edit.new_text == "djls_app/base.html"
 
 
 @pytest.mark.asyncio
