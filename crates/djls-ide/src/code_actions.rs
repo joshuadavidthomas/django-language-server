@@ -3,10 +3,10 @@ use djls_semantic::ValidationErrorAccumulator;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::LineEnding;
+use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_source::Span;
-use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
 use crate::diagnostics::lsp_diagnostic_for;
@@ -16,6 +16,10 @@ use crate::ext::Utf8PathExt;
 use crate::header::import_header;
 
 #[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the exhaustive ValidationError dispatch is clearer kept in one place"
+)]
 pub fn code_actions(
     db: &dyn djls_semantic::Db,
     file: File,
@@ -41,12 +45,7 @@ pub fn code_actions(
 
     let line_index = file.line_index(db);
     let config = db.diagnostics_config();
-    let edit_context = EditContext {
-        uri: file.path(db).to_lsp_uri()?,
-        source: source_text,
-        line_index,
-        encoding,
-    };
+    let uri = file.path(db).to_lsp_uri()?;
     let nodelist = parsed.nodelist(db);
 
     let mut actions = Vec::new();
@@ -73,11 +72,12 @@ pub fn code_actions(
                 };
                 let insertion_offset =
                     import_header(nodelist, source_text).load_insertion_offset(source_text);
-                actions.push(insert_load_action(
-                    &edit_context,
-                    insertion_offset,
+                let edit =
+                    load_tag_edit(source_text, line_index, encoding, insertion_offset, library);
+                actions.push(vec![edit].to_quick_fix_action(
+                    uri.clone(),
+                    format!("Add '{{% load {library} %}}'"),
                     diagnostic,
-                    library,
                     Some(true),
                 ));
             }
@@ -91,109 +91,85 @@ pub fn code_actions(
                 let mut libraries = libraries.iter().map(String::as_str).collect::<Vec<_>>();
                 libraries.sort_unstable();
                 libraries.dedup();
+
                 for library in libraries {
-                    actions.push(insert_load_action(
-                        &edit_context,
-                        insertion_offset,
+                    let edit =
+                        load_tag_edit(source_text, line_index, encoding, insertion_offset, library);
+                    actions.push(vec![edit].to_quick_fix_action(
+                        uri.clone(),
+                        format!("Add '{{% load {library} %}}'"),
                         diagnostic.clone(),
-                        library,
                         None,
                     ));
                 }
             }
-            ValidationError::UnmatchedBlockName { expected, span, .. } => {
-                let Some(name_span) = closing_block_name_span(nodelist, *span) else {
-                    continue;
-                };
+            ValidationError::UnmatchedBlockName {
+                expected, got_span, ..
+            } => {
                 let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
                     continue;
                 };
-                actions.push(rename_closing_block_action(
-                    &edit_context,
+                let edit = ls_types::TextEdit::new(
+                    got_span.to_lsp_range_with_encoding(source_text, line_index, encoding),
+                    expected.clone(),
+                );
+                actions.push(vec![edit].to_quick_fix_action(
+                    uri.clone(),
+                    format!("Rename closing block to '{expected}'"),
                     diagnostic,
-                    name_span,
-                    expected,
+                    Some(true),
                 ));
             }
-            _ => {}
+            ValidationError::UnclosedTag { .. }
+            | ValidationError::OrphanedTag { .. }
+            | ValidationError::OrphanedClosingTag { .. }
+            | ValidationError::UnbalancedStructure { .. }
+            | ValidationError::UnknownTag { .. }
+            | ValidationError::TagNotInInstalledApps { .. }
+            | ValidationError::UnknownFilter { .. }
+            | ValidationError::FilterNotInInstalledApps { .. }
+            | ValidationError::ExpressionSyntaxError { .. }
+            | ValidationError::FilterMissingArgument { .. }
+            | ValidationError::FilterUnexpectedArgument { .. }
+            | ValidationError::ExtractedRuleViolation { .. }
+            | ValidationError::UnknownLibrary { .. }
+            | ValidationError::LibraryNotInInstalledApps { .. }
+            | ValidationError::ExtendsMustBeFirst { .. }
+            | ValidationError::MultipleExtends { .. } => {}
         }
     }
 
     Some(actions)
 }
 
-struct EditContext<'a> {
-    uri: ls_types::Uri,
-    source: &'a str,
-    line_index: &'a djls_source::LineIndex,
+fn load_tag_edit(
+    source_text: &str,
+    line_index: &LineIndex,
     encoding: PositionEncoding,
-}
-
-fn insert_load_action(
-    context: &EditContext<'_>,
     insertion_offset: Offset,
-    diagnostic: ls_types::Diagnostic,
     library: &str,
-    is_preferred: Option<bool>,
-) -> ls_types::CodeActionOrCommand {
-    let line_ending = LineEnding::last_in(context.source)
+) -> ls_types::TextEdit {
+    let line_ending = LineEnding::last_in(source_text)
         .unwrap_or_default()
         .as_str();
     let load_line = format!("{{% load {library} %}}{line_ending}");
     let offset = insertion_offset.get() as usize;
-    let new_text = if !context.source.is_empty()
-        && offset == context.source.len()
-        && !context.source.ends_with('\n')
-        && !context.source.ends_with('\r')
+    let new_text = if !source_text.is_empty()
+        && offset == source_text.len()
+        && !source_text.ends_with('\n')
+        && !source_text.ends_with('\r')
     {
         format!("{line_ending}{load_line}")
     } else {
         load_line
     };
 
-    let edit = ls_types::TextEdit::new(
+    ls_types::TextEdit::new(
         Span::new(insertion_offset.get(), 0).to_lsp_range_with_encoding(
-            context.source,
-            context.line_index,
-            context.encoding,
+            source_text,
+            line_index,
+            encoding,
         ),
         new_text,
-    );
-
-    vec![edit].to_quick_fix_action(
-        context.uri.clone(),
-        format!("Add '{{% load {library} %}}'"),
-        diagnostic,
-        is_preferred,
     )
-}
-
-fn rename_closing_block_action(
-    context: &EditContext<'_>,
-    diagnostic: ls_types::Diagnostic,
-    name_span: Span,
-    expected: &str,
-) -> ls_types::CodeActionOrCommand {
-    let edit = ls_types::TextEdit::new(
-        name_span.to_lsp_range_with_encoding(context.source, context.line_index, context.encoding),
-        expected.to_string(),
-    );
-
-    vec![edit].to_quick_fix_action(
-        context.uri.clone(),
-        format!("Rename closing block to '{expected}'"),
-        diagnostic,
-        Some(true),
-    )
-}
-
-fn closing_block_name_span(nodelist: &[Node], full_span: Span) -> Option<Span> {
-    nodelist.iter().find_map(|node| match node {
-        Node::Tag { bits, .. } if node.full_span() == full_span => bits.first().map(|bit| bit.span),
-        Node::Tag { .. }
-        | Node::Comment { .. }
-        | Node::Text { .. }
-        | Node::Variable { .. }
-        | Node::Error { .. } => None,
-    })
 }
