@@ -2,11 +2,16 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use camino::Utf8Path;
+use djls_semantic::BlockSite;
 use djls_semantic::ChainEnd;
 use djls_semantic::ExtendsTarget;
 use djls_semantic::TemplateInheritance;
+use djls_semantic::block_overrides;
+use djls_semantic::inherited_blocks;
+use djls_semantic::parent_block;
 use djls_semantic::template_inheritance;
 use djls_semantic::template_symbols;
+use djls_source::File;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
@@ -74,6 +79,8 @@ fn render_inheritance(scenario: &Scenario) -> String {
     }
     writeln!(&mut output, "chain:").unwrap();
     render_chain(&mut output, &db, inheritance);
+    writeln!(&mut output, "block queries:").unwrap();
+    render_block_queries(&mut output, &db, project, file, symbols.blocks());
 
     output.trim_end().to_string()
 }
@@ -112,6 +119,52 @@ fn render_chain(output: &mut String, db: &TestDatabase, inheritance: TemplateInh
     writeln!(output, "  end: {}", render_chain_end(inheritance.end(db))).unwrap();
 }
 
+fn render_block_queries(
+    output: &mut String,
+    db: &TestDatabase,
+    project: djls_project::Project,
+    file: File,
+    blocks: &[djls_semantic::BlockDef],
+) {
+    writeln!(output, "  parent blocks:").unwrap();
+    if blocks.is_empty() {
+        writeln!(output, "    none").unwrap();
+    } else {
+        for block in blocks {
+            let parent = parent_block(db, project, file, &block.name)
+                .map_or_else(|| "none".to_string(), |site| render_block_site(db, site));
+            writeln!(output, "    - {} -> {parent}", block.name).unwrap();
+        }
+    }
+
+    writeln!(output, "  inherited blocks:").unwrap();
+    let inherited = inherited_blocks(db, project, file);
+    if inherited.is_empty() {
+        writeln!(output, "    none").unwrap();
+    } else {
+        for (name, site) in inherited {
+            writeln!(output, "    - {name} -> {}", render_block_site(db, site)).unwrap();
+        }
+    }
+
+    writeln!(output, "  overrides:").unwrap();
+    if blocks.is_empty() {
+        writeln!(output, "    none").unwrap();
+    } else {
+        for block in blocks {
+            let overrides = block_overrides(db, project, file, &block.name);
+            if overrides.is_empty() {
+                writeln!(output, "    - {}: none", block.name).unwrap();
+            } else {
+                writeln!(output, "    - {}:", block.name).unwrap();
+                for site in overrides {
+                    writeln!(output, "      - {}", render_block_site(db, site)).unwrap();
+                }
+            }
+        }
+    }
+}
+
 fn render_extends(target: Option<&ExtendsTarget>) -> String {
     match target {
         Some(ExtendsTarget::Literal { name, span }) => {
@@ -134,4 +187,21 @@ fn render_chain_end(end: ChainEnd) -> String {
 
 fn render_span(span: Span) -> String {
     format!("{}..{}", span.start_usize(), span.end_usize())
+}
+
+fn render_block_site(db: &TestDatabase, site: BlockSite) -> String {
+    format!(
+        "{} name@{} full@{}",
+        render_file(db, site.file),
+        render_span(site.name_span),
+        render_span(site.full_span)
+    )
+}
+
+fn render_file(db: &TestDatabase, file: File) -> String {
+    file.path(db)
+        .strip_prefix(TEMPLATE_ROOT)
+        .map_or_else(|_| file.path(db).as_str(), Utf8Path::as_str)
+        .trim_start_matches('/')
+        .to_string()
 }

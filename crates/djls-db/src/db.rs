@@ -215,13 +215,18 @@ mod invalidation_tests {
     use djls_project::Project;
     use djls_semantic::Db as SemanticDb;
     use djls_semantic::SemanticOffsetContext;
+    use djls_semantic::template_inheritance;
+    use djls_semantic::template_symbols;
     use djls_source::Db as SourceDb;
+    use djls_source::File;
     use djls_source::InMemoryFileSystem;
     use djls_source::Offset;
     use djls_source::OsFileSystem;
     use djls_source::SourceFiles;
+    use djls_templates::parse_template;
     use salsa::Database;
     use salsa::Setter;
+    use tempfile::TempDir;
     use tempfile::tempdir;
 
     use super::DjangoDatabase;
@@ -250,6 +255,19 @@ mod invalidation_tests {
         })
     }
 
+    fn execution_count(db: &DjangoDatabase, events: &[salsa::Event], query_name: &str) -> usize {
+        events
+            .iter()
+            .filter(|event| match &event.kind {
+                salsa::EventKind::WillExecute { database_key } => {
+                    let name = db.ingredient_debug_name(database_key.ingredient_index());
+                    name.contains(query_name)
+                }
+                _ => false,
+            })
+            .count()
+    }
+
     /// Create a test database with event logging and a pre-configured project.
     ///
     /// Uses `Interpreter::discover(None)` to match what `Project::bootstrap`
@@ -276,6 +294,91 @@ mod invalidation_tests {
         db.project = Some(project);
 
         (db, event_log)
+    }
+
+    struct TemplateInheritanceFixture {
+        _tempdir: TempDir,
+        db: DjangoDatabase,
+        event_log: EventLog,
+        fs: Arc<Mutex<InMemoryFileSystem>>,
+        project: Project,
+        child_file: File,
+        parent_file: File,
+        other_file: File,
+        child_path: Utf8PathBuf,
+        parent_path: Utf8PathBuf,
+    }
+
+    fn template_inheritance_fixture() -> TemplateInheritanceFixture {
+        let event_log = EventLog::default();
+        let tempdir = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).unwrap();
+        std::fs::write(
+            root.join("djls.toml").as_std_path(),
+            "django_settings_module = \"settings\"\n",
+        )
+        .unwrap();
+        let settings = Settings::new(root.as_path(), None).unwrap();
+        let templates_dir = root.join("templates");
+        let child_path = templates_dir.join("child.html");
+        let parent_path = templates_dir.join("base.html");
+        let other_path = templates_dir.join("next.html");
+        let fs = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        {
+            let mut fs = fs.lock().unwrap();
+            fs.add_file(root.join("manage.py"), String::new());
+            fs.add_file(
+                root.join("settings.py"),
+                format!(
+                    "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                ),
+            );
+            fs.add_file(
+                child_path.clone(),
+                "{% extends \"base.html\" %}\n{% block content %}{{ one }}{% endblock %}"
+                    .to_string(),
+            );
+            fs.add_file(
+                parent_path.clone(),
+                "{% block content %}Base{% endblock %}".to_string(),
+            );
+            fs.add_file(
+                other_path.clone(),
+                "{% block content %}Next{% endblock %}".to_string(),
+            );
+        }
+
+        let mut db = DjangoDatabase {
+            fs: fs.clone(),
+            files: SourceFiles::default(),
+            project: None,
+            settings: Arc::new(Mutex::new(settings.clone())),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+        let project = Project::bootstrap(&db, root.as_path(), &settings);
+        db.project = Some(project);
+        let child_file = db.get_or_create_file(&child_path);
+        let parent_file = db.get_or_create_file(&parent_path);
+        let other_file = db.get_or_create_file(&other_path);
+
+        TemplateInheritanceFixture {
+            _tempdir: tempdir,
+            db,
+            event_log,
+            fs,
+            project,
+            child_file,
+            parent_file,
+            other_file,
+            child_path,
+            parent_path,
+        }
     }
 
     #[test]
@@ -1443,6 +1546,116 @@ def my_filter(value, arg):
         assert_eq!(
             extracted_graph_count, 1,
             "only the changed model file should re-run extraction"
+        );
+    }
+
+    #[test]
+    fn template_inheritance_reuses_chain_after_child_body_edit_keeps_symbols() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            project,
+            child_file,
+            parent_file: _,
+            other_file: _,
+            child_path,
+            ..
+        } = template_inheritance_fixture();
+
+        let inheritance = template_inheritance(&db, project, child_file);
+        assert_eq!(inheritance.ancestors(&db).len(), 1);
+        event_log.take();
+
+        fs.lock().unwrap().add_file(
+            child_path,
+            "{% extends \"base.html\" %}\n{% block content %}{{ two }}{% endblock %}".to_string(),
+        );
+        db.bump_file_revision(child_file);
+
+        let nodelist = parse_template(&db, child_file).expect("child should parse");
+        let symbols = template_symbols(&db, nodelist);
+        assert_eq!(symbols.blocks()[0].name, "content");
+        let inheritance = template_inheritance(&db, project, child_file);
+        assert_eq!(inheritance.ancestors(&db).len(), 1);
+        let events = event_log.take();
+        assert_eq!(
+            execution_count(&db, &events, "template_symbols"),
+            1,
+            "only the edited child template should recompute symbols"
+        );
+        assert!(
+            !was_executed(&db, &events, "template_inheritance"),
+            "unchanged child symbols should backdate before the chain re-runs"
+        );
+    }
+
+    #[test]
+    fn template_inheritance_reexecutes_after_child_extends_target_edit() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            project,
+            child_file,
+            other_file,
+            child_path,
+            ..
+        } = template_inheritance_fixture();
+
+        let inheritance = template_inheritance(&db, project, child_file);
+        assert_eq!(inheritance.ancestors(&db).len(), 1);
+        event_log.take();
+
+        fs.lock().unwrap().add_file(
+            child_path,
+            "{% extends \"next.html\" %}\n{% block content %}{{ one }}{% endblock %}".to_string(),
+        );
+        db.bump_file_revision(child_file);
+
+        let inheritance = template_inheritance(&db, project, child_file);
+        assert!(inheritance.ancestors(&db)[0].file(&db) == other_file);
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "template_inheritance"),
+            "changed extends target should re-run the chain"
+        );
+    }
+
+    #[test]
+    fn template_inheritance_reuses_child_chain_after_parent_block_name_edit() {
+        let TemplateInheritanceFixture {
+            mut db,
+            event_log,
+            fs,
+            project,
+            child_file,
+            parent_file,
+            parent_path,
+            ..
+        } = template_inheritance_fixture();
+
+        let inheritance = template_inheritance(&db, project, child_file);
+        assert!(inheritance.ancestors(&db)[0].file(&db) == parent_file);
+        event_log.take();
+
+        fs.lock().unwrap().add_file(
+            parent_path,
+            "{% block sidebar %}Base{% endblock %}".to_string(),
+        );
+        db.bump_file_revision(parent_file);
+
+        let inheritance = template_inheritance(&db, project, child_file);
+        assert!(inheritance.ancestors(&db)[0].file(&db) == parent_file);
+        let events = event_log.take();
+        assert_eq!(
+            execution_count(&db, &events, "template_symbols"),
+            1,
+            "only the edited parent template should recompute symbols"
+        );
+        assert!(
+            !was_executed(&db, &events, "template_inheritance"),
+            "parent block names should not invalidate the child's inheritance chain"
         );
     }
 }

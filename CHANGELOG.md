@@ -29,6 +29,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added startup progress reporting for Django project discovery and IDE cache warm-up.
 - Added a public `ROADMAP.md` for current and planned Django/LSP capabilities.
 - **Internal**: Added domain glossary docs for canonical project terminology.
+- **Internal**: Added block-resolution queries (`parent_block`, `inherited_blocks`, `block_overrides`) over the template inheritance chain.
 - **Internal**: Added the `template_inheritance` extends-chain query with explicit `ChainEnd` terminators and Django origin-skip resolution.
 - **Internal**: Added a per-file `template_symbols` definition layer (blocks, partials, extends target) to `djls-semantic`.
 - **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
