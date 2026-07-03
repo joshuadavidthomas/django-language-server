@@ -55,7 +55,13 @@ pub fn code_actions(
         let Some(primary_span) = error.primary_span() else {
             continue;
         };
-        if !span_intersects_request(primary_span, range) {
+        let intersects_request = if range.length() == 0 {
+            let offset = range.start_offset();
+            primary_span.contains(offset) || offset.get() == primary_span.end()
+        } else {
+            primary_span.start() < range.end() && range.start() < primary_span.end()
+        };
+        if !intersects_request {
             continue;
         }
 
@@ -82,12 +88,15 @@ pub fn code_actions(
                 };
                 let insertion_offset =
                     import_header(nodelist, source_text).load_insertion_offset(source_text);
-                for library in sorted_libraries(libraries) {
+                let mut libraries = libraries.iter().map(String::as_str).collect::<Vec<_>>();
+                libraries.sort_unstable();
+                libraries.dedup();
+                for library in libraries {
                     actions.push(insert_load_action(
                         &edit_context,
                         insertion_offset,
                         diagnostic.clone(),
-                        &library,
+                        library,
                         None,
                     ));
                 }
@@ -106,22 +115,7 @@ pub fn code_actions(
                     expected,
                 ));
             }
-            ValidationError::UnclosedTag { .. }
-            | ValidationError::OrphanedTag { .. }
-            | ValidationError::OrphanedClosingTag { .. }
-            | ValidationError::UnbalancedStructure { .. }
-            | ValidationError::UnknownTag { .. }
-            | ValidationError::TagNotInInstalledApps { .. }
-            | ValidationError::UnknownFilter { .. }
-            | ValidationError::FilterNotInInstalledApps { .. }
-            | ValidationError::ExpressionSyntaxError { .. }
-            | ValidationError::FilterMissingArgument { .. }
-            | ValidationError::FilterUnexpectedArgument { .. }
-            | ValidationError::ExtractedRuleViolation { .. }
-            | ValidationError::UnknownLibrary { .. }
-            | ValidationError::LibraryNotInInstalledApps { .. }
-            | ValidationError::ExtendsMustBeFirst { .. }
-            | ValidationError::MultipleExtends { .. } => {}
+            _ => {}
         }
     }
 
@@ -202,20 +196,4 @@ fn closing_block_name_span(nodelist: &[Node], full_span: Span) -> Option<Span> {
         | Node::Variable { .. }
         | Node::Error { .. } => None,
     })
-}
-
-fn sorted_libraries(libraries: &[String]) -> Vec<String> {
-    let mut libraries = libraries.to_vec();
-    libraries.sort_unstable();
-    libraries.dedup();
-    libraries
-}
-
-fn span_intersects_request(span: Span, request: Span) -> bool {
-    if request.length() == 0 {
-        let offset = request.start_offset();
-        return span.contains(offset) || offset.get() == span.end();
-    }
-
-    span.start() < request.end() && request.start() < span.end()
 }
