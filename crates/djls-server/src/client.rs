@@ -86,7 +86,7 @@ impl ClientInfo {
 
     #[must_use]
     pub(crate) fn supports_location_links(&self) -> bool {
-        self.capabilities.definition.supports_location_links()
+        self.capabilities.location_links
     }
 }
 
@@ -103,10 +103,14 @@ pub(crate) enum Client {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "LSP client capabilities are independent protocol feature flags"
+)]
 pub(crate) struct ClientCapabilities {
     pull_diagnostics: bool,
     snippets: bool,
-    definition: DefinitionCapabilities,
+    location_links: bool,
     work_done_progress: bool,
 }
 
@@ -127,7 +131,12 @@ impl ClientCapabilities {
             .and_then(|completion_item| completion_item.snippet_support)
             .unwrap_or(false);
 
-        let definition = DefinitionCapabilities::new(capabilities);
+        let location_links = capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.definition.as_ref())
+            .and_then(|definition| definition.link_support)
+            .unwrap_or(false);
 
         let work_done_progress = capabilities
             .window
@@ -138,33 +147,9 @@ impl ClientCapabilities {
         Self {
             pull_diagnostics,
             snippets,
-            definition,
+            location_links,
             work_done_progress,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct DefinitionCapabilities {
-    location_links: bool,
-}
-
-impl DefinitionCapabilities {
-    #[must_use]
-    fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
-        let location_links = capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_document| text_document.definition.as_ref())
-            .and_then(|definition| definition.link_support)
-            .unwrap_or(false);
-
-        Self { location_links }
-    }
-
-    #[must_use]
-    fn supports_location_links(self) -> bool {
-        self.location_links
     }
 }
 
