@@ -43,7 +43,7 @@ Each layer has a different failure mode and a different fix:
 |---|---|---|---|
 | Not found in active or inactive libraries | Unknown package, library, tag, or filter | S108/S111/S120 (Unknown) | Check the name or install the package |
 | Found on the Python search paths, not active in this project | App missing from `INSTALLED_APPS` | S118/S119/S121 (Not in `INSTALLED_APPS`) | Add the app to `INSTALLED_APPS` |
-| Active, not loaded | No `{% load %}` | S109/S112 (Unloaded) | Add `{% load <library> %}` |
+| Active, not loaded | No `{% load %}` | S109/S112 (Unloaded) | Use the quick fix or add `{% load <library> %}` |
 
 `{% load %}` library names are checked against the active static inventory first. If the library exists on the project's Python search paths but its app is not in `INSTALLED_APPS`, djls reports S121. If no inactive-library evidence exists, djls reports S120.
 
@@ -52,6 +52,20 @@ The same inventory powers editor links: resolved `{% load %}` library names beco
 Template directory discovery also powers goto definition for literal `{% extends %}` and `{% include %}` names. Editors that support definition links receive the exact template-name range as the origin.
 
 This gives you diagnostics based on the same template tag inventory Django would use at runtime, while distinguishing "not installed or misspelled" from "installed but not activated".
+
+## Code Actions
+
+DJLS exposes quick fixes for selected template validation diagnostics. In editors that support LSP code actions, open the quick-fix menu on the diagnostic range to apply them.
+
+| Diagnostic | Quick fix |
+|---|---|
+| S109/S112 — unloaded tag or filter with one matching library | Add a standalone `{% load <library> %}` line |
+| S110/S113 — unloaded tag or filter found in multiple libraries | Choose one `{% load <library> %}` quick fix per candidate library |
+| S103 — mismatched `{% endblock %}` name | Rename only the closing block name to match the opening `{% block %}` |
+
+Load quick fixes insert a new `{% load ... %}` line after the leading template import run: after `{% extends %}` and existing top-of-file `{% load %}` tags when present, or at the beginning of the template otherwise. They do not rewrite existing `{% load %}` tags.
+
+Quick fixes are derived from active diagnostics. If you disable a diagnostic with `diagnostics.severity`, its quick fix is disabled too.
 
 ## What djls Validates
 

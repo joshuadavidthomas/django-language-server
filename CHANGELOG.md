@@ -151,7 +151,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Deprecated
 
-- TagSpecs v0.4.0 flat format (will be removed in v6.0.2). [migration guide here](docs/configuration/tagspecs.md#migration-from-v040)
+- TagSpecs v0.4.0 flat format (will be removed in v6.0.2). See the [TagSpecs docs](docs/configuration/tagspecs.md).
 
 ### Removed
 
