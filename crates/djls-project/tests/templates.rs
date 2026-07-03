@@ -94,6 +94,40 @@ fn derived_template_origins_keep_shadowed_names_in_template_dir_order() {
 }
 
 #[test]
+fn template_names_returns_unique_resolvable_names() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates", "/test/project/app/templates"],
+        vec![
+            (
+                "base.html",
+                "/test/project/templates/base.html",
+                "project base",
+            ),
+            (
+                "base.html",
+                "/test/project/app/templates/base.html",
+                "app base",
+            ),
+            (
+                "account/detail.html",
+                "/test/project/app/templates/account/detail.html",
+                "detail",
+            ),
+        ],
+    );
+
+    let mut names: Vec<_> = template_resolution(&db, project)
+        .template_names(&db)
+        .map(|name| name.name(&db).clone())
+        .collect();
+    names.sort();
+
+    assert_eq!(names, ["account/detail.html", "base.html"]);
+}
+
+#[test]
 fn find_template_returns_first_origin_for_duplicate_template_names() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(

@@ -9,6 +9,7 @@ use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::builtin_tag;
 use djls_testing::library_filter;
@@ -72,11 +73,11 @@ fn source_and_offset(marked_source: &str) -> (String, Offset) {
     (source, Offset::new(u32::try_from(offset).unwrap()))
 }
 
-fn completion_labels(
+fn completion_items(
     marked_source: &str,
     template_libraries: impl FnOnce(&TestDatabase) -> TemplateLibraries,
     tag_specs: TagSpecs,
-) -> Vec<String> {
+) -> Vec<ls_types::CompletionItem> {
     let (source, offset) = source_and_offset(marked_source);
     let db = TestDatabase::new().with_specs(tag_specs);
     let template_libraries = template_libraries(&db);
@@ -88,11 +89,36 @@ fn completion_labels(
         return Vec::new();
     };
 
-    let items = match response {
+    match response {
         ls_types::CompletionResponse::Array(items) => items,
         ls_types::CompletionResponse::List(list) => list.items,
-    };
-    items.into_iter().map(|item| item.label).collect()
+    }
+}
+
+fn completion_labels(
+    marked_source: &str,
+    template_libraries: impl FnOnce(&TestDatabase) -> TemplateLibraries,
+    tag_specs: TagSpecs,
+) -> Vec<String> {
+    completion_items(marked_source, template_libraries, tag_specs)
+        .into_iter()
+        .map(|item| item.label)
+        .collect()
+}
+
+fn install_template_completion_project(db: &mut TestDatabase, child_path: &str, source: &str) {
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("child.html", child_path, source)
+        .template_file("base.html", "/test/project/templates/base.html", "base")
+        .template_file("shared.html", "/test/project/templates/shared.html", "primary")
+        .template_file("account/detail.html", "/test/project/app/templates/account/detail.html", "detail")
+        .template_file("shared.html", "/test/project/app/templates/shared.html", "shadow")
+        .install(db);
 }
 
 #[test]
@@ -139,4 +165,141 @@ fn filter_completions_respect_load_position() {
 
     assert!(before_load.is_empty());
     assert_eq!(after_load, vec!["trans"]);
+}
+
+#[test]
+fn template_name_completions_use_resolvable_project_names() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#);
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source);
+    let file = db.get_or_create_file(Utf8Path::new(child_path));
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let labels = items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        labels,
+        vec![
+            "account/detail.html",
+            "base.html",
+            "child.html",
+            "shared.html",
+        ]
+    );
+    assert_eq!(items[0].kind, Some(ls_types::CompletionItemKind::FILE));
+    assert_eq!(items[0].detail.as_deref(), Some("Django template"));
+}
+
+#[test]
+fn template_name_completion_replaces_quoted_argument_interior() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "acc§ount/detail.html" %}"#);
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source);
+    let file = db.get_or_create_file(Utf8Path::new(child_path));
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "account/detail.html")
+        .expect("expected account/detail.html completion");
+    let text_edit = item
+        .text_edit
+        .as_ref()
+        .expect("template-name completion should carry a text edit");
+
+    assert_eq!(
+        text_edit,
+        &ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 31),
+            ),
+            "account/detail.html".to_string(),
+        ))
+    );
+}
+
+#[test]
+fn template_name_completion_preserves_existing_full_close_after_open_quote() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "ba§ %}"#);
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source);
+    let file = db.get_or_create_file(Utf8Path::new(child_path));
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "base.html")
+        .expect("expected base.html completion");
+    let text_edit = item
+        .text_edit
+        .as_ref()
+        .expect("template-name completion should carry a text edit");
+
+    assert_eq!(
+        text_edit,
+        &ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 14),
+            ),
+            "base.html\"".to_string(),
+        ))
+    );
+}
+
+#[test]
+fn template_name_completion_repairs_autopaired_quote_before_lone_brace() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% include "ba§"}"#);
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source);
+    let file = db.get_or_create_file(Utf8Path::new(child_path));
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "base.html")
+        .expect("expected base.html completion");
+    let text_edit = item
+        .text_edit
+        .as_ref()
+        .expect("template-name completion should carry a text edit");
+
+    assert_eq!(
+        text_edit,
+        &ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 16),
+            ),
+            "base.html\" %}".to_string(),
+        ))
+    );
 }

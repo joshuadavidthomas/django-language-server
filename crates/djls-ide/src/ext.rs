@@ -172,6 +172,7 @@ impl CompletionCandidateKindExt for CompletionCandidateKind {
                 ls_types::CompletionItemKind::VARIABLE
             }
             CompletionCandidateKind::TagArgumentSnippet => ls_types::CompletionItemKind::SNIPPET,
+            CompletionCandidateKind::TemplateName => ls_types::CompletionItemKind::FILE,
             CompletionCandidateKind::LibraryName => ls_types::CompletionItemKind::MODULE,
             CompletionCandidateKind::LoadSymbol | CompletionCandidateKind::Filter => {
                 ls_types::CompletionItemKind::FUNCTION

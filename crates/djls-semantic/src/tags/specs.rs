@@ -367,7 +367,7 @@ impl TagSpec {
     }
 
     #[must_use]
-    pub(crate) fn role(&self) -> Option<TagRole> {
+    pub fn role(&self) -> Option<TagRole> {
         self.role
     }
 

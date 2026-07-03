@@ -40,6 +40,15 @@ pub(crate) enum TemplateCompletionContext<'source> {
         prefix: OffsetPrefix<'source>,
         close: TagClose,
     },
+    QuotedArgument {
+        tag: &'source str,
+        position: usize,
+        quote: char,
+        prefix: OffsetPrefix<'source>,
+        suffix: OffsetSuffix<'source>,
+        closed: bool,
+        close: TagClose,
+    },
     LibraryName {
         prefix: OffsetPrefix<'source>,
         suffix: OffsetSuffix<'source>,
@@ -123,6 +132,20 @@ impl<'source> TemplateCompletionContext<'source> {
         } else {
             (0, "")
         };
+
+        if let Some((quote, quoted_prefix)) = unclosed_quote_prefix(prefix) {
+            let (suffix, closed, close) =
+                OffsetSuffix::quoted_at_offset(source, offset, content_span, quote);
+            return Self::QuotedArgument {
+                tag,
+                position,
+                quote,
+                prefix: OffsetPrefix::new(quoted_prefix, offset),
+                suffix,
+                closed,
+                close,
+            };
+        }
 
         Self::TagArgument {
             tag,
@@ -318,6 +341,46 @@ impl<'source> OffsetSuffix<'source> {
 
         Self::new(&text[..suffix_len], offset)
     }
+
+    fn quoted_at_offset(
+        source: &'source str,
+        offset: Offset,
+        content_span: Span,
+        quote: char,
+    ) -> (Self, bool, TagClose) {
+        let start = (offset.get() as usize).min(source.len());
+        let content_end = content_span.end_usize().min(source.len());
+        if start >= content_end {
+            return (
+                Self::new("", offset),
+                false,
+                TagClose::after_offset(source, offset, content_span),
+            );
+        }
+
+        let text = &source[start..content_end];
+        if let Some((closing_index, _)) = text.char_indices().find(|(index, character)| {
+            *character == quote && !is_escaped(source.as_bytes(), start + index)
+        }) {
+            let after_quote = Offset::try_from(start + closing_index + quote.len_utf8())
+                .expect("closing quote offset is bounded by the token content span");
+            return (
+                Self::new(&text[..closing_index], offset),
+                true,
+                TagClose::after_offset(source, after_quote, content_span),
+            );
+        }
+
+        let close = TagClose::after_offset(source, offset, content_span);
+        let suffix =
+            if matches!(close, TagClose::Full { .. }) && text.chars().all(char::is_whitespace) {
+                ""
+            } else {
+                text
+            };
+
+        (Self::new(suffix, offset), false, close)
+    }
 }
 
 fn token_at_offset(tokens: &[Token], offset: Offset) -> Option<&Token> {
@@ -411,6 +474,30 @@ fn split_tag_words(text: &str) -> Vec<&str> {
     }
 
     words
+}
+
+fn unclosed_quote_prefix(text: &str) -> Option<(char, &str)> {
+    let mut quote = None;
+    let mut quote_start = 0;
+    let bytes = text.as_bytes();
+
+    for (index, character) in text.char_indices() {
+        match character {
+            '\'' | '"'
+                if (quote.is_none() || quote == Some(character)) && !is_escaped(bytes, index) =>
+            {
+                if quote == Some(character) {
+                    quote = None;
+                } else {
+                    quote = Some(character);
+                    quote_start = index;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    quote.map(|quote| (quote, &text[quote_start + quote.len_utf8()..]))
 }
 
 fn is_escaped(bytes: &[u8], index: usize) -> bool {
@@ -563,15 +650,240 @@ mod tests {
     }
 
     #[test]
-    fn tag_argument_syntax_context_keeps_trailing_whitespace_inside_open_quote() {
+    fn quoted_argument_syntax_context_keeps_trailing_whitespace_inside_open_quote() {
         with_syntax_context("{% include \"base layout ▮", |source, context| {
-            let prefix = "\"base layout ";
+            let prefix = "base layout ";
+            let prefix_start = source.find(prefix).unwrap();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "include",
+                    position: 0,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: prefix,
+                        span: Span::new(
+                            u32::try_from(prefix_start).unwrap(),
+                            u32::try_from(prefix.len()).unwrap(),
+                        ),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start + prefix.len()).unwrap(), 0,),
+                    },
+                    closed: false,
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_tracks_prefix() {
+        with_syntax_context("{% extends \"ba▮", |source, context| {
+            let prefix_start = source.find("ba").unwrap();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "extends",
+                    position: 0,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: "ba",
+                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start + 2).unwrap(), 0),
+                    },
+                    closed: false,
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_tracks_slash_prefix() {
+        with_syntax_context("{% include \"partials/na▮", |source, context| {
+            let prefix = "partials/na";
+            let prefix_start = source.find(prefix).unwrap();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "include",
+                    position: 0,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: prefix,
+                        span: Span::new(
+                            u32::try_from(prefix_start).unwrap(),
+                            u32::try_from(prefix.len()).unwrap(),
+                        ),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start + prefix.len()).unwrap(), 0),
+                    },
+                    closed: false,
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_preserves_existing_full_close() {
+        with_syntax_context("{% extends \"ba▮ %}", |source, context| {
+            let prefix_start = source.find("ba").unwrap();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "extends",
+                    position: 0,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: "ba",
+                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start + 2).unwrap(), 0),
+                    },
+                    closed: false,
+                    close: TagClose::Full {
+                        replacement_suffix_len: 3,
+                    },
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_tracks_closed_suffix() {
+        with_syntax_context("{% extends \"ba▮se.html\" %}", |source, context| {
+            let prefix_start = source.find("ba").unwrap();
+            let suffix_start = prefix_start + 2;
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "extends",
+                    position: 0,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: "ba",
+                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "se.html",
+                        span: Span::new(u32::try_from(suffix_start).unwrap(), 7),
+                    },
+                    closed: true,
+                    close: TagClose::Full {
+                        replacement_suffix_len: 3,
+                    },
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_supports_single_quotes() {
+        with_syntax_context("{% extends 'ba▮", |source, context| {
+            let prefix_start = source.find("ba").unwrap();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "extends",
+                    position: 0,
+                    quote: '\'',
+                    prefix: OffsetPrefix {
+                        text: "ba",
+                        span: Span::new(u32::try_from(prefix_start).unwrap(), 2),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start + 2).unwrap(), 0),
+                    },
+                    closed: false,
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_tracks_later_quoted_argument_positions() {
+        with_syntax_context("{% include \"a.html\" with x=\"▮", |source, context| {
+            let prefix_start = source.find("x=\"").unwrap() + "x=\"".len();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "include",
+                    position: 2,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start).unwrap(), 0),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start).unwrap(), 0),
+                    },
+                    closed: false,
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn quoted_argument_syntax_context_ignores_escaped_quotes() {
+        with_syntax_context(r#"{% extends "ba\"se▮"#, |source, context| {
+            let prefix = r#"ba\"se"#;
+            let prefix_start = source.find(prefix).unwrap();
+
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::QuotedArgument {
+                    tag: "extends",
+                    position: 0,
+                    quote: '"',
+                    prefix: OffsetPrefix {
+                        text: prefix,
+                        span: Span::new(
+                            u32::try_from(prefix_start).unwrap(),
+                            u32::try_from(prefix.len()).unwrap(),
+                        ),
+                    },
+                    suffix: OffsetSuffix {
+                        text: "",
+                        span: Span::new(u32::try_from(prefix_start + prefix.len()).unwrap(), 0,),
+                    },
+                    closed: false,
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn closed_quoted_argument_stays_tag_argument_after_quote() {
+        with_syntax_context("{% extends \"base.html\"▮", |source, context| {
+            let prefix = "\"base.html\"";
             let prefix_start = source.find(prefix).unwrap();
 
             assert_eq!(
                 context,
                 CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
-                    tag: "include",
+                    tag: "extends",
                     position: 0,
                     prefix: OffsetPrefix {
                         text: prefix,
@@ -579,6 +891,24 @@ mod tests {
                             u32::try_from(prefix_start).unwrap(),
                             u32::try_from(prefix.len()).unwrap(),
                         ),
+                    },
+                    close: TagClose::None,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn cursor_before_quote_stays_tag_argument() {
+        with_syntax_context("{% extends ▮\"base.html\"", |_, context| {
+            assert_eq!(
+                context,
+                CompletionOffsetContext::Template(TemplateCompletionContext::TagArgument {
+                    tag: "extends",
+                    position: 0,
+                    prefix: OffsetPrefix {
+                        text: "",
+                        span: Span::new(11, 0),
                     },
                     close: TagClose::None,
                 })

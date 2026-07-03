@@ -136,6 +136,16 @@ impl<'db> TemplateResolution<'db> {
             .copied()
     }
 
+    pub fn template_names(
+        self,
+        db: &'db dyn ProjectDb,
+    ) -> impl Iterator<Item = TemplateName<'db>> + 'db {
+        template_resolution_index(db, self)
+            .first_by_template_name(db)
+            .keys()
+            .copied()
+    }
+
     #[must_use]
     pub fn known_template_dirs(self, db: &'db dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
         matches!(self.status(db), TemplateDirStatus::Complete)
