@@ -9,11 +9,11 @@ use djls_source::PositionEncoding;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
-use crate::diagnostics::DiagnosticError;
+use crate::ext::DiagnosticExt;
 use crate::ext::QuickFixActionExt;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
-use crate::header::import_header;
+use crate::imports::leading_imports;
 
 #[must_use]
 #[expect(
@@ -71,7 +71,7 @@ pub fn code_actions(
                     continue;
                 };
                 let insertion_offset =
-                    import_header(nodelist, source_text).load_insertion_offset(source_text);
+                    leading_imports(nodelist, source_text).load_insertion_offset(source_text);
                 let edit =
                     load_tag_edit(source_text, line_index, encoding, insertion_offset, library);
                 actions.push(vec![edit].to_quick_fix_action(
@@ -87,7 +87,7 @@ pub fn code_actions(
                     continue;
                 };
                 let insertion_offset =
-                    import_header(nodelist, source_text).load_insertion_offset(source_text);
+                    leading_imports(nodelist, source_text).load_insertion_offset(source_text);
                 let mut libraries = libraries.iter().map(String::as_str).collect::<Vec<_>>();
                 libraries.sort_unstable();
                 libraries.dedup();

@@ -4,23 +4,23 @@ use djls_source::Span;
 use djls_templates::Node;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ImportHeader {
+pub(crate) struct LeadingImports {
     extends: Option<Span>,
     loads: Vec<Span>,
 }
 
-impl ImportHeader {
+impl LeadingImports {
     pub(crate) fn load_insertion_offset(&self, source: &str) -> Offset {
-        let Some(last_header_tag) = self.loads.last().copied().or(self.extends) else {
+        let Some(last_import_tag) = self.loads.last().copied().or(self.extends) else {
             return Offset::new(0);
         };
 
-        offset_after_line(source, last_header_tag.end_usize())
+        offset_after_line(source, last_import_tag.end_usize())
     }
 }
 
-pub(crate) fn import_header(nodes: &[Node], source: &str) -> ImportHeader {
-    let mut header = ImportHeader::default();
+pub(crate) fn leading_imports(nodes: &[Node], source: &str) -> LeadingImports {
+    let mut imports = LeadingImports::default();
 
     for node in nodes {
         match node {
@@ -30,12 +30,12 @@ pub(crate) fn import_header(nodes: &[Node], source: &str) -> ImportHeader {
                     .is_some_and(|text| text.trim().is_empty()) => {}
             Node::Comment { .. } => {}
             Node::Tag { name, .. }
-                if name == "extends" && header.extends.is_none() && header.loads.is_empty() =>
+                if name == "extends" && imports.extends.is_none() && imports.loads.is_empty() =>
             {
-                header.extends = Some(node.full_span());
+                imports.extends = Some(node.full_span());
             }
             Node::Tag { name, .. } if name == "load" => {
-                header.loads.push(node.full_span());
+                imports.loads.push(node.full_span());
             }
             Node::Tag { .. } | Node::Text { .. } | Node::Variable { .. } | Node::Error { .. } => {
                 break;
@@ -43,21 +43,21 @@ pub(crate) fn import_header(nodes: &[Node], source: &str) -> ImportHeader {
         }
     }
 
-    header
+    imports
 }
 
-pub(crate) fn import_fold_spans(nodes: &[Node], source: &str) -> Vec<Span> {
+pub(crate) fn fold_spans(nodes: &[Node], source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    let mut import_header = ImportRun::None;
+    let mut import_run = ImportRun::None;
 
     for node in nodes {
         match node {
             Node::Tag { name, .. } if name == "extends" => {
-                spans.extend(import_header.finish());
-                import_header.start_at_extends(node.full_span());
+                spans.extend(import_run.finish());
+                import_run.start_at_extends(node.full_span());
             }
             Node::Tag { name, .. } if name == "load" => {
-                import_header.include_load(node.full_span());
+                import_run.include_load(node.full_span());
             }
             Node::Text { span }
                 if source
@@ -68,12 +68,12 @@ pub(crate) fn import_fold_spans(nodes: &[Node], source: &str) -> Vec<Span> {
             | Node::Text { .. }
             | Node::Variable { .. }
             | Node::Error { .. } => {
-                spans.extend(import_header.finish());
+                spans.extend(import_run.finish());
             }
         }
     }
 
-    spans.extend(import_header.finish());
+    spans.extend(import_run.finish());
     spans
 }
 

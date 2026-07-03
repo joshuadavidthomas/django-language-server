@@ -1,72 +1,9 @@
-use djls_semantic::ValidationError;
 use djls_source::File;
 use djls_source::FileKind;
-use djls_source::LineIndex;
-use djls_source::Span;
-use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::ls_types;
 
-use crate::ext::DiagnosticSeverityExt;
-use crate::ext::SpanExt;
-
-const DIAGNOSTIC_SOURCE: &str = "djls";
-
-pub(crate) trait DiagnosticError: std::fmt::Display {
-    fn span(&self) -> Option<(u32, u32)>;
-    fn diagnostic_code(&self) -> &'static str;
-
-    fn message(&self) -> String {
-        self.to_string()
-    }
-
-    fn to_lsp_diagnostic(
-        &self,
-        line_index: &LineIndex,
-        config: &djls_conf::DiagnosticsConfig,
-    ) -> Option<ls_types::Diagnostic> {
-        let code = self.diagnostic_code();
-        let severity = config.get_severity(code).to_lsp_severity()?;
-        let range = self
-            .span()
-            .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
-            .unwrap_or_default();
-
-        Some(ls_types::Diagnostic {
-            range,
-            severity: Some(severity),
-            code: Some(ls_types::NumberOrString::String(code.to_string())),
-            code_description: None,
-            source: Some(DIAGNOSTIC_SOURCE.to_string()),
-            message: self.message(),
-            related_information: None,
-            tags: None,
-            data: None,
-        })
-    }
-}
-
-impl DiagnosticError for TemplateError {
-    fn span(&self) -> Option<(u32, u32)> {
-        self.primary_span()
-    }
-
-    fn diagnostic_code(&self) -> &'static str {
-        // Calls the inherent method on TemplateError (not recursive —
-        // inherent methods take priority over trait methods in resolution).
-        TemplateError::diagnostic_code(self)
-    }
-}
-
-impl DiagnosticError for ValidationError {
-    fn span(&self) -> Option<(u32, u32)> {
-        self.primary_span().map(Into::into)
-    }
-
-    fn diagnostic_code(&self) -> &'static str {
-        self.code()
-    }
-}
+use crate::ext::DiagnosticExt;
 
 /// Collect all LSP diagnostics for a template file.
 ///
@@ -116,9 +53,12 @@ pub fn collect_diagnostics(
 #[cfg(test)]
 mod tests {
     use djls_conf::DiagnosticSeverity;
+    use djls_source::LineIndex;
     use djls_templates::ParseError;
+    use djls_templates::TemplateError;
 
     use super::*;
+    use crate::ext::DiagnosticSeverityExt;
 
     #[test]
     fn template_parse_diagnostics_use_legacy_code_and_structured_range() {

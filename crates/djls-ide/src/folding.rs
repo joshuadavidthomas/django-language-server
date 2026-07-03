@@ -6,7 +6,7 @@ use djls_templates::Node;
 use tower_lsp_server::ls_types;
 
 use crate::ext::FoldSpanExt;
-use crate::header;
+use crate::imports;
 
 #[must_use]
 pub fn collect_folding_ranges(
@@ -45,7 +45,7 @@ impl FoldSpans {
                 folds.push(FoldSpan::comment(node.full_span()));
             }
         }
-        for span in header::import_fold_spans(nodes, source) {
+        for span in imports::fold_spans(nodes, source) {
             folds.push_imports(FoldSpan::imports(span.start(), span.end()));
         }
 

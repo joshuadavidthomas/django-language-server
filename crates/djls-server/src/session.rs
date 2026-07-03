@@ -183,45 +183,6 @@ impl Session {
         self.workspace.get_document(path)
     }
 
-    /// Resolve an LSP document request to the tracked file for that URI.
-    ///
-    /// Open editor buffers are exposed to Salsa through the workspace overlay,
-    /// so feature code should read current text through [`File::source`]
-    /// instead of reaching back into [`TextDocument`] state.
-    #[allow(dead_code)]
-    pub(crate) fn file_for_document_request(
-        &self,
-        text_document: &ls_types::TextDocumentIdentifier,
-        request: &str,
-    ) -> Option<File> {
-        self.snapshot()
-            .file_for_document_request(text_document, request)
-    }
-
-    /// Resolve an LSP positioned document request to a tracked file and byte offset.
-    #[allow(dead_code)]
-    pub(crate) fn position_for_document_request(
-        &self,
-        text_document: &ls_types::TextDocumentIdentifier,
-        position: ls_types::Position,
-        request: &str,
-    ) -> Option<(File, Offset)> {
-        self.snapshot()
-            .position_for_document_request(text_document, position, request)
-    }
-
-    /// Resolve an LSP ranged document request to a tracked file and byte span.
-    #[allow(dead_code)]
-    pub(crate) fn range_for_document_request(
-        &self,
-        text_document: &ls_types::TextDocumentIdentifier,
-        range: ls_types::Range,
-        request: &str,
-    ) -> Option<(File, Span)> {
-        self.snapshot()
-            .range_for_document_request(text_document, range, request)
-    }
-
     /// Get all currently open documents.
     pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
         self.workspace
