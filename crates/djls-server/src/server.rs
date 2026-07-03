@@ -425,7 +425,12 @@ impl LanguageServer for DjangoLanguageServer {
                     return None;
                 }
 
-                djls_ide::goto_definition(db, file, offset)
+                djls_ide::goto_definition(
+                    db,
+                    file,
+                    offset,
+                    snapshot.client_info().supports_location_links(),
+                )
             })
             .await;
 

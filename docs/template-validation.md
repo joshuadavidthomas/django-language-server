@@ -49,6 +49,8 @@ Each layer has a different failure mode and a different fix:
 
 The same inventory powers editor links: resolved `{% load %}` library names become document links to their `templatetags/*.py` source files. Unresolved libraries are skipped.
 
+Template directory discovery also powers goto definition for literal `{% extends %}` and `{% include %}` names. Editors that support definition links receive the exact template-name range as the origin.
+
 This gives you diagnostics based on the same template tag inventory Django would use at runtime, while distinguishing "not installed or misspelled" from "installed but not activated".
 
 ## What djls Validates
@@ -121,7 +123,7 @@ Django templates are deeply dynamic — many things can only be checked at runti
 
 - **Variable resolution** — Whether a variable exists in the template context
 - **Type coercion** — Whether filter arguments have the correct type at runtime
-- **Template existence and inheritance semantics** — Whether every `{% extends %}` / `{% include %}` target exists or whether inherited blocks match intended runtime behavior
+- **Template existence diagnostics and inheritance semantics** — djls resolves static `{% extends %}` / `{% include %}` targets for navigation, but it does not report missing targets as validation errors or verify inherited block behavior
 - **Dynamic tag behavior** — Tags whose validation depends on runtime state
 - **Format strings** — Whether date/time format strings are valid
 
