@@ -27,6 +27,7 @@ pub fn code_actions(
     if *source.kind() != FileKind::Template {
         return None;
     }
+    let source_text = source.as_str();
 
     let Some(parsed) = djls_templates::parse_template(db, file) else {
         return Some(Vec::new());
@@ -35,152 +36,108 @@ pub fn code_actions(
     djls_semantic::validate_template_file(db, file);
     let errors =
         djls_semantic::validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file);
-    let actionable_errors = errors
-        .iter()
-        .map(|error_acc| &error_acc.0)
-        .filter(|error| is_actionable_for_range(error, range))
-        .collect::<Vec<_>>();
-    if actionable_errors.is_empty() {
+    if errors.is_empty() {
         return Some(Vec::new());
     }
 
-    let context = CodeActionContext {
+    let line_index = file.line_index(db);
+    let config = db.diagnostics_config();
+    let edit_context = EditContext {
         uri: file.path(db).to_lsp_uri()?,
-        source: source.as_str(),
-        line_index: file.line_index(db),
-        diagnostics_config: db.diagnostics_config(),
+        source: source_text,
+        line_index,
         encoding,
     };
     let nodelist = parsed.nodelist(db);
 
     let mut actions = Vec::new();
-    for error in actionable_errors {
-        add_actions_for_error(&mut actions, error, nodelist, &context);
+    for error_acc in errors {
+        let error = &error_acc.0;
+        let Some(primary_span) = error.primary_span() else {
+            continue;
+        };
+        if !span_intersects_request(primary_span, range) {
+            continue;
+        }
+
+        match error {
+            ValidationError::UnloadedTag { library, .. }
+            | ValidationError::UnloadedFilter { library, .. } => {
+                let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
+                    continue;
+                };
+                let insertion_offset =
+                    import_header(nodelist, source_text).load_insertion_offset(source_text);
+                actions.push(insert_load_action(
+                    &edit_context,
+                    insertion_offset,
+                    diagnostic,
+                    library,
+                    Some(true),
+                ));
+            }
+            ValidationError::AmbiguousUnloadedTag { libraries, .. }
+            | ValidationError::AmbiguousUnloadedFilter { libraries, .. } => {
+                let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
+                    continue;
+                };
+                let insertion_offset =
+                    import_header(nodelist, source_text).load_insertion_offset(source_text);
+                for library in sorted_libraries(libraries) {
+                    actions.push(insert_load_action(
+                        &edit_context,
+                        insertion_offset,
+                        diagnostic.clone(),
+                        &library,
+                        None,
+                    ));
+                }
+            }
+            ValidationError::UnmatchedBlockName { expected, span, .. } => {
+                let Some(name_span) = closing_block_name_span(nodelist, *span) else {
+                    continue;
+                };
+                let Some(diagnostic) = lsp_diagnostic_for(error, line_index, &config) else {
+                    continue;
+                };
+                actions.push(rename_closing_block_action(
+                    &edit_context,
+                    diagnostic,
+                    name_span,
+                    expected,
+                ));
+            }
+            ValidationError::UnclosedTag { .. }
+            | ValidationError::OrphanedTag { .. }
+            | ValidationError::OrphanedClosingTag { .. }
+            | ValidationError::UnbalancedStructure { .. }
+            | ValidationError::UnknownTag { .. }
+            | ValidationError::TagNotInInstalledApps { .. }
+            | ValidationError::UnknownFilter { .. }
+            | ValidationError::FilterNotInInstalledApps { .. }
+            | ValidationError::ExpressionSyntaxError { .. }
+            | ValidationError::FilterMissingArgument { .. }
+            | ValidationError::FilterUnexpectedArgument { .. }
+            | ValidationError::ExtractedRuleViolation { .. }
+            | ValidationError::UnknownLibrary { .. }
+            | ValidationError::LibraryNotInInstalledApps { .. }
+            | ValidationError::ExtendsMustBeFirst { .. }
+            | ValidationError::MultipleExtends { .. } => {}
+        }
     }
 
     Some(actions)
 }
 
-struct CodeActionContext<'a> {
+struct EditContext<'a> {
     uri: ls_types::Uri,
     source: &'a str,
     line_index: &'a djls_source::LineIndex,
-    diagnostics_config: djls_conf::DiagnosticsConfig,
     encoding: PositionEncoding,
 }
 
-fn add_actions_for_error(
-    actions: &mut Vec<ls_types::CodeActionOrCommand>,
-    error: &ValidationError,
-    nodelist: &[Node],
-    context: &CodeActionContext<'_>,
-) {
-    match error {
-        ValidationError::UnloadedTag { library, .. }
-        | ValidationError::UnloadedFilter { library, .. } => {
-            let Some(diagnostic) = diagnostic_for_action(error, context) else {
-                return;
-            };
-            actions.push(insert_load_action(
-                context,
-                load_insertion_offset(nodelist, context.source),
-                diagnostic,
-                library,
-                Some(true),
-            ));
-        }
-        ValidationError::AmbiguousUnloadedTag { libraries, .. }
-        | ValidationError::AmbiguousUnloadedFilter { libraries, .. } => {
-            let Some(diagnostic) = diagnostic_for_action(error, context) else {
-                return;
-            };
-            let insertion_offset = load_insertion_offset(nodelist, context.source);
-            for library in sorted_libraries(libraries) {
-                actions.push(insert_load_action(
-                    context,
-                    insertion_offset,
-                    diagnostic.clone(),
-                    &library,
-                    None,
-                ));
-            }
-        }
-        ValidationError::UnmatchedBlockName { expected, span, .. } => {
-            let Some(name_span) = closing_block_name_span(nodelist, *span) else {
-                return;
-            };
-            let Some(diagnostic) = diagnostic_for_action(error, context) else {
-                return;
-            };
-            actions.push(rename_closing_block_action(
-                context, diagnostic, name_span, expected,
-            ));
-        }
-        ValidationError::UnclosedTag { .. }
-        | ValidationError::OrphanedTag { .. }
-        | ValidationError::OrphanedClosingTag { .. }
-        | ValidationError::UnbalancedStructure { .. }
-        | ValidationError::UnknownTag { .. }
-        | ValidationError::TagNotInInstalledApps { .. }
-        | ValidationError::UnknownFilter { .. }
-        | ValidationError::FilterNotInInstalledApps { .. }
-        | ValidationError::ExpressionSyntaxError { .. }
-        | ValidationError::FilterMissingArgument { .. }
-        | ValidationError::FilterUnexpectedArgument { .. }
-        | ValidationError::ExtractedRuleViolation { .. }
-        | ValidationError::UnknownLibrary { .. }
-        | ValidationError::LibraryNotInInstalledApps { .. }
-        | ValidationError::ExtendsMustBeFirst { .. }
-        | ValidationError::MultipleExtends { .. } => {}
-    }
-}
-
-fn is_actionable_for_range(error: &ValidationError, request_range: Span) -> bool {
-    is_actionable(error)
-        && error
-            .primary_span()
-            .is_some_and(|span| span_intersects_request(span, request_range))
-}
-
-fn is_actionable(error: &ValidationError) -> bool {
-    match error {
-        ValidationError::UnloadedTag { .. }
-        | ValidationError::UnloadedFilter { .. }
-        | ValidationError::AmbiguousUnloadedTag { .. }
-        | ValidationError::AmbiguousUnloadedFilter { .. }
-        | ValidationError::UnmatchedBlockName { .. } => true,
-        ValidationError::UnclosedTag { .. }
-        | ValidationError::OrphanedTag { .. }
-        | ValidationError::OrphanedClosingTag { .. }
-        | ValidationError::UnbalancedStructure { .. }
-        | ValidationError::UnknownTag { .. }
-        | ValidationError::TagNotInInstalledApps { .. }
-        | ValidationError::UnknownFilter { .. }
-        | ValidationError::FilterNotInInstalledApps { .. }
-        | ValidationError::ExpressionSyntaxError { .. }
-        | ValidationError::FilterMissingArgument { .. }
-        | ValidationError::FilterUnexpectedArgument { .. }
-        | ValidationError::ExtractedRuleViolation { .. }
-        | ValidationError::UnknownLibrary { .. }
-        | ValidationError::LibraryNotInInstalledApps { .. }
-        | ValidationError::ExtendsMustBeFirst { .. }
-        | ValidationError::MultipleExtends { .. } => false,
-    }
-}
-
-fn diagnostic_for_action(
-    error: &ValidationError,
-    context: &CodeActionContext<'_>,
-) -> Option<ls_types::Diagnostic> {
-    lsp_diagnostic_for(error, context.line_index, &context.diagnostics_config)
-}
-
-fn load_insertion_offset(nodelist: &[Node], source: &str) -> Offset {
-    import_header(nodelist, source).load_insertion_offset(source)
-}
-
 fn insert_load_action(
-    context: &CodeActionContext<'_>,
+    context: &EditContext<'_>,
     insertion_offset: Offset,
     diagnostic: ls_types::Diagnostic,
     library: &str,
@@ -205,7 +162,7 @@ fn insert_load_action(
 }
 
 fn rename_closing_block_action(
-    context: &CodeActionContext<'_>,
+    context: &EditContext<'_>,
     diagnostic: ls_types::Diagnostic,
     name_span: Span,
     expected: &str,
@@ -225,7 +182,7 @@ fn rename_closing_block_action(
 }
 
 fn quick_fix_action(
-    context: &CodeActionContext<'_>,
+    context: &EditContext<'_>,
     title: String,
     diagnostic: ls_types::Diagnostic,
     edits: Vec<ls_types::TextEdit>,
