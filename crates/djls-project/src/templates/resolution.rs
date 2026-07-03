@@ -146,6 +146,17 @@ impl<'db> TemplateResolution<'db> {
             .copied()
     }
 
+    pub fn origins_for_name(
+        self,
+        db: &'db dyn ProjectDb,
+        template_name: TemplateName<'db>,
+    ) -> &'db [TemplateOrigin<'db>] {
+        template_resolution_index(db, self)
+            .by_template_name(db)
+            .get(&template_name)
+            .map_or(&[], Vec::as_slice)
+    }
+
     #[must_use]
     pub fn known_template_dirs(self, db: &'db dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
         matches!(self.status(db), TemplateDirStatus::Complete)
@@ -191,6 +202,9 @@ struct TemplateResolutionIndex<'db> {
     ordered: Vec<TemplateOrigin<'db>>,
     #[tracked]
     #[returns(ref)]
+    by_template_name: FxHashMap<TemplateName<'db>, Vec<TemplateOrigin<'db>>>,
+    #[tracked]
+    #[returns(ref)]
     first_by_template_name: FxHashMap<TemplateName<'db>, TemplateOrigin<'db>>,
 }
 
@@ -201,12 +215,17 @@ fn template_resolution_index<'db>(
 ) -> TemplateResolutionIndex<'db> {
     let project = resolution.project(db);
     let mut ordered = Vec::new();
+    let mut by_template_name = FxHashMap::default();
     let mut first_by_template_name = FxHashMap::default();
 
     for template in project_template_files(db, project).iter() {
         let template_name = TemplateName::new(db, template.name().to_string());
         let origin = TemplateOrigin::new(db, template_name, template.file());
 
+        by_template_name
+            .entry(template_name)
+            .or_insert_with(Vec::new)
+            .push(origin);
         first_by_template_name
             .entry(template_name)
             .or_insert(origin);
@@ -215,7 +234,7 @@ fn template_resolution_index<'db>(
 
     tracing::debug!("Discovered {} total template origins", ordered.len());
 
-    TemplateResolutionIndex::new(db, ordered, first_by_template_name)
+    TemplateResolutionIndex::new(db, ordered, by_template_name, first_by_template_name)
 }
 
 #[derive(Clone, PartialEq)]

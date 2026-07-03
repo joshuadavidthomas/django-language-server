@@ -128,6 +128,83 @@ fn template_names_returns_unique_resolvable_names() {
 }
 
 #[test]
+fn origins_for_name_returns_origins_in_django_search_order() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates", "/test/project/app/templates"],
+        vec![
+            (
+                "shared.html",
+                "/test/project/app/templates/shared.html",
+                "app shared",
+            ),
+            (
+                "shared.html",
+                "/test/project/templates/shared.html",
+                "project shared",
+            ),
+        ],
+    );
+
+    let name = TemplateName::new(&db, "shared.html".to_string());
+    let paths: Vec<_> = template_resolution(&db, project)
+        .origins_for_name(&db, name)
+        .iter()
+        .map(|origin| origin.file(&db).path(&db).as_str())
+        .collect();
+
+    assert_eq!(
+        paths,
+        [
+            "/test/project/templates/shared.html",
+            "/test/project/app/templates/shared.html",
+        ]
+    );
+}
+
+#[test]
+fn origins_for_name_retains_duplicate_template_names() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates", "/test/project/app/templates"],
+        vec![
+            (
+                "base.html",
+                "/test/project/templates/base.html",
+                "project base",
+            ),
+            (
+                "base.html",
+                "/test/project/app/templates/base.html",
+                "app base",
+            ),
+        ],
+    );
+
+    let name = TemplateName::new(&db, "base.html".to_string());
+    let origins = template_resolution(&db, project).origins_for_name(&db, name);
+
+    assert_eq!(origins.len(), 2);
+}
+
+#[test]
+fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec!["/test/project/templates", "/test/project/app/templates"],
+        Vec::new(),
+    );
+
+    let name = TemplateName::new(&db, "missing.html".to_string());
+    let origins = template_resolution(&db, project).origins_for_name(&db, name);
+
+    assert!(origins.is_empty());
+}
+
+#[test]
 fn find_template_returns_first_origin_for_duplicate_template_names() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(

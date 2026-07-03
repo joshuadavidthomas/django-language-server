@@ -1,7 +1,13 @@
+use djls_project::Project;
+use djls_project::TemplateName;
+use djls_project::TemplateOrigin;
+use djls_project::template_resolution;
+use djls_source::File;
 use djls_source::Span;
 use djls_templates::NodeList;
 use djls_templates::TagBit;
 use djls_templates::TemplateString;
+use djls_templates::parse_template;
 
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
@@ -13,6 +19,73 @@ use crate::structure::build_template_tree;
 use crate::tags::TagRole;
 use crate::tags::TagSpec;
 use crate::tags::TagSpecs;
+
+#[salsa::tracked]
+pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> TemplateInheritance<'_> {
+    let resolution = template_resolution(db, project);
+    let mut ancestors = Vec::new();
+    let mut visited = vec![file];
+    let mut current_file = file;
+
+    let end = loop {
+        let Some(nodelist) = parse_template(db, current_file) else {
+            // Parser failures leave no observable extends target. Treat the
+            // file as a root rather than claiming a resolution failure.
+            break ChainEnd::Root;
+        };
+        let symbols = template_symbols(db, nodelist);
+
+        let Some(extends) = symbols.extends() else {
+            break ChainEnd::Root;
+        };
+        let name = match extends {
+            ExtendsTarget::Literal { name, .. } => name,
+            ExtendsTarget::Dynamic { span } => {
+                break ChainEnd::Dynamic { span: *span };
+            }
+        };
+
+        let template_name = TemplateName::new(db, name.clone());
+        let candidates = resolution.origins_for_name(db, template_name);
+        if candidates.is_empty() {
+            break if resolution.known_template_dirs(db).is_some() {
+                ChainEnd::Unresolved { name: name.clone() }
+            } else {
+                ChainEnd::IncompleteDirs
+            };
+        }
+
+        let Some(origin) = candidates
+            .iter()
+            .copied()
+            .find(|origin| !visited.contains(&origin.file(db)))
+        else {
+            break ChainEnd::Cycle;
+        };
+
+        current_file = origin.file(db);
+        ancestors.push(origin);
+        visited.push(current_file);
+    };
+
+    TemplateInheritance::new(db, ancestors, end)
+}
+
+#[salsa::tracked]
+pub struct TemplateInheritance<'db> {
+    #[returns(ref)]
+    pub ancestors: Vec<TemplateOrigin<'db>>,
+    pub end: ChainEnd,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub enum ChainEnd {
+    Root,
+    Dynamic { span: Span },
+    Unresolved { name: String },
+    IncompleteDirs,
+    Cycle,
+}
 
 #[salsa::tracked(returns(ref))]
 pub fn template_symbols<'db>(db: &'db dyn Db, nodelist: NodeList<'db>) -> TemplateSymbols {
