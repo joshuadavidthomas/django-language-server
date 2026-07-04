@@ -2,8 +2,6 @@
 
 ## two-file scenario validates the primary template
 
-`child.html`:
-
 ```htmldjango
 {% extends "base.html" %}
 {% block content %}Hello{% endblock %}

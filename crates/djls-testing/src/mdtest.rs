@@ -22,6 +22,7 @@ const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
 pub struct Scenario {
     pub name: String,
     pub files: Vec<ScenarioFile>,
+    primary_file_index: usize,
     snapshot: Option<String>,
     snapshot_start: Option<usize>,
     snapshot_end: Option<usize>,
@@ -44,12 +45,15 @@ impl Scenario {
     #[must_use]
     pub fn primary_file(&self) -> &ScenarioFile {
         self.files
-            .first()
+            .get(self.primary_file_index)
             .expect("scenario should have at least one source file")
     }
 
     fn render_validation_snapshot(&self) -> String {
+        let primary = self.primary_file();
         let rendered = snapshot_validate_files(
+            primary.path.as_str(),
+            primary.source.as_str(),
             self.files
                 .iter()
                 .map(|file| (file.path.as_str(), file.source.as_str())),
@@ -253,6 +257,7 @@ struct PartialScenario {
     name: String,
     level: usize,
     files: Vec<ScenarioFile>,
+    primary_file_index: Option<usize>,
     snapshot: Option<String>,
     snapshot_start: Option<usize>,
     snapshot_end: Option<usize>,
@@ -288,6 +293,7 @@ impl PartialScenario {
             name,
             level,
             files: Vec::new(),
+            primary_file_index: None,
             snapshot: None,
             snapshot_start: None,
             snapshot_end: None,
@@ -470,15 +476,17 @@ impl<'a> ScenarioCollector<'a> {
             "htmldjango code block must appear under a scenario heading".to_string()
         })?;
 
-        let file_path = match self.pending_file_path.take() {
-            Some(file_path) => file_path,
-            None if current.files.is_empty() => "test.html".to_string(),
-            None => {
+        let file_path = if let Some(file_path) = self.pending_file_path.take() {
+            file_path
+        } else {
+            if current.primary_file_index.is_some() {
                 return Err(format!(
-                    "scenario '{}' has an unlabeled htmldjango code block after its primary file",
+                    "scenario '{}' has more than one unlabeled htmldjango code block",
                     current.name
                 ));
             }
+            current.primary_file_index = Some(current.files.len());
+            "test.html".to_string()
         };
 
         current.files.push(ScenarioFile {
@@ -515,9 +523,20 @@ impl<'a> ScenarioCollector<'a> {
         };
 
         if !current.files.is_empty() {
+            let primary_file_index = if current.files.len() == 1 {
+                current.primary_file_index.unwrap_or(0)
+            } else {
+                current.primary_file_index.ok_or_else(|| {
+                    format!(
+                        "scenario '{}' has multiple template blocks but no unlabeled file under test",
+                        current.name
+                    )
+                })?
+            };
             self.scenarios.push(Scenario {
                 name: current.name,
                 files: current.files,
+                primary_file_index,
                 snapshot: current.snapshot,
                 snapshot_start: current.snapshot_start,
                 snapshot_end: current.snapshot_end,
@@ -632,12 +651,10 @@ error[S102]: Orphaned tag
     }
 
     #[test]
-    fn parses_two_file_scenario_with_labels_bound_to_blocks() {
+    fn parses_multi_file_scenario_with_unlabeled_primary_first() {
         let markdown = r#"# Inheritance
 
 ## child and parent
-
-`child.html`:
 
 ```htmldjango
 {% extends "parent.html" %}
@@ -662,7 +679,7 @@ error[S102]: Orphaned tag
             scenarios[0].files,
             vec![
                 ScenarioFile {
-                    path: "child.html".to_string(),
+                    path: "test.html".to_string(),
                     source: "{% extends \"parent.html\" %}".to_string(),
                 },
                 ScenarioFile {
@@ -671,8 +688,76 @@ error[S102]: Orphaned tag
                 },
             ]
         );
-        assert_eq!(scenarios[0].primary_file().path, "child.html");
+        assert_eq!(scenarios[0].primary_file().path, "test.html");
         assert_eq!(scenarios[0].snapshot.as_deref(), Some("✓ no diagnostics"));
+    }
+
+    #[test]
+    fn parses_multi_file_scenario_with_unlabeled_primary_after_support() {
+        let markdown = r#"# Inheritance
+
+## child and parent
+
+`parent.html`:
+
+```html
+{% block content %}{% endblock %}
+```
+
+```htmldjango
+{% extends "parent.html" %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+"#;
+
+        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(scenarios[0].name, "Inheritance / child and parent");
+        assert_eq!(
+            scenarios[0].files,
+            vec![
+                ScenarioFile {
+                    path: "parent.html".to_string(),
+                    source: "{% block content %}{% endblock %}".to_string(),
+                },
+                ScenarioFile {
+                    path: "test.html".to_string(),
+                    source: "{% extends \"parent.html\" %}".to_string(),
+                },
+            ]
+        );
+        assert_eq!(scenarios[0].primary_file().path, "test.html");
+    }
+
+    #[test]
+    fn rejects_multi_file_scenario_with_only_labeled_blocks() {
+        let markdown = r#"# Inheritance
+
+## child and parent
+
+`child.html`:
+
+```htmldjango
+{% extends "parent.html" %}
+```
+
+`parent.html`:
+
+```html
+{% block content %}{% endblock %}
+```
+"#;
+
+        let error = ScenarioCollector::new(markdown).collect().unwrap_err();
+
+        assert_eq!(
+            error,
+            "scenario 'Inheritance / child and parent' has multiple template blocks but no unlabeled file under test"
+        );
     }
 
     #[test]
@@ -750,13 +835,18 @@ error[S102]: Orphaned tag
 {% load i18n %}
 {% trans "Goodbye" %}
 ```
+
+```htmldjango
+{% load i18n %}
+{% trans "Later" %}
+```
 "#;
 
         let error = ScenarioCollector::new(markdown).collect().unwrap_err();
 
         assert_eq!(
             error,
-            "scenario 'i18n / translates a literal after load' has an unlabeled htmldjango code block after its primary file"
+            "scenario 'i18n / translates a literal after load' has more than one unlabeled htmldjango code block"
         );
     }
 

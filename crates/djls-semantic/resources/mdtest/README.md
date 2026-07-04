@@ -50,13 +50,21 @@ The runner accepts `htmldjango`, `django`, and `html` fences as template source.
 
 ## Scenario rules
 
-- Use one primary template code block per scenario. Add labeled template blocks when the scenario needs supporting files.
+- Use one unlabeled template code block as the file under test. Add labeled template blocks when the scenario needs supporting files.
 - Treat the template code blocks as terminal for that heading section.
 - Put the generated `snapshot` block directly after the template blocks.
 - Do not put child headings below a heading after it has a template block.
 - Use `## Valid`, `## Invalid`, and `## Known gaps` when grouping helps readability.
 
-For non-default paths, put a backtick label immediately before the template block:
+An unlabeled template block gets the default path `test.html`:
+
+````markdown
+```htmldjango
+{% else %}
+```
+````
+
+A single-block scenario may use a label as a path override for the file under test:
 
 ````markdown
 `templates/example.html`:
@@ -66,11 +74,9 @@ For non-default paths, put a backtick label immediately before the template bloc
 ```
 ````
 
-The first template block is the primary file that gets rendered into the snapshot. An unlabeled first block uses `test.html`; additional template blocks must be labeled:
+Multi-file scenarios must have exactly one unlabeled template block. Labeled blocks are supporting files and may appear before or after the unlabeled file:
 
 ````markdown
-`child.html`:
-
 ```htmldjango
 {% extends "base.html" %}
 ```

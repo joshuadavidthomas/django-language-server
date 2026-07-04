@@ -87,16 +87,14 @@ block queries:
 
 ## duplicate extends winning edge includes first parent
 
-`first.html`:
-
 ```htmldjango
-{% block content %}First{% endblock %}
+{% block content %}Parent{% endblock %}
 ```
 
 `child.html`:
 
 ```htmldjango
-{% extends "first.html" %}
+{% extends "test.html" %}
 {% extends "second.html" %}
 {% block content %}Child{% endblock %}
 ```
@@ -110,7 +108,7 @@ block queries:
 ```snapshot
 extends: none
 blocks:
-  - content name@9..16 full@0..38
+  - content name@9..16 full@0..39
 partials:
   none
 chain:
@@ -123,12 +121,10 @@ block queries:
     none
   overrides:
     - content:
-      - child.html name@64..71 full@55..93
+      - child.html name@63..70 full@54..92
 ```
 
 ## duplicate extends winning edge excludes second parent
-
-`second.html`:
 
 ```htmldjango
 {% block content %}Second{% endblock %}
@@ -138,7 +134,7 @@ block queries:
 
 ```htmldjango
 {% extends "first.html" %}
-{% extends "second.html" %}
+{% extends "test.html" %}
 {% block content %}Child{% endblock %}
 ```
 
@@ -342,8 +338,6 @@ block queries:
 
 ## direct cycle
 
-`a.html`:
-
 ```htmldjango
 {% extends "b.html" %}
 {% block content %}A{% endblock %}
@@ -352,7 +346,7 @@ block queries:
 `b.html`:
 
 ```htmldjango
-{% extends "a.html" %}
+{% extends "test.html" %}
 {% block content %}B{% endblock %}
 ```
 
@@ -368,12 +362,12 @@ chain:
   end: cycle
 block queries:
   parent blocks:
-    - content -> b.html name@32..39 full@23..57
+    - content -> b.html name@35..42 full@26..60
   inherited blocks:
-    - content -> b.html name@32..39 full@23..57
+    - content -> b.html name@35..42 full@26..60
   overrides:
     - content:
-      - b.html name@32..39 full@23..57
+      - b.html name@35..42 full@26..60
 ```
 
 ## self-cycle single origin
