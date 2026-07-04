@@ -30,6 +30,7 @@ pub use resolution::TemplateName;
 pub use resolution::TemplateOrigin;
 pub use resolution::TemplateResolution;
 pub use resolution::TriedTemplateSource;
+pub use resolution::resolve_relative_name;
 pub use resolution::template_resolution;
 pub use symbols::SymbolDefinition;
 pub use symbols::SymbolKey;

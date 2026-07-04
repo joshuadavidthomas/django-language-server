@@ -7,6 +7,7 @@ use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
+use crate::templates::resolve_reference_name;
 
 pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
     let line_index = file.line_index(db);
@@ -19,7 +20,14 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                 .as_slice(db)
                 .iter()
                 .filter_map(|reference| {
-                    match resolution.resolve(db, reference.target_template_name()) {
+                    let template_name = resolve_reference_name(
+                        db,
+                        resolution,
+                        file,
+                        reference.target_template_name(),
+                        reference.kind(),
+                    )?;
+                    match resolution.resolve(db, template_name) {
                         FindTemplateResult::Found(origin) => Some(ls_types::DocumentLink {
                             range: reference.span().to_lsp_range(line_index),
                             target: Some(origin.path_buf(db).to_lsp_uri()?),

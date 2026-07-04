@@ -70,6 +70,44 @@ fn document_links_resolve_template_references_with_interior_ranges() {
 }
 
 #[test]
+fn document_links_resolve_relative_include_to_sibling_template() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/dir/child.html";
+    let target_path = "/test/project/templates/dir/x.html";
+    let source = "{% include \"./x.html\" %}\n";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .template_file("dir/child.html", child_path, source)
+        .template_file("dir/x.html", target_path, "target")
+        .install(&mut db);
+
+    let file = db.get_or_create_file(Utf8Path::new(child_path));
+    let links = document_links(&db, file);
+
+    assert_eq!(
+        links,
+        vec![ls_types::DocumentLink {
+            range: ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 20),
+            ),
+            target: Some(
+                "file:///test/project/templates/dir/x.html"
+                    .parse()
+                    .expect("test URI should parse"),
+            ),
+            tooltip: None,
+            data: None,
+        }]
+    );
+}
+
+#[test]
 fn document_links_resolve_load_libraries_with_argument_ranges() {
     let db = TestDatabase::new();
     let library_modules = HashMap::from([

@@ -10,6 +10,7 @@ use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateSymbols;
+use djls_semantic::block_overrides;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::template_inheritance;
 use djls_semantic::template_symbols;
@@ -129,6 +130,81 @@ fn self_extends_skips_visited_origin_and_uses_shadowed_template() {
         ["/test/project/django_admin/templates/admin/base_site.html"]
     );
     assert_eq!(end, ChainEnd::Root);
+}
+
+#[test]
+fn template_inheritance_resolves_relative_sibling_extends() {
+    let db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "/test/project/templates/dir/child.html",
+                "{% extends \"./parent.html\" %}",
+            ),
+            (
+                "/test/project/templates/dir/parent.html",
+                "{% block content %}Parent{% endblock %}",
+            ),
+        ],
+    );
+    let file = db.get_or_create_file(Utf8Path::new("/test/project/templates/dir/child.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, file);
+
+    assert_eq!(ancestors, ["/test/project/templates/dir/parent.html"]);
+    assert_eq!(end, ChainEnd::Root);
+}
+
+#[test]
+fn template_inheritance_treats_escaping_relative_extends_as_unresolved() {
+    let db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![(
+            "/test/project/templates/page.html",
+            "{% extends \"../../outside.html\" %}",
+        )],
+    );
+    let file = db.get_or_create_file(Utf8Path::new("/test/project/templates/page.html"));
+
+    let (ancestors, end) = inheritance_summary(&db, project, file);
+
+    assert!(ancestors.is_empty());
+    assert_eq!(
+        end,
+        ChainEnd::Unresolved {
+            name: "../../outside.html".to_string()
+        }
+    );
+}
+
+#[test]
+fn block_overrides_accepts_relative_winning_extends_target() {
+    let db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "/test/project/templates/dir/parent.html",
+                "{% block content %}Parent{% endblock %}",
+            ),
+            (
+                "/test/project/templates/dir/child.html",
+                "{% extends \"./parent.html\" %}\n{% block content %}Child{% endblock %}",
+            ),
+        ],
+    );
+    let parent = db.get_or_create_file(Utf8Path::new("/test/project/templates/dir/parent.html"));
+    let child = db.get_or_create_file(Utf8Path::new("/test/project/templates/dir/child.html"));
+
+    let overrides = block_overrides(&db, project, parent, "content");
+
+    assert_eq!(overrides.len(), 1);
+    assert!(overrides[0].file == child);
 }
 
 #[test]

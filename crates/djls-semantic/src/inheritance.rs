@@ -1,6 +1,8 @@
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
+use djls_project::TemplateResolution;
+use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
@@ -28,6 +30,10 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
     let mut ancestors = Vec::new();
     let mut visited = vec![file];
     let mut current_file = file;
+    let mut current_template_name = resolution
+        .template_names_for_file(db, file)
+        .first()
+        .copied();
 
     let end = loop {
         let Some(nodelist) = parse_template(db, current_file) else {
@@ -45,8 +51,14 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
                 break ChainEnd::Dynamic { span: *span };
             }
         };
+        let current_template_name_text = current_template_name.map(|name| name.name(db).as_str());
+        let Some(resolved_name) =
+            resolve_relative_name(current_template_name_text, name.as_str(), false)
+        else {
+            break ChainEnd::Unresolved { name };
+        };
 
-        let template_name = TemplateName::new(db, name);
+        let template_name = TemplateName::new(db, resolved_name.into_owned());
         let candidates = resolution.origins_for_name(db, template_name);
         if candidates.is_empty() {
             break if resolution.known_template_dirs(db).is_some() {
@@ -67,6 +79,7 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
         };
 
         current_file = origin.file(db);
+        current_template_name = Some(origin.template_name(db));
         ancestors.push(origin);
         visited.push(current_file);
     };
@@ -170,7 +183,7 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
             }
 
             let descendant_file = reference.source_file(db);
-            if !file_winning_extends_target_is(db, descendant_file, target_name) {
+            if !file_winning_extends_target_is(db, resolution, descendant_file, target_name) {
                 continue;
             }
 
@@ -193,15 +206,29 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
     overrides
 }
 
-fn file_winning_extends_target_is(db: &dyn Db, file: File, target_name: TemplateName<'_>) -> bool {
+fn file_winning_extends_target_is<'db>(
+    db: &'db dyn Db,
+    resolution: TemplateResolution<'db>,
+    file: File,
+    target_name: TemplateName<'db>,
+) -> bool {
     let Some(nodelist) = parse_template(db, file) else {
         return false;
     };
+    let current_template_name = resolution
+        .template_names_for_file(db, file)
+        .first()
+        .copied();
 
-    matches!(
-        template_symbols(db, nodelist).extends(),
-        Some(ExtendsTarget::Literal { name, .. }) if name == target_name.name(db)
-    )
+    let Some(ExtendsTarget::Literal { name, .. }) = template_symbols(db, nodelist).extends() else {
+        return false;
+    };
+    let current_template_name = current_template_name.map(|name| name.name(db).as_str());
+    let Some(resolved_name) = resolve_relative_name(current_template_name, name, false) else {
+        return false;
+    };
+
+    resolved_name.as_ref() == target_name.name(db)
 }
 
 fn first_block_site(db: &dyn Db, file: File, name: &str) -> Option<BlockSite> {

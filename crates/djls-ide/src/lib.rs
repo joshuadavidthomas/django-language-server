@@ -11,6 +11,7 @@ mod links;
 mod navigation;
 mod snippets;
 mod symbols;
+mod templates;
 mod warmup;
 
 pub use code_actions::code_actions;

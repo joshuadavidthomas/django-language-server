@@ -8,6 +8,7 @@ use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
+use crate::templates::resolve_reference_name;
 
 pub fn goto_definition(
     db: &dyn djls_semantic::Db,
@@ -18,13 +19,16 @@ pub fn goto_definition(
     match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
             name: template_name,
+            kind,
             span,
         } => {
             tracing::debug!("Found template reference: '{}'", template_name.name(db));
 
             let project = db.project()?;
+            let resolution = template_resolution(db, project);
+            let template_name = resolve_reference_name(db, resolution, file, template_name, kind)?;
 
-            match template_resolution(db, project).resolve(db, template_name) {
+            match resolution.resolve(db, template_name) {
                 FindTemplateResult::Found(origin) => {
                     let path = origin.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
@@ -73,6 +77,7 @@ pub fn find_references(
     match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
             name: template_name,
+            kind,
             ..
         } => {
             tracing::debug!(
@@ -81,6 +86,8 @@ pub fn find_references(
             );
 
             let project = db.project()?;
+            let resolution = template_resolution(db, project);
+            let template_name = resolve_reference_name(db, resolution, file, template_name, kind)?;
             let references = references_to_template_name(db, project, template_name);
 
             let locations: Vec<ls_types::Location> = references

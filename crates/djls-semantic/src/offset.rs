@@ -6,6 +6,7 @@ use djls_templates::parse_template;
 
 use crate::db::Db as SemanticDb;
 use crate::references::LiteralTemplateReference;
+use crate::references::TemplateReferenceKind;
 use crate::scoping::LoadKind;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
@@ -16,12 +17,31 @@ use crate::tags::TagSpecs;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SemanticOffsetContext<'db> {
-    TemplateReference { name: TemplateName<'db>, span: Span },
-    LoadLibrary { name: String, span: Span },
-    LoadSymbol { name: String, span: Span },
-    Tag { name: String, span: Span },
-    Filter { name: String, span: Span },
-    Variable { name: String, span: Span },
+    TemplateReference {
+        name: TemplateName<'db>,
+        kind: TemplateReferenceKind,
+        span: Span,
+    },
+    LoadLibrary {
+        name: String,
+        span: Span,
+    },
+    LoadSymbol {
+        name: String,
+        span: Span,
+    },
+    Tag {
+        name: String,
+        span: Span,
+    },
+    Filter {
+        name: String,
+        span: Span,
+    },
+    Variable {
+        name: String,
+        span: Span,
+    },
     None,
 }
 
@@ -124,6 +144,7 @@ impl<'db> SemanticOffsetContext<'db> {
                 .filter(|reference| reference.bit_span.contains(offset))
                 .map_or(Self::None, |reference| Self::TemplateReference {
                     name: TemplateName::new(db, reference.template_name.to_string()),
+                    kind: reference.kind,
                     span: reference.span,
                 }),
         }
