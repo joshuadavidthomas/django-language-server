@@ -13,8 +13,7 @@ pub(crate) fn resolve_reference_name<'db>(
 ) -> Option<TemplateName<'db>> {
     let raw_name_text = raw_name.name(db);
     let current_template_name = resolution
-        .template_names_for_file(db, file)
-        .first()
+        .primary_template_name(db, file)
         .map(|name| name.name(db).as_str());
 
     match resolve_relative_name(current_template_name, raw_name_text, kind.allow_self())? {

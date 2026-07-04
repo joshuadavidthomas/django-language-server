@@ -213,6 +213,18 @@ impl<'db> TemplateResolution<'db> {
             .map_or(&[], Vec::as_slice)
     }
 
+    /// Returns the first-discovered template name for a file.
+    ///
+    /// This is the name Django binds the file to in template-dir discovery order, and it anchors
+    /// relative-path resolution.
+    pub fn primary_template_name(
+        self,
+        db: &'db dyn ProjectDb,
+        file: File,
+    ) -> Option<TemplateName<'db>> {
+        self.template_names_for_file(db, file).first().copied()
+    }
+
     #[must_use]
     pub fn known_template_dirs(self, db: &'db dyn ProjectDb) -> Option<Vec<Utf8PathBuf>> {
         matches!(self.status(db), TemplateDirStatus::Complete)
