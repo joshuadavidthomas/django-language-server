@@ -48,7 +48,7 @@ impl From<TagRole> for OutlineKind {
             TagRole::TemplateLibraryLoader => Self::TemplateLibrary,
             TagRole::TemplateBlock => Self::TemplateBlock,
             TagRole::ControlTag => Self::ControlTag,
-            TagRole::TemplateTag => Self::TemplateTag,
+            TagRole::TemplatePartial | TagRole::TemplateTag => Self::TemplateTag,
             TagRole::StaticAssetReference => Self::StaticAssetReference,
             TagRole::RouteReference => Self::RouteReference,
         }
@@ -74,6 +74,7 @@ fn outline_items_for_tag(
     match role {
         TagRole::TemplateReference(_)
         | TagRole::TemplateBlock
+        | TagRole::TemplatePartial
         | TagRole::StaticAssetReference
         | TagRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {

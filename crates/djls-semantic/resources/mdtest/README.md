@@ -16,7 +16,7 @@ DJLS_UPDATE_MDTEST_SNAPSHOTS=1 cargo test -p djls-semantic markdown_diagnostic_s
 
 ## Authoring format
 
-Any Markdown heading can define a scenario when its section contains one Django template code block:
+Any Markdown heading can define a scenario when its section contains one or more Django template code blocks:
 
 ````markdown
 # if
@@ -50,19 +50,41 @@ The runner accepts `htmldjango`, `django`, and `html` fences as template source.
 
 ## Scenario rules
 
-- Use one template code block per scenario.
-- Treat the template code block as terminal for that heading section.
-- Put the generated `snapshot` block directly after the template block.
+- Use one unlabeled template code block as the file under test. Add labeled template blocks when the scenario needs supporting files.
+- Treat the template code blocks as terminal for that heading section.
+- Put the generated `snapshot` block directly after the template blocks.
 - Do not put child headings below a heading after it has a template block.
 - Use `## Valid`, `## Invalid`, and `## Known gaps` when grouping helps readability.
 
-For non-default paths, put a backtick label immediately before the template block:
+An unlabeled template block gets the default path `test.html`:
+
+````markdown
+```htmldjango
+{% else %}
+```
+````
+
+A single-block scenario may use a label as a path override for the file under test:
 
 ````markdown
 `templates/example.html`:
 
 ```htmldjango
 {% else %}
+```
+````
+
+Multi-file scenarios must have exactly one unlabeled template block. Labeled blocks are supporting files and may appear before or after the unlabeled file:
+
+````markdown
+```htmldjango
+{% extends "base.html" %}
+```
+
+`base.html`:
+
+```htmldjango
+{% block content %}{% endblock %}
 ```
 ````
 

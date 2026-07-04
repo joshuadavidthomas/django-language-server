@@ -29,6 +29,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added startup progress reporting for Django project discovery and IDE cache warm-up.
 - Added a public `ROADMAP.md` for current and planned Django/LSP capabilities.
 - **Internal**: Added domain glossary docs for canonical project terminology.
+- **Internal**: Added block-resolution queries (`parent_block`, `inherited_blocks`, `block_overrides`) over the template inheritance chain.
+- **Internal**: Added the `template_inheritance` extends-chain query with explicit `ChainEnd` terminators and Django origin-skip resolution.
+- **Internal**: Added a per-file `template_symbols` definition layer (blocks, partials, extends target) to `djls-semantic`.
 - **Internal**: Added `just hawk` visibility lint configuration for crate-boundary cleanup.
 - **Internal**: Added end-to-end LSP coverage for initialization, diagnostics, navigation, completions, hover, folding ranges, document symbols, and startup progress.
 - **Internal**: Added the `djls-testing` crate for shared fixtures, corpus syncing, and Salsa-backed test databases.
@@ -43,6 +46,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed template validation and completion scoping to use localized inventory completeness, suppressing absence diagnostics only where discovery evidence is incomplete.
 - Changed template formatting to honor LSP/editor formatting options for indentation and final/trailing whitespace.
 - Bumped Rust toolchain from 1.95 to 1.96 and moved workspace crates to Rust 2024.
+- **Internal**: Added multi-file scenario support and a pluggable snapshot renderer to the `djls-testing` mdtest harness.
 - **Internal**: Reshaped template tag library storage around loadable and builtin mounts.
 - **Internal**: Moved the project model and static source recognizers into `djls-project`.
 - **Internal**: Moved Python spec extraction and template-origin resolution into `djls-project`, leaving `djls-semantic` as the project-meaning layer.

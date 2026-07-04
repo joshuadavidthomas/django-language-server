@@ -679,13 +679,33 @@ pub fn render_diagnostic_snapshot(path: &str, source: &str, errors: &[Validation
 }
 
 #[must_use]
-pub fn snapshot_validate(source: &str) -> String {
-    snapshot_validate_file("test.html", source)
-}
+pub fn snapshot_validate_files<'a>(
+    primary_path: &str,
+    primary_source: &str,
+    files: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> String {
+    let db = standard_validation_db();
+    for (path, source) in files {
+        db.add_file(path, source);
+    }
 
-#[must_use]
-pub fn snapshot_validate_file(path: &str, source: &str) -> String {
-    render_validate_snapshot(&standard_validation_db(), path, 0, source)
+    let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0);
+
+    let Some(nodelist) = parse_template(&db, file) else {
+        return String::new();
+    };
+
+    djls_semantic::validate_nodelist(&db, nodelist);
+
+    let mut errors: Vec<ValidationError> =
+        djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .collect();
+
+    errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
+
+    render_diagnostic_snapshot(primary_path, primary_source, &errors)
 }
 
 /// Curated validation environment for mdtest snapshots.

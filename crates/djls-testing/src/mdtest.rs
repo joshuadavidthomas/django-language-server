@@ -13,31 +13,51 @@ use pulldown_cmark::Parser as MarkdownParser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 
-use crate::fixtures::snapshot_validate;
-use crate::fixtures::snapshot_validate_file;
+use crate::fixtures::snapshot_validate_files;
 
 const UPDATE_ENV: &str = "DJLS_UPDATE_MDTEST_SNAPSHOTS";
 const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
 
 #[derive(Debug)]
-struct Scenario {
-    name: String,
-    file_path: String,
-    source: String,
+pub struct Scenario {
+    pub name: String,
+    pub files: Vec<ScenarioFile>,
+    primary_file_index: usize,
     snapshot: Option<String>,
     snapshot_start: Option<usize>,
     snapshot_end: Option<usize>,
     snapshot_insert_at: usize,
 }
 
-impl Scenario {
-    fn render_snapshot(&self) -> String {
-        let rendered = if self.file_path == "test.html" {
-            snapshot_validate(&self.source)
-        } else {
-            snapshot_validate_file(&self.file_path, &self.source)
-        };
+#[derive(Debug, PartialEq, Eq)]
+pub struct ScenarioFile {
+    pub path: String,
+    pub source: String,
+}
 
+impl Scenario {
+    /// Return the primary file for this scenario.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scenario has no files. The collector only emits scenarios
+    /// after seeing at least one template source block.
+    #[must_use]
+    pub fn primary_file(&self) -> &ScenarioFile {
+        self.files
+            .get(self.primary_file_index)
+            .expect("scenario should have at least one source file")
+    }
+
+    fn render_validation_snapshot(&self) -> String {
+        let primary = self.primary_file();
+        let rendered = snapshot_validate_files(
+            primary.path.as_str(),
+            primary.source.as_str(),
+            self.files
+                .iter()
+                .map(|file| (file.path.as_str(), file.source.as_str())),
+        );
         if rendered.trim().is_empty() {
             NO_DIAGNOSTICS_SNAPSHOT.to_string()
         } else {
@@ -96,19 +116,25 @@ impl SnapshotUpdate {
 }
 
 pub fn run_suite(dir: &Path) {
-    MdtestRun::new(dir.to_path_buf()).run();
+    run_suite_with(dir, Scenario::render_validation_snapshot);
+}
+
+pub fn run_suite_with(dir: &Path, render: fn(&Scenario) -> String) {
+    MdtestRun::new(dir.to_path_buf(), render).run();
 }
 
 struct MdtestRun {
     root: std::path::PathBuf,
+    render: fn(&Scenario) -> String,
     update: bool,
     failures: Vec<String>,
 }
 
 impl MdtestRun {
-    fn new(root: std::path::PathBuf) -> Self {
+    fn new(root: std::path::PathBuf, render: fn(&Scenario) -> String) -> Self {
         Self {
             root,
+            render,
             update: std::env::var_os(UPDATE_ENV).is_some_and(|value| value != "0"),
             failures: Vec::new(),
         }
@@ -169,11 +195,11 @@ impl MdtestRun {
 
         let mut updates = Vec::new();
         for scenario in scenarios {
-            let actual = scenario.render_snapshot();
+            let actual = (self.render)(&scenario);
             if self.update {
                 updates.push(scenario.snapshot_update(actual));
             } else {
-                self.check_snapshot(path, scenario, &actual);
+                self.check_snapshot(path, &scenario, &actual);
             }
         }
 
@@ -183,12 +209,13 @@ impl MdtestRun {
         }
     }
 
-    fn check_snapshot(&mut self, path: &Path, scenario: Scenario, actual: &str) {
-        let Some(expected) = scenario.snapshot else {
+    fn check_snapshot(&mut self, path: &Path, scenario: &Scenario, actual: &str) {
+        let primary_path = &scenario.primary_file().path;
+        let Some(expected) = scenario.snapshot.as_deref() else {
             self.failures.push(format!(
                 "mdtest scenario missing snapshot: {} ({}) in {}. Set {UPDATE_ENV}=1 to insert snapshots.",
                 scenario.name,
-                scenario.file_path,
+                primary_path,
                 path.display(),
             ));
             return;
@@ -198,7 +225,7 @@ impl MdtestRun {
             self.failures.push(format!(
                 "mdtest scenario failed: {} ({}) in {}\n\nexpected:\n{}\n\nactual:\n{}\n\nSet {UPDATE_ENV}=1 to update snapshots.",
                 scenario.name,
-                scenario.file_path,
+                primary_path,
                 path.display(),
                 expected.trim_end(),
                 actual.trim_end(),
@@ -229,8 +256,8 @@ struct Heading {
 struct PartialScenario {
     name: String,
     level: usize,
-    file_path: Option<String>,
-    source: Option<String>,
+    files: Vec<ScenarioFile>,
+    primary_file_index: Option<usize>,
     snapshot: Option<String>,
     snapshot_start: Option<usize>,
     snapshot_end: Option<usize>,
@@ -265,8 +292,8 @@ impl PartialScenario {
         Self {
             name,
             level,
-            file_path: None,
-            source: None,
+            files: Vec::new(),
+            primary_file_index: None,
             snapshot: None,
             snapshot_start: None,
             snapshot_end: None,
@@ -393,7 +420,7 @@ impl<'a> ScenarioCollector<'a> {
         }
 
         if let Some(current) = &self.current
-            && current.source.is_some()
+            && !current.files.is_empty()
             && heading.level > current.level
         {
             return Err(format!(
@@ -449,24 +476,29 @@ impl<'a> ScenarioCollector<'a> {
             "htmldjango code block must appear under a scenario heading".to_string()
         })?;
 
-        if current.source.is_some() {
-            return Err(format!(
-                "scenario '{}' has more than one htmldjango code block",
-                current.name
-            ));
-        }
+        let file_path = if let Some(file_path) = self.pending_file_path.take() {
+            file_path
+        } else {
+            if current.primary_file_index.is_some() {
+                return Err(format!(
+                    "scenario '{}' has more than one unlabeled htmldjango code block",
+                    current.name
+                ));
+            }
+            current.primary_file_index = Some(current.files.len());
+            "test.html".to_string()
+        };
 
-        current.source = Some(block.content);
+        current.files.push(ScenarioFile {
+            path: file_path,
+            source: block.content,
+        });
         current.snapshot_insert_at = Some(block.fence_end);
-        current.file_path = Some(
-            self.pending_file_path
-                .take()
-                .unwrap_or_else(|| "test.html".to_string()),
-        );
         Ok(())
     }
 
     fn set_snapshot(&mut self, block: FencedBlock) -> Result<(), String> {
+        self.pending_file_path = None;
         let current = self
             .current
             .as_mut()
@@ -490,26 +522,36 @@ impl<'a> ScenarioCollector<'a> {
             return Ok(());
         };
 
-        match current.source {
-            Some(source) => {
-                self.scenarios.push(Scenario {
-                    name: current.name,
-                    file_path: current.file_path.unwrap_or_else(|| "test.html".to_string()),
-                    source,
-                    snapshot: current.snapshot,
-                    snapshot_start: current.snapshot_start,
-                    snapshot_end: current.snapshot_end,
-                    snapshot_insert_at: current
-                        .snapshot_insert_at
-                        .expect("source block should have an insertion point"),
-                });
-                Ok(())
-            }
-            None if current.snapshot.is_none() => Ok(()),
-            None => Err(format!(
+        if !current.files.is_empty() {
+            let primary_file_index = if current.files.len() == 1 {
+                current.primary_file_index.unwrap_or(0)
+            } else {
+                current.primary_file_index.ok_or_else(|| {
+                    format!(
+                        "scenario '{}' has multiple template blocks but no unlabeled file under test",
+                        current.name
+                    )
+                })?
+            };
+            self.scenarios.push(Scenario {
+                name: current.name,
+                files: current.files,
+                primary_file_index,
+                snapshot: current.snapshot,
+                snapshot_start: current.snapshot_start,
+                snapshot_end: current.snapshot_end,
+                snapshot_insert_at: current
+                    .snapshot_insert_at
+                    .expect("source block should have an insertion point"),
+            });
+            Ok(())
+        } else if current.snapshot.is_none() {
+            Ok(())
+        } else {
+            Err(format!(
                 "scenario '{}' has a snapshot block but no Django code block",
                 current.name
-            )),
+            ))
         }
     }
 
@@ -561,8 +603,13 @@ error[S102]: Orphaned tag
 
         assert_eq!(scenarios.len(), 1);
         assert_eq!(scenarios[0].name, "Diagnostics / else outside if");
-        assert_eq!(scenarios[0].file_path, "templates/test.html");
-        assert_eq!(scenarios[0].source, "{% else %}");
+        assert_eq!(
+            scenarios[0].files,
+            vec![ScenarioFile {
+                path: "templates/test.html".to_string(),
+                source: "{% else %}".to_string(),
+            }]
+        );
         assert_eq!(
             scenarios[0].snapshot.as_deref(),
             Some("error[S102]: Orphaned tag")
@@ -570,6 +617,147 @@ error[S102]: Orphaned tag
         assert_eq!(scenarios[0].snapshot_start, Some(11));
         assert_eq!(scenarios[0].snapshot_end, Some(12));
         assert_eq!(scenarios[0].snapshot_insert_at, 9);
+    }
+
+    #[test]
+    fn parses_unlabeled_single_file_scenario_with_default_path() {
+        let markdown = r"# Diagnostics
+
+## else outside if
+
+```htmldjango
+{% else %}
+```
+
+```snapshot
+error[S102]: Orphaned tag
+```
+";
+
+        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(
+            scenarios[0].files,
+            vec![ScenarioFile {
+                path: "test.html".to_string(),
+                source: "{% else %}".to_string(),
+            }]
+        );
+        assert_eq!(
+            scenarios[0].snapshot.as_deref(),
+            Some("error[S102]: Orphaned tag")
+        );
+    }
+
+    #[test]
+    fn parses_multi_file_scenario_with_unlabeled_primary_first() {
+        let markdown = r#"# Inheritance
+
+## child and parent
+
+```htmldjango
+{% extends "parent.html" %}
+```
+
+`parent.html`:
+
+```html
+{% block content %}{% endblock %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+"#;
+
+        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(scenarios[0].name, "Inheritance / child and parent");
+        assert_eq!(
+            scenarios[0].files,
+            vec![
+                ScenarioFile {
+                    path: "test.html".to_string(),
+                    source: "{% extends \"parent.html\" %}".to_string(),
+                },
+                ScenarioFile {
+                    path: "parent.html".to_string(),
+                    source: "{% block content %}{% endblock %}".to_string(),
+                },
+            ]
+        );
+        assert_eq!(scenarios[0].primary_file().path, "test.html");
+        assert_eq!(scenarios[0].snapshot.as_deref(), Some("✓ no diagnostics"));
+    }
+
+    #[test]
+    fn parses_multi_file_scenario_with_unlabeled_primary_after_support() {
+        let markdown = r#"# Inheritance
+
+## child and parent
+
+`parent.html`:
+
+```html
+{% block content %}{% endblock %}
+```
+
+```htmldjango
+{% extends "parent.html" %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+"#;
+
+        let scenarios = ScenarioCollector::new(markdown).collect().unwrap();
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(scenarios[0].name, "Inheritance / child and parent");
+        assert_eq!(
+            scenarios[0].files,
+            vec![
+                ScenarioFile {
+                    path: "parent.html".to_string(),
+                    source: "{% block content %}{% endblock %}".to_string(),
+                },
+                ScenarioFile {
+                    path: "test.html".to_string(),
+                    source: "{% extends \"parent.html\" %}".to_string(),
+                },
+            ]
+        );
+        assert_eq!(scenarios[0].primary_file().path, "test.html");
+    }
+
+    #[test]
+    fn rejects_multi_file_scenario_with_only_labeled_blocks() {
+        let markdown = r#"# Inheritance
+
+## child and parent
+
+`child.html`:
+
+```htmldjango
+{% extends "parent.html" %}
+```
+
+`parent.html`:
+
+```html
+{% block content %}{% endblock %}
+```
+"#;
+
+        let error = ScenarioCollector::new(markdown).collect().unwrap_err();
+
+        assert_eq!(
+            error,
+            "scenario 'Inheritance / child and parent' has multiple template blocks but no unlabeled file under test"
+        );
     }
 
     #[test]
@@ -631,10 +819,12 @@ error[S102]: Orphaned tag
     }
 
     #[test]
-    fn rejects_multiple_source_blocks_in_one_heading() {
+    fn rejects_second_unlabeled_source_block_in_one_heading() {
         let markdown = r#"# i18n
 
 ## translates a literal after load
+
+`templates/greeting.html`:
 
 ```htmldjango
 {% load i18n %}
@@ -645,13 +835,18 @@ error[S102]: Orphaned tag
 {% load i18n %}
 {% trans "Goodbye" %}
 ```
+
+```htmldjango
+{% load i18n %}
+{% trans "Later" %}
+```
 "#;
 
         let error = ScenarioCollector::new(markdown).collect().unwrap_err();
 
         assert_eq!(
             error,
-            "scenario 'i18n / translates a literal after load' has more than one htmldjango code block"
+            "scenario 'i18n / translates a literal after load' has more than one unlabeled htmldjango code block"
         );
     }
 
