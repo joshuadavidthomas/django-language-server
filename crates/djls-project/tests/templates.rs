@@ -1,3 +1,4 @@
+use camino::Utf8Path;
 use djls_project::*;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -202,6 +203,40 @@ fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
     let origins = template_resolution(&db, project).origins_for_name(&db, name);
 
     assert!(origins.is_empty());
+}
+
+#[test]
+fn template_names_for_file_returns_names_in_discovery_order() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &mut db,
+        vec![
+            "/test/project/templates",
+            "/test/project/override",
+            "/test/project/templates/account",
+        ],
+        vec![
+            (
+                "account/detail.html",
+                "/test/project/templates/account/detail.html",
+                "target",
+            ),
+            (
+                "detail.html",
+                "/test/project/override/detail.html",
+                "shadow",
+            ),
+        ],
+    );
+
+    let file = db.get_or_create_file(Utf8Path::new("/test/project/templates/account/detail.html"));
+    let names: Vec<_> = template_resolution(&db, project)
+        .template_names_for_file(&db, file)
+        .iter()
+        .map(|name| name.name(&db).as_str())
+        .collect();
+
+    assert_eq!(names, ["account/detail.html", "detail.html"]);
 }
 
 #[test]

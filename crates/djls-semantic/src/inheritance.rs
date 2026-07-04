@@ -150,7 +150,7 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
     let mut queue = Vec::new();
     let mut queued_names = FxHashSet::default();
 
-    for template_name in template_names_for_file(db, resolution, file) {
+    for &template_name in resolution.template_names_for_file(db, file) {
         if queued_names.insert(template_name) {
             queue.push(template_name);
         }
@@ -182,7 +182,7 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
                 overrides.push(site);
             }
 
-            for template_name in template_names_for_file(db, resolution, descendant_file) {
+            for &template_name in resolution.template_names_for_file(db, descendant_file) {
                 if queued_names.insert(template_name) {
                     queue.push(template_name);
                 }
@@ -215,21 +215,6 @@ fn first_block_site(db: &dyn Db, file: File, name: &str) -> Option<BlockSite> {
             name_span: block.name_span,
             full_span: block.full_span,
         })
-}
-
-fn template_names_for_file<'db>(
-    db: &'db dyn Db,
-    resolution: djls_project::TemplateResolution<'db>,
-    file: File,
-) -> Vec<TemplateName<'db>> {
-    let mut seen = FxHashSet::default();
-    let mut names = Vec::new();
-    for origin in resolution.origins(db) {
-        if origin.file(db) == file && seen.insert(origin.template_name(db)) {
-            names.push(origin.template_name(db));
-        }
-    }
-    names
 }
 
 #[salsa::tracked(returns(ref))]

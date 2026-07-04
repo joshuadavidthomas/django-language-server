@@ -141,7 +141,7 @@ impl<'db> TemplateResolution<'db> {
         db: &'db dyn ProjectDb,
     ) -> impl Iterator<Item = TemplateName<'db>> + 'db {
         template_resolution_index(db, self)
-            .first_by_template_name(db)
+            .by_template_name(db)
             .keys()
             .copied()
     }
@@ -154,6 +154,17 @@ impl<'db> TemplateResolution<'db> {
         template_resolution_index(db, self)
             .by_template_name(db)
             .get(&template_name)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    pub fn template_names_for_file(
+        self,
+        db: &'db dyn ProjectDb,
+        file: File,
+    ) -> &'db [TemplateName<'db>] {
+        template_resolution_index(db, self)
+            .names_by_file(db)
+            .get(&file)
             .map_or(&[], Vec::as_slice)
     }
 
@@ -170,7 +181,11 @@ impl<'db> TemplateResolution<'db> {
         template_name: TemplateName<'db>,
     ) -> FindTemplateResult<'db> {
         let index = template_resolution_index(db, self);
-        if let Some(origin) = index.first_by_template_name(db).get(&template_name) {
+        if let Some(origin) = index
+            .by_template_name(db)
+            .get(&template_name)
+            .and_then(|origins| origins.first())
+        {
             return FindTemplateResult::Found(*origin);
         }
 
@@ -205,7 +220,7 @@ struct TemplateResolutionIndex<'db> {
     by_template_name: FxHashMap<TemplateName<'db>, Vec<TemplateOrigin<'db>>>,
     #[tracked]
     #[returns(ref)]
-    first_by_template_name: FxHashMap<TemplateName<'db>, TemplateOrigin<'db>>,
+    names_by_file: FxHashMap<File, Vec<TemplateName<'db>>>,
 }
 
 #[salsa::tracked]
@@ -216,25 +231,28 @@ fn template_resolution_index<'db>(
     let project = resolution.project(db);
     let mut ordered = Vec::new();
     let mut by_template_name = FxHashMap::default();
-    let mut first_by_template_name = FxHashMap::default();
+    let mut names_by_file = FxHashMap::default();
 
     for template in project_template_files(db, project).iter() {
         let template_name = TemplateName::new(db, template.name().to_string());
         let origin = TemplateOrigin::new(db, template_name, template.file());
+        let file_names = names_by_file
+            .entry(template.file())
+            .or_insert_with(Vec::new);
+        if !file_names.contains(&template_name) {
+            file_names.push(template_name);
+        }
 
         by_template_name
             .entry(template_name)
             .or_insert_with(Vec::new)
             .push(origin);
-        first_by_template_name
-            .entry(template_name)
-            .or_insert(origin);
         ordered.push(origin);
     }
 
     tracing::debug!("Discovered {} total template origins", ordered.len());
 
-    TemplateResolutionIndex::new(db, ordered, by_template_name, first_by_template_name)
+    TemplateResolutionIndex::new(db, ordered, by_template_name, names_by_file)
 }
 
 #[derive(Clone, PartialEq)]
