@@ -1,6 +1,7 @@
 use camino::Utf8Path;
 use djls_project::TemplateName;
 use djls_semantic::SemanticOffsetContext;
+use djls_semantic::TemplateReferenceKind;
 use djls_source::Offset;
 use djls_source::Span;
 use djls_testing::TestDatabase;
@@ -31,6 +32,7 @@ fn identifies_template_reference_context() {
         context,
         SemanticOffsetContext::TemplateReference {
             name: TemplateName::new(&db, "base.html".to_string()),
+            kind: TemplateReferenceKind::Extends,
             span: Span::saturating_from_parts_usize(12, 9),
         }
     );
@@ -47,6 +49,7 @@ fn identifies_template_reference_context_from_opening_quote() {
         context,
         SemanticOffsetContext::TemplateReference {
             name: TemplateName::new(&db, "base.html".to_string()),
+            kind: TemplateReferenceKind::Extends,
             span: Span::saturating_from_parts_usize(12, 9),
         }
     );

@@ -5,6 +5,7 @@ use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
+use djls_semantic::resolve_reference_name;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
@@ -15,14 +16,18 @@ pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<l
     let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
         SemanticOffsetContext::TemplateReference {
             name: template_name,
+            kind,
             span,
         } => {
             let project = db.project()?;
             let name = template_name.name(db);
+            let resolution = template_resolution(db, project);
+            let resolved_template_name =
+                resolve_reference_name(db, resolution, file, template_name, kind)?;
 
             let mut sections = vec![format!("```text\n(template) \"{name}\"\n```")];
 
-            match template_resolution(db, project).resolve(db, template_name) {
+            match resolution.resolve(db, resolved_template_name) {
                 FindTemplateResult::Found(origin) => {
                     let path = origin.path_buf(db);
                     sections.push(format!("Resolved to `{path}`"));

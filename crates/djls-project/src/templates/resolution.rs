@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt;
 
 use camino::Utf8PathBuf;
@@ -95,6 +96,50 @@ pub struct TemplateName {
     pub name: String,
 }
 
+#[must_use]
+pub fn resolve_relative_name<'a>(
+    current_template_name: Option<&str>,
+    target: &'a str,
+    allow_self: bool,
+) -> Option<Cow<'a, str>> {
+    if !is_relative_template_name(target) {
+        return Some(Cow::Borrowed(target));
+    }
+
+    let current_template_name = current_template_name?;
+    let current_template_name = current_template_name.trim_start_matches('/');
+    let current_dir = current_template_name
+        .rsplit_once('/')
+        .map_or("", |(dir, _name)| dir);
+    let mut stack = Vec::new();
+
+    for segment in current_dir.split('/').chain(target.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                stack.pop()?;
+            }
+            segment => stack.push(segment),
+        }
+    }
+
+    let normalized = if stack.is_empty() {
+        ".".to_string()
+    } else {
+        stack.join("/")
+    };
+
+    if !allow_self && normalized == current_template_name {
+        return None;
+    }
+
+    Some(Cow::Owned(normalized))
+}
+
+fn is_relative_template_name(target: &str) -> bool {
+    target.starts_with("./") || target.starts_with("../")
+}
+
 #[salsa::tracked]
 pub struct TemplateOrigin<'db> {
     resolved_template_name: TemplateName<'db>,
@@ -166,6 +211,18 @@ impl<'db> TemplateResolution<'db> {
             .names_by_file(db)
             .get(&file)
             .map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns the first-discovered template name for a file.
+    ///
+    /// This is the name Django binds the file to in template-dir discovery order, and it anchors
+    /// relative-path resolution.
+    pub fn primary_template_name(
+        self,
+        db: &'db dyn ProjectDb,
+        file: File,
+    ) -> Option<TemplateName<'db>> {
+        self.template_names_for_file(db, file).first().copied()
     }
 
     #[must_use]
@@ -387,4 +444,96 @@ fn project_template_files(db: &dyn ProjectDb, project: Project) -> ProjectTempla
     }
 
     ProjectTemplateFiles::from_ordered_paths(db, templates)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::resolve_relative_name;
+
+    #[test]
+    fn non_relative_names_pass_through_borrowed() {
+        assert_eq!(
+            resolve_relative_name(Some("dir/page.html"), "x.html", false),
+            Some(Cow::Borrowed("x.html"))
+        );
+        assert_eq!(
+            resolve_relative_name(Some("dir/page.html"), "partials/./x.html", false),
+            Some(Cow::Borrowed("partials/./x.html"))
+        );
+    }
+
+    #[test]
+    fn non_relative_name_without_current_template_passes_through_borrowed() {
+        assert_eq!(
+            resolve_relative_name(None, "x.html", false),
+            Some(Cow::Borrowed("x.html"))
+        );
+    }
+
+    #[test]
+    fn relative_name_without_current_template_is_unresolvable() {
+        assert_eq!(resolve_relative_name(None, "./x.html", false), None);
+    }
+
+    #[test]
+    fn resolves_sibling_relative_name() {
+        assert_eq!(
+            resolve_relative_name(Some("dir/page.html"), "./x.html", false).as_deref(),
+            Some("dir/x.html")
+        );
+    }
+
+    #[test]
+    fn resolves_parent_relative_name() {
+        assert_eq!(
+            resolve_relative_name(Some("a/b/page.html"), "../x.html", false).as_deref(),
+            Some("a/x.html")
+        );
+    }
+
+    #[test]
+    fn rejects_relative_name_that_escapes_hierarchy() {
+        assert_eq!(
+            resolve_relative_name(Some("dir/page.html"), "../../x.html", false),
+            None
+        );
+    }
+
+    #[test]
+    fn rejects_self_when_self_is_not_allowed() {
+        assert_eq!(
+            resolve_relative_name(Some("dir/page.html"), "./page.html", false),
+            None
+        );
+    }
+
+    #[test]
+    fn allows_self_when_self_is_allowed() {
+        assert_eq!(
+            resolve_relative_name(Some("dir/page.html"), "./page.html", true).as_deref(),
+            Some("dir/page.html")
+        );
+    }
+
+    #[test]
+    fn compares_self_against_current_name_without_leading_slash() {
+        assert_eq!(
+            resolve_relative_name(Some("/dir/page.html"), "./page.html", false),
+            None
+        );
+        assert_eq!(
+            resolve_relative_name(Some("/dir/page.html"), "./x.html", false).as_deref(),
+            Some("dir/x.html")
+        );
+    }
+
+    #[test]
+    fn resolves_relative_name_from_root_template() {
+        assert_eq!(
+            resolve_relative_name(Some("page.html"), "./x.html", false).as_deref(),
+            Some("x.html")
+        );
+    }
 }

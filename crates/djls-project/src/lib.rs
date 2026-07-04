@@ -69,6 +69,7 @@ pub use templates::UnknownSymbolOutcome;
 pub use templates::extract_block_specs;
 pub use templates::extract_filter_arities;
 pub use templates::extract_tag_rules;
+pub use templates::resolve_relative_name;
 pub use templates::template_libraries;
 pub use templates::template_resolution;
 

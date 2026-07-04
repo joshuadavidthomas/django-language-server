@@ -1,5 +1,6 @@
 use djls_project::FindTemplateResult;
 use djls_project::template_resolution;
+use djls_semantic::resolve_reference_name;
 use djls_semantic::template_library_references_in_file;
 use djls_semantic::template_references_in_file;
 use djls_source::File;
@@ -19,7 +20,14 @@ pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::D
                 .as_slice(db)
                 .iter()
                 .filter_map(|reference| {
-                    match resolution.resolve(db, reference.target_template_name()) {
+                    let template_name = resolve_reference_name(
+                        db,
+                        resolution,
+                        file,
+                        reference.target_template_name(),
+                        reference.kind(),
+                    )?;
+                    match resolution.resolve(db, template_name) {
                         FindTemplateResult::Found(origin) => Some(ls_types::DocumentLink {
                             range: reference.span().to_lsp_range(line_index),
                             target: Some(origin.path_buf(db).to_lsp_uri()?),

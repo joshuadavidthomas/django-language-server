@@ -1,6 +1,10 @@
+use std::collections::VecDeque;
+
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
+use djls_project::TemplateResolution;
+use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
@@ -26,8 +30,10 @@ use crate::tags::TagSpecs;
 pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> TemplateInheritance<'_> {
     let resolution = template_resolution(db, project);
     let mut ancestors = Vec::new();
-    let mut visited = vec![file];
+    let mut visited = FxHashSet::default();
+    visited.insert(file);
     let mut current_file = file;
+    let mut current_template_name = resolution.primary_template_name(db, file);
 
     let end = loop {
         let Some(nodelist) = parse_template(db, current_file) else {
@@ -39,14 +45,20 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
         let Some(extends) = template_extends_target(db, nodelist) else {
             break ChainEnd::Root;
         };
-        let name = match &extends {
-            ExtendsTarget::Literal { name, .. } => name.clone(),
+        let name = match extends {
+            ExtendsTarget::Literal { name, .. } => name,
             ExtendsTarget::Dynamic { span } => {
-                break ChainEnd::Dynamic { span: *span };
+                break ChainEnd::Dynamic { span };
             }
         };
+        let current_template_name_text = current_template_name.map(|name| name.name(db).as_str());
+        let Some(resolved_name) =
+            resolve_relative_name(current_template_name_text, name.as_str(), false)
+        else {
+            break ChainEnd::Unresolved { name };
+        };
 
-        let template_name = TemplateName::new(db, name);
+        let template_name = TemplateName::new(db, resolved_name.into_owned());
         let candidates = resolution.origins_for_name(db, template_name);
         if candidates.is_empty() {
             break if resolution.known_template_dirs(db).is_some() {
@@ -67,8 +79,9 @@ pub fn template_inheritance(db: &dyn Db, project: Project, file: File) -> Templa
         };
 
         current_file = origin.file(db);
+        current_template_name = Some(origin.template_name(db));
         ancestors.push(origin);
-        visited.push(current_file);
+        visited.insert(current_file);
     };
 
     TemplateInheritance::new(db, ancestors, end)
@@ -112,7 +125,7 @@ pub fn parent_block(db: &dyn Db, project: Project, file: File, name: &str) -> Op
 
 /// Block names visible from ancestors, using the nearest definition site per name.
 pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(String, BlockSite)> {
-    let mut seen = FxHashSet::default();
+    let mut seen: FxHashSet<&str> = FxHashSet::default();
     let mut inherited = Vec::new();
 
     for origin in template_inheritance(db, project, file).ancestors(db) {
@@ -121,7 +134,7 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
             continue;
         };
         for block in template_symbols(db, nodelist).blocks() {
-            if seen.insert(block.name.clone()) {
+            if seen.insert(block.name.as_str()) {
                 inherited.push((
                     block.name.clone(),
                     BlockSite {
@@ -147,30 +160,27 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
 /// contract.
 pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
     let resolution = template_resolution(db, project);
-    let mut queue = Vec::new();
+    let mut queue = VecDeque::new();
     let mut queued_names = FxHashSet::default();
 
     for &template_name in resolution.template_names_for_file(db, file) {
         if queued_names.insert(template_name) {
-            queue.push(template_name);
+            queue.push_back(template_name);
         }
     }
 
     let mut visited_files = FxHashSet::default();
     visited_files.insert(file);
     let mut overrides = Vec::new();
-    let mut index = 0;
 
-    while let Some(target_name) = queue.get(index).copied() {
-        index += 1;
-
+    while let Some(target_name) = queue.pop_front() {
         for reference in references_to_template_name(db, project, target_name) {
             if reference.kind(db) != TemplateReferenceKind::Extends {
                 continue;
             }
 
             let descendant_file = reference.source_file(db);
-            if !file_winning_extends_target_is(db, descendant_file, target_name) {
+            if !file_winning_extends_target_is(db, resolution, descendant_file, target_name) {
                 continue;
             }
 
@@ -184,7 +194,7 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
 
             for &template_name in resolution.template_names_for_file(db, descendant_file) {
                 if queued_names.insert(template_name) {
-                    queue.push(template_name);
+                    queue.push_back(template_name);
                 }
             }
         }
@@ -193,15 +203,27 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
     overrides
 }
 
-fn file_winning_extends_target_is(db: &dyn Db, file: File, target_name: TemplateName<'_>) -> bool {
+fn file_winning_extends_target_is<'db>(
+    db: &'db dyn Db,
+    resolution: TemplateResolution<'db>,
+    file: File,
+    target_name: TemplateName<'db>,
+) -> bool {
     let Some(nodelist) = parse_template(db, file) else {
         return false;
     };
 
-    matches!(
-        template_symbols(db, nodelist).extends(),
-        Some(ExtendsTarget::Literal { name, .. }) if name == target_name.name(db)
-    )
+    let Some(ExtendsTarget::Literal { name, .. }) = template_symbols(db, nodelist).extends() else {
+        return false;
+    };
+    let current_template_name = resolution
+        .primary_template_name(db, file)
+        .map(|name| name.name(db).as_str());
+    let Some(resolved_name) = resolve_relative_name(current_template_name, name, false) else {
+        return false;
+    };
+
+    resolved_name.as_ref() == target_name.name(db)
 }
 
 fn first_block_site(db: &dyn Db, file: File, name: &str) -> Option<BlockSite> {

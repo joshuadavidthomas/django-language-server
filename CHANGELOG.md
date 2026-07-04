@@ -62,6 +62,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed Django relative template paths (`./`, `../`) in `{% extends %}` and `{% include %}` resolution, including inheritance chains, document links, goto definition, and find references.
 - Fixed false tag argument errors for manually parsed tags that strip trailing assignment clauses, such as `{% now ... as var %}` and `{% url ... as var %}`.
 
 ## [6.0.3]

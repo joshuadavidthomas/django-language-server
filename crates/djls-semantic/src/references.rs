@@ -2,6 +2,8 @@ use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
+use djls_project::TemplateResolution;
+use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
 use djls_source::Span;
@@ -49,8 +51,19 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
     let resolution = template_resolution(db, project);
 
     for source in resolution.origins(db) {
+        let source_name = source.template_name(db).name(db);
         for reference in template_references_in_file(db, project, source.file(db)).as_slice(db) {
-            let target_template_name = reference.target_template_name;
+            let raw_target_template_name = reference.target_template_name;
+            let raw_target = raw_target_template_name.name(db);
+            let Some(resolved_target) =
+                resolve_relative_name(Some(source_name), raw_target, reference.kind.allow_self())
+            else {
+                continue;
+            };
+            let target_template_name = match resolved_target {
+                std::borrow::Cow::Borrowed(_) => raw_target_template_name,
+                std::borrow::Cow::Owned(name) => TemplateName::new(db, name),
+            };
             let reference = TemplateReference::new(
                 db,
                 source,
@@ -99,6 +112,11 @@ impl<'db> TemplateReferenceInFile<'db> {
     pub fn span(self) -> Span {
         self.span
     }
+
+    #[must_use]
+    pub fn kind(self) -> TemplateReferenceKind {
+        self.kind
+    }
 }
 
 #[salsa::tracked]
@@ -118,6 +136,41 @@ impl<'db> TemplateLibraryReferencesInFile<'db> {
 pub struct TemplateLibraryReferenceInFile {
     load_name: LibraryName,
     span: Span,
+}
+
+impl TemplateReferenceKind {
+    #[must_use]
+    const fn allow_self(self) -> bool {
+        match self {
+            Self::Extends => false,
+            Self::Include => true,
+        }
+    }
+}
+
+/// Resolve a single template reference written in `file`, anchored at the file's
+/// primary template name (the template name Django binds the file to, first in
+/// discovery order), honoring the reference kind's self-reference rule.
+///
+/// This anchor differs from `template_references` aggregation above, which
+/// normalizes per source origin name; a file shadowed under multiple names
+/// resolves per name there.
+pub fn resolve_reference_name<'db>(
+    db: &'db dyn SemanticDb,
+    resolution: TemplateResolution<'db>,
+    file: File,
+    raw_name: TemplateName<'db>,
+    kind: TemplateReferenceKind,
+) -> Option<TemplateName<'db>> {
+    let raw_name_text = raw_name.name(db);
+    let current_template_name = resolution
+        .primary_template_name(db, file)
+        .map(|name| name.name(db).as_str());
+
+    match resolve_relative_name(current_template_name, raw_name_text, kind.allow_self())? {
+        std::borrow::Cow::Borrowed(_) => Some(raw_name),
+        std::borrow::Cow::Owned(name) => Some(TemplateName::new(db, name)),
+    }
 }
 
 impl TemplateLibraryReferenceInFile {
@@ -232,7 +285,7 @@ impl<'db> TemplateReference<'db> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LiteralTemplateReference<'bits> {
-    kind: TemplateReferenceKind,
+    pub(crate) kind: TemplateReferenceKind,
     pub(crate) template_name: &'bits str,
     pub(crate) bit_span: Span,
     pub(crate) span: Span,
