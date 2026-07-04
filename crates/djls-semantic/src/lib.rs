@@ -36,6 +36,7 @@ pub use references::TemplateReferenceInFile;
 pub use references::TemplateReferenceKind;
 pub use references::TemplateReferencesInFile;
 pub use references::references_to_template_name;
+pub use references::resolve_reference_name;
 pub use references::template_library_references_in_file;
 pub use references::template_references_in_file;
 pub use scoping::AvailableSymbols;

@@ -2,6 +2,7 @@ use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
+use djls_project::TemplateResolution;
 use djls_project::resolve_relative_name;
 use djls_project::template_resolution;
 use djls_source::File;
@@ -139,11 +140,36 @@ pub struct TemplateLibraryReferenceInFile {
 
 impl TemplateReferenceKind {
     #[must_use]
-    pub const fn allow_self(self) -> bool {
+    const fn allow_self(self) -> bool {
         match self {
             Self::Extends => false,
             Self::Include => true,
         }
+    }
+}
+
+/// Resolve a single template reference written in `file`, anchored at the file's
+/// primary template name (the template name Django binds the file to, first in
+/// discovery order), honoring the reference kind's self-reference rule.
+///
+/// This anchor differs from `template_references` aggregation above, which
+/// normalizes per source origin name; a file shadowed under multiple names
+/// resolves per name there.
+pub fn resolve_reference_name<'db>(
+    db: &'db dyn SemanticDb,
+    resolution: TemplateResolution<'db>,
+    file: File,
+    raw_name: TemplateName<'db>,
+    kind: TemplateReferenceKind,
+) -> Option<TemplateName<'db>> {
+    let raw_name_text = raw_name.name(db);
+    let current_template_name = resolution
+        .primary_template_name(db, file)
+        .map(|name| name.name(db).as_str());
+
+    match resolve_relative_name(current_template_name, raw_name_text, kind.allow_self())? {
+        std::borrow::Cow::Borrowed(_) => Some(raw_name),
+        std::borrow::Cow::Owned(name) => Some(TemplateName::new(db, name)),
     }
 }
 

@@ -1,5 +1,6 @@
 use djls_project::FindTemplateResult;
 use djls_project::template_resolution;
+use djls_semantic::resolve_reference_name;
 use djls_semantic::template_library_references_in_file;
 use djls_semantic::template_references_in_file;
 use djls_source::File;
@@ -7,7 +8,6 @@ use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
-use crate::templates::resolve_reference_name;
 
 pub fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
     let line_index = file.line_index(db);

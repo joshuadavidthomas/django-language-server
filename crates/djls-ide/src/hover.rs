@@ -5,12 +5,12 @@ use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
 use djls_semantic::SemanticOffsetContext;
+use djls_semantic::resolve_reference_name;
 use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::ls_types;
 
 use crate::ext::SpanExt;
-use crate::templates::resolve_reference_name;
 
 pub fn hover(db: &dyn djls_semantic::Db, file: File, offset: Offset) -> Option<ls_types::Hover> {
     let (markdown, span) = match SemanticOffsetContext::from_offset(db, file, offset) {
