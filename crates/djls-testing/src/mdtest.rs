@@ -20,7 +20,7 @@ const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
 
 #[derive(Debug)]
 pub struct Scenario {
-    pub name: String,
+    name: String,
     pub files: Vec<ScenarioFile>,
     primary_file_index: usize,
     snapshot: Option<String>,

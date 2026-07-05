@@ -20,7 +20,6 @@ pub use discovery::django_discovery_phases;
 pub use models::ModelGraph;
 pub use models::ModelId;
 pub use models::compute_model_graph;
-pub use models::model_modules;
 pub use project::Project;
 pub use python::CandidateKind;
 pub use python::CandidateLocation;
@@ -96,7 +95,6 @@ pub mod testing {
     pub use crate::discovery::compute_django_discovery;
     pub use crate::models::extract_model_graph;
     pub use crate::models::model_modules;
-    pub use crate::templates::TemplateInventoryStatus;
 
     pub fn settings_module_file(
         db: &dyn super::Db,
@@ -137,7 +135,7 @@ pub mod testing {
     #[must_use]
     pub fn template_libraries(
         db: &dyn super::Db,
-        status: TemplateInventoryStatus,
+        status: super::TemplateInventoryStatus,
         inputs: Vec<TemplateLibraryInput>,
     ) -> super::TemplateLibraries {
         let libraries = inputs

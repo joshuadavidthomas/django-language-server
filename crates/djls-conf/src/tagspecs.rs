@@ -117,7 +117,7 @@ pub struct IntermediateTagDef {
 /// Intermediate tag positioning
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum PositionDef {
+pub(crate) enum PositionDef {
     /// Can appear anywhere
     Any,
     /// Must be last before end tag

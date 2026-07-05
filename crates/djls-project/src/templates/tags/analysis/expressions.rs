@@ -228,15 +228,20 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
 ///
 /// Positive indices use `TokenSplit::resolve_index` to account for front offset.
 /// Negative indices map directly to `SplitPosition::Backward`.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn i64_to_index_element(n: i64, split: &TokenSplit) -> AbstractValue {
     if n >= 0 {
+        let Ok(index) = usize::try_from(n) else {
+            return AbstractValue::Unknown;
+        };
         AbstractValue::SplitElement {
-            index: split.resolve_index(n as usize),
+            index: split.resolve_index(index),
         }
     } else {
+        let Ok(index) = usize::try_from(n.unsigned_abs()) else {
+            return AbstractValue::Unknown;
+        };
         AbstractValue::SplitElement {
-            index: SplitPosition::Backward(n.unsigned_abs() as usize),
+            index: SplitPosition::Backward(index),
         }
     }
 }
@@ -264,9 +269,11 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> Abstract
             }) = unary.operand.as_ref()
                 && let Some(n) = int_val.as_i64()
             {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                let Ok(index) = usize::try_from(n.unsigned_abs()) else {
+                    return AbstractValue::Unknown;
+                };
                 return AbstractValue::SplitElement {
-                    index: SplitPosition::Backward(n.unsigned_abs() as usize),
+                    index: SplitPosition::Backward(index),
                 };
             }
             AbstractValue::Unknown
