@@ -1,16 +1,21 @@
 use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::btree_map::Entry;
 use std::fmt;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use serde::Deserialize;
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::ImportPathResolutionError;
 use crate::python::ImportTable;
+use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
 use crate::python::resolve_prefix;
 
@@ -80,8 +85,6 @@ string_newtype! {
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ModelId {
-    // Keep `name` first: `ModelGraph::models_named` and exact lookups rely
-    // on the derived `Ord` grouping same-named models together.
     name: ModelName,
     module_name: PythonModuleName,
 }
@@ -103,19 +106,45 @@ impl ModelId {
     }
 }
 
-impl TryFrom<String> for ModelId {
-    type Error = String;
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ModelIdParseError {
+    #[error("model id must include a module name and model name separated by '.'")]
+    MissingModuleNameSeparator,
+    #[error("model id must include a model name")]
+    EmptyModelName,
+    #[error("model id has invalid module name: {0}")]
+    InvalidModuleName(#[from] InvalidModuleName),
+}
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+impl FromStr for ModelId {
+    type Err = ModelIdParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (module_name, name) = value
             .rsplit_once('.')
-            .ok_or_else(|| "model id must include a module name and model name".to_string())?;
+            .ok_or(ModelIdParseError::MissingModuleNameSeparator)?;
         if name.is_empty() {
-            return Err("model id must include a model name".to_string());
+            return Err(ModelIdParseError::EmptyModelName);
         }
 
-        let module_name = PythonModuleName::parse(module_name).map_err(|err| err.to_string())?;
+        let module_name = PythonModuleName::parse(module_name)?;
         Ok(Self::new(module_name, ModelName::new(name)))
+    }
+}
+
+impl TryFrom<&str> for ModelId {
+    type Error = ModelIdParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl TryFrom<String> for ModelId {
+    type Error = ModelIdParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.as_str().try_into()
     }
 }
 
@@ -476,20 +505,48 @@ impl ModelDef {
             kind: ModelKind::Concrete,
         }
     }
-
-    #[must_use]
-    fn id(&self) -> ModelId {
-        ModelId::new(self.module_name.clone(), self.name.clone())
-    }
 }
 
 /// Dependency graph of Django models and their relations.
 ///
 /// Models are keyed by deterministic import identity (`ModelId`) so
 /// identically-named models from different importable modules can coexist.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ModelGraph {
     models: BTreeMap<ModelId, ModelDef>,
+    #[serde(skip)]
+    model_ids_by_name: BTreeMap<ModelName, BTreeSet<ModelId>>,
+    #[serde(skip)]
+    overwritten_model_ids: Vec<ModelId>,
+}
+
+impl PartialEq for ModelGraph {
+    fn eq(&self, other: &Self) -> bool {
+        self.models == other.models
+    }
+}
+
+impl Eq for ModelGraph {}
+
+impl<'de> Deserialize<'de> for ModelGraph {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SerializedModelGraph {
+            models: BTreeMap<ModelId, ModelDef>,
+        }
+
+        let serialized = SerializedModelGraph::deserialize(deserializer)?;
+        let mut graph = Self {
+            models: serialized.models,
+            model_ids_by_name: BTreeMap::new(),
+            overwritten_model_ids: Vec::new(),
+        };
+        graph.rebuild_model_ids_by_name();
+        Ok(graph)
+    }
 }
 
 impl ModelGraph {
@@ -532,7 +589,20 @@ impl ModelGraph {
     }
 
     pub(crate) fn add_model(&mut self, model: ModelDef) {
-        self.models.insert(model.id(), model);
+        let id = ModelId::new(model.module_name.clone(), model.name.clone());
+        if self.models.insert(id.clone(), model).is_some() {
+            self.overwritten_model_ids.push(id.clone());
+        }
+        self.model_ids_by_name
+            .entry(id.name.clone())
+            .or_default()
+            .insert(id);
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    fn overwritten_model_ids(&self) -> &[ModelId] {
+        &self.overwritten_model_ids
     }
 
     #[must_use]
@@ -545,10 +615,10 @@ impl ModelGraph {
         &'a self,
         name: &'a str,
     ) -> impl Iterator<Item = (&'a ModelId, &'a ModelDef)> {
-        self.models
-            .iter()
-            .skip_while(move |(id, _model)| id.name.as_str() < name)
-            .take_while(move |(id, _model)| id.name.as_str() == name)
+        self.model_ids_by_name
+            .get(name)
+            .into_iter()
+            .flat_map(move |ids| ids.iter().filter_map(|id| self.models.get_key_value(id)))
     }
 
     pub(crate) fn models(&self) -> impl Iterator<Item = &ModelDef> {
@@ -588,20 +658,14 @@ impl ModelGraph {
     }
 
     fn lookup_entry_exact(&self, app_label: &str, name: &str) -> Option<(&ModelId, &ModelDef)> {
-        for (id, model) in &self.models {
-            let candidate_name = id.name.as_str();
-            if candidate_name < name {
-                continue;
-            }
-            if candidate_name != name {
-                break;
-            }
+        self.model_ids_by_name.get(name)?.iter().find_map(|id| {
+            let (id, model) = self.models.get_key_value(id)?;
             if app_label_from_module_name(id.module_name.as_str()) == Some(app_label) {
-                return Some((id, model));
+                Some((id, model))
+            } else {
+                None
             }
-        }
-
-        None
+        })
     }
 
     /// Look up the target model for a forward relation field on `scope`.
@@ -908,11 +972,42 @@ impl ModelGraph {
         }
     }
 
+    fn rebuild_model_ids_by_name(&mut self) {
+        self.model_ids_by_name.clear();
+        for id in self.models.keys() {
+            self.model_ids_by_name
+                .entry(id.name.clone())
+                .or_default()
+                .insert(id.clone());
+        }
+    }
+
     /// Merge another graph into this one.
     ///
     /// Models from `other` overwrite models with the same import identity in `self`.
     pub fn merge(&mut self, other: ModelGraph) {
-        self.models.extend(other.models);
+        let ModelGraph {
+            models,
+            model_ids_by_name,
+            overwritten_model_ids,
+        } = other;
+        self.overwritten_model_ids.extend(overwritten_model_ids);
+
+        for (name, ids) in model_ids_by_name {
+            self.model_ids_by_name.entry(name).or_default().extend(ids);
+        }
+
+        for (id, model) in models {
+            match self.models.entry(id) {
+                Entry::Occupied(mut entry) => {
+                    self.overwritten_model_ids.push(entry.key().clone());
+                    entry.insert(model);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(model);
+                }
+            }
+        }
     }
 }
 
@@ -1186,6 +1281,65 @@ mod tests {
     }
 
     #[test]
+    fn models_named_returns_same_name_models_in_module_order() {
+        let mut graph = ModelGraph::new();
+        graph.add_model(ModelDef::new("User", module_name("zeta.models"), 1));
+        graph.add_model(ModelDef::new("Group", module_name("auth.models"), 2));
+        graph.add_model(ModelDef::new("User", module_name("alpha.models"), 3));
+
+        let users: Vec<_> = graph
+            .models_named("User")
+            .map(|(id, model)| (id.module_name().as_str(), model.name.as_str(), model.line))
+            .collect();
+
+        assert_eq!(
+            users,
+            vec![("alpha.models", "User", 3), ("zeta.models", "User", 1)]
+        );
+        assert!(graph.models_named("Missing").next().is_none());
+    }
+
+    #[test]
+    fn lookup_entry_exact_requires_exact_app_label_and_model_name() {
+        let mut graph = ModelGraph::new();
+        graph.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+
+        let exact = graph
+            .lookup_entry_exact("auth", "User")
+            .expect("exact lookup should find an exact app label and model name");
+        assert_eq!(exact.1.name.as_str(), "User");
+
+        assert!(graph.lookup_entry_exact("auth", "user").is_none());
+        assert!(graph.lookup_entry_exact("AUTH", "User").is_none());
+        assert_eq!(
+            graph.lookup("auth", "user").map(|model| model.line),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn lookup_falls_back_to_django_name_matching() {
+        let mut graph = ModelGraph::new();
+        graph.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+        graph.add_model(ModelDef::new("Éclair", module_name("Café.models"), 2));
+
+        let exact = graph
+            .lookup("auth", "User")
+            .expect("exact lookup should still work");
+        assert_eq!(exact.module_name.as_str(), "auth.models");
+
+        let ascii_case_insensitive = graph
+            .lookup("AUTH", "user")
+            .expect("lookup should fall back to ASCII-case-insensitive matching");
+        assert_eq!(ascii_case_insensitive.module_name.as_str(), "auth.models");
+
+        let lowercase_equal = graph
+            .lookup("café", "éclair")
+            .expect("lookup should fall back to lowercase-equal matching");
+        assert_eq!(lowercase_equal.module_name.as_str(), "Café.models");
+    }
+
+    #[test]
     fn lookup_normalizes_app_label_and_model_name() {
         let mut graph = ModelGraph::new();
         graph.add_model(ModelDef::new("User", module_name("accounts.models"), 1));
@@ -1289,6 +1443,39 @@ mod tests {
     }
 
     #[test]
+    fn add_model_overwrites_same_identity() {
+        let mut graph = ModelGraph::new();
+        graph.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+        graph.add_model(ModelDef::new("User", module_name("auth.models"), 2));
+
+        let expected_id = "auth.models.User".parse::<ModelId>().unwrap();
+        let model = graph
+            .lookup("auth", "User")
+            .expect("overwritten model should exist");
+        assert_eq!(graph.len(), 1);
+        assert_eq!(graph.overwritten_model_ids(), &[expected_id]);
+        assert_eq!(model.line, 2);
+    }
+
+    #[test]
+    fn merge_overwrites_same_identity() {
+        let mut g1 = ModelGraph::new();
+        g1.add_model(ModelDef::new("User", module_name("auth.models"), 1));
+
+        let mut g2 = ModelGraph::new();
+        g2.add_model(ModelDef::new("User", module_name("auth.models"), 2));
+
+        g1.merge(g2);
+        let expected_id = "auth.models.User".parse::<ModelId>().unwrap();
+        let model = g1
+            .lookup("auth", "User")
+            .expect("merged model should exist");
+        assert_eq!(g1.len(), 1);
+        assert_eq!(g1.overwritten_model_ids(), &[expected_id]);
+        assert_eq!(model.line, 2);
+    }
+
+    #[test]
     fn merge_graphs() {
         let mut g1 = ModelGraph::new();
         g1.add_model(ModelDef::new("User", module_name("auth.models"), 1));
@@ -1298,6 +1485,7 @@ mod tests {
 
         g1.merge(g2);
         assert_eq!(g1.len(), 2);
+        assert!(g1.overwritten_model_ids().is_empty());
         assert!(g1.models_named("User").next().is_some());
         assert!(g1.models_named("Order").next().is_some());
     }
