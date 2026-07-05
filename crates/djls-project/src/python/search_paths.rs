@@ -83,14 +83,15 @@ impl SearchPaths {
         pythonpath: &[Utf8PathBuf],
     ) -> Self {
         let mut search_paths = Self::default();
+
+        let src_root = root.join("src");
+        if fs.is_dir(&src_root) && !fs.is_file(&src_root.join("__init__.py")) {
+            search_paths.paths.push(SearchPath::FirstParty(src_root));
+        }
+
         search_paths
             .paths
             .push(SearchPath::FirstParty(root.to_path_buf()));
-
-        let src_root = root.join("src");
-        if fs.is_dir(&src_root) {
-            search_paths.paths.push(SearchPath::FirstParty(src_root));
-        }
 
         let discovered_site_packages = interpreter.site_packages_path(fs, root);
 
@@ -127,12 +128,18 @@ impl SearchPaths {
     }
 
     pub fn register_roots(&self, db: &dyn ProjectDb) {
+        let first_party_paths = self
+            .iter()
+            .filter(|search_path| search_path.is_first_party())
+            .map(SearchPath::path)
+            .collect::<Vec<_>>();
+
         let mut roots = Vec::new();
         for search_path in self.iter() {
             if search_path.is_first_party()
-                && roots.iter().any(|(path, kind)| {
-                    *kind == FileRootKind::Project && search_path.path().starts_with(path)
-                })
+                && first_party_paths
+                    .iter()
+                    .any(|path| *path != search_path.path() && search_path.path().starts_with(path))
             {
                 continue;
             }

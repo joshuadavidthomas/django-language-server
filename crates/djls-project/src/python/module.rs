@@ -33,10 +33,25 @@ pub struct ResolutionDetail {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileResolutionDetail {
+    pub selected_module: Option<PythonModule>,
+    pub derivations: Vec<FileModuleDerivation>,
+    pub unresolved_reason: Option<FileUnresolvedReason>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CandidateLocation {
     pub root: SearchPath,
     pub path: Utf8PathBuf,
     pub kind: CandidateKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileModuleDerivation {
+    pub root: SearchPath,
+    pub name: PythonModuleName,
+    pub resolved_path: Option<Utf8PathBuf>,
+    pub status: FileModuleDerivationStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,9 +62,24 @@ pub enum CandidateKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileModuleDerivationStatus {
+    RoundTrips,
+    Shadowed,
+    Unresolved,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnresolvedReason {
     NotFound,
     NamespaceOnly,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileUnresolvedReason {
+    Shadowed { winner: Utf8PathBuf },
+    NotUnderAnyRoot,
+    NoValidDerivation,
+    NotFound,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -72,6 +102,13 @@ enum PythonModuleCandidate {
         root: SearchPath,
         dir: Utf8PathBuf,
     },
+}
+
+struct FileModuleDerivationResult {
+    root: SearchPath,
+    name: PythonModuleName,
+    resolved_module: Option<PythonModule>,
+    status: FileModuleDerivationStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,6 +170,54 @@ fn python_module_candidates(
     }
 
     candidates
+}
+
+fn file_module_names<'a>(
+    db: &'a dyn ProjectDb,
+    project: Project,
+    source_path: &'a Utf8Path,
+) -> impl Iterator<Item = (&'a SearchPath, PythonModuleName)> + 'a {
+    project
+        .search_paths(db)
+        .iter()
+        .filter_map(move |search_path| {
+            let relative = source_path.strip_prefix(search_path.path()).ok()?;
+            let name = PythonModuleName::from_relative_source_path(relative).ok()?;
+            Some((search_path, name))
+        })
+}
+
+fn file_module_derivation_result(
+    db: &dyn ProjectDb,
+    project: Project,
+    source_path: &Utf8Path,
+    search_path: &SearchPath,
+    name: PythonModuleName,
+) -> FileModuleDerivationResult {
+    let resolved_module = PythonModule::resolve(db, project, name.clone());
+    let status = match resolved_module.as_ref().map(PythonModule::path) {
+        Some(resolved_path) if resolved_path == source_path => {
+            FileModuleDerivationStatus::RoundTrips
+        }
+        Some(_) => FileModuleDerivationStatus::Shadowed,
+        None => FileModuleDerivationStatus::Unresolved,
+    };
+
+    FileModuleDerivationResult {
+        root: search_path.clone(),
+        name,
+        resolved_module,
+        status,
+    }
+}
+
+fn selected_file_module(selected: Option<&FileModuleDerivationResult>) -> Option<PythonModule> {
+    let selected = selected?;
+    if selected.status == FileModuleDerivationStatus::RoundTrips {
+        selected.resolved_module.clone()
+    } else {
+        None
+    }
 }
 
 // Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
@@ -213,6 +298,78 @@ pub fn resolve_package_dirs(
 
     PackageDirs {
         dirs: namespace_dirs,
+    }
+}
+
+// Salsa tracked-query keys are by-value; `source_path` is a key, not a borrow.
+#[allow(clippy::needless_pass_by_value)]
+#[salsa::tracked]
+pub fn file_to_module(
+    db: &dyn ProjectDb,
+    project: Project,
+    source_path: Utf8PathBuf,
+) -> Option<PythonModule> {
+    project.touch_search_path_roots(db);
+
+    let selected = file_module_names(db, project, source_path.as_path())
+        .next()
+        .map(|(root, name)| {
+            file_module_derivation_result(db, project, source_path.as_path(), root, name)
+        });
+    selected_file_module(selected.as_ref())
+}
+
+// Salsa tracked-query keys are by-value; `source_path` is a key, not a borrow.
+#[allow(clippy::needless_pass_by_value)]
+#[salsa::tracked]
+pub fn file_to_module_detail(
+    db: &dyn ProjectDb,
+    project: Project,
+    source_path: Utf8PathBuf,
+) -> FileResolutionDetail {
+    project.touch_search_path_roots(db);
+
+    let results = file_module_names(db, project, source_path.as_path())
+        .map(|(root, name)| {
+            file_module_derivation_result(db, project, source_path.as_path(), root, name)
+        })
+        .collect::<Vec<_>>();
+    let selected_module = selected_file_module(results.first());
+    let unresolved_reason = if selected_module.is_some() {
+        None
+    } else if let Some(selected) = results.first() {
+        match selected.resolved_module.as_ref().map(PythonModule::path) {
+            Some(winner) => Some(FileUnresolvedReason::Shadowed {
+                winner: winner.to_path_buf(),
+            }),
+            None => Some(FileUnresolvedReason::NotFound),
+        }
+    } else if project
+        .search_paths(db)
+        .iter()
+        .any(|search_path| source_path.strip_prefix(search_path.path()).is_ok())
+    {
+        Some(FileUnresolvedReason::NoValidDerivation)
+    } else {
+        Some(FileUnresolvedReason::NotUnderAnyRoot)
+    };
+    let derivations = results
+        .iter()
+        .map(|derivation| FileModuleDerivation {
+            root: derivation.root.clone(),
+            name: derivation.name.clone(),
+            resolved_path: derivation
+                .resolved_module
+                .as_ref()
+                .map(|module| module.path().to_path_buf()),
+            status: derivation.status,
+        })
+        .collect();
+
+    FileResolutionDetail {
+        selected_module,
+        derivations,
+        unresolved_reason,
     }
 }
 
@@ -314,23 +471,6 @@ impl PythonModule {
         }
 
         None
-    }
-
-    #[salsa::tracked]
-    pub(crate) fn resolve_source_path(
-        db: &dyn ProjectDb,
-        project: Project,
-        source_path: Utf8PathBuf,
-    ) -> Option<Self> {
-        let search_path = project
-            .search_paths(db)
-            .iter()
-            .filter(|search_path| source_path.starts_with(search_path.path()))
-            .max_by_key(|search_path| search_path.path().as_str().len())?;
-        let relative = source_path.strip_prefix(search_path.path()).ok()?;
-        let name = PythonModuleName::from_relative_source_path(relative).ok()?;
-        let module = Self::resolve(db, project, name)?;
-        (module.path() == source_path.as_path()).then_some(module)
     }
 }
 
