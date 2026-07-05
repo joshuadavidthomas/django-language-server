@@ -101,6 +101,104 @@ fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> Strin
 }
 
 #[test]
+fn search_paths_detect_top_level_src_after_project_root() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file("/project/src/app.py".into(), String::new());
+
+    let search_paths =
+        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            SearchPath::FirstParty(Utf8PathBuf::from("/project/src")),
+        ]
+    );
+}
+
+#[test]
+fn search_paths_do_not_detect_top_level_src_when_absent() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file("/project/app.py".into(), String::new());
+
+    let search_paths =
+        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert_eq!(
+        paths,
+        vec![SearchPath::FirstParty(Utf8PathBuf::from("/project"))]
+    );
+}
+
+#[test]
+fn search_paths_add_simple_pth_entries_as_editable_roots() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/django/__init__.py".into(),
+        String::new(),
+    );
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/editable_relative/pkg.py".into(),
+        String::new(),
+    );
+    fs.add_file("/editable_absolute/pkg.py".into(), String::new());
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/editable.pth".into(),
+        "# comment\n\nimport site\neditable_relative\n/editable_absolute\nmissing\n".to_string(),
+    );
+
+    let search_paths =
+        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            SearchPath::SitePackages(Utf8PathBuf::from(
+                "/project/.venv/lib/python3.12/site-packages"
+            )),
+            SearchPath::Editable(Utf8PathBuf::from(
+                "/project/.venv/lib/python3.12/site-packages/editable_relative"
+            )),
+            SearchPath::Editable(Utf8PathBuf::from("/editable_absolute")),
+        ]
+    );
+}
+
+#[test]
+fn search_paths_skip_pth_entries_that_duplicate_existing_roots() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file("/project/src/app.py".into(), String::new());
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/django/__init__.py".into(),
+        String::new(),
+    );
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/editable.pth".into(),
+        "/project/src\n".to_string(),
+    );
+
+    let search_paths =
+        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            SearchPath::FirstParty(Utf8PathBuf::from("/project/src")),
+            SearchPath::SitePackages(Utf8PathBuf::from(
+                "/project/.venv/lib/python3.12/site-packages"
+            )),
+        ]
+    );
+}
+
+#[test]
 fn search_paths_keep_site_packages_external_inside_project_root() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file("/project/src/app/__init__.py".into(), String::new());
