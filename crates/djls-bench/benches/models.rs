@@ -1,14 +1,18 @@
 use std::sync::OnceLock;
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::Db;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::model_fixtures;
+use djls_conf::Settings;
 use djls_project::ModelGraph;
 use djls_project::ModelId;
+use djls_project::Project;
 use djls_project::PythonModuleName;
 use djls_project::testing::extract_model_graph;
+use djls_project::testing::resolve_model_graph_from_modules;
 
 fn main() {
     divan::main();
@@ -89,11 +93,23 @@ fn auth_graph() -> &'static ModelGraph {
             .find(|f| f.label == "medium_auth.py")
             .expect("medium_auth fixture missing");
         let mut db = Db::new();
-        model_graph_from_source(
-            &mut db,
-            "/bench/models/auth.py",
-            &auth.source,
-            module_name("django.contrib.auth.models"),
+        let project = Project::initial(&db, Utf8Path::new("/bench"), &Settings::default());
+        let auth_file = db.file_with_contents("/bench/django/contrib/auth/models.py", &auth.source);
+        let content_type_file = db.file_with_contents(
+            "/bench/django/contrib/contenttypes/models.py",
+            "from django.db import models\n\nclass ContentType(models.Model):\n    pass\n",
+        );
+
+        resolve_model_graph_from_modules(
+            &db,
+            project,
+            [
+                (auth_file, module_name("django.contrib.auth.models")),
+                (
+                    content_type_file,
+                    module_name("django.contrib.contenttypes.models"),
+                ),
+            ],
         )
     })
 }
@@ -124,6 +140,21 @@ fn resolve_relations(bencher: Bencher) {
         (permission, "group_set"),
         (permission, "user_set"),
     ];
+
+    for (model, field) in forward_queries {
+        assert!(
+            graph.resolve_forward(model, field).is_some(),
+            "forward relation should resolve: {}.{field}",
+            model.name()
+        );
+    }
+    for (model, relation) in relation_queries {
+        assert!(
+            graph.resolve_relation(model, relation).is_some(),
+            "relation should resolve: {}.{relation}",
+            model.name()
+        );
+    }
 
     bencher.bench_local(|| {
         let mut resolved = 0;

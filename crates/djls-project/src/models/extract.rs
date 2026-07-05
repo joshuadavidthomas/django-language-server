@@ -3,7 +3,6 @@ use std::ops::ControlFlow;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
-use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
@@ -16,101 +15,59 @@ use crate::models::graph::ModelName;
 use crate::models::graph::Relation;
 use crate::models::graph::RelationTarget;
 use crate::models::graph::RelationType;
+use crate::python::ImportTable;
+#[cfg(test)]
+use crate::python::ModuleKind;
 use crate::python::PythonModuleName;
 
 pub(super) struct ModelCollector<'a> {
-    module_name: PythonModuleName,
+    pub(super) module_name: PythonModuleName,
     source: &'a str,
-    aliases: ImportAliases,
-    graph: ModelGraph,
-    children: Vec<&'a StmtClassDef>,
+    imports: &'a ImportTable,
+    pub(super) graph: ModelGraph,
+    pub(super) children: Vec<&'a StmtClassDef>,
 }
 
 impl<'a> ModelCollector<'a> {
-    pub(super) fn new(module_name: PythonModuleName, source: &'a str) -> Self {
+    pub(super) fn new(
+        module_name: PythonModuleName,
+        source: &'a str,
+        imports: &'a ImportTable,
+    ) -> Self {
         Self {
             module_name,
             source,
-            aliases: ImportAliases::new(),
+            imports,
             graph: ModelGraph::new(),
             children: Vec::new(),
         }
     }
 
-    pub(super) fn finish(mut self) -> ModelGraph {
-        resolve_children(
-            &mut self.graph,
-            &self.children,
-            &self.module_name,
-            self.source,
-        );
-        self.graph
-    }
-
     pub(super) fn scan_stmt(&mut self, stmt: &'a Stmt) {
-        match stmt {
-            Stmt::ImportFrom(import) => {
-                let Some(module) = import
-                    .module
-                    .as_ref()
-                    .map(ruff_python_ast::Identifier::as_str)
-                else {
-                    return;
-                };
+        if let Stmt::ClassDef(class) = stmt {
+            let Some(ref args) = class.arguments else {
+                return;
+            };
 
-                if is_django_model_parent(module) {
-                    for name in &import.names {
-                        if name.name.as_str() == "models" {
-                            let alias = name.asname.as_ref().map_or("models", |a| a.as_str());
-                            self.aliases.module_aliases.insert(alias.to_string());
-                        }
-                    }
-                }
+            if is_django_model(args.args.iter(), self.imports) {
+                let line = line_number(self.source, class.range.start().to_usize());
+                let mut model =
+                    ModelDef::new(class.name.to_string(), self.module_name.clone(), line);
 
-                if is_django_models_module(module) {
-                    for name in &import.names {
-                        if name.name.as_str() == "Model" {
-                            let alias = name.asname.as_ref().map_or("Model", |a| a.as_str());
-                            self.aliases.class_aliases.insert(alias.to_string());
-                        }
-                    }
-                }
+                walk_stmts(&class.body, Recurse::Flat, |stmt| {
+                    process_class_body(stmt, &mut model);
+                    ControlFlow::Continue(())
+                });
+
+                self.graph.add_model(model);
+            } else if !args.args.is_empty() {
+                self.children.push(class);
             }
-            Stmt::Import(import) => {
-                for name in &import.names {
-                    if is_django_models_module(name.name.as_str())
-                        && let Some(alias) = &name.asname
-                    {
-                        self.aliases.module_aliases.insert(alias.to_string());
-                    }
-                }
-            }
-            Stmt::ClassDef(class) => {
-                let Some(ref args) = class.arguments else {
-                    return;
-                };
-
-                if is_django_model(args.args.iter(), &self.aliases) {
-                    let line = line_number(self.source, class.range.start().to_usize());
-                    let mut model =
-                        ModelDef::new(class.name.to_string(), self.module_name.clone(), line);
-
-                    walk_stmts(&class.body, Recurse::Flat, |stmt| {
-                        process_class_body(stmt, &mut model);
-                        ControlFlow::Continue(())
-                    });
-
-                    self.graph.add_model(model);
-                } else if !args.args.is_empty() {
-                    self.children.push(class);
-                }
-            }
-            _ => {}
         }
     }
 }
 
-fn resolve_children(
+pub(super) fn resolve_children(
     graph: &mut ModelGraph,
     children: &[&StmtClassDef],
     module_name: &PythonModuleName,
@@ -197,75 +154,22 @@ fn base_class_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-/// Check if a module name is a known Django models parent module.
-///
-/// These are the modules from which `models` can be imported
-/// (e.g., `from django.db import models`).
-fn is_django_model_parent(module: &str) -> bool {
-    matches!(module, "django.db" | "django.contrib.gis.db")
+fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, imports: &ImportTable) -> bool {
+    bases
+        .filter_map(ExprExt::path_segments)
+        .filter_map(|path| {
+            imports
+                .resolve_qualified_path(path.iter().map(String::as_str))
+                .ok()
+        })
+        .any(|path| is_known_django_model_base(path.as_str()))
 }
 
-/// Check if a module name is a known Django `models` module.
-///
-/// These are the fully-qualified paths to Django's model modules
-/// (for `import django.db.models as ...` or `from django.db.models import Model`).
-fn is_django_models_module(module: &str) -> bool {
-    matches!(module, "django.db.models" | "django.contrib.gis.db.models")
-}
-
-/// Import aliases discovered from a module's import statements.
-///
-/// Tracks two kinds of aliases:
-/// - **module aliases**: names that refer to `django.db.models` (or the
-///   `GeoDjango` equivalent), used to match the `x.Model` pattern.
-///   Recognized imports:
-///   - `from django.db import models [as m]`
-///   - `from django.contrib.gis.db import models [as m]`
-///   - `import django.db.models as m`
-///   - `import django.contrib.gis.db.models as m`
-/// - **class aliases**: names that refer to the `Model` class directly,
-///   used to match bare-name patterns like `class Foo(M):`.
-///   Recognized imports:
-///   - `from django.db.models import Model [as M]`
-///   - `from django.contrib.gis.db.models import Model [as M]`
-struct ImportAliases {
-    /// Names aliasing `django.db.models` (always includes `"models"`).
-    module_aliases: FxHashSet<String>,
-    /// Names aliasing the `Model` class (always includes `"Model"`).
-    class_aliases: FxHashSet<String>,
-}
-
-impl ImportAliases {
-    fn new() -> Self {
-        Self {
-            module_aliases: FxHashSet::from_iter(["models".to_string()]),
-            class_aliases: FxHashSet::from_iter(["Model".to_string()]),
-        }
-    }
-}
-
-fn is_django_model<'a>(bases: impl Iterator<Item = &'a Expr>, aliases: &ImportAliases) -> bool {
-    for base in bases {
-        // Model / M (where M aliases django.db.models.Model)
-        if base
-            .name_target()
-            .is_some_and(|name| aliases.class_aliases.contains(name))
-        {
-            return true;
-        }
-
-        // models.Model / m.Model (where m aliases django.db.models)
-        if let Expr::Attribute(attr) = base
-            && attr.attr.as_str() == "Model"
-            && attr
-                .value
-                .name_target()
-                .is_some_and(|name| aliases.module_aliases.contains(name))
-        {
-            return true;
-        }
-    }
-    false
+fn is_known_django_model_base(path: &str) -> bool {
+    matches!(
+        path,
+        "django.db.models.Model" | "django.contrib.gis.db.models.Model"
+    )
 }
 
 fn process_class_body(stmt: &Stmt, model: &mut ModelDef) {
@@ -322,56 +226,39 @@ fn extract_relation(stmt: &Stmt) -> Option<Relation> {
         expr => expr.name_target()?,
     };
 
-    let target = extract_target_model(call)?;
+    let first_arg = call.arguments.args.first()?;
+    let target = match first_arg {
+        Expr::StringLiteral(s) => {
+            let value = s.value.to_string();
+            if value == "self" {
+                RelationTarget::SelfRef
+            } else if let Some((app_label, name)) = value.rsplit_once('.') {
+                RelationTarget::Qualified {
+                    app_label: app_label.to_string(),
+                    name: ModelName::new(name),
+                }
+            } else {
+                RelationTarget::Bare {
+                    name: ModelName::new(value),
+                }
+            }
+        }
+        expr => {
+            let path = expr.path_segments()?;
+            if path.len() == 1 {
+                RelationTarget::Bare {
+                    name: ModelName::new(path[0].clone()),
+                }
+            } else {
+                RelationTarget::Attribute { path }
+            }
+        }
+    };
     let related_name = extract_related_name(call);
 
     let relation_type = RelationType::from_field_class(field_class_name, target, related_name)?;
 
-    Some(Relation {
-        field_name: FieldName::new(target_name),
-        relation_type,
-    })
-}
-
-fn extract_target_model(call: &ruff_python_ast::ExprCall) -> Option<RelationTarget> {
-    let first_arg = call.arguments.args.first()?;
-
-    // Direct reference: ForeignKey(User)
-    if let Some(name) = first_arg.name_target() {
-        return Some(RelationTarget::Bare {
-            name: ModelName::new(name),
-        });
-    }
-
-    match first_arg {
-        // String reference: ForeignKey("self"), ForeignKey("User"), or ForeignKey("app.User")
-        Expr::StringLiteral(s) => {
-            let value = s.value.to_string();
-            Some(relation_target_from_string(&value))
-        }
-        // Attribute: ForeignKey(auth.User). Keep today's behavior and drop the qualifier.
-        Expr::Attribute(attr) => Some(RelationTarget::Bare {
-            name: ModelName::new(attr.attr.as_str()),
-        }),
-        _ => None,
-    }
-}
-
-fn relation_target_from_string(value: &str) -> RelationTarget {
-    if value == "self" {
-        return RelationTarget::SelfRef;
-    }
-
-    if let Some((app_label, name)) = value.rsplit_once('.') {
-        return RelationTarget::Qualified {
-            app_label: app_label.to_string(),
-            name: ModelName::new(name),
-        };
-    }
-
-    RelationTarget::Bare {
-        name: ModelName::new(value),
-    }
+    Some(Relation::new(FieldName::new(target_name), relation_type))
 }
 
 fn extract_related_name(call: &ruff_python_ast::ExprCall) -> Option<String> {
@@ -413,13 +300,13 @@ fn extract_generic_foreign_key(stmt: &Stmt) -> Option<Relation> {
         extract_gfk_arg(call, 0, "ct_field").unwrap_or_else(|| "content_type".to_string());
     let fk_field = extract_gfk_arg(call, 1, "fk_field").unwrap_or_else(|| "object_id".to_string());
 
-    Some(Relation {
-        field_name: FieldName::new(target_name),
-        relation_type: RelationType::GenericForeignKey {
+    Some(Relation::new(
+        FieldName::new(target_name),
+        RelationType::GenericForeignKey {
             ct_field: FieldName::new(ct_field),
             fk_field: FieldName::new(fk_field),
         },
-    })
+    ))
 }
 
 /// Extract a string argument from a GFK constructor call by positional index
@@ -457,10 +344,17 @@ mod tests {
     use crate::models::graph::ModelId;
 
     fn extract_model_graph(source: &str, module_name: &str) -> ModelGraph {
-        super::super::extract_model_graph_impl(
+        let module_name = PythonModuleName::parse(module_name).unwrap();
+        let imports = crate::python::extract_import_table_for_source(
             source,
-            PythonModuleName::parse(module_name).unwrap(),
-        )
+            &module_name,
+            ModuleKind::Module,
+        );
+        let Ok(parsed) = ruff_python_parser::parse_module(source) else {
+            return ModelGraph::default();
+        };
+        let module = parsed.into_syntax();
+        super::super::extract_model_graph_impl(source, &module.body, module_name, &imports)
     }
 
     fn model<'a>(graph: &'a ModelGraph, name: &'a str) -> &'a ModelDef {
@@ -486,12 +380,10 @@ mod tests {
     fn bare_target_name(relation: &Relation) -> Option<&str> {
         match relation.target_model()? {
             RelationTarget::Bare { name } => Some(name.as_str()),
-            RelationTarget::SelfRef | RelationTarget::Qualified { .. } => None,
+            RelationTarget::SelfRef
+            | RelationTarget::Qualified { .. }
+            | RelationTarget::Attribute { .. } => None,
         }
-    }
-
-    fn resolved_model_name(model: Option<&ModelDef>) -> Option<&str> {
-        model.map(|model| model.name.as_str())
     }
 
     #[test]
@@ -514,10 +406,7 @@ mod tests {
 
     #[test]
     fn simple_model() {
-        let source = r"
-class User(models.Model):
-    name = models.CharField(max_length=100)
-";
+        let source = "from django.db import models\nclass User(models.Model):\n    name = models.CharField(max_length=100)\n";
         let graph = extract_model_graph(source, "auth.models");
         assert_eq!(graph.len(), 1);
 
@@ -531,6 +420,7 @@ class User(models.Model):
     #[test]
     fn direct_model_import() {
         let source = r"
+from django.db import models
 from django.db.models import Model
 
 class User(Model):
@@ -648,6 +538,8 @@ class NotDjango(BaseModel):
     #[test]
     fn foreign_key() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -671,6 +563,8 @@ class Order(models.Model):
     #[test]
     fn explicit_related_name() {
         let source = r#"
+from django.db import models
+
 class Order(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
 "#;
@@ -690,6 +584,8 @@ class Order(models.Model):
     #[test]
     fn string_ref_with_app_label_preserves_qualified_target() {
         let source = r#"
+from django.db import models
+
 class Order(models.Model):
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE)
 "#;
@@ -704,6 +600,8 @@ class Order(models.Model):
     #[test]
     fn string_ref_self_preserves_self_target() {
         let source = r#"
+from django.db import models
+
 class Category(models.Model):
     parent = models.ForeignKey("self", on_delete=models.CASCADE)
 "#;
@@ -717,6 +615,8 @@ class Category(models.Model):
     #[test]
     fn all_relation_types() {
         let source = r"
+from django.db import models
+
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
@@ -747,6 +647,8 @@ class Article(models.Model):
     #[test]
     fn abstract_model() {
         let source = r"
+from django.db import models
+
 class BaseModel(models.Model):
     class Meta:
         abstract = True
@@ -758,6 +660,8 @@ class BaseModel(models.Model):
     #[test]
     fn abstract_inheritance() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -791,6 +695,8 @@ class ConcreteOrder(BaseOrder):
     #[test]
     fn class_substitution_in_inherited_related_name() {
         let source = r#"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -816,6 +722,8 @@ class SpecialOrder(BaseOrder):
     #[test]
     fn forward_and_reverse_lookups() {
         let source = r#"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -826,19 +734,25 @@ class Order(models.Model):
 
         // Forward
         assert_eq!(
-            resolved_model_name(graph.resolve_forward(model_id(&graph, "Order"), "user")),
+            graph
+                .resolve_forward(model_id(&graph, "Order"), "user")
+                .map(|model| model.name.as_str()),
             Some("User")
         );
 
         // Reverse
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "orders")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "orders")
+                .map(|model| model.name.as_str()),
             Some("Order")
         );
 
         // Non-existent
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "nope")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "nope")
+                .map(|model| model.name.as_str()),
             None
         );
     }
@@ -846,6 +760,8 @@ class Order(models.Model):
     #[test]
     fn default_reverse_name() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -856,7 +772,9 @@ class Order(models.Model):
 
         // Default FK reverse name is <model>_set
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "order_set")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "order_set")
+                .map(|model| model.name.as_str()),
             Some("Order")
         );
     }
@@ -864,6 +782,8 @@ class Order(models.Model):
     #[test]
     fn multiple_models_multiple_relations() {
         let source = r#"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -883,15 +803,21 @@ class Comment(models.Model):
 
         // Chain: User -> posts -> comments
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "User"), "posts")),
+            graph
+                .resolve_relation(model_id(&graph, "User"), "posts")
+                .map(|model| model.name.as_str()),
             Some("Post")
         );
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "Post"), "comments")),
+            graph
+                .resolve_relation(model_id(&graph, "Post"), "comments")
+                .map(|model| model.name.as_str()),
             Some("Comment")
         );
         assert_eq!(
-            resolved_model_name(graph.resolve_relation(model_id(&graph, "Comment"), "author")),
+            graph
+                .resolve_relation(model_id(&graph, "Comment"), "author")
+                .map(|model| model.name.as_str()),
             Some("User")
         );
     }
@@ -899,6 +825,8 @@ class Comment(models.Model):
     #[test]
     fn multiple_abstract_parents() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -933,6 +861,8 @@ class Document(TimestampMixin, AuditMixin):
     #[test]
     fn concrete_model_inheritance() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -953,6 +883,8 @@ class Restaurant(Place):
     #[test]
     fn qualified_base_class_inheritance() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -975,6 +907,8 @@ class ConcreteOrder(some_module.BaseOrder):
     #[test]
     fn multi_level_inheritance_chain() {
         let source = r"
+from django.db import models
+
 class User(models.Model):
     pass
 
@@ -1009,6 +943,8 @@ class Concrete(MiddleMixin):
     #[test]
     fn generic_foreign_key_extracted() {
         let source = r#"
+from django.db import models
+
 class TaggedItem(models.Model):
     content_type = models.ForeignKey("ContentType", on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
@@ -1041,6 +977,8 @@ class TaggedItem(models.Model):
     #[test]
     fn generic_foreign_key_defaults() {
         let source = r"
+from django.db import models
+
 class TaggedItem(models.Model):
     content_object = GenericForeignKey()
 ";
@@ -1060,6 +998,8 @@ class TaggedItem(models.Model):
     #[test]
     fn generic_foreign_key_keyword_args() {
         let source = r"
+from django.db import models
+
 class ObjectLog(models.Model):
     parent = GenericForeignKey(ct_field='object_type', fk_field='object_id')
 ";
@@ -1079,6 +1019,7 @@ class ObjectLog(models.Model):
     #[test]
     fn generic_foreign_key_module_prefix() {
         let source = r#"
+from django.db import models
 from django.contrib.contenttypes import fields
 
 class TaggedItem(models.Model):
@@ -1096,6 +1037,8 @@ class TaggedItem(models.Model):
     #[test]
     fn generic_foreign_key_inherited_from_abstract() {
         let source = r#"
+from django.db import models
+
 class GenericMixin(models.Model):
     content_object = GenericForeignKey("content_type", "object_id")
 
@@ -1119,6 +1062,8 @@ class TaggedItem(GenericMixin):
     #[test]
     fn multiple_generic_foreign_keys() {
         let source = r"
+from django.db import models
+
 class Action(models.Model):
     actor = GenericForeignKey('actor_content_type', 'actor_object_id')
     target = GenericForeignKey('target_content_type', 'target_object_id')

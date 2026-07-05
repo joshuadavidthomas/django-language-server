@@ -14,6 +14,7 @@ pub use corpus::lock_corpus;
 pub use corpus::module_name_from_file;
 pub use corpus::sync_corpus;
 pub use db::OsTestDatabase;
+pub use db::SalsaEventLog;
 pub use db::TestDatabase;
 pub use extraction::ExtractionBundle;
 pub use extraction::SortedExtractionResult;

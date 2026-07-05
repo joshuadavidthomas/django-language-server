@@ -17,8 +17,10 @@ models:
       - field_name: user
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: editing_sessions
       - field_name: content_type
         relation_type: ForeignKey

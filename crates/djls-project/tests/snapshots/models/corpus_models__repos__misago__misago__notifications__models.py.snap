@@ -11,14 +11,18 @@ models:
       - field_name: user
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
       - field_name: actor
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: +
       - field_name: category
         relation_type: ForeignKey
@@ -50,8 +54,10 @@ models:
       - field_name: user
         relation_type: ForeignKey
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: ~
       - field_name: category
         relation_type: ForeignKey

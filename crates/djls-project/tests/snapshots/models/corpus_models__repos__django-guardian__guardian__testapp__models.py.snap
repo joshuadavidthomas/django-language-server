@@ -65,7 +65,9 @@ models:
       - field_name: user
         relation_type: OneToOne
         target:
-          kind: Bare
-          name: AUTH_USER_MODEL
+          kind: Attribute
+          path:
+            - settings
+            - AUTH_USER_MODEL
         related_name: profile
     kind: concrete
