@@ -36,7 +36,7 @@ pub struct Project {
     pub django_settings_module: Option<PythonModuleName>,
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
-    pub pythonpath: Vec<String>,
+    pub pythonpath: Vec<Utf8PathBuf>,
     /// Extra environment variables for project introspection, loaded from an
     /// env file (e.g. `.env`). Each entry is a `(key, value)` pair.
     #[returns(ref)]
@@ -63,7 +63,7 @@ impl Project {
     pub fn initial(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let search_paths = SearchPaths::root_only(root);
         let interpreter = settings.venv_path().map_or(Interpreter::Auto, |path| {
-            Interpreter::VenvPath(path.to_string())
+            Interpreter::VenvPath(path.to_path_buf())
         });
         let django_settings_module = settings
             .django_settings_module()

@@ -429,11 +429,8 @@ pythonpath = ["{config_extra_path}"]
                 .map(djls_project::PythonModuleName::as_str),
             Some("client.settings")
         );
-        assert_eq!(project.pythonpath(db), &vec![client_extra_path.to_string()]);
-        assert_eq!(
-            project.interpreter(db),
-            &Interpreter::VenvPath(venv_path.to_string())
-        );
+        assert_eq!(project.pythonpath(db), &vec![client_extra_path]);
+        assert_eq!(project.interpreter(db), &Interpreter::VenvPath(venv_path));
         assert!(project.env_vars(db).is_empty());
 
         let search_paths: Vec<_> = project

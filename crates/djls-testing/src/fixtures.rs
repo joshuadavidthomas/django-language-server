@@ -422,7 +422,7 @@ pub struct ProjectFixture {
     root: Utf8PathBuf,
     files: Vec<(Utf8PathBuf, String)>,
     django_settings_module: Option<PythonModuleName>,
-    pythonpath: Vec<String>,
+    pythonpath: Vec<Utf8PathBuf>,
     env_vars: Vec<(String, String)>,
     interpreter: Interpreter,
     search_paths: Option<SearchPaths>,

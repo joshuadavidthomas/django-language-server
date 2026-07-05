@@ -72,12 +72,12 @@ pub enum ConfigError {
 pub struct Settings {
     #[serde(default)]
     debug: bool,
-    venv_path: Option<String>,
+    venv_path: Option<Utf8PathBuf>,
     django_settings_module: Option<String>,
     #[serde(default)]
     django_environments: Vec<DjangoEnvironmentConfig>,
     #[serde(default)]
-    pythonpath: Vec<String>,
+    pythonpath: Vec<Utf8PathBuf>,
     env_file: Option<String>,
     #[serde(default)]
     tagspecs: TagSpecDef,
@@ -168,7 +168,7 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn venv_path(&self) -> Option<&str> {
+    pub fn venv_path(&self) -> Option<&Utf8Path> {
         self.venv_path.as_deref()
     }
 
@@ -184,7 +184,7 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn pythonpath(&self) -> &[String] {
+    pub fn pythonpath(&self) -> &[Utf8PathBuf] {
         &self.pythonpath
     }
 
@@ -266,7 +266,7 @@ mod tests {
             assert_eq!(
                 settings,
                 Settings {
-                    venv_path: Some("/path/to/venv".to_string()),
+                    venv_path: Some(Utf8PathBuf::from("/path/to/venv")),
                     ..Default::default()
                 }
             );
@@ -284,7 +284,10 @@ mod tests {
             assert_eq!(
                 settings,
                 Settings {
-                    pythonpath: vec!["/path/to/lib".to_string(), "/another/path".to_string()],
+                    pythonpath: vec![
+                        Utf8PathBuf::from("/path/to/lib"),
+                        Utf8PathBuf::from("/another/path"),
+                    ],
                     ..Default::default()
                 }
             );

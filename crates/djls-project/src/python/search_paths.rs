@@ -75,7 +75,9 @@ impl SearchPaths {
     #[must_use]
     pub(crate) fn root_only(root: &Utf8Path) -> Self {
         let mut search_paths = Self::default();
-        search_paths.push(SearchPath::first_party(root.to_path_buf()));
+        search_paths
+            .paths
+            .push(SearchPath::first_party(root.to_path_buf()));
         search_paths
     }
 
@@ -84,29 +86,32 @@ impl SearchPaths {
         fs: &dyn FileSystem,
         root: &Utf8Path,
         interpreter: &Interpreter,
-        pythonpath: &[String],
+        pythonpath: &[Utf8PathBuf],
     ) -> Self {
         let mut search_paths = Self::default();
-        search_paths.push(SearchPath::first_party(root.to_path_buf()));
+        search_paths
+            .paths
+            .push(SearchPath::first_party(root.to_path_buf()));
         let discovered_site_packages = interpreter.site_packages_path(fs, root);
 
         for path in pythonpath {
-            let path = Utf8PathBuf::from(path);
-            if !fs.is_dir(&path) || search_paths.contains_path(&path) {
+            if !fs.is_dir(path) || search_paths.contains_path(path) {
                 continue;
             }
 
-            search_paths.push(SearchPath::from_pythonpath(
+            search_paths.paths.push(SearchPath::from_pythonpath(
                 root,
                 discovered_site_packages.as_deref(),
-                path,
+                path.clone(),
             ));
         }
 
         if let Some(site_packages) = discovered_site_packages
             && !search_paths.contains_path(&site_packages)
         {
-            search_paths.push(SearchPath::site_packages(site_packages));
+            search_paths
+                .paths
+                .push(SearchPath::site_packages(site_packages));
         }
 
         search_paths
@@ -131,10 +136,6 @@ impl SearchPaths {
 
     pub fn iter(&self) -> impl Iterator<Item = &SearchPath> {
         self.paths.iter()
-    }
-
-    fn push(&mut self, search_path: SearchPath) {
-        self.paths.push(search_path);
     }
 
     fn contains_path(&self, path: &Utf8Path) -> bool {
