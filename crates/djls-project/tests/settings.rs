@@ -5,16 +5,14 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::Db as ProjectDb;
 use djls_project::testing::compute_django_discovery;
 use djls_project::*;
 use djls_source::Db as _;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
-use djls_source::OsFileSystem;
-use djls_source::SourceFiles;
 use djls_source::WalkEntry;
 use djls_source::WalkOptions;
+use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use serde::Deserialize;
@@ -51,51 +49,6 @@ fn active_builtin_modules(libraries: &TemplateLibraries) -> Vec<String> {
         .filter(|&library| library.load_name().is_none())
         .map(|library| library.module_name().as_str().to_string())
         .collect()
-}
-
-#[salsa::db]
-#[derive(Clone)]
-struct OsTestDatabase {
-    storage: salsa::Storage<Self>,
-    fs: Arc<dyn FileSystem>,
-    files: SourceFiles,
-    project: Option<Project>,
-}
-
-impl OsTestDatabase {
-    fn new() -> Self {
-        Self::with_file_system(Arc::new(OsFileSystem))
-    }
-
-    fn with_file_system(fs: Arc<dyn FileSystem>) -> Self {
-        Self {
-            storage: salsa::Storage::default(),
-            fs,
-            files: SourceFiles::default(),
-            project: None,
-        }
-    }
-}
-
-#[salsa::db]
-impl salsa::Database for OsTestDatabase {}
-
-#[salsa::db]
-impl djls_source::Db for OsTestDatabase {
-    fn files(&self) -> &SourceFiles {
-        &self.files
-    }
-
-    fn file_system(&self) -> &dyn FileSystem {
-        self.fs.as_ref()
-    }
-}
-
-#[salsa::db]
-impl ProjectDb for OsTestDatabase {
-    fn project(&self) -> Option<Project> {
-        self.project
-    }
 }
 
 struct FailingReadFileSystem {
@@ -257,7 +210,7 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
         Vec::new(),
         tag_specs,
     );
-    db.project = Some(project);
+    db.set_project(project);
 
     let settings_sources =
         DiscoveryPhase::ProjectFacts(ProjectFactsPhase::SettingsSources).run(&db, project);
@@ -903,7 +856,7 @@ fn template_libraries_failed_available_candidate_walk_marks_inventory_incomplete
         Vec::new(),
         tag_specs,
     );
-    db.project = Some(project);
+    db.set_project(project);
 
     let libraries = template_libraries(&db, project);
 
@@ -1431,7 +1384,7 @@ fn django_facts_golden_template_dirs_match() {
     let mut db = OsTestDatabase::new();
     let settings = djls_conf::Settings::new(project_root.as_path(), None).unwrap();
     let project = Project::bootstrap(&db, project_root.as_path(), &settings);
-    db.project = Some(project);
+    db.set_project(project);
 
     let site_packages = project
         .search_paths(&db)
@@ -1483,7 +1436,7 @@ fn django_facts_golden_template_libraries_match() {
     let mut db = OsTestDatabase::new();
     let settings = djls_conf::Settings::new(project_root.as_path(), None).unwrap();
     let project = Project::bootstrap(&db, project_root.as_path(), &settings);
-    db.project = Some(project);
+    db.set_project(project);
 
     let libraries = template_libraries(&db, project);
     let actual_builtins = active_builtin_modules(libraries);

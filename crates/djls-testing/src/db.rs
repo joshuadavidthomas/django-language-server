@@ -14,6 +14,7 @@ use djls_semantic::builtin_tag_specs;
 use djls_source::File;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
+use djls_source::OsFileSystem;
 use djls_source::SourceFiles;
 
 #[salsa::db]
@@ -120,6 +121,42 @@ impl TestDatabase {
 }
 
 #[salsa::db]
+#[derive(Clone)]
+pub struct OsTestDatabase {
+    storage: salsa::Storage<Self>,
+    fs: Arc<dyn FileSystem>,
+    files: SourceFiles,
+    project: Option<Project>,
+}
+
+impl Default for OsTestDatabase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OsTestDatabase {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_file_system(Arc::new(OsFileSystem))
+    }
+
+    #[must_use]
+    pub fn with_file_system(fs: Arc<dyn FileSystem>) -> Self {
+        Self {
+            storage: salsa::Storage::default(),
+            fs,
+            files: SourceFiles::default(),
+            project: None,
+        }
+    }
+
+    pub fn set_project(&mut self, project: Project) {
+        self.project = Some(project);
+    }
+}
+
+#[salsa::db]
 impl salsa::Database for TestDatabase {}
 
 #[salsa::db]
@@ -135,6 +172,27 @@ impl djls_source::Db for TestDatabase {
 
 #[salsa::db]
 impl ProjectDb for TestDatabase {
+    fn project(&self) -> Option<Project> {
+        self.project
+    }
+}
+
+#[salsa::db]
+impl salsa::Database for OsTestDatabase {}
+
+#[salsa::db]
+impl djls_source::Db for OsTestDatabase {
+    fn files(&self) -> &SourceFiles {
+        &self.files
+    }
+
+    fn file_system(&self) -> &dyn FileSystem {
+        self.fs.as_ref()
+    }
+}
+
+#[salsa::db]
+impl ProjectDb for OsTestDatabase {
     fn project(&self) -> Option<Project> {
         self.project
     }

@@ -186,6 +186,38 @@ fn search_paths_add_simple_pth_entries_as_editable_roots() {
 }
 
 #[test]
+fn search_paths_normalize_relative_pth_entries_as_editable_roots() {
+    let mut fs = InMemoryFileSystem::new();
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/django/__init__.py".into(),
+        String::new(),
+    );
+    fs.add_file(
+        "/project/.venv/lib/python3.12/vendor/pkg.py".into(),
+        String::new(),
+    );
+    fs.add_file(
+        "/project/.venv/lib/python3.12/site-packages/editable.pth".into(),
+        "../vendor\n".to_string(),
+    );
+
+    let search_paths =
+        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let paths: Vec<_> = search_paths.iter().cloned().collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            SearchPath::FirstParty(Utf8PathBuf::from("/project")),
+            SearchPath::SitePackages(Utf8PathBuf::from(
+                "/project/.venv/lib/python3.12/site-packages"
+            )),
+            SearchPath::Editable(Utf8PathBuf::from("/project/.venv/lib/python3.12/vendor")),
+        ]
+    );
+}
+
+#[test]
 fn search_paths_skip_pth_entries_that_duplicate_existing_roots() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file("/project/src/app.py".into(), String::new());
