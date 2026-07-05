@@ -2,6 +2,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
+use djls_source::WalkEntryKind;
+use djls_source::WalkOptions;
 
 use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
@@ -11,21 +13,10 @@ pub enum SearchPath {
     FirstParty(Utf8PathBuf),
     Extra(Utf8PathBuf),
     SitePackages(Utf8PathBuf),
+    Editable(Utf8PathBuf),
 }
 
 impl SearchPath {
-    fn first_party(path: Utf8PathBuf) -> Self {
-        Self::FirstParty(path)
-    }
-
-    fn extra(path: Utf8PathBuf) -> Self {
-        Self::Extra(path)
-    }
-
-    fn site_packages(path: Utf8PathBuf) -> Self {
-        Self::SitePackages(path)
-    }
-
     fn from_pythonpath(
         root: &Utf8Path,
         discovered_site_packages: Option<&Utf8Path>,
@@ -36,18 +27,21 @@ impl SearchPath {
                 .components()
                 .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
         {
-            Self::site_packages(path)
+            Self::SitePackages(path)
         } else if path.starts_with(root) {
-            Self::first_party(path)
+            Self::FirstParty(path)
         } else {
-            Self::extra(path)
+            Self::Extra(path)
         }
     }
 
     #[must_use]
     pub fn path(&self) -> &Utf8Path {
         match self {
-            Self::FirstParty(path) | Self::Extra(path) | Self::SitePackages(path) => path,
+            Self::FirstParty(path)
+            | Self::Extra(path)
+            | Self::SitePackages(path)
+            | Self::Editable(path) => path,
         }
     }
 
@@ -61,7 +55,7 @@ impl SearchPath {
             // Extra pythonpath entries are user-edited code, so they get the
             // same low-durability treatment as project files.
             Self::FirstParty(_) | Self::Extra(_) => FileRootKind::Project,
-            Self::SitePackages(_) => FileRootKind::SearchPath,
+            Self::SitePackages(_) | Self::Editable(_) => FileRootKind::SearchPath,
         }
     }
 }
@@ -77,7 +71,7 @@ impl SearchPaths {
         let mut search_paths = Self::default();
         search_paths
             .paths
-            .push(SearchPath::first_party(root.to_path_buf()));
+            .push(SearchPath::FirstParty(root.to_path_buf()));
         search_paths
     }
 
@@ -91,7 +85,13 @@ impl SearchPaths {
         let mut search_paths = Self::default();
         search_paths
             .paths
-            .push(SearchPath::first_party(root.to_path_buf()));
+            .push(SearchPath::FirstParty(root.to_path_buf()));
+
+        let src_root = root.join("src");
+        if fs.is_dir(&src_root) {
+            search_paths.paths.push(SearchPath::FirstParty(src_root));
+        }
+
         let discovered_site_packages = interpreter.site_packages_path(fs, root);
 
         for path in pythonpath {
@@ -99,11 +99,19 @@ impl SearchPaths {
                 continue;
             }
 
-            search_paths.paths.push(SearchPath::from_pythonpath(
+            let search_path = SearchPath::from_pythonpath(
                 root,
                 discovered_site_packages.as_deref(),
                 path.clone(),
-            ));
+            );
+            let site_packages = match &search_path {
+                SearchPath::SitePackages(path) => Some(path.clone()),
+                _ => None,
+            };
+            search_paths.paths.push(search_path);
+            if let Some(site_packages) = site_packages {
+                search_paths.add_pth_editable_roots(fs, &site_packages);
+            }
         }
 
         if let Some(site_packages) = discovered_site_packages
@@ -111,7 +119,8 @@ impl SearchPaths {
         {
             search_paths
                 .paths
-                .push(SearchPath::site_packages(site_packages));
+                .push(SearchPath::SitePackages(site_packages.clone()));
+            search_paths.add_pth_editable_roots(fs, &site_packages);
         }
 
         search_paths
@@ -140,5 +149,45 @@ impl SearchPaths {
 
     fn contains_path(&self, path: &Utf8Path) -> bool {
         self.iter().any(|search_path| search_path.path() == path)
+    }
+
+    fn add_pth_editable_roots(&mut self, fs: &dyn FileSystem, site_packages: &Utf8Path) {
+        let Ok(entries) = fs.walk_entries(site_packages, &WalkOptions::shallow()) else {
+            return;
+        };
+
+        let mut pth_files: Vec<_> = entries
+            .into_iter()
+            .filter(|entry| entry.kind == WalkEntryKind::File)
+            .filter(|entry| entry.path.extension() == Some("pth"))
+            .collect();
+        pth_files.sort_by(|left, right| left.path.cmp(&right.path));
+
+        for pth_file in pth_files {
+            let Ok(contents) = fs.read_to_string(&pth_file.path) else {
+                continue;
+            };
+
+            for line in contents.lines() {
+                let line = line.trim_end();
+                if line.is_empty()
+                    || line.starts_with('#')
+                    || line.starts_with("import ")
+                    || line.starts_with("import\t")
+                {
+                    continue;
+                }
+
+                let path = Utf8Path::new(line);
+                let path = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    site_packages.join(path)
+                };
+                if fs.is_dir(&path) && !self.contains_path(&path) {
+                    self.paths.push(SearchPath::Editable(path));
+                }
+            }
+        }
     }
 }
