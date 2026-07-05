@@ -13,23 +13,23 @@ pub enum Interpreter {
     /// Automatically discover interpreter (`VIRTUAL_ENV`, project venv dirs)
     Auto,
     /// Use specific virtual environment path
-    VenvPath(String),
+    VenvPath(Utf8PathBuf),
     /// Use specific interpreter executable path
-    InterpreterPath(String),
+    InterpreterPath(Utf8PathBuf),
 }
 
 impl Interpreter {
     /// Discover interpreter based on explicit path, `VIRTUAL_ENV`, or auto
     #[must_use]
-    pub fn discover(venv_path: Option<&str>) -> Self {
-        let virtual_env = std::env::var("VIRTUAL_ENV").ok();
+    pub fn discover(venv_path: Option<&Utf8Path>) -> Self {
+        let virtual_env = std::env::var("VIRTUAL_ENV").ok().map(Utf8PathBuf::from);
         Self::discover_from_sources(venv_path, virtual_env.as_deref())
     }
 
-    fn discover_from_sources(venv_path: Option<&str>, virtual_env: Option<&str>) -> Self {
+    fn discover_from_sources(venv_path: Option<&Utf8Path>, virtual_env: Option<&Utf8Path>) -> Self {
         venv_path
             .or(virtual_env)
-            .map_or(Self::Auto, |path| Self::VenvPath(path.to_string()))
+            .map_or(Self::Auto, |path| Self::VenvPath(path.to_path_buf()))
     }
 
     pub(crate) fn site_packages_path(
@@ -38,12 +38,15 @@ impl Interpreter {
         project_root: &Utf8Path,
     ) -> Option<Utf8PathBuf> {
         match self {
-            Self::VenvPath(path) => Self::site_packages_path_in_venv(fs, Utf8Path::new(path)),
-            Self::Auto => Self::auto_venv_paths(project_root).find_map(|venv| {
-                fs.is_dir(&venv)
-                    .then(|| Self::site_packages_path_in_venv(fs, &venv))
-                    .flatten()
-            }),
+            Self::VenvPath(path) => Self::site_packages_path_in_venv(fs, path),
+            Self::Auto => [".venv", "venv", "env", ".env"]
+                .into_iter()
+                .map(|dir| project_root.join(dir))
+                .find_map(|venv| {
+                    fs.is_dir(&venv)
+                        .then(|| Self::site_packages_path_in_venv(fs, &venv))
+                        .flatten()
+                }),
             Self::InterpreterPath(_) => None,
         }
     }
@@ -108,12 +111,6 @@ impl Interpreter {
         fs.is_dir(&windows_site_packages)
             .then_some(windows_site_packages)
     }
-
-    fn auto_venv_paths(project_root: &Utf8Path) -> impl Iterator<Item = Utf8PathBuf> + '_ {
-        [".venv", "venv", "env", ".env"]
-            .into_iter()
-            .map(|dir| project_root.join(dir))
-    }
 }
 
 #[cfg(test)]
@@ -127,26 +124,33 @@ mod tests {
 
         #[test]
         fn test_discover_with_explicit_venv_path() {
-            let interpreter = Interpreter::discover_from_sources(Some("/path/to/venv"), None);
+            let interpreter =
+                Interpreter::discover_from_sources(Some(Utf8Path::new("/path/to/venv")), None);
             assert_eq!(
                 interpreter,
-                Interpreter::VenvPath("/path/to/venv".to_string())
+                Interpreter::VenvPath(Utf8PathBuf::from("/path/to/venv"))
             );
         }
 
         #[test]
         fn test_discover_with_virtual_env_var() {
-            let interpreter = Interpreter::discover_from_sources(None, Some("/env/path"));
-            assert_eq!(interpreter, Interpreter::VenvPath("/env/path".to_string()));
+            let interpreter =
+                Interpreter::discover_from_sources(None, Some(Utf8Path::new("/env/path")));
+            assert_eq!(
+                interpreter,
+                Interpreter::VenvPath(Utf8PathBuf::from("/env/path"))
+            );
         }
 
         #[test]
         fn test_discover_explicit_overrides_env_var() {
-            let interpreter =
-                Interpreter::discover_from_sources(Some("/explicit/path"), Some("/env/path"));
+            let interpreter = Interpreter::discover_from_sources(
+                Some(Utf8Path::new("/explicit/path")),
+                Some(Utf8Path::new("/env/path")),
+            );
             assert_eq!(
                 interpreter,
-                Interpreter::VenvPath("/explicit/path".to_string())
+                Interpreter::VenvPath(Utf8PathBuf::from("/explicit/path"))
             );
         }
 

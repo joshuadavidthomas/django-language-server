@@ -467,7 +467,7 @@ fn template_dirs_resolve_apps_from_site_packages_search_path() {
         db.file_system(),
         Utf8Path::new("/proj"),
         &Interpreter::Auto,
-        &["/site".to_string()],
+        &[Utf8PathBuf::from("/site")],
     );
     search_paths.register_roots(&db);
     let project = ProjectFixture::new("/proj")

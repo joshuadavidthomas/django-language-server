@@ -826,7 +826,7 @@ env_file = ".env.local"
                 .map(djls_project::PythonModuleName::as_str),
             Some("config.settings")
         );
-        assert_eq!(project.pythonpath(&db), &vec![extra_path.to_string()]);
+        assert_eq!(project.pythonpath(&db), &vec![extra_path.clone()]);
         assert_eq!(
             project.env_vars(&db),
             &vec![("FROM_ENV".to_string(), "loaded".to_string())]

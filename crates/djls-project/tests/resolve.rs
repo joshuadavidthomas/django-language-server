@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_project::testing::compute_django_discovery;
 use djls_project::testing::model_modules;
 use djls_project::*;
@@ -110,9 +111,9 @@ fn search_paths_keep_site_packages_external_inside_project_root() {
     );
 
     let pythonpath = vec![
-        "/project/src".to_string(),
-        "/outside".to_string(),
-        "/project/.venv/lib/python3.12/site-packages".to_string(),
+        Utf8PathBuf::from("/project/src"),
+        Utf8PathBuf::from("/outside"),
+        Utf8PathBuf::from("/project/.venv/lib/python3.12/site-packages"),
     ];
     let search_paths = SearchPaths::from_project_settings(
         &fs,
@@ -176,7 +177,7 @@ fn model_modules_use_first_party_search_path_relative_names() {
         "from django.db import models\nclass Article(models.Model):\n    pass\n",
     );
 
-    let pythonpath = vec!["/project/src".to_string()];
+    let pythonpath = vec![Utf8PathBuf::from("/project/src")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -204,7 +205,7 @@ fn registering_search_paths_removes_obsolete_external_roots() {
     let db = TestDatabase::new();
     db.add_file("/external/pkg/models.py", "");
 
-    let pythonpath = vec!["/external".to_string()];
+    let pythonpath = vec![Utf8PathBuf::from("/external")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -239,7 +240,7 @@ fn model_modules_tolerate_unregistered_search_paths() {
         "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
     );
 
-    let pythonpath = vec!["/shared".to_string()];
+    let pythonpath = vec![Utf8PathBuf::from("/shared")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -594,7 +595,10 @@ fn external_model_graph_preserves_pythonpath_precedence() {
         "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
     );
 
-    let pythonpath = vec!["/zfirst".to_string(), "/afallback".to_string()];
+    let pythonpath = vec![
+        Utf8PathBuf::from("/zfirst"),
+        Utf8PathBuf::from("/afallback"),
+    ];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -684,7 +688,7 @@ fn external_model_graph_reads_extra_pythonpath_models() {
         "from django.db import models\nclass SharedArticle(models.Model):\n    pass\n",
     );
 
-    let pythonpath = vec!["/shared".to_string()];
+    let pythonpath = vec![Utf8PathBuf::from("/shared")];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
@@ -907,11 +911,13 @@ fn project_model_discovery_skips_registered_non_first_party_paths() {
         "from django.db import models\nclass Lib(models.Model): pass\n",
     );
 
-    let pythonpath = vec!["/project/venv/lib/python3.12/site-packages".to_string()];
+    let pythonpath = vec![Utf8PathBuf::from(
+        "/project/venv/lib/python3.12/site-packages",
+    )];
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::InterpreterPath("/usr/bin/python".to_string()),
+        &Interpreter::InterpreterPath(Utf8PathBuf::from("/usr/bin/python")),
         &pythonpath,
     );
     search_paths.register_roots(&db);
