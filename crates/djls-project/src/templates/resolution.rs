@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
-use crate::python::PythonPackage;
+use crate::python::resolve_package_dirs;
 use crate::settings::TemplateDirPath;
 use crate::settings::django_settings;
 use crate::templates::installed_app_package_module;
@@ -69,14 +69,17 @@ pub(crate) fn template_dirs(db: &dyn ProjectDb, project: Project) -> TemplateDir
                     complete = false;
                     continue;
                 };
-                let Some(package) = PythonPackage::resolve(db, project, package_module) else {
+                let package_dirs = resolve_package_dirs(db, project, package_module);
+                if package_dirs.dirs.is_empty() {
                     complete = false;
                     continue;
-                };
+                }
 
-                let templates_dir = package.dir().join("templates");
-                if db.path_is_dir(&templates_dir) {
-                    dirs.push(templates_dir);
+                for package_dir in package_dirs.dirs {
+                    let templates_dir = package_dir.join("templates");
+                    if db.path_is_dir(&templates_dir) {
+                        dirs.push(templates_dir);
+                    }
                 }
             }
         }

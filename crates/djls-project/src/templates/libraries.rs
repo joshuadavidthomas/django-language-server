@@ -549,7 +549,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 
     let django_module = PythonModuleName::parse("django").expect("django is a valid module name");
     let (scan_complete, discovered_libraries) =
-        templatetag_package_libraries(db, project, django_module);
+        templatetag_package_libraries(db, project, &django_module);
     inventory_complete &= scan_complete;
     for (load_name, module, symbols) in discovered_libraries {
         installed_template_library_modules.insert(module.name().clone());
@@ -564,7 +564,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
                 continue;
             };
             let (scan_complete, discovered_libraries) =
-                templatetag_package_libraries(db, project, package_module);
+                templatetag_package_libraries(db, project, &package_module);
             inventory_complete &= scan_complete;
             for (load_name, module, symbols) in discovered_libraries {
                 installed_template_library_modules.insert(module.name().clone());
@@ -627,7 +627,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 fn templatetag_package_libraries(
     db: &dyn ProjectDb,
     project: Project,
-    package_module: PythonModuleName,
+    package_module: &PythonModuleName,
 ) -> (bool, Vec<(LibraryName, PythonModule, Vec<TemplateSymbol>)>) {
     let (mut complete, candidates) =
         templatetag_package_candidates(db, project, package_module).into_parts();

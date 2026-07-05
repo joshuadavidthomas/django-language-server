@@ -527,6 +527,83 @@ fn template_dirs_resolve_apps_from_site_packages_search_path() {
 }
 
 #[test]
+fn template_dirs_resolve_bare_namespace_app_entry() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/nsapp/templates/nsapp/index.html", "index"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("namespace app template dirs should be known");
+
+    assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/nsapp/templates")]);
+}
+
+#[test]
+fn template_dirs_resolve_namespace_app_portions_in_root_order() {
+    let mut db = TestDatabase::new();
+    db.add_file("/proj/nsapp/templates/project.html", "project");
+    db.add_file("/vendor/nsapp/templates/vendor.html", "vendor");
+    db.add_file(
+        "/proj/myproject/settings.py",
+        "INSTALLED_APPS = ['nsapp']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+    );
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/proj"),
+        &Interpreter::Auto,
+        &[Utf8PathBuf::from("/vendor")],
+    );
+    search_paths.register_roots(&db);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .search_paths(search_paths)
+        .install(&mut db);
+
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("namespace app template dirs should be known");
+
+    assert_eq!(
+        dirs,
+        vec![
+            Utf8PathBuf::from("/proj/nsapp/templates"),
+            Utf8PathBuf::from("/vendor/nsapp/templates"),
+        ]
+    );
+}
+
+#[test]
+fn template_dirs_demote_file_module_app_to_partial() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/app.py", ""),
+            ("/proj/app/templates/app/index.html", "index"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let dirs = template_resolution(&db, project).known_template_dirs(&db);
+
+    assert!(dirs.is_none());
+}
+
+#[test]
 fn template_dirs_demote_unresolved_app_to_partial() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
@@ -623,6 +700,45 @@ fn template_libraries_discover_package_templatetags() {
     let custom = libraries
         .installed_library_str("custom")
         .expect("package templatetag should be discovered");
+    assert_eq!(custom.module_name_str(), "nsapp.templatetags.custom");
+    assert!(
+        custom
+            .symbols()
+            .iter()
+            .any(|symbol| symbol.name() == "hello")
+    );
+}
+
+#[test]
+fn template_libraries_discover_namespace_package_templatetags() {
+    let mut db = TestDatabase::new();
+    db.add_file("/proj/nsapp/other.py", "");
+    db.add_file("/vendor/nsapp/templatetags/__init__.py", "");
+    db.add_file(
+        "/vendor/nsapp/templatetags/custom.py",
+        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello():\n    pass\n",
+    );
+    db.add_file(
+        "/proj/myproject/settings.py",
+        "INSTALLED_APPS = ['nsapp']\nTEMPLATES = []\n",
+    );
+    let search_paths = SearchPaths::from_project_settings(
+        db.file_system(),
+        Utf8Path::new("/proj"),
+        &Interpreter::Auto,
+        &[Utf8PathBuf::from("/vendor")],
+    );
+    search_paths.register_roots(&db);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .search_paths(search_paths)
+        .install(&mut db);
+
+    let libraries = template_libraries(&db, project);
+
+    let custom = libraries
+        .installed_library_str("custom")
+        .expect("namespace package templatetag should be discovered");
     assert_eq!(custom.module_name_str(), "nsapp.templatetags.custom");
     assert!(
         custom

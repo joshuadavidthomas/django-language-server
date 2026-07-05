@@ -16,8 +16,7 @@ use rustc_hash::FxHashSet;
 
 use crate::ast::ExprExt;
 use crate::python::PythonModuleName;
-use crate::python::PythonPathContext;
-use crate::python::evaluate_python_path_expr;
+use crate::python::evaluate_path;
 use crate::settings::types::DjangoSettings;
 use crate::settings::types::InstalledAppsSetting;
 use crate::settings::types::LocalBindings;
@@ -50,14 +49,8 @@ fn evaluate_template_dir_path(
     module_path: &Utf8Path,
     locals: &LocalBindings,
 ) -> TemplateDirPath {
-    evaluate_python_path_expr(
-        expr,
-        PythonPathContext {
-            file_path: module_path,
-            bindings: locals.path_bindings(),
-        },
-    )
-    .map_or(TemplateDirPath::Unknown, TemplateDirPath::Resolved)
+    evaluate_path(expr, module_path, locals.path_bindings())
+        .map_or(TemplateDirPath::Unknown, TemplateDirPath::Resolved)
 }
 
 #[derive(Debug, Default)]
