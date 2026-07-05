@@ -22,12 +22,19 @@ pub use models::ModelId;
 pub use models::compute_model_graph;
 pub use models::model_modules;
 pub use project::Project;
+pub use python::CandidateKind;
+pub use python::CandidateLocation;
 pub use python::Interpreter;
 pub use python::InvalidModuleName;
+pub use python::PackageDirs;
 pub use python::PythonModule;
 pub use python::PythonModuleName;
+pub use python::ResolutionDetail;
 pub use python::SearchPath;
 pub use python::SearchPaths;
+pub use python::UnresolvedReason;
+pub use python::resolve_module_detail;
+pub use python::resolve_package_dirs;
 pub use templates::ArgumentCountConstraint;
 pub use templates::AsVar;
 pub use templates::BlockSpec;
@@ -82,6 +89,23 @@ pub mod testing {
     pub use crate::models::extract_model_graph;
     pub use crate::models::model_modules;
     pub use crate::templates::TemplateInventoryStatus;
+
+    pub fn settings_module_file(
+        db: &dyn super::Db,
+        project: super::Project,
+    ) -> Option<djls_source::File> {
+        crate::settings::settings_module_file(db, project)
+    }
+
+    pub fn django_settings_template_backend_count(
+        db: &dyn super::Db,
+        project: super::Project,
+    ) -> usize {
+        crate::settings::django_settings(db, project)
+            .templates
+            .backends
+            .len()
+    }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TemplateLibraryInput {

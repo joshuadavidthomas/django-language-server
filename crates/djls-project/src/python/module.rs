@@ -9,6 +9,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
+use crate::python::search_paths::SearchPath;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PythonModule {
@@ -22,6 +23,55 @@ pub(crate) struct PythonPackage {
     name: PythonModuleName,
     dir: Utf8PathBuf,
     init_file: Option<File>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolutionDetail {
+    pub selected_root: Option<SearchPath>,
+    pub candidates: Vec<CandidateLocation>,
+    pub unresolved_reason: Option<UnresolvedReason>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateLocation {
+    pub root: SearchPath,
+    pub path: Utf8PathBuf,
+    pub kind: CandidateKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CandidateKind {
+    RegularPackage,
+    FileModule,
+    NamespacePortion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnresolvedReason {
+    NotFound,
+    NamespaceOnly,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackageDirs {
+    pub dirs: Vec<Utf8PathBuf>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PythonModuleCandidate {
+    RegularPackage {
+        root: SearchPath,
+        dir: Utf8PathBuf,
+        init_file: Utf8PathBuf,
+    },
+    FileModule {
+        root: SearchPath,
+        path: Utf8PathBuf,
+    },
+    NamespacePortion {
+        root: SearchPath,
+        dir: Utf8PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +95,125 @@ pub(crate) enum PythonImportError {
     ImporterIsNotPythonSource(String),
     #[error("relative import has too many leading dots")]
     TooManyDots,
+}
+
+fn python_module_candidates(
+    db: &dyn ProjectDb,
+    project: Project,
+    name: &PythonModuleName,
+) -> Vec<PythonModuleCandidate> {
+    let relative = name.as_str().replace('.', "/");
+    let mut candidates = Vec::new();
+
+    for search_path in project.search_paths(db).iter() {
+        let root = search_path.clone();
+        let dir = search_path.path().join(&relative);
+        let init_file = dir.join("__init__.py");
+        if db.path_is_file(&init_file) {
+            candidates.push(PythonModuleCandidate::RegularPackage {
+                root,
+                dir,
+                init_file,
+            });
+            continue;
+        }
+
+        let py_file = dir.with_extension("py");
+        if db.path_is_file(&py_file) {
+            candidates.push(PythonModuleCandidate::FileModule {
+                root,
+                path: py_file,
+            });
+            continue;
+        }
+
+        if db.path_is_dir(&dir) {
+            candidates.push(PythonModuleCandidate::NamespacePortion { root, dir });
+        }
+    }
+
+    candidates
+}
+
+// Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
+#[allow(clippy::needless_pass_by_value)]
+#[salsa::tracked]
+pub fn resolve_module_detail(
+    db: &dyn ProjectDb,
+    project: Project,
+    name: PythonModuleName,
+) -> ResolutionDetail {
+    project.touch_search_path_roots(db);
+
+    let candidates = python_module_candidates(db, project, &name);
+    let selected_root = candidates.iter().find_map(|candidate| match candidate {
+        PythonModuleCandidate::RegularPackage { root, .. }
+        | PythonModuleCandidate::FileModule { root, .. } => Some(root.clone()),
+        PythonModuleCandidate::NamespacePortion { .. } => None,
+    });
+    let unresolved_reason = if selected_root.is_some() {
+        None
+    } else if candidates.is_empty() {
+        Some(UnresolvedReason::NotFound)
+    } else {
+        Some(UnresolvedReason::NamespaceOnly)
+    };
+    let candidates = candidates
+        .into_iter()
+        .map(|candidate| match candidate {
+            PythonModuleCandidate::RegularPackage {
+                root, init_file, ..
+            } => CandidateLocation {
+                root,
+                path: init_file,
+                kind: CandidateKind::RegularPackage,
+            },
+            PythonModuleCandidate::FileModule { root, path } => CandidateLocation {
+                root,
+                path,
+                kind: CandidateKind::FileModule,
+            },
+            PythonModuleCandidate::NamespacePortion { root, dir } => CandidateLocation {
+                root,
+                path: dir,
+                kind: CandidateKind::NamespacePortion,
+            },
+        })
+        .collect();
+
+    ResolutionDetail {
+        selected_root,
+        candidates,
+        unresolved_reason,
+    }
+}
+
+// Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
+#[allow(clippy::needless_pass_by_value)]
+#[salsa::tracked]
+pub fn resolve_package_dirs(
+    db: &dyn ProjectDb,
+    project: Project,
+    name: PythonModuleName,
+) -> PackageDirs {
+    project.touch_search_path_roots(db);
+
+    let mut namespace_dirs = Vec::new();
+    for candidate in python_module_candidates(db, project, &name) {
+        match candidate {
+            PythonModuleCandidate::RegularPackage { dir, .. } => {
+                return PackageDirs { dirs: vec![dir] };
+            }
+            PythonModuleCandidate::FileModule { .. } => {
+                return PackageDirs { dirs: Vec::new() };
+            }
+            PythonModuleCandidate::NamespacePortion { dir, .. } => namespace_dirs.push(dir),
+        }
+    }
+
+    PackageDirs {
+        dirs: namespace_dirs,
+    }
 }
 
 impl PythonModule {
@@ -130,28 +299,14 @@ impl PythonModule {
 #[salsa::tracked]
 impl PythonModule {
     #[salsa::tracked]
-    pub(crate) fn resolve(
-        db: &dyn ProjectDb,
-        project: Project,
-        name: PythonModuleName,
-    ) -> Option<Self> {
+    pub fn resolve(db: &dyn ProjectDb, project: Project, name: PythonModuleName) -> Option<Self> {
         project.touch_search_path_roots(db);
 
-        for search_path in project.search_paths(db).iter() {
-            let mut candidate = search_path.path().to_path_buf();
-            for part in name.as_str().split('.') {
-                candidate.push(part);
-            }
-
-            let py_file = candidate.with_extension("py");
-            let path = if db.path_is_file(&py_file) {
-                py_file
-            } else {
-                let init_file = candidate.join("__init__.py");
-                if !db.path_is_file(&init_file) {
-                    continue;
-                }
-                init_file
+        for candidate in python_module_candidates(db, project, &name) {
+            let path = match candidate {
+                PythonModuleCandidate::RegularPackage { init_file, .. } => init_file,
+                PythonModuleCandidate::FileModule { path, .. } => path,
+                PythonModuleCandidate::NamespacePortion { .. } => continue,
             };
 
             let file = db.get_or_create_file(&path);

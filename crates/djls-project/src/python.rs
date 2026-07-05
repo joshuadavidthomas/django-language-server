@@ -6,9 +6,16 @@ mod path_eval;
 mod search_paths;
 
 pub use interpreter::Interpreter;
+pub use module::CandidateKind;
+pub use module::CandidateLocation;
+pub use module::PackageDirs;
 pub(crate) use module::PythonImport;
 pub use module::PythonModule;
 pub(crate) use module::PythonPackage;
+pub use module::ResolutionDetail;
+pub use module::UnresolvedReason;
+pub use module::resolve_module_detail;
+pub use module::resolve_package_dirs;
 pub use name::InvalidModuleName;
 pub use name::PythonModuleName;
 pub(crate) use parse::parse_python_module;
