@@ -88,6 +88,12 @@ pub struct PackageDirs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedPrefix {
+    pub module: Option<PythonModule>,
+    pub unresolved_tail: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum PythonModuleCandidate {
     RegularPackage {
         root: SearchPath,
@@ -217,6 +223,36 @@ fn selected_file_module(selected: Option<&FileModuleDerivationResult>) -> Option
         selected.resolved_module.clone()
     } else {
         None
+    }
+}
+
+pub fn resolve_prefix(db: &dyn ProjectDb, project: Project, dotted_path: &str) -> ResolvedPrefix {
+    let segments: Vec<&str> = dotted_path.split('.').collect();
+
+    for prefix_len in (1..=segments.len()).rev() {
+        let prefix = segments[..prefix_len].join(".");
+        let Ok(name) = PythonModuleName::parse(&prefix) else {
+            continue;
+        };
+        let Some(module) = PythonModule::resolve(db, project, name) else {
+            continue;
+        };
+
+        return ResolvedPrefix {
+            module: Some(module),
+            unresolved_tail: segments[prefix_len..]
+                .iter()
+                .map(|segment| (*segment).to_string())
+                .collect(),
+        };
+    }
+
+    ResolvedPrefix {
+        module: None,
+        unresolved_tail: segments
+            .iter()
+            .map(|segment| (*segment).to_string())
+            .collect(),
     }
 }
 

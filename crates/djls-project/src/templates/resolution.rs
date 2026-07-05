@@ -14,7 +14,7 @@ use crate::project::Project;
 use crate::python::PythonPackage;
 use crate::settings::TemplateDirPath;
 use crate::settings::django_settings;
-use crate::templates::guess_package_module_name_from_installed_app_entry;
+use crate::templates::installed_app_package_module;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TemplateDirStatus {
@@ -65,8 +65,7 @@ pub(crate) fn template_dirs(db: &dyn ProjectDb, project: Project) -> TemplateDir
         if backend.app_dirs == Some(true) {
             complete &= settings.installed_apps.is_fully_extracted();
             for app in &settings.installed_apps.values {
-                let Some(package_module) = guess_package_module_name_from_installed_app_entry(app)
-                else {
+                let Some(package_module) = installed_app_package_module(db, project, app) else {
                     complete = false;
                     continue;
                 };

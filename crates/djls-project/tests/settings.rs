@@ -455,6 +455,50 @@ fn template_dirs_resolve_app_config_entries() {
 }
 
 #[test]
+fn template_dirs_resolve_app_config_class_from_init_module() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/something/__init__.py", ""),
+            ("/proj/something/templates/something/detail.html", "detail"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['something.WeirdConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let dirs = template_resolution(&db, project)
+        .known_template_dirs(&db)
+        .expect("template dirs should be known");
+
+    assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/something/templates")]);
+}
+
+#[test]
+fn template_dirs_demote_broken_app_config_entry_to_partial() {
+    let mut db = TestDatabase::new();
+    let project = project_with_settings(
+        &mut db,
+        "myproject.settings",
+        &[
+            ("/proj/myapp/__init__.py", ""),
+            ("/proj/myapp/templates/myapp/detail.html", "detail"),
+            (
+                "/proj/myproject/settings.py",
+                "INSTALLED_APPS = ['myapp.apps.MyConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
+            ),
+        ],
+    );
+
+    let dirs = template_resolution(&db, project).known_template_dirs(&db);
+
+    assert!(dirs.is_none());
+}
+
+#[test]
 fn template_dirs_resolve_apps_from_site_packages_search_path() {
     let mut db = TestDatabase::new();
     db.add_file("/site/pkg/__init__.py", "");
@@ -518,6 +562,7 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
                 "/proj/django/template/loader_tags.py",
                 "from django import template\nregister = template.Library()\n@register.simple_tag\ndef loader_tag():\n    pass\n",
             ),
+            ("/proj/blog/__init__.py", ""),
             ("/proj/blog/templatetags/__init__.py", ""),
             (
                 "/proj/blog/templatetags/custom.py",
@@ -554,12 +599,13 @@ fn template_libraries_discover_app_templatetags_and_builtins() {
 }
 
 #[test]
-fn template_libraries_discover_namespace_package_templatetags() {
+fn template_libraries_discover_package_templatetags() {
     let mut db = TestDatabase::new();
     let project = project_with_settings(
         &mut db,
         "myproject.settings",
         &[
+            ("/proj/nsapp/__init__.py", ""),
             ("/proj/nsapp/templatetags/__init__.py", ""),
             (
                 "/proj/nsapp/templatetags/custom.py",
@@ -576,7 +622,7 @@ fn template_libraries_discover_namespace_package_templatetags() {
 
     let custom = libraries
         .installed_library_str("custom")
-        .expect("namespace package templatetag should be discovered");
+        .expect("package templatetag should be discovered");
     assert_eq!(custom.module_name_str(), "nsapp.templatetags.custom");
     assert!(
         custom
@@ -605,6 +651,7 @@ fn template_libraries_include_empty_registered_modules() {
                 "/proj/django/template/loader_tags.py",
                 "from django import template\nregister = template.Library()\n@register.simple_tag\ndef loader_tag():\n    pass\n",
             ),
+            ("/proj/blog/__init__.py", ""),
             ("/proj/blog/templatetags/__init__.py", ""),
             (
                 "/proj/blog/templatetags/empty.py",
@@ -632,6 +679,7 @@ fn template_libraries_skip_discovered_helpers_without_demoting_inventory() {
         "myproject.settings",
         &[
             ("/proj/django/__init__.py", ""),
+            ("/proj/blog/__init__.py", ""),
             ("/proj/blog/templatetags/__init__.py", ""),
             ("/proj/blog/templatetags/helpers.py", "VALUE = 1\n"),
             (
@@ -1071,6 +1119,7 @@ fn template_libraries_options_override_app_library_load_name() {
                 "/proj/django/template/loader_tags.py",
                 "from django import template\nregister = template.Library()\n@register.simple_tag\ndef loader_tag():\n    pass\n",
             ),
+            ("/proj/blog/__init__.py", ""),
             ("/proj/blog/templatetags/__init__.py", ""),
             (
                 "/proj/blog/templatetags/custom.py",

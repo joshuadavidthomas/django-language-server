@@ -55,16 +55,27 @@ pub use tags::TagRuleMap;
 pub use tags::extract_block_specs;
 pub use tags::extract_tag_rules;
 
+use crate::db::Db as ProjectDb;
+use crate::project::Project;
 use crate::python::PythonModuleName;
+use crate::python::resolve_prefix;
 
-fn guess_package_module_name_from_installed_app_entry(entry: &str) -> Option<PythonModuleName> {
-    let module = if let Some((module, _)) = entry.split_once(".apps.") {
-        module
-    } else if entry.ends_with("Config") {
-        entry.rsplit_once('.').map_or(entry, |(module, _)| module)
-    } else {
-        entry
-    };
+fn installed_app_package_module(
+    db: &dyn ProjectDb,
+    project: Project,
+    entry: &str,
+) -> Option<PythonModuleName> {
+    let resolved = resolve_prefix(db, project, entry);
+    let module = resolved.module?;
 
-    PythonModuleName::parse(module).ok()
+    match resolved.unresolved_tail.len() {
+        0 => Some(module.name().clone()),
+        1 if module.path().file_name() == Some("__init__.py") => Some(module.name().clone()),
+        1 => module
+            .name()
+            .as_str()
+            .rsplit_once('.')
+            .and_then(|(parent, _)| PythonModuleName::parse(parent).ok()),
+        _ => None,
+    }
 }

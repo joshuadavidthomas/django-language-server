@@ -6,7 +6,7 @@ use djls_source::File;
 
 use super::candidates::templatetag_candidates;
 use super::candidates::templatetag_package_candidates;
-use super::guess_package_module_name_from_installed_app_entry;
+use super::installed_app_package_module;
 use super::names::LibraryName;
 use super::registrations::TemplateLibraryAnalysis;
 use super::symbols::TemplateSymbol;
@@ -558,8 +558,7 @@ pub fn template_libraries(db: &dyn ProjectDb, project: Project) -> TemplateLibra
 
     if settings.installed_apps.is_usable_for_app_scan() {
         for installed_app in &settings.installed_apps.values {
-            let Some(package_module) =
-                guess_package_module_name_from_installed_app_entry(installed_app)
+            let Some(package_module) = installed_app_package_module(db, project, installed_app)
             else {
                 inventory_complete = false;
                 continue;
