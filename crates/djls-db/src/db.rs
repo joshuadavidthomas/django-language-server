@@ -1377,6 +1377,7 @@ def my_filter(value, arg):
                 root.join("settings.py"),
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n".to_string(),
             );
+            fs.add_file(root.join("blog/__init__.py"), String::new());
             fs.add_file(root.join("blog/templatetags/__init__.py"), String::new());
             fs.add_file(tag_path, template_tag_library_source("custom_tag"));
         }
@@ -1457,6 +1458,7 @@ def my_filter(value, arg):
             root.join("settings.py"),
             "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n".to_string(),
         );
+        fs.add_file(root.join("blog/__init__.py"), String::new());
         fs.add_file(root.join("blog/templatetags/__init__.py"), String::new());
         fs.add_file(
             root.join("blog/templatetags/custom.py"),
@@ -1508,6 +1510,7 @@ def my_filter(value, arg):
                 root.join("settings.py"),
                 "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n".to_string(),
             );
+            fs.add_file(root.join("blog/__init__.py"), String::new());
             fs.add_file(root.join("blog/templatetags/__init__.py"), String::new());
             fs.add_file(
                 tag_path.clone(),

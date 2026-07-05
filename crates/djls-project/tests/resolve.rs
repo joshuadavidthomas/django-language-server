@@ -1168,6 +1168,58 @@ fn resolve_package_dirs_returns_empty_for_file_module() {
 }
 
 #[test]
+fn resolve_prefix_returns_full_resolution_with_empty_tail() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/myapp/apps.py", "")
+        .build(&db);
+
+    let resolved = resolve_prefix(&db, project, "myapp.apps");
+
+    let module = resolved.module.expect("myapp.apps should resolve");
+    assert_eq!(module.name().as_str(), "myapp.apps");
+    assert_eq!(module.path(), Utf8Path::new("/project/myapp/apps.py"));
+    assert!(resolved.unresolved_tail.is_empty());
+}
+
+#[test]
+fn resolve_prefix_returns_longest_module_with_unresolved_tail() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/myapp/apps.py", "")
+        .build(&db);
+
+    let resolved = resolve_prefix(&db, project, "myapp.apps.MyConfig");
+
+    let module = resolved.module.expect("myapp.apps should resolve");
+    assert_eq!(module.name().as_str(), "myapp.apps");
+    assert_eq!(module.path(), Utf8Path::new("/project/myapp/apps.py"));
+    assert_eq!(resolved.unresolved_tail, vec!["MyConfig"]);
+}
+
+#[test]
+fn resolve_prefix_returns_full_tail_when_nothing_resolves() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project").build(&db);
+
+    let resolved = resolve_prefix(&db, project, "myapp.apps.MyConfig");
+
+    assert_eq!(resolved.module, None);
+    assert_eq!(resolved.unresolved_tail, vec!["myapp", "apps", "MyConfig"]);
+}
+
+#[test]
+fn resolve_prefix_returns_full_tail_for_unparseable_path() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project").build(&db);
+
+    let resolved = resolve_prefix(&db, project, "my-app.thing");
+
+    assert_eq!(resolved.module, None);
+    assert_eq!(resolved.unresolved_tail, vec!["my-app", "thing"]);
+}
+
+#[test]
 fn file_to_module_returns_unique_module_for_source_and_init_files() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")

@@ -233,6 +233,7 @@ fn extracted_block_db(source: &str) -> TestDatabase {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
+        .file("/proj/blog/__init__.py", "")
         .file("/proj/blog/templatetags/__init__.py", "")
         .file("/proj/blog/templatetags/ambiguous.py", source)
         .file(
