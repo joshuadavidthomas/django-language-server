@@ -5,12 +5,6 @@ use rustc_hash::FxHashMap;
 
 use crate::ast::ExprExt;
 
-#[derive(Clone, Copy)]
-pub(crate) struct PythonPathContext<'a> {
-    pub(crate) file_path: &'a Utf8Path,
-    pub(crate) bindings: &'a PythonPathBindings,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct PythonPathBindings {
     paths: FxHashMap<String, Utf8PathBuf>,
@@ -38,14 +32,7 @@ impl PythonPathBindings {
     }
 }
 
-pub(crate) fn evaluate_python_path_expr(
-    expr: &ast::Expr,
-    context: PythonPathContext<'_>,
-) -> Option<Utf8PathBuf> {
-    evaluate_path(expr, context.file_path, context.bindings)
-}
-
-fn evaluate_path(
+pub(crate) fn evaluate_path(
     expr: &ast::Expr,
     file_path: &Utf8Path,
     bindings: &PythonPathBindings,
@@ -89,7 +76,7 @@ fn evaluate_path_call(
     match call.func.as_ref() {
         func if func.name_target() == Some("Path") => {
             let argument = single_positional_argument(&call.arguments)?;
-            if is_file_name(argument) {
+            if argument.name_target() == Some("__file__") {
                 Some(file_path.to_path_buf())
             } else {
                 evaluate_path(argument, file_path, bindings)
@@ -140,10 +127,6 @@ fn is_os_path_attr(expr: &ast::Expr, attr: &str) -> bool {
         ast::Expr::Attribute(attribute)
             if attribute.attr.as_str() == attr && attribute.value.name_target() == Some("os")
     )
-}
-
-fn is_file_name(expr: &ast::Expr) -> bool {
-    expr.name_target() == Some("__file__")
 }
 
 fn single_positional_argument(arguments: &ast::Arguments) -> Option<&ast::Expr> {

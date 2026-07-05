@@ -12,7 +12,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
-use crate::python::PythonPackage;
+use crate::python::resolve_package_dirs;
 use crate::templates::LibraryName;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,48 +159,51 @@ pub(crate) fn discover_templatetag_candidate_paths(
 pub(crate) fn templatetag_package_candidates(
     db: &dyn ProjectDb,
     project: Project,
-    package_module: PythonModuleName,
+    package_module: &PythonModuleName,
 ) -> TemplateTagPackageScan {
     let mut scan = TemplateTagPackageScan::complete();
 
-    let Some(package) = PythonPackage::resolve(db, project, package_module) else {
+    let package_dirs = resolve_package_dirs(db, project, package_module.clone());
+    if package_dirs.dirs.is_empty() {
         scan.mark_incomplete();
-        return scan;
-    };
-
-    let templatetags_dir = package.dir().join("templatetags");
-    if !db.path_is_file(&templatetags_dir.join("__init__.py")) {
         return scan;
     }
 
-    let entries = match db.walk_entries(&templatetags_dir, &WalkOptions::shallow()) {
-        Ok(entries) => entries,
-        Err(err) => {
-            tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
-            scan.mark_incomplete();
-            return scan;
-        }
-    };
-
-    for entry in entries {
-        if entry.kind != WalkEntryKind::File {
+    for package_dir in package_dirs.dirs {
+        let templatetags_dir = package_dir.join("templatetags");
+        if !db.path_is_file(&templatetags_dir.join("__init__.py")) {
             continue;
         }
 
-        match recognize_candidate_source(
-            db.file_system(),
-            package.dir(),
-            entry.path,
-            &[],
-            TemplateTagDiscoveryMode::ActivePackage,
-            Some(package.name()),
-        ) {
-            CandidateSourceRecognition::Candidate(source) => {
-                scan.candidates
-                    .push(TemplateTagCandidate::from_source(db, source));
+        let entries = match db.walk_entries(&templatetags_dir, &WalkOptions::shallow()) {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::warn!("Failed to walk template tag package {templatetags_dir}: {err}");
+                scan.mark_incomplete();
+                continue;
             }
-            CandidateSourceRecognition::InvalidIdentifier => scan.mark_incomplete(),
-            CandidateSourceRecognition::NotCandidate => {}
+        };
+
+        for entry in entries {
+            if entry.kind != WalkEntryKind::File {
+                continue;
+            }
+
+            match recognize_candidate_source(
+                db.file_system(),
+                &package_dir,
+                entry.path,
+                &[],
+                TemplateTagDiscoveryMode::ActivePackage,
+                Some(package_module),
+            ) {
+                CandidateSourceRecognition::Candidate(source) => {
+                    scan.candidates
+                        .push(TemplateTagCandidate::from_source(db, source));
+                }
+                CandidateSourceRecognition::InvalidIdentifier => scan.mark_incomplete(),
+                CandidateSourceRecognition::NotCandidate => {}
+            }
         }
     }
 

@@ -58,6 +58,7 @@ pub use tags::extract_tag_rules;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonModuleName;
+use crate::python::resolve_package_dirs;
 use crate::python::resolve_prefix;
 
 fn installed_app_package_module(
@@ -66,7 +67,11 @@ fn installed_app_package_module(
     entry: &str,
 ) -> Option<PythonModuleName> {
     let resolved = resolve_prefix(db, project, entry);
-    let module = resolved.module?;
+    let Some(module) = resolved.module else {
+        let name = PythonModuleName::parse(entry).ok()?;
+        let package_dirs = resolve_package_dirs(db, project, name.clone());
+        return (!package_dirs.dirs.is_empty()).then_some(name);
+    };
 
     match resolved.unresolved_tail.len() {
         0 => Some(module.name().clone()),

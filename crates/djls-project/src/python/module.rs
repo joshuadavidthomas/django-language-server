@@ -18,13 +18,6 @@ pub struct PythonModule {
     file: File,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct PythonPackage {
-    name: PythonModuleName,
-    dir: Utf8PathBuf,
-    init_file: Option<File>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolutionDetail {
     pub selected_root: Option<SearchPath>,
@@ -516,51 +509,5 @@ impl fmt::Debug for PythonModule {
             .field("name", &self.name)
             .field("path", &self.path)
             .finish_non_exhaustive()
-    }
-}
-
-impl PythonPackage {
-    fn new(name: PythonModuleName, dir: Utf8PathBuf, init_file: Option<File>) -> Self {
-        Self {
-            name,
-            dir,
-            init_file,
-        }
-    }
-
-    pub(crate) fn name(&self) -> &PythonModuleName {
-        &self.name
-    }
-
-    pub(crate) fn dir(&self) -> &Utf8Path {
-        &self.dir
-    }
-}
-
-#[salsa::tracked]
-impl PythonPackage {
-    #[salsa::tracked]
-    pub(crate) fn resolve(
-        db: &dyn ProjectDb,
-        project: Project,
-        name: PythonModuleName,
-    ) -> Option<Self> {
-        project.touch_search_path_roots(db);
-
-        let relative = name.as_str().replace('.', "/");
-        for search_path in project.search_paths(db).iter() {
-            let dir = search_path.path().join(&relative);
-            if !db.path_is_dir(&dir) {
-                continue;
-            }
-
-            let init_path = dir.join("__init__.py");
-            let init_file = db
-                .path_is_file(&init_path)
-                .then(|| db.get_or_create_file(&init_path));
-            return Some(Self::new(name, dir, init_file));
-        }
-
-        None
     }
 }
