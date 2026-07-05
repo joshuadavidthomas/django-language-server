@@ -542,11 +542,30 @@ fn corpus_literal_end_tag() {
     assert_eq!(spec.end_tag.as_deref(), Some("endspaceless"));
 }
 
-// Edge case — dynamic f-string end tag through the full extraction path.
-// Ensures ambiguous closers remain unknown instead of being re-synthesized from
-// the registered tag name.
+// Edge case — genuinely unknowable dynamic f-string end tag through the full
+// extraction path. Ensures ambiguous closers remain unknown instead of being
+// re-synthesized from the registered tag name.
 #[test]
 fn ambiguous_closer_stays_unknown_after_extraction() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+@register.tag("mystery")
+def do_block(parser, token):
+    options = {"name": "mystery"}
+    nodelist = parser.parse((f"end{options['name']}",))
+    parser.delete_first_token()
+    return BlockNode(nodelist)
+"#;
+    let result = extract_source(source, "app.templatetags.custom");
+    let key = SymbolKey::tag("app.templatetags.custom", "mystery");
+    let spec = &result.block_specs.as_map()[&key];
+    assert!(spec.end_tag.is_none());
+}
+
+#[test]
+fn self_named_dynamic_closer_concretizes_per_registration_name() {
     let source = r#"
 from django import template
 register = template.Library()
@@ -561,7 +580,7 @@ def do_block(parser, token):
     let result = extract_source(source, "app.templatetags.custom");
     let key = SymbolKey::tag("app.templatetags.custom", "mystery");
     let spec = &result.block_specs.as_map()[&key];
-    assert!(spec.end_tag.is_none());
+    assert_eq!(spec.end_tag.as_deref(), Some("endmystery"));
 }
 
 // Corpus: `do_block` in loader_tags.py — simple block tag with endblock.

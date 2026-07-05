@@ -229,19 +229,7 @@ fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
     collect_errors(db, "test.html", source)
 }
 
-fn extracted_unknown_block_db() -> TestDatabase {
-    let source = r#"
-from django import template
-
-register = template.Library()
-
-@register.tag("mystery")
-def do_mystery(parser, token):
-    tag_name = token.split_contents()[0]
-    nodelist = parser.parse((f"end{tag_name}",))
-    return MysteryNode(nodelist)
-"#;
-
+fn extracted_block_db(source: &str) -> TestDatabase {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
@@ -257,6 +245,38 @@ def do_mystery(parser, token):
     db = db.with_template_libraries(libraries);
     let specs = compute_tag_specs(&db, project).clone();
     db.with_specs(specs)
+}
+
+fn extracted_unknown_block_db() -> TestDatabase {
+    let source = r#"
+from django import template
+
+register = template.Library()
+
+@register.tag("mystery")
+def do_mystery(parser, token):
+    options = {"name": "mystery"}
+    nodelist = parser.parse((f"end{options['name']}",))
+    return MysteryNode(nodelist)
+"#;
+
+    extracted_block_db(source)
+}
+
+fn extracted_self_named_block_db() -> TestDatabase {
+    let source = r#"
+from django import template
+
+register = template.Library()
+
+@register.tag("mystery")
+def do_mystery(parser, token):
+    tag_name, *rest = token.split_contents()
+    nodelist = parser.parse((f"end{tag_name}",))
+    return MysteryNode(nodelist)
+"#;
+
+    extracted_block_db(source)
 }
 
 #[test]
@@ -282,6 +302,28 @@ fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
             ValidationError::UnbalancedStructure { opening_tag, .. } if opening_tag == "mystery"
         )),
         "extracted dynamic block tags should not require a synthesized closer: {errors:?}"
+    );
+}
+
+#[test]
+fn extracted_self_named_block_requires_concretized_end_tag() {
+    let db = extracted_self_named_block_db();
+    assert_eq!(
+        db.tag_specs()
+            .get("mystery")
+            .and_then(|spec| spec.end_tag.as_ref())
+            .map(|end_tag| end_tag.name.as_ref()),
+        Some("endmystery")
+    );
+
+    let errors = collect_all_errors(&db, "{% load ambiguous %}\n{% mystery %}\n");
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnclosedTag { tag, .. } if tag == "mystery" && error.code() == "S100"
+        )),
+        "self-named extracted block tags should require their evidenced closer: {errors:?}"
     );
 }
 

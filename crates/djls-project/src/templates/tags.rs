@@ -24,6 +24,7 @@ use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
 use crate::templates::tags::analysis::extract_return_value;
 use crate::templates::tags::analysis::process_statements;
+use crate::templates::tags::blocks::EndTagEvidence;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::AsVar;
 pub use crate::templates::tags::types::BlockSpec;
@@ -173,7 +174,19 @@ pub fn extract_block_specs(
 
         for_each_registration(body, &registration_module, |reg, func, key| {
             if let Some(block_spec) = reg.kind.extract_block_spec(func) {
-                block_specs.insert(key, block_spec);
+                let end_tag = match block_spec.end_tag {
+                    EndTagEvidence::Literal(end_tag) => Some(end_tag),
+                    EndTagEvidence::SelfNamed => Some(format!("end{}", key.name)),
+                    EndTagEvidence::Unknown => None,
+                };
+                block_specs.insert(
+                    key,
+                    BlockSpec {
+                        end_tag,
+                        intermediates: block_spec.intermediates,
+                        opaque: block_spec.opaque,
+                    },
+                );
             }
         });
 

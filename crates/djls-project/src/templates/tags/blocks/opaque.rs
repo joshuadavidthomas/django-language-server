@@ -9,21 +9,22 @@ use ruff_python_ast::StmtAssign;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::templates::tags::blocks::EndTagEvidence;
+use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
-use crate::templates::tags::types::BlockSpec;
 
 /// Detect opaque block patterns: `parser.skip_past("endtag")`.
-pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<ExtractedBlockSpec> {
     let skip_past_tokens = collect_skip_past_tokens(body, parser_var);
     if skip_past_tokens.is_empty() {
         return None;
     }
     let end_tag = if skip_past_tokens.len() == 1 {
-        Some(skip_past_tokens[0].clone())
+        EndTagEvidence::Literal(skip_past_tokens[0].clone())
     } else {
-        None
+        EndTagEvidence::Unknown
     };
-    Some(BlockSpec {
+    Some(ExtractedBlockSpec {
         end_tag,
         intermediates: Vec::new(),
         opaque: true,

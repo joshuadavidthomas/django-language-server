@@ -9,9 +9,10 @@ use ruff_python_ast::StmtAssign;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::templates::tags::blocks::EndTagEvidence;
+use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::dynamic_end;
 use crate::templates::tags::blocks::is_token_contents_expr;
-use crate::templates::tags::types::BlockSpec;
 
 /// Detect block structure from `parser.next_token()` loop patterns.
 ///
@@ -31,36 +32,41 @@ use crate::templates::tags::types::BlockSpec;
 /// if token.contents.strip() != end_tag_name:
 ///     raise TemplateSyntaxError(...)
 /// ```
-pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+) -> Option<ExtractedBlockSpec> {
     if !has_next_token_loop(body, parser_var) {
         return None;
     }
 
     let token_comparisons = collect_token_content_comparisons(body, token_var);
-    let has_dynamic_end = dynamic_end::has_dynamic_end_tag_format(body);
+    let dynamic_end_tag = dynamic_end::dynamic_end_tag_format_evidence(body, parser_var, token_var);
+    let has_dynamic_end = dynamic_end_tag.is_some();
 
     if token_comparisons.is_empty() && !has_dynamic_end {
         return None;
     }
 
     let mut intermediates = Vec::new();
-    let mut end_tag = None;
+    let mut end_tag = dynamic_end_tag.unwrap_or(EndTagEvidence::Unknown);
 
     for token in &token_comparisons {
         if token.starts_with("end") {
-            end_tag = Some(token.clone());
+            end_tag = EndTagEvidence::Literal(token.clone());
         } else {
             intermediates.push(token.clone());
         }
     }
 
-    if end_tag.is_none() && !has_dynamic_end && intermediates.is_empty() {
+    if matches!(end_tag, EndTagEvidence::Unknown) && !has_dynamic_end && intermediates.is_empty() {
         return None;
     }
 
     intermediates.sort();
 
-    Some(BlockSpec {
+    Some(ExtractedBlockSpec {
         end_tag,
         intermediates,
         opaque: false,
