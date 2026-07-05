@@ -126,6 +126,8 @@ celerybeat.pid
 # Environments
 .env
 .venv
+!crates/djls-testing/fixtures/**/.venv
+!crates/djls-testing/fixtures/**/.venv/**
 env/
 venv/
 ENV/

@@ -297,3 +297,18 @@ django_settings_modules = [
   "site1.settings.dev",
   "site2.settings.dev",
 ]
+
+[[fixture]]
+name = "src-layout"
+path = "fixtures/django-projects/src-layout"
+django_settings_module = "config.settings"
+
+[[fixture]]
+name = "editable-pth"
+path = "fixtures/django-projects/editable-pth"
+django_settings_module = "settings"
+
+[[fixture]]
+name = "namespace-apps"
+path = "fixtures/django-projects/namespace-apps"
+django_settings_module = "settings"

@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
+use djls_source::Utf8PathClean;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
@@ -189,7 +190,7 @@ impl SearchPaths {
                 let path = if path.is_absolute() {
                     path.to_path_buf()
                 } else {
-                    site_packages.join(path)
+                    site_packages.join(path).clean()
                 };
                 if fs.is_dir(&path) && !self.contains_path(&path) {
                     self.paths.push(SearchPath::Editable(path));
