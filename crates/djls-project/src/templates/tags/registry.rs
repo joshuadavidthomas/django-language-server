@@ -8,7 +8,6 @@ use crate::templates::tags::analysis;
 use crate::templates::tags::blocks;
 use crate::templates::tags::signature;
 use crate::templates::tags::types::AsVar;
-use crate::templates::tags::types::BlockSpec;
 use crate::templates::tags::types::TagRule;
 
 impl RegistrationKind {
@@ -52,7 +51,10 @@ impl RegistrationKind {
         }
     }
 
-    pub(crate) fn extract_block_spec(self, func: &StmtFunctionDef) -> Option<BlockSpec> {
+    pub(crate) fn extract_block_spec(
+        self,
+        func: &StmtFunctionDef,
+    ) -> Option<blocks::ExtractedBlockSpec> {
         match self {
             Self::Filter => None,
             Self::Tag | Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {

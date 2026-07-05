@@ -9,7 +9,41 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
-use crate::templates::tags::types::BlockSpec;
+use crate::templates::tags::analysis::AbstractValue;
+use crate::templates::tags::types::SplitPosition;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EndTagEvidence {
+    Literal(String),
+    SelfNamed,
+    Unknown,
+}
+
+impl EndTagEvidence {
+    #[cfg(test)]
+    fn as_literal(&self) -> Option<&str> {
+        match self {
+            Self::Literal(end_tag) => Some(end_tag.as_str()),
+            Self::SelfNamed | Self::Unknown => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExtractedBlockSpec {
+    pub(crate) end_tag: EndTagEvidence,
+    pub(crate) intermediates: Vec<String>,
+    pub(crate) opaque: bool,
+}
+
+pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
+    matches!(
+        value,
+        AbstractValue::SplitElement {
+            index: SplitPosition::Forward(0)
+        }
+    )
+}
 
 /// Extract a block spec from a tag's compile function.
 ///
@@ -22,7 +56,7 @@ use crate::templates::tags::types::BlockSpec;
 ///
 /// Returns `None` when no block structure is detected or inference is ambiguous.
 #[must_use]
-pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
+pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
     let parser_var = func
         .parameters
         .args
@@ -46,7 +80,7 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     }
 
     // Try dynamic end-tag patterns: parser.parse((f"end{tag_name}",))
-    if let Some(spec) = dynamic_end::detect(&func.body, &parser_var) {
+    if let Some(spec) = dynamic_end::detect(&func.body, &parser_var, &token_var) {
         return Some(spec);
     }
 
@@ -149,7 +183,7 @@ mod tests {
     fn simple_end_tag_single_parse() {
         let func = django_function("django/template/defaulttags.py", "verbatim").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endverbatim"));
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);
     }
@@ -159,7 +193,7 @@ mod tests {
     fn if_else_intermediates() {
         let func = django_function("django/template/defaulttags.py", "do_if").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endif"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
         assert!(spec.intermediates.contains(&"else".to_string()));
         assert!(!spec.opaque);
@@ -170,7 +204,7 @@ mod tests {
     fn opaque_block_skip_past() {
         let func = django_function("django/template/defaulttags.py", "comment").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endcomment"));
         assert!(spec.intermediates.is_empty());
         assert!(spec.opaque);
     }
@@ -187,7 +221,7 @@ def do_repeat(parser, token):
 "#;
         let func = parse_function(source);
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("done"));
+        assert_eq!(spec.end_tag.as_literal(), Some("done"));
         assert!(spec.intermediates.is_empty());
     }
 
@@ -221,7 +255,7 @@ def do_block(parser, token):
 "#;
         let func = parse_function(source);
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert!(spec.end_tag.is_none());
+        assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);
     }
@@ -232,7 +266,7 @@ def do_block(parser, token):
     fn multiple_parse_calls_classify_correctly() {
         let func = django_function("django/template/defaulttags.py", "do_for").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
         assert!(!spec.opaque);
     }
@@ -257,13 +291,12 @@ def do_block(self, token):
 "#;
         let func = parse_function(source);
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
     }
 
-    // Fabricated: tests convention tie-breaker when a single parse() call has
-    // both "end*" and non-"end*" tokens with no control flow. Real Django
-    // functions always have multiple parse calls or control flow that the
-    // classifier uses — this tests the fallback convention path.
+    // Fabricated: a single parse() call with both "end*" and non-"end*"
+    // tokens has no control-flow evidence. Convention alone is not evidence,
+    // so ambiguous single-call multi-token shapes are conservatively skipped.
     #[test]
     fn convention_tiebreaker_single_call_multi_token() {
         let source = r#"
@@ -272,9 +305,7 @@ def do_if(parser, token):
     return IfNode(nodelist)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endif"));
-        assert_eq!(spec.intermediates, vec!["else".to_string()]);
+        assert!(extract_block_spec(&func).is_none());
     }
 
     // Corpus: do_block in loader_tags.py — parse(("endblock",)) with next_token
@@ -283,7 +314,7 @@ def do_if(parser, token):
     fn simple_block_with_endblock_validation() {
         let func = django_function("django/template/loader_tags.py", "do_block").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);
     }
@@ -294,7 +325,7 @@ def do_if(parser, token):
     fn sequential_parse_then_check() {
         let func = django_function("django/template/defaulttags.py", "spaceless").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endspaceless"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endspaceless"));
         assert!(spec.intermediates.is_empty());
     }
 
@@ -304,7 +335,7 @@ def do_if(parser, token):
     fn next_token_loop_blocktrans_pattern() {
         let func = django_function("django/templatetags/i18n.py", "do_block_translate").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert!(spec.end_tag.is_none());
+        assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert_eq!(spec.intermediates, vec!["plural".to_string()]);
         assert!(!spec.opaque);
     }
@@ -329,7 +360,7 @@ def do_custom_block(parser, token):
 "#;
         let func = parse_function(source);
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endcustom"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endcustom"));
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);
     }
@@ -362,7 +393,7 @@ def do_custom(parser, token):
 "#;
         let func = parse_function(source);
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endcustom"));
+        assert_eq!(spec.end_tag.as_literal(), Some("endcustom"));
         assert_eq!(spec.intermediates, vec!["middle".to_string()]);
     }
 

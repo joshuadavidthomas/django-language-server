@@ -45,13 +45,16 @@ impl TagSpecs {
                 continue;
             }
             if let Some(spec) = self.0.get_mut(&key.name) {
-                // Override end_tag from extraction
-                if let Some(end_tag_name) = &block_spec.end_tag {
-                    spec.end_tag = Some(EndTag {
-                        name: end_tag_name.clone().into(),
-                        required: true,
-                    });
-                }
+                // An unknown closer is insufficient evidence to modify an
+                // existing spec.
+                let Some(end_tag_name) = &block_spec.end_tag else {
+                    continue;
+                };
+
+                spec.end_tag = Some(EndTag {
+                    name: end_tag_name.clone().into(),
+                    required: true,
+                });
                 // Override intermediates from extraction
                 spec.intermediate_tags = if block_spec.intermediates.is_empty() {
                     std::borrow::Cow::Borrowed(&[])
@@ -821,6 +824,65 @@ mod tests {
                 .iter()
                 .any(|t| t.name.as_ref() == "elseif")
         );
+    }
+
+    #[test]
+    fn test_merge_block_specs_unknown_end_tag_preserves_existing_spec() {
+        let mut spec_map = FxHashMap::default();
+        spec_map.insert(
+            "guarded".to_string(),
+            TagSpec {
+                module: "django.template.defaulttags".into(),
+                end_tag: Some(EndTag {
+                    name: "endguarded".into(),
+                    required: true,
+                }),
+                intermediate_tags: Cow::Owned(vec![IntermediateTag {
+                    name: "middle".into(),
+                }]),
+                opaque: true,
+                role: None,
+                extracted_rules: None,
+            },
+        );
+        let mut specs = TagSpecs::new(spec_map);
+        let original = specs.get("guarded").unwrap().clone();
+
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
+            djls_project::SymbolKey::tag("django.template.defaulttags", "guarded"),
+            BlockSpec {
+                end_tag: None,
+                intermediates: vec![],
+                opaque: false,
+            },
+        );
+
+        specs.merge_block_specs(&block_specs);
+
+        assert_eq!(specs.get("guarded").unwrap(), &original);
+    }
+
+    #[test]
+    fn test_merge_block_specs_unknown_end_tag_inserts_new_spec_without_end_tag() {
+        let mut specs = create_test_specs();
+        let original_count = specs.len();
+
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
+            djls_project::SymbolKey::tag("myapp.templatetags.custom", "unknownblock"),
+            BlockSpec {
+                end_tag: None,
+                intermediates: vec![],
+                opaque: false,
+            },
+        );
+
+        specs.merge_block_specs(&block_specs);
+
+        assert_eq!(specs.len(), original_count + 1);
+        let unknownblock = specs.get("unknownblock").unwrap();
+        assert_eq!(unknownblock.end_tag, None);
     }
 
     #[test]

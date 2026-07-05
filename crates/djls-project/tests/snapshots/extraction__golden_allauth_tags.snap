@@ -1,0 +1,11 @@
+---
+source: crates/djls-project/tests/extraction.rs
+expression: sorted_snapshot(&result)
+---
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "allauth.templatetags.allauth::tag::element":
+    end_tag: endelement
+    intermediates: []
+    opaque: false

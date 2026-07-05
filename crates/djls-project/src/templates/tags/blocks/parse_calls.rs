@@ -10,17 +10,22 @@ use ruff_python_ast::StmtIf;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::templates::tags::blocks::EndTagEvidence;
+use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::extract_string_sequence;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_token_contents_expr;
-use crate::templates::tags::types::BlockSpec;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.
 ///
 /// Collects all stop-tokens from parse calls, then classifies them as intermediates
 /// or end-tags based on whether they lead to further parse calls (intermediate) or
 /// return/construction (end-tag).
-pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+) -> Option<ExtractedBlockSpec> {
     let parse_calls = collect_parser_parse_calls(body, parser_var);
 
     if parse_calls.is_empty() {
@@ -102,7 +107,7 @@ fn classify_stop_tokens(
     parser_var: &str,
     token_var: &str,
     parse_calls: &[ParseCallInfo],
-) -> Option<BlockSpec> {
+) -> Option<ExtractedBlockSpec> {
     let mut all_tokens: Vec<String> = Vec::new();
     for call in parse_calls {
         for token in &call.stop_tokens {
@@ -152,16 +157,7 @@ fn classify_stop_tokens(
             if tokens.len() == 1 {
                 end_tags.push(tokens[0].clone());
             } else {
-                for token in tokens {
-                    if token.starts_with("end") {
-                        end_tags.push(token.clone());
-                    } else {
-                        intermediates.push(token.clone());
-                    }
-                }
-                if end_tags.is_empty() {
-                    return None;
-                }
+                return None;
             }
         }
     }
@@ -173,13 +169,13 @@ fn classify_stop_tokens(
     }
 
     let end_tag = match end_tags.len() {
-        1 => Some(end_tags[0].clone()),
-        _ => None,
+        1 => EndTagEvidence::Literal(end_tags[0].clone()),
+        _ => EndTagEvidence::Unknown,
     };
 
     intermediates.sort();
 
-    Some(BlockSpec {
+    Some(ExtractedBlockSpec {
         end_tag,
         intermediates,
         opaque: false,

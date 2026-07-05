@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: sorted_snapshot(&bundle)
 ---
 tag_rules:
   "django.templatetags.i18n::tag::blocktrans":

@@ -15,37 +15,81 @@ use ruff_python_ast::StmtReturn;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::Env;
+use crate::templates::tags::analysis::expressions::eval_expr;
+use crate::templates::tags::analysis::process_statements;
+use crate::templates::tags::blocks::EndTagEvidence;
+use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
-use crate::templates::tags::types::BlockSpec;
+use crate::templates::tags::blocks::is_tag_name_value;
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.
 ///
-/// Returns a `BlockSpec` with `end_tag: None` (dynamic, not statically known)
-/// when the function uses f-string or format-string patterns for the end tag.
-pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
-    if !has_dynamic_end_in_body(body, parser_var) {
-        return None;
-    }
-    Some(BlockSpec {
-        end_tag: None,
+/// Returns `SelfNamed` only when the dynamic expression is evidenced as the
+/// compile function's own tag name. Other dynamic end-tag expressions remain
+/// `Unknown` so callers don't synthesize a closer from convention alone.
+pub(super) fn detect(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+) -> Option<ExtractedBlockSpec> {
+    let env = analyze_env(body, parser_var, token_var);
+    let assignments = collect_simple_assignments(body);
+    let end_tag = find_dynamic_end_parse_call(body, parser_var, &assignments, &env)?;
+    Some(ExtractedBlockSpec {
+        end_tag,
         intermediates: Vec::new(),
         opaque: false,
     })
 }
 
-fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
-    let mut found = false;
+fn analyze_env(body: &[Stmt], parser_var: &str, token_var: &str) -> Env {
+    let mut env = Env::for_compile_function(parser_var, token_var);
+    let mut ctx = CallContext {
+        db: None,
+        file: None,
+    };
+    let _result = process_statements(body, &mut env, &mut ctx);
+    env
+}
+
+fn collect_simple_assignments(body: &[Stmt]) -> Vec<(String, &Expr)> {
+    let mut assignments = Vec::new();
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
-        let has_dynamic_end = match stmt {
-            Stmt::Expr(expr_stmt) => is_dynamic_end_parse_call(&expr_stmt.value, parser_var),
-            Stmt::Assign(StmtAssign { value, .. }) => is_dynamic_end_parse_call(value, parser_var),
+        if let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt
+            && targets.len() == 1
+            && let Some(name) = targets[0].name_target()
+        {
+            assignments.push((name.to_string(), value.as_ref()));
+        }
+        ControlFlow::Continue(())
+    });
+    assignments
+}
+
+fn find_dynamic_end_parse_call(
+    body: &[Stmt],
+    parser_var: &str,
+    assignments: &[(String, &Expr)],
+    env: &Env,
+) -> Option<EndTagEvidence> {
+    let mut found = None;
+    walk_stmts(body, Recurse::ControlFlow, |stmt| {
+        let evidence = match stmt {
+            Stmt::Expr(expr_stmt) => {
+                dynamic_end_parse_call_evidence(&expr_stmt.value, parser_var, assignments, env)
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                dynamic_end_parse_call_evidence(value, parser_var, assignments, env)
+            }
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
-            }) => is_dynamic_end_parse_call(val, parser_var),
-            _ => false,
+            }) => dynamic_end_parse_call_evidence(val, parser_var, assignments, env),
+            _ => None,
         };
-        if has_dynamic_end {
-            found = true;
+        if let Some(evidence) = evidence {
+            found = Some(evidence);
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -54,97 +98,88 @@ fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
     found
 }
 
-/// Check if an expression is `parser.parse((f"end{...}",))`.
-fn is_dynamic_end_parse_call(expr: &Expr, parser_var: &str) -> bool {
+/// Check if an expression is `parser.parse((f"end{...}",))` or uses one
+/// intermediate variable assigned from that dynamic expression.
+fn dynamic_end_parse_call_evidence(
+    expr: &Expr,
+    parser_var: &str,
+    assignments: &[(String, &Expr)],
+    env: &Env,
+) -> Option<EndTagEvidence> {
     let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
     else {
-        return false;
+        return None;
     };
     let Expr::Attribute(ExprAttribute {
         attr, value: obj, ..
     }) = func.as_ref()
     else {
-        return false;
+        return None;
     };
     if attr.as_str() != "parse" {
-        return false;
+        return None;
     }
     if !is_parser_receiver(obj, parser_var) {
-        return false;
+        return None;
     }
     if arguments.args.is_empty() {
-        return false;
+        return None;
     }
 
-    // Check if the argument is a tuple/list containing an f-string with "end" prefix
     let seq = &arguments.args[0];
     let elements = match seq {
         Expr::Tuple(t) => &t.elts,
         Expr::List(l) => &l.elts,
-        _ => return false,
+        _ => return None,
     };
 
     for elt in elements {
-        if is_end_fstring(elt) {
-            return true;
+        if let Some(evidence) = dynamic_end_expr_evidence(elt, assignments, env) {
+            return Some(evidence);
         }
     }
-    false
+    None
 }
 
-/// Check if an expression is an f-string starting with "end".
-fn is_end_fstring(expr: &Expr) -> bool {
-    let Expr::FString(ExprFString { value, .. }) = expr else {
-        return false;
-    };
-
-    for part in value {
-        match part {
-            FStringPart::FString(fstr) => {
-                let Some(first) = fstr.elements.first() else {
-                    continue;
-                };
-
-                let has_end_prefix = matches!(
-                    first,
-                    InterpolatedStringElement::Literal(lit) if lit.value.starts_with("end")
-                );
-                if !has_end_prefix {
-                    continue;
-                }
-
-                let has_interpolation = fstr
-                    .elements
-                    .iter()
-                    .any(|e| matches!(e, InterpolatedStringElement::Interpolation(_)));
-
-                if has_interpolation {
-                    return true;
-                }
-            }
-            FStringPart::Literal(_) => {}
+fn dynamic_end_expr_evidence(
+    expr: &Expr,
+    assignments: &[(String, &Expr)],
+    env: &Env,
+) -> Option<EndTagEvidence> {
+    direct_dynamic_end_expr_evidence(expr, env).or_else(|| {
+        let name = expr.name_target()?;
+        let (_, value) = assignments
+            .iter()
+            .rev()
+            .find(|(assigned, _)| assigned == name)?;
+        match direct_dynamic_end_expr_evidence(value, env) {
+            Some(EndTagEvidence::SelfNamed) => Some(EndTagEvidence::SelfNamed),
+            Some(EndTagEvidence::Literal(_) | EndTagEvidence::Unknown) | None => None,
         }
-    }
-
-    false
+    })
 }
 
-/// Check for dynamic end-tag format strings: `"end%s" % bits[0]` or `f"end{bits[0]}"`.
-pub(super) fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
-    let mut found = false;
+/// Check for dynamic end-tag format strings in a `next_token()` function body.
+pub(super) fn dynamic_end_tag_format_evidence(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+) -> Option<EndTagEvidence> {
+    let env = analyze_env(body, parser_var, token_var);
+    let mut found = None;
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
-        let has_dynamic_end = match stmt {
-            Stmt::Expr(expr_stmt) => is_end_format_expr(&expr_stmt.value),
-            Stmt::Assign(StmtAssign { value, .. }) => is_end_format_expr(value),
+        let evidence = match stmt {
+            Stmt::Expr(expr_stmt) => direct_dynamic_end_expr_evidence(&expr_stmt.value, &env),
+            Stmt::Assign(StmtAssign { value, .. }) => direct_dynamic_end_expr_evidence(value, &env),
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
-            }) => is_end_format_expr(val),
-            _ => false,
+            }) => direct_dynamic_end_expr_evidence(val, &env),
+            _ => None,
         };
-        if has_dynamic_end {
-            found = true;
+        if let Some(evidence) = evidence {
+            found = Some(evidence);
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -153,23 +188,78 @@ pub(super) fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
     found
 }
 
-/// Check if an expression is `"end%s" % something` or similar end-tag format.
-fn is_end_format_expr(expr: &Expr) -> bool {
-    // `"end%s" % bits[0]`
-    if let Expr::BinOp(ExprBinOp {
+fn direct_dynamic_end_expr_evidence(expr: &Expr, env: &Env) -> Option<EndTagEvidence> {
+    percent_format_evidence(expr, env).or_else(|| fstring_evidence(expr, env))
+}
+
+fn percent_format_evidence(expr: &Expr, env: &Env) -> Option<EndTagEvidence> {
+    let Expr::BinOp(ExprBinOp {
         left,
         op: Operator::Mod,
+        right,
         ..
     }) = expr
-        && let Some(s) = left.string_literal()
-        && s.starts_with("end")
-        && s.contains('%')
+    else {
+        return None;
+    };
+    let format = left.string_literal()?;
+    if !format.starts_with("end") || !format.contains('%') {
+        return None;
+    }
+    if format == "end%s" && expr_resolves_to_tag_name(right, env) {
+        Some(EndTagEvidence::SelfNamed)
+    } else {
+        Some(EndTagEvidence::Unknown)
+    }
+}
+
+fn fstring_evidence(expr: &Expr, env: &Env) -> Option<EndTagEvidence> {
+    let Expr::FString(ExprFString { value, .. }) = expr else {
+        return None;
+    };
+
+    if let Some(interpolation) = exact_end_fstring_interpolation(expr)
+        && expr_resolves_to_tag_name(interpolation, env)
     {
-        return true;
+        return Some(EndTagEvidence::SelfNamed);
     }
-    // f"end{...}" patterns
-    if is_end_fstring(expr) {
-        return true;
-    }
-    false
+
+    let has_dynamic_end_prefix = value.iter().any(|part| {
+        let FStringPart::FString(fstr) = part else {
+            return false;
+        };
+        let starts_with_end = matches!(
+            fstr.elements.first(),
+            Some(InterpolatedStringElement::Literal(lit)) if lit.value.starts_with("end")
+        );
+        starts_with_end
+            && fstr
+                .elements
+                .iter()
+                .any(|element| matches!(element, InterpolatedStringElement::Interpolation(_)))
+    });
+
+    has_dynamic_end_prefix.then_some(EndTagEvidence::Unknown)
+}
+
+fn exact_end_fstring_interpolation(expr: &Expr) -> Option<&Expr> {
+    let Expr::FString(ExprFString { value, .. }) = expr else {
+        return None;
+    };
+    let [FStringPart::FString(fstr)] = value.as_slice() else {
+        return None;
+    };
+    let [
+        InterpolatedStringElement::Literal(prefix),
+        InterpolatedStringElement::Interpolation(interpolation),
+    ] = &*fstr.elements
+    else {
+        return None;
+    };
+    (prefix.value.as_ref() == "end").then_some(interpolation.expression.as_ref())
+}
+
+fn expr_resolves_to_tag_name(expr: &Expr, env: &Env) -> bool {
+    let mut env = env.clone();
+    is_tag_name_value(&eval_expr(expr, &mut env))
 }
